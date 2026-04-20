@@ -18,6 +18,10 @@ Single source of truth for all configuration defaults and validation.
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
+from pixelle_video.config.prompt_prefix_library import (
+    build_builtin_prompt_prefix_library_dict,
+)
+
 
 class LLMConfig(BaseModel):
     """LLM configuration"""
@@ -50,6 +54,27 @@ class TTSSubConfig(BaseModel):
         return self.comfyui.default_workflow
 
 
+class PromptPrefixItemConfig(BaseModel):
+    """Single prompt prefix library item."""
+
+    id: str
+    name: str
+    content: str
+    style_category_id: str
+    scene_category_id: str
+    source: Literal["builtin", "manual", "llm"] = Field(default="manual")
+    is_builtin: bool = Field(default=False)
+    note: str = Field(default="")
+    created_at: Optional[str] = Field(default=None)
+
+
+class PromptPrefixLibraryConfig(BaseModel):
+    """Image prompt prefix library configuration."""
+
+    active_prefix_id: Optional[str] = Field(default=None)
+    items: list[PromptPrefixItemConfig] = Field(default_factory=list)
+
+
 class ImageSubConfig(BaseModel):
     """Image-specific configuration (under comfyui.image)"""
     default_workflow: Optional[str] = Field(
@@ -59,6 +84,12 @@ class ImageSubConfig(BaseModel):
     prompt_prefix: str = Field(
         default="Minimalist black-and-white matchstick figure style illustration, clean lines, simple sketch style",
         description="Prompt prefix for all image generation"
+    )
+    prompt_prefix_library: PromptPrefixLibraryConfig = Field(
+        default_factory=lambda: PromptPrefixLibraryConfig.model_validate(
+            build_builtin_prompt_prefix_library_dict()
+        ),
+        description="Reusable image prompt prefix presets",
     )
 
 

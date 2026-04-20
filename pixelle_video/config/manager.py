@@ -139,12 +139,27 @@ class ConfigManager:
             "image": {
                 "default_workflow": self.config.comfyui.image.default_workflow,
                 "prompt_prefix": self.config.comfyui.image.prompt_prefix,
+                "prompt_prefix_library": self.config.comfyui.image.prompt_prefix_library.model_dump(),
             },
             "video": {
                 "default_workflow": self.config.comfyui.video.default_workflow,
                 "prompt_prefix": self.config.comfyui.video.prompt_prefix,
             }
         }
+
+    def get_image_prompt_prefix_library(self) -> dict:
+        """Get image prompt prefix library as dict."""
+        return self.config.comfyui.image.prompt_prefix_library.model_dump()
+
+    def set_image_prompt_prefix_library(self, library: dict):
+        """Replace image prompt prefix library configuration."""
+        self.update({"comfyui": {"image": {"prompt_prefix_library": library}}})
+
+    def set_active_image_prompt_prefix(self, prefix_id: Optional[str]):
+        """Set the active image prompt prefix id."""
+        library = self.get_image_prompt_prefix_library()
+        library["active_prefix_id"] = prefix_id
+        self.set_image_prompt_prefix_library(library)
     
     def set_comfyui_config(
         self, 
