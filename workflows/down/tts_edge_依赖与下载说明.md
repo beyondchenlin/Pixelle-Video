@@ -56,6 +56,9 @@
   - `torch`
   - `googletrans-py>=3.0.0`
   - `deep-translator>=1.11.4`
+- 截至 `2026-04-20`，当前本机 ComfyUI 环境实测为 `torch==2.10.0+cu130`、`torchaudio==2.10.0+cu130`。
+- 根据 TorchCodec 官方兼容表，`torch 2.10.x` 应对应 `torchcodec 0.10.x`；`torchcodec 0.9.x` 对应的是 `torch 2.9.x`，不能直接照搬到当前环境。
+- Windows 下若只安装了可执行版 `ffmpeg.exe`，但缺少 `shared` DLL，`torchaudio.load` / `torchcodec` 仍可能无法解码 MP3，表现为工作流成功产出文件，但最终文件无声音。
 - `ComfyUI-Easy-Use` 当前 `requirements.txt` 包含多个常用依赖，例如：
   - `diffusers`
   - `accelerate`
@@ -87,8 +90,9 @@ git clone https://github.com/1038lab/ComfyUI-EdgeTTS.git
 & 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install -r 'E:\comfyui\comfyui\custom_nodes\ComfyUI-Easy-Use\requirements.txt'
 & 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install -r 'E:\comfyui\comfyui\custom_nodes\ComfyUI-EdgeTTS\requirements.txt'
 
+& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -c "import torch, torchaudio; print(torch.__version__); print(torchaudio.__version__)"
 & 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip uninstall -y torchcodec
-& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install --no-cache-dir "torchcodec==0.9"
+& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install --no-cache-dir "torchcodec==0.10.0"
 ```
 
 ### 6.2 Git 不可用时的备用安装方式
@@ -105,6 +109,7 @@ git clone https://github.com/1038lab/ComfyUI-EdgeTTS.git
 - `ComfyUI-EdgeTTS` 上游说明中提到 `FFmpeg` 用于 `Whisper STT` 相关能力。
 - 当前 `tts_edge.json` 只使用 TTS，不直接使用 Whisper STT，因此 `FFmpeg` 不是本工作流的硬性前置条件。
 - 如果未来改用同一插件内的 STT 节点，再补充 `FFmpeg` 的安装和 PATH 配置说明。
+- 但在 `torch/torchaudio 2.9+` 环境下，`torchaudio.load` 依赖 `torchcodec`；如果 Windows 环境缺少 FFmpeg 的 `shared` DLL，TTS 虽然能从 Edge 服务取回 MP3，节点仍可能在解码阶段失败并返回静音音频。
 
 ## 8. 安装完成后的验证命令
 
@@ -160,6 +165,19 @@ ForEach-Object {
 - 处理：
   - 以 ComfyUI 启动日志中的 `** Python executable:` 为准。
   - 确认所有 `pip install` 命令都使用了同一个 Python 路径。
+
+### 9.5 生成了 MP3 文件，但播放没有声音
+
+- 现象：`EdgeTTS` 节点和 `Save Audio (MP3)` 节点都执行成功，输出目录里也有 MP3 文件，但播放器中是静音。
+- 根因排查结论（本机于 `2026-04-20` 实测）：
+  - `ComfyUI-EdgeTTS` 会先向 Microsoft Edge TTS 服务请求音频，再用 `torchaudio.load` 把临时 MP3 转成 ComfyUI `AUDIO`。
+  - 当前环境为 `torch==2.10.0+cu130`、`torchaudio==2.10.0+cu130`，若仍安装 `torchcodec 0.9.x`，或 Windows 缺少 FFmpeg `shared` DLL，`torchaudio.load` 会失败。
+  - 该节点上游版本在失败时会返回一段全零波形，因此工作流表面上“成功”，但保存出来的是静音文件。
+- 处理：
+  - 先执行版本确认：`& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -c "import torch, torchaudio; print(torch.__version__); print(torchaudio.__version__)"`
+  - 若为 `2.10.x`，重新安装 `torchcodec 0.10.x`，不要继续使用 `0.9.x`。
+  - 若 `ffmpeg -version` 正常，但仍报 `Could not load libtorchcodec_core*.dll`，说明当前 FFmpeg 很可能不是 `full-shared` 发行版，仅有 `ffmpeg.exe` 还不够。
+  - 更新依赖后重启 ComfyUI，再重新运行 `tts_edge.json` 验证。
 
 ## 10. 维护要求
 
