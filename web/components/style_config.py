@@ -16,7 +16,6 @@ Style configuration components for web UI (middle column)
 
 import os
 from pathlib import Path
-from uuid import uuid4
 
 import streamlit as st
 from loguru import logger
@@ -40,8 +39,12 @@ from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
 from web.utils.preview_media import load_preview_media
 from web.utils.prompt_prefix_ui import (
+    clear_prompt_prefix_form_item_id,
     create_prompt_prefix_item,
+    delete_prompt_prefix_preview_asset,
     get_localized_prompt_prefix_category_options,
+    get_prompt_prefix_form_item_id,
+    persist_generated_prompt_prefix_preview,
     persist_uploaded_prompt_prefix_preview,
     sanitize_prompt_prefix_preview_selection,
     toggle_prompt_prefix_preview_selection,
@@ -85,12 +88,18 @@ def _upsert_image_prompt_prefix_item(item: dict, set_active: bool = False):
 def _delete_image_prompt_prefix_item(item_id: str):
     """Delete one non-builtin image prompt prefix item."""
     library = config_manager.get_image_prompt_prefix_library()
+    deleted_item = next(
+        (item for item in library.get("items", []) if item.get("id") == item_id),
+        None,
+    )
     library["items"] = [
         item for item in library.get("items", [])
         if item.get("id") != item_id
     ]
     if library.get("active_prefix_id") == item_id:
         library["active_prefix_id"] = None
+    if deleted_item:
+        delete_prompt_prefix_preview_asset(deleted_item.get("preview_asset_path"))
     _save_image_prompt_prefix_library(library)
 
 
@@ -98,6 +107,22 @@ def _set_active_image_prompt_prefix(item_id: str):
     """Set active image prompt prefix id and persist it."""
     config_manager.set_active_image_prompt_prefix(item_id)
     config_manager.save()
+
+
+def _prepare_prompt_prefix_item_for_library_save(
+    item: dict,
+    preview_media_path: str | None = None,
+) -> dict:
+    """Attach a persisted preview asset before saving an item to the library."""
+    prepared_item = dict(item)
+    persisted_preview_asset_path = persist_generated_prompt_prefix_preview(
+        preview_media_path,
+        item["id"],
+        previous_preview_asset_path=item.get("preview_asset_path"),
+    )
+    if persisted_preview_asset_path:
+        prepared_item["preview_asset_path"] = persisted_preview_asset_path
+    return prepared_item
 
 
 def _render_image_prompt_prefix_library_legacy(pixelle_video, workflow_key: str, media_width: int, media_height: int) -> str:
@@ -478,12 +503,15 @@ def _render_image_prompt_prefix_library_legacy(pixelle_video, workflow_key: str,
 
 def _open_prompt_prefix_panel(mode: str, item_id: str | None = None):
     """Open one prompt-prefix side panel mode."""
+    if mode != "manual":
+        clear_prompt_prefix_form_item_id(st.session_state)
     st.session_state["prompt_prefix_panel_mode"] = mode
     st.session_state["prompt_prefix_panel_item_id"] = item_id
 
 
 def _close_prompt_prefix_panel():
     """Close the prompt-prefix side panel."""
+    clear_prompt_prefix_form_item_id(st.session_state)
     st.session_state.pop("prompt_prefix_panel_mode", None)
     st.session_state.pop("prompt_prefix_panel_item_id", None)
     st.session_state.pop("prompt_prefix_delete_confirm_id", None)
@@ -847,7 +875,10 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
 
             elif panel_mode in {"manual", "edit"}:
                 editing_item = panel_item if panel_mode == "edit" else None
-                form_item_id = editing_item["id"] if editing_item else f"manual-{uuid4().hex[:12]}"
+                form_item_id = get_prompt_prefix_form_item_id(
+                    st.session_state,
+                    editing_item["id"] if editing_item else None,
+                )
                 form_suffix = f"{panel_mode}_{form_item_id}"
                 current_cover = live_preview_map.get(form_item_id)
                 if editing_item:
@@ -912,7 +943,11 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                         st.warning(tr("style.prefix_library.validation_required"))
                     else:
                         preview_asset_path = editing_item.get("preview_asset_path") if editing_item else None
-                        uploaded_preview_path = persist_uploaded_prompt_prefix_preview(uploaded_preview, form_item_id)
+                        uploaded_preview_path = persist_uploaded_prompt_prefix_preview(
+                            uploaded_preview,
+                            form_item_id,
+                            previous_preview_asset_path=preview_asset_path,
+                        )
                         if uploaded_preview_path:
                             preview_asset_path = uploaded_preview_path
 
@@ -1043,7 +1078,12 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                                     key=f"add_generated_prefix_{candidate['id']}",
                                     width="stretch",
                                 ):
-                                    _upsert_image_prompt_prefix_item(candidate)
+                                    _upsert_image_prompt_prefix_item(
+                                        _prepare_prompt_prefix_item_for_library_save(
+                                            candidate,
+                                            preview_media_path=candidate_preview_map.get(candidate["id"]),
+                                        )
+                                    )
                                     safe_rerun()
                             with active_col:
                                 if st.button(
@@ -1051,7 +1091,13 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                                     key=f"set_generated_active_prefix_{candidate['id']}",
                                     width="stretch",
                                 ):
-                                    _upsert_image_prompt_prefix_item(candidate, set_active=True)
+                                    _upsert_image_prompt_prefix_item(
+                                        _prepare_prompt_prefix_item_for_library_save(
+                                            candidate,
+                                            preview_media_path=candidate_preview_map.get(candidate["id"]),
+                                        ),
+                                        set_active=True,
+                                    )
                                     safe_rerun()
 
                             generated_in_preview = candidate["id"] in selected_preview_ids
@@ -1136,7 +1182,13 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                         if preview_result["id"] in preview_items_by_id:
                             candidate_item = preview_items_by_id[preview_result["id"]]
                             if preview_result["id"] not in library_items_by_id:
-                                _upsert_image_prompt_prefix_item(candidate_item, set_active=True)
+                                _upsert_image_prompt_prefix_item(
+                                    _prepare_prompt_prefix_item_for_library_save(
+                                        candidate_item,
+                                        preview_media_path=preview_result.get("preview_media_path"),
+                                    ),
+                                    set_active=True,
+                                )
                             else:
                                 _set_active_image_prompt_prefix(preview_result["id"])
                             safe_rerun()

@@ -1,6 +1,11 @@
+from web.components import style_config
+from web.utils.preview_media import PreviewMediaData
 from web.utils.prompt_prefix_ui import (
     create_prompt_prefix_item,
+    delete_prompt_prefix_preview_asset,
     get_localized_prompt_prefix_category_options,
+    get_prompt_prefix_form_item_id,
+    persist_generated_prompt_prefix_preview,
     persist_uploaded_prompt_prefix_preview,
     sanitize_prompt_prefix_preview_selection,
     toggle_prompt_prefix_preview_selection,
@@ -70,25 +75,19 @@ class _FakeUpload:
 
 
 def test_persist_uploaded_prompt_prefix_preview_writes_relative_asset(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        "web.utils.prompt_prefix_ui.CUSTOM_PROMPT_PREFIX_PREVIEW_DIR",
-        tmp_path / "prompt_prefix_previews" / "custom",
-    )
+    monkeypatch.setattr("web.utils.prompt_prefix_ui.PROJECT_ROOT", tmp_path)
 
     asset_path = persist_uploaded_prompt_prefix_preview(
         _FakeUpload("story-cover.svg", b"<svg/>"),
         "manual-test",
     )
 
-    assert asset_path == (tmp_path / "prompt_prefix_previews" / "custom" / "manual-test.svg").as_posix()
-    assert Path(asset_path).read_bytes() == b"<svg/>"
+    assert asset_path == "resources/prompt_prefix_previews/custom/manual-test.svg"
+    assert (tmp_path / asset_path).read_bytes() == b"<svg/>"
 
 
 def test_persist_uploaded_prompt_prefix_preview_falls_back_to_png_suffix(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        "web.utils.prompt_prefix_ui.CUSTOM_PROMPT_PREFIX_PREVIEW_DIR",
-        tmp_path / "prompt_prefix_previews" / "custom",
-    )
+    monkeypatch.setattr("web.utils.prompt_prefix_ui.PROJECT_ROOT", tmp_path)
 
     asset_path = persist_uploaded_prompt_prefix_preview(
         _FakeUpload("story-cover.bin", b"png-bytes"),
@@ -96,6 +95,149 @@ def test_persist_uploaded_prompt_prefix_preview_falls_back_to_png_suffix(monkeyp
     )
 
     assert asset_path.endswith(".png")
+
+
+def test_persist_uploaded_prompt_prefix_preview_removes_replaced_custom_asset(monkeypatch, tmp_path):
+    monkeypatch.setattr("web.utils.prompt_prefix_ui.PROJECT_ROOT", tmp_path)
+    old_asset_path = tmp_path / "resources" / "prompt_prefix_previews" / "custom" / "manual-test.png"
+    old_asset_path.parent.mkdir(parents=True, exist_ok=True)
+    old_asset_path.write_bytes(b"old-bytes")
+
+    asset_path = persist_uploaded_prompt_prefix_preview(
+        _FakeUpload("story-cover.svg", b"<svg/>"),
+        "manual-test",
+        previous_preview_asset_path="resources/prompt_prefix_previews/custom/manual-test.png",
+    )
+
+    assert asset_path == "resources/prompt_prefix_previews/custom/manual-test.svg"
+    assert not old_asset_path.exists()
+    assert (tmp_path / asset_path).read_bytes() == b"<svg/>"
+
+
+def test_delete_prompt_prefix_preview_asset_only_removes_custom_assets(monkeypatch, tmp_path):
+    monkeypatch.setattr("web.utils.prompt_prefix_ui.PROJECT_ROOT", tmp_path)
+    custom_asset_path = tmp_path / "resources" / "prompt_prefix_previews" / "custom" / "manual-test.svg"
+    builtin_asset_path = tmp_path / "resources" / "prompt_prefix_previews" / "builtin" / "warm-storybook.svg"
+    custom_asset_path.parent.mkdir(parents=True, exist_ok=True)
+    builtin_asset_path.parent.mkdir(parents=True, exist_ok=True)
+    custom_asset_path.write_bytes(b"custom")
+    builtin_asset_path.write_bytes(b"builtin")
+
+    assert delete_prompt_prefix_preview_asset("resources/prompt_prefix_previews/custom/manual-test.svg") is True
+    assert not custom_asset_path.exists()
+    assert delete_prompt_prefix_preview_asset("resources/prompt_prefix_previews/builtin/warm-storybook.svg") is False
+    assert builtin_asset_path.exists()
+
+
+def test_persist_generated_prompt_prefix_preview_saves_relative_asset(monkeypatch, tmp_path):
+    monkeypatch.setattr("web.utils.prompt_prefix_ui.PROJECT_ROOT", tmp_path)
+
+    def fake_load_preview_media(path, media_type):
+        assert path == "http://127.0.0.1:8000/view?filename=story-cover.webp&type=output"
+        assert media_type == "image"
+        return PreviewMediaData(data=b"preview-bytes")
+
+    monkeypatch.setattr("web.utils.prompt_prefix_ui.load_preview_media", fake_load_preview_media)
+
+    asset_path = persist_generated_prompt_prefix_preview(
+        "http://127.0.0.1:8000/view?filename=story-cover.webp&type=output",
+        "llm-test",
+    )
+
+    assert asset_path == "resources/prompt_prefix_previews/custom/llm-test.webp"
+    assert (tmp_path / asset_path).read_bytes() == b"preview-bytes"
+
+
+def test_get_prompt_prefix_form_item_id_reuses_manual_draft_id():
+    session_state = {}
+
+    first_id = get_prompt_prefix_form_item_id(session_state)
+    second_id = get_prompt_prefix_form_item_id(session_state)
+
+    assert first_id == second_id
+    assert first_id.startswith("manual-")
+
+
+def test_delete_image_prompt_prefix_item_cleans_up_custom_preview_asset(monkeypatch):
+    fake_library = {
+        "active_prefix_id": "manual-test",
+        "items": [
+            {
+                "id": "manual-test",
+                "preview_asset_path": "resources/prompt_prefix_previews/custom/manual-test.png",
+            }
+        ],
+    }
+
+    class _FakeConfigManager:
+        def __init__(self):
+            self.saved_library = fake_library
+            self.save_calls = 0
+
+        def get_image_prompt_prefix_library(self):
+            return {
+                "active_prefix_id": self.saved_library["active_prefix_id"],
+                "items": [dict(item) for item in self.saved_library["items"]],
+            }
+
+        def set_image_prompt_prefix_library(self, library):
+            self.saved_library = library
+
+        def save(self):
+            self.save_calls += 1
+
+    fake_manager = _FakeConfigManager()
+    deleted_assets = []
+
+    monkeypatch.setattr(style_config, "config_manager", fake_manager)
+    monkeypatch.setattr(
+        style_config,
+        "delete_prompt_prefix_preview_asset",
+        lambda asset_path: deleted_assets.append(asset_path) or True,
+    )
+
+    style_config._delete_image_prompt_prefix_item("manual-test")
+
+    assert deleted_assets == ["resources/prompt_prefix_previews/custom/manual-test.png"]
+    assert fake_manager.saved_library["items"] == []
+    assert fake_manager.saved_library["active_prefix_id"] is None
+    assert fake_manager.save_calls == 1
+
+
+def test_prepare_prompt_prefix_item_for_library_save_persists_generated_preview(monkeypatch):
+    candidate = create_prompt_prefix_item(
+        item_id="llm-test",
+        name="AI Candidate",
+        content="soft watercolor illustration",
+        style_category_id="watercolor",
+        scene_category_id="childrens_story",
+        source="llm",
+    )
+    persisted_calls = []
+
+    def fake_persist_generated_prompt_prefix_preview(preview_media_path, item_id, previous_preview_asset_path=None):
+        persisted_calls.append((preview_media_path, item_id, previous_preview_asset_path))
+        return "resources/prompt_prefix_previews/custom/llm-test.png"
+
+    monkeypatch.setattr(
+        style_config,
+        "persist_generated_prompt_prefix_preview",
+        fake_persist_generated_prompt_prefix_preview,
+    )
+
+    prepared_item = style_config._prepare_prompt_prefix_item_for_library_save(
+        candidate,
+        preview_media_path="http://127.0.0.1:8000/view?filename=llm-test.png",
+    )
+
+    assert prepared_item["preview_asset_path"] == "resources/prompt_prefix_previews/custom/llm-test.png"
+    assert persisted_calls == [
+        (
+            "http://127.0.0.1:8000/view?filename=llm-test.png",
+            "llm-test",
+            None,
+        )
+    ]
 
 
 def test_style_config_source_references_prompt_prefix_library_ui():
@@ -106,6 +248,9 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "toggle_prompt_prefix_preview_selection" in source
     assert "build_prompt_prefix_generation_prompt" in source
     assert "get_prompt_prefix_preview_asset" in source
+    assert "get_prompt_prefix_form_item_id" in source
+    assert "persist_generated_prompt_prefix_preview" in source
+    assert "delete_prompt_prefix_preview_asset" in source
     assert "prompt_prefix_panel_mode" in source
     assert "style.prefix_library.toolbar_add" in source
     assert "style.prefix_library.compare_count" in source

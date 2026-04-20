@@ -16,16 +16,21 @@ Pure UI helpers for prompt prefix library interactions.
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, MutableMapping
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from pixelle_video.config.prompt_prefix_library import (
+    PROJECT_ROOT,
     SCENE_CATEGORY_LABELS,
     STYLE_CATEGORY_LABELS,
     get_prompt_prefix_category_label,
 )
+from web.utils.preview_media import load_preview_media
 
-CUSTOM_PROMPT_PREFIX_PREVIEW_DIR = Path("resources/prompt_prefix_previews/custom")
+CUSTOM_PROMPT_PREFIX_PREVIEW_RELATIVE_DIR = Path("resources/prompt_prefix_previews/custom")
 DEFAULT_PROMPT_PREFIX_PREVIEW_SUFFIX = ".png"
+PROMPT_PREFIX_MANUAL_DRAFT_ID_KEY = "prompt_prefix_manual_draft_id"
 
 
 def create_prompt_prefix_item(
@@ -87,16 +92,129 @@ def sanitize_prompt_prefix_preview_selection(selected_ids: list[str], valid_ids:
     return sanitized
 
 
-def persist_uploaded_prompt_prefix_preview(uploaded_file, item_id: str) -> str | None:
+def _get_custom_prompt_prefix_preview_dir() -> Path:
+    return PROJECT_ROOT / CUSTOM_PROMPT_PREFIX_PREVIEW_RELATIVE_DIR
+
+
+def _infer_prompt_prefix_preview_suffix(source_name: str) -> str:
+    candidates = [source_name]
+    if source_name.startswith(("http://", "https://")):
+        parsed = urlparse(source_name)
+        filename = parse_qs(parsed.query).get("filename", [None])[0]
+        if filename:
+            candidates.insert(0, filename)
+        if parsed.path:
+            candidates.append(parsed.path)
+
+    for candidate in candidates:
+        suffix = Path(candidate or "").suffix.lower()
+        if suffix in {".png", ".jpg", ".jpeg", ".webp", ".svg"}:
+            return suffix
+
+    return DEFAULT_PROMPT_PREFIX_PREVIEW_SUFFIX
+
+
+def _resolve_custom_prompt_prefix_preview_path(preview_asset_path: str | None) -> Path | None:
+    normalized_asset_path = (preview_asset_path or "").strip()
+    if not normalized_asset_path:
+        return None
+
+    candidate_path = Path(normalized_asset_path)
+    if candidate_path.is_absolute():
+        return None
+
+    resolved_path = (PROJECT_ROOT / candidate_path).resolve()
+    custom_root = _get_custom_prompt_prefix_preview_dir().resolve()
+    try:
+        resolved_path.relative_to(custom_root)
+    except ValueError:
+        return None
+    return resolved_path
+
+
+def _persist_prompt_prefix_preview_bytes(
+    preview_bytes: bytes,
+    item_id: str,
+    source_name: str,
+    previous_preview_asset_path: str | None = None,
+) -> str:
+    output_dir = _get_custom_prompt_prefix_preview_dir()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    suffix = _infer_prompt_prefix_preview_suffix(source_name)
+    output_path = output_dir / f"{item_id}{suffix}"
+    output_path.write_bytes(preview_bytes)
+
+    relative_output_path = output_path.relative_to(PROJECT_ROOT).as_posix()
+    if previous_preview_asset_path and previous_preview_asset_path != relative_output_path:
+        delete_prompt_prefix_preview_asset(previous_preview_asset_path)
+
+    return relative_output_path
+
+
+def get_prompt_prefix_form_item_id(
+    session_state: MutableMapping[str, Any],
+    editing_item_id: str | None = None,
+) -> str:
+    """Return a stable item id for prompt-prefix forms across Streamlit reruns."""
+    if editing_item_id:
+        return editing_item_id
+
+    draft_id = session_state.get(PROMPT_PREFIX_MANUAL_DRAFT_ID_KEY)
+    if isinstance(draft_id, str) and draft_id.strip():
+        return draft_id
+
+    draft_id = f"manual-{uuid4().hex[:12]}"
+    session_state[PROMPT_PREFIX_MANUAL_DRAFT_ID_KEY] = draft_id
+    return draft_id
+
+
+def clear_prompt_prefix_form_item_id(session_state: MutableMapping[str, Any]):
+    """Drop the current manual draft id so the next create flow starts fresh."""
+    session_state.pop(PROMPT_PREFIX_MANUAL_DRAFT_ID_KEY, None)
+
+
+def delete_prompt_prefix_preview_asset(preview_asset_path: str | None) -> bool:
+    """Delete one custom prompt-prefix preview asset if it exists."""
+    resolved_path = _resolve_custom_prompt_prefix_preview_path(preview_asset_path)
+    if resolved_path is None or not resolved_path.exists():
+        return False
+
+    resolved_path.unlink()
+    return True
+
+
+def persist_uploaded_prompt_prefix_preview(
+    uploaded_file,
+    item_id: str,
+    previous_preview_asset_path: str | None = None,
+) -> str | None:
     """Persist one uploaded preview asset and return a repo-relative path."""
     if uploaded_file is None:
         return None
 
-    suffix = Path(uploaded_file.name or "").suffix.lower() or DEFAULT_PROMPT_PREFIX_PREVIEW_SUFFIX
-    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".svg"}:
-        suffix = DEFAULT_PROMPT_PREFIX_PREVIEW_SUFFIX
+    return _persist_prompt_prefix_preview_bytes(
+        preview_bytes=uploaded_file.getvalue(),
+        item_id=item_id,
+        source_name=uploaded_file.name or DEFAULT_PROMPT_PREFIX_PREVIEW_SUFFIX,
+        previous_preview_asset_path=previous_preview_asset_path,
+    )
 
-    CUSTOM_PROMPT_PREFIX_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = CUSTOM_PROMPT_PREFIX_PREVIEW_DIR / f"{item_id}{suffix}"
-    output_path.write_bytes(uploaded_file.getvalue())
-    return output_path.as_posix()
+
+def persist_generated_prompt_prefix_preview(
+    preview_media_path: str | None,
+    item_id: str,
+    previous_preview_asset_path: str | None = None,
+) -> str | None:
+    """Persist one generated preview image and return a repo-relative path."""
+    normalized_preview_media_path = (preview_media_path or "").strip()
+    if not normalized_preview_media_path:
+        return None
+
+    preview_media = load_preview_media(normalized_preview_media_path, "image")
+    return _persist_prompt_prefix_preview_bytes(
+        preview_bytes=preview_media.data,
+        item_id=item_id,
+        source_name=normalized_preview_media_path,
+        previous_preview_asset_path=previous_preview_asset_path,
+    )
