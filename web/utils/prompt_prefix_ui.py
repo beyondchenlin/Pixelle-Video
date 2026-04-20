@@ -15,6 +15,7 @@ Pure UI helpers for prompt prefix library interactions.
 """
 
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 
 from pixelle_video.config.prompt_prefix_library import (
@@ -22,6 +23,9 @@ from pixelle_video.config.prompt_prefix_library import (
     STYLE_CATEGORY_LABELS,
     get_prompt_prefix_category_label,
 )
+
+CUSTOM_PROMPT_PREFIX_PREVIEW_DIR = Path("resources/prompt_prefix_previews/custom")
+DEFAULT_PROMPT_PREFIX_PREVIEW_SUFFIX = ".png"
 
 
 def create_prompt_prefix_item(
@@ -81,3 +85,18 @@ def sanitize_prompt_prefix_preview_selection(selected_ids: list[str], valid_ids:
         seen.add(item_id)
 
     return sanitized
+
+
+def persist_uploaded_prompt_prefix_preview(uploaded_file, item_id: str) -> str | None:
+    """Persist one uploaded preview asset and return a repo-relative path."""
+    if uploaded_file is None:
+        return None
+
+    suffix = Path(uploaded_file.name or "").suffix.lower() or DEFAULT_PROMPT_PREFIX_PREVIEW_SUFFIX
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".svg"}:
+        suffix = DEFAULT_PROMPT_PREFIX_PREVIEW_SUFFIX
+
+    CUSTOM_PROMPT_PREFIX_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = CUSTOM_PROMPT_PREFIX_PREVIEW_DIR / f"{item_id}{suffix}"
+    output_path.write_bytes(uploaded_file.getvalue())
+    return output_path.as_posix()

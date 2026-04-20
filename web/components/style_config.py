@@ -16,6 +16,7 @@ Style configuration components for web UI (middle column)
 
 import os
 from pathlib import Path
+from uuid import uuid4
 
 import streamlit as st
 from loguru import logger
@@ -25,6 +26,7 @@ from pixelle_video.config.prompt_prefix_library import (
     filter_prompt_prefix_items,
     get_effective_image_prompt_prefix,
     get_prompt_prefix_category_label,
+    get_prompt_prefix_preview_asset,
 )
 from pixelle_video.prompts.prompt_prefix_generation import (
     build_prompt_prefix_generation_prompt,
@@ -40,6 +42,7 @@ from web.utils.preview_media import load_preview_media
 from web.utils.prompt_prefix_ui import (
     create_prompt_prefix_item,
     get_localized_prompt_prefix_category_options,
+    persist_uploaded_prompt_prefix_preview,
     sanitize_prompt_prefix_preview_selection,
     toggle_prompt_prefix_preview_selection,
 )
@@ -97,7 +100,7 @@ def _set_active_image_prompt_prefix(item_id: str):
     config_manager.save()
 
 
-def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_width: int, media_height: int) -> str:
+def _render_image_prompt_prefix_library_legacy(pixelle_video, workflow_key: str, media_width: int, media_height: int) -> str:
     """Render the image-only prompt prefix library UI and return effective prefix content."""
     language = get_language()
     image_config = config_manager.config.comfyui.image
@@ -456,6 +459,675 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                     st.markdown(f"**{preview_result['name']}**")
                     render_generated_style_preview(preview_result["preview_media_path"], "image")
                     st.caption(preview_result["content"])
+                    if st.button(
+                        tr("style.prefix_library.set_active"),
+                        key=f"set_preview_active_prefix_{preview_result['id']}",
+                        width="stretch",
+                    ):
+                        if preview_result["id"] in preview_items_by_id:
+                            candidate_item = preview_items_by_id[preview_result["id"]]
+                            if preview_result["id"] not in library_items_by_id:
+                                _upsert_image_prompt_prefix_item(candidate_item, set_active=True)
+                            else:
+                                _set_active_image_prompt_prefix(preview_result["id"])
+                            safe_rerun()
+                    st.info(f"**{tr('style.final_prompt_label')}**\n{preview_result['final_prompt']}")
+
+    return effective_prefix
+
+
+def _open_prompt_prefix_panel(mode: str, item_id: str | None = None):
+    """Open one prompt-prefix side panel mode."""
+    st.session_state["prompt_prefix_panel_mode"] = mode
+    st.session_state["prompt_prefix_panel_item_id"] = item_id
+
+
+def _close_prompt_prefix_panel():
+    """Close the prompt-prefix side panel."""
+    st.session_state.pop("prompt_prefix_panel_mode", None)
+    st.session_state.pop("prompt_prefix_panel_item_id", None)
+    st.session_state.pop("prompt_prefix_delete_confirm_id", None)
+
+
+def _build_prompt_prefix_live_preview_map() -> dict[str, str]:
+    """Collect session-scoped preview overrides for gallery cards."""
+    preview_map: dict[str, str] = {}
+
+    for result in st.session_state.get("prompt_prefix_preview_results", []):
+        preview_path = result.get("preview_media_path")
+        if preview_path:
+            preview_map[result["id"]] = preview_path
+
+    for result in st.session_state.get("prompt_prefix_generated_preview_results", []):
+        preview_path = result.get("preview_media_path")
+        if preview_path:
+            preview_map[result["id"]] = preview_path
+
+    return preview_map
+
+
+def _generate_prompt_prefix_preview_results(
+    pixelle_video,
+    workflow_key: str,
+    media_width: int,
+    media_height: int,
+    test_prompt: str,
+    items: list[dict],
+) -> list[dict]:
+    """Generate prompt-prefix previews sequentially for the current workflow."""
+    from pixelle_video.utils.prompt_helper import build_image_prompt
+
+    preview_results: list[dict] = []
+    for item in items:
+        final_prompt = build_image_prompt(test_prompt, item["content"])
+        media_result = run_async(
+            pixelle_video.media(
+                prompt=final_prompt,
+                workflow=workflow_key,
+                media_type="image",
+                width=int(media_width),
+                height=int(media_height),
+            )
+        )
+        if media_result.url:
+            preview_results.append(
+                {
+                    "id": item["id"],
+                    "name": item["name"],
+                    "content": item["content"],
+                    "final_prompt": final_prompt,
+                    "preview_media_path": media_result.url,
+                }
+            )
+
+    return preview_results
+
+
+def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_width: int, media_height: int) -> str:
+    """Render the gallery-style image prompt prefix library UI and return effective prefix content."""
+    language = get_language()
+    image_config = config_manager.config.comfyui.image
+    library = config_manager.get_image_prompt_prefix_library()
+    library_items = library.get("items", [])
+    library_items_by_id = {item["id"]: item for item in library_items}
+    active_prefix_id = library.get("active_prefix_id")
+    active_item = library_items_by_id.get(active_prefix_id)
+    effective_prefix = get_effective_image_prompt_prefix(image_config)
+
+    style_options, scene_options = get_localized_prompt_prefix_category_options(language=language)
+    style_label_map = {option["id"]: option["label"] for option in style_options}
+    scene_label_map = {option["id"]: option["label"] for option in scene_options}
+
+    generated_candidates = st.session_state.get("prompt_prefix_generated_candidates", [])
+    valid_ids = {item["id"] for item in library_items} | {item["id"] for item in generated_candidates}
+    selected_preview_ids = sanitize_prompt_prefix_preview_selection(
+        st.session_state.get("prompt_prefix_preview_ids", []),
+        valid_ids,
+    )
+    if selected_preview_ids != st.session_state.get("prompt_prefix_preview_ids", []):
+        st.session_state["prompt_prefix_preview_ids"] = selected_preview_ids
+        st.session_state.pop("prompt_prefix_preview_results", None)
+
+    live_preview_map = _build_prompt_prefix_live_preview_map()
+    panel_mode = st.session_state.get("prompt_prefix_panel_mode")
+    panel_item_id = st.session_state.get("prompt_prefix_panel_item_id")
+    panel_item = library_items_by_id.get(panel_item_id)
+
+    st.markdown(f"**{tr('style.prompt_prefix')}**")
+    st.caption(tr("style.prefix_library.title"))
+
+    with st.container(border=True):
+        active_info_col, active_action_col = st.columns([2.3, 1], gap="large")
+        with active_info_col:
+            if active_item:
+                st.markdown(f"### {active_item['name']}")
+                st.caption(
+                    f"{tr('style.prefix_library.active')} · "
+                    f"{get_prompt_prefix_category_label(active_item['style_category_id'], 'style', language)} · "
+                    f"{get_prompt_prefix_category_label(active_item['scene_category_id'], 'scene', language)}"
+                )
+                if active_item.get("note"):
+                    st.caption(active_item["note"])
+            elif effective_prefix:
+                st.caption(tr("style.prefix_library.active_legacy"))
+                st.code(effective_prefix, language=None)
+            else:
+                st.caption(tr("style.prefix_library.active_empty"))
+        with active_action_col:
+            if active_item and st.button(
+                tr("style.prefix_library.view_details"),
+                key="prompt_prefix_active_details",
+                width="stretch",
+            ):
+                _open_prompt_prefix_panel("details", active_item["id"])
+                safe_rerun()
+            st.caption(tr("style.prefix_library.reference_cover"))
+
+    filter_style_col, filter_scene_col, filter_keyword_col, add_style_col, ai_generate_col = st.columns(
+        [1, 1, 1.2, 0.8, 0.9],
+        gap="small",
+    )
+    with filter_style_col:
+        selected_style = st.selectbox(
+            tr("style.prefix_library.style_filter"),
+            options=[""] + [option["id"] for option in style_options],
+            format_func=lambda value: tr("style.prefix_library.all") if not value else style_label_map[value],
+            key="prompt_prefix_style_filter",
+        )
+    with filter_scene_col:
+        selected_scene = st.selectbox(
+            tr("style.prefix_library.scene_filter"),
+            options=[""] + [option["id"] for option in scene_options],
+            format_func=lambda value: tr("style.prefix_library.all") if not value else scene_label_map[value],
+            key="prompt_prefix_scene_filter",
+        )
+    with filter_keyword_col:
+        keyword = st.text_input(
+            tr("style.prefix_library.keyword"),
+            placeholder=tr("style.prefix_library.keyword_placeholder"),
+            key="prompt_prefix_keyword_filter",
+        )
+    with add_style_col:
+        if st.button(tr("style.prefix_library.toolbar_add"), key="prompt_prefix_toolbar_add", width="stretch"):
+            _open_prompt_prefix_panel("manual")
+            safe_rerun()
+    with ai_generate_col:
+        if st.button(tr("style.prefix_library.toolbar_ai"), key="prompt_prefix_toolbar_ai", width="stretch"):
+            _open_prompt_prefix_panel("ai")
+            safe_rerun()
+
+    st.caption(tr("style.prefix_library.compare_count", count=len(selected_preview_ids)))
+
+    filtered_items = filter_prompt_prefix_items(
+        library_items,
+        style_category_id=selected_style or None,
+        scene_category_id=selected_scene or None,
+        keyword=keyword,
+    )
+
+    gallery_col, panel_col = st.columns([2.25, 1.05], gap="large")
+    with gallery_col:
+        if not filtered_items:
+            st.caption(tr("style.prefix_library.no_items"))
+        else:
+            num_cols = 4
+            gallery_columns = st.columns(num_cols)
+            for idx, item in enumerate(filtered_items):
+                style_label = get_prompt_prefix_category_label(item["style_category_id"], "style", language)
+                scene_label = get_prompt_prefix_category_label(item["scene_category_id"], "scene", language)
+                cover_asset = live_preview_map.get(item["id"]) or get_prompt_prefix_preview_asset(item)
+                is_active = item["id"] == active_prefix_id
+                in_preview = item["id"] in selected_preview_ids
+
+                with gallery_columns[idx % num_cols]:
+                    with st.container(border=True):
+                        badge_col, compare_col = st.columns([1.2, 1], gap="small")
+                        with badge_col:
+                            st.caption(item.get("source", "manual"))
+                        with compare_col:
+                            compare_label = (
+                                tr("style.prefix_library.compare_chip_active")
+                                if in_preview
+                                else tr("style.prefix_library.compare_chip_add")
+                            )
+                            if st.button(
+                                compare_label,
+                                key=f"compare_prefix_card_{item['id']}",
+                                width="stretch",
+                            ):
+                                if not in_preview and len(selected_preview_ids) >= 4:
+                                    st.warning(tr("style.prefix_library.preview_limit"))
+                                else:
+                                    st.session_state["prompt_prefix_preview_ids"] = toggle_prompt_prefix_preview_selection(
+                                        selected_preview_ids,
+                                        item["id"],
+                                    )
+                                    st.session_state.pop("prompt_prefix_preview_results", None)
+                                    safe_rerun()
+
+                        st.image(cover_asset, width="stretch")
+                        if st.button(
+                            item["name"],
+                            key=f"open_prefix_details_{item['id']}",
+                            width="stretch",
+                            type="tertiary",
+                        ):
+                            _open_prompt_prefix_panel("details", item["id"])
+                            safe_rerun()
+                        st.caption(f"{style_label} · {scene_label}")
+                        if item.get("note"):
+                            st.caption(item["note"])
+                        if st.button(
+                            tr("template.selected") if is_active else tr("template.select_button"),
+                            key=f"select_prefix_card_{item['id']}",
+                            width="stretch",
+                            type="primary" if is_active else "secondary",
+                        ):
+                            _set_active_image_prompt_prefix(item["id"])
+                            safe_rerun()
+
+    with panel_col:
+        with st.container(border=True):
+            panel_header_col, panel_close_col = st.columns([2.2, 1], gap="small")
+            with panel_header_col:
+                if panel_mode == "details" and panel_item:
+                    st.markdown(f"### {tr('style.prefix_library.view_details')}")
+                elif panel_mode == "edit" and panel_item:
+                    st.markdown(f"### {tr('style.prefix_library.edit')}")
+                elif panel_mode == "manual":
+                    st.markdown(f"### {tr('style.prefix_library.manual_create')}")
+                elif panel_mode == "ai":
+                    st.markdown(f"### {tr('style.prefix_library.ai_generate')}")
+                else:
+                    st.markdown(f"### {tr('style.prefix_library.panel_empty')}")
+            with panel_close_col:
+                if panel_mode and st.button(
+                    tr("style.prefix_library.close_panel"),
+                    key="prompt_prefix_close_panel",
+                    width="stretch",
+                ):
+                    _close_prompt_prefix_panel()
+                    safe_rerun()
+
+            if panel_mode == "details" and panel_item:
+                detail_cover_asset = live_preview_map.get(panel_item["id"]) or get_prompt_prefix_preview_asset(panel_item)
+                st.image(detail_cover_asset, width="stretch")
+                st.caption(
+                    f"{get_prompt_prefix_category_label(panel_item['style_category_id'], 'style', language)} · "
+                    f"{get_prompt_prefix_category_label(panel_item['scene_category_id'], 'scene', language)} · "
+                    f"{panel_item.get('source', 'manual')}"
+                )
+                if panel_item.get("note"):
+                    st.caption(panel_item["note"])
+                st.caption(
+                    tr("style.prefix_library.workflow_preview_hint")
+                    if panel_item["id"] in live_preview_map
+                    else tr("style.prefix_library.reference_cover")
+                )
+                st.code(panel_item["content"], language=None)
+
+                detail_action_col, detail_compare_col = st.columns(2, gap="small")
+                with detail_action_col:
+                    if st.button(
+                        tr("style.prefix_library.set_active"),
+                        key=f"detail_set_active_{panel_item['id']}",
+                        width="stretch",
+                    ):
+                        _set_active_image_prompt_prefix(panel_item["id"])
+                        safe_rerun()
+                with detail_compare_col:
+                    detail_in_preview = panel_item["id"] in selected_preview_ids
+                    preview_label = (
+                        tr("style.prefix_library.remove_from_preview")
+                        if detail_in_preview
+                        else tr("style.prefix_library.add_to_preview")
+                    )
+                    if st.button(
+                        preview_label,
+                        key=f"detail_toggle_preview_{panel_item['id']}",
+                        width="stretch",
+                    ):
+                        if not detail_in_preview and len(selected_preview_ids) >= 4:
+                            st.warning(tr("style.prefix_library.preview_limit"))
+                        else:
+                            st.session_state["prompt_prefix_preview_ids"] = toggle_prompt_prefix_preview_selection(
+                                selected_preview_ids,
+                                panel_item["id"],
+                            )
+                            st.session_state.pop("prompt_prefix_preview_results", None)
+                            safe_rerun()
+
+                duplicate_col, custom_action_col = st.columns(2, gap="small")
+                with duplicate_col:
+                    if st.button(
+                        tr("style.prefix_library.duplicate"),
+                        key=f"detail_duplicate_{panel_item['id']}",
+                        width="stretch",
+                    ):
+                        duplicated_item = create_prompt_prefix_item(
+                            name=f"{panel_item['name']} Copy",
+                            content=panel_item["content"],
+                            style_category_id=panel_item["style_category_id"],
+                            scene_category_id=panel_item["scene_category_id"],
+                            note=panel_item.get("note", ""),
+                            source="manual",
+                            preview_asset_path=panel_item.get("preview_asset_path"),
+                        )
+                        _upsert_image_prompt_prefix_item(duplicated_item)
+                        safe_rerun()
+                with custom_action_col:
+                    if panel_item.get("is_builtin"):
+                        st.button(
+                            tr("style.prefix_library.delete_disabled"),
+                            key=f"detail_builtin_badge_{panel_item['id']}",
+                            disabled=True,
+                            width="stretch",
+                        )
+                    elif st.button(
+                        tr("style.prefix_library.edit"),
+                        key=f"detail_edit_{panel_item['id']}",
+                        width="stretch",
+                    ):
+                        _open_prompt_prefix_panel("edit", panel_item["id"])
+                        safe_rerun()
+
+                if not panel_item.get("is_builtin"):
+                    if st.session_state.get("prompt_prefix_delete_confirm_id") == panel_item["id"]:
+                        st.warning(tr("style.prefix_library.delete_confirm"))
+                        confirm_col, cancel_col = st.columns(2, gap="small")
+                        with confirm_col:
+                            if st.button(
+                                tr("style.prefix_library.delete"),
+                                key=f"detail_delete_confirm_{panel_item['id']}",
+                                width="stretch",
+                            ):
+                                _delete_image_prompt_prefix_item(panel_item["id"])
+                                st.session_state["prompt_prefix_preview_ids"] = [
+                                    selected_id for selected_id in selected_preview_ids if selected_id != panel_item["id"]
+                                ]
+                                st.session_state.pop("prompt_prefix_preview_results", None)
+                                st.session_state.pop("prompt_prefix_generated_preview_results", None)
+                                _close_prompt_prefix_panel()
+                                safe_rerun()
+                        with cancel_col:
+                            if st.button(
+                                tr("style.prefix_library.cancel"),
+                                key=f"detail_delete_cancel_{panel_item['id']}",
+                                width="stretch",
+                            ):
+                                st.session_state.pop("prompt_prefix_delete_confirm_id", None)
+                                safe_rerun()
+                    elif st.button(
+                        tr("style.prefix_library.delete"),
+                        key=f"detail_delete_{panel_item['id']}",
+                        width="stretch",
+                    ):
+                        st.session_state["prompt_prefix_delete_confirm_id"] = panel_item["id"]
+                        safe_rerun()
+
+            elif panel_mode in {"manual", "edit"}:
+                editing_item = panel_item if panel_mode == "edit" else None
+                form_item_id = editing_item["id"] if editing_item else f"manual-{uuid4().hex[:12]}"
+                form_suffix = f"{panel_mode}_{form_item_id}"
+                current_cover = live_preview_map.get(form_item_id)
+                if editing_item:
+                    current_cover = current_cover or get_prompt_prefix_preview_asset(editing_item)
+                if current_cover:
+                    st.image(current_cover, width="stretch")
+                    st.caption(tr("style.prefix_library.preview_asset_current"))
+
+                form_name = st.text_input(
+                    tr("style.prefix_library.manual_name"),
+                    value=editing_item["name"] if editing_item else "",
+                    key=f"prompt_prefix_form_name_{form_suffix}",
+                )
+                form_style_col, form_scene_col = st.columns(2, gap="small")
+                with form_style_col:
+                    form_style_category = st.selectbox(
+                        tr("style.prefix_library.style_filter"),
+                        options=[option["id"] for option in style_options],
+                        index=[option["id"] for option in style_options].index(
+                            editing_item["style_category_id"] if editing_item else style_options[0]["id"]
+                        ),
+                        format_func=lambda value: style_label_map[value],
+                        key=f"prompt_prefix_form_style_{form_suffix}",
+                    )
+                with form_scene_col:
+                    form_scene_category = st.selectbox(
+                        tr("style.prefix_library.scene_filter"),
+                        options=[option["id"] for option in scene_options],
+                        index=[option["id"] for option in scene_options].index(
+                            editing_item["scene_category_id"] if editing_item else scene_options[0]["id"]
+                        ),
+                        format_func=lambda value: scene_label_map[value],
+                        key=f"prompt_prefix_form_scene_{form_suffix}",
+                    )
+                form_content = st.text_area(
+                    tr("style.prefix_library.manual_content"),
+                    value=editing_item["content"] if editing_item else "",
+                    key=f"prompt_prefix_form_content_{form_suffix}",
+                    height=160,
+                )
+                form_note = st.text_input(
+                    tr("style.prefix_library.manual_note"),
+                    value=editing_item.get("note", "") if editing_item else "",
+                    key=f"prompt_prefix_form_note_{form_suffix}",
+                )
+                uploaded_preview = st.file_uploader(
+                    tr("style.prefix_library.preview_asset_upload"),
+                    type=["png", "jpg", "jpeg", "webp", "svg"],
+                    key=f"prompt_prefix_form_upload_{form_suffix}",
+                )
+                set_active_on_save = st.checkbox(
+                    tr("style.prefix_library.save_and_set_active"),
+                    value=False,
+                    key=f"prompt_prefix_form_set_active_{form_suffix}",
+                )
+                if st.button(
+                    tr("style.prefix_library.save"),
+                    key=f"prompt_prefix_form_save_{form_suffix}",
+                    width="stretch",
+                ):
+                    if not form_name.strip() or not form_content.strip():
+                        st.warning(tr("style.prefix_library.validation_required"))
+                    else:
+                        preview_asset_path = editing_item.get("preview_asset_path") if editing_item else None
+                        uploaded_preview_path = persist_uploaded_prompt_prefix_preview(uploaded_preview, form_item_id)
+                        if uploaded_preview_path:
+                            preview_asset_path = uploaded_preview_path
+
+                        saved_item = create_prompt_prefix_item(
+                            item_id=form_item_id,
+                            name=form_name,
+                            content=form_content,
+                            style_category_id=form_style_category,
+                            scene_category_id=form_scene_category,
+                            note=form_note,
+                            source=editing_item.get("source", "manual") if editing_item else "manual",
+                            preview_asset_path=preview_asset_path,
+                        )
+                        _upsert_image_prompt_prefix_item(saved_item, set_active=set_active_on_save)
+                        _open_prompt_prefix_panel("details", saved_item["id"])
+                        safe_rerun()
+
+            elif panel_mode == "ai":
+                ai_idea = st.text_area(
+                    tr("style.prefix_library.ai_idea"),
+                    value=st.session_state.get("prompt_prefix_ai_idea", ""),
+                    key="prompt_prefix_ai_idea",
+                    height=100,
+                )
+                candidate_preview_prompt = st.text_input(
+                    tr("style.prefix_library.ai_preview_prompt"),
+                    value=st.session_state.get("style_test_prompt", "a dog"),
+                    key="prompt_prefix_ai_preview_prompt",
+                )
+                generate_col, preview_col = st.columns(2, gap="small")
+                with generate_col:
+                    if st.button(
+                        tr("style.prefix_library.ai_generate_button"),
+                        key="prompt_prefix_ai_generate",
+                        width="stretch",
+                    ):
+                        if not config_manager.config.is_llm_configured():
+                            st.warning(tr("style.prefix_library.ai_unavailable"))
+                        elif not ai_idea.strip():
+                            st.warning(tr("style.prefix_library.validation_required"))
+                        else:
+                            with st.spinner(tr("style.prefix_library.ai_generating")):
+                                try:
+                                    generation_prompt = build_prompt_prefix_generation_prompt(
+                                        user_idea=ai_idea,
+                                        language=language,
+                                    )
+                                    result = run_async(
+                                        pixelle_video.llm(
+                                            generation_prompt,
+                                            response_type=PromptPrefixGenerationResult,
+                                            temperature=0.4,
+                                            max_tokens=1200,
+                                        )
+                                    )
+                                    generated_candidates = [
+                                        create_prompt_prefix_item(
+                                            name=candidate["name"],
+                                            content=candidate["content"],
+                                            style_category_id=candidate["style_category_id"],
+                                            scene_category_id=candidate["scene_category_id"],
+                                            note=candidate.get("note", ""),
+                                            source="llm",
+                                        )
+                                        for candidate in sanitize_prompt_prefix_candidates(result)
+                                    ]
+                                    st.session_state["prompt_prefix_generated_candidates"] = generated_candidates
+                                    st.session_state["prompt_prefix_generated_preview_results"] = []
+                                    st.session_state["prompt_prefix_preview_ids"] = sanitize_prompt_prefix_preview_selection(
+                                        st.session_state.get("prompt_prefix_preview_ids", []),
+                                        {item["id"] for item in library_items} | {item["id"] for item in generated_candidates},
+                                    )
+                                    safe_rerun()
+                                except Exception as e:
+                                    st.error(tr("style.preview_failed", error=str(e)))
+                                    logger.exception(e)
+                with preview_col:
+                    if st.button(
+                        tr("style.prefix_library.generate_candidate_previews"),
+                        key="prompt_prefix_ai_generate_previews",
+                        width="stretch",
+                    ):
+                        if not generated_candidates:
+                            st.warning(tr("style.prefix_library.ai_preview_none"))
+                        else:
+                            with st.spinner(tr("style.previewing")):
+                                try:
+                                    st.session_state["prompt_prefix_generated_preview_results"] = _generate_prompt_prefix_preview_results(
+                                        pixelle_video=pixelle_video,
+                                        workflow_key=workflow_key,
+                                        media_width=media_width,
+                                        media_height=media_height,
+                                        test_prompt=candidate_preview_prompt,
+                                        items=generated_candidates,
+                                    )
+                                    safe_rerun()
+                                except Exception as e:
+                                    st.error(tr("style.preview_failed", error=str(e)))
+                                    logger.exception(e)
+
+                generated_candidates = st.session_state.get("prompt_prefix_generated_candidates", [])
+                candidate_preview_map = {
+                    result["id"]: result["preview_media_path"]
+                    for result in st.session_state.get("prompt_prefix_generated_preview_results", [])
+                    if result.get("preview_media_path")
+                }
+                if generated_candidates:
+                    st.caption(tr("style.prefix_library.ai_results"))
+                    for candidate in generated_candidates:
+                        candidate_cover = candidate_preview_map.get(candidate["id"]) or get_prompt_prefix_preview_asset(candidate)
+                        with st.container(border=True):
+                            st.image(candidate_cover, width="stretch")
+                            st.markdown(f"**{candidate['name']}**")
+                            st.caption(
+                                f"{get_prompt_prefix_category_label(candidate['style_category_id'], 'style', language)} · "
+                                f"{get_prompt_prefix_category_label(candidate['scene_category_id'], 'scene', language)}"
+                            )
+                            if candidate.get("note"):
+                                st.caption(candidate["note"])
+                            if candidate["id"] not in candidate_preview_map:
+                                st.caption(tr("style.prefix_library.candidate_preview_pending"))
+                            st.code(candidate["content"], language=None)
+
+                            add_col, active_col = st.columns(2, gap="small")
+                            with add_col:
+                                if st.button(
+                                    tr("style.prefix_library.add_to_library"),
+                                    key=f"add_generated_prefix_{candidate['id']}",
+                                    width="stretch",
+                                ):
+                                    _upsert_image_prompt_prefix_item(candidate)
+                                    safe_rerun()
+                            with active_col:
+                                if st.button(
+                                    tr("style.prefix_library.set_active"),
+                                    key=f"set_generated_active_prefix_{candidate['id']}",
+                                    width="stretch",
+                                ):
+                                    _upsert_image_prompt_prefix_item(candidate, set_active=True)
+                                    safe_rerun()
+
+                            generated_in_preview = candidate["id"] in selected_preview_ids
+                            preview_label = (
+                                tr("style.prefix_library.remove_from_preview")
+                                if generated_in_preview
+                                else tr("style.prefix_library.add_to_preview")
+                            )
+                            if st.button(
+                                preview_label,
+                                key=f"preview_generated_prefix_{candidate['id']}",
+                                width="stretch",
+                            ):
+                                if not generated_in_preview and len(selected_preview_ids) >= 4:
+                                    st.warning(tr("style.prefix_library.preview_limit"))
+                                else:
+                                    st.session_state["prompt_prefix_preview_ids"] = toggle_prompt_prefix_preview_selection(
+                                        selected_preview_ids,
+                                        candidate["id"],
+                                    )
+                                    st.session_state.pop("prompt_prefix_preview_results", None)
+                                    safe_rerun()
+                else:
+                    st.caption(tr("style.prefix_library.ai_preview_none"))
+
+            else:
+                st.caption(tr("style.prefix_library.panel_empty_hint"))
+
+    preview_title = tr("style.preview_title")
+    with st.expander(preview_title, expanded=False):
+        test_prompt = st.text_input(
+            tr("style.test_prompt"),
+            value=st.session_state.get("style_test_prompt", "a dog"),
+            help=tr("style.test_prompt_help"),
+            key="style_test_prompt",
+        )
+        st.caption(tr("style.prefix_library.workflow_preview_hint"))
+
+        preview_items_by_id = {item["id"]: item for item in library_items}
+        preview_items_by_id.update({item["id"]: item for item in generated_candidates})
+        preview_items = build_prompt_prefix_preview_batch(
+            items_by_id=preview_items_by_id,
+            selected_ids=selected_preview_ids,
+        ) if selected_preview_ids else []
+
+        st.caption(tr("style.prefix_library.preview_selected_count", count=len(preview_items)))
+        if preview_items:
+            st.caption(", ".join(item["name"] for item in preview_items))
+        else:
+            st.caption(tr("style.prefix_library.no_preview_items"))
+
+        if st.button(tr("style.preview"), key="preview_style", width="stretch"):
+            if not preview_items:
+                st.warning(tr("style.prefix_library.preview_selection_required"))
+            else:
+                with st.spinner(tr("style.previewing")):
+                    try:
+                        st.session_state["prompt_prefix_preview_results"] = _generate_prompt_prefix_preview_results(
+                            pixelle_video=pixelle_video,
+                            workflow_key=workflow_key,
+                            media_width=media_width,
+                            media_height=media_height,
+                            test_prompt=test_prompt,
+                            items=preview_items,
+                        )
+                    except Exception as e:
+                        st.error(tr("style.preview_failed", error=str(e)))
+                        logger.exception(e)
+
+        preview_results = st.session_state.get("prompt_prefix_preview_results", [])
+        if preview_results:
+            preview_columns = st.columns(len(preview_results))
+            for idx, preview_result in enumerate(preview_results):
+                with preview_columns[idx]:
+                    st.markdown(f"**{preview_result['name']}**")
+                    render_generated_style_preview(preview_result["preview_media_path"], "image")
                     if st.button(
                         tr("style.prefix_library.set_active"),
                         key=f"set_preview_active_prefix_{preview_result['id']}",

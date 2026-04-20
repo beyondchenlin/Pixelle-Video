@@ -1,6 +1,7 @@
 from web.utils.prompt_prefix_ui import (
     create_prompt_prefix_item,
     get_localized_prompt_prefix_category_options,
+    persist_uploaded_prompt_prefix_preview,
     sanitize_prompt_prefix_preview_selection,
     toggle_prompt_prefix_preview_selection,
 )
@@ -59,6 +60,44 @@ def test_sanitize_prompt_prefix_preview_selection_prunes_stale_ids_and_preserves
     assert sanitized == ["library-a", "library-b"]
 
 
+class _FakeUpload:
+    def __init__(self, name: str, payload: bytes):
+        self.name = name
+        self._payload = payload
+
+    def getvalue(self) -> bytes:
+        return self._payload
+
+
+def test_persist_uploaded_prompt_prefix_preview_writes_relative_asset(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "web.utils.prompt_prefix_ui.CUSTOM_PROMPT_PREFIX_PREVIEW_DIR",
+        tmp_path / "prompt_prefix_previews" / "custom",
+    )
+
+    asset_path = persist_uploaded_prompt_prefix_preview(
+        _FakeUpload("story-cover.svg", b"<svg/>"),
+        "manual-test",
+    )
+
+    assert asset_path == (tmp_path / "prompt_prefix_previews" / "custom" / "manual-test.svg").as_posix()
+    assert Path(asset_path).read_bytes() == b"<svg/>"
+
+
+def test_persist_uploaded_prompt_prefix_preview_falls_back_to_png_suffix(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "web.utils.prompt_prefix_ui.CUSTOM_PROMPT_PREFIX_PREVIEW_DIR",
+        tmp_path / "prompt_prefix_previews" / "custom",
+    )
+
+    asset_path = persist_uploaded_prompt_prefix_preview(
+        _FakeUpload("story-cover.bin", b"png-bytes"),
+        "manual-test",
+    )
+
+    assert asset_path.endswith(".png")
+
+
 def test_style_config_source_references_prompt_prefix_library_ui():
     project_root = Path(__file__).resolve().parent.parent
     source = (project_root / "web" / "components" / "style_config.py").read_text(encoding="utf-8")
@@ -66,6 +105,10 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "prompt_prefix_library" in source
     assert "toggle_prompt_prefix_preview_selection" in source
     assert "build_prompt_prefix_generation_prompt" in source
+    assert "get_prompt_prefix_preview_asset" in source
+    assert "prompt_prefix_panel_mode" in source
+    assert "style.prefix_library.toolbar_add" in source
+    assert "style.prefix_library.compare_count" in source
 
 
 def test_prompt_prefix_library_locale_keys_exist():
@@ -78,3 +121,5 @@ def test_prompt_prefix_library_locale_keys_exist():
         assert "style.prefix_library.title" in translations
         assert "style.prefix_library.add_to_preview" in translations
         assert "style.prefix_library.ai_generate" in translations
+        assert "style.prefix_library.toolbar_add" in translations
+        assert "style.prefix_library.compare_count" in translations
