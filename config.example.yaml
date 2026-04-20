@@ -40,6 +40,22 @@ comfyui:
     
     # Image prompt prefix (optional)
     prompt_prefix: "Minimalist black-and-white matchstick figure style illustration, clean lines, simple sketch style"
+    
+    # Image prompt prefix library (optional)
+    # The active library item is used for real image generation.
+    # The legacy prompt_prefix above remains as a fallback for older configs.
+    prompt_prefix_library:
+      active_prefix_id: builtin_childrens_storybook_warm
+      items:
+        - id: builtin_childrens_storybook_warm
+          name: "Warm Storybook"
+          content: "warm children's storybook illustration, soft lighting, gentle hand-painted texture, expressive characters, clean composition"
+          style_category_id: storybook
+          scene_category_id: childrens_story
+          source: builtin
+          is_builtin: true
+          note: "Soft, healing visuals for stories and family-friendly content."
+          created_at: "2026-04-20T00:00:00Z"
   
   # Video-specific configuration
   video:

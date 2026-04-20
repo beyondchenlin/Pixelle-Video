@@ -341,7 +341,9 @@ uv run streamlit run web/app.py
 **提示词前缀（Prompt Prefix）**  
 - 控制图像的整体风格（语言需要是英文的）
 - 例如：Minimalist black-and-white matchstick figure style illustration, clean lines, simple sketch style
-- 点击「预览风格」可以测试效果
+- 使用提示词前缀库可以保存多组可复用风格
+- 正式生成时只使用一个当前前缀，预览时可以同时比较多个前缀
+- 还可以复用系统里已配置的大模型生成候选前缀，并加入前缀库
 
 #### 视频模板
 决定视频画面的布局和设计。

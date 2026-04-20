@@ -336,7 +336,9 @@ Determine what style of images AI generates.
 **Prompt Prefix**  
 - Controls overall image style (language needs to be English)
 - Example: Minimalist black-and-white matchstick figure style illustration, clean lines, simple sketch style
-- Click "Preview Style" to test effect
+- Use the prompt prefix library to save multiple reusable presets
+- Choose one active prefix for real generation, or compare multiple prefixes in preview
+- You can also generate candidate prefixes from the configured LLM and add them into the library
 
 #### Video Template
 Determines video layout and design.
@@ -429,4 +431,3 @@ This project is released under the Apache License 2.0. For details, please see t
 ## ⭐ Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=AIDC-AI/Pixelle-Video&type=Date)](https://star-history.com/#AIDC-AI/Pixelle-Video&Date)
-
