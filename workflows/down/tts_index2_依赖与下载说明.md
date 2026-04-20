@@ -75,6 +75,10 @@
   - `ffmpy`
   - `docstring-parser`
   - `wetext`
+  - `PyYAML`
+  - `huggingface_hub`
+  - `safetensors`
+  - `transformers`
   - `descript-audiotools==0.7.4`
 - `ComfyUI-VideoHelperSuite` 当前至少需要以下包：
   - `opencv-python`
@@ -128,15 +132,21 @@ uv run --with modelscope python -c "from modelscope import snapshot_download; pr
 优先检查 `ModelScope` 是否已有可用镜像；若仍无可用条目，再使用 GitHub ZIP 方式。
 
 ```powershell
-New-Item -ItemType Directory -Force 'E:\comfyui\comfyui\custom_nodes' | Out-Null
+$customNodesDir = 'E:\comfyui\comfyui\custom_nodes'
+$indexTarget = Join-Path $customNodesDir 'ComfyUI-Index-TTS'
+$videoTarget = Join-Path $customNodesDir 'ComfyUI-VideoHelperSuite'
+
+New-Item -ItemType Directory -Force $customNodesDir | Out-Null
 
 Invoke-WebRequest -UseBasicParsing 'https://github.com/chenpipi0807/ComfyUI-Index-TTS/archive/refs/heads/main.zip' -OutFile "$env:TEMP\ComfyUI-Index-TTS-main.zip"
 Expand-Archive -LiteralPath "$env:TEMP\ComfyUI-Index-TTS-main.zip" -DestinationPath "$env:TEMP" -Force
-Move-Item -LiteralPath "$env:TEMP\ComfyUI-Index-TTS-main" -Destination 'E:\comfyui\comfyui\custom_nodes\ComfyUI-Index-TTS' -Force
+if (Test-Path $indexTarget) { Remove-Item -LiteralPath $indexTarget -Recurse -Force }
+Move-Item -LiteralPath "$env:TEMP\ComfyUI-Index-TTS-main" -Destination $indexTarget
 
 Invoke-WebRequest -UseBasicParsing 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite/archive/refs/heads/main.zip' -OutFile "$env:TEMP\ComfyUI-VideoHelperSuite-main.zip"
 Expand-Archive -LiteralPath "$env:TEMP\ComfyUI-VideoHelperSuite-main.zip" -DestinationPath "$env:TEMP" -Force
-Move-Item -LiteralPath "$env:TEMP\ComfyUI-VideoHelperSuite-main" -Destination 'E:\comfyui\comfyui\custom_nodes\ComfyUI-VideoHelperSuite' -Force
+if (Test-Path $videoTarget) { Remove-Item -LiteralPath $videoTarget -Recurse -Force }
+Move-Item -LiteralPath "$env:TEMP\ComfyUI-VideoHelperSuite-main" -Destination $videoTarget
 ```
 
 如果 `github.com` 大 ZIP 下载不稳定，可改用 `codeload`：
@@ -148,15 +158,25 @@ Invoke-WebRequest -UseBasicParsing 'https://codeload.github.com/chenpipi0807/Com
 ### 6.4 安装 Python 包
 
 ```powershell
-& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install imageio-ffmpeg librosa soundfile omegaconf modelscope json5 munch ffmpy docstring-parser wetext
+& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install opencv-python imageio-ffmpeg librosa soundfile omegaconf modelscope json5 munch einops ffmpy docstring-parser wetext PyYAML huggingface_hub safetensors 'transformers==5.0.0'
 
-& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install 'C:\Users\ai\AppData\Local\Temp\descript-audiotools-0.7.4.zip'
+& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install 'git+https://github.com/descriptinc/audiotools@0.7.4#egg=descript-audiotools'
 ```
 
 说明：
 
-- 若 `descript-audiotools==0.7.4` 在当前镜像索引中不存在，可从上游源码 ZIP 安装。
+- 上面先补齐 `ComfyUI-Index-TTS` 与 `ComfyUI-VideoHelperSuite` 的关键 Python 依赖，避免只装了一部分导致节点仍然导入失败。
+- 当前机器实测的 pip 镜像索引只提供 `descript-audiotools` 的 `0.7.1`、`0.7.2`，不提供 `0.7.4`，因此需要按插件上游 `requirements.txt` 的写法从 Git 源安装 `0.7.4`。
+- 若当前机器的临时目录中已经存在 `C:\Users\ai\AppData\Local\Temp\descript-audiotools-0.7.4.zip`，也可改为安装该本地 ZIP。
 - Windows 下 `pynini` 与 `WeTextProcessing` 不是当前工作流的硬性前置项。
+
+### 6.5 准备参考音频
+
+- 当前仓库版 `workflows/selfhost/tts_index2.json` 默认读取 `C:\Users\ai\Documents\ComfyUI\input\ref_audio.wav`。
+- 如果该文件不存在，工作流虽然能加载节点，但 `VHS_LoadAudioUpload` 会直接报 `Invalid file path`。
+- 运行前请确保：
+  - `C:\Users\ai\Documents\ComfyUI\input\` 目录下存在 `ref_audio.wav`
+  - 或者在 `VHS_LoadAudioUpload` 节点面板里手动改选一个已经存在的 `.wav` / `.mp3` 文件
 
 ## 7. 安装完成后的验证命令
 
