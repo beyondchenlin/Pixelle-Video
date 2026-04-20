@@ -8,10 +8,12 @@ from typing import Awaitable, Callable, Optional
 from loguru import logger
 
 try:
+    from streamlit.runtime.scriptrunner_utils.script_run_context import add_script_run_ctx
     from streamlit.runtime import exists as streamlit_runtime_exists
     from streamlit.runtime import get_instance as get_streamlit_runtime
     from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
 except Exception:  # pragma: no cover - raw mode or API changes
+    add_script_run_ctx = None
     streamlit_runtime_exists = None
     get_streamlit_runtime = None
     get_script_run_ctx = None
@@ -29,7 +31,7 @@ def _create_event_loop() -> asyncio.AbstractEventLoop:
 class AsyncRuntime:
     """Run async work on a dedicated, long-lived event loop."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, streamlit_ctx=None):
         self._name = name
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ready = threading.Event()
@@ -40,8 +42,14 @@ class AsyncRuntime:
             name=f"PixelleAsyncRuntime-{name}",
             daemon=True,
         )
+        self._attach_streamlit_context(streamlit_ctx)
         self._thread.start()
         self._ready.wait()
+
+    def _attach_streamlit_context(self, ctx):
+        if add_script_run_ctx is None or ctx is None:
+            return
+        add_script_run_ctx(self._thread, ctx=ctx)
 
     def _run_loop(self):
         loop = _create_event_loop()
@@ -74,6 +82,7 @@ class AsyncRuntime:
             coro.close()
             raise RuntimeError("run_async cannot be called from inside the async runtime thread")
 
+        self._attach_streamlit_context(_get_streamlit_context())
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         try:
             return future.result()
@@ -112,12 +121,15 @@ _RUNTIMES: dict[str, ManagedAsyncRuntime] = {}
 _RUNTIMES_LOCK = threading.Lock()
 
 
+def _get_streamlit_context():
+    if get_script_run_ctx is None:
+        return None
+    return get_script_run_ctx(suppress_warning=True)
+
+
 def get_current_session_key() -> str:
     """Return the active Streamlit session ID, or a default key outside Streamlit."""
-    if get_script_run_ctx is None:
-        return DEFAULT_SESSION_KEY
-
-    ctx = get_script_run_ctx(suppress_warning=True)
+    ctx = _get_streamlit_context()
     if ctx is None:
         return DEFAULT_SESSION_KEY
     return ctx.session_id
@@ -162,7 +174,9 @@ def get_async_runtime() -> AsyncRuntime:
     with _RUNTIMES_LOCK:
         handle = _RUNTIMES.get(session_key)
         if handle is None:
-            handle = ManagedAsyncRuntime(runtime=AsyncRuntime(session_key))
+            handle = ManagedAsyncRuntime(
+                runtime=AsyncRuntime(session_key, streamlit_ctx=_get_streamlit_context())
+            )
             _RUNTIMES[session_key] = handle
         return handle.runtime
 
@@ -178,7 +192,9 @@ def register_async_cleanup(
     with _RUNTIMES_LOCK:
         handle = _RUNTIMES.get(resolved_session_key)
         if handle is None:
-            handle = ManagedAsyncRuntime(runtime=AsyncRuntime(resolved_session_key))
+            handle = ManagedAsyncRuntime(
+                runtime=AsyncRuntime(resolved_session_key, streamlit_ctx=_get_streamlit_context())
+            )
             _RUNTIMES[resolved_session_key] = handle
         handle.async_cleanup = async_cleanup
 
