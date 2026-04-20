@@ -22,9 +22,24 @@ from loguru import logger
 
 from web.i18n import tr, get_language
 from web.utils.async_helpers import run_async
-from web.utils.preview_media import load_preview_image_bytes
+from web.utils.preview_media import load_preview_media
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 from pixelle_video.config import config_manager
+
+
+def render_generated_style_preview(preview_media_path: str, template_media_type: str):
+    """Render generated preview media using a shared normalization path."""
+    preview_media = load_preview_media(preview_media_path, template_media_type)
+
+    if template_media_type == "video":
+        st.video(preview_media.data, format=preview_media.format)
+        return
+
+    st.image(
+        preview_media.data,
+        caption=tr("style.preview_caption"),
+        width="stretch",
+    )
 
 
 def render_style_config(pixelle_video):
@@ -819,16 +834,7 @@ def render_style_config(pixelle_video):
                                 success_text = tr("style.video_preview_success") if template_media_type == "video" else tr("style.preview_success")
                                 st.success(success_text)
                             
-                                if template_media_type == "video":
-                                    # Display video
-                                    st.video(preview_media_path)
-                                else:
-                                    preview_image_bytes = load_preview_image_bytes(preview_media_path)
-                                    st.image(
-                                        preview_image_bytes,
-                                        caption=tr("style.preview_caption"),
-                                        width="stretch",
-                                    )
+                                render_generated_style_preview(preview_media_path, template_media_type)
                             
                                 # Show the final prompt used
                                 st.info(f"**{tr('style.final_prompt_label')}**\n{final_prompt}")
