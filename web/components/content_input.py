@@ -243,7 +243,7 @@ def render_bgm_section(key_prefix=""):
         
         # BGM preview button (only if BGM is not "None")
         if bgm_choice != tr("bgm.none"):
-            if st.button(tr("bgm.preview"), key=f"{key_prefix}preview_bgm", use_container_width=True):
+            if st.button(tr("bgm.preview"), key=f"{key_prefix}preview_bgm", width="stretch"):
                 from pixelle_video.utils.os_util import get_resource_path, resource_exists
                 try:
                     if resource_exists("bgm", bgm_choice):
@@ -280,4 +280,3 @@ def render_version_info():
             f'<img src="{badge_url}" alt="GitHub stars" style="vertical-align: middle;">'
             f'</a>',
             unsafe_allow_html=True)
-
