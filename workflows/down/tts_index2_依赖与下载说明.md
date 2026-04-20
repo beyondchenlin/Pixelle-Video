@@ -79,6 +79,7 @@
   - `huggingface_hub`
   - `safetensors`
   - `transformers`
+  - `accelerate`
   - `descript-audiotools==0.7.4`
 - `ComfyUI-VideoHelperSuite` 当前至少需要以下包：
   - `opencv-python`
@@ -158,7 +159,7 @@ Invoke-WebRequest -UseBasicParsing 'https://codeload.github.com/chenpipi0807/Com
 ### 6.4 安装 Python 包
 
 ```powershell
-& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install opencv-python imageio-ffmpeg librosa soundfile omegaconf modelscope json5 munch einops ffmpy docstring-parser wetext PyYAML huggingface_hub safetensors 'transformers==5.0.0'
+& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install opencv-python imageio-ffmpeg librosa soundfile omegaconf modelscope json5 munch einops ffmpy docstring-parser wetext PyYAML huggingface_hub safetensors 'transformers==5.0.0' accelerate
 
 & 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install 'git+https://github.com/descriptinc/audiotools@0.7.4#egg=descript-audiotools'
 ```
@@ -166,6 +167,7 @@ Invoke-WebRequest -UseBasicParsing 'https://codeload.github.com/chenpipi0807/Com
 说明：
 
 - 上面先补齐 `ComfyUI-Index-TTS` 与 `ComfyUI-VideoHelperSuite` 的关键 Python 依赖，避免只装了一部分导致节点仍然导入失败。
+- `ComfyUI-Index-TTS` 的情绪分类模型会通过 `AutoModelForCausalLM.from_pretrained(..., device_map=\"auto\")` 加载 Qwen 子模型；当前 `transformers` 路径下这会额外依赖 `accelerate`。
 - 当前机器实测的 pip 镜像索引只提供 `descript-audiotools` 的 `0.7.1`、`0.7.2`，不提供 `0.7.4`，因此需要按插件上游 `requirements.txt` 的写法从 Git 源安装 `0.7.4`。
 - 若当前机器的临时目录中已经存在 `C:\Users\ai\AppData\Local\Temp\descript-audiotools-0.7.4.zip`，也可改为安装该本地 ZIP。
 - Windows 下 `pynini` 与 `WeTextProcessing` 不是当前工作流的硬性前置项。
@@ -291,6 +293,18 @@ ForEach-Object {
   - 把参考音频放到 `C:\Users\ai\Documents\ComfyUI\input\` 目录；
   - 或在节点面板里重新选择一个已经存在的 `.wav` / `.mp3` 文件；
   - 当前仓库版 `workflows/selfhost/tts_index2.json` 默认文件名已改为 `ref_audio.wav`，建议保持该文件位于 `ComfyUI/input/` 下。
+
+### 8.8 运行时提示 `requires accelerate`
+
+- 现象：执行 `IndexTTS2BaseNode` 时，堆栈里出现：
+  - `ValueError: Using a device_map ... requires accelerate`
+- 原因：
+  - `ComfyUI-Index-TTS` 会在情绪分类分支加载 `qwen0.6bemo4-merge`；
+  - 这条加载路径使用了 `device_map="auto"`，在当前 `transformers` 环境下必须额外安装 `accelerate`。
+- 处理：
+  - 在 ComfyUI 实际使用的 Python 环境中执行：
+  - `& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install accelerate`
+  - 安装后重启 ComfyUI，再重新运行工作流。
 
 ## 9. 维护要求
 
