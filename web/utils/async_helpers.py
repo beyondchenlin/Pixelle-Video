@@ -14,29 +14,16 @@
 Async helper functions for web UI
 """
 
-import asyncio
-import sys
 import tomllib
 from pathlib import Path
 
 from loguru import logger
+from web.state.async_runtime import get_async_runtime
 
 
 def run_async(coro):
     """Run async coroutine in sync context"""
-    from pixelle_video.services.frame_html import HTMLFrameGenerator
-
-    runner_kwargs = {}
-    if sys.platform == "win32":
-        # Streamlit can run with a selector-based policy on Windows, but
-        # Playwright needs a subprocess-capable loop to launch Chromium.
-        runner_kwargs["loop_factory"] = asyncio.ProactorEventLoop
-
-    with asyncio.Runner(**runner_kwargs) as runner:
-        try:
-            return runner.run(coro)
-        finally:
-            runner.run(HTMLFrameGenerator.close_browser())
+    return get_async_runtime().run(coro)
 
 
 def get_project_version():
