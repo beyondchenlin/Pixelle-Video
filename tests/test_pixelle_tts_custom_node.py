@@ -1,4 +1,6 @@
 import importlib.util
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -41,3 +43,28 @@ def test_pixelle_float_input_returns_float_value():
     node = module.PixelleFloatInput()
 
     assert node.get_value(1.25) == (1.25,)
+
+
+def test_decode_pcm_bytes_to_audio_rejects_silent_waveform(monkeypatch):
+    module = _load_plugin_module()
+
+    class FakeTensor:
+        def clone(self):
+            return self
+
+        def numel(self):
+            return 4
+
+        def abs(self):
+            return self
+
+        def max(self):
+            return 0.0
+
+    fake_torch = types.ModuleType("torch")
+    fake_torch.float32 = object()
+    fake_torch.frombuffer = lambda _buffer, dtype: FakeTensor()
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    with pytest.raises(RuntimeError, match="decoded waveform is silent"):
+        module.decode_pcm_bytes_to_audio(b"\x00" * 16, sample_rate=24000)

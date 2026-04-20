@@ -43,6 +43,19 @@ def normalize_voice_id(voice: str) -> str:
     return cleaned
 
 
+def decode_pcm_bytes_to_audio(pcm_bytes: bytes, sample_rate: int, torch_module=None):
+    if torch_module is None:
+        import torch as torch_module
+
+    waveform = torch_module.frombuffer(bytearray(pcm_bytes), dtype=torch_module.float32).clone()
+    if waveform.numel() == 0:
+        raise RuntimeError("decoded waveform is empty")
+    if float(waveform.abs().max()) <= 0.0:
+        raise RuntimeError("decoded waveform is silent")
+
+    return {"waveform": waveform.unsqueeze(0).unsqueeze(0), "sample_rate": sample_rate}
+
+
 def _run_coroutine(coro):
     def runner():
         return asyncio.run(coro)
@@ -151,16 +164,7 @@ class PixelleEdgeTTS:
                 raise RuntimeError(f"ffmpeg decode failed: {stderr or 'unknown ffmpeg error'}")
             if not result.stdout:
                 raise RuntimeError("ffmpeg decode produced no PCM output")
-
-            import torch
-
-            waveform = torch.frombuffer(bytearray(result.stdout), dtype=torch.float32).clone()
-            if waveform.numel() == 0:
-                raise RuntimeError("decoded waveform is empty")
-            if float(waveform.abs().max()) <= 0.0:
-                raise RuntimeError("decoded waveform is silent")
-
-            return {"waveform": waveform.unsqueeze(0).unsqueeze(0), "sample_rate": DEFAULT_SAMPLE_RATE}
+            return decode_pcm_bytes_to_audio(result.stdout, sample_rate=DEFAULT_SAMPLE_RATE)
         finally:
             temp_path.unlink(missing_ok=True)
 

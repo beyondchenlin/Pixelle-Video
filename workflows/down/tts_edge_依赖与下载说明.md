@@ -29,6 +29,10 @@
 ### 3.3 ComfyUI Python 环境
 - 当前建议使用：`C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe`
 - 如果 ComfyUI 启动日志中的 `Python executable` 发生变化，后文所有安装命令都要同步改成实际路径。
+- 同步脚本本身不再内置机器专属默认路径。
+- 运行时必须满足以下二选一：
+  - 显式传入 `--target`，并在需要安装依赖时传入 `--python`
+  - 或预先设置环境变量 `COMFYUI_CUSTOM_NODES_DIR` / `COMFYUI_ROOT` 与 `COMFYUI_PYTHON`
 
 ## 4. 下载优先级
 - 本工作流不依赖模型文件，因此当前没有需要从 `ModelScope` 下载的模型资源。
@@ -69,7 +73,14 @@ uv run python tools/sync_pixelle_tts_custom_node.py `
   --skip-install
 ```
 
-### 6.3 检查 FFmpeg
+### 6.3 使用环境变量驱动同步
+```powershell
+$env:COMFYUI_CUSTOM_NODES_DIR='E:\comfyui\comfyui\custom_nodes'
+$env:COMFYUI_PYTHON='C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe'
+uv run python tools/sync_pixelle_tts_custom_node.py
+```
+
+### 6.4 检查 FFmpeg
 ```powershell
 ffmpeg -version
 ```
