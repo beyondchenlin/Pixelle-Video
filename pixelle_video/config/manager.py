@@ -128,6 +128,7 @@ class ConfigManager:
         """Get ComfyUI configuration as dict"""
         return {
             "comfyui_url": self.config.comfyui.comfyui_url,
+            "executor_type": self.config.comfyui.executor_type,
             "comfyui_api_key": self.config.comfyui.comfyui_api_key,
             "runninghub_api_key": self.config.comfyui.runninghub_api_key,
             "runninghub_concurrent_limit": self.config.comfyui.runninghub_concurrent_limit,
@@ -148,6 +149,7 @@ class ConfigManager:
     def set_comfyui_config(
         self, 
         comfyui_url: Optional[str] = None,
+        executor_type: Optional[str] = None,
         comfyui_api_key: Optional[str] = None,
         runninghub_api_key: Optional[str] = None,
         runninghub_concurrent_limit: Optional[int] = None,
@@ -157,6 +159,8 @@ class ConfigManager:
         updates = {}
         if comfyui_url is not None:
             updates["comfyui_url"] = comfyui_url
+        if executor_type is not None:
+            updates["executor_type"] = executor_type
         if comfyui_api_key is not None:
             updates["comfyui_api_key"] = comfyui_api_key
         if runninghub_api_key is not None:
@@ -169,4 +173,3 @@ class ConfigManager:
         
         if updates:
             self.update({"comfyui": updates})
-

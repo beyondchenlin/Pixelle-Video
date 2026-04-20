@@ -116,6 +116,7 @@ class PixelleVideoCore:
         
         if comfyui_config.get("comfyui_url"):
             kit_config["comfyui_url"] = comfyui_config["comfyui_url"]
+        kit_config["executor_type"] = comfyui_config.get("executor_type") or "websocket"
         if comfyui_config.get("comfyui_api_key"):
             kit_config["api_key"] = comfyui_config["comfyui_api_key"]
         if comfyui_config.get("runninghub_api_key"):
