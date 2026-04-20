@@ -39,6 +39,7 @@
 | 用途 | ModelScope 标识 | 目标位置 |
 | --- | --- | --- |
 | IndexTTS-2 主模型 | `IndexTeam/IndexTTS-2` | `E:\comfyui\comfyui\models\IndexTTS-2` |
+| Qwen 情绪分类模型 | `IndexTeam/IndexTTS-2` | `E:\comfyui\comfyui\models\IndexTTS-2\qwen0.6bemo4-merge` |
 | semantic codec | `amphion/MaskGCT` | `E:\comfyui\comfyui\models\IndexTTS-2\semantic_codec\model.safetensors` |
 | CampPlus 说话人嵌入 | `iic/speech_campplus_sv_zh-cn_16k-common` | `E:\comfyui\comfyui\models\IndexTTS-2\campplus_cn_common.bin` |
 | Wav2Vec2Bert | `facebook/w2v-bert-2.0` | `E:\comfyui\comfyui\models\IndexTTS-2\w2v-bert-2.0` |
@@ -88,7 +89,11 @@
   - `torch==2.10.0+cu130`
   - `torchaudio==2.10.0+cu130`
   - `transformers==5.0.0`
+  - `accelerate==1.13.0`
   - `safetensors==0.7.0`
+  - `descript-audiotools==0.7.4`
+  - `opencv-python==4.13.0.92`
+  - `imageio-ffmpeg==0.6.0`
 - 当前实机冷启动验证中，`ComfyUI-Index-TTS` 已在上述环境下成功导入。
 - 推理阶段若出现 `transformers` 兼容性问题，这是基于上游 README 的推断：可优先回退到 `4.54.1` 或 `4.52.1` 再复测。
 
@@ -127,6 +132,11 @@ uv run --with modelscope python -c "from modelscope import snapshot_download; pr
 
 uv run --with modelscope python -c "from modelscope import snapshot_download; print(snapshot_download('nv-community/bigvgan_v2_22khz_80band_256x', local_dir=r'E:\comfyui\comfyui\models\IndexTTS-2\bigvgan\bigvgan_v2_22khz_80band_256x'))"
 ```
+
+说明：
+
+- 第一条 `snapshot_download('IndexTeam/IndexTTS-2')` 会把 `IndexTTS-2` 仓库整体同步到本地，其中包含运行期会实际读取的 `qwen0.6bemo4-merge/` 子目录。
+- 如果你之前是手动拷文件，或只保留了部分基础文件，请额外确认 `E:\comfyui\comfyui\models\IndexTTS-2\qwen0.6bemo4-merge\` 仍然存在。
 
 ### 6.3 安装自定义节点
 
@@ -182,7 +192,7 @@ Invoke-WebRequest -UseBasicParsing 'https://codeload.github.com/chenpipi0807/Com
 
 ## 7. 安装完成后的验证命令
 
-### 7.1 验证关键模型文件
+### 7.1 验证关键模型文件与目录
 
 ```powershell
 Get-ChildItem 'E:\comfyui\comfyui\models\IndexTTS-2' -Recurse |
@@ -193,6 +203,9 @@ Where-Object {
         'bpe.model',
         'campplus_cn_common.bin',
         'wav2vec2bert_stats.pt',
+        'qwen0.6bemo4-merge',
+        'w2v-bert-2.0',
+        'bigvgan_v2_22khz_80band_256x',
         'model.safetensors',
         'config.yaml'
     )
@@ -251,6 +264,7 @@ ForEach-Object {
 ### 8.3 工作流不再报缺节点，但运行时报模型缺失
 
 - 原因：`IndexTTS-2` 目录不完整，常见缺项为：
+  - `qwen0.6bemo4-merge/`
   - `campplus_cn_common.bin`
   - `semantic_codec/model.safetensors`
   - `w2v-bert-2.0/`
