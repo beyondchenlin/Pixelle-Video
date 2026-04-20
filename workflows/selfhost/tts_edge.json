@@ -6,7 +6,7 @@
         0
       ],
       "voice": [
-        "5",
+        "7",
         0
       ],
       "speed": [
@@ -15,9 +15,9 @@
       ],
       "pitch": 0
     },
-    "class_type": "EdgeTTS",
+    "class_type": "PixelleEdgeTTS",
     "_meta": {
-      "title": "Edge TTS 🔊"
+      "title": "Pixelle Edge TTS"
     }
   },
   "3": {
@@ -44,22 +44,9 @@
       "title": "Save Audio (MP3)"
     }
   },
-  "5": {
-    "inputs": {
-      "text": "[Chinese] zh-CN Yunjian",
-      "anything": [
-        "7",
-        0
-      ]
-    },
-    "class_type": "easy showAnything",
-    "_meta": {
-      "title": "Show Any"
-    }
-  },
   "7": {
     "inputs": {
-      "value": "[Chinese] zh-CN Yunjian"
+      "value": "zh-CN-YunjianNeural"
     },
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
@@ -68,9 +55,9 @@
   },
   "8": {
     "inputs": {
-      "value": 1
+      "value": 1.0
     },
-    "class_type": "easy float",
+    "class_type": "PixelleFloatInput",
     "_meta": {
       "title": "$speed.value"
     }
