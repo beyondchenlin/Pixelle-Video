@@ -49,6 +49,15 @@ Add a pure resolver function or config-manager helper that computes the effectiv
 - persisted config value
 - built-in product default
 
+The resolver should operate on a normalized configured-workflow input rather than assuming every domain stores `default_workflow` at the same nesting level.
+
+Important compatibility note:
+
+- `image` and `video` currently store `default_workflow` directly under their domain config
+- `tts` currently stores its ComfyUI workflow under `comfyui.tts.comfyui.default_workflow`
+
+Either the caller must pass the normalized configured value into the resolver, or a dedicated config-access helper must normalize these shapes first.
+
 Recommended precedence:
 
 1. Explicit workflow argument provided by the caller
