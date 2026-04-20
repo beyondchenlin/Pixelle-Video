@@ -22,6 +22,7 @@ from loguru import logger
 
 from web.i18n import tr, get_language
 from web.utils.async_helpers import run_async
+from web.utils.preview_media import load_preview_image_bytes
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 from pixelle_video.config import config_manager
 
@@ -822,17 +823,12 @@ def render_style_config(pixelle_video):
                                     # Display video
                                     st.video(preview_media_path)
                                 else:
-                                    # Display image
-                                    if preview_media_path.startswith('http'):
-                                        # URL - use directly
-                                        img_html = f'<div class="preview-image"><img src="{preview_media_path}" alt="Style Preview"/></div>'
-                                    else:
-                                        # Local file - encode as base64
-                                        with open(preview_media_path, 'rb') as f:
-                                            img_data = base64.b64encode(f.read()).decode()
-                                        img_html = f'<div class="preview-image"><img src="data:image/png;base64,{img_data}" alt="Style Preview"/></div>'
-                                    
-                                    st.markdown(img_html, unsafe_allow_html=True)
+                                    preview_image_bytes = load_preview_image_bytes(preview_media_path)
+                                    st.image(
+                                        preview_image_bytes,
+                                        caption=tr("style.preview_caption"),
+                                        width="stretch",
+                                    )
                             
                                 # Show the final prompt used
                                 st.info(f"**{tr('style.final_prompt_label')}**\n{final_prompt}")
