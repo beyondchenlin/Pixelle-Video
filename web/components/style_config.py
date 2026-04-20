@@ -24,6 +24,7 @@ from web.i18n import tr, get_language
 from web.utils.async_helpers import run_async
 from web.utils.preview_media import load_preview_media
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
+from web.utils.workflow_defaults import resolve_selectbox_default_index
 from pixelle_video.config import config_manager
 
 
@@ -736,16 +737,16 @@ def render_style_config(pixelle_video):
             workflow_options = [wf["display_name"] for wf in workflows]
             workflow_keys = [wf["key"] for wf in workflows]
         
-            # Default to first option (should be runninghub by sorting)
-            default_workflow_index = 0
-        
             # If user has a saved preference in config, try to match it
             comfyui_config = config_manager.get_comfyui_config()
             # Select config based on template type (image or video)
             media_config_key = "video" if template_media_type == "video" else "image"
-            saved_workflow = comfyui_config.get(media_config_key, {}).get("default_workflow", "")
-            if saved_workflow and saved_workflow in workflow_keys:
-                default_workflow_index = workflow_keys.index(saved_workflow)
+            saved_workflow = comfyui_config.get(media_config_key, {}).get("default_workflow")
+            default_workflow_index = resolve_selectbox_default_index(
+                domain=media_config_key,
+                workflow_keys=workflow_keys,
+                configured_workflow=saved_workflow,
+            )
         
             workflow_display = st.selectbox(
                 "Workflow",
@@ -760,7 +761,7 @@ def render_style_config(pixelle_video):
                 workflow_selected_index = workflow_options.index(workflow_display)
                 workflow_key = workflow_keys[workflow_selected_index]
             else:
-                workflow_key = "runninghub/image_flux.json"  # fallback
+                workflow_key = None
             
             # Check and warn for selfhost media workflow (auto popup if not confirmed)
             check_and_warn_selfhost_workflow(workflow_key)

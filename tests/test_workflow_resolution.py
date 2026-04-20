@@ -7,6 +7,7 @@ from pixelle_video.config.workflow_defaults import (
 )
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.services.media import MediaService
+from web.utils.workflow_defaults import resolve_selectbox_default_index
 
 
 def test_resolve_default_workflow_uses_builtin_image_default_when_config_missing():
@@ -141,3 +142,30 @@ def test_base_service_still_raises_for_explicit_missing_workflow(monkeypatch):
 
     with pytest.raises(ValueError, match="Workflow 'selfhost/missing.json' not found"):
         service._resolve_workflow(workflow="selfhost/missing.json")
+
+
+def test_resolve_selectbox_default_index_uses_shared_image_default():
+    workflow_keys = [
+        "runninghub/image_flux.json",
+        "selfhost/image_z_image_turbo.json",
+    ]
+
+    assert (
+        resolve_selectbox_default_index(
+            domain="image",
+            workflow_keys=workflow_keys,
+            configured_workflow=None,
+        )
+        == 1
+    )
+
+
+def test_resolve_selectbox_default_index_returns_zero_when_no_workflows_exist():
+    assert (
+        resolve_selectbox_default_index(
+            domain="image",
+            workflow_keys=[],
+            configured_workflow=None,
+        )
+        == 0
+    )
