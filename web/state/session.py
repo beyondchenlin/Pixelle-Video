@@ -25,8 +25,8 @@ from web.i18n import get_language, set_language
 from web.state.async_runtime import (
     DEFAULT_SESSION_KEY,
     get_current_session_key,
-    is_session_active,
     register_async_cleanup,
+    session_exists,
 )
 from web.utils.async_helpers import run_async
 
@@ -55,7 +55,7 @@ def _cleanup_stale_pixelle_video_sessions(current_session_key: str):
         session_key
         for session_key in _PIXELLE_VIDEO_SESSIONS
         if session_key not in {DEFAULT_SESSION_KEY, current_session_key}
-        and not is_session_active(session_key)
+        and not session_exists(session_key)
     ]
 
     for session_key in stale_session_keys:

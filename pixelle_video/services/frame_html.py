@@ -29,12 +29,20 @@ import asyncio
 import os
 import re
 import tempfile
+import threading
 import uuid
-from typing import Dict, Any, Optional
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Dict, Optional
 from loguru import logger
 
 from pixelle_video.utils.template_util import parse_template_size
+
+
+@dataclass
+class _BrowserState:
+    browser: Any
+    playwright: Any
 
 
 class HTMLFrameGenerator:
@@ -54,9 +62,9 @@ class HTMLFrameGenerator:
         ... )
     """
     
-    _browser = None
-    _playwright = None
-    _browser_loop = None
+    _browser_states: dict[int, _BrowserState] = {}
+    _browser_locks: dict[int, asyncio.Lock] = {}
+    _state_guard = threading.Lock()
 
     def __init__(self, template_path: str):
         """
@@ -307,18 +315,74 @@ class HTMLFrameGenerator:
         return re.sub(PARAM_PATTERN, replacer, html)
 
     @classmethod
+    def _get_browser_lock(cls, loop: asyncio.AbstractEventLoop) -> asyncio.Lock:
+        loop_id = id(loop)
+        with cls._state_guard:
+            lock = cls._browser_locks.get(loop_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                cls._browser_locks[loop_id] = lock
+            return lock
+
+    @classmethod
+    def _get_browser_state(cls, loop: asyncio.AbstractEventLoop) -> Optional[_BrowserState]:
+        with cls._state_guard:
+            return cls._browser_states.get(id(loop))
+
+    @classmethod
+    def _set_browser_state(cls, loop: asyncio.AbstractEventLoop, state: _BrowserState):
+        with cls._state_guard:
+            cls._browser_states[id(loop)] = state
+
+    @classmethod
+    def _clear_browser_state(
+        cls,
+        loop: asyncio.AbstractEventLoop,
+        expected_state: Optional[_BrowserState] = None,
+    ):
+        loop_id = id(loop)
+        with cls._state_guard:
+            state = cls._browser_states.get(loop_id)
+            if expected_state is not None and state is not expected_state:
+                return
+            cls._browser_states.pop(loop_id, None)
+            cls._browser_locks.pop(loop_id, None)
+
+    @classmethod
+    async def _close_browser_state(
+        cls,
+        loop: asyncio.AbstractEventLoop,
+        state: _BrowserState,
+    ):
+        try:
+            if state.browser:
+                await state.browser.close()
+            if state.playwright:
+                await state.playwright.stop()
+        except Exception as e:
+            logger.debug(f"Failed to close Playwright browser cleanly: {e}")
+        finally:
+            logger.debug("Playwright browser closed")
+            cls._clear_browser_state(loop, expected_state=state)
+
+    @classmethod
     async def _ensure_browser(cls):
-        """Lazily initialize a shared Playwright browser instance"""
+        """Lazily initialize a per-event-loop Playwright browser instance."""
         current_loop = asyncio.get_running_loop()
+        browser_lock = cls._get_browser_lock(current_loop)
 
-        if cls._browser is not None and cls._browser_loop is not current_loop:
-            logger.debug("Discarding Playwright browser from a previous event loop")
-            cls._reset_browser_state()
+        async with browser_lock:
+            state = cls._get_browser_state(current_loop)
+            if state is not None and state.browser.is_connected():
+                return state.browser
 
-        if cls._browser is None or not cls._browser.is_connected():
+            if state is not None:
+                await cls._close_browser_state(current_loop, state)
+
             from playwright.async_api import async_playwright
-            cls._playwright = await async_playwright().start()
-            cls._browser = await cls._playwright.chromium.launch(
+
+            playwright = await async_playwright().start()
+            browser = await playwright.chromium.launch(
                 args=[
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
@@ -326,38 +390,24 @@ class HTMLFrameGenerator:
                     '--disable-extensions',
                 ]
             )
-            cls._browser_loop = current_loop
+            cls._set_browser_state(
+                current_loop,
+                _BrowserState(browser=browser, playwright=playwright),
+            )
             logger.debug("Initialized Playwright Chromium browser")
-        return cls._browser
-
-    @classmethod
-    def _reset_browser_state(cls):
-        """Forget cached Playwright handles after a clean close or stale-loop detection."""
-        cls._browser = None
-        cls._playwright = None
-        cls._browser_loop = None
+            return browser
 
     @classmethod
     async def close_browser(cls):
-        """Shutdown the shared browser instance (call on app teardown)"""
+        """Shutdown the shared browser instance for the current event loop."""
         current_loop = asyncio.get_running_loop()
+        browser_lock = cls._get_browser_lock(current_loop)
 
-        if cls._browser_loop is not None and cls._browser_loop is not current_loop:
-            logger.debug("Discarding Playwright browser from a different event loop")
-            cls._reset_browser_state()
-            return
-
-        try:
-            if cls._browser:
-                await cls._browser.close()
-            if cls._playwright:
-                await cls._playwright.stop()
-        except Exception as e:
-            logger.debug(f"Failed to close Playwright browser cleanly: {e}")
-        finally:
-            if cls._browser or cls._playwright:
-                logger.debug("Playwright browser closed")
-            cls._reset_browser_state()
+        async with browser_lock:
+            state = cls._get_browser_state(current_loop)
+            if state is None:
+                return
+            await cls._close_browser_state(current_loop, state)
 
     async def generate_frame(
         self,

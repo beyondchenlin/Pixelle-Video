@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from web.state import async_runtime
+from web.state import session as session_state
 from web.state.async_runtime import shutdown_all_async_runtimes
 from web.utils.async_helpers import run_async
 
@@ -43,6 +44,138 @@ def test_run_async_attaches_streamlit_context_to_runtime_thread(monkeypatch):
 
     assert captured
     assert captured[-1][1] is fake_ctx
+
+
+def test_session_exists_returns_true_for_reconnectable_streamlit_sessions(monkeypatch):
+    reconnectable_info = SimpleNamespace(session_id="reconnectable")
+    fake_runtime = SimpleNamespace(
+        is_active_session=lambda session_id: False,
+        _session_mgr=SimpleNamespace(
+            get_session_info=lambda session_id: reconnectable_info
+            if session_id == "reconnectable"
+            else None
+        ),
+    )
+
+    monkeypatch.setattr(async_runtime, "streamlit_runtime_exists", lambda: True)
+    monkeypatch.setattr(async_runtime, "get_streamlit_runtime", lambda: fake_runtime)
+
+    assert async_runtime.session_exists("reconnectable") is True
+
+
+def test_cleanup_stale_runtimes_keeps_reconnectable_sessions(monkeypatch):
+    reconnectable_info = SimpleNamespace(session_id="reconnectable")
+    fake_runtime_api = SimpleNamespace(
+        is_active_session=lambda session_id: session_id == "current",
+        _session_mgr=SimpleNamespace(
+            get_session_info=lambda session_id: reconnectable_info
+            if session_id in {"current", "reconnectable"}
+            else None
+        ),
+    )
+
+    class FakeRuntime:
+        def __init__(self):
+            self.close_calls = 0
+
+        def close(self, async_cleanup=None):
+            self.close_calls += 1
+            return True
+
+    current_runtime = FakeRuntime()
+    reconnectable_runtime = FakeRuntime()
+
+    monkeypatch.setattr(async_runtime, "streamlit_runtime_exists", lambda: True)
+    monkeypatch.setattr(async_runtime, "get_streamlit_runtime", lambda: fake_runtime_api)
+
+    async_runtime._RUNTIMES.clear()
+    async_runtime._RUNTIMES.update(
+        {
+            "current": async_runtime.ManagedAsyncRuntime(runtime=current_runtime),
+            "reconnectable": async_runtime.ManagedAsyncRuntime(runtime=reconnectable_runtime),
+        }
+    )
+
+    try:
+        async_runtime._cleanup_stale_runtimes("current")
+        assert "reconnectable" in async_runtime._RUNTIMES
+    finally:
+        async_runtime._RUNTIMES.clear()
+
+    assert reconnectable_runtime.close_calls == 0
+
+
+def test_cleanup_stale_runtimes_keeps_handles_when_close_fails(monkeypatch):
+    fake_runtime_api = SimpleNamespace(
+        is_active_session=lambda session_id: session_id == "current",
+        _session_mgr=SimpleNamespace(
+            get_session_info=lambda session_id: object() if session_id == "current" else None
+        ),
+    )
+
+    class FakeRuntime:
+        def __init__(self, should_close):
+            self.should_close = should_close
+            self.close_calls = 0
+
+        def close(self, async_cleanup=None):
+            self.close_calls += 1
+            return self.should_close
+
+    current_runtime = FakeRuntime(True)
+    stale_runtime = FakeRuntime(False)
+
+    monkeypatch.setattr(async_runtime, "streamlit_runtime_exists", lambda: True)
+    monkeypatch.setattr(async_runtime, "get_streamlit_runtime", lambda: fake_runtime_api)
+
+    async_runtime._RUNTIMES.clear()
+    async_runtime._RUNTIMES.update(
+        {
+            "current": async_runtime.ManagedAsyncRuntime(runtime=current_runtime),
+            "stale": async_runtime.ManagedAsyncRuntime(runtime=stale_runtime),
+        }
+    )
+
+    try:
+        async_runtime._cleanup_stale_runtimes("current")
+        assert "stale" in async_runtime._RUNTIMES
+    finally:
+        async_runtime._RUNTIMES.clear()
+
+    assert stale_runtime.close_calls == 1
+
+
+def test_cleanup_stale_pixelle_video_sessions_keeps_reconnectable_sessions(monkeypatch):
+    monkeypatch.setattr(session_state, "session_exists", lambda session_id: session_id != "missing")
+
+    current_state = session_state._PixelleVideoSessionState(
+        pixelle_video=object(),
+        config_hash="current",
+    )
+    reconnectable_state = session_state._PixelleVideoSessionState(
+        pixelle_video=object(),
+        config_hash="reconnectable",
+    )
+    missing_state = session_state._PixelleVideoSessionState(
+        pixelle_video=object(),
+        config_hash="missing",
+    )
+
+    session_state._PIXELLE_VIDEO_SESSIONS.clear()
+    session_state._PIXELLE_VIDEO_SESSIONS.update(
+        {
+            "current": current_state,
+            "reconnectable": reconnectable_state,
+            "missing": missing_state,
+        }
+    )
+
+    try:
+        session_state._cleanup_stale_pixelle_video_sessions("current")
+        assert "reconnectable" in session_state._PIXELLE_VIDEO_SESSIONS
+        assert "missing" not in session_state._PIXELLE_VIDEO_SESSIONS
+    finally:
+        session_state._PIXELLE_VIDEO_SESSIONS.clear()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific event loop behavior")

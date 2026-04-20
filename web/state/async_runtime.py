@@ -20,6 +20,7 @@ except Exception:  # pragma: no cover - raw mode or API changes
 
 
 DEFAULT_SESSION_KEY = "__default__"
+RUNTIME_CLOSE_TIMEOUT_SECONDS = 30
 
 
 def _create_event_loop() -> asyncio.AbstractEventLoop:
@@ -35,6 +36,7 @@ class AsyncRuntime:
         self._name = name
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ready = threading.Event()
+        self._stopped = threading.Event()
         self._closed = False
         self._close_lock = threading.Lock()
         self._thread = threading.Thread(
@@ -71,6 +73,8 @@ class AsyncRuntime:
             if hasattr(loop, "shutdown_default_executor"):
                 loop.run_until_complete(loop.shutdown_default_executor())
             loop.close()
+            self._loop = None
+            self._stopped.set()
 
     def run(self, coro):
         """Submit a coroutine to the runtime loop and wait for the result."""
@@ -91,24 +95,33 @@ class AsyncRuntime:
                 future.cancel()
             raise
 
-    def close(self, async_cleanup: Optional[Callable[[], Awaitable[None]]] = None):
+    def close(self, async_cleanup: Optional[Callable[[], Awaitable[None]]] = None) -> bool:
         """Stop the runtime after running optional async cleanup on the same loop."""
         with self._close_lock:
             if self._closed:
-                return
+                return self._stopped.is_set()
 
-            if self._loop is not None and async_cleanup is not None:
+            loop = self._loop
+
+            if loop is not None and async_cleanup is not None:
                 try:
                     self.run(async_cleanup())
                 except Exception as e:
                     logger.warning(f"Async runtime cleanup failed for '{self._name}': {e}")
 
             self._closed = True
-            if self._loop is not None:
-                self._loop.call_soon_threadsafe(self._loop.stop)
+            if loop is not None:
+                loop.call_soon_threadsafe(loop.stop)
 
-        self._thread.join(timeout=5)
-        self._loop = None
+        self._thread.join(timeout=RUNTIME_CLOSE_TIMEOUT_SECONDS)
+        if self._thread.is_alive():
+            logger.error(
+                f"Async runtime '{self._name}' did not stop within "
+                f"{RUNTIME_CLOSE_TIMEOUT_SECONDS} seconds"
+            )
+            return False
+
+        return True
 
 
 @dataclass
@@ -150,20 +163,58 @@ def is_session_active(session_key: str) -> bool:
         return False
 
 
+def session_exists(session_key: str) -> bool:
+    """Check whether a Streamlit session still exists, even if temporarily inactive."""
+    if session_key == DEFAULT_SESSION_KEY:
+        return True
+
+    if streamlit_runtime_exists is None or not streamlit_runtime_exists():
+        return False
+
+    try:
+        runtime = get_streamlit_runtime()
+        if runtime.is_active_session(session_key):
+            return True
+
+        session_manager = getattr(runtime, "_session_mgr", None)
+        if session_manager is None:
+            return False
+
+        get_session_info = getattr(session_manager, "get_session_info", None)
+        if get_session_info is None:
+            return False
+
+        return get_session_info(session_key) is not None
+    except Exception:
+        logger.debug(f"Failed to query Streamlit session existence for {session_key}")
+        return False
+
+
+def _close_managed_runtime(session_key: str, handle: ManagedAsyncRuntime) -> bool:
+    logger.info(f"Cleaning up async runtime for stale session: {session_key}")
+    try:
+        return handle.runtime.close(async_cleanup=handle.async_cleanup)
+    except Exception as e:
+        logger.error(f"Failed to close async runtime for session {session_key}: {e}")
+        return False
+
+
 def _cleanup_stale_runtimes(current_session_key: str):
-    stale_keys = []
+    stale_items = []
     with _RUNTIMES_LOCK:
-        for session_key in _RUNTIMES:
+        for session_key, handle in _RUNTIMES.items():
             if session_key in {DEFAULT_SESSION_KEY, current_session_key}:
                 continue
-            if not is_session_active(session_key):
-                stale_keys.append(session_key)
+            if not session_exists(session_key):
+                stale_items.append((session_key, handle))
 
-        stale_handles = [(_RUNTIMES.pop(key), key) for key in stale_keys]
+    for session_key, handle in stale_items:
+        if not _close_managed_runtime(session_key, handle):
+            continue
 
-    for handle, session_key in stale_handles:
-        logger.info(f"Cleaning up async runtime for inactive session: {session_key}")
-        handle.runtime.close(async_cleanup=handle.async_cleanup)
+        with _RUNTIMES_LOCK:
+            if _RUNTIMES.get(session_key) is handle:
+                _RUNTIMES.pop(session_key, None)
 
 
 def get_async_runtime() -> AsyncRuntime:
@@ -202,11 +253,15 @@ def register_async_cleanup(
 def shutdown_all_async_runtimes():
     """Shutdown all managed runtimes. Used by tests and process exit."""
     with _RUNTIMES_LOCK:
-        handles = list(_RUNTIMES.values())
-        _RUNTIMES.clear()
+        runtime_items = list(_RUNTIMES.items())
 
-    for handle in handles:
-        handle.runtime.close(async_cleanup=handle.async_cleanup)
+    for session_key, handle in runtime_items:
+        if not _close_managed_runtime(session_key, handle):
+            continue
+
+        with _RUNTIMES_LOCK:
+            if _RUNTIMES.get(session_key) is handle:
+                _RUNTIMES.pop(session_key, None)
 
 
 atexit.register(shutdown_all_async_runtimes)
