@@ -260,6 +260,18 @@ ForEach-Object {
     - `& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install 'transformers==4.54.1'`
   - 之后重启 ComfyUI 再次验证。
 
+### 8.7 `VHS_LoadAudioUpload` 提示 `Invalid file path`
+
+- 现象：工作流已能加载节点，但右侧错误面板提示：
+  - `audio - Invalid file path: C:\Users\ai\Documents\ComfyUI\input\...`
+- 原因：
+  - `VHS_LoadAudioUpload` 只能从 `ComfyUI/input/` 目录读取本地音频；
+  - 工作流中的默认文件名在当前机器上不存在时，就会直接校验失败。
+- 处理：
+  - 把参考音频放到 `C:\Users\ai\Documents\ComfyUI\input\` 目录；
+  - 或在节点面板里重新选择一个已经存在的 `.wav` / `.mp3` 文件；
+  - 当前仓库版 `workflows/selfhost/tts_index2.json` 默认文件名已改为 `ref_audio.wav`，建议保持该文件位于 `ComfyUI/input/` 下。
+
 ## 9. 维护要求
 
 - 后续若本工作流新增节点、模型或系统依赖，必须同步更新本文件。

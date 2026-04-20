@@ -52,7 +52,7 @@
   },
   "12": {
     "inputs": {
-      "audio": "小裴钱.wav",
+      "audio": "ref_audio.wav",
       "start_time": 0,
       "duration": 0
     },
