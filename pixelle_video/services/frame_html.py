@@ -25,6 +25,7 @@ Linux Environment Requirements:
     Playwright browser install: playwright install --with-deps chromium
 """
 
+import asyncio
 import os
 import re
 import tempfile
@@ -55,6 +56,7 @@ class HTMLFrameGenerator:
     
     _browser = None
     _playwright = None
+    _browser_loop = None
 
     def __init__(self, template_path: str):
         """
@@ -307,6 +309,12 @@ class HTMLFrameGenerator:
     @classmethod
     async def _ensure_browser(cls):
         """Lazily initialize a shared Playwright browser instance"""
+        current_loop = asyncio.get_running_loop()
+
+        if cls._browser is not None and cls._browser_loop is not current_loop:
+            logger.debug("Discarding Playwright browser from a previous event loop")
+            cls._reset_browser_state()
+
         if cls._browser is None or not cls._browser.is_connected():
             from playwright.async_api import async_playwright
             cls._playwright = await async_playwright().start()
@@ -318,19 +326,38 @@ class HTMLFrameGenerator:
                     '--disable-extensions',
                 ]
             )
+            cls._browser_loop = current_loop
             logger.debug("Initialized Playwright Chromium browser")
         return cls._browser
 
     @classmethod
+    def _reset_browser_state(cls):
+        """Forget cached Playwright handles after a clean close or stale-loop detection."""
+        cls._browser = None
+        cls._playwright = None
+        cls._browser_loop = None
+
+    @classmethod
     async def close_browser(cls):
         """Shutdown the shared browser instance (call on app teardown)"""
-        if cls._browser:
-            await cls._browser.close()
-            cls._browser = None
-        if cls._playwright:
-            await cls._playwright.stop()
-            cls._playwright = None
-            logger.debug("Playwright browser closed")
+        current_loop = asyncio.get_running_loop()
+
+        if cls._browser_loop is not None and cls._browser_loop is not current_loop:
+            logger.debug("Discarding Playwright browser from a different event loop")
+            cls._reset_browser_state()
+            return
+
+        try:
+            if cls._browser:
+                await cls._browser.close()
+            if cls._playwright:
+                await cls._playwright.stop()
+        except Exception as e:
+            logger.debug(f"Failed to close Playwright browser cleanly: {e}")
+        finally:
+            if cls._browser or cls._playwright:
+                logger.debug("Playwright browser closed")
+            cls._reset_browser_state()
 
     async def generate_frame(
         self,
