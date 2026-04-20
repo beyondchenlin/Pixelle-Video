@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from comfykit.comfyui.workflow_parser import WorkflowParser
@@ -30,3 +31,11 @@ def test_image_z_image_turbo_workflow_is_parseable():
 
     assert set(metadata.params.keys()) == {"prompt", "width", "height"}
     _assert_prompt_mapping_is_declared_once(metadata)
+
+
+def test_tts_index2_uses_builtin_multiline_string_input():
+    workflow = json.loads(Path("workflows/selfhost/tts_index2.json").read_text(encoding="utf-8"))
+
+    assert workflow["3"]["class_type"] == "PrimitiveStringMultiline"
+    assert workflow["3"]["inputs"]["value"] == "床前明月光，疑是地上霜。"
+    assert workflow["3"]["_meta"]["title"] == "$text.value!"

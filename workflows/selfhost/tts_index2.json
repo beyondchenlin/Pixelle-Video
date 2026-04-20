@@ -1,11 +1,11 @@
 {
   "3": {
     "inputs": {
-      "text": "床前明月光，疑是地上霜。"
+      "value": "床前明月光，疑是地上霜。"
     },
-    "class_type": "Text _O",
+    "class_type": "PrimitiveStringMultiline",
     "_meta": {
-      "title": "$text.text!"
+      "title": "$text.value!"
     }
   },
   "5": {
