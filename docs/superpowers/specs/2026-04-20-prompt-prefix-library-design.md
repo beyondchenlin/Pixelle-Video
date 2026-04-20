@@ -2,7 +2,7 @@
 
 ## Goal
 
-Upgrade the current single `prompt_prefix` text input into a global prompt-prefix library that supports:
+Upgrade the current single image `prompt_prefix` text input into a global prompt-prefix library that supports:
 
 - storing multiple reusable prompt prefixes
 - choosing exactly one active prefix for actual image generation
@@ -110,6 +110,17 @@ Purpose:
 
 Preview multi-select must not automatically change the active prefix.
 
+### 4. Scope Boundary
+
+This feature applies to image prompt prefixes only.
+
+Important scope rules:
+
+- the new library governs image-generation prefix selection
+- existing `comfyui.video.prompt_prefix` behavior remains unchanged
+- video-template preview can keep the current single-prefix behavior
+- if a future video-prefix library is needed, it should be designed separately instead of being coupled into this rollout
+
 ## Information Architecture
 
 The prompt-prefix area should remain in the current style configuration section and expand into four sub-areas.
@@ -144,8 +155,8 @@ Controls:
 Each prefix item should show:
 
 - name
-- style tag
-- scene tag
+- localized style tag
+- localized scene tag
 - short description or truncated content
 - source label such as built-in, manual, or AI-generated
 
@@ -163,8 +174,8 @@ These should live in collapsible sections under the library browser so the inter
 Fields:
 
 - name
-- style category
-- scene category
+- style category selector
+- scene category selector
 - English prefix content
 - optional short note
 
@@ -198,11 +209,17 @@ Behavior:
 
 - the user enters one test prompt, for example `a dog`
 - the user selects 2-4 prefixes from the preview set
-- the system generates parallel previews with the same base prompt and different prefixes
+- the system generates a bounded preview batch with the same base prompt and different prefixes
 - each preview card shows the result plus the associated prefix name
 - each preview card can promote its prefix to active
 
 Formal generation remains single-prefix even when preview is multi-prefix.
+
+Execution rule:
+
+- preview comparison should run sequentially by default, not as unrestricted concurrent generation
+- the UI may present results side by side after generation completes
+- future concurrency optimization is optional and must respect self-hosted resource limits and RunningHub quota limits
 
 ## Frontend Design Principle
 
@@ -226,27 +243,31 @@ The library should be stored as global configuration data rather than a database
 Recommended structure:
 
 ```yaml
-prompt_prefix_library:
-  active_prefix_id: builtin_childrens_storybook_warm
-  items:
-    - id: builtin_childrens_storybook_warm
-      name: Childrens Storybook Warm
-      content: warm children's storybook illustration, soft lighting, gentle hand-painted texture, clean composition, expressive characters
-      style_category: storybook
-      scene_category: childrens_story
-      source: builtin
-      is_builtin: true
-      note: Suitable for warm, healing, family-friendly content
-      created_at: 2026-04-20T00:00:00Z
+comfyui:
+  image:
+    default_workflow: selfhost/image_z_image_turbo.json
+    prompt_prefix: "legacy fallback only"
+    prompt_prefix_library:
+      active_prefix_id: builtin_childrens_storybook_warm
+      items:
+        - id: builtin_childrens_storybook_warm
+          name: Childrens Storybook Warm
+          content: warm children's storybook illustration, soft lighting, gentle hand-painted texture, clean composition, expressive characters
+          style_category_id: storybook
+          scene_category_id: childrens_story
+          source: builtin
+          is_builtin: true
+          note: Suitable for warm, healing, family-friendly content
+          created_at: 2026-04-20T00:00:00Z
 ```
 
 Each prefix item should include:
 
 - `id`: stable unique identifier
-- `name`: user-facing display name, mainly Chinese
+- `name`: user-facing display name, free text in the current UI language
 - `content`: actual English prefix text used in prompt assembly
-- `style_category`: style dimension
-- `scene_category`: scene dimension
+- `style_category_id`: stable ASCII style category id
+- `scene_category_id`: stable ASCII scene category id
 - `source`: `builtin`, `manual`, or `llm`
 - `is_builtin`: whether the item is protected as a system preset
 - `note`: optional short explanation
@@ -256,19 +277,41 @@ Library state should also track:
 
 - `active_prefix_id`: the single effective prefix for real generation
 
+Category display labels should not be stored as the source of truth.
+
+Instead:
+
+- persist stable category ids in config
+- render localized labels from a fixed mapping in the UI and generator helpers
+- keep item `name` and `note` as user-facing free text
+
 ## Configuration and Persistence
 
 Recommended persistence strategy:
 
 - keep using the existing config management system
-- store the prefix library in `config.yaml` through the same config manager path
+- store the prefix library under `comfyui.image.prompt_prefix_library` in `config.yaml`
 - avoid introducing a new persistence technology
 
 Important rules:
 
 - missing library config should gracefully fall back to built-in presets
 - reading config should not silently rewrite user files
-- built-in presets should be available by default, but custom changes should only persist when the user explicitly saves configuration
+- create, edit, delete, duplicate, and set-active actions are explicit user mutations and should persist immediately through the config manager
+- preview selections, filters, and search state are session-level UI state and should not persist to config
+- built-in presets should be available by default without requiring a save on first read
+
+### Schema Alignment Requirements
+
+This design requires schema and round-trip support, not only UI state.
+
+Minimum implementation requirements:
+
+- add a `PromptPrefixItemConfig` model
+- add a `PromptPrefixLibraryConfig` model
+- extend `ImageSubConfig` with `prompt_prefix_library`
+- add config-manager helpers for reading and mutating the image prefix library
+- ensure `model_dump()` and `save()` preserve the new structure without dropping fields
 
 ## Built-In Preset Strategy
 
@@ -276,23 +319,23 @@ The system should ship with a starter library so users do not face an empty stat
 
 Recommended initial coverage by style:
 
-- childrens storybook
-- flat illustration
-- minimal line art
-- watercolor hand-painted
-- 3D cartoon
-- cinematic realism
-- anime-inspired
-- traditional Chinese illustration
+- storybook
+- flat_illustration
+- minimal_line_art
+- watercolor
+- cartoon_3d
+- cinematic_realism
+- anime
+- chinese_traditional
 
 Recommended initial coverage by scene:
 
-- childrens story
-- educational illustration
-- emotional copywriting
-- knowledge sharing
-- commercial cover
-- short video illustration
+- childrens_story
+- educational_illustration
+- emotional_copywriting
+- knowledge_sharing
+- commercial_cover
+- short_video_illustration
 
 Built-in presets should:
 
@@ -300,6 +343,7 @@ Built-in presets should:
 - be visible in the same library as custom items
 - support copy/clone into custom items
 - not be casually overwritten in place
+- render localized human-readable labels from these stable ids
 
 ## LLM Prefix Generator Design
 
@@ -320,9 +364,9 @@ The system should provide an internal prompt that instructs the LLM to:
 - produce image-generation-ready English prompt prefixes
 - keep each result concrete and style-operational
 - avoid vague or overly long wording
-- provide a Chinese display name
-- assign both style and scene categories
-- provide a short Chinese note
+- provide a user-facing display name in the current UI language
+- assign both style and scene category ids from a predefined allowed list
+- provide a short user-facing note in the current UI language
 - output several candidates in a structured shape
 
 ### Output Shape
@@ -333,8 +377,8 @@ Each candidate returns:
 
 - `name`
 - `content`
-- `style_category`
-- `scene_category`
+- `style_category_id`
+- `scene_category_id`
 - `note`
 
 ### Post-Generation Actions
@@ -347,12 +391,19 @@ Each result should support:
 - add to preview
 - set as active
 
+Persistence rule:
+
+- `add to library` persists immediately
+- `set as active` persists immediately
+- `add to preview` affects only the current session preview batch
+
 ### Language Rule
 
 Use:
 
-- Chinese for names, categories, and notes
 - English for `content`
+- current-UI-language free text for `name` and `note`
+- stable ASCII ids for categories
 
 This keeps the UI friendly while preserving better compatibility with image-generation models.
 
@@ -370,9 +421,11 @@ Actual generation behavior should stay simple and deterministic.
 
 Rules:
 
-1. If an active prefix exists, use that single prefix for actual generation.
-2. If no active prefix exists, fall back to empty prefix behavior.
-3. Preview comparison may use multiple selected prefixes, but each preview image is still generated with exactly one prefix at a time.
+1. For image generation, if an active library prefix exists, use that single prefix for actual generation.
+2. If the image prefix library is absent or has no valid active item, fall back to legacy `comfyui.image.prompt_prefix`.
+3. If neither source yields a usable prefix, fall back to empty-prefix behavior.
+4. Preview comparison may use multiple selected prefixes, but each preview image is still generated with exactly one prefix at a time.
+5. Video generation continues using existing video-prefix behavior and is outside this library's resolution path.
 
 The existing prompt assembly helper can remain conceptually unchanged:
 
@@ -402,7 +455,7 @@ Before setting active:
 Expected resilience behavior:
 
 - If the library config is absent, load built-in presets.
-- If the active prefix is deleted or missing, clear active state or fall back to a safe built-in default.
+- If the active prefix is deleted or missing, clear active state or fall back to a safe built-in default, then to legacy `comfyui.image.prompt_prefix` if needed.
 - If the LLM is not configured, disable only the AI generator.
 - If AI generation fails, keep all saved prefixes and current active selection unchanged.
 - If a preview selection is too large, show a validation message instead of launching too many generations.
@@ -415,14 +468,16 @@ The new feature should remain compatible with existing configurations that only 
 Recommended compatibility behavior:
 
 - preserve current generation behavior for users who never use the new library UI
-- optionally seed the library from existing configured `prompt_prefix` when practical
+- optionally seed the library from existing configured `comfyui.image.prompt_prefix` when practical
 - avoid destructive migration
 - prefer additive configuration evolution
+- leave `comfyui.video.prompt_prefix` untouched in this rollout
 
 If a compatibility bootstrap is implemented, it should be explicit and safe:
 
 - create one imported custom library item from the old single prefix
 - do not discard the previous value silently
+- do not require users to migrate video prefix settings
 
 ## Testing Strategy
 
@@ -446,6 +501,7 @@ This design does not include:
 
 - redesigning the full page layout outside the prompt-prefix area
 - introducing workflow-specific prefix libraries
+- redesigning video prompt-prefix management
 - changing the underlying image generation workflow files
 - turning real generation into multi-prefix composition
 - adding a database or remote storage layer
