@@ -65,6 +65,7 @@ class PromptPrefixItemConfig(BaseModel):
     source: Literal["builtin", "manual", "llm"] = Field(default="manual")
     is_builtin: bool = Field(default=False)
     note: str = Field(default="")
+    preview_asset_path: Optional[str] = Field(default=None)
     created_at: Optional[str] = Field(default=None)
 
 

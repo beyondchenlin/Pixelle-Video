@@ -15,7 +15,12 @@ Prompt prefix library defaults and pure helpers.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_PROMPT_PREFIX_PLACEHOLDER = "resources/prompt_prefix_previews/placeholder.svg"
 
 
 STYLE_CATEGORY_LABELS = {
@@ -47,6 +52,7 @@ class BuiltinPromptPrefix:
     style_category_id: str
     scene_category_id: str
     note: str
+    preview_asset_path: str
     source: str = "builtin"
     is_builtin: bool = True
     created_at: str = "2026-04-20T00:00:00Z"
@@ -61,6 +67,7 @@ class BuiltinPromptPrefix:
             "source": self.source,
             "is_builtin": self.is_builtin,
             "note": self.note,
+            "preview_asset_path": self.preview_asset_path,
             "created_at": self.created_at,
         }
 
@@ -73,6 +80,7 @@ BUILTIN_PROMPT_PREFIXES = [
         style_category_id="storybook",
         scene_category_id="childrens_story",
         note="Soft, healing visuals for stories and family-friendly content.",
+        preview_asset_path="resources/prompt_prefix_previews/builtin/warm_storybook.svg",
     ),
     BuiltinPromptPrefix(
         id="builtin_flat_knowledge_clean",
@@ -81,6 +89,7 @@ BUILTIN_PROMPT_PREFIXES = [
         style_category_id="flat_illustration",
         scene_category_id="knowledge_sharing",
         note="Good for knowledge cards and educational explainers.",
+        preview_asset_path="resources/prompt_prefix_previews/builtin/clean_flat_knowledge.svg",
     ),
     BuiltinPromptPrefix(
         id="builtin_line_art_emotion_minimal",
@@ -89,6 +98,7 @@ BUILTIN_PROMPT_PREFIXES = [
         style_category_id="minimal_line_art",
         scene_category_id="emotional_copywriting",
         note="Simple symbolic visuals for reflective topics.",
+        preview_asset_path="resources/prompt_prefix_previews/builtin/minimal_emotion_line_art.svg",
     ),
     BuiltinPromptPrefix(
         id="builtin_watercolor_story_gentle",
@@ -97,6 +107,7 @@ BUILTIN_PROMPT_PREFIXES = [
         style_category_id="watercolor",
         scene_category_id="childrens_story",
         note="A softer painterly look with warmth and texture.",
+        preview_asset_path="resources/prompt_prefix_previews/builtin/gentle_watercolor_story.svg",
     ),
     BuiltinPromptPrefix(
         id="builtin_3d_cover_playful",
@@ -105,6 +116,7 @@ BUILTIN_PROMPT_PREFIXES = [
         style_category_id="cartoon_3d",
         scene_category_id="commercial_cover",
         note="Useful for playful promo art and commercial thumbnails.",
+        preview_asset_path="resources/prompt_prefix_previews/builtin/playful_3d_cover.svg",
     ),
     BuiltinPromptPrefix(
         id="builtin_cinematic_short_video",
@@ -113,6 +125,7 @@ BUILTIN_PROMPT_PREFIXES = [
         style_category_id="cinematic_realism",
         scene_category_id="short_video_illustration",
         note="A more dramatic, thumbnail-friendly visual style.",
+        preview_asset_path="resources/prompt_prefix_previews/builtin/cinematic_short_video.svg",
     ),
     BuiltinPromptPrefix(
         id="builtin_anime_education_bright",
@@ -121,6 +134,7 @@ BUILTIN_PROMPT_PREFIXES = [
         style_category_id="anime",
         scene_category_id="educational_illustration",
         note="Readable educational visuals with lively anime energy.",
+        preview_asset_path="resources/prompt_prefix_previews/builtin/bright_anime_education.svg",
     ),
     BuiltinPromptPrefix(
         id="builtin_chinese_traditional_story",
@@ -129,6 +143,7 @@ BUILTIN_PROMPT_PREFIXES = [
         style_category_id="chinese_traditional",
         scene_category_id="childrens_story",
         note="A poetic Chinese-inspired illustration direction.",
+        preview_asset_path="resources/prompt_prefix_previews/builtin/traditional_chinese_story.svg",
     ),
 ]
 
@@ -169,6 +184,16 @@ def get_effective_image_prompt_prefix(image_config: Any) -> str:
 
     legacy_prefix = _read_mapping_or_attr(image_config, "prompt_prefix", "") or ""
     return legacy_prefix.strip()
+
+
+def get_prompt_prefix_preview_asset(item: dict[str, Any]) -> str:
+    """Return a gallery preview asset path or the neutral placeholder."""
+    preview_asset_path = (item.get("preview_asset_path") or "").strip()
+    if preview_asset_path:
+        resolved_path = PROJECT_ROOT / preview_asset_path
+        if resolved_path.exists():
+            return preview_asset_path
+    return DEFAULT_PROMPT_PREFIX_PLACEHOLDER
 
 
 def filter_prompt_prefix_items(

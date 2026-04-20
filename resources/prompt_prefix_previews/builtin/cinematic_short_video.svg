@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080">
+  <defs>
+    <linearGradient id="cine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#101726"/>
+      <stop offset="100%" stop-color="#2e1f1d"/>
+    </linearGradient>
+    <radialGradient id="spot" cx="50%" cy="30%" r="46%">
+      <stop offset="0%" stop-color="#f3d38a" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#f3d38a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="720" height="1080" rx="36" fill="url(#cine)"/>
+  <rect x="88" y="132" width="544" height="816" rx="28" fill="#0b111a" stroke="#39424f" stroke-width="4"/>
+  <ellipse cx="360" cy="328" rx="238" ry="246" fill="url(#spot)"/>
+  <path d="M238 700 C300 560 428 548 494 700" fill="#161f2a"/>
+  <path d="M310 654 C330 618 392 618 416 654 C440 692 432 744 362 792 C292 744 286 692 310 654 Z" fill="#f3d38a"/>
+  <text x="88" y="112" font-size="48" fill="#f3d38a" font-family="Georgia, serif">Cinematic Short Video</text>
+  <text x="88" y="982" font-size="28" fill="#d7c7a0" font-family="Arial, sans-serif">Dramatic lighting and thumbnail-ready focus.</text>
+</svg>

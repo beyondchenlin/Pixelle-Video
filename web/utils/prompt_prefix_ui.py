@@ -32,7 +32,8 @@ def create_prompt_prefix_item(
     note: str = "",
     source: str = "manual",
     item_id: str | None = None,
-) -> dict[str, str | bool]:
+    preview_asset_path: str | None = None,
+) -> dict[str, str | bool | None]:
     """Create a normalized prompt prefix library item payload."""
     return {
         "id": item_id or f"{source}-{uuid4().hex[:12]}",
@@ -43,6 +44,7 @@ def create_prompt_prefix_item(
         "source": source,
         "is_builtin": False,
         "note": note.strip(),
+        "preview_asset_path": preview_asset_path.strip() if preview_asset_path else None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080">
+  <defs>
+    <linearGradient id="bg3d" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef4ff"/>
+      <stop offset="100%" stop-color="#ffe6ce"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1080" rx="36" fill="url(#bg3d)"/>
+  <circle cx="224" cy="386" r="132" fill="#4f8cff"/>
+  <circle cx="296" cy="332" r="68" fill="#86b5ff"/>
+  <circle cx="510" cy="474" r="146" fill="#ff7a70"/>
+  <circle cx="566" cy="414" r="64" fill="#ffb3a5"/>
+  <rect x="156" y="642" width="166" height="166" rx="36" fill="#ffd54c"/>
+  <rect x="360" y="608" width="198" height="198" rx="42" fill="#3f325d"/>
+  <circle cx="462" cy="710" r="58" fill="#ffffff"/>
+  <text x="72" y="112" font-size="48" fill="#2e2441" font-family="Arial, sans-serif">Playful 3D Cover</text>
+  <text x="72" y="958" font-size="28" fill="#5a4e73" font-family="Arial, sans-serif">Polished, toy-like volumes for energetic promo art.</text>
+</svg>

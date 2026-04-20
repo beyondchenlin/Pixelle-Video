@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080">
+  <rect width="720" height="1080" rx="36" fill="#f8fbff"/>
+  <rect x="70" y="70" width="580" height="940" rx="30" fill="#ffffff" stroke="#d9ebff" stroke-width="4"/>
+  <rect x="108" y="132" width="504" height="284" rx="26" fill="#9ed0ff"/>
+  <circle cx="220" cy="242" r="58" fill="#fff07d"/>
+  <path d="M108 368 C206 282 330 280 472 366 C540 406 576 410 612 392 V416 H108 Z" fill="#74b2ff"/>
+  <path d="M250 724 C250 620 320 560 396 560 C472 560 540 620 540 724 V812 H250 Z" fill="#2f5aa8"/>
+  <circle cx="396" cy="498" r="86" fill="#f7d7d0"/>
+  <circle cx="360" cy="484" r="12" fill="#2f3258"/>
+  <circle cx="430" cy="484" r="12" fill="#2f3258"/>
+  <path d="M354 532 C382 556 414 556 442 532" fill="none" stroke="#d06b66" stroke-width="6" stroke-linecap="round"/>
+  <text x="86" y="112" font-size="48" fill="#24406d" font-family="Arial, sans-serif">Bright Anime Education</text>
+  <text x="86" y="964" font-size="28" fill="#5b78a4" font-family="Arial, sans-serif">Readable, bright, character-led educational energy.</text>
+</svg>

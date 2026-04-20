@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080">
+  <rect width="720" height="1080" rx="36" fill="#f5efe4"/>
+  <rect x="58" y="58" width="604" height="964" rx="30" fill="#faf6ed" stroke="#d5ccb9" stroke-width="4"/>
+  <circle cx="540" cy="196" r="46" fill="#cf6250" opacity="0.9"/>
+  <path d="M126 676 C214 500 318 472 420 668" fill="none" stroke="#181818" stroke-width="18" stroke-linecap="round" opacity="0.88"/>
+  <path d="M286 676 C344 558 430 548 530 734" fill="none" stroke="#181818" stroke-width="18" stroke-linecap="round" opacity="0.72"/>
+  <path d="M170 804 C270 756 402 756 560 832" fill="none" stroke="#181818" stroke-width="10" stroke-linecap="round" opacity="0.46"/>
+  <path d="M160 284 C224 244 296 244 356 288" fill="none" stroke="#6b6258" stroke-width="8" stroke-linecap="round"/>
+  <path d="M148 248 C150 220 174 200 202 202 C230 204 252 228 248 258" fill="none" stroke="#6b6258" stroke-width="8" stroke-linecap="round"/>
+  <text x="84" y="112" font-size="48" fill="#3e342b" font-family="Georgia, serif">Traditional Chinese Story</text>
+  <text x="84" y="958" font-size="28" fill="#6c6055" font-family="Arial, sans-serif">Poetic brush-like mountains on warm paper texture.</text>
+</svg>

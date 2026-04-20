@@ -17,6 +17,7 @@ def test_create_prompt_prefix_item_trims_fields_and_preserves_category_ids():
         scene_category_id="childrens_story",
         note="  soft and healing  ",
         source="manual",
+        preview_asset_path=" resources/prompt_prefix_previews/custom/card.svg ",
     )
 
     assert item["id"] == "manual-test"
@@ -25,6 +26,7 @@ def test_create_prompt_prefix_item_trims_fields_and_preserves_category_ids():
     assert item["style_category_id"] == "storybook"
     assert item["scene_category_id"] == "childrens_story"
     assert item["note"] == "soft and healing"
+    assert item["preview_asset_path"] == "resources/prompt_prefix_previews/custom/card.svg"
 
 
 def test_get_localized_prompt_prefix_category_options_exposes_human_labels():

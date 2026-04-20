@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080">
+  <rect width="720" height="1080" rx="36" fill="#faf9f6"/>
+  <path d="M178 214 C248 162 332 160 392 220 C436 264 444 322 430 378" fill="none" stroke="#121212" stroke-width="6"/>
+  <path d="M430 378 C414 452 362 506 292 506 C216 506 170 456 166 390 C162 330 190 274 246 248" fill="none" stroke="#121212" stroke-width="6"/>
+  <path d="M276 360 C308 336 342 338 374 370" fill="none" stroke="#121212" stroke-width="6"/>
+  <path d="M176 736 C286 658 420 650 548 736" fill="none" stroke="#121212" stroke-width="8"/>
+  <path d="M292 684 C326 638 398 638 432 684 C462 724 452 776 362 844 C272 776 262 724 292 684 Z" fill="none" stroke="#121212" stroke-width="8"/>
+  <rect x="118" y="884" width="484" height="12" rx="6" fill="#cfcac0"/>
+  <text x="72" y="116" font-size="48" fill="#121212" font-family="Georgia, serif">Minimal Emotion Line Art</text>
+  <text x="72" y="952" font-size="28" fill="#4a4a4a" font-family="Arial, sans-serif">Quiet contour drawing with reflective negative space.</text>
+</svg>

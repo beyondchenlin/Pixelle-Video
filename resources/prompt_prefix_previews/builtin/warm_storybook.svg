@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff2dc"/>
+      <stop offset="100%" stop-color="#ffd3b4"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1080" rx="36" fill="url(#bg)"/>
+  <circle cx="580" cy="180" r="84" fill="#ffd46f"/>
+  <path d="M0 760 C180 680 300 690 430 756 C520 798 610 794 720 742 V1080 H0 Z" fill="#95c88a"/>
+  <path d="M0 826 C160 772 324 788 468 842 C564 878 638 878 720 846 V1080 H0 Z" fill="#6ea96e"/>
+  <rect x="248" y="520" width="178" height="162" rx="16" fill="#fffaf4" stroke="#8e6248" stroke-width="6"/>
+  <polygon points="232,546 337,452 442,546" fill="#d97657"/>
+  <rect x="312" y="590" width="52" height="92" rx="12" fill="#b56d57"/>
+  <circle cx="148" cy="214" r="18" fill="#fffaf4"/>
+  <circle cx="186" cy="190" r="22" fill="#fffaf4"/>
+  <circle cx="214" cy="214" r="16" fill="#fffaf4"/>
+  <text x="68" y="108" font-size="48" fill="#7f4a2f" font-family="Georgia, serif">Warm Storybook</text>
+  <text x="68" y="964" font-size="28" fill="#7f4a2f" font-family="Arial, sans-serif">Soft, healing visuals for family-friendly stories.</text>
+</svg>
