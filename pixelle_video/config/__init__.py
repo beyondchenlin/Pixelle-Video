@@ -32,6 +32,11 @@ Usage:
 from .schema import PixelleVideoConfig, LLMConfig, ComfyUIConfig, TTSSubConfig, ImageSubConfig, VideoSubConfig
 from .manager import ConfigManager
 from .loader import load_config_dict, save_config_dict
+from .workflow_defaults import (
+    BUILTIN_DEFAULT_WORKFLOWS,
+    get_configured_default_workflow,
+    resolve_default_workflow,
+)
 
 # Global singleton instance
 config_manager = ConfigManager()
@@ -47,5 +52,7 @@ __all__ = [
     "config_manager",
     "load_config_dict",
     "save_config_dict",
+    "BUILTIN_DEFAULT_WORKFLOWS",
+    "get_configured_default_workflow",
+    "resolve_default_workflow",
 ]
-
