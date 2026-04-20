@@ -214,7 +214,18 @@ def render_advanced_settings():
                 
                 # Local/Self-hosted ComfyUI configuration
                 st.markdown(f"**{tr('settings.comfyui.local_title')}**")
-                url_col, key_col = st.columns(2)
+                executor_labels = {
+                    "auto": "自动（推荐）" if get_language() == "zh_CN" else "Auto (Recommended)",
+                    "websocket": "WebSocket",
+                    "http": "HTTP",
+                }
+                current_executor_type = comfyui_config.get("executor_type")
+                if current_executor_type in executor_labels:
+                    default_executor_type = current_executor_type
+                else:
+                    default_executor_type = "auto"
+
+                url_col, key_col, executor_col = st.columns(3)
                 with url_col:
                     comfyui_url = st.text_input(
                         tr("settings.comfyui.comfyui_url"),
@@ -229,6 +240,20 @@ def render_advanced_settings():
                         type="password",
                         help=tr("settings.comfyui.comfyui_api_key_help"),
                         key="comfyui_api_key_input"
+                    )
+                with executor_col:
+                    executor_type = st.selectbox(
+                        "Executor",
+                        options=list(executor_labels.keys()),
+                        index=list(executor_labels.keys()).index(default_executor_type),
+                        format_func=lambda key: executor_labels[key],
+                        help=(
+                            "Auto will choose HTTP when a ComfyUI API key is set, "
+                            "otherwise WebSocket."
+                            if get_language() != "zh_CN"
+                            else "自动模式下，如果配置了 ComfyUI API Key 会优先使用 HTTP，否则使用 WebSocket。"
+                        ),
+                        key="comfyui_executor_type_input"
                     )
                 
                 # Test connection button
@@ -310,6 +335,7 @@ def render_advanced_settings():
                     instance_type = "plus" if runninghub_48g_enabled else ""
                     config_manager.set_comfyui_config(
                         comfyui_url=comfyui_url if comfyui_url else None,
+                        executor_type="" if executor_type == "auto" else executor_type,
                         comfyui_api_key=comfyui_api_key if comfyui_api_key else None,
                         runninghub_api_key=runninghub_api_key if runninghub_api_key else None,
                         runninghub_concurrent_limit=int(runninghub_concurrent_limit),

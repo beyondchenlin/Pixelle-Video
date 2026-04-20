@@ -71,9 +71,9 @@ class VideoSubConfig(BaseModel):
 class ComfyUIConfig(BaseModel):
     """ComfyUI configuration (includes global settings and service-specific configs)"""
     comfyui_url: str = Field(default="http://127.0.0.1:8188", description="ComfyUI Server URL")
-    executor_type: Literal["http", "websocket"] = Field(
-        default="websocket",
-        description="ComfyUI executor type for selfhost workflows",
+    executor_type: Optional[Literal["http", "websocket"]] = Field(
+        default=None,
+        description="Optional ComfyUI executor override for selfhost workflows",
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")

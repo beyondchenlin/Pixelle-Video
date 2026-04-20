@@ -116,7 +116,16 @@ class PixelleVideoCore:
         
         if comfyui_config.get("comfyui_url"):
             kit_config["comfyui_url"] = comfyui_config["comfyui_url"]
-        kit_config["executor_type"] = comfyui_config.get("executor_type") or "websocket"
+        executor_type = comfyui_config.get("executor_type")
+        if executor_type:
+            kit_config["executor_type"] = executor_type
+        elif comfyui_config.get("comfyui_api_key"):
+            # WebSocketExecutor in the current ComfyKit version does not send
+            # bearer auth headers during the WS handshake, so authenticated
+            # selfhost deployments need HTTP unless the user overrides it.
+            kit_config["executor_type"] = "http"
+        else:
+            kit_config["executor_type"] = "websocket"
         if comfyui_config.get("comfyui_api_key"):
             kit_config["api_key"] = comfyui_config["comfyui_api_key"]
         if comfyui_config.get("runninghub_api_key"):

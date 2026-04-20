@@ -160,7 +160,7 @@ class ConfigManager:
         if comfyui_url is not None:
             updates["comfyui_url"] = comfyui_url
         if executor_type is not None:
-            updates["executor_type"] = executor_type
+            updates["executor_type"] = executor_type if executor_type else None
         if comfyui_api_key is not None:
             updates["comfyui_api_key"] = comfyui_api_key
         if runninghub_api_key is not None:
