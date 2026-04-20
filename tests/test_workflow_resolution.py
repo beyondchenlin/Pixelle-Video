@@ -1,8 +1,12 @@
+import pytest
+
 from pixelle_video.config.workflow_defaults import (
     BUILTIN_DEFAULT_WORKFLOWS,
     get_configured_default_workflow,
     resolve_default_workflow,
 )
+from pixelle_video.services.comfy_base_service import ComfyBaseService
+from pixelle_video.services.media import MediaService
 
 
 def test_resolve_default_workflow_uses_builtin_image_default_when_config_missing():
@@ -63,3 +67,77 @@ def test_get_configured_default_workflow_normalizes_nested_tts_shape():
 
     assert get_configured_default_workflow(comfyui_config, "tts") == "selfhost/tts_edge.json"
     assert BUILTIN_DEFAULT_WORKFLOWS["image"] == "selfhost/image_z_image_turbo.json"
+
+
+def _workflow_info(key: str) -> dict:
+    source, name = key.split("/", 1)
+    return {
+        "name": name,
+        "display_name": f"{name} - {source.title()}",
+        "source": source,
+        "path": f"workflows/{key}",
+        "key": key,
+    }
+
+
+class DummyImageService(ComfyBaseService):
+    WORKFLOW_PREFIX = "image_"
+
+
+def test_base_service_uses_builtin_default_when_config_is_unset(monkeypatch):
+    service = DummyImageService(
+        {"comfyui": {"image": {"default_workflow": None}}},
+        service_name="image",
+        core=object(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_scan_workflows",
+        lambda: [
+            _workflow_info("runninghub/image_flux.json"),
+            _workflow_info("selfhost/image_z_image_turbo.json"),
+        ],
+    )
+
+    assert service._resolve_workflow()["key"] == "selfhost/image_z_image_turbo.json"
+
+
+def test_media_service_uses_video_domain_default_for_video_requests(monkeypatch):
+    service = MediaService(
+        {
+            "comfyui": {
+                "image": {"default_workflow": None},
+                "video": {"default_workflow": None},
+            }
+        },
+        core=object(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_scan_workflows",
+        lambda: [
+            _workflow_info("selfhost/image_z_image_turbo.json"),
+            _workflow_info("runninghub/video_wan2.1_fusionx.json"),
+        ],
+    )
+
+    assert (
+        service._resolve_workflow(workflow=None, workflow_domain="video")["key"]
+        == "runninghub/video_wan2.1_fusionx.json"
+    )
+
+
+def test_base_service_still_raises_for_explicit_missing_workflow(monkeypatch):
+    service = DummyImageService(
+        {"comfyui": {"image": {"default_workflow": None}}},
+        service_name="image",
+        core=object(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_scan_workflows",
+        lambda: [_workflow_info("selfhost/image_z_image_turbo.json")],
+    )
+
+    with pytest.raises(ValueError, match="Workflow 'selfhost/missing.json' not found"):
+        service._resolve_workflow(workflow="selfhost/missing.json")

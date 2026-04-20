@@ -195,7 +195,10 @@ class MediaService(ComfyBaseService):
             )
         """
         # 1. Resolve workflow (returns structured info)
-        workflow_info = self._resolve_workflow(workflow=workflow)
+        workflow_info = self._resolve_workflow(
+            workflow=workflow,
+            workflow_domain=media_type,
+        )
         
         # 2. Build workflow parameters (ComfyKit config is now managed by core)
         workflow_params = {"prompt": prompt}

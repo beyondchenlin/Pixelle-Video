@@ -22,6 +22,10 @@ from typing import Optional, List, Dict, Any
 from comfykit import ComfyKit
 from loguru import logger
 
+from pixelle_video.config.workflow_defaults import (
+    get_configured_default_workflow,
+    resolve_default_workflow,
+)
 from pixelle_video.utils.os_util import (
     get_resource_path,
     list_resource_files,
@@ -163,34 +167,48 @@ class ComfyBaseService:
         
         return workflow_info
     
-    def _get_default_workflow(self) -> str:
+    def _get_default_workflow(
+        self,
+        workflow_domain: Optional[str] = None,
+        available_keys: Optional[List[str]] = None,
+    ) -> str:
         """
-        Get default workflow from config (required, no fallback)
+        Get the effective default workflow for a domain.
         
         Returns:
             Default workflow key (e.g., "runninghub/image_flux.json")
         
         Raises:
-            ValueError: If default_workflow not configured
+            ValueError: If no compatible workflow can be resolved
         """
-        default_workflow = self.config.get("default_workflow")
+        domain = workflow_domain or self.service_name
+        available_keys = available_keys or self.available
+        configured_workflow = get_configured_default_workflow(self.global_config, domain)
+        default_workflow = resolve_default_workflow(
+            domain=domain,
+            available_keys=available_keys,
+            configured_workflow=configured_workflow,
+        )
         
         if not default_workflow:
             raise ValueError(
-                f"No default workflow configured for {self.service_name}. "
-                f"Please set 'default_workflow' in config.yaml under '{self.service_name}' section. "
-                f"Available workflows: {', '.join(self.available)}"
+                f"No compatible workflows available for {domain}. "
+                f"Available workflows: {', '.join(available_keys) if available_keys else 'none'}"
             )
         
         return default_workflow
     
-    def _resolve_workflow(self, workflow: Optional[str] = None) -> Dict[str, Any]:
+    def _resolve_workflow(
+        self,
+        workflow: Optional[str] = None,
+        workflow_domain: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Resolve workflow key to workflow info
         
         Args:
             workflow: Workflow key (e.g., "runninghub/image_flux.json")
-                     If None, uses default from config
+                     If None, uses the effective default workflow
         
         Returns:
             Workflow info dict with structure:
@@ -206,12 +224,16 @@ class ComfyBaseService:
         Raises:
             ValueError: If workflow not found
         """
-        # 1. If not specified, use default from config
-        if workflow is None:
-            workflow = self._get_default_workflow()
-        
-        # 2. Scan available workflows
+        # 1. Scan available workflows
         available_workflows = self._scan_workflows()
+        available_keys = [wf["key"] for wf in available_workflows]
+
+        # 2. If not specified, resolve the effective default workflow
+        if workflow is None:
+            workflow = self._get_default_workflow(
+                workflow_domain=workflow_domain,
+                available_keys=available_keys,
+            )
         
         # 3. Find matching workflow by key
         for wf_info in available_workflows:
@@ -220,7 +242,6 @@ class ComfyBaseService:
                 return wf_info
         
         # 4. Not found - generate error message
-        available_keys = [wf["key"] for wf in available_workflows]
         available_str = ", ".join(available_keys) if available_keys else "none"
         raise ValueError(
             f"Workflow '{workflow}' not found. "
@@ -323,4 +344,3 @@ class ComfyBaseService:
             f"default={default!r} "
             f"available=[{available}]>"
         )
-
