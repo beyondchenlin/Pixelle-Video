@@ -17,20 +17,15 @@ ComfyUI Base Service - Common logic for ComfyUI-based services
 import json
 import os
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
-from comfykit import ComfyKit
 from loguru import logger
 
 from pixelle_video.config.workflow_defaults import (
     get_configured_default_workflow,
     resolve_default_workflow,
 )
-from pixelle_video.utils.os_util import (
-    get_resource_path,
-    list_resource_files,
-    list_resource_dirs
-)
+from pixelle_video.utils.os_util import get_resource_path, list_resource_dirs, list_resource_files
 
 
 class ComfyBaseService:

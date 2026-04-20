@@ -1,11 +1,11 @@
 import pytest
 
+from pixelle_video.config.schema import PixelleVideoConfig
 from pixelle_video.config.workflow_defaults import (
     BUILTIN_DEFAULT_WORKFLOWS,
     get_configured_default_workflow,
     resolve_default_workflow,
 )
-from pixelle_video.config.schema import PixelleVideoConfig
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.services.media import MediaService
 from web.utils.workflow_defaults import resolve_selectbox_default_index
