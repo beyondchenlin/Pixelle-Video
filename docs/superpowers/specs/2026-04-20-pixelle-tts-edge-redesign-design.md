@@ -41,6 +41,7 @@ Make `workflows/selfhost/tts_edge.json` reliable and maintainable by replacing t
    - speed
    - pitch
 6. Failure to generate or decode audio must raise a visible node error instead of returning silent placeholder audio.
+7. The default `tts_edge.json` workflow must continue exposing `text`, `voice`, and `speed` as workflow parameters parseable by `comfykit.comfyui.workflow_parser.WorkflowParser`.
 
 ### Reliability Requirements
 
@@ -55,12 +56,17 @@ Make `workflows/selfhost/tts_edge.json` reliable and maintainable by replacing t
 2. The node implementation should mirror Pixelle's local TTS behavior where practical.
 3. The repository must include regression coverage for the workflow structure.
 4. The repository documentation under `workflows/down/` must describe the new dependency model and validation steps in Chinese.
+5. The source of the Pixelle ComfyUI plugin must live inside this repository, with deployment to the external ComfyUI `custom_nodes` directory treated as a build/install step rather than the primary source location.
 
 ## Proposed Architecture
 
 ### 1. Pixelle-Owned ComfyUI Plugin
 
-Create a new plugin under:
+Store the plugin source in-repo under:
+
+`tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS`
+
+Deploy it to the active ComfyUI instance at:
 
 `E:\comfyui\comfyui\custom_nodes\ComfyUI-Pixelle-TTS`
 
@@ -79,6 +85,7 @@ This is preferable to forking `ComfyUI-EdgeTTS` because:
 - Pixelle owns behavior and upgrade cadence
 - The implementation can align with the repository's existing Edge TTS utility
 - Third-party plugin regressions no longer silently affect Pixelle's default workflow
+- Plugin code, docs, tests, and deployment instructions can be versioned atomically in the same repository
 
 ### 2. Thin Workflow
 
@@ -86,10 +93,17 @@ Rewrite `workflows/selfhost/tts_edge.json` so it uses:
 
 - `PrimitiveStringMultiline` for text
 - `PrimitiveStringMultiline` for voice ID
+- an explicit workflow parameter node for `speed`
 - `PixelleEdgeTTS` for synthesis
 - `SaveAudioMP3` for output
 
-The workflow should no longer require `easy showAnything` or similar pass-through nodes. `speed` and `pitch` should be configured directly on the `PixelleEdgeTTS` node as native widget inputs unless a future workflow requirement explicitly needs them exposed as upstream parameters.
+The workflow should no longer require `easy showAnything` or similar pass-through nodes. The redesign must preserve the existing dynamic parameter contract used by Pixelle application code:
+
+- `text` remains a required workflow parameter
+- `voice` remains an optional workflow parameter
+- `speed` remains an optional workflow parameter
+
+`pitch` may remain a native widget input on `PixelleEdgeTTS` in the default workflow because Pixelle application code does not currently inject it. If ComfyUI core lacks a suitable built-in numeric primitive for `speed`, the Pixelle plugin package should include a minimal Pixelle-owned numeric input helper node so the workflow can drop `easy float` without losing parameter injection.
 
 ### 3. Shared Behavioral Contract
 
@@ -99,6 +113,8 @@ Pixelle application-side local TTS remains the behavioral reference:
 - parameter conventions
 - voice ID format
 - explicit failure semantics
+
+For workflow compatibility, the parameter names `text`, `voice`, and `speed` remain stable. This preserves compatibility with existing Pixelle service code that builds `workflow_params` for TTS workflows.
 
 The ComfyUI plugin does not need to import Pixelle package code directly if that would create fragile path coupling, but it should intentionally implement the same contract.
 
@@ -225,6 +241,13 @@ After redesign, it no longer depends on:
 - `ComfyUI-EdgeTTS`
 - `ComfyUI-Easy-Use`
 
+The deployment model becomes:
+
+- repository source of truth: `tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS`
+- installed runtime copy: `E:\comfyui\comfyui\custom_nodes\ComfyUI-Pixelle-TTS`
+
+The redesign should include an explicit install or sync procedure so the runtime copy can be refreshed from the repository source in a repeatable way.
+
 ## Testing Strategy
 
 ### Repository Tests
@@ -236,6 +259,10 @@ Add or update tests to verify:
 3. `tts_edge.json` no longer references `easy showAnything`.
 4. `tts_edge.json` stores a real Edge voice ID.
 5. The workflow text input is intact and UTF-8 safe.
+6. `WorkflowParser` still extracts `text`, `voice`, and `speed` from `tts_edge.json`.
+7. The `text` mapping still points to the multiline text node.
+8. The `voice` mapping still points to the explicit voice-ID node.
+9. The `speed` mapping still points to a Pixelle-owned or built-in numeric input node, not an external `easy float` dependency.
 
 ### ComfyUI Runtime Validation
 
@@ -254,6 +281,8 @@ Update `workflows/down/tts_edge_依赖与下载说明.md` to:
 - describe `ComfyUI-Pixelle-TTS`
 - remove `ComfyUI-EdgeTTS` and `ComfyUI-Easy-Use` as required dependencies for this workflow
 - document FFmpeg requirement for the new node
+- document the repository-source path and the deployment target path
+- document the install or sync step from repository source to ComfyUI `custom_nodes`
 - document verification and failure expectations
 
 ## Risks and Mitigations
@@ -265,6 +294,14 @@ Mitigation:
 - keep node scope minimal
 - align parameter naming and failure behavior with `tts_util.py`
 - document the shared contract
+
+### Risk: deployed ComfyUI plugin copy drifts from repository source
+
+Mitigation:
+
+- keep repository source as the only edited location
+- add a documented install or sync step
+- verify deployed node version during manual validation
 
 ### Risk: FFmpeg not available in ComfyUI environment
 
