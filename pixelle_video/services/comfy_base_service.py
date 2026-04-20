@@ -22,7 +22,9 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 from pixelle_video.config.workflow_defaults import (
+    filter_workflow_keys_for_domain,
     get_configured_default_workflow,
+    is_workflow_compatible,
     resolve_default_workflow,
 )
 from pixelle_video.utils.os_util import get_resource_path, list_resource_dirs, list_resource_files
@@ -229,6 +231,19 @@ class ComfyBaseService:
                 workflow_domain=workflow_domain,
                 available_keys=available_keys,
             )
+        else:
+            workflow = workflow.strip()
+            if (
+                workflow_domain
+                and workflow in available_keys
+                and not is_workflow_compatible(workflow, workflow_domain)
+            ):
+                compatible_keys = filter_workflow_keys_for_domain(workflow_domain, available_keys)
+                compatible_str = ", ".join(compatible_keys) if compatible_keys else "none"
+                raise ValueError(
+                    f"Workflow '{workflow}' is not compatible with domain '{workflow_domain}'. "
+                    f"Available {workflow_domain} workflows: {compatible_str}"
+                )
         
         # 3. Find matching workflow by key
         for wf_info in available_workflows:

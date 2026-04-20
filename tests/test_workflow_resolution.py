@@ -43,6 +43,22 @@ def test_resolve_default_workflow_prefers_saved_value_when_available():
     )
 
 
+def test_resolve_default_workflow_ignores_incompatible_saved_value_for_domain():
+    available_keys = [
+        "runninghub/video_wan2.1_fusionx.json",
+        "selfhost/image_qwen.json",
+    ]
+
+    assert (
+        resolve_default_workflow(
+            domain="image",
+            available_keys=available_keys,
+            configured_workflow="runninghub/video_wan2.1_fusionx.json",
+        )
+        == "selfhost/image_qwen.json"
+    )
+
+
 def test_resolve_default_workflow_falls_back_to_first_available_when_builtin_missing():
     available_keys = [
         "runninghub/image_flux.json",
@@ -56,6 +72,35 @@ def test_resolve_default_workflow_falls_back_to_first_available_when_builtin_mis
             configured_workflow="selfhost/missing.json",
         )
         == "runninghub/image_flux.json"
+    )
+
+
+def test_resolve_default_workflow_falls_back_to_first_compatible_workflow():
+    available_keys = [
+        "runninghub/video_wan2.1_fusionx.json",
+        "selfhost/image_qwen.json",
+    ]
+
+    assert (
+        resolve_default_workflow(
+            domain="image",
+            available_keys=available_keys,
+            configured_workflow="selfhost/missing.json",
+        )
+        == "selfhost/image_qwen.json"
+    )
+
+
+def test_resolve_default_workflow_returns_none_when_no_compatible_workflow_exists():
+    available_keys = ["runninghub/video_wan2.1_fusionx.json"]
+
+    assert (
+        resolve_default_workflow(
+            domain="image",
+            available_keys=available_keys,
+            configured_workflow=None,
+        )
+        is None
     )
 
 
@@ -127,6 +172,52 @@ def test_media_service_uses_video_domain_default_for_video_requests(monkeypatch)
         service._resolve_workflow(workflow=None, workflow_domain="video")["key"]
         == "runninghub/video_wan2.1_fusionx.json"
     )
+
+
+def test_media_service_raises_when_requested_domain_has_no_compatible_workflow(monkeypatch):
+    service = MediaService(
+        {
+            "comfyui": {
+                "image": {"default_workflow": None},
+                "video": {"default_workflow": None},
+            }
+        },
+        core=object(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_scan_workflows",
+        lambda: [_workflow_info("runninghub/video_wan2.1_fusionx.json")],
+    )
+
+    with pytest.raises(ValueError, match="No compatible workflows available for image"):
+        service._resolve_workflow(workflow=None, workflow_domain="image")
+
+
+def test_media_service_raises_for_explicit_incompatible_workflow(monkeypatch):
+    service = MediaService(
+        {
+            "comfyui": {
+                "image": {"default_workflow": None},
+                "video": {"default_workflow": None},
+            }
+        },
+        core=object(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_scan_workflows",
+        lambda: [
+            _workflow_info("selfhost/image_z_image_turbo.json"),
+            _workflow_info("runninghub/video_wan2.1_fusionx.json"),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="is not compatible with domain 'image'"):
+        service._resolve_workflow(
+            workflow="runninghub/video_wan2.1_fusionx.json",
+            workflow_domain="image",
+        )
 
 
 def test_base_service_still_raises_for_explicit_missing_workflow(monkeypatch):
