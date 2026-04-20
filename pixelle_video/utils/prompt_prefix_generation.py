@@ -43,7 +43,10 @@ def sanitize_prompt_prefix_candidates(result: PromptPrefixGenerationResult) -> l
     sanitized: list[dict[str, str]] = []
 
     for item in result.items:
+        name = item.name.strip()
         content = item.content.strip()
+        if not name:
+            continue
         if not content:
             continue
         if item.style_category_id not in style_ids:
@@ -53,7 +56,7 @@ def sanitize_prompt_prefix_candidates(result: PromptPrefixGenerationResult) -> l
 
         sanitized.append(
             {
-                "name": item.name.strip(),
+                "name": name,
                 "content": content,
                 "style_category_id": item.style_category_id,
                 "scene_category_id": item.scene_category_id,

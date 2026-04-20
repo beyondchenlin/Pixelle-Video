@@ -15,8 +15,8 @@ Configuration schema with Pydantic models
 
 Single source of truth for all configuration defaults and validation.
 """
-from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from typing import Any, Literal, Optional
+from pydantic import BaseModel, Field, model_validator
 
 from pixelle_video.config.prompt_prefix_library import (
     build_builtin_prompt_prefix_library_dict,
@@ -91,6 +91,25 @@ class ImageSubConfig(BaseModel):
         ),
         description="Reusable image prompt prefix presets",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def preserve_legacy_prompt_prefix_when_library_is_missing(cls, data: Any):
+        """Keep upgraded configs on their existing legacy prefix until users pick a library item."""
+        if not isinstance(data, dict):
+            return data
+        if "prompt_prefix_library" in data or "prompt_prefix" not in data:
+            return data
+
+        legacy_prefix = data.get("prompt_prefix")
+        if not isinstance(legacy_prefix, str) or not legacy_prefix.strip():
+            return data
+
+        upgraded = dict(data)
+        upgraded_library = build_builtin_prompt_prefix_library_dict()
+        upgraded_library["active_prefix_id"] = None
+        upgraded["prompt_prefix_library"] = upgraded_library
+        return upgraded
 
 
 class VideoSubConfig(BaseModel):

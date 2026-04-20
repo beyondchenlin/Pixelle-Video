@@ -150,18 +150,24 @@ def get_prompt_prefix_category_label(category_id: str, category_type: str, langu
     return category.get(language) or category.get("en_US") or category_id
 
 
+def _read_mapping_or_attr(container: Any, key: str, default: Any = None) -> Any:
+    if isinstance(container, dict):
+        return container.get(key, default)
+    return getattr(container, key, default)
+
+
 def get_effective_image_prompt_prefix(image_config: Any) -> str:
-    library = getattr(image_config, "prompt_prefix_library", None)
+    library = _read_mapping_or_attr(image_config, "prompt_prefix_library", None)
     if library is not None:
-        active_prefix_id = getattr(library, "active_prefix_id", None)
-        items = getattr(library, "items", [])
+        active_prefix_id = _read_mapping_or_attr(library, "active_prefix_id", None)
+        items = _read_mapping_or_attr(library, "items", [])
         for item in items:
-            if getattr(item, "id", None) == active_prefix_id:
-                content = getattr(item, "content", "")
+            if _read_mapping_or_attr(item, "id", None) == active_prefix_id:
+                content = _read_mapping_or_attr(item, "content", "")
                 if content and content.strip():
                     return content.strip()
 
-    legacy_prefix = getattr(image_config, "prompt_prefix", "") or ""
+    legacy_prefix = _read_mapping_or_attr(image_config, "prompt_prefix", "") or ""
     return legacy_prefix.strip()
 
 

@@ -65,3 +65,17 @@ def toggle_prompt_prefix_preview_selection(selected_ids: list[str], item_id: str
     if item_id in selected_ids:
         return [selected_id for selected_id in selected_ids if selected_id != item_id]
     return [*selected_ids, item_id]
+
+
+def sanitize_prompt_prefix_preview_selection(selected_ids: list[str], valid_ids: set[str]) -> list[str]:
+    """Drop stale preview ids and de-duplicate while preserving selection order."""
+    sanitized: list[str] = []
+    seen: set[str] = set()
+
+    for item_id in selected_ids:
+        if item_id not in valid_ids or item_id in seen:
+            continue
+        sanitized.append(item_id)
+        seen.add(item_id)
+
+    return sanitized

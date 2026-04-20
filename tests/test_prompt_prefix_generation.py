@@ -60,6 +60,24 @@ def test_sanitize_prompt_prefix_candidates_drops_invalid_category_ids():
     assert sanitize_prompt_prefix_candidates(result) == []
 
 
+def test_sanitize_prompt_prefix_candidates_drops_blank_names():
+    result = PromptPrefixGenerationResult.model_validate(
+        {
+            "items": [
+                {
+                    "name": "   ",
+                    "content": "flat illustration",
+                    "style_category_id": "flat_illustration",
+                    "scene_category_id": "knowledge_sharing",
+                    "note": "usable content but invalid empty title",
+                }
+            ]
+        }
+    )
+
+    assert sanitize_prompt_prefix_candidates(result) == []
+
+
 def test_build_prompt_prefix_preview_batch_limits_selection_count():
     with pytest.raises(ValueError, match="at most 4"):
         build_prompt_prefix_preview_batch(

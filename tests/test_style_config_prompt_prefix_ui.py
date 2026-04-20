@@ -1,6 +1,7 @@
 from web.utils.prompt_prefix_ui import (
     create_prompt_prefix_item,
     get_localized_prompt_prefix_category_options,
+    sanitize_prompt_prefix_preview_selection,
     toggle_prompt_prefix_preview_selection,
 )
 import json
@@ -43,6 +44,17 @@ def test_toggle_prompt_prefix_preview_selection_adds_and_removes_items():
 
     selected_ids = toggle_prompt_prefix_preview_selection(selected_ids, "prefix-a")
     assert selected_ids == []
+
+
+def test_sanitize_prompt_prefix_preview_selection_prunes_stale_ids_and_preserves_order():
+    selected_ids = ["library-a", "old-generated", "library-b", "library-a"]
+
+    sanitized = sanitize_prompt_prefix_preview_selection(
+        selected_ids,
+        valid_ids={"library-a", "library-b", "generated-c"},
+    )
+
+    assert sanitized == ["library-a", "library-b"]
 
 
 def test_style_config_source_references_prompt_prefix_library_ui():

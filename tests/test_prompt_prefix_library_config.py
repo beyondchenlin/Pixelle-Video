@@ -72,6 +72,22 @@ def test_get_effective_image_prompt_prefix_falls_back_to_legacy_prefix_when_libr
     assert get_effective_image_prompt_prefix(config.comfyui.image) == "legacy prefix"
 
 
+def test_image_config_with_legacy_prompt_prefix_and_no_library_keeps_legacy_prefix_active():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "image": {
+                    "prompt_prefix": "legacy custom prefix",
+                }
+            }
+        }
+    )
+
+    assert config.comfyui.image.prompt_prefix_library.active_prefix_id is None
+    assert config.comfyui.image.prompt_prefix_library.items
+    assert get_effective_image_prompt_prefix(config.comfyui.image) == "legacy custom prefix"
+
+
 def test_get_prompt_prefix_category_options_return_stable_ids():
     style_options, scene_options = get_prompt_prefix_category_options()
 

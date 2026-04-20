@@ -47,6 +47,7 @@ from pixelle_video.utils.os_util import (
 )
 from pixelle_video.utils.template_util import get_template_type
 from pixelle_video.utils.prompt_helper import build_image_prompt
+from pixelle_video.config.prompt_prefix_library import get_effective_image_prompt_prefix
 from pixelle_video.services.video import VideoService
 
 
@@ -176,48 +177,41 @@ class StandardPipeline(LinearVideoPipeline):
             min_words = ctx.params.get("min_image_prompt_words", 30)
             max_words = ctx.params.get("max_image_prompt_words", 60)
             
-            # Override prompt_prefix if provided
-            original_prefix = None
             if prompt_prefix is not None:
-                image_config = self.core.config.get("comfyui", {}).get("image", {})
-                original_prefix = image_config.get("prompt_prefix")
-                image_config["prompt_prefix"] = prompt_prefix
                 logger.info(f"Using custom prompt_prefix: '{prompt_prefix}'")
-            
-            try:
-                # Create progress callback wrapper for image prompt generation
-                def image_prompt_progress(completed: int, total: int, message: str):
-                    batch_progress = completed / total if total > 0 else 0
-                    overall_progress = 0.15 + (batch_progress * 0.15)
-                    self._report_progress(
-                        ctx.progress_callback,
-                        "generating_image_prompts",
-                        overall_progress,
-                        extra_info=message
-                    )
-                
-                # Generate base image prompts
-                base_image_prompts = await generate_image_prompts(
-                    self.llm,
-                    narrations=ctx.narrations,
-                    min_words=min_words,
-                    max_words=max_words,
-                    progress_callback=image_prompt_progress
+
+            # Create progress callback wrapper for image prompt generation
+            def image_prompt_progress(completed: int, total: int, message: str):
+                batch_progress = completed / total if total > 0 else 0
+                overall_progress = 0.15 + (batch_progress * 0.15)
+                self._report_progress(
+                    ctx.progress_callback,
+                    "generating_image_prompts",
+                    overall_progress,
+                    extra_info=message
                 )
-                
-                # Apply prompt prefix
-                image_config = self.core.config.get("comfyui", {}).get("image", {})
-                prompt_prefix_to_use = prompt_prefix if prompt_prefix is not None else image_config.get("prompt_prefix", "")
-                
-                ctx.image_prompts = []
-                for base_prompt in base_image_prompts:
-                    final_prompt = build_image_prompt(base_prompt, prompt_prefix_to_use)
-                    ctx.image_prompts.append(final_prompt)
-                
-            finally:
-                # Restore original prompt_prefix
-                if original_prefix is not None:
-                    image_config["prompt_prefix"] = original_prefix
+            
+            # Generate base image prompts
+            base_image_prompts = await generate_image_prompts(
+                self.llm,
+                narrations=ctx.narrations,
+                min_words=min_words,
+                max_words=max_words,
+                progress_callback=image_prompt_progress
+            )
+            
+            # Apply prompt prefix
+            image_config = self.core.config.get("comfyui", {}).get("image", {})
+            prompt_prefix_to_use = (
+                prompt_prefix
+                if prompt_prefix is not None
+                else get_effective_image_prompt_prefix(image_config)
+            )
+            
+            ctx.image_prompts = []
+            for base_prompt in base_image_prompts:
+                final_prompt = build_image_prompt(base_prompt, prompt_prefix_to_use)
+                ctx.image_prompts.append(final_prompt)
             
             logger.info(f"✅ Generated {len(ctx.image_prompts)} image prompts")
         else:

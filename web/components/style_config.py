@@ -40,6 +40,7 @@ from web.utils.preview_media import load_preview_media
 from web.utils.prompt_prefix_ui import (
     create_prompt_prefix_item,
     get_localized_prompt_prefix_category_options,
+    sanitize_prompt_prefix_preview_selection,
     toggle_prompt_prefix_preview_selection,
 )
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow, safe_rerun
@@ -156,8 +157,14 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
         keyword=keyword,
     )
 
-    selected_preview_ids = st.session_state.get("prompt_prefix_preview_ids", [])
     generated_candidates = st.session_state.get("prompt_prefix_generated_candidates", [])
+    selected_preview_ids = sanitize_prompt_prefix_preview_selection(
+        st.session_state.get("prompt_prefix_preview_ids", []),
+        {item["id"] for item in library_items} | {item["id"] for item in generated_candidates},
+    )
+    if selected_preview_ids != st.session_state.get("prompt_prefix_preview_ids", []):
+        st.session_state["prompt_prefix_preview_ids"] = selected_preview_ids
+        st.session_state.pop("prompt_prefix_preview_results", None)
 
     if not filtered_items:
         st.caption(tr("style.prefix_library.no_items"))
@@ -310,7 +317,7 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                                 max_tokens=1200,
                             )
                         )
-                        st.session_state["prompt_prefix_generated_candidates"] = [
+                        generated_candidates = [
                             create_prompt_prefix_item(
                                 name=candidate["name"],
                                 content=candidate["content"],
@@ -321,6 +328,13 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                             )
                             for candidate in sanitize_prompt_prefix_candidates(result)
                         ]
+                        st.session_state["prompt_prefix_generated_candidates"] = generated_candidates
+                        st.session_state["prompt_prefix_preview_ids"] = sanitize_prompt_prefix_preview_selection(
+                            st.session_state.get("prompt_prefix_preview_ids", []),
+                            {item["id"] for item in library_items} | {item["id"] for item in generated_candidates},
+                        )
+                        selected_preview_ids = st.session_state["prompt_prefix_preview_ids"]
+                        st.session_state.pop("prompt_prefix_preview_results", None)
                     except Exception as e:
                         st.error(tr("style.preview_failed", error=str(e)))
                         logger.exception(e)
