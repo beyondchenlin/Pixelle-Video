@@ -5,6 +5,7 @@ from pixelle_video.config.workflow_defaults import (
     get_configured_default_workflow,
     resolve_default_workflow,
 )
+from pixelle_video.config.schema import PixelleVideoConfig
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.services.media import MediaService
 from web.utils.workflow_defaults import resolve_selectbox_default_index
@@ -169,3 +170,10 @@ def test_resolve_selectbox_default_index_returns_zero_when_no_workflows_exist():
         )
         == 0
     )
+
+
+def test_schema_bootstrap_defaults_match_the_new_image_workflow():
+    config = PixelleVideoConfig()
+
+    assert config.comfyui.image.default_workflow == "selfhost/image_z_image_turbo.json"
+    assert config.comfyui.video.default_workflow == "runninghub/video_wan2.1_fusionx.json"

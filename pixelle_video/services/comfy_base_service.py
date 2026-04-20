@@ -176,7 +176,7 @@ class ComfyBaseService:
         Get the effective default workflow for a domain.
         
         Returns:
-            Default workflow key (e.g., "runninghub/image_flux.json")
+            Default workflow key (e.g., "selfhost/image_z_image_turbo.json")
         
         Raises:
             ValueError: If no compatible workflow can be resolved
@@ -207,7 +207,7 @@ class ComfyBaseService:
         Resolve workflow key to workflow info
         
         Args:
-            workflow: Workflow key (e.g., "runninghub/image_flux.json")
+            workflow: Workflow key (e.g., "selfhost/image_z_image_turbo.json")
                      If None, uses the effective default workflow
         
         Returns:
@@ -216,8 +216,8 @@ class ComfyBaseService:
                 "name": "image_flux.json",
                 "display_name": "image_flux.json - Runninghub",
                 "source": "runninghub",
-                "path": "workflows/runninghub/image_flux.json",
-                "key": "runninghub/image_flux.json",
+                "path": "workflows/selfhost/image_z_image_turbo.json",
+                "key": "selfhost/image_z_image_turbo.json",
                 "workflow_id": "123456"  # Only for RunningHub
             }
         
@@ -312,8 +312,8 @@ class ComfyBaseService:
             #         "name": "image_flux.json",
             #         "display_name": "image_flux.json - Runninghub",
             #         "source": "runninghub",
-            #         "path": "workflows/runninghub/image_flux.json",
-            #         "key": "runninghub/image_flux.json",
+            #         "path": "workflows/selfhost/image_z_image_turbo.json",
+            #         "key": "selfhost/image_z_image_turbo.json",
             #         "workflow_id": "123456"
             #     },
             #     ...
@@ -327,7 +327,7 @@ class ComfyBaseService:
         List available workflow keys
         
         Returns:
-            List of available workflow keys (e.g., ["runninghub/image_flux.json", ...])
+            List of available workflow keys (e.g., ["selfhost/image_z_image_turbo.json", ...])
         
         Example:
             print(f"Available workflows: {service.available}")

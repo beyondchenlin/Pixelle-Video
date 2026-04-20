@@ -20,7 +20,7 @@ comfyui:
   runninghub_instance_type: ""  # Instance type (optional, set to "plus" for 48GB VRAM)
   
   image:
-    default_workflow: "runninghub/image_flux.json"
+    default_workflow: "selfhost/image_z_image_turbo.json"
     prompt_prefix: "Minimalist illustration style"
   
   video:
@@ -62,6 +62,8 @@ template:
 ### Image Configuration
 
 - `default_workflow`: Default image generation workflow
+  - `selfhost/image_z_image_turbo.json`: Built-in default for the repo's illustration flow
+  - Saved user configuration overrides the built-in default
 - `prompt_prefix`: Prompt prefix
 
 ### Video Configuration
@@ -86,4 +88,3 @@ template:
 ## More Information
 
 The configuration file is automatically created on first run.
-

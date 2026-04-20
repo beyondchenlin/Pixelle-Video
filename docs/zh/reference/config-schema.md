@@ -20,7 +20,7 @@ comfyui:
   runninghub_instance_type: ""  # 实例类型（可选，设为 "plus" 使用 48GB 显存）
   
   image:
-    default_workflow: "runninghub/image_flux.json"
+    default_workflow: "selfhost/image_z_image_turbo.json"
     prompt_prefix: "Minimalist illustration style"
   
   video:
@@ -86,4 +86,3 @@ template:
 ## 更多信息
 
 配置文件会自动在首次运行时创建。
-

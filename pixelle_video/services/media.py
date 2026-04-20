@@ -34,7 +34,7 @@ class MediaService(ComfyBaseService):
     Supports both image_ and video_ workflow prefixes.
     
     Usage:
-        # Use default workflow (workflows/image_flux.json)
+        # Use default workflow (workflows/selfhost/image_z_image_turbo.json)
         media = await pixelle_video.media(prompt="a cat")
         if media.is_image:
             print(f"Generated image: {media.url}")
@@ -44,7 +44,7 @@ class MediaService(ComfyBaseService):
         # Use specific workflow
         media = await pixelle_video.media(
             prompt="a cat",
-            workflow="image_flux.json"
+            workflow="selfhost/image_z_image_turbo.json"
         )
         
         # List available workflows
@@ -135,7 +135,7 @@ class MediaService(ComfyBaseService):
         
         Args:
             prompt: Media generation prompt
-            workflow: Workflow filename (default: from config or "image_flux.json")
+            workflow: Workflow filename (default: from config or "selfhost/image_z_image_turbo.json")
             media_type: Type of media to generate - "image" or "video" (default: "image")
             comfyui_url: ComfyUI URL (optional, overrides config)
             runninghub_api_key: RunningHub API key (optional, overrides config)
@@ -153,7 +153,7 @@ class MediaService(ComfyBaseService):
             MediaResult object with media_type ("image" or "video") and url
         
         Examples:
-            # Simplest: use default workflow (workflows/image_flux.json)
+            # Simplest: use default workflow (workflows/selfhost/image_z_image_turbo.json)
             media = await pixelle_video.media(prompt="a beautiful cat")
             if media.is_image:
                 print(f"Image: {media.url}")
@@ -161,7 +161,7 @@ class MediaService(ComfyBaseService):
             # Use specific workflow
             media = await pixelle_video.media(
                 prompt="a cat",
-                workflow="image_flux.json"
+                workflow="selfhost/image_z_image_turbo.json"
             )
             
             # Video workflow
@@ -175,7 +175,7 @@ class MediaService(ComfyBaseService):
             # With additional parameters
             media = await pixelle_video.media(
                 prompt="a cat",
-                workflow="image_flux.json",
+                workflow="selfhost/image_z_image_turbo.json",
                 width=1024,
                 height=1024,
                 steps=20,

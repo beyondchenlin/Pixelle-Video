@@ -52,7 +52,10 @@ class TTSSubConfig(BaseModel):
 
 class ImageSubConfig(BaseModel):
     """Image-specific configuration (under comfyui.image)"""
-    default_workflow: Optional[str] = Field(default=None, description="Default image workflow (optional)")
+    default_workflow: Optional[str] = Field(
+        default="selfhost/image_z_image_turbo.json",
+        description="Default image workflow (optional)",
+    )
     prompt_prefix: str = Field(
         default="Minimalist black-and-white matchstick figure style illustration, clean lines, simple sketch style",
         description="Prompt prefix for all image generation"
@@ -61,7 +64,10 @@ class ImageSubConfig(BaseModel):
 
 class VideoSubConfig(BaseModel):
     """Video-specific configuration (under comfyui.video)"""
-    default_workflow: Optional[str] = Field(default=None, description="Default video workflow (optional)")
+    default_workflow: Optional[str] = Field(
+        default="runninghub/video_wan2.1_fusionx.json",
+        description="Default video workflow (optional)",
+    )
     prompt_prefix: str = Field(
         default="Minimalist black-and-white matchstick figure style illustration, clean lines, simple sketch style",
         description="Prompt prefix for all video generation"

@@ -33,10 +33,10 @@ comfyui:
   
   # Image-specific configuration
   image:
-    # Required: Default workflow to use (no fallback)
-    # Options: runninghub/image_flux.json (recommended, no local setup)
-    #          selfhost/image_flux.json (requires local ComfyUI)
-    default_workflow: runninghub/image_flux.json
+    # Required: Default workflow to use
+    # Options: selfhost/image_z_image_turbo.json (recommended default illustration flow)
+    #          runninghub/image_flux.json (cloud alternative)
+    default_workflow: selfhost/image_z_image_turbo.json
     
     # Image prompt prefix (optional)
     prompt_prefix: "Minimalist black-and-white matchstick figure style illustration, clean lines, simple sketch style"
