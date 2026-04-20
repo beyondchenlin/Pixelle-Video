@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make `selfhost/image_z_image_turbo.json` the product-wide default image workflow for illustration generation, using a single source of truth that works consistently across:
+Make `selfhost/image_z_image_turbo.json` the product-wide default image workflow for illustration generation, using a single runtime source of truth that works consistently across:
 
 - new installs
 - existing local `config.yaml` files that still contain `null` or empty defaults
@@ -103,7 +103,15 @@ Update the repository defaults to express the same intended default:
 - `pixelle_video/config/schema.py`
 - `config.example.yaml`
 
-These values should describe the product default for new users, but they should not be the only enforcement layer because existing local configs may already contain explicit `null`.
+These values should describe the product default for new users, but they must not become a second runtime source of truth.
+
+Runtime selection should still flow through the shared resolver and built-in default catalog described above.
+
+Practical rule:
+
+- the resolver catalog is authoritative for runtime fallback behavior
+- schema defaults and `config.example.yaml` are alignment surfaces for new-user bootstrap and documentation
+- if the codebase can avoid duplicating literals by importing shared constants safely, prefer that; otherwise, treat mirrored values as documentation that must stay in sync with the catalog
 
 ## 6. Align Documentation
 
@@ -111,6 +119,7 @@ Update docs that describe the default image workflow so the repo no longer docum
 
 - `docs/en/reference/config-schema.md`
 - `docs/zh/reference/config-schema.md`
+- `README.md`
 - any README or user-guide text that explicitly claims `image_flux.json` is the default image workflow
 
 The documentation should reflect both:
