@@ -1,19 +1,37 @@
 # AGENTS.md
 
-## Model Download Preference
+## 总则
 
-- For AI model files, ComfyUI model assets, and other large downloadable artifacts, prefer `ModelScope` as the default source.
-- If the same artifact exists on both `ModelScope` and another source such as Hugging Face, use `ModelScope` first.
-- Only fall back to other sources when the required file is missing from `ModelScope` or `ModelScope` is unavailable.
+- 本文件用于约束在本仓库中执行任务的代理与自动化协作行为。
+- 必须遵守仓库现有的分支管理、PR 流程、CI 校验和评审规则。
+- 在未另行说明的情况下，默认以最小必要改动完成当前任务，避免引入与目标无关的修改。
 
-## Download Behavior
+## 模型下载优先级
 
-- When downloading models for ComfyUI, place files into the correct target subdirectory based on the workflow and loader type.
-- If multiple required files are independent, parallel download is allowed and preferred when bandwidth and disk space permit.
-- Before starting large downloads, check available disk space and confirm the target directory.
-- After each download, verify that the file exists and has a reasonable size before reporting success.
+- 下载 AI 模型文件、ComfyUI 模型资源及其他大体积制品时，默认优先使用 `ModelScope`。
+- 如果同一资源同时存在于 `ModelScope` 与其他来源（如 `Hugging Face`），必须先使用 `ModelScope`。
+- 仅在 `ModelScope` 缺少所需文件，或 `ModelScope` 当前不可用时，才允许回退到其他来源。
 
-## Current Repo Context
+## 下载执行规则
 
-- This repository uses local ComfyUI workflows and may require downloading model files such as `diffusion_models`, `text_encoders`, and `vae` assets.
-- In this repo, future model download tasks should default to `ModelScope` first.
+- 为 ComfyUI 下载模型时，必须根据工作流和加载器类型，将文件放入正确的目标子目录。
+- 如果多个所需文件彼此独立，在带宽和磁盘空间允许的前提下，允许并优先采用并行下载。
+- 开始大体积下载前，必须先检查可用磁盘空间，并确认目标目录正确无误。
+- 每次下载完成后，必须校验文件是否存在，且文件大小应处于合理范围；完成校验后才能报告下载成功。
+
+## Git 提交规则
+
+- 必须遵守仓库现有的分支、PR、CI 和评审规则。
+- 默认采用原子化 Git 提交；开始修改前，必须先按单一变更意图收敛本次改动范围。
+- 单文件修改如果已经构成独立、完整、可单独理解和回滚的变更单元，应立即单独提交。
+- 多文件修改如果共同服务于同一变更意图，可以合并为一次提交；禁止把无关改动混入同一次提交。
+- 如果当前 `diff` 混入多个独立意图，必须拆分为多个原子提交。
+- 如果当前改动尚不足以构成最小完整变更单元，必须继续补齐后再提交。
+- 每次提交都必须使用明确、具体、可审计的提交说明。
+- 一旦满足原子化提交条件，必须直接执行 `git commit`，不再就“是否提交”向用户额外确认。
+- 如果工作区混入本次任务之外或归属不清的改动，必须先完成隔离，只提交当前原子变更单元对应的 `diff`。
+
+## 当前仓库上下文
+
+- 本仓库使用本地 ComfyUI 工作流，后续任务中可能需要下载 `diffusion_models`、`text_encoders`、`vae` 等模型资源。
+- 在本仓库中，后续涉及模型下载的任务默认应优先选择 `ModelScope`。
