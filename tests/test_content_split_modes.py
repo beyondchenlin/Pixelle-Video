@@ -67,3 +67,14 @@ def test_split_text_into_sentences_handles_no_space_english_boundary():
         "Wait!",
         "Another sentence.",
     ]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("No.2 item", ["No.2 item"]),
+        ("U.S.A.Test", ["U.S.A.Test"]),
+    ],
+)
+def test_split_text_into_sentences_keeps_common_abbreviation_patterns_together(text, expected):
+    assert split_text_into_sentences(text) == expected

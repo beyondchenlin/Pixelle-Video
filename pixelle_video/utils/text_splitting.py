@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from typing import List
 
 _SENTENCE_CLOSE_CHARS = {'"', "'", "”", "’", ")", "]", "}"}
@@ -27,13 +26,13 @@ def _is_sentence_boundary(text: str, index: int) -> bool:
     if not next_char:
         return True
 
-    if next_char.isspace() or next_char in _SENTENCE_CLOSE_CHARS:
-        return True
+    if char == ".":
+        return next_char.isspace() or next_char in _SENTENCE_CLOSE_CHARS
 
-    if next_char.isupper() or next_char.isdigit():
-        return True
-
-    return unicodedata.category(next_char).startswith("L") and not next_char.islower()
+    # Keep the no-space rule intentionally narrow: only exclamation/question
+    # boundaries can continue into the next sentence without whitespace, and only
+    # when the next character is an uppercase Latin letter.
+    return next_char.isspace() or next_char in _SENTENCE_CLOSE_CHARS or next_char.isupper()
 
 
 def split_text_into_sentences(text: str) -> List[str]:
@@ -44,7 +43,8 @@ def split_text_into_sentences(text: str) -> List[str]:
     - decimals like ``2.1``
     - quoted endings like ``"Go."``
     - CJK sentence punctuation
-    - no-space English boundaries like ``Wait!Another sentence.``
+    - a narrow no-space English boundary case like ``Wait!Another sentence.``
+      after ``!`` or ``?`` when the next sentence starts with an uppercase letter
     """
     cleaned = re.sub(r"\s+", " ", text.strip())
     if not cleaned:
