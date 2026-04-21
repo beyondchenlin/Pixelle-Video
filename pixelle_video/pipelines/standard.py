@@ -18,6 +18,7 @@ This is the default pipeline for general-purpose video generation.
 Refactored to use LinearVideoPipeline (Template Method Pattern).
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable, Literal, List
@@ -26,6 +27,7 @@ import shutil
 
 from loguru import logger
 
+from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import (
@@ -47,6 +49,16 @@ from pixelle_video.utils.os_util import (
 )
 from pixelle_video.utils.template_util import get_template_type
 from pixelle_video.services.video import VideoService
+
+
+@dataclass(frozen=True)
+class AssetExecutionMode:
+    template_type: Literal["static", "image", "video"]
+    tts_workflow_key: Optional[str]
+    media_workflow_key: Optional[str]
+    media_domain: Literal["static", "image", "video"]
+    is_runninghub: bool
+    use_staged_mode: bool
 
 
 
@@ -281,6 +293,61 @@ class StandardPipeline(LinearVideoPipeline):
                 created_at=datetime.now()
             )
             ctx.storyboard.frames.append(frame)
+
+    def _resolve_media_domain(
+        self,
+        config: StoryboardConfig,
+    ) -> Literal["static", "image", "video"]:
+        template_type = get_template_type(Path(config.frame_template).name)
+        if template_type == "static":
+            return "static"
+
+        configured_domain = infer_workflow_domain(config.media_workflow)
+        if configured_domain == "video":
+            return "video"
+        if configured_domain == "image":
+            return "image"
+
+        return template_type
+
+    def _resolve_asset_execution_mode(self, ctx: PipelineContext) -> AssetExecutionMode:
+        config = ctx.config
+        template_type = get_template_type(Path(config.frame_template).name)
+        media_domain = self._resolve_media_domain(config)
+
+        tts_workflow_key = None
+        if config.tts_inference_mode == "comfyui":
+            tts_workflow_key = self.core.tts._resolve_workflow(
+                workflow=config.tts_workflow,
+            )["key"]
+
+        media_workflow_key = None
+        if media_domain != "static":
+            media_workflow_key = self.core.media._resolve_workflow(
+                workflow=config.media_workflow,
+                workflow_domain=media_domain,
+            )["key"]
+
+        is_runninghub = any(
+            key and key.startswith("runninghub/")
+            for key in (tts_workflow_key, media_workflow_key)
+        )
+        use_staged_mode = (
+            template_type == "image"
+            and media_domain == "image"
+            and config.tts_inference_mode == "comfyui"
+            and bool(tts_workflow_key and tts_workflow_key.startswith("selfhost/"))
+            and bool(media_workflow_key and media_workflow_key.startswith("selfhost/"))
+        )
+
+        return AssetExecutionMode(
+            template_type=template_type,
+            tts_workflow_key=tts_workflow_key,
+            media_workflow_key=media_workflow_key,
+            media_domain=media_domain,
+            is_runninghub=is_runninghub,
+            use_staged_mode=use_staged_mode,
+        )
 
     async def produce_assets(self, ctx: PipelineContext):
         """Step 6: Generate audio, images, and render frames (Core processing)."""
