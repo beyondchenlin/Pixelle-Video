@@ -30,7 +30,7 @@ from api.schemas.content import (
 )
 from pixelle_video.utils.content_generators import (
     generate_narrations_from_topic,
-    generate_image_prompts,
+    generate_styled_image_prompt_batch,
     generate_title,
 )
 
@@ -93,17 +93,21 @@ async def generate_image_prompt(
     """
     try:
         logger.info(f"Generating image prompts for {len(request.narrations)} narrations")
-        
-        # Call image prompt generator utility function
-        image_prompts = await generate_image_prompts(
+
+        image_config = pixelle_video.config.get("comfyui", {}).get("image", {})
+        batch = await generate_styled_image_prompt_batch(
             llm_service=pixelle_video.llm,
             narrations=request.narrations,
+            image_config=image_config,
+            prompt_prefix=request.prompt_prefix,
+            workflow=request.workflow,
+            media_service=pixelle_video.media,
             min_words=request.min_words,
-            max_words=request.max_words
+            max_words=request.max_words,
         )
-        
+
         return ImagePromptGenerateResponse(
-            image_prompts=image_prompts
+            image_prompts=batch.prompts
         )
         
     except Exception as e:
@@ -143,4 +147,3 @@ async def generate_title_endpoint(
     except Exception as e:
         logger.error(f"Title generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-

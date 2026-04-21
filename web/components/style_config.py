@@ -38,6 +38,7 @@ from pixelle_video.utils.prompt_prefix_generation import (
     build_prompt_prefix_preview_batch,
     sanitize_prompt_prefix_candidates,
 )
+from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
 from web.utils.preview_media import load_preview_media
@@ -484,31 +485,14 @@ def _render_image_prompt_prefix_library_legacy(pixelle_video, workflow_key: str,
             else:
                 with st.spinner(tr("style.previewing")):
                     try:
-                        from pixelle_video.utils.prompt_helper import build_image_prompt
-
-                        preview_results = []
-                        for item in preview_items:
-                            final_prompt = build_image_prompt(test_prompt, item["content"])
-                            media_result = run_async(
-                                pixelle_video.media(
-                                    prompt=final_prompt,
-                                    workflow=workflow_key,
-                                    media_type="image",
-                                    width=int(media_width),
-                                    height=int(media_height),
-                                )
-                            )
-                            if media_result.url:
-                                preview_results.append(
-                                    {
-                                        "id": item["id"],
-                                        "name": item["name"],
-                                        "content": item["content"],
-                                        "final_prompt": final_prompt,
-                                        "preview_media_path": media_result.url,
-                                    }
-                                )
-                        st.session_state["prompt_prefix_preview_results"] = preview_results
+                        st.session_state["prompt_prefix_preview_results"] = _generate_prompt_prefix_preview_results(
+                            pixelle_video=pixelle_video,
+                            workflow_key=workflow_key,
+                            media_width=int(media_width),
+                            media_height=int(media_height),
+                            test_prompt=test_prompt,
+                            items=preview_items,
+                        )
                     except Exception as e:
                         st.error(tr("style.preview_failed", error=str(e)))
                         logger.exception(e)
@@ -575,14 +559,24 @@ def _generate_prompt_prefix_preview_results(
     items: list[dict],
 ) -> list[dict]:
     """Generate prompt-prefix previews sequentially for the current workflow."""
-    from pixelle_video.utils.prompt_helper import build_image_prompt
-
     preview_results: list[dict] = []
+    image_config = pixelle_video.config.get("comfyui", {}).get("image", {})
     for item in items:
-        final_prompt = build_image_prompt(test_prompt, item["content"])
+        styled_batch = run_async(
+            generate_styled_image_prompt_batch(
+                llm_service=pixelle_video.llm,
+                narrations=[test_prompt],
+                image_config=image_config,
+                prompt_prefix=item["content"],
+                workflow=workflow_key,
+                media_service=pixelle_video.media,
+            )
+        )
+        final_prompt = styled_batch.prompts[0]
         media_result = run_async(
             pixelle_video.media(
                 prompt=final_prompt,
+                negative_prompt=styled_batch.negative_prompt,
                 workflow=workflow_key,
                 media_type="image",
                 width=int(media_width),

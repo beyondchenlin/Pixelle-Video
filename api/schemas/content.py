@@ -56,6 +56,14 @@ class ImagePromptGenerateRequest(BaseModel):
     narrations: List[str] = Field(..., description="List of narrations")
     min_words: int = Field(30, ge=10, le=100, description="Minimum words per prompt")
     max_words: int = Field(60, ge=10, le=200, description="Maximum words per prompt")
+    prompt_prefix: Optional[str] = Field(
+        None,
+        description="Request-scoped image style prefix override",
+    )
+    workflow: Optional[str] = Field(
+        None,
+        description="Workflow key used for capability-gated optional fields",
+    )
     
     class Config:
         json_schema_extra = {
@@ -65,7 +73,9 @@ class ImagePromptGenerateRequest(BaseModel):
                     "Focus on systems, not goals"
                 ],
                 "min_words": 30,
-                "max_words": 60
+                "max_words": 60,
+                "prompt_prefix": "angry birds world",
+                "workflow": "selfhost/image_z_image_turbo.json",
             }
         }
 
@@ -100,4 +110,3 @@ class TitleGenerateResponse(BaseModel):
     success: bool = True
     message: str = "Success"
     title: str = Field(..., description="Generated title")
-

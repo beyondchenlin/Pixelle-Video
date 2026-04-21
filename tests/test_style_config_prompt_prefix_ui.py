@@ -1,5 +1,11 @@
-from web.components import style_config
+import asyncio
+import json
+import os
+from pathlib import Path
+
 from pixelle_video.config import prompt_prefix_library
+from pixelle_video.models.style_resolution import StyledImagePromptBatch
+from web.components import style_config
 from web.utils.preview_media import PreviewMediaData
 from web.utils.prompt_prefix_ui import (
     clone_prompt_prefix_preview_asset,
@@ -13,9 +19,6 @@ from web.utils.prompt_prefix_ui import (
     sanitize_prompt_prefix_preview_selection,
     toggle_prompt_prefix_preview_selection,
 )
-import json
-import os
-from pathlib import Path
 
 
 def test_create_prompt_prefix_item_trims_fields_and_preserves_category_ids():
@@ -466,3 +469,45 @@ def test_runtime_asset_dirs_are_gitignored():
 
     assert ".superpowers/" in gitignore
     assert "resources/prompt_prefix_previews/custom/" in gitignore
+
+
+def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeypatch):
+    captured = {}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured["prompt_prefix"] = kwargs["prompt_prefix"]
+        return StyledImagePromptBatch(
+            prompts=["preview final prompt"],
+            negative_prompt="avoid realism",
+            resolved_style=None,
+        )
+
+    class _FakePixelleVideo:
+        llm = object()
+        config = {
+            "comfyui": {
+                "image": {
+                    "prompt_prefix": "",
+                    "prompt_prefix_library": {"active_prefix_id": None, "items": []},
+                }
+            }
+        }
+
+        async def media(self, **kwargs):
+            captured["media_kwargs"] = kwargs
+            return type("MediaResult", (), {"url": "preview.png"})()
+
+    monkeypatch.setattr(style_config, "generate_styled_image_prompt_batch", fake_generate_styled_image_prompt_batch)
+    monkeypatch.setattr(style_config, "run_async", lambda coro: asyncio.run(coro))
+
+    preview_results = style_config._generate_prompt_prefix_preview_results(
+        pixelle_video=_FakePixelleVideo(),
+        workflow_key="selfhost/image_z_image_turbo.json",
+        media_width=1024,
+        media_height=1024,
+        test_prompt="a dog",
+        items=[{"id": "prefix-1", "name": "Bird World", "content": "angry birds world"}],
+    )
+
+    assert preview_results[0]["final_prompt"] == "preview final prompt"
+    assert captured["media_kwargs"]["negative_prompt"] == "avoid realism"
