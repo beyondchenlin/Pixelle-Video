@@ -17,7 +17,7 @@ For generating image prompts from narrations.
 """
 
 import json
-from typing import List, Optional
+from typing import Any, List, Optional
 
 
 # ==================== PRESET IMAGE STYLES ====================
@@ -55,6 +55,9 @@ Based on the existing video script, create corresponding **English** image promp
 
 **Important: The input contains {narrations_count} narrations. You must generate one corresponding image prompt for each narration, totaling {narrations_count} image prompts.**
 
+# Input Style Profile
+{style_profile_json}
+
 # Input Content
 {narrations_json}
 
@@ -64,6 +67,8 @@ Based on the existing video script, create corresponding **English** image promp
 - Language: **Must use English** (for AI image generation models)
 - Description structure: scene + character action + emotion + symbolic elements
 - Description length: Ensure clear, complete, and creative descriptions (recommended 50-100 English words)
+- If a style profile is provided, subject design, material, palette, lighting, world elements, and consistency must obey that style profile first
+- When `style_kind` is `ip_world`, redesign the subject into the target universe without replacing the subject semantics
 
 ## Visual Creative Requirements
 - Each image must accurately reflect the specific content and emotion of the corresponding narration
@@ -120,7 +125,8 @@ Now, please create {narrations_count} corresponding **English** image prompts fo
 def build_image_prompt_prompt(
     narrations: List[str],
     min_words: int,
-    max_words: int
+    max_words: int,
+    style_profile: Optional[dict[str, Any]] = None,
 ) -> str:
     """
     Build image prompt generation prompt
@@ -143,11 +149,12 @@ def build_image_prompt_prompt(
         ensure_ascii=False,
         indent=2
     )
+    style_profile_json = json.dumps(style_profile or None, ensure_ascii=False, indent=2)
     
     return IMAGE_PROMPT_GENERATION_PROMPT.format(
+        style_profile_json=style_profile_json,
         narrations_json=narrations_json,
         narrations_count=len(narrations),
         min_words=min_words,
         max_words=max_words
     )
-

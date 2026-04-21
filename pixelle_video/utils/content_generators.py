@@ -24,6 +24,14 @@ from typing import List, Literal, Optional
 
 from loguru import logger
 
+from pixelle_video.models.style_resolution import StyledImagePromptBatch
+from pixelle_video.utils.prompt_helper import assemble_image_prompt, assemble_negative_prompt
+from pixelle_video.utils.style_resolution import resolve_style_source, resolve_style_spec
+from pixelle_video.utils.workflow_capabilities import (
+    WorkflowCapabilities,
+    get_media_workflow_capabilities,
+)
+
 
 async def generate_title(
     llm_service,
@@ -327,7 +335,8 @@ async def generate_image_prompts(
     max_words: int = 60,
     batch_size: int = 10,
     max_retries: int = 3,
-    progress_callback: Optional[callable] = None
+    progress_callback: Optional[callable] = None,
+    style_profile: Optional[dict] = None,
 ) -> List[str]:
     """
     Generate image prompts from narrations (with batching and retry)
@@ -365,7 +374,8 @@ async def generate_image_prompts(
                 prompt = build_image_prompt_prompt(
                     narrations=batch_narrations,
                     min_words=min_words,
-                    max_words=max_words
+                    max_words=max_words,
+                    style_profile=style_profile,
                 )
                 
                 response = await llm_service(
@@ -421,6 +431,62 @@ async def generate_image_prompts(
     
     logger.info(f"✅ Generated {len(all_prompts)} image prompts")
     return all_prompts
+
+
+async def generate_styled_image_prompt_batch(
+    llm_service,
+    narrations: List[str],
+    image_config,
+    prompt_prefix: Optional[str] = None,
+    workflow: Optional[str] = None,
+    media_service=None,
+    min_words: int = 30,
+    max_words: int = 60,
+    batch_size: int = 10,
+    max_retries: int = 3,
+    progress_callback: Optional[callable] = None,
+) -> StyledImagePromptBatch:
+    source = resolve_style_source(image_config, prompt_prefix_override=prompt_prefix)
+    raw_prefix = source.raw_content if source else ""
+    resolved_style = None
+    style_profile = None
+
+    if source is not None:
+        try:
+            resolved_style = await resolve_style_spec(llm_service, source)
+            style_profile = resolved_style.style_profile
+        except Exception:
+            logger.exception("Style resolution failed, falling back to legacy prefix concatenation")
+
+    base_prompts = await generate_image_prompts(
+        llm_service=llm_service,
+        narrations=narrations,
+        min_words=min_words,
+        max_words=max_words,
+        batch_size=batch_size,
+        max_retries=max_retries,
+        progress_callback=progress_callback,
+        style_profile=style_profile,
+    )
+
+    capabilities = (
+        get_media_workflow_capabilities(media_service, workflow=workflow)
+        if media_service is not None
+        else WorkflowCapabilities()
+    )
+    final_prompts = [
+        assemble_image_prompt(base_prompt, raw_prefix=raw_prefix, resolved_style=resolved_style)
+        for base_prompt in base_prompts
+    ]
+    negative_prompt = assemble_negative_prompt(
+        resolved_style,
+        supports_negative_prompt=capabilities.supports_negative_prompt,
+    )
+    return StyledImagePromptBatch(
+        prompts=final_prompts,
+        negative_prompt=negative_prompt,
+        resolved_style=resolved_style,
+    )
 
 
 async def generate_video_prompts(

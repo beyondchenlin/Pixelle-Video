@@ -16,6 +16,10 @@ Prompt helper utilities
 Simple utilities for building prompts with optional prefixes.
 """
 
+from typing import Optional
+
+from pixelle_video.models.style_resolution import ResolvedStyleSpec
+
 
 def build_image_prompt(prompt: str, prefix: str = "") -> str:
     """
@@ -48,3 +52,41 @@ def build_image_prompt(prompt: str, prefix: str = "") -> str:
     else:
         return prompt
 
+
+def assemble_image_prompt(
+    base_prompt: str,
+    raw_prefix: str = "",
+    resolved_style: Optional[ResolvedStyleSpec] = None,
+) -> str:
+    if resolved_style is None:
+        return build_image_prompt(base_prompt, raw_prefix)
+
+    template = (resolved_style.prompt_template or "").strip()
+    if template and "{prompt}" in template:
+        templated = template.replace("{prompt}", base_prompt.strip())
+    else:
+        templated = base_prompt.strip()
+
+    if resolved_style.style_kind == "ip_world":
+        return templated
+
+    if resolved_style.style_kind == "hybrid":
+        raw_prefix = raw_prefix.strip()
+        if raw_prefix and raw_prefix.lower() not in templated.lower():
+            return f"{templated}, {raw_prefix}"
+        return templated
+
+    if template:
+        return templated
+    return build_image_prompt(base_prompt, raw_prefix)
+
+
+def assemble_negative_prompt(
+    resolved_style: Optional[ResolvedStyleSpec],
+    supports_negative_prompt: bool,
+) -> Optional[str]:
+    if not resolved_style or not supports_negative_prompt:
+        return None
+
+    negative_prompt = (resolved_style.negative_prompt or "").strip()
+    return negative_prompt or None
