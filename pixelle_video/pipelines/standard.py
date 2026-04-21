@@ -38,6 +38,7 @@ from pixelle_video.models.storyboard import (
     ContentMetadata,
     VideoGenerationResult
 )
+from pixelle_video.services.timing_planner import TimingPlanner
 from pixelle_video.utils.content_generators import (
     generate_title,
     generate_narrations_from_topic,
@@ -296,6 +297,17 @@ class StandardPipeline(LinearVideoPipeline):
                 created_at=datetime.now()
             )
             ctx.storyboard.frames.append(frame)
+
+        planner = TimingPlanner(
+            mode=ctx.config.tts_batching_mode,
+            max_sentences=ctx.config.tts_batch_max_sentences,
+            max_chars=ctx.config.tts_batch_max_chars,
+        )
+        ctx.timing_plan = planner.build(ctx.storyboard.frames)
+        logger.info(
+            "Timing plan prepared: "
+            f"{len(ctx.timing_plan.sentences)} sentence units -> {len(ctx.timing_plan.blocks)} audio blocks"
+        )
 
     def _resolve_media_domain(
         self,

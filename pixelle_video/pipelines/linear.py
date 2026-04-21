@@ -30,6 +30,7 @@ from pixelle_video.models.storyboard import (
 )
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
+from pixelle_video.services.timing_planner import TimingPlan
 
 
 @dataclass
@@ -56,6 +57,7 @@ class PipelineContext:
     image_prompts: List[Optional[str]] = field(default_factory=list)
     resolved_style: Optional[ResolvedStyleSpec] = None
     media_negative_prompt: Optional[str] = None
+    timing_plan: Optional[TimingPlan] = None
     
     # === Configuration & Storyboard ===
     config: Optional[StoryboardConfig] = None

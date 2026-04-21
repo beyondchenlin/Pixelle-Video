@@ -47,9 +47,10 @@ class SentenceUnit:
 class AudioBlock:
     id: str
     text: str
-    audio_path: str
-    start: float
-    end: float
+    audio_path: Optional[str] = None
+    start: float = 0.0
+    end: float = 0.0
+    source_frame_indices: List[int] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -59,9 +60,10 @@ class AudioBlock:
         return cls(
             id=data["id"],
             text=data["text"],
-            audio_path=data["audio_path"],
-            start=data["start"],
-            end=data["end"],
+            audio_path=data.get("audio_path"),
+            start=data.get("start", 0.0),
+            end=data.get("end", 0.0),
+            source_frame_indices=list(data.get("source_frame_indices", [])),
         )
 
 
