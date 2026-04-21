@@ -26,6 +26,7 @@ from typing import Optional, Callable
 from loguru import logger
 
 from pixelle_video.pipelines.base import BasePipeline
+from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import (
     Storyboard,
@@ -278,6 +279,7 @@ class CustomPipeline(BasePipeline):
             tts_workflow=final_tts_workflow,  # Use processed workflow
             tts_speed=tts_speed,
             ref_audio=ref_audio,
+            **resolve_storyboard_render_kwargs(self.core.config, kwargs),
             media_width=media_width,
             media_height=media_height,
             media_workflow=media_workflow,

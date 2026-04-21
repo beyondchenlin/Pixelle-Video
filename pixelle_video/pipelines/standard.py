@@ -29,6 +29,7 @@ from loguru import logger
 
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
+from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import (
     Storyboard,
@@ -269,6 +270,7 @@ class StandardPipeline(LinearVideoPipeline):
             tts_workflow=final_tts_workflow,
             tts_speed=ctx.params.get("tts_speed", 1.2),
             ref_audio=ctx.params.get("ref_audio"),
+            **resolve_storyboard_render_kwargs(self.core.config, ctx.params),
             media_width=ctx.params.get("media_width"),
             media_height=ctx.params.get("media_height"),
             media_workflow=ctx.params.get("media_workflow"),

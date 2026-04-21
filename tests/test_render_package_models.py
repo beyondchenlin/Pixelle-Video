@@ -1,3 +1,5 @@
+import pytest
+
 from pixelle_video.config.loader import load_config_dict, save_config_dict
 from pixelle_video.config.schema import PixelleVideoConfig
 from pixelle_video.models.render_package import (
@@ -8,6 +10,8 @@ from pixelle_video.models.render_package import (
     VisualClip,
 )
 from pixelle_video.models.storyboard import StoryboardConfig
+from pixelle_video.pipelines.linear import PipelineContext
+from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.persistence import PersistenceService
 
 
@@ -136,3 +140,53 @@ render:
     assert reparsed.render.backend == "hyperframes"
     assert reparsed.render.timing.tts_batching_mode == "sentence"
     assert reparsed.render.timing.silence_trim_tool == "ffmpeg"
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_initialize_storyboard_uses_render_config_defaults():
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {
+                "render": {
+                    "backend": "cinematic",
+                    "timing": {
+                        "tts_batching_mode": "sentence",
+                        "tts_batch_max_sentences": 5,
+                        "tts_batch_max_chars": 160,
+                        "subtitle_alignment_engine": "whisperx",
+                        "silence_trim_tool": "ffmpeg",
+                        "silence_trim_margin_ms": 75,
+                    },
+                }
+            },
+            "llm": None,
+            "tts": None,
+            "media": None,
+            "video": None,
+        },
+    )()
+
+    pipeline = StandardPipeline(fake_core)
+    ctx = PipelineContext(
+        input_text="demo",
+        params={
+            "media_width": 1080,
+            "media_height": 1920,
+        },
+    )
+    ctx.task_id = "task-1"
+    ctx.title = "demo"
+    ctx.narrations = ["Sentence 1."]
+    ctx.image_prompts = ["prompt"]
+
+    await pipeline.initialize_storyboard(ctx)
+
+    assert ctx.config.tts_batching_mode == "sentence"
+    assert ctx.config.tts_batch_max_sentences == 5
+    assert ctx.config.tts_batch_max_chars == 160
+    assert ctx.config.subtitle_alignment_engine == "whisperx"
+    assert ctx.config.silence_trim_tool == "ffmpeg"
+    assert ctx.config.silence_trim_margin_ms == 75
+    assert ctx.config.render_backend == "cinematic"

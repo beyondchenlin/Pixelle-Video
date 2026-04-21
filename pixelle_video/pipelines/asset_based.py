@@ -39,6 +39,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
+from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.utils.os_util import (
     create_task_output_dir,
@@ -476,6 +477,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
             tts_inference_mode="local",
             voice_id=context.params.get("voice_id", "zh-CN-YunjianNeural"),
             tts_speed=context.params.get("tts_speed", 1.2),
+            **resolve_storyboard_render_kwargs(self.core.config, context.params),
             media_width=media_width,
             media_height=media_height,
             frame_template=template_name,
