@@ -47,6 +47,7 @@ The staged mode activates only when all of the following are true:
 2. TTS inference mode is `comfyui`
 3. The resolved TTS workflow key starts with `selfhost/`
 4. The resolved media workflow key starts with `selfhost/`
+5. The resolved media workflow is an `image` workflow, not a `video` workflow
 
 If any condition is not met, the pipeline keeps the existing frame-by-frame behavior.
 
@@ -54,6 +55,8 @@ Resolution rule:
 
 - trigger detection must resolve the effective workflow key, not rely only on raw `config.tts_workflow` / `config.media_workflow`
 - this ensures configured default selfhost workflows still activate staged mode even when the request did not explicitly pass workflow keys
+- trigger detection must resolve the effective media domain as well, not assume that an `image` template always means image generation
+- if the effective media workflow resolves to a video workflow, staged mode must not activate even if the selected template type is `image`
 
 Important exclusions:
 
@@ -139,6 +142,26 @@ Recommended staged progress events:
 - compose stage: `frame_step`, `step=3`, `action="compose"`
 - segment stage: `frame_step`, `step=4`, `action="video"`
 
+Recommended progress allocation within the existing asset-production range:
+
+- audio stage: `0.20 -> 0.35`
+- image stage: `0.35 -> 0.50`
+- compose stage: `0.50 -> 0.65`
+- segment stage: `0.65 -> 0.80`
+
+Progress rule:
+
+- progress must be monotonic and never move backward
+- for each stage, compute frame progress from the frame index within that stage
+- after the final frame of a stage completes, explicitly advance progress to that stage's upper bound
+- after the final segment completes, `produce_assets()` should finish at `0.80`, after which post-production can continue from the current `concatenating` progress point
+
+Implementation note:
+
+- staged mode should not rely on `FrameProcessor.__call__()` for progress emission
+- instead, `StandardPipeline` should emit staged progress events directly while reusing the underlying per-step generation/composition logic
+- this avoids mixing the old frame-local `0.0 / 0.25 / 0.50 / 0.75` timing model with the new stage-local execution order
+
 Meaning:
 
 - the UI text format can stay unchanged
@@ -179,8 +202,10 @@ Reuse without behavior changes where possible:
 
 Expected implementation shape:
 
-- extract a small helper to determine whether staged mode should activate
+- extract a small helper to resolve execution mode before branching
+- that helper should return the effective template type, effective TTS workflow key, effective media workflow key, effective media domain, `is_runninghub`, and `use_staged_mode`
 - add a staged branch inside `produce_assets()`
+- replace the current raw-string RunningHub detection with the same resolved execution-mode helper
 - keep the existing serial and RunningHub branches intact for non-trigger cases
 - use the same workflow-resolution rules as the service layer when determining selfhost vs runninghub
 
@@ -194,6 +219,7 @@ Add focused tests for:
 4. Immediate abort on staged audio failure
 5. Immediate abort on staged image failure
 6. Correct final frame state population after staged success
+7. `image` template plus effective `video_*` media workflow must not activate staged mode
 
 Important regression checks:
 
