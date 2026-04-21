@@ -366,7 +366,7 @@ async def test_produce_assets_disables_runninghub_parallel_for_mixed_selfhost_me
 
 
 @pytest.mark.asyncio
-async def test_post_production_uses_filter_concat_for_standard_pipeline(monkeypatch, tmp_path):
+async def test_post_production_uses_default_concat_for_standard_pipeline(monkeypatch, tmp_path):
     calls = {}
 
     class _FakeVideoService:
@@ -388,4 +388,4 @@ async def test_post_production_uses_filter_concat_for_standard_pipeline(monkeypa
 
     assert calls["videos"] == ["segment-0.mp4", "segment-1.mp4"]
     assert calls["output"] == ctx.final_video_path
-    assert calls["kwargs"]["method"] == "filter"
+    assert "method" not in calls["kwargs"]
