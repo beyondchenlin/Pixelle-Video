@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -175,3 +176,43 @@ async def test_initialize_wires_hyperframes_services(monkeypatch):
     assert isinstance(core.audio_edit_service, AudioEditService)
     assert isinstance(core.hyperframes_project_service, HyperFramesProjectService)
     assert isinstance(core.hyperframes_renderer, HyperFramesRenderer)
+
+
+@pytest.mark.asyncio
+async def test_initialize_wires_hyperframes_project_service_to_pixelle_root(monkeypatch, tmp_path):
+    class DummyService:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+    class DummyPipeline:
+        def __init__(self, core):
+            self.core = core
+
+    pixelle_root = tmp_path / "pixelle-root"
+    pixelle_root.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("PIXELLE_VIDEO_ROOT", str(pixelle_root))
+    monkeypatch.setattr(service_module, "LLMService", DummyService)
+    monkeypatch.setattr(service_module, "TTSService", DummyService)
+    monkeypatch.setattr(service_module, "MediaService", DummyService)
+    monkeypatch.setattr(service_module, "ImageAnalysisService", DummyService)
+    monkeypatch.setattr(service_module, "VideoAnalysisService", DummyService)
+    monkeypatch.setattr(service_module, "VideoService", DummyService)
+    monkeypatch.setattr(service_module, "FrameProcessor", DummyService)
+    monkeypatch.setattr(service_module, "PersistenceService", DummyService)
+    monkeypatch.setattr(service_module, "HistoryManager", DummyService)
+    monkeypatch.setattr(service_module, "StandardPipeline", DummyPipeline)
+    monkeypatch.setattr(service_module, "CustomPipeline", DummyPipeline)
+    monkeypatch.setattr(service_module, "AssetBasedPipeline", DummyPipeline)
+
+    previous_cwd = Path.cwd()
+    os.chdir(str(tmp_path))
+    try:
+        core = PixelleVideoCore()
+        await core.initialize()
+    finally:
+        os.chdir(str(previous_cwd))
+
+    expected_project_dir = pixelle_root / "output" / "task-demo" / "hyperframes"
+    assert core.hyperframes_project_service.get_project_dir("task-demo") == expected_project_dir

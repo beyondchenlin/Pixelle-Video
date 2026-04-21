@@ -40,6 +40,7 @@ from pixelle_video.services.hyperframes_renderer import HyperFramesRenderer
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
+from pixelle_video.utils.os_util import get_output_path
 
 
 class PixelleVideoCore:
@@ -224,7 +225,7 @@ class PixelleVideoCore:
         self.history = HistoryManager(self.persistence)
         self.alignment_service = AlignmentService()
         self.audio_edit_service = AudioEditService()
-        self.hyperframes_project_service = HyperFramesProjectService(output_dir="output")
+        self.hyperframes_project_service = HyperFramesProjectService(output_dir=get_output_path())
         self.hyperframes_renderer = HyperFramesRenderer(self.config)
         
         # 2. Register video generation pipelines

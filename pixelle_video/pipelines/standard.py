@@ -710,7 +710,7 @@ class StandardPipeline(LinearVideoPipeline):
         if config.silence_trim_tool == "auto_editor" and getattr(self.core, "audio_edit_service", None) is None:
             raise RuntimeError("Audio edit service is not initialized.")
 
-        master_audio_path = await self._synthesize_hyperframes_audio(ctx)
+        master_audio_path, master_audio_duration = await self._synthesize_hyperframes_audio(ctx)
         self.core.alignment_service.align_blocks(timing_plan.blocks, timing_plan.sentences)
         self._offset_sentence_timings_to_master_timeline(timing_plan)
 
@@ -720,7 +720,9 @@ class StandardPipeline(LinearVideoPipeline):
                 timing_plan.sentences,
             )
 
-        storyboard.total_duration = timing_plan.blocks[-1].end if timing_plan.blocks else 0.0
+        if timing_plan.blocks:
+            timing_plan.blocks[-1].end = master_audio_duration
+        storyboard.total_duration = master_audio_duration
 
         manifest = RenderManifest(
             task_id=ctx.task_id,
@@ -757,7 +759,7 @@ class StandardPipeline(LinearVideoPipeline):
 
         logger.success(f"HyperFrames video generation completed: {ctx.final_video_path}")
 
-    async def _synthesize_hyperframes_audio(self, ctx: PipelineContext) -> str:
+    async def _synthesize_hyperframes_audio(self, ctx: PipelineContext) -> tuple[str, float]:
         task_audio_dir = Path(ctx.task_dir) / "audio"
         task_audio_dir.mkdir(parents=True, exist_ok=True)
 
@@ -765,24 +767,30 @@ class StandardPipeline(LinearVideoPipeline):
         cursor = 0.0
 
         for block in ctx.timing_plan.blocks:
-            block_output_path = task_audio_dir / f"{block.id}.mp3"
+            block_source_path = task_audio_dir / f"{block.id}_source.mp3"
+            block_output_path = task_audio_dir / f"{block.id}.wav"
             await self.core.tts(
                 **self._build_tts_params(
                     config=ctx.config,
                     text=block.text,
-                    output_path=str(block_output_path),
+                    output_path=str(block_source_path),
                 )
             )
-            block.audio_path = str(block_output_path)
+            normalized_audio_path = self._normalize_audio_for_hyperframes(
+                str(block_source_path),
+                str(block_output_path),
+            )
+            block.audio_path = normalized_audio_path
             duration = self._get_audio_duration(block.audio_path)
             block.start = cursor
             block.end = cursor + duration
             cursor = block.end
             block_paths.append(block.audio_path)
 
-        master_audio_path = task_audio_dir / "master_audio.mp3"
+        master_audio_path = task_audio_dir / "master_audio.wav"
         self._concat_audio_files(block_paths, str(master_audio_path))
-        return str(master_audio_path)
+        master_audio_duration = self._get_audio_duration(str(master_audio_path))
+        return str(master_audio_path), master_audio_duration
 
     def _build_tts_params(
         self,
@@ -843,8 +851,8 @@ class StandardPipeline(LinearVideoPipeline):
                     "0",
                     "-i",
                     filelist_path,
-                    "-c",
-                    "copy",
+                    "-c:a",
+                    "pcm_s16le",
                     "-y",
                     output_path,
                 ],
@@ -858,6 +866,27 @@ class StandardPipeline(LinearVideoPipeline):
         finally:
             if filelist_path and os.path.exists(filelist_path):
                 os.remove(filelist_path)
+
+    def _normalize_audio_for_hyperframes(self, input_path: str, output_path: str) -> str:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        completed = subprocess.run(
+            [
+                "ffmpeg",
+                "-i",
+                input_path,
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+                output_path,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+            raise RuntimeError(f"Failed to normalize HyperFrames audio: {detail}")
+        return output_path
 
     def _get_audio_duration(self, audio_path: str) -> float:
         try:

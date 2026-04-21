@@ -268,6 +268,11 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
     def fake_concat_audio_files(audio_paths, output_path):
         Path(output_path).write_bytes(b"master-audio")
 
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
     monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
 
     await pipeline.post_production(ctx)
@@ -296,6 +301,49 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
     assert requested_output.exists()
     assert ctx.final_video_path == str(requested_output)
     assert ctx.storyboard.final_video_path == str(requested_output)
+
+
+@pytest.mark.asyncio
+async def test_post_production_uses_stable_master_audio_duration_for_storyboard_timeline(monkeypatch, tmp_path):
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
+
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+    ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        Path(frame.image_path).write_text("raw", encoding="utf-8")
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    def fake_concat_audio_files(audio_paths, output_path):
+        Path(output_path).write_bytes(b"master-wav")
+
+    def fake_get_audio_duration(audio_path):
+        audio_path = str(audio_path)
+        if audio_path.endswith("master_audio.wav"):
+            return 1.9
+        return 1.0
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", fake_get_audio_duration)
+
+    await pipeline.post_production(ctx)
+
+    manifest = core.hyperframes_project_service.manifest
+    assert manifest.master_audio_path.endswith("master_audio.wav")
+    assert [block.audio_path for block in manifest.audio_blocks] == [
+        str(Path(ctx.task_dir) / "audio" / "block-1.wav"),
+        str(Path(ctx.task_dir) / "audio" / "block-2.wav"),
+    ]
+    assert manifest.audio_blocks[-1].end == pytest.approx(1.9)
+    assert ctx.storyboard.total_duration == pytest.approx(1.9)
 
 
 @pytest.mark.asyncio

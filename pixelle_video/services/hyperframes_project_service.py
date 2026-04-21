@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pixelle_video.models.render_package import CaptionCue, RenderManifest
+from pixelle_video.utils.os_util import get_output_path
 
 
 @dataclass(frozen=True)
@@ -23,8 +24,8 @@ class HyperFramesProjectPaths:
 class HyperFramesProjectService:
     """Write task-local HyperFrames project data files."""
 
-    def __init__(self, output_dir: str = "output"):
-        self.output_dir = Path(output_dir)
+    def __init__(self, output_dir: str | None = None):
+        self.output_dir = Path(output_dir) if output_dir is not None else Path(get_output_path())
 
     def get_task_dir(self, task_id: str) -> Path:
         return self.output_dir / task_id
