@@ -84,6 +84,9 @@ class CustomPipeline(BasePipeline):
         # === Custom Parameters ===
         # Add your own parameters here
         custom_param_example: str = "default_value",
+        prompt_prefix: Optional[str] = None,
+        min_image_prompt_words: int = 30,
+        max_image_prompt_words: int = 60,
         
         # === Standard Parameters (keep these for compatibility) ===
         tts_inference_mode: Optional[str] = None,  # "local" or "comfyui"
@@ -104,6 +107,7 @@ class CustomPipeline(BasePipeline):
         bgm_volume: float = 0.2,
         
         progress_callback: Optional[Callable[[ProgressEvent], None]] = None,
+        **kwargs,
     ) -> VideoGenerationResult:
         """
         Custom video generation workflow
@@ -127,6 +131,8 @@ class CustomPipeline(BasePipeline):
         logger.info("Starting CustomPipeline")
         logger.info(f"Input text length: {len(text)} chars")
         logger.info(f"Custom parameter: {custom_param_example}")
+        if kwargs:
+            logger.debug(f"Ignoring extra custom pipeline kwargs: {sorted(kwargs.keys())}")
         
         # === Handle TTS parameter compatibility ===
         # Support both old API (voice_id) and new API (tts_inference_mode + tts_voice)
@@ -233,19 +239,18 @@ class CustomPipeline(BasePipeline):
             # Template requires media - generate prompts using the shared styled pipeline
             from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
             
-            custom_prefix = "cinematic style, professional lighting"  # Customize this
             media_type = "video" if template_type == "video" else "image"
             image_config = self.core.config.get("comfyui", {}).get(media_type, {})
             styled_batch = await generate_styled_image_prompt_batch(
                 llm_service=self.llm,
                 narrations=narrations,
                 image_config=image_config,
-                prompt_prefix=custom_prefix,
+                prompt_prefix=prompt_prefix,
                 workflow=media_workflow,
                 media_service=self.core.media,
                 media_type=media_type,
-                min_words=30,
-                max_words=60,
+                min_words=min_image_prompt_words,
+                max_words=max_image_prompt_words,
             )
 
             final_image_prompts = styled_batch.prompts

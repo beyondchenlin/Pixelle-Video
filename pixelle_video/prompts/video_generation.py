@@ -39,7 +39,7 @@ Based on the existing video script, create corresponding **English** video gener
 ## Video Prompt Specifications
 - Language: **Must use English** (for AI video generation models)
 - Description structure: scene + character action + camera movement + emotion + atmosphere
-- Description length: Ensure clear, complete, and creative descriptions (recommended 50-100 English words)
+- Description length: Ensure clear, complete, and creative descriptions (recommended {min_words}-{max_words} English words)
 - Dynamic elements: Emphasize actions, movements, changes, and other dynamic effects
 - If a style profile is provided, subject design, material, palette, lighting, world elements, and consistency must obey that style profile first
 - When `style_kind` is `ip_world`, redesign the subject into the target universe without replacing the subject semantics
