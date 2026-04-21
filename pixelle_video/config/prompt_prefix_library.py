@@ -187,6 +187,20 @@ def get_effective_image_prompt_prefix(image_config: Any) -> str:
     return legacy_prefix.strip()
 
 
+def get_active_image_prompt_prefix_item(image_config: Any) -> Optional[dict[str, Any]]:
+    library = _read_mapping_or_attr(image_config, "prompt_prefix_library", None)
+    if library is None:
+        return None
+
+    active_prefix_id = _read_mapping_or_attr(library, "active_prefix_id", None)
+    items = _read_mapping_or_attr(library, "items", [])
+    for item in items:
+        if _read_mapping_or_attr(item, "id", None) == active_prefix_id:
+            return item if isinstance(item, dict) else item.model_dump()
+
+    return None
+
+
 def get_prompt_prefix_preview_asset(item: dict[str, Any]) -> str:
     """Return a gallery preview asset path or the neutral placeholder."""
     preview_asset_path = (item.get("preview_asset_path") or "").strip()
