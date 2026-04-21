@@ -5,10 +5,30 @@ HyperFrames renderer bridge helpers.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Optional
+
+_SAFE_MANIFEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+def _validate_manifest_identifier(field_name: str, value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"Invalid {field_name}: expected non-empty string")
+
+    candidate = value.strip()
+    if not candidate:
+        raise ValueError(f"Invalid {field_name}: expected non-empty string")
+
+    if not _SAFE_MANIFEST_ID_RE.fullmatch(candidate):
+        raise ValueError(
+            f"Invalid {field_name}: {value!r}. "
+            "Expected letters, numbers, hyphens, or underscores only.",
+        )
+
+    return candidate
 
 
 class HyperFramesRenderer:
@@ -40,12 +60,15 @@ class HyperFramesRenderer:
     def render(self, project_dir: str, output_path: Optional[str] = None) -> str:
         project_path = Path(project_dir).resolve()
         manifest = self._load_manifest(project_path)
-        self._materialize_template(project_path, manifest["template_id"])
+        template_id = _validate_manifest_identifier("template_id", manifest.get("template_id"))
+        self._materialize_template(project_path, template_id)
 
         resolved_output_path = (
             Path(output_path).resolve()
             if output_path
-            else project_path / "renders" / f'{manifest["task_id"]}.mp4'
+            else project_path
+            / "renders"
+            / f'{_validate_manifest_identifier("task_id", manifest.get("task_id"))}.mp4'
         )
         resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
 

@@ -95,6 +95,52 @@ def test_render_materializes_template_and_invokes_node_bridge(monkeypatch, tmp_p
     assert (project_dir / "compositions" / "captions.html").exists()
 
 
+def test_render_rejects_invalid_template_id_before_joining_paths(tmp_path):
+    project_dir = tmp_path / "output" / "task-6" / "hyperframes"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    _write_manifest(project_dir)
+
+    manifest_path = project_dir / "data" / "render_manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["template_id"] = "../escape"
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    renderer = HyperFramesRenderer(template_root=str(tmp_path / "templates"))
+
+    with pytest.raises(ValueError, match="template_id"):
+        renderer.render(str(project_dir))
+
+
+def test_render_rejects_invalid_task_id_before_deriving_default_output_name(tmp_path):
+    project_dir = tmp_path / "output" / "task-6" / "hyperframes"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    _write_manifest(project_dir, task_id="bad/name")
+
+    template_root = tmp_path / "templates"
+    _write_template(template_root)
+
+    renderer = HyperFramesRenderer(template_root=str(template_root))
+
+    with pytest.raises(ValueError, match="task_id"):
+        renderer.render(str(project_dir))
+
+
+def test_render_rejects_empty_template_id(tmp_path):
+    project_dir = tmp_path / "output" / "task-6" / "hyperframes"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    _write_manifest(project_dir)
+
+    manifest_path = project_dir / "data" / "render_manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["template_id"] = "   "
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    renderer = HyperFramesRenderer(template_root=str(tmp_path / "templates"))
+
+    with pytest.raises(ValueError, match="template_id"):
+        renderer.render(str(project_dir))
+
+
 @pytest.mark.asyncio
 async def test_initialize_wires_hyperframes_services(monkeypatch):
     class DummyService:

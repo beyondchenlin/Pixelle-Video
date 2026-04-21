@@ -5,6 +5,8 @@ import { pathToFileURL } from "node:url";
 
 import { createRenderJob, executeRenderJob } from "@hyperframes/producer";
 
+const SAFE_MANIFEST_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
 function requireValue(flag, value) {
   if (value === undefined) {
     throw new Error(`Missing value for ${flag}`);
@@ -77,6 +79,21 @@ async function loadManifest(manifestPath) {
   return JSON.parse(manifestRaw);
 }
 
+function validateManifestIdentifier(fieldName, value) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`Invalid ${fieldName}: expected non-empty string`);
+  }
+
+  const candidate = value.trim();
+  if (!SAFE_MANIFEST_ID_RE.test(candidate)) {
+    throw new Error(
+      `Invalid ${fieldName}: ${JSON.stringify(value)}. Expected letters, numbers, hyphens, or underscores only.`,
+    );
+  }
+
+  return candidate;
+}
+
 function buildJobConfig(options, manifest) {
   const jobConfig = {
     fps: options.fps ?? manifest.fps ?? 30,
@@ -103,8 +120,9 @@ export async function resolveRenderRequest(options) {
     options.manifestPath ?? path.join(projectDir, "data", "render_manifest.json"),
   );
   const manifest = await loadManifest(manifestPath);
+  const taskId = validateManifestIdentifier("task_id", manifest.task_id);
   const outputPath = path.resolve(
-    options.outputPath ?? path.join(projectDir, "renders", `${manifest.task_id}.mp4`),
+    options.outputPath ?? path.join(projectDir, "renders", `${taskId}.mp4`),
   );
 
   await mkdir(path.dirname(outputPath), { recursive: true });

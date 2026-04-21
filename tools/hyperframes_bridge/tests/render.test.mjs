@@ -89,6 +89,30 @@ test("renderProject calls createRenderJob and executeRenderJob with resolved pat
   assert.deepEqual(progressEvents, [[0.5, "halfway"]]);
 });
 
+test("resolveRenderRequest rejects malformed manifest task ids before deriving output paths", async () => {
+  const projectDir = await createProjectDir({ taskId: "../escape", fps: 24 });
+
+  await assert.rejects(
+    () =>
+      resolveRenderRequest({
+        projectDir,
+      }),
+    /task_id/i,
+  );
+});
+
+test("resolveRenderRequest rejects empty manifest task ids before deriving output paths", async () => {
+  const projectDir = await createProjectDir({ taskId: "   ", fps: 24 });
+
+  await assert.rejects(
+    () =>
+      resolveRenderRequest({
+        projectDir,
+      }),
+    /task_id/i,
+  );
+});
+
 test("reference templates explicitly pad timelines to the resolved duration", async () => {
   const [indexTemplate, captionsTemplate] = await Promise.all([
     readFile(
