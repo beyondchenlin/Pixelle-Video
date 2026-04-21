@@ -440,6 +440,7 @@ async def generate_styled_image_prompt_batch(
     prompt_prefix: Optional[str] = None,
     workflow: Optional[str] = None,
     media_service=None,
+    media_type: Literal["image", "video"] = "image",
     min_words: int = 30,
     max_words: int = 60,
     batch_size: int = 10,
@@ -458,7 +459,8 @@ async def generate_styled_image_prompt_batch(
         except Exception:
             logger.exception("Style resolution failed, falling back to legacy prefix concatenation")
 
-    base_prompts = await generate_image_prompts(
+    prompt_generator = generate_video_prompts if media_type == "video" else generate_image_prompts
+    base_prompts = await prompt_generator(
         llm_service=llm_service,
         narrations=narrations,
         min_words=min_words,
@@ -472,7 +474,11 @@ async def generate_styled_image_prompt_batch(
     capabilities = WorkflowCapabilities()
     if media_service is not None:
         try:
-            capabilities = get_media_workflow_capabilities(media_service, workflow=workflow)
+            capabilities = get_media_workflow_capabilities(
+                media_service,
+                workflow=workflow,
+                media_type=media_type,
+            )
         except Exception as exc:
             logger.warning(
                 f"Workflow capability probe failed, falling back to default workflow capabilities: {exc}"
@@ -499,7 +505,8 @@ async def generate_video_prompts(
     max_words: int = 60,
     batch_size: int = 10,
     max_retries: int = 3,
-    progress_callback: Optional[callable] = None
+    progress_callback: Optional[callable] = None,
+    style_profile: Optional[dict] = None,
 ) -> List[str]:
     """
     Generate video prompts from narrations (with batching and retry)
@@ -537,7 +544,8 @@ async def generate_video_prompts(
                 prompt = build_video_prompt_prompt(
                     narrations=batch_narrations,
                     min_words=min_words,
-                    max_words=max_words
+                    max_words=max_words,
+                    style_profile=style_profile,
                 )
                 
                 response = await llm_service(

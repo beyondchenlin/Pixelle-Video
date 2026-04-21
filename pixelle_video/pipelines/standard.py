@@ -174,6 +174,7 @@ class StandardPipeline(LinearVideoPipeline):
             prompt_prefix = ctx.params.get("prompt_prefix")
             min_words = ctx.params.get("min_image_prompt_words", 30)
             max_words = ctx.params.get("max_image_prompt_words", 60)
+            media_type = "video" if template_type == "video" else "image"
             
             if prompt_prefix is not None:
                 logger.info(f"Using custom prompt_prefix: '{prompt_prefix}'")
@@ -189,7 +190,7 @@ class StandardPipeline(LinearVideoPipeline):
                     extra_info=message
                 )
             
-            image_config = self.core.config.get("comfyui", {}).get("image", {})
+            image_config = self.core.config.get("comfyui", {}).get(media_type, {})
             styled_batch = await generate_styled_image_prompt_batch(
                 llm_service=self.llm,
                 narrations=ctx.narrations,
@@ -197,6 +198,7 @@ class StandardPipeline(LinearVideoPipeline):
                 prompt_prefix=prompt_prefix,
                 workflow=ctx.params.get("media_workflow"),
                 media_service=self.core.media,
+                media_type=media_type,
                 min_words=min_words,
                 max_words=max_words,
                 progress_callback=image_prompt_progress,

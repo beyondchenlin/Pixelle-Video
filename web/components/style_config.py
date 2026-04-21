@@ -560,41 +560,66 @@ def _generate_prompt_prefix_preview_results(
 ) -> list[dict]:
     """Generate prompt-prefix previews sequentially for the current workflow."""
     preview_results: list[dict] = []
-    image_config = pixelle_video.config.get("comfyui", {}).get("image", {})
     for item in items:
-        styled_batch = run_async(
-            generate_styled_image_prompt_batch(
-                llm_service=pixelle_video.llm,
-                narrations=[test_prompt],
-                image_config=image_config,
-                prompt_prefix=item["content"],
-                workflow=workflow_key,
-                media_service=pixelle_video.media,
-            )
+        preview_result = _generate_single_style_preview_result(
+            pixelle_video=pixelle_video,
+            workflow_key=workflow_key,
+            media_width=media_width,
+            media_height=media_height,
+            test_prompt=test_prompt,
+            prompt_prefix=item["content"],
+            media_type="image",
         )
-        final_prompt = styled_batch.prompts[0]
-        media_result = run_async(
-            pixelle_video.media(
-                prompt=final_prompt,
-                negative_prompt=styled_batch.negative_prompt,
-                workflow=workflow_key,
-                media_type="image",
-                width=int(media_width),
-                height=int(media_height),
-            )
-        )
-        if media_result.url:
+        if preview_result["preview_media_path"]:
             preview_results.append(
                 {
                     "id": item["id"],
                     "name": item["name"],
                     "content": item["content"],
-                    "final_prompt": final_prompt,
-                    "preview_media_path": media_result.url,
+                    "final_prompt": preview_result["final_prompt"],
+                    "preview_media_path": preview_result["preview_media_path"],
                 }
             )
 
     return preview_results
+
+
+def _generate_single_style_preview_result(
+    pixelle_video,
+    workflow_key: str,
+    media_width: int,
+    media_height: int,
+    test_prompt: str,
+    prompt_prefix: str,
+    media_type: str,
+) -> dict[str, str | None]:
+    media_config = pixelle_video.config.get("comfyui", {}).get(media_type, {})
+    styled_batch = run_async(
+        generate_styled_image_prompt_batch(
+            llm_service=pixelle_video.llm,
+            narrations=[test_prompt],
+            image_config=media_config,
+            prompt_prefix=prompt_prefix,
+            workflow=workflow_key,
+            media_service=pixelle_video.media,
+            media_type=media_type,
+        )
+    )
+    final_prompt = styled_batch.prompts[0]
+    media_result = run_async(
+        pixelle_video.media(
+            prompt=final_prompt,
+            negative_prompt=styled_batch.negative_prompt,
+            workflow=workflow_key,
+            media_type=media_type,
+            width=int(media_width),
+            height=int(media_height),
+        )
+    )
+    return {
+        "final_prompt": final_prompt,
+        "preview_media_path": media_result.url,
+    }
 
 
 def _save_prompt_prefix_item_with_workflow_preview(
@@ -2141,17 +2166,17 @@ def render_style_config(pixelle_video):
                     if st.button(tr("style.video_preview"), key="preview_style", width="stretch"):
                         with st.spinner(tr("style.video_previewing")):
                             try:
-                                from pixelle_video.utils.prompt_helper import build_image_prompt
-
-                                final_prompt = build_image_prompt(test_prompt, prompt_prefix)
-                                media_result = run_async(pixelle_video.media(
-                                    prompt=final_prompt,
-                                    workflow=workflow_key,
+                                preview_result = _generate_single_style_preview_result(
+                                    pixelle_video=pixelle_video,
+                                    workflow_key=workflow_key,
+                                    media_width=int(media_width),
+                                    media_height=int(media_height),
+                                    test_prompt=test_prompt,
+                                    prompt_prefix=prompt_prefix,
                                     media_type=template_media_type,
-                                    width=int(media_width),
-                                    height=int(media_height)
-                                ))
-                                preview_media_path = media_result.url
+                                )
+                                final_prompt = preview_result["final_prompt"]
+                                preview_media_path = preview_result["preview_media_path"]
 
                                 if preview_media_path:
                                     st.success(tr("style.video_preview_success"))

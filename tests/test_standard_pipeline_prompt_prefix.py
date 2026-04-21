@@ -88,3 +88,42 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
 
     assert captured["prompt_prefix"] == "explicit override"
     assert ctx.image_prompts == ["override prompt"]
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_plan_visuals_uses_video_config_and_media_type(monkeypatch):
+    captured = {}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured["image_config"] = kwargs["image_config"]
+        captured["media_type"] = kwargs["media_type"]
+        return StyledImagePromptBatch(
+            prompts=["dynamic video prompt"],
+            negative_prompt="washed out frames",
+            resolved_style=None,
+        )
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    config = {
+        "comfyui": {
+            "image": {"prompt_prefix": "image legacy"},
+            "video": {"prompt_prefix": "video legacy"},
+        }
+    }
+    pipeline = StandardPipeline(_DummyCore(config))
+    ctx = PipelineContext(
+        input_text="topic",
+        params={"frame_template": "1080x1920/video_default.html"},
+    )
+    ctx.narrations = ["scene one"]
+
+    await pipeline.plan_visuals(ctx)
+
+    assert captured["image_config"] == config["comfyui"]["video"]
+    assert captured["media_type"] == "video"
+    assert ctx.image_prompts == ["dynamic video prompt"]
+    assert ctx.media_negative_prompt == "washed out frames"

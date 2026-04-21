@@ -27,6 +27,7 @@ from loguru import logger
 
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import Storyboard, StoryboardFrame, StoryboardConfig
+from pixelle_video.utils.template_util import get_template_type
 
 
 class FrameProcessor:
@@ -202,10 +203,10 @@ class FrameProcessor:
         """Step 2: Generate media (image or video) using ComfyKit"""
         logger.debug(f"  2/4: Generating media for frame {frame.index}...")
         
-        # Determine media type based on workflow
-        # video_ prefix in workflow name indicates video generation
+        # Determine media type based on template first, then workflow name fallback.
         workflow_name = config.media_workflow or ""
-        is_video_workflow = "video_" in workflow_name.lower()
+        template_type = get_template_type(config.frame_template or "")
+        is_video_workflow = template_type == "video" or "video_" in workflow_name.lower()
         media_type = "video" if is_video_workflow else "image"
         
         logger.debug(f"  → Media type: {media_type} (workflow: {workflow_name})")

@@ -199,3 +199,56 @@ async def test_generate_styled_image_prompt_batch_ignores_capability_probe_failu
         "base scene prompt, same playful bird-universe silhouette"
     ]
     assert result.negative_prompt is None
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_uses_video_prompt_generator_for_video_media(monkeypatch):
+    captured = {}
+
+    async def fail_generate_image_prompts(*args, **kwargs):
+        raise AssertionError("image prompt generator should not be used for video media")
+
+    async def fake_generate_video_prompts(*args, **kwargs):
+        captured["style_profile"] = kwargs["style_profile"]
+        return ["dynamic dog sprinting through playful wooden obstacles"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fail_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_video_prompts",
+        fake_generate_video_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: StyleSourceSpec(
+            origin="request",
+            raw_content="Angry Birds style",
+            content_hash="hash-123",
+            source_identity="request:hash-123",
+            item_id=None,
+        ),
+    )
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        return _resolved_ip_world()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["一只小狗在奔跑"],
+        image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+        media_service=None,
+        media_type="video",
+        prompt_prefix="Angry Birds style",
+    )
+
+    assert captured["style_profile"]["style_kind"] == "ip_world"
+    assert result.prompts == [
+        "dynamic dog sprinting through playful wooden obstacles, same playful bird-universe silhouette"
+    ]

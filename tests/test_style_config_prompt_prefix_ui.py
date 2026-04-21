@@ -511,3 +511,48 @@ def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeyp
 
     assert preview_results[0]["final_prompt"] == "preview final prompt"
     assert captured["media_kwargs"]["negative_prompt"] == "avoid realism"
+
+
+def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatch):
+    captured = {}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured["media_type"] = kwargs["media_type"]
+        captured["prompt_prefix"] = kwargs["prompt_prefix"]
+        return StyledImagePromptBatch(
+            prompts=["video preview final prompt"],
+            negative_prompt="avoid blur",
+            resolved_style=None,
+        )
+
+    class _FakePixelleVideo:
+        llm = object()
+        config = {
+            "comfyui": {
+                "video": {
+                    "prompt_prefix": "legacy video",
+                    "prompt_prefix_library": {"active_prefix_id": None, "items": []},
+                }
+            }
+        }
+
+        async def media(self, **kwargs):
+            captured["media_kwargs"] = kwargs
+            return type("MediaResult", (), {"url": "preview.mp4"})()
+
+    monkeypatch.setattr(style_config, "generate_styled_image_prompt_batch", fake_generate_styled_image_prompt_batch)
+    monkeypatch.setattr(style_config, "run_async", lambda coro: asyncio.run(coro))
+
+    preview = style_config._generate_single_style_preview_result(
+        pixelle_video=_FakePixelleVideo(),
+        workflow_key="runninghub/video_wan2.1_fusionx.json",
+        media_width=1024,
+        media_height=1024,
+        test_prompt="a dog running in the park",
+        prompt_prefix="angry birds world",
+        media_type="video",
+    )
+
+    assert preview["final_prompt"] == "video preview final prompt"
+    assert captured["media_type"] == "video"
+    assert captured["media_kwargs"]["negative_prompt"] == "avoid blur"

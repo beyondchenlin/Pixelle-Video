@@ -184,7 +184,7 @@ class CustomPipeline(BasePipeline):
         
         template_name = Path(frame_template).name
         template_type = get_template_type(template_name)
-        template_requires_image = (template_type == "image")
+        template_requires_media = (template_type in ["image", "video"])
         
         # Read media size from template meta tags
         template_path = resolve_template_path(frame_template)
@@ -229,12 +229,13 @@ class CustomPipeline(BasePipeline):
         
         # IMPORTANT: Check if template is image type
         # If your template is static_*.html, you can skip this entire step!
-        if template_requires_image:
-            # Template requires images - generate image prompts using LLM
+        if template_requires_media:
+            # Template requires media - generate prompts using the shared styled pipeline
             from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
             
             custom_prefix = "cinematic style, professional lighting"  # Customize this
-            image_config = self.core.config.get("comfyui", {}).get("image", {})
+            media_type = "video" if template_type == "video" else "image"
+            image_config = self.core.config.get("comfyui", {}).get(media_type, {})
             styled_batch = await generate_styled_image_prompt_batch(
                 llm_service=self.llm,
                 narrations=narrations,
@@ -242,6 +243,7 @@ class CustomPipeline(BasePipeline):
                 prompt_prefix=custom_prefix,
                 workflow=media_workflow,
                 media_service=self.core.media,
+                media_type=media_type,
                 min_words=30,
                 max_words=60,
             )

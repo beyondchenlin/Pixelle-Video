@@ -17,7 +17,7 @@ For generating video prompts from narrations.
 """
 
 import json
-from typing import List
+from typing import Any, List, Optional
 
 
 VIDEO_PROMPT_GENERATION_PROMPT = """# Role Definition
@@ -27,6 +27,9 @@ You are a professional video creative designer, skilled at creating dynamic and 
 Based on the existing video script, create corresponding **English** video generation prompts for each storyboard's "narration content", ensuring video scenes perfectly match the narrative content and enhance audience understanding and memory through dynamic visuals.
 
 **Important: The input contains {narrations_count} narrations. You must generate one corresponding video prompt for each narration, totaling {narrations_count} video prompts.**
+
+# Input Style Profile
+{style_profile_json}
 
 # Input Content
 {narrations_json}
@@ -38,6 +41,8 @@ Based on the existing video script, create corresponding **English** video gener
 - Description structure: scene + character action + camera movement + emotion + atmosphere
 - Description length: Ensure clear, complete, and creative descriptions (recommended 50-100 English words)
 - Dynamic elements: Emphasize actions, movements, changes, and other dynamic effects
+- If a style profile is provided, subject design, material, palette, lighting, world elements, and consistency must obey that style profile first
+- When `style_kind` is `ip_world`, redesign the subject into the target universe without replacing the subject semantics
 
 ## Visual Creative Requirements
 - Each video must accurately reflect the specific content and emotion of the corresponding narration
@@ -102,7 +107,8 @@ Now, please create {narrations_count} corresponding **English** video prompts fo
 def build_video_prompt_prompt(
     narrations: List[str],
     min_words: int,
-    max_words: int
+    max_words: int,
+    style_profile: Optional[dict[str, Any]] = None,
 ) -> str:
     """
     Build video prompt generation prompt
@@ -123,11 +129,12 @@ def build_video_prompt_prompt(
         ensure_ascii=False,
         indent=2
     )
+    style_profile_json = json.dumps(style_profile or None, ensure_ascii=False, indent=2)
     
     return VIDEO_PROMPT_GENERATION_PROMPT.format(
+        style_profile_json=style_profile_json,
         narrations_json=narrations_json,
         narrations_count=len(narrations),
         min_words=min_words,
         max_words=max_words
     )
-
