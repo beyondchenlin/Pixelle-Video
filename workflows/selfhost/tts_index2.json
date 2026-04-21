@@ -25,6 +25,10 @@
       "max_mel_tokens": 1815,
       "max_tokens_per_sentence": 120,
       "seed": 4266796044,
+      "cache_control": [
+        "13",
+        0
+      ],
       "reference_audio": [
         "12",
         0
@@ -59,6 +63,15 @@
     "class_type": "VHS_LoadAudioUpload",
     "_meta": {
       "title": "$ref_audio.audio"
+    }
+  },
+  "13": {
+    "inputs": {
+      "keep_models_cached": true
+    },
+    "class_type": "IndexTTS2CacheControlNode",
+    "_meta": {
+      "title": "Index TTS 2 Cache Control"
     }
   }
 }

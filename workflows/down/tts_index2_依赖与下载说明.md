@@ -320,6 +320,21 @@ ForEach-Object {
   - `& 'C:\Users\ai\Documents\ComfyUI\.venv\Scripts\python.exe' -m pip install accelerate`
   - 安装后重启 ComfyUI，再重新运行工作流。
 
+### 8.9 每次运行都重新加载 `IndexTTS-2` 全套模型，导致重复等待
+
+- 现象：
+  - 每次执行工作流时，日志都会重复出现：
+  - `>> GPT weights restored from: ...`
+  - `Loading w2v-bert-2.0 from local path: ...`
+  - `>> bigvgan weights restored from: ...`
+- 原因：
+  - `ComfyUI-Index-TTS` 默认允许在单次调用结束后卸载 TTS 模型；
+  - 如果工作流没有显式连接 `IndexTTS2CacheControlNode`，就会在每次执行后触发 `unload_tts()`，下一次只能整套重载。
+- 处理：
+  - 当前仓库版 `workflows/selfhost/tts_index2.json` 已显式接入 `IndexTTS2CacheControlNode`，并将 `keep_models_cached` 设为 `true`；
+  - 修改后首次执行仍需完整加载模型，后续重复执行同一工作流时应避免再次整套重载；
+  - 如果你手动改过工作流，请确认 `IndexTTS2BaseNode` 的 `cache_control` 输入已连接到 `IndexTTS2CacheControlNode`。
+
 ## 9. 维护要求
 
 - 后续若本工作流新增节点、模型或系统依赖，必须同步更新本文件。

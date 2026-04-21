@@ -41,6 +41,22 @@ def test_tts_index2_uses_builtin_multiline_string_input():
     assert workflow["3"]["_meta"]["title"] == "$text.value!"
 
 
+def test_tts_index2_keeps_models_cached_between_runs():
+    workflow = json.loads(Path("workflows/selfhost/tts_index2.json").read_text(encoding="utf-8"))
+
+    cache_nodes = {
+        node_id: node
+        for node_id, node in workflow.items()
+        if node["class_type"] == "IndexTTS2CacheControlNode"
+    }
+
+    assert len(cache_nodes) == 1
+
+    cache_node_id, cache_node = next(iter(cache_nodes.items()))
+    assert cache_node["inputs"]["keep_models_cached"] is True
+    assert workflow["5"]["inputs"]["cache_control"] == [cache_node_id, 0]
+
+
 def test_tts_edge_workflow_is_parseable_and_uses_pixelle_nodes():
     metadata = WorkflowParser().parse_workflow_file(
         str(Path("workflows/selfhost/tts_edge.json"))
