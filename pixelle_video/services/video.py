@@ -62,6 +62,12 @@ def check_ffmpeg() -> None:
 check_ffmpeg()
 
 
+def _ffmpeg_duration(value: float) -> str:
+    """Format duration values for FFmpeg without scientific notation."""
+    formatted = format(max(value, 0.0), ".12f").rstrip("0").rstrip(".")
+    return formatted or "0"
+
+
 class VideoService:
     """
     Video compositor for common video processing tasks
@@ -410,7 +416,11 @@ class VideoService:
             
             if pad_strategy == "freeze":
                 # Freeze last frame: tpad filter
-                video_stream = video_stream.filter('tpad', stop_mode='clone', stop_duration=pad_duration)
+                video_stream = video_stream.filter(
+                    'tpad',
+                    stop_mode='clone',
+                    stop_duration=_ffmpeg_duration(pad_duration),
+                )
             else:  # black
                 # Generate black frames for padding duration
                 # Get video properties
@@ -427,7 +437,7 @@ class VideoService:
                 black_input = ffmpeg.input(
                     f'color=c=black:s={width}x{height}:r={fps}',
                     f='lavfi',
-                    t=pad_duration
+                    t=_ffmpeg_duration(pad_duration)
                 )
                 
                 # Concatenate original video with black padding
@@ -442,7 +452,7 @@ class VideoService:
             pad_duration = video_duration - audio_duration
             logger.info(f"Video is longer, padding audio with {pad_duration:.2f}s silence")
             # Use apad to add silence at the end
-            audio_stream = audio_stream.filter('apad', whole_dur=target_duration)
+            audio_stream = audio_stream.filter('apad', whole_dur=_ffmpeg_duration(target_duration))
         
         if not video_has_audio:
             logger.info(f"Video has no audio stream, adding audio track")
@@ -664,10 +674,10 @@ class VideoService:
             input_audio = ffmpeg.input(audio)
             audio_stream = input_audio.audio
             if pad_duration > 0:
-                audio_stream = audio_stream.filter("apad", pad_dur=pad_duration)
+                audio_stream = audio_stream.filter("apad", pad_dur=_ffmpeg_duration(pad_duration))
             audio_stream = (
                 audio_stream
-                .filter("atrim", duration=target_duration)
+                .filter("atrim", duration=_ffmpeg_duration(target_duration))
                 .filter("asetpts", "N/SR/TB")
             )
             
@@ -751,7 +761,7 @@ class VideoService:
             
             # Apply fade effects if specified
             if fade_in > 0:
-                bgm_audio = bgm_audio.filter('afade', type='in', duration=fade_in)
+                bgm_audio = bgm_audio.filter('afade', type='in', duration=_ffmpeg_duration(fade_in))
             # Note: fade_out at the end requires knowing the duration, which is complex
             # For now, we skip fade_out in this implementation
             # A more advanced implementation would need to:
@@ -930,7 +940,7 @@ class VideoService:
             # Use stream copy when possible for fast trimming
             (
                 ffmpeg
-                .input(video, t=target_duration)
+                .input(video, t=_ffmpeg_duration(target_duration))
                 .output(output, vcodec='copy', acodec='copy' if self.has_audio_stream(video) else 'copy')
                 .overwrite_output()
                 .run(capture_stdout=True, capture_stderr=True, quiet=True)
@@ -971,7 +981,11 @@ class VideoService:
             
             if pad_strategy == "freeze":
                 # Freeze last frame using tpad filter
-                video_stream = video_stream.filter('tpad', stop_mode='clone', stop_duration=pad_duration)
+                video_stream = video_stream.filter(
+                    'tpad',
+                    stop_mode='clone',
+                    stop_duration=_ffmpeg_duration(pad_duration),
+                )
                 
                 # Output with re-encoding (tpad requires it)
                 (
@@ -1001,7 +1015,7 @@ class VideoService:
                 black_input = ffmpeg.input(
                     f'color=c=black:s={width}x{height}:r={fps}',
                     f='lavfi',
-                    t=pad_duration
+                    t=_ffmpeg_duration(pad_duration)
                 )
                 
                 # Concatenate original video with black padding
