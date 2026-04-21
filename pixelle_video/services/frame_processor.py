@@ -42,6 +42,12 @@ def _strip_trailing_subtitle_punctuation(text: str) -> str:
     return stripped
 
 
+def _resolve_body_text(narration: str, body_text_override: Optional[str] = None) -> str:
+    """Resolve the burned-in body text, allowing shell-only renders to omit subtitles."""
+    source_text = narration if body_text_override is None else body_text_override
+    return _strip_trailing_subtitle_punctuation(source_text)
+
+
 def _get_image_segment_fps(configured_fps: int) -> int:
     """Use a higher internal fps for still-image segments to reduce timing quantization."""
     return max(configured_fps, IMAGE_SEGMENT_MIN_FPS)
@@ -289,7 +295,9 @@ class FrameProcessor:
         self,
         frame: StoryboardFrame,
         storyboard: 'Storyboard',
-        config: StoryboardConfig
+        config: StoryboardConfig,
+        *,
+        body_text_override: Optional[str] = None,
     ):
         """Step 3: Compose frame with subtitle using HTML template"""
         logger.debug(f"  3/4: Composing frame {frame.index}...")
@@ -301,7 +309,13 @@ class FrameProcessor:
         # For video type: render HTML as transparent overlay image
         # For image type: render HTML with image background
         # In both cases, we need the composed image
-        composed_path = await self._compose_frame_html(frame, storyboard, config, output_path)
+        composed_path = await self._compose_frame_html(
+            frame,
+            storyboard,
+            config,
+            output_path,
+            body_text_override=body_text_override,
+        )
         
         frame.composed_image_path = composed_path
         
@@ -312,7 +326,9 @@ class FrameProcessor:
         frame: StoryboardFrame,
         storyboard: 'Storyboard',
         config: StoryboardConfig,
-        output_path: str
+        output_path: str,
+        *,
+        body_text_override: Optional[str] = None,
     ) -> str:
         """Compose frame using HTML template"""
         from pixelle_video.services.frame_html import HTMLFrameGenerator
@@ -342,7 +358,7 @@ class FrameProcessor:
         
         composed_path = await generator.generate_frame(
             title=storyboard.title,
-            text=_strip_trailing_subtitle_punctuation(frame.narration),
+            text=_resolve_body_text(frame.narration, body_text_override),
             image=media_path,  # HTMLFrameGenerator handles both image and video paths
             ext=ext,
             output_path=output_path
