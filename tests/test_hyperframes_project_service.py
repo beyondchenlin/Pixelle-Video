@@ -98,10 +98,12 @@ def test_write_project_data_derives_captions_from_sentence_units_when_manifest_c
     service = HyperFramesProjectService(output_dir=str(tmp_path))
 
     project_paths = service.write_project_data(manifest)
+    manifest_path = project_paths.data_dir / "render_manifest.json"
     captions_path = project_paths.data_dir / "captions.json"
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
     captions_data = json.loads(captions_path.read_text(encoding="utf-8"))
 
-    assert captions_data["captions"] == [
+    expected_captions = [
         {
             "id": "sentence-1",
             "text": "Sentence 1.",
@@ -110,4 +112,9 @@ def test_write_project_data_derives_captions_from_sentence_units_when_manifest_c
             "frame_indices": [0],
             "style_profile": "image_life_insights_light",
         }
+    ]
+
+    assert manifest_data["caption_cues"] == expected_captions
+    assert captions_data["captions"] == [
+        *expected_captions
     ]

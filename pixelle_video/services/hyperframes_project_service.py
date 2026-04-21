@@ -41,9 +41,16 @@ class HyperFramesProjectService:
 
         manifest_path = data_dir / "render_manifest.json"
         captions_path = data_dir / "captions.json"
+        effective_caption_cues = self._resolve_caption_cues(manifest)
 
-        self._write_json(manifest_path, manifest.to_dict())
-        self._write_json(captions_path, self._build_captions_payload(manifest))
+        self._write_json(
+            manifest_path,
+            self._build_manifest_payload(manifest, effective_caption_cues),
+        )
+        self._write_json(
+            captions_path,
+            self._build_captions_payload(manifest, effective_caption_cues),
+        )
 
         return HyperFramesProjectPaths(
             task_dir=self.get_task_dir(manifest.task_id),
@@ -53,13 +60,28 @@ class HyperFramesProjectService:
             captions_path=captions_path,
         )
 
-    def _build_captions_payload(self, manifest: RenderManifest) -> dict:
-        caption_cues = list(manifest.caption_cues or self._build_caption_cues_from_sentences(manifest))
+    def _build_manifest_payload(
+        self,
+        manifest: RenderManifest,
+        caption_cues: list[CaptionCue],
+    ) -> dict:
+        payload = manifest.to_dict()
+        payload["caption_cues"] = [cue.to_dict() for cue in caption_cues]
+        return payload
+
+    def _build_captions_payload(
+        self,
+        manifest: RenderManifest,
+        caption_cues: list[CaptionCue],
+    ) -> dict:
         return {
             "task_id": manifest.task_id,
             "template_id": manifest.template_id,
             "captions": [cue.to_dict() for cue in caption_cues],
         }
+
+    def _resolve_caption_cues(self, manifest: RenderManifest) -> list[CaptionCue]:
+        return list(manifest.caption_cues or self._build_caption_cues_from_sentences(manifest))
 
     def _build_caption_cues_from_sentences(self, manifest: RenderManifest) -> list[CaptionCue]:
         captions: list[CaptionCue] = []
