@@ -376,14 +376,16 @@ class StandardPipeline(LinearVideoPipeline):
     def _resolve_hyperframes_template_id(self, config: StoryboardConfig) -> str:
         return Path(config.frame_template).stem
 
-    def _is_hyperframes_render_path(self, ctx: PipelineContext) -> bool:
+    def _get_hyperframes_fallback_reason(self, ctx: PipelineContext) -> Optional[str]:
         config = ctx.config
         if config.render_backend != "hyperframes":
-            return False
+            return None
 
         execution_mode = self._resolve_asset_execution_mode(ctx)
-        if execution_mode.template_type != "image" or execution_mode.media_domain != "image":
-            return False
+        if execution_mode.template_type != "image":
+            return f"template type {execution_mode.template_type!r} is not supported by HyperFrames"
+        if execution_mode.media_domain != "image":
+            return f"media domain {execution_mode.media_domain!r} is not supported by HyperFrames"
 
         template_dir = (
             Path(__file__).resolve().parents[2]
@@ -392,7 +394,14 @@ class StandardPipeline(LinearVideoPipeline):
             / "templates"
             / self._resolve_hyperframes_template_id(config)
         )
-        return template_dir.exists()
+        if not template_dir.exists():
+            return f"HyperFrames template directory does not exist: {template_dir}"
+        return None
+
+    def _is_hyperframes_render_path(self, ctx: PipelineContext) -> bool:
+        if ctx.config.render_backend != "hyperframes":
+            return False
+        return self._get_hyperframes_fallback_reason(ctx) is None
 
     def _stage_progress(
         self,
@@ -665,6 +674,10 @@ class StandardPipeline(LinearVideoPipeline):
             await self._post_production_hyperframes(ctx)
             return
 
+        fallback_reason = self._get_hyperframes_fallback_reason(ctx)
+        if fallback_reason is not None:
+            logger.warning(f"HyperFrames backend requested but falling back to legacy rendering: {fallback_reason}")
+
         self._report_progress(ctx.progress_callback, "concatenating", 0.85)
         
         storyboard = ctx.storyboard
@@ -715,9 +728,16 @@ class StandardPipeline(LinearVideoPipeline):
         self._offset_sentence_timings_to_master_timeline(timing_plan)
 
         if config.silence_trim_tool == "auto_editor":
-            self.core.audio_edit_service.remap_sentence_units_from_audio(
+            trim_result = self.core.audio_edit_service.export_trimmed_audio_and_timeline(
                 master_audio_path,
+                str(Path(master_audio_path).with_name("trimmed_master_audio.wav")),
+            )
+            master_audio_path = trim_result.trimmed_audio_path
+            master_audio_duration = self._get_audio_duration(master_audio_path)
+            self._remap_timing_plan_to_auto_editor_timeline(timing_plan, trim_result.timeline)
+            self.core.audio_edit_service.remap_sentence_units(
                 timing_plan.sentences,
+                trim_result.timeline,
             )
 
         if timing_plan.blocks:
@@ -736,7 +756,10 @@ class StandardPipeline(LinearVideoPipeline):
             sentence_units=list(timing_plan.sentences),
             visual_clips=self._build_hyperframes_visual_clips(storyboard, timing_plan),
         )
-        project_paths = self.core.hyperframes_project_service.write_project_data(manifest)
+        project_paths = self.core.hyperframes_project_service.write_project_data(
+            manifest,
+            master_audio_duration=master_audio_duration,
+        )
 
         final_video_path = self.core.hyperframes_renderer.render(
             str(project_paths.project_dir),
@@ -930,8 +953,7 @@ class StandardPipeline(LinearVideoPipeline):
                 continue
 
             raw_media_path = frame.video_path if frame.media_type == "video" else frame.image_path
-            media_path = raw_media_path or frame.composed_image_path
-            if not media_path:
+            if not raw_media_path:
                 continue
 
             visual_clips.append(
@@ -940,12 +962,21 @@ class StandardPipeline(LinearVideoPipeline):
                     frame_index=frame.index,
                     start=clip_start,
                     end=clip_end,
-                    media_path=media_path,
+                    media_path=raw_media_path,
                     media_type=frame.media_type or "image",
                 )
             )
 
         return visual_clips
+
+    def _remap_timing_plan_to_auto_editor_timeline(self, timing_plan, timeline) -> None:
+        for block in timing_plan.blocks:
+            remapped_start = timeline.remap_time(block.start)
+            remapped_end = timeline.remap_time(block.end)
+            if remapped_start is not None:
+                block.start = remapped_start
+            if remapped_end is not None:
+                block.end = remapped_end
 
     def _resolve_sentence_time(
         self,

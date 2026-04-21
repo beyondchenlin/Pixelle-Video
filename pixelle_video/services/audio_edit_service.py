@@ -7,6 +7,7 @@ import os
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
 from pixelle_video.models.render_package import SentenceUnit
@@ -17,6 +18,9 @@ DEFAULT_AUTO_EDITOR_EXECUTABLE = "auto-editor"
 
 class AutoEditorRunner(Protocol):
     def export_timeline(self, audio_path: str) -> str:
+        ...
+
+    def export_trimmed_audio(self, audio_path: str, output_path: str) -> str:
         ...
 
 
@@ -108,6 +112,12 @@ class AutoEditorTimeline:
         return sentence
 
 
+@dataclass(frozen=True)
+class AutoEditorTrimResult:
+    trimmed_audio_path: str
+    timeline: AutoEditorTimeline
+
+
 class _SubprocessAutoEditorRunner:
     def __init__(
         self,
@@ -152,6 +162,26 @@ class _SubprocessAutoEditorRunner:
                 except OSError:
                     pass
 
+    def export_trimmed_audio(self, audio_path: str, output_path: str) -> str:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        completed = subprocess.run(
+            [
+                self.executable,
+                audio_path,
+                "-o",
+                output_path,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(
+                "auto-editor audio export failed: "
+                f"{completed.stderr.strip() or completed.stdout.strip() or 'unknown error'}"
+            )
+        return output_path
+
 
 class AudioEditService:
     def __init__(self, runner: AutoEditorRunner | None = None):
@@ -172,6 +202,18 @@ class AudioEditService:
     ) -> list[SentenceUnit]:
         auto_editor_timeline = self._ensure_timeline(timeline)
         return [auto_editor_timeline.remap_sentence(sentence) for sentence in sentence_units]
+
+    def export_trimmed_audio_and_timeline(
+        self,
+        audio_path: str,
+        output_path: str,
+    ) -> AutoEditorTrimResult:
+        trimmed_audio_path = self.runner.export_trimmed_audio(audio_path, output_path)
+        timeline = self.parse_timeline(self.export_timeline(audio_path))
+        return AutoEditorTrimResult(
+            trimmed_audio_path=trimmed_audio_path,
+            timeline=timeline,
+        )
 
     def remap_sentence_units_from_audio(
         self,

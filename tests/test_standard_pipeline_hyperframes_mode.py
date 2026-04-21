@@ -9,6 +9,7 @@ from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
+from pixelle_video.services.audio_edit_service import AutoEditorTimeline
 from pixelle_video.services.timing_planner import TimingPlan
 
 
@@ -94,14 +95,39 @@ class _FakeAlignmentService:
 
 class _FakeAudioEditService:
     def __init__(self):
-        self.calls: list[str] = []
+        self.remap_calls: list[object] = []
+        self.trim_calls: list[tuple[str, str]] = []
+
+    def trim_audio_and_export_timeline(self, audio_path, output_path):
+        self.trim_calls.append((audio_path, output_path))
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_path).write_bytes(b"trimmed-audio")
+        return SimpleNamespace(
+            trimmed_audio_path=output_path,
+            timeline=AutoEditorTimeline(
+                chunks=[[0, 10, 0.0], [10, 20, 1.0], [20, 30, 0.0], [30, 60, 1.0]],
+                timebase=10.0,
+            ),
+        )
+
+    def export_trimmed_audio_and_timeline(self, audio_path, output_path):
+        return self.trim_audio_and_export_timeline(audio_path, output_path)
+
+    def remap_sentence_units(self, sentence_units, timeline):
+        self.remap_calls.append(timeline)
+        for sentence in sentence_units:
+            sentence.remapped_start = timeline.remap_time(0.1)
+            sentence.remapped_end = timeline.remap_time(1.2)
+        return list(sentence_units)
 
     def remap_sentence_units_from_audio(self, audio_path, sentence_units):
-        self.calls.append(audio_path)
-        for sentence in sentence_units:
-            sentence.remapped_start = 0.05
-            sentence.remapped_end = 1.0
-        return list(sentence_units)
+        return self.remap_sentence_units(
+            sentence_units,
+            AutoEditorTimeline(
+                chunks=[[0, 10, 0.0], [10, 20, 1.0], [20, 30, 0.0], [30, 60, 1.0]],
+                timebase=10.0,
+            ),
+        )
 
 
 class _FakeHyperFramesProjectService:
@@ -109,7 +135,7 @@ class _FakeHyperFramesProjectService:
         self.project_dir = project_dir
         self.manifest = None
 
-    def write_project_data(self, manifest):
+    def write_project_data(self, manifest, master_audio_duration=None):
         self.manifest = manifest
         data_dir = self.project_dir / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -272,8 +298,17 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
         Path(output_path).write_bytes(b"wav")
         return output_path
 
+    def fake_get_audio_duration(audio_path):
+        audio_path = str(audio_path)
+        if audio_path.endswith("trimmed_master_audio.wav"):
+            return 1.8
+        if audio_path.endswith("master_audio.wav"):
+            return 2.6
+        return 1.0
+
     monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
     monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", fake_get_audio_duration)
 
     await pipeline.post_production(ctx)
 
@@ -283,15 +318,20 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
     assert core.alignment_service.calls == [
         (["block-1", "block-2"], ["sentence-1", "sentence-2"])
     ]
-    assert core.audio_edit_service.calls == [manifest.master_audio_path]
+    assert core.audio_edit_service.trim_calls == [
+        (str(Path(ctx.task_dir) / "audio" / "master_audio.wav"), str(Path(ctx.task_dir) / "audio" / "trimmed_master_audio.wav"))
+    ]
+    assert core.audio_edit_service.remap_calls
+    assert manifest.master_audio_path.endswith("trimmed_master_audio.wav")
+    assert ctx.storyboard.total_duration == pytest.approx(1.8)
     assert [clip.media_path for clip in manifest.visual_clips] == [
         str(tmp_path / "00_raw.png"),
         str(tmp_path / "01_raw.png"),
     ]
     assert [clip.media_type for clip in manifest.visual_clips] == ["image", "image"]
     assert manifest.template_id == "image_life_insights_light"
-    assert manifest.sentence_units[0].remapped_start == pytest.approx(0.05)
-    assert manifest.sentence_units[1].remapped_end == pytest.approx(1.0)
+    assert manifest.sentence_units[0].remapped_start == pytest.approx(0.0)
+    assert manifest.sentence_units[1].remapped_end == pytest.approx(0.2)
     assert core.hyperframes_renderer.calls == [
         {
             "project_dir": str(tmp_path / "task-1" / "hyperframes"),
@@ -344,6 +384,63 @@ async def test_post_production_uses_stable_master_audio_duration_for_storyboard_
     ]
     assert manifest.audio_blocks[-1].end == pytest.approx(1.9)
     assert ctx.storyboard.total_duration == pytest.approx(1.9)
+
+
+@pytest.mark.asyncio
+async def test_post_production_skips_shell_image_fallback_for_missing_raw_media(monkeypatch, tmp_path):
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
+
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+    ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = None
+        frame.composed_image_path = str(tmp_path / f"{frame.index:02d}_shell.png")
+        Path(frame.composed_image_path).write_text("shell", encoding="utf-8")
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    def fake_concat_audio_files(audio_paths, output_path):
+        Path(output_path).write_bytes(b"master-wav")
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+
+    await pipeline.post_production(ctx)
+
+    manifest = core.hyperframes_project_service.manifest
+    assert manifest.visual_clips == []
+
+
+@pytest.mark.asyncio
+async def test_post_production_warns_when_hyperframes_falls_back_to_legacy_rendering(monkeypatch, tmp_path):
+    calls = {}
+    warnings: list[str] = []
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.VideoService",
+        lambda: _RecordingVideoService(calls),
+    )
+    monkeypatch.setattr("pixelle_video.pipelines.standard.logger.warning", lambda message: warnings.append(message))
+
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes")
+    ctx.config.frame_template = "1080x1920/default.html"
+    ctx.final_video_path = str(tmp_path / "legacy-final.mp4")
+    ctx.storyboard.frames[0].video_segment_path = "segment-0.mp4"
+    ctx.storyboard.frames[1].video_segment_path = "segment-1.mp4"
+
+    await pipeline.post_production(ctx)
+
+    assert calls["videos"] == ["segment-0.mp4", "segment-1.mp4"]
+    assert warnings
+    assert "HyperFrames" in warnings[0]
 
 
 @pytest.mark.asyncio
