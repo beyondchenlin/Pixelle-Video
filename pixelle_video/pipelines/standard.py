@@ -349,19 +349,81 @@ class StandardPipeline(LinearVideoPipeline):
             use_staged_mode=use_staged_mode,
         )
 
+    def _stage_progress(
+        self,
+        stage_start: float,
+        stage_end: float,
+        frame_current: int,
+        frame_total: int,
+    ) -> float:
+        if frame_total <= 0:
+            return stage_end
+
+        frame_fraction = frame_current / frame_total
+        return stage_start + ((stage_end - stage_start) * frame_fraction)
+
+    def _report_staged_frame_progress(
+        self,
+        callback: Optional[Callable[[ProgressEvent], None]],
+        *,
+        stage_start: float,
+        stage_end: float,
+        frame_current: int,
+        frame_total: int,
+        step: int,
+        action: str,
+    ) -> None:
+        self._report_progress(
+            callback,
+            "frame_step",
+            self._stage_progress(stage_start, stage_end, frame_current, frame_total),
+            frame_current=frame_current,
+            frame_total=frame_total,
+            step=step,
+            action=action,
+        )
+
     async def _produce_assets_staged(self, ctx: PipelineContext):
         storyboard = ctx.storyboard
         config = ctx.config
+        total_frames = len(storyboard.frames)
 
         logger.info("Using staged selfhost image processing")
 
         for frame in storyboard.frames:
+            self._report_staged_frame_progress(
+                ctx.progress_callback,
+                stage_start=0.20,
+                stage_end=0.35,
+                frame_current=frame.index + 1,
+                frame_total=total_frames,
+                step=1,
+                action="audio",
+            )
             await self.core.frame_processor._step_generate_audio(frame, config)
 
         for frame in storyboard.frames:
+            self._report_staged_frame_progress(
+                ctx.progress_callback,
+                stage_start=0.35,
+                stage_end=0.50,
+                frame_current=frame.index + 1,
+                frame_total=total_frames,
+                step=2,
+                action="media",
+            )
             await self.core.frame_processor._step_generate_media(frame, config)
 
         for frame in storyboard.frames:
+            self._report_staged_frame_progress(
+                ctx.progress_callback,
+                stage_start=0.50,
+                stage_end=0.65,
+                frame_current=frame.index + 1,
+                frame_total=total_frames,
+                step=3,
+                action="compose",
+            )
             await self.core.frame_processor._step_compose_frame(
                 frame,
                 storyboard,
@@ -369,6 +431,15 @@ class StandardPipeline(LinearVideoPipeline):
             )
 
         for frame in storyboard.frames:
+            self._report_staged_frame_progress(
+                ctx.progress_callback,
+                stage_start=0.65,
+                stage_end=0.80,
+                frame_current=frame.index + 1,
+                frame_total=total_frames,
+                step=4,
+                action="video",
+            )
             await self.core.frame_processor._step_create_video_segment(frame, config)
             storyboard.total_duration += frame.duration
 
@@ -377,12 +448,6 @@ class StandardPipeline(LinearVideoPipeline):
         storyboard = ctx.storyboard
         config = ctx.config
         execution_mode = self._resolve_asset_execution_mode(ctx)
-        
-        # Check if using RunningHub workflows for parallel processing
-        is_runninghub = (
-            (config.tts_workflow and config.tts_workflow.startswith("runninghub/")) or
-            (config.media_workflow and config.media_workflow.startswith("runninghub/"))
-        )
         
         # Get concurrent limit from config_manager (supports hot reload without restart)
         from pixelle_video.config import config_manager
@@ -395,7 +460,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
             return
         
-        if is_runninghub and runninghub_concurrent_limit > 1:
+        if execution_mode.is_runninghub and runninghub_concurrent_limit > 1:
             logger.info(f"🚀 Using parallel processing for RunningHub workflows (max {runninghub_concurrent_limit} concurrent)")
             
             semaphore = asyncio.Semaphore(runninghub_concurrent_limit)

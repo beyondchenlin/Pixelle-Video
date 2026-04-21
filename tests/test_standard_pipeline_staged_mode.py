@@ -2,6 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from pixelle_video.config import config_manager
+from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
@@ -184,3 +186,84 @@ async def test_produce_assets_aborts_immediately_on_staged_image_failure():
     ]
     assert ctx.storyboard.frames[0].video_segment_path is None
     assert ctx.storyboard.frames[1].video_segment_path is None
+
+
+class _CallableFrameProcessor(_RecordingFrameProcessor):
+    def __init__(self):
+        super().__init__()
+        self.invocations = []
+
+    async def __call__(
+        self,
+        frame,
+        storyboard,
+        config,
+        total_frames=1,
+        progress_callback=None,
+    ):
+        self.invocations.append(frame.index)
+        if progress_callback:
+            progress_callback(
+                ProgressEvent(
+                    event_type="frame_step",
+                    progress=0.0,
+                    frame_current=frame.index + 1,
+                    frame_total=total_frames,
+                    step=1,
+                    action="audio",
+                )
+            )
+        frame.duration = 1.0
+        frame.video_segment_path = f"legacy-{frame.index}.mp4"
+        return frame
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_emits_monotonic_staged_progress():
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    events = []
+    ctx.progress_callback = events.append
+
+    await pipeline.produce_assets(ctx)
+
+    frame_events = [event for event in events if event.event_type == "frame_step"]
+    assert [(event.step, event.frame_current) for event in frame_events] == [
+        (1, 1),
+        (1, 2),
+        (2, 1),
+        (2, 2),
+        (3, 1),
+        (3, 2),
+        (4, 1),
+        (4, 2),
+    ]
+    assert [event.progress for event in frame_events] == sorted(
+        event.progress for event in frame_events
+    )
+    assert frame_events[-1].progress == pytest.approx(0.80)
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_keeps_callable_frame_processor_path_for_runninghub(monkeypatch):
+    core = _DummyCore(
+        tts_defaults={"tts": "runninghub/tts_edge.json"},
+        media_defaults={
+            "image": "runninghub/image_flux.json",
+            "video": "runninghub/video_wan2.1_fusionx.json",
+        },
+    )
+    core.frame_processor = _CallableFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    monkeypatch.setattr(config_manager.config.comfyui, "runninghub_concurrent_limit", 1)
+
+    await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.invocations == [0, 1]
+    assert [frame.video_segment_path for frame in ctx.storyboard.frames] == [
+        "legacy-0.mp4",
+        "legacy-1.mp4",
+    ]
