@@ -34,7 +34,8 @@ When using fixed script mode, you can choose how to split the content:
 
 - **By Paragraph**: Split by empty lines, each paragraph becomes a scene
 - **By Line**: Split by line breaks, each line becomes a scene
-- **By Sentence**: Smart sentence boundary detection, each sentence becomes a scene
+- **By Sentence End**: Split only on sentence-ending punctuation like `。.!?！？`, each sentence becomes a scene
+- **By Punctuation**: Split on common punctuation like `，、；：。.!?！？` for finer-grained scenes
 
 ### Background Music
 
@@ -95,4 +96,3 @@ The sidebar includes built-in FAQ for quick reference:
 - Common configuration issues
 - Generation failure solutions
 - Performance optimization tips
-

@@ -65,6 +65,7 @@ def render_content_input():
                     "paragraph": tr("split.mode_paragraph"),
                     "line": tr("split.mode_line"),
                     "sentence": tr("split.mode_sentence"),
+                    "punctuation": tr("split.mode_punctuation"),
                 }
                 split_mode = st.selectbox(
                     tr("split.mode_label"),

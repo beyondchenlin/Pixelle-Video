@@ -19,7 +19,7 @@ These functions are reusable across different pipelines.
 
 import json
 import re
-from typing import List, Optional, Literal
+from typing import List, Literal, Optional
 
 from loguru import logger
 
@@ -206,9 +206,19 @@ async def generate_narrations_from_content(
     return narrations
 
 
+def _split_text_by_delimiters(script: str, delimiters: str) -> List[str]:
+    """Split text while keeping the matched delimiter sequence on each segment."""
+    cleaned = re.sub(r"\s+", " ", script.strip())
+    if not cleaned:
+        return []
+
+    pattern = rf".+?(?:[{re.escape(delimiters)}]+|$)"
+    return [segment.strip() for segment in re.findall(pattern, cleaned) if segment.strip()]
+
+
 async def split_narration_script(
     script: str,
-    split_mode: Literal["paragraph", "line", "sentence"] = "paragraph",
+    split_mode: Literal["paragraph", "line", "sentence", "punctuation"] = "paragraph",
 ) -> List[str]:
     """
     Split user-provided narration script into segments
@@ -219,6 +229,7 @@ async def split_narration_script(
             - "paragraph": Split by double newline (\\n\\n), preserve single newlines within paragraphs
             - "line": Split by single newline (\\n), each line is a segment
             - "sentence": Split by sentence-ending punctuation (。.!?！？)
+            - "punctuation": Split by common punctuation (，、；：。.!?！？,;:…)
     
     Returns:
         List of narration segments
@@ -246,13 +257,14 @@ async def split_narration_script(
     elif split_mode == "sentence":
         # Split by sentence-ending punctuation
         # Supports Chinese (。！？) and English (.!?)
-        # Use regex to split while keeping sentences intact
-        cleaned = re.sub(r'\s+', ' ', script.strip())
-        # Split on sentence-ending punctuation, keeping the punctuation with the sentence
-        sentences = re.split(r'(?<=[。.!?！？])\s*', cleaned)
-        narrations = [s.strip() for s in sentences if s.strip()]
+        narrations = _split_text_by_delimiters(script, "。.!?！？")
         logger.info(f"✅ Split script into {len(narrations)} segments (by sentence)")
-    
+
+    elif split_mode == "punctuation":
+        # Split by common punctuation for finer-grained storyboard generation
+        narrations = _split_text_by_delimiters(script, "，、；：。.!?！？,;:…")
+        logger.info(f"✅ Split script into {len(narrations)} segments (by punctuation)")
+
     else:
         # Fallback to line mode
         logger.warning(f"Unknown split_mode '{split_mode}', falling back to 'line'")
@@ -500,4 +512,3 @@ def _parse_json(text: str) -> dict:
     
     # If all fails, raise error
     raise json.JSONDecodeError("No valid JSON found", text, 0)
-
