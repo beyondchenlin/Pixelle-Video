@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -218,6 +219,54 @@ class _CallableFrameProcessor(_RecordingFrameProcessor):
         return frame
 
 
+class _ConcurrentCallableFrameProcessor(_CallableFrameProcessor):
+    def __init__(self):
+        super().__init__()
+        self.active = 0
+        self.max_active = 0
+
+    async def __call__(
+        self,
+        frame,
+        storyboard,
+        config,
+        total_frames=1,
+        progress_callback=None,
+    ):
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        try:
+            await asyncio.sleep(0)
+            return await super().__call__(
+                frame,
+                storyboard,
+                config,
+                total_frames=total_frames,
+                progress_callback=progress_callback,
+            )
+        finally:
+            self.active -= 1
+
+
+def test_resolve_asset_execution_mode_disables_runninghub_parallel_for_mixed_selfhost_media():
+    pipeline = StandardPipeline(
+        _DummyCore(
+            tts_defaults={"tts": "runninghub/tts_edge.json"},
+            media_defaults={
+                "image": "selfhost/image_z_image_turbo.json",
+                "video": "runninghub/video_wan2.1_fusionx.json",
+            },
+        )
+    )
+    ctx = _build_ctx()
+
+    execution_mode = pipeline._resolve_asset_execution_mode(ctx)
+
+    assert execution_mode.is_runninghub is True
+    assert execution_mode.use_staged_mode is False
+    assert execution_mode.use_runninghub_parallel is False
+
+
 @pytest.mark.asyncio
 async def test_produce_assets_emits_monotonic_staged_progress():
     core = _DummyCore()
@@ -267,3 +316,50 @@ async def test_produce_assets_keeps_callable_frame_processor_path_for_runninghub
         "legacy-0.mp4",
         "legacy-1.mp4",
     ]
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_staged_skips_existing_audio_and_media():
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    ctx.storyboard.frames[0].audio_path = "existing-0.mp3"
+    ctx.storyboard.frames[0].duration = 9.0
+    ctx.storyboard.frames[1].image_prompt = None
+    ctx.storyboard.frames[1].image_path = "existing-1.png"
+    ctx.storyboard.frames[1].media_type = "image"
+
+    await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.calls == [
+        ("audio", 1),
+        ("media", 0),
+        ("compose", 0),
+        ("compose", 1),
+        ("segment", 0),
+        ("segment", 1),
+    ]
+    assert ctx.storyboard.frames[0].audio_path == "existing-0.mp3"
+    assert ctx.storyboard.frames[1].image_path == "existing-1.png"
+    assert ctx.storyboard.total_duration == 11.0
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_disables_runninghub_parallel_for_mixed_selfhost_media(monkeypatch):
+    core = _DummyCore(
+        tts_defaults={"tts": "runninghub/tts_edge.json"},
+        media_defaults={
+            "image": "selfhost/image_z_image_turbo.json",
+            "video": "runninghub/video_wan2.1_fusionx.json",
+        },
+    )
+    core.frame_processor = _ConcurrentCallableFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    monkeypatch.setattr(config_manager.config.comfyui, "runninghub_concurrent_limit", 2)
+
+    await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.invocations == [0, 1]
+    assert core.frame_processor.max_active == 1

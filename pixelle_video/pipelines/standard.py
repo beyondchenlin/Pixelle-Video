@@ -58,6 +58,7 @@ class AssetExecutionMode:
     media_workflow_key: Optional[str]
     media_domain: Literal["static", "image", "video"]
     is_runninghub: bool
+    use_runninghub_parallel: bool
     use_staged_mode: bool
 
 
@@ -332,6 +333,11 @@ class StandardPipeline(LinearVideoPipeline):
             key and key.startswith("runninghub/")
             for key in (tts_workflow_key, media_workflow_key)
         )
+        has_selfhost_workflow = any(
+            key and key.startswith("selfhost/")
+            for key in (tts_workflow_key, media_workflow_key)
+        )
+        use_runninghub_parallel = is_runninghub and not has_selfhost_workflow
         use_staged_mode = (
             template_type == "image"
             and media_domain == "image"
@@ -346,6 +352,7 @@ class StandardPipeline(LinearVideoPipeline):
             media_workflow_key=media_workflow_key,
             media_domain=media_domain,
             is_runninghub=is_runninghub,
+            use_runninghub_parallel=use_runninghub_parallel,
             use_staged_mode=use_staged_mode,
         )
 
@@ -391,28 +398,36 @@ class StandardPipeline(LinearVideoPipeline):
         logger.info("Using staged selfhost image processing")
 
         for frame in storyboard.frames:
-            self._report_staged_frame_progress(
-                ctx.progress_callback,
-                stage_start=0.20,
-                stage_end=0.35,
-                frame_current=frame.index + 1,
-                frame_total=total_frames,
-                step=1,
-                action="audio",
-            )
-            await self.core.frame_processor._step_generate_audio(frame, config)
+            if not frame.audio_path:
+                self._report_staged_frame_progress(
+                    ctx.progress_callback,
+                    stage_start=0.20,
+                    stage_end=0.35,
+                    frame_current=frame.index + 1,
+                    frame_total=total_frames,
+                    step=1,
+                    action="audio",
+                )
+                await self.core.frame_processor._step_generate_audio(frame, config)
 
         for frame in storyboard.frames:
-            self._report_staged_frame_progress(
-                ctx.progress_callback,
-                stage_start=0.35,
-                stage_end=0.50,
-                frame_current=frame.index + 1,
-                frame_total=total_frames,
-                step=2,
-                action="media",
-            )
-            await self.core.frame_processor._step_generate_media(frame, config)
+            has_existing_media = frame.image_path is not None or frame.video_path is not None
+            needs_generation = frame.image_prompt is not None
+
+            if needs_generation:
+                self._report_staged_frame_progress(
+                    ctx.progress_callback,
+                    stage_start=0.35,
+                    stage_end=0.50,
+                    frame_current=frame.index + 1,
+                    frame_total=total_frames,
+                    step=2,
+                    action="media",
+                )
+                await self.core.frame_processor._step_generate_media(frame, config)
+            elif not has_existing_media:
+                frame.image_path = None
+                frame.media_type = None
 
         for frame in storyboard.frames:
             self._report_staged_frame_progress(
@@ -460,7 +475,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
             return
         
-        if execution_mode.is_runninghub and runninghub_concurrent_limit > 1:
+        if execution_mode.use_runninghub_parallel and runninghub_concurrent_limit > 1:
             logger.info(f"🚀 Using parallel processing for RunningHub workflows (max {runninghub_concurrent_limit} concurrent)")
             
             semaphore = asyncio.Semaphore(runninghub_concurrent_limit)
