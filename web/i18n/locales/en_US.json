@@ -104,6 +104,7 @@
     "style.prefix_library.compare_count": "Comparing {count} styles",
     "style.prefix_library.compare_chip_add": "+ Compare",
     "style.prefix_library.compare_chip_active": "Compared",
+    "style.prefix_library.compare_chip_short": "Compare",
     "style.prefix_library.thumbnail_prompt": "Thumbnail Reference Prompt",
     "style.prefix_library.thumbnail_prompt_placeholder": "Use one stable prompt to generate gallery thumbnails",
     "style.prefix_library.generate_thumbnails": "Generate Thumbnails",

@@ -15,6 +15,7 @@ Style configuration components for web UI (middle column)
 """
 
 import os
+from html import escape
 from pathlib import Path
 from uuid import uuid4
 
@@ -161,6 +162,19 @@ def _render_image_prompt_prefix_library_legacy(pixelle_video, workflow_key: str,
 
     st.markdown(f"**{tr('style.prompt_prefix')}**")
     st.caption(tr("style.prefix_library.title"))
+    st.markdown(
+        """
+        <style>
+        div.stButton > button p {
+            white-space: nowrap;
+            word-break: keep-all;
+            overflow-wrap: normal;
+            writing-mode: horizontal-tb;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if active_item:
         st.caption(
@@ -784,7 +798,7 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
         if not filtered_items:
             st.caption(tr("style.prefix_library.no_items"))
         else:
-            num_cols = 1
+            num_cols = 5
             gallery_columns = st.columns(num_cols)
             for idx, item in enumerate(filtered_items):
                 style_label = get_prompt_prefix_category_label(item["style_category_id"], "style", language)
@@ -792,11 +806,119 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                 cover_state = resolve_prompt_prefix_gallery_cover(item, workflow_key)
                 is_active = item["id"] == active_prefix_id
                 in_preview = item["id"] in selected_preview_ids
+                title_html = escape(item["name"])
+                meta_label = escape(" · ".join([style_label, scene_label]))
+                meta_label = escape(f"{style_label} · {scene_label}")
+                source_label = escape(str(item.get("source", "manual")).upper())
+                meta_label = escape(" · ".join([style_label, scene_label]))
+                status_label = escape(_get_prompt_prefix_cover_status_label(cover_state))
+                meta_label = escape(" / ".join([style_label, scene_label]))
 
                 with gallery_columns[idx % num_cols]:
                     with st.container(border=True):
                         st.image(cover_state["asset_path"], width="stretch")
-                        st.markdown(f"**{item['name']}**")
+                        st.markdown(
+                            f"""
+                            <div style="
+                                min-height: 2.9rem;
+                                font-weight: 600;
+                                font-size: 0.98rem;
+                                line-height: 1.45;
+                                overflow: hidden;
+                                display: -webkit-box;
+                                -webkit-line-clamp: 2;
+                                -webkit-box-orient: vertical;
+                                margin-bottom: 0.2rem;
+                            ">{title_html}</div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown(
+                            f"""
+                            <div style="
+                                min-height: 1.35rem;
+                                color: rgba(49, 51, 63, 0.72);
+                                font-size: 0.82rem;
+                                line-height: 1.35;
+                                overflow: hidden;
+                                text-overflow: ellipsis;
+                                white-space: nowrap;
+                                margin-bottom: 0.15rem;
+                            ">{meta_label}</div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown(
+                            f"""
+                            <div style="
+                                min-height: 1.25rem;
+                                color: rgba(49, 51, 63, 0.58);
+                                font-size: 0.76rem;
+                                line-height: 1.3;
+                                overflow: hidden;
+                                text-overflow: ellipsis;
+                                white-space: nowrap;
+                                margin-bottom: 0.45rem;
+                            ">{source_label} · {status_label}</div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        if st.button(
+                            tr("style.prefix_library.view_details"),
+                            key=f"open_prefix_details_compact_{item['id']}",
+                            width="stretch",
+                        ):
+                            _open_prompt_prefix_panel("details", item["id"])
+                            safe_rerun()
+
+                        compare_col, select_col = st.columns(2, gap="small")
+                        with compare_col:
+                            compare_label = (
+                                tr("style.prefix_library.compare_chip_active")
+                                if in_preview
+                                else tr("style.prefix_library.compare_chip_short")
+                            )
+                            if st.button(
+                                compare_label,
+                                key=f"compare_prefix_card_compact_{item['id']}",
+                                width="stretch",
+                            ):
+                                if not in_preview and len(selected_preview_ids) >= 4:
+                                    st.warning(tr("style.prefix_library.preview_limit"))
+                                else:
+                                    st.session_state["prompt_prefix_preview_ids"] = toggle_prompt_prefix_preview_selection(
+                                        selected_preview_ids,
+                                        item["id"],
+                                    )
+                                    st.session_state.pop("prompt_prefix_preview_results", None)
+                                    safe_rerun()
+                        with select_col:
+                            if st.button(
+                                tr("template.selected") if is_active else tr("template.select_button"),
+                                key=f"select_prefix_card_compact_{item['id']}",
+                                width="stretch",
+                                type="primary" if is_active else "secondary",
+                            ):
+                                _set_active_image_prompt_prefix(item["id"])
+                                safe_rerun()
+                        continue
+                        st.image(cover_state["asset_path"], width="stretch")
+                        st.markdown(
+                            f"""
+                            <div style="
+                                min-height: 2.9rem;
+                                font-weight: 600;
+                                font-size: 0.98rem;
+                                line-height: 1.45;
+                                overflow: hidden;
+                                display: -webkit-box;
+                                -webkit-line-clamp: 2;
+                                -webkit-box-orient: vertical;
+                                margin-bottom: 0.2rem;
+                            ">{title_html}</div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
                         st.caption(f"{style_label} · {scene_label}")
                         st.caption(
                             " · ".join(

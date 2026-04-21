@@ -408,6 +408,7 @@ def test_remove_generated_candidate_from_session_cleans_saved_candidate(monkeypa
 def test_style_config_source_references_prompt_prefix_library_ui():
     project_root = Path(__file__).resolve().parent.parent
     source = (project_root / "web" / "components" / "style_config.py").read_text(encoding="utf-8")
+    standard_source = (project_root / "web" / "pipelines" / "standard.py").read_text(encoding="utf-8")
 
     assert "prompt_prefix_library" in source
     assert "toggle_prompt_prefix_preview_selection" in source
@@ -423,8 +424,14 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "style.prefix_library.compare_count" in source
     assert "style.prefix_library.thumbnail_prompt" in source
     assert "style.prefix_library.generate_thumbnails" in source
+    assert "div.stButton > button p" in source
+    assert "word-break: keep-all" in source
+    assert "style.prefix_library.compare_chip_short" in source
+    assert "num_cols = 5" in source
+    assert "num_cols = 1" not in source
     assert "st.columns([2.25, 1.05]" not in source
     assert "st.columns([1, 1, 1.2, 0.8, 0.9]" not in source
+    assert "st.columns([1, 1, 1])" in standard_source
 
 
 def test_prompt_prefix_library_locale_keys_exist():
@@ -441,3 +448,4 @@ def test_prompt_prefix_library_locale_keys_exist():
         assert "style.prefix_library.compare_count" in translations
         assert "style.prefix_library.thumbnail_prompt" in translations
         assert "style.prefix_library.generate_thumbnails" in translations
+        assert "style.prefix_library.compare_chip_short" in translations

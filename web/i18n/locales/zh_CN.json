@@ -104,6 +104,7 @@
     "style.prefix_library.compare_count": "当前对比 {count} 个风格",
     "style.prefix_library.compare_chip_add": "+ 对比",
     "style.prefix_library.compare_chip_active": "已对比",
+    "style.prefix_library.compare_chip_short": "对比",
     "style.prefix_library.thumbnail_prompt": "缩略图参考提示词",
     "style.prefix_library.thumbnail_prompt_placeholder": "用一条稳定提示词批量生成图库缩略图",
     "style.prefix_library.generate_thumbnails": "生成缩略图",
