@@ -1,0 +1,14 @@
+{
+  "name": "pixelle-hyperframes-bridge",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test tests/render.test.mjs"
+  },
+  "dependencies": {
+    "@hyperframes/producer": "0.4.11"
+  }
+}

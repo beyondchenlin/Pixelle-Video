@@ -1,0 +1,131 @@
+<template id="life-insights-light-captions">
+  <div
+    data-composition-id="captions"
+    data-width="1080"
+    data-height="1920"
+    data-duration="8"
+  >
+    <div id="captions-shell">
+      <div class="captions-label">Key takeaway</div>
+      <div id="captions-container"></div>
+    </div>
+
+    <style>
+      [data-composition-id="captions"] {
+        position: relative;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        font-family: "Helvetica Neue", Arial, sans-serif;
+      }
+
+      [data-composition-id="captions"] #captions-shell {
+        position: absolute;
+        left: 88px;
+        right: 88px;
+        bottom: 124px;
+        padding: 28px 34px 34px;
+        border-radius: 30px;
+        background: rgba(255, 250, 245, 0.9);
+        backdrop-filter: blur(16px);
+        box-shadow: 0 18px 54px rgba(56, 33, 19, 0.12);
+      }
+
+      [data-composition-id="captions"] .captions-label {
+        margin-bottom: 20px;
+        color: #d76c43;
+        font-size: 20px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      [data-composition-id="captions"] #captions-container {
+        position: relative;
+        min-height: 158px;
+      }
+
+      [data-composition-id="captions"] .caption-group {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        visibility: hidden;
+      }
+
+      [data-composition-id="captions"] .caption-text {
+        font-size: 56px;
+        line-height: 1.04;
+        letter-spacing: -0.04em;
+        color: #1f1b18;
+        white-space: normal;
+      }
+    </style>
+
+    <script>
+      async function fetchJson(url) {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Failed to load ${url}: ${response.status}`);
+        }
+        return response.json();
+      }
+
+      (async function bootstrapCaptions() {
+        const [manifest, payload] = await Promise.all([
+          fetchJson("../data/render_manifest.json"),
+          fetchJson("../data/captions.json"),
+        ]);
+
+        const root = document.querySelector('[data-composition-id="captions"]');
+        root.setAttribute("data-width", String(manifest.width || 1080));
+        root.setAttribute("data-height", String(manifest.height || 1920));
+
+        const captions = payload.captions || [];
+        const duration = Math.max(
+          8,
+          ...captions.map((caption) => Number(caption.end || 0)),
+          0,
+        );
+        root.setAttribute("data-duration", String(duration));
+
+        const container = document.getElementById("captions-container");
+        const tl = gsap.timeline({ paused: true });
+
+        if (!captions.length) {
+          const empty = document.createElement("div");
+          empty.className = "caption-group";
+          empty.style.opacity = "1";
+          empty.style.visibility = "visible";
+          empty.innerHTML = '<div class="caption-text">Captions will appear here.</div>';
+          container.appendChild(empty);
+        }
+
+        captions.forEach((caption) => {
+          const group = document.createElement("div");
+          group.className = "caption-group";
+
+          const text = document.createElement("div");
+          text.className = "caption-text";
+          text.textContent = caption.text;
+
+          group.appendChild(text);
+          container.appendChild(group);
+
+          tl.fromTo(
+            group,
+            { autoAlpha: 0, y: 18 },
+            { autoAlpha: 1, y: 0, duration: 0.18, ease: "power2.out" },
+            Number(caption.start || 0),
+          );
+          tl.to(
+            group,
+            { autoAlpha: 0, y: -10, duration: 0.12, ease: "power2.in" },
+            Number(caption.end || 0),
+          );
+        });
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["captions"] = tl;
+      })();
+    </script>
+  </div>
+</template>

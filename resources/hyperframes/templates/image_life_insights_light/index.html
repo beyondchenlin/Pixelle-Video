@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>Pixelle HyperFrames - Life Insights Light</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <style>
+      :root {
+        --frame-width: 1080px;
+        --frame-height: 1920px;
+        --surface: #f8f1e8;
+        --paper: rgba(255, 252, 247, 0.94);
+        --ink: #1f1b18;
+        --muted: #79685d;
+        --accent: #d76c43;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: var(--frame-width);
+        height: var(--frame-height);
+        overflow: hidden;
+        background:
+          radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 30%),
+          linear-gradient(160deg, #fdf7ef 0%, #f3e5d8 52%, #eadbcc 100%);
+        color: var(--ink);
+        font-family: "Georgia", "Times New Roman", serif;
+      }
+
+      #main-comp {
+        position: relative;
+        width: var(--frame-width);
+        height: var(--frame-height);
+        overflow: hidden;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0)),
+          radial-gradient(circle at 80% 18%, rgba(215, 108, 67, 0.12), transparent 22%);
+      }
+
+      .grain {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(0deg, rgba(31, 27, 24, 0.025), rgba(31, 27, 24, 0.025)),
+          radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.18) 0, transparent 42%);
+        mix-blend-mode: multiply;
+        pointer-events: none;
+      }
+
+      #visual-layer,
+      #copy-layer,
+      #captions-layer {
+        position: absolute;
+        inset: 0;
+      }
+
+      #visual-layer {
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      .visual-clip {
+        position: absolute;
+        inset: 220px 88px 560px;
+        border-radius: 42px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.5);
+        box-shadow: 0 28px 90px rgba(56, 33, 19, 0.14);
+      }
+
+      .visual-clip__media {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      #copy-layer {
+        z-index: 20;
+        padding: 118px 88px 0;
+        box-sizing: border-box;
+      }
+
+      .eyebrow {
+        font-size: 24px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 28px;
+      }
+
+      .headline-card {
+        max-width: 760px;
+        padding: 34px 38px 44px;
+        border-radius: 32px;
+        background: var(--paper);
+        backdrop-filter: blur(14px);
+        box-shadow: 0 22px 60px rgba(73, 43, 28, 0.08);
+      }
+
+      .headline {
+        margin: 0;
+        font-size: 82px;
+        line-height: 0.94;
+        letter-spacing: -0.04em;
+      }
+
+      .summary {
+        margin: 24px 0 0;
+        max-width: 640px;
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        font-size: 28px;
+        line-height: 1.45;
+        color: var(--muted);
+      }
+
+      .rail {
+        position: absolute;
+        left: 88px;
+        bottom: 432px;
+        width: 164px;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(31, 27, 24, 0.12);
+        overflow: hidden;
+      }
+
+      .rail::after {
+        content: "";
+        display: block;
+        width: 72px;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #d76c43, #f0b18d);
+      }
+
+      #captions-layer {
+        z-index: 30;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="main-comp"
+      data-composition-id="main-comp"
+      data-width="1080"
+      data-height="1920"
+      data-start="0"
+      data-duration="8"
+    >
+      <div class="grain"></div>
+      <div id="visual-layer"></div>
+      <div id="copy-layer">
+        <div class="eyebrow" id="eyebrow">Pixelle insight series</div>
+        <div class="headline-card">
+          <h1 class="headline" id="headline">Life insight placeholder</h1>
+          <p class="summary" id="summary">
+            Reference HyperFrames shell for image-led vertical explainers.
+          </p>
+        </div>
+      </div>
+      <div class="rail"></div>
+      <div
+        id="captions-layer"
+        data-composition-id="captions"
+        data-composition-src="compositions/captions.html"
+        data-start="0"
+        data-track-index="3"
+        data-duration="8"
+      ></div>
+    </div>
+
+    <script>
+      async function fetchJson(url) {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Failed to load ${url}: ${response.status}`);
+        }
+        return response.json();
+      }
+
+      function resolveDuration(manifest) {
+        const ranges = [];
+        for (const clip of manifest.visual_clips || []) {
+          ranges.push(Number(clip.end || 0));
+        }
+        for (const cue of manifest.caption_cues || []) {
+          ranges.push(Number(cue.end || 0));
+        }
+        for (const block of manifest.audio_blocks || []) {
+          ranges.push(Number(block.end || 0));
+        }
+        return Math.max(8, ...ranges, 0);
+      }
+
+      function applyFrameSize(root, manifest) {
+        const width = manifest.width || 1080;
+        const height = manifest.height || 1920;
+        document.documentElement.style.setProperty("--frame-width", `${width}px`);
+        document.documentElement.style.setProperty("--frame-height", `${height}px`);
+        root.setAttribute("data-width", String(width));
+        root.setAttribute("data-height", String(height));
+      }
+
+      function mountVisualClips(manifest) {
+        const visualLayer = document.getElementById("visual-layer");
+        visualLayer.innerHTML = "";
+
+        const clips = manifest.visual_clips || [];
+        if (!clips.length) {
+          const fallback = document.createElement("div");
+          fallback.className = "visual-clip";
+          fallback.style.display = "grid";
+          fallback.style.placeItems = "center";
+          fallback.style.color = "#79685d";
+          fallback.style.fontFamily = '"Helvetica Neue", Arial, sans-serif';
+          fallback.style.fontSize = "28px";
+          fallback.textContent = "Awaiting generated visual clip";
+          visualLayer.appendChild(fallback);
+          return;
+        }
+
+        for (const clip of clips) {
+          const frame = document.createElement("div");
+          frame.className = "visual-clip";
+
+          const media =
+            clip.media_type === "video"
+              ? document.createElement("video")
+              : document.createElement("img");
+
+          media.className = "visual-clip__media";
+          media.setAttribute("src", clip.media_path);
+          media.setAttribute("data-start", String(clip.start || 0));
+          media.setAttribute("data-duration", String(Math.max((clip.end || 0) - (clip.start || 0), 0.1)));
+          media.setAttribute("data-track-index", String(clip.track_index ?? 1));
+
+          if (clip.media_type === "video") {
+            media.muted = true;
+            media.playsInline = true;
+          }
+
+          frame.appendChild(media);
+          visualLayer.appendChild(frame);
+        }
+      }
+
+      function mountAudio(manifest) {
+        if (!manifest.master_audio_path) {
+          return;
+        }
+
+        let audio = document.getElementById("master-audio");
+        if (!audio) {
+          audio = document.createElement("audio");
+          audio.id = "master-audio";
+          document.getElementById("main-comp").appendChild(audio);
+        }
+
+        audio.setAttribute("src", manifest.master_audio_path);
+        audio.setAttribute("data-start", "0");
+        audio.setAttribute("data-duration", String(resolveDuration(manifest)));
+      }
+
+      (async function bootstrap() {
+        const [manifest, captionsPayload] = await Promise.all([
+          fetchJson("./data/render_manifest.json"),
+          fetchJson("./data/captions.json").catch(() => ({ captions: [] })),
+        ]);
+
+        const root = document.getElementById("main-comp");
+        const headline = document.getElementById("headline");
+        const summary = document.getElementById("summary");
+
+        headline.textContent = manifest.title || "Life insight placeholder";
+        summary.textContent =
+          captionsPayload.captions?.[0]?.text ||
+          "Reference HyperFrames shell for image-led vertical explainers.";
+
+        applyFrameSize(root, manifest);
+        const duration = resolveDuration(manifest);
+        root.setAttribute("data-duration", String(duration));
+        document.getElementById("captions-layer").setAttribute("data-duration", String(duration));
+
+        mountVisualClips(manifest);
+        mountAudio(manifest);
+
+        const tl = gsap.timeline({ paused: true });
+        tl.fromTo(
+          "#copy-layer",
+          { y: 24, autoAlpha: 0 },
+          { y: 0, autoAlpha: 1, duration: 0.6, ease: "power2.out" },
+          0,
+        );
+        tl.fromTo(
+          ".visual-clip",
+          { scale: 1.05, autoAlpha: 0.88 },
+          { scale: 1, autoAlpha: 1, duration: 1.2, ease: "power2.out" },
+          0,
+        );
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["main-comp"] = tl;
+      })();
+    </script>
+  </body>
+</html>
