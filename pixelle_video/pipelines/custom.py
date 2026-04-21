@@ -26,7 +26,10 @@ from typing import Optional, Callable
 from loguru import logger
 
 from pixelle_video.pipelines.base import BasePipeline
-from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
+from pixelle_video.pipelines.storyboard_config import (
+    STORYBOARD_RENDER_DEFAULTS,
+    resolve_storyboard_render_kwargs,
+)
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import (
     Storyboard,
@@ -132,8 +135,11 @@ class CustomPipeline(BasePipeline):
         logger.info("Starting CustomPipeline")
         logger.info(f"Input text length: {len(text)} chars")
         logger.info(f"Custom parameter: {custom_param_example}")
-        if kwargs:
-            logger.debug(f"Ignoring extra custom pipeline kwargs: {sorted(kwargs.keys())}")
+        ignored_kwargs = sorted(
+            key for key in kwargs.keys() if key not in STORYBOARD_RENDER_DEFAULTS
+        )
+        if ignored_kwargs:
+            logger.debug(f"Ignoring extra custom pipeline kwargs: {ignored_kwargs}")
         
         # === Handle TTS parameter compatibility ===
         # Support both old API (voice_id) and new API (tts_inference_mode + tts_voice)
@@ -266,6 +272,7 @@ class CustomPipeline(BasePipeline):
             logger.info(f"   💡 Savings: {len(narrations)} LLM calls + {len(narrations)} image generations")
         
         # ========== Step 3: Create storyboard ==========
+        render_kwargs = resolve_storyboard_render_kwargs(self.core.config, kwargs)
         config = StoryboardConfig(
             task_id=task_id,
             n_storyboard=len(narrations),
@@ -279,7 +286,7 @@ class CustomPipeline(BasePipeline):
             tts_workflow=final_tts_workflow,  # Use processed workflow
             tts_speed=tts_speed,
             ref_audio=ref_audio,
-            **resolve_storyboard_render_kwargs(self.core.config, kwargs),
+            **render_kwargs,
             media_width=media_width,
             media_height=media_height,
             media_workflow=media_workflow,

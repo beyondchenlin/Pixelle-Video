@@ -17,6 +17,16 @@ Storyboard configuration helpers for runtime pipeline construction.
 
 from typing import Any, Dict, Optional
 
+STORYBOARD_RENDER_DEFAULTS: Dict[str, Any] = {
+    "tts_batching_mode": "paragraph",
+    "tts_batch_max_sentences": 8,
+    "tts_batch_max_chars": 220,
+    "subtitle_alignment_engine": "qwen_forced_aligner",
+    "silence_trim_tool": None,
+    "silence_trim_margin_ms": 120,
+    "render_backend": "hyperframes",
+}
+
 
 def resolve_storyboard_render_kwargs(
     runtime_config: Optional[Dict[str, Any]],
@@ -34,20 +44,18 @@ def resolve_storyboard_render_kwargs(
     request_params = request_params or {}
 
     def pick(name: str, default: Any):
-        value = request_params.get(name)
-        if value is not None:
-            return value
-        value = timing_config.get(name)
-        if value is not None:
-            return value
+        if name in request_params:
+            return request_params[name]
+        if name in timing_config:
+            value = timing_config[name]
+            if value is not None:
+                return value
         return default
 
-    return {
-        "tts_batching_mode": pick("tts_batching_mode", "paragraph"),
-        "tts_batch_max_sentences": pick("tts_batch_max_sentences", 8),
-        "tts_batch_max_chars": pick("tts_batch_max_chars", 220),
-        "subtitle_alignment_engine": pick("subtitle_alignment_engine", "qwen_forced_aligner"),
-        "silence_trim_tool": pick("silence_trim_tool", None),
-        "silence_trim_margin_ms": pick("silence_trim_margin_ms", 120),
-        "render_backend": pick("render_backend", render_config.get("backend", "hyperframes")),
-    }
+    resolved = {}
+    for name, default in STORYBOARD_RENDER_DEFAULTS.items():
+        if name == "render_backend":
+            resolved[name] = pick(name, render_config.get("backend") or default)
+        else:
+            resolved[name] = pick(name, default)
+    return resolved

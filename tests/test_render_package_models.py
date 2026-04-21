@@ -10,7 +10,10 @@ from pixelle_video.models.render_package import (
     VisualClip,
 )
 from pixelle_video.models.storyboard import StoryboardConfig
+from pixelle_video.pipelines.asset_based import AssetBasedPipeline
+from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.pipelines.linear import PipelineContext
+from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.persistence import PersistenceService
 
@@ -142,6 +145,33 @@ render:
     assert reparsed.render.timing.silence_trim_tool == "ffmpeg"
 
 
+def test_resolve_storyboard_render_kwargs_honors_explicit_none_over_config_default():
+    runtime_config = {
+        "render": {
+            "backend": "cinematic",
+            "timing": {
+                "tts_batching_mode": "sentence",
+                "tts_batch_max_sentences": 6,
+                "tts_batch_max_chars": 180,
+                "subtitle_alignment_engine": "whisperx",
+                "silence_trim_tool": "ffmpeg",
+                "silence_trim_margin_ms": 90,
+            },
+        }
+    }
+    request_params = {
+        "tts_batching_mode": "paragraph",
+        "silence_trim_tool": None,
+    }
+
+    resolved = resolve_storyboard_render_kwargs(runtime_config, request_params)
+
+    assert resolved["tts_batching_mode"] == "paragraph"
+    assert resolved["silence_trim_tool"] is None
+    assert resolved["silence_trim_margin_ms"] == 90
+    assert resolved["render_backend"] == "cinematic"
+
+
 @pytest.mark.asyncio
 async def test_standard_pipeline_initialize_storyboard_uses_render_config_defaults():
     fake_core = type(
@@ -190,3 +220,154 @@ async def test_standard_pipeline_initialize_storyboard_uses_render_config_defaul
     assert ctx.config.silence_trim_tool == "ffmpeg"
     assert ctx.config.silence_trim_margin_ms == 75
     assert ctx.config.render_backend == "cinematic"
+
+
+@pytest.mark.asyncio
+async def test_custom_pipeline_uses_render_config_defaults_when_building_storyboard_config(
+    monkeypatch,
+    tmp_path,
+):
+    captured = {}
+
+    class _CapturedConfig(Exception):
+        pass
+
+    def _capture_storyboard_config(**kwargs):
+        captured.update(kwargs)
+        raise _CapturedConfig
+
+    async def _fake_generate_title(llm, text, strategy):
+        return "Custom title"
+
+    class _FakeFrameHtmlGenerator:
+        def __init__(self, template_path):
+            self.template_path = template_path
+
+        def get_media_size(self):
+            return 1080, 1920
+
+    monkeypatch.setattr("pixelle_video.pipelines.custom.StoryboardConfig", _capture_storyboard_config)
+    monkeypatch.setattr("pixelle_video.utils.content_generators.generate_title", _fake_generate_title)
+    monkeypatch.setattr(
+        "pixelle_video.utils.os_util.create_task_output_dir",
+        lambda: (str(tmp_path / "task"), "task-1"),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.os_util.get_task_final_video_path",
+        lambda task_id: str(tmp_path / f"{task_id}.mp4"),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameHtmlGenerator,
+    )
+
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {
+                "render": {
+                    "backend": "cinematic",
+                    "timing": {
+                        "tts_batching_mode": "sentence",
+                        "tts_batch_max_sentences": 5,
+                        "tts_batch_max_chars": 160,
+                        "subtitle_alignment_engine": "whisperx",
+                        "silence_trim_tool": "ffmpeg",
+                        "silence_trim_margin_ms": 75,
+                    },
+                },
+                "template": {
+                    "default_template": "1080x1920/static_default.html",
+                },
+            },
+            "llm": object(),
+            "tts": object(),
+            "media": object(),
+            "video": object(),
+            "frame_processor": object(),
+            "persistence": object(),
+        },
+    )()
+
+    pipeline = CustomPipeline(fake_core)
+
+    with pytest.raises(_CapturedConfig):
+        await pipeline(
+            text="line one\nline two",
+            frame_template="1080x1920/static_default.html",
+        )
+
+    assert captured["tts_batching_mode"] == "sentence"
+    assert captured["tts_batch_max_sentences"] == 5
+    assert captured["tts_batch_max_chars"] == 160
+    assert captured["subtitle_alignment_engine"] == "whisperx"
+    assert captured["silence_trim_tool"] == "ffmpeg"
+    assert captured["silence_trim_margin_ms"] == 75
+    assert captured["render_backend"] == "cinematic"
+
+
+@pytest.mark.asyncio
+async def test_asset_based_pipeline_initialize_storyboard_uses_render_config_defaults(
+    monkeypatch,
+):
+    captured = {}
+
+    class _CapturedConfig(Exception):
+        pass
+
+    def _capture_storyboard_config(**kwargs):
+        captured.update(kwargs)
+        raise _CapturedConfig
+
+    monkeypatch.setattr("pixelle_video.models.storyboard.StoryboardConfig", _capture_storyboard_config)
+
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {
+                "render": {
+                    "backend": "cinematic",
+                    "timing": {
+                        "tts_batching_mode": "sentence",
+                        "tts_batch_max_sentences": 5,
+                        "tts_batch_max_chars": 160,
+                        "subtitle_alignment_engine": "whisperx",
+                        "silence_trim_tool": "ffmpeg",
+                        "silence_trim_margin_ms": 75,
+                    },
+                }
+            },
+            "llm": object(),
+            "tts": object(),
+            "media": object(),
+            "video": object(),
+        },
+    )()
+
+    pipeline = AssetBasedPipeline(fake_core)
+    ctx = PipelineContext(
+        input_text="intent",
+        params={"template_params": {}},
+    )
+    ctx.task_id = "task-1"
+    ctx.title = "Asset title"
+    ctx.matched_scenes = [
+        {
+            "scene_number": 1,
+            "asset_path": "assets/example.png",
+            "narrations": ["Sentence 1."],
+        }
+    ]
+
+    with pytest.raises(_CapturedConfig):
+        await pipeline.initialize_storyboard(ctx)
+
+    assert captured["tts_batching_mode"] == "sentence"
+    assert captured["tts_batch_max_sentences"] == 5
+    assert captured["tts_batch_max_chars"] == 160
+    assert captured["subtitle_alignment_engine"] == "whisperx"
+    assert captured["silence_trim_tool"] == "ffmpeg"
+    assert captured["silence_trim_margin_ms"] == 75
+    assert captured["render_backend"] == "cinematic"
