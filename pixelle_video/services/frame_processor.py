@@ -20,6 +20,7 @@ Key Feature:
   to ensure perfect sync between audio and video (no padding, no trimming needed)
 """
 
+import unicodedata
 from typing import Callable, Optional
 
 import httpx
@@ -28,6 +29,22 @@ from loguru import logger
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import Storyboard, StoryboardFrame, StoryboardConfig
 from pixelle_video.utils.template_util import get_template_type
+
+
+IMAGE_SEGMENT_MIN_FPS = 90
+
+
+def _strip_trailing_subtitle_punctuation(text: str) -> str:
+    """Remove trailing punctuation from subtitle display text only."""
+    stripped = (text or "").rstrip()
+    while stripped and unicodedata.category(stripped[-1]).startswith("P"):
+        stripped = stripped[:-1].rstrip()
+    return stripped
+
+
+def _get_image_segment_fps(configured_fps: int) -> int:
+    """Use a higher internal fps for still-image segments to reduce timing quantization."""
+    return max(configured_fps, IMAGE_SEGMENT_MIN_FPS)
 
 
 class FrameProcessor:
@@ -325,7 +342,7 @@ class FrameProcessor:
         
         composed_path = await generator.generate_frame(
             title=storyboard.title,
-            text=frame.narration,
+            text=_strip_trailing_subtitle_punctuation(frame.narration),
             image=media_path,  # HTMLFrameGenerator handles both image and video paths
             ext=ext,
             output_path=output_path
@@ -388,7 +405,7 @@ class FrameProcessor:
                 image=frame.composed_image_path,
                 audio=frame.audio_path,
                 output=output_path,
-                fps=config.video_fps
+                fps=_get_image_segment_fps(config.video_fps)
             )
         
         else:
