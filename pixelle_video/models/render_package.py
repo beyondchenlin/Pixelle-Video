@@ -27,6 +27,8 @@ class SentenceUnit:
     block_id: Optional[str] = None
     source_start: Optional[float] = None
     source_end: Optional[float] = None
+    remapped_start: Optional[float] = None
+    remapped_end: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -40,6 +42,8 @@ class SentenceUnit:
             block_id=data.get("block_id"),
             source_start=data.get("source_start"),
             source_end=data.get("source_end"),
+            remapped_start=data.get("remapped_start"),
+            remapped_end=data.get("remapped_end"),
         )
 
 

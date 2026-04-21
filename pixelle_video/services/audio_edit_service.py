@@ -28,7 +28,12 @@ class AutoEditorTimeline:
     source: str | None = None
 
     def __post_init__(self) -> None:
-        self.timebase = float(self.timebase or 1.0)
+        if self.timebase is None:
+            self.timebase = 1.0
+        else:
+            self.timebase = float(self.timebase)
+        if self.timebase <= 0:
+            raise ValueError("Auto-editor timeline timebase must be positive.")
         self.chunks = [self._coerce_chunk(chunk) for chunk in self.chunks]
 
     @classmethod
@@ -36,7 +41,7 @@ class AutoEditorTimeline:
         return cls(
             version=str(data.get("version")) if data.get("version") is not None else None,
             source=str(data.get("source")) if data.get("source") is not None else None,
-            timebase=float(data.get("timebase", 1.0) or 1.0),
+            timebase=data.get("timebase", 1.0),
             chunks=[cls._coerce_chunk(chunk) for chunk in data.get("chunks", [])],
         )
 

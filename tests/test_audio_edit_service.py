@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from pixelle_video.models.render_package import SentenceUnit
 from pixelle_video.services.audio_edit_service import AudioEditService, AutoEditorTimeline
 
@@ -58,3 +60,34 @@ def test_audio_edit_service_exports_timeline_and_remaps_sentence_units():
     assert remapped[0] is sentence
     assert sentence.remapped_start == 2.0
     assert sentence.remapped_end == 5.0
+
+
+def test_audio_edit_service_parses_mapping_chunks_and_rejects_zero_timebase():
+    timeline = AutoEditorTimeline.from_mapping(
+        {
+            "version": "1",
+            "source": "speech.wav",
+            "timebase": 10.0,
+            "chunks": [
+                {"start": 0, "end": 30, "speed": 1.0},
+                {"start": 30, "end": 40, "speed": 0.0},
+                {"start": 40, "end": 80, "speed": 1.0},
+            ],
+        }
+    )
+    sentence = SentenceUnit(id="s1", text="Hello world.", source_start=2.0, source_end=6.0)
+
+    timeline.remap_sentence(sentence)
+
+    assert sentence.remapped_start == 2.0
+    assert sentence.remapped_end == 5.0
+
+    with pytest.raises(ValueError, match="timebase must be positive"):
+        AutoEditorTimeline.from_mapping(
+            {
+                "version": "1",
+                "source": "speech.wav",
+                "timebase": 0,
+                "chunks": [[0, 30, 1.0]],
+            }
+        )

@@ -13,8 +13,8 @@ from pixelle_video.models.storyboard import StoryboardConfig
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.pipelines.linear import PipelineContext
-from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.pipelines.standard import StandardPipeline
+from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.services.persistence import PersistenceService
 
 
@@ -79,6 +79,24 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
 
     assert restored.caption_cues[0].text == "Sentence 1"
     assert restored.audio_blocks[0].end == 4.2
+
+
+def test_sentence_unit_round_trip_preserves_remapped_times():
+    sentence = SentenceUnit(
+        id="s1",
+        text="Sentence 1.",
+        frame_indices=[0],
+        block_id="block-1",
+        source_start=0.0,
+        source_end=2.0,
+        remapped_start=0.0,
+        remapped_end=1.6,
+    )
+
+    restored = SentenceUnit.from_dict(sentence.to_dict())
+
+    assert restored.remapped_start == 0.0
+    assert restored.remapped_end == 1.6
 
 
 def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path):
