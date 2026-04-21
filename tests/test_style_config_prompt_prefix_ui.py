@@ -409,6 +409,10 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     project_root = Path(__file__).resolve().parent.parent
     source = (project_root / "web" / "components" / "style_config.py").read_text(encoding="utf-8")
     standard_source = (project_root / "web" / "pipelines" / "standard.py").read_text(encoding="utf-8")
+    current_prefix_section = source.split("def _render_image_prompt_prefix_library(", 1)[1]
+    current_prefix_section = current_prefix_section.split("\ndef render_style_config(", 1)[0]
+    gallery_section = current_prefix_section.split("with gallery_col:", 1)[1]
+    gallery_section = gallery_section.split("\n    with panel_col:", 1)[0]
 
     assert "prompt_prefix_library" in source
     assert "toggle_prompt_prefix_preview_selection" in source
@@ -424,11 +428,16 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "style.prefix_library.compare_count" in source
     assert "style.prefix_library.thumbnail_prompt" in source
     assert "style.prefix_library.generate_thumbnails" in source
-    assert "div.stButton > button p" in source
-    assert "word-break: keep-all" in source
+    assert 'st.container(key="prompt_prefix_library_root")' in current_prefix_section
+    assert ".st-key-prompt_prefix_library_root div.stButton > button p" in current_prefix_section
+    assert "word-break: keep-all !important" in current_prefix_section
+    assert "padding-inline: 0.45rem" in current_prefix_section
     assert "style.prefix_library.compare_chip_short" in source
     assert "num_cols = 5" in source
     assert "num_cols = 1" not in source
+    assert "cover_asset" not in gallery_section
+    assert "compare_prefix_card_new_" not in gallery_section
+    assert 'continue\n' not in gallery_section
     assert "st.columns([2.25, 1.05]" not in source
     assert "st.columns([1, 1, 1.2, 0.8, 0.9]" not in source
     assert "st.columns([1, 1, 1])" in standard_source
@@ -449,3 +458,11 @@ def test_prompt_prefix_library_locale_keys_exist():
         assert "style.prefix_library.thumbnail_prompt" in translations
         assert "style.prefix_library.generate_thumbnails" in translations
         assert "style.prefix_library.compare_chip_short" in translations
+
+
+def test_runtime_asset_dirs_are_gitignored():
+    project_root = Path(__file__).resolve().parent.parent
+    gitignore = (project_root / ".gitignore").read_text(encoding="utf-8")
+
+    assert ".superpowers/" in gitignore
+    assert "resources/prompt_prefix_previews/custom/" in gitignore

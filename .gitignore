@@ -75,3 +75,7 @@ examples/
 repositories/
 
 *.out
+
+# Local scratch / generated review assets
+.superpowers/
+resources/prompt_prefix_previews/custom/

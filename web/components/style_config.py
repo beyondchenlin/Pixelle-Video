@@ -667,6 +667,22 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
 
     st.markdown(f"**{tr('style.prompt_prefix')}**")
     st.caption(tr("style.prefix_library.title"))
+    st.markdown(
+        """
+        <style>
+        .st-key-prompt_prefix_library_root div.stButton > button {
+            padding-inline: 0.45rem;
+        }
+        .st-key-prompt_prefix_library_root div.stButton > button p {
+            white-space: nowrap !important;
+            word-break: keep-all !important;
+            overflow-wrap: normal !important;
+            writing-mode: horizontal-tb !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     with st.container(border=True):
         active_info_col, active_action_col = st.columns(2, gap="small")
@@ -674,8 +690,8 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
             if active_item:
                 st.markdown(f"### {active_item['name']}")
                 st.caption(
-                    f"{tr('style.prefix_library.active')} · "
-                    f"{get_prompt_prefix_category_label(active_item['style_category_id'], 'style', language)} · "
+                    f"{tr('style.prefix_library.active')} / "
+                    f"{get_prompt_prefix_category_label(active_item['style_category_id'], 'style', language)} / "
                     f"{get_prompt_prefix_category_label(active_item['scene_category_id'], 'scene', language)}"
                 )
                 if active_item.get("note"):
@@ -792,7 +808,7 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
         st.caption(st.session_state["prompt_prefix_thumbnail_status"])
     st.caption(tr("style.prefix_library.compare_count", count=len(selected_preview_ids)))
 
-    gallery_col = st.container()
+    gallery_col = st.container(key="prompt_prefix_library_root")
     panel_col = st.container()
     with gallery_col:
         if not filtered_items:
@@ -807,12 +823,9 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                 is_active = item["id"] == active_prefix_id
                 in_preview = item["id"] in selected_preview_ids
                 title_html = escape(item["name"])
-                meta_label = escape(" · ".join([style_label, scene_label]))
-                meta_label = escape(f"{style_label} · {scene_label}")
-                source_label = escape(str(item.get("source", "manual")).upper())
-                meta_label = escape(" · ".join([style_label, scene_label]))
-                status_label = escape(_get_prompt_prefix_cover_status_label(cover_state))
                 meta_label = escape(" / ".join([style_label, scene_label]))
+                source_label = escape(str(item.get("source", "manual")).upper())
+                status_label = escape(_get_prompt_prefix_cover_status_label(cover_state))
 
                 with gallery_columns[idx % num_cols]:
                     with st.container(border=True):
@@ -859,7 +872,7 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                                 text-overflow: ellipsis;
                                 white-space: nowrap;
                                 margin-bottom: 0.45rem;
-                            ">{source_label} · {status_label}</div>
+                            ">{source_label} / {status_label}</div>
                             """,
                             unsafe_allow_html=True,
                         )
@@ -901,113 +914,6 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                             ):
                                 _set_active_image_prompt_prefix(item["id"])
                                 safe_rerun()
-                        continue
-                        st.image(cover_state["asset_path"], width="stretch")
-                        st.markdown(
-                            f"""
-                            <div style="
-                                min-height: 2.9rem;
-                                font-weight: 600;
-                                font-size: 0.98rem;
-                                line-height: 1.45;
-                                overflow: hidden;
-                                display: -webkit-box;
-                                -webkit-line-clamp: 2;
-                                -webkit-box-orient: vertical;
-                                margin-bottom: 0.2rem;
-                            ">{title_html}</div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-                        st.caption(f"{style_label} · {scene_label}")
-                        st.caption(
-                            " · ".join(
-                                [item.get("source", "manual"), _get_prompt_prefix_cover_status_label(cover_state)]
-                            )
-                        )
-                        if st.button(
-                            tr("style.prefix_library.view_details"),
-                            key=f"open_prefix_details_{item['id']}",
-                            width="stretch",
-                        ):
-                            _open_prompt_prefix_panel("details", item["id"])
-                            safe_rerun()
-
-                        compare_col, select_col = st.columns(2, gap="small")
-                        with compare_col:
-                            compare_label = (
-                                tr("style.prefix_library.remove_from_preview")
-                                if in_preview
-                                else tr("style.prefix_library.compare_chip_add")
-                            )
-                            if st.button(
-                                compare_label,
-                                key=f"compare_prefix_card_new_{item['id']}",
-                                width="stretch",
-                            ):
-                                if not in_preview and len(selected_preview_ids) >= 4:
-                                    st.warning(tr("style.prefix_library.preview_limit"))
-                                else:
-                                    st.session_state["prompt_prefix_preview_ids"] = toggle_prompt_prefix_preview_selection(
-                                        selected_preview_ids,
-                                        item["id"],
-                                    )
-                                    st.session_state.pop("prompt_prefix_preview_results", None)
-                                    safe_rerun()
-                        with select_col:
-                            if st.button(
-                                tr("template.selected") if is_active else tr("template.select_button"),
-                                key=f"select_prefix_card_new_{item['id']}",
-                                width="stretch",
-                                type="primary" if is_active else "secondary",
-                            ):
-                                _set_active_image_prompt_prefix(item["id"])
-                                safe_rerun()
-                        continue
-                        badge_col, compare_col = st.columns([1.2, 1], gap="small")
-                        with badge_col:
-                            st.caption(item.get("source", "manual"))
-                        with compare_col:
-                            compare_label = (
-                                tr("style.prefix_library.compare_chip_active")
-                                if in_preview
-                                else tr("style.prefix_library.compare_chip_add")
-                            )
-                            if st.button(
-                                compare_label,
-                                key=f"compare_prefix_card_{item['id']}",
-                                width="stretch",
-                            ):
-                                if not in_preview and len(selected_preview_ids) >= 4:
-                                    st.warning(tr("style.prefix_library.preview_limit"))
-                                else:
-                                    st.session_state["prompt_prefix_preview_ids"] = toggle_prompt_prefix_preview_selection(
-                                        selected_preview_ids,
-                                        item["id"],
-                                    )
-                                    st.session_state.pop("prompt_prefix_preview_results", None)
-                                    safe_rerun()
-
-                        st.image(cover_asset, width="stretch")
-                        if st.button(
-                            item["name"],
-                            key=f"open_prefix_details_{item['id']}",
-                            width="stretch",
-                            type="tertiary",
-                        ):
-                            _open_prompt_prefix_panel("details", item["id"])
-                            safe_rerun()
-                        st.caption(f"{style_label} · {scene_label}")
-                        if item.get("note"):
-                            st.caption(item["note"])
-                        if st.button(
-                            tr("template.selected") if is_active else tr("template.select_button"),
-                            key=f"select_prefix_card_{item['id']}",
-                            width="stretch",
-                            type="primary" if is_active else "secondary",
-                        ):
-                            _set_active_image_prompt_prefix(item["id"])
-                            safe_rerun()
 
     with panel_col:
         with st.container(border=True):
