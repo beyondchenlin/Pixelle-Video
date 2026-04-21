@@ -139,6 +139,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable, Literal, List
+
+from pixelle_video.config.workflow_defaults import infer_workflow_domain
 ```
 
 Add this dataclass near the imports and before `StandardPipeline`:
@@ -165,9 +167,11 @@ Add these helpers inside `StandardPipeline` before `produce_assets()`:
         if template_type == "static":
             return "static"
 
-        workflow_name = Path(config.media_workflow or "").name.lower()
-        if workflow_name.startswith("video_"):
+        configured_domain = infer_workflow_domain(config.media_workflow)
+        if configured_domain == "video":
             return "video"
+        if configured_domain == "image":
+            return "image"
 
         return template_type
 
@@ -409,6 +413,7 @@ git commit -m "feat: stage selfhost image asset production"
 Append this code to `tests/test_standard_pipeline_staged_mode.py`:
 
 ```python
+from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent
 
 
@@ -471,7 +476,7 @@ async def test_produce_assets_emits_monotonic_staged_progress():
 
 
 @pytest.mark.asyncio
-async def test_produce_assets_keeps_callable_frame_processor_path_for_runninghub():
+async def test_produce_assets_keeps_callable_frame_processor_path_for_runninghub(monkeypatch):
     core = _DummyCore(
         tts_defaults={"tts": "runninghub/tts_edge.json"},
         media_defaults={
@@ -482,6 +487,7 @@ async def test_produce_assets_keeps_callable_frame_processor_path_for_runninghub
     core.frame_processor = _CallableFrameProcessor()
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
+    monkeypatch.setattr(config_manager.config.comfyui, "runninghub_concurrent_limit", 1)
 
     await pipeline.produce_assets(ctx)
 
