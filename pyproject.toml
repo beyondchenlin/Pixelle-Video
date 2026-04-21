@@ -35,6 +35,9 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "ruff>=0.6.0",
 ]
+alignment = [
+    "qwen-asr",
+]
 
 [project.scripts]
 pixelle-video = "pixelle_video.cli:main"
