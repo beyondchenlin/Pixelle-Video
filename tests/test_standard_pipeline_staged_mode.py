@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 
-from pixelle_video.models.storyboard import StoryboardConfig
+import pytest
+
+from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 
@@ -95,3 +97,90 @@ def test_resolve_asset_execution_mode_disables_staged_mode_for_local_tts():
 
     assert execution_mode.tts_workflow_key is None
     assert execution_mode.use_staged_mode is False
+
+
+class _RecordingFrameProcessor:
+    def __init__(self, *, fail_on=None):
+        self.calls = []
+        self.fail_on = fail_on
+
+    async def _step_generate_audio(self, frame, config):
+        self.calls.append(("audio", frame.index))
+        if self.fail_on == ("audio", frame.index):
+            raise RuntimeError(f"audio failed for frame {frame.index}")
+        frame.audio_path = f"audio-{frame.index}.mp3"
+        frame.duration = float(frame.index + 1)
+
+    async def _step_generate_media(self, frame, config):
+        self.calls.append(("media", frame.index))
+        if self.fail_on == ("media", frame.index):
+            raise RuntimeError(f"media failed for frame {frame.index}")
+        frame.media_type = "image"
+        frame.image_path = f"image-{frame.index}.png"
+
+    async def _step_compose_frame(self, frame, storyboard, config):
+        self.calls.append(("compose", frame.index))
+        frame.composed_image_path = f"composed-{frame.index}.png"
+
+    async def _step_create_video_segment(self, frame, config):
+        self.calls.append(("segment", frame.index))
+        frame.video_segment_path = f"segment-{frame.index}.mp4"
+
+
+def _build_storyboard_ctx(**kwargs) -> PipelineContext:
+    ctx = _build_ctx(**kwargs)
+    ctx.storyboard = Storyboard(
+        title="Demo",
+        config=ctx.config,
+        frames=[
+            StoryboardFrame(index=0, narration="scene 1", image_prompt="prompt 1"),
+            StoryboardFrame(index=1, narration="scene 2", image_prompt="prompt 2"),
+        ],
+    )
+    return ctx
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_runs_staged_selfhost_image_flow_in_phase_order():
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+
+    await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.calls == [
+        ("audio", 0),
+        ("audio", 1),
+        ("media", 0),
+        ("media", 1),
+        ("compose", 0),
+        ("compose", 1),
+        ("segment", 0),
+        ("segment", 1),
+    ]
+    assert ctx.storyboard.total_duration == 3.0
+    assert [frame.video_segment_path for frame in ctx.storyboard.frames] == [
+        "segment-0.mp4",
+        "segment-1.mp4",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_aborts_immediately_on_staged_image_failure():
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor(fail_on=("media", 1))
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+
+    with pytest.raises(RuntimeError, match="media failed for frame 1"):
+        await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.calls == [
+        ("audio", 0),
+        ("audio", 1),
+        ("media", 0),
+        ("media", 1),
+    ]
+    assert ctx.storyboard.frames[0].video_segment_path is None
+    assert ctx.storyboard.frames[1].video_segment_path is None
