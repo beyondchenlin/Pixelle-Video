@@ -1,5 +1,6 @@
 import pytest
 
+from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 
@@ -9,18 +10,22 @@ class _DummyCore:
         self.config = config
         self.llm = object()
         self.tts = None
-        self.media = None
+        self.media = object()
         self.video = None
 
 
 @pytest.mark.asyncio
-async def test_standard_pipeline_plan_visuals_uses_active_library_prefix_when_no_override(monkeypatch):
-    async def fake_generate_image_prompts(*args, **kwargs):
-        return ["base scene prompt"]
+async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypatch):
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        return StyledImagePromptBatch(
+            prompts=["bird-universe dog sprint"],
+            negative_prompt="photo realism",
+            resolved_style=None,
+        )
 
     monkeypatch.setattr(
-        "pixelle_video.pipelines.standard.generate_image_prompts",
-        fake_generate_image_prompts,
+        "pixelle_video.pipelines.standard.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
     )
 
     pipeline = StandardPipeline(
@@ -32,15 +37,7 @@ async def test_standard_pipeline_plan_visuals_uses_active_library_prefix_when_no
                         "prompt_prefix_library": {
                             "active_prefix_id": "custom-flat",
                             "items": [
-                                {
-                                    "id": "custom-flat",
-                                    "name": "Flat",
-                                    "content": "flat illustration, simple shapes",
-                                    "style_category_id": "flat_illustration",
-                                    "scene_category_id": "knowledge_sharing",
-                                    "source": "manual",
-                                    "is_builtin": False,
-                                }
+                                {"id": "custom-flat", "content": "flat illustration"}
                             ],
                         },
                     }
@@ -56,44 +53,28 @@ async def test_standard_pipeline_plan_visuals_uses_active_library_prefix_when_no
 
     await pipeline.plan_visuals(ctx)
 
-    assert ctx.image_prompts == ["flat illustration, simple shapes, base scene prompt"]
+    assert ctx.image_prompts == ["bird-universe dog sprint"]
+    assert ctx.media_negative_prompt == "photo realism"
 
 
 @pytest.mark.asyncio
-async def test_standard_pipeline_plan_visuals_honors_explicit_prompt_prefix_override(monkeypatch):
-    async def fake_generate_image_prompts(*args, **kwargs):
-        return ["base scene prompt"]
+async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypatch):
+    captured = {}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured["prompt_prefix"] = kwargs["prompt_prefix"]
+        return StyledImagePromptBatch(
+            prompts=["override prompt"],
+            negative_prompt=None,
+            resolved_style=None,
+        )
 
     monkeypatch.setattr(
-        "pixelle_video.pipelines.standard.generate_image_prompts",
-        fake_generate_image_prompts,
+        "pixelle_video.pipelines.standard.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
     )
 
-    pipeline = StandardPipeline(
-        _DummyCore(
-            {
-                "comfyui": {
-                    "image": {
-                        "prompt_prefix": "legacy prefix",
-                        "prompt_prefix_library": {
-                            "active_prefix_id": "custom-flat",
-                            "items": [
-                                {
-                                    "id": "custom-flat",
-                                    "name": "Flat",
-                                    "content": "flat illustration, simple shapes",
-                                    "style_category_id": "flat_illustration",
-                                    "scene_category_id": "knowledge_sharing",
-                                    "source": "manual",
-                                    "is_builtin": False,
-                                }
-                            ],
-                        },
-                    }
-                }
-            }
-        )
-    )
+    pipeline = StandardPipeline(_DummyCore({"comfyui": {"image": {"prompt_prefix": "legacy"}}}))
     ctx = PipelineContext(
         input_text="topic",
         params={
@@ -105,4 +86,5 @@ async def test_standard_pipeline_plan_visuals_honors_explicit_prompt_prefix_over
 
     await pipeline.plan_visuals(ctx)
 
-    assert ctx.image_prompts == ["explicit override, base scene prompt"]
+    assert captured["prompt_prefix"] == "explicit override"
+    assert ctx.image_prompts == ["override prompt"]

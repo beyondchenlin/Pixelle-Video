@@ -39,15 +39,13 @@ from pixelle_video.utils.content_generators import (
     generate_title,
     generate_narrations_from_topic,
     split_narration_script,
-    generate_image_prompts,
+    generate_styled_image_prompt_batch,
 )
 from pixelle_video.utils.os_util import (
     create_task_output_dir,
     get_task_final_video_path
 )
 from pixelle_video.utils.template_util import get_template_type
-from pixelle_video.utils.prompt_helper import build_image_prompt
-from pixelle_video.config.prompt_prefix_library import get_effective_image_prompt_prefix
 from pixelle_video.services.video import VideoService
 
 
@@ -191,32 +189,29 @@ class StandardPipeline(LinearVideoPipeline):
                     extra_info=message
                 )
             
-            # Generate base image prompts
-            base_image_prompts = await generate_image_prompts(
-                self.llm,
+            image_config = self.core.config.get("comfyui", {}).get("image", {})
+            styled_batch = await generate_styled_image_prompt_batch(
+                llm_service=self.llm,
                 narrations=ctx.narrations,
+                image_config=image_config,
+                prompt_prefix=prompt_prefix,
+                workflow=ctx.params.get("media_workflow"),
+                media_service=self.core.media,
                 min_words=min_words,
                 max_words=max_words,
-                progress_callback=image_prompt_progress
+                progress_callback=image_prompt_progress,
             )
-            
-            # Apply prompt prefix
-            image_config = self.core.config.get("comfyui", {}).get("image", {})
-            prompt_prefix_to_use = (
-                prompt_prefix
-                if prompt_prefix is not None
-                else get_effective_image_prompt_prefix(image_config)
-            )
-            
-            ctx.image_prompts = []
-            for base_prompt in base_image_prompts:
-                final_prompt = build_image_prompt(base_prompt, prompt_prefix_to_use)
-                ctx.image_prompts.append(final_prompt)
+
+            ctx.image_prompts = styled_batch.prompts
+            ctx.resolved_style = styled_batch.resolved_style
+            ctx.media_negative_prompt = styled_batch.negative_prompt
             
             logger.info(f"✅ Generated {len(ctx.image_prompts)} image prompts")
         else:
             # Static template - skip image prompt generation entirely
             ctx.image_prompts = [None] * len(ctx.narrations)
+            ctx.resolved_style = None
+            ctx.media_negative_prompt = None
             logger.info(f"⚡ Skipped image prompt generation (static template)")
             logger.info(f"   💡 Savings: {len(ctx.narrations)} LLM calls + {len(ctx.narrations)} media generations")
 
@@ -262,6 +257,7 @@ class StandardPipeline(LinearVideoPipeline):
             media_width=ctx.params.get("media_width"),
             media_height=ctx.params.get("media_height"),
             media_workflow=ctx.params.get("media_workflow"),
+            media_negative_prompt=ctx.media_negative_prompt,
             frame_template=ctx.params.get("frame_template") or "1080x1920/default.html",
             template_params=ctx.params.get("template_params")
         )

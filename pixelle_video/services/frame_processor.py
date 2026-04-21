@@ -219,6 +219,8 @@ class FrameProcessor:
             "height": config.media_height,
             "index": frame.index + 1,  # 1-based index for workflow
         }
+        if config.media_negative_prompt:
+            media_params["negative_prompt"] = config.media_negative_prompt
         
         # For video workflows: pass audio duration as target video duration
         # This ensures video length matches audio length from the source
@@ -444,4 +446,3 @@ class FrameProcessor:
             logger.warning(f"Failed to get video duration: {e}, using audio duration")
             # Fallback: use audio duration if available
             return 1.0  # Default to 1 second if unable to determine
-
