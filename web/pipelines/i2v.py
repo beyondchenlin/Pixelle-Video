@@ -3,16 +3,19 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httpx
 import streamlit as st
 from loguru import logger
-import httpx
-from web.i18n import tr, get_language
-from web.pipelines.base import PipelineUI, register_pipeline_ui
-from web.components.content_input import render_version_info
-from web.utils.async_helpers import run_async
-from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
+
 from pixelle_video.config import config_manager
 from pixelle_video.utils.os_util import create_task_output_dir
+from web.components.content_input import render_version_info
+from web.components.output_preview import render_scaled_video_preview
+from web.i18n import get_language, tr
+from web.pipelines.base import PipelineUI, register_pipeline_ui
+from web.utils.async_helpers import run_async
+from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
+
 
 class ImageToVideoPipelineUI(PipelineUI):
     """
@@ -281,7 +284,7 @@ class ImageToVideoPipelineUI(PipelineUI):
                         st.markdown("---")
 
                         # Video preview
-                        st.video(final_video_path)
+                        render_scaled_video_preview(final_video_path)
 
                         # Download button
                         with open(final_video_path, "rb") as video_file:

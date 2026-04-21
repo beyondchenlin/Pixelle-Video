@@ -24,13 +24,14 @@ from typing import Any
 import streamlit as st
 from loguru import logger
 
-from web.i18n import tr, get_language
-from web.pipelines.base import PipelineUI, register_pipeline_ui
-from web.components.content_input import render_bgm_section, render_version_info
-from web.utils.async_helpers import run_async
-from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent
+from web.components.content_input import render_bgm_section, render_version_info
+from web.components.output_preview import render_scaled_video_preview
+from web.i18n import get_language, tr
+from web.pipelines.base import PipelineUI, register_pipeline_ui
+from web.utils.async_helpers import run_async
+from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 
 
 class AssetBasedPipelineUI(PipelineUI):
@@ -417,7 +418,7 @@ class AssetBasedPipelineUI(PipelineUI):
                         st.markdown("---")
                         
                         # Video preview
-                        st.video(ctx.final_video_path)
+                        render_scaled_video_preview(ctx.final_video_path)
                         
                         # Download button
                         with open(ctx.final_video_path, "rb") as video_file:
