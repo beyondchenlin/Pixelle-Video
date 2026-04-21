@@ -45,7 +45,7 @@ Repository note: this repository's `AGENTS.md` forbids `git worktree`, so execut
 - `api/routers/content.py`
   Route `/content/image-prompt` through the same styled batch helper.
 - `web/components/style_config.py`
-  Route preview generation through the shared styled batch helper instead of raw string concatenation.
+  Route image prompt-prefix preview generation through the shared styled batch helper instead of raw string concatenation; leave the separate `comfyui.video.prompt_prefix` preview path out of scope for this V1.
 - `tests/test_style_resolution.py`
   Unit tests for source resolution, cache keys, and runtime cache reuse.
 - `tests/test_styled_image_prompt_batch.py`
@@ -65,6 +65,8 @@ Intentionally untouched in V1:
 
 - `pixelle_video/config/schema.py`
   Keep config persistence shape unchanged because structured style metadata is runtime-only in this rollout.
+- `comfyui.video.prompt_prefix` preview behavior in `web/components/style_config.py`
+  This rollout upgrades the image style system only; the separate video-prefix preview flow stays unchanged.
 
 ### Task 1: Build Runtime Style Resolution Core
 
@@ -178,6 +180,40 @@ async def test_resolve_style_spec_reuses_runtime_cache(monkeypatch):
     assert first.style_kind == "ip_world"
     assert second == first
     assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_resolve_style_spec_rejects_invalid_style_kind():
+    async def fake_llm(prompt, temperature, max_tokens):
+        return """
+        {
+          "style_kind": "unknown_kind",
+          "prompt_template": "{prompt}",
+          "negative_prompt": "",
+          "style_profile": {
+            "style_kind": "unknown_kind",
+            "subject_policy": "keep subject",
+            "shape_language": "soft rounded shapes",
+            "material": "flat illustration",
+            "palette": "warm pastels",
+            "lighting": "soft daylight",
+            "world_elements": "storybook props",
+            "consistency_anchor": "consistent warm storybook world",
+            "negative_rules": "avoid photorealism"
+          }
+        }
+        """
+
+    source = StyleSourceSpec(
+        origin="request",
+        raw_content="warm storybook illustration",
+        content_hash="hash-invalid",
+        source_identity="request:hash-invalid",
+        item_id=None,
+    )
+
+    with pytest.raises(ValueError, match="Invalid style_kind"):
+        await resolve_style_spec(fake_llm, source)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -239,15 +275,15 @@ You convert one raw image-style prefix into structured backend style metadata.
   "prompt_template": "optional wrapper that contains {{prompt}} exactly once",
   "negative_prompt": "optional negative prompt",
   "style_profile": {{
-    "style_kind": "visual_only | ip_world | hybrid",
-    "subject_policy": "...",
-    "shape_language": "...",
-    "material": "...",
-    "palette": "...",
-    "lighting": "...",
-    "world_elements": "...",
-    "consistency_anchor": "...",
-    "negative_rules": "..."
+    "style_kind": "repeat the same value as the top-level style_kind",
+    "subject_policy": "how the subject should be preserved or redesigned",
+    "shape_language": "the intended silhouette and geometric language",
+    "material": "surface or rendering material cues",
+    "palette": "dominant color guidance",
+    "lighting": "lighting and atmosphere guidance",
+    "world_elements": "background props and universe cues",
+    "consistency_anchor": "shared multi-frame consistency rule",
+    "negative_rules": "things the image prompt should avoid"
   }}
 }}
 
@@ -292,6 +328,18 @@ from pixelle_video.models.style_resolution import ResolvedStyleSpec, StyleSource
 from pixelle_video.prompts import build_style_resolution_prompt
 
 RESOLVER_VERSION = "2026-04-21-v1"
+VALID_STYLE_KINDS = {"visual_only", "ip_world", "hybrid"}
+REQUIRED_STYLE_PROFILE_KEYS = (
+    "style_kind",
+    "subject_policy",
+    "shape_language",
+    "material",
+    "palette",
+    "lighting",
+    "world_elements",
+    "consistency_anchor",
+    "negative_rules",
+)
 _STYLE_RESOLUTION_CACHE: dict[str, ResolvedStyleSpec] = {}
 
 
@@ -347,13 +395,40 @@ def build_style_resolution_cache_key(source: StyleSourceSpec) -> str:
     return f"{source.origin}:{source.content_hash}:{RESOLVER_VERSION}"
 
 
+def _validate_style_kind(value: str) -> str:
+    style_kind = (value or "").strip()
+    if style_kind not in VALID_STYLE_KINDS:
+        raise ValueError(f"Invalid style_kind: {style_kind}")
+    return style_kind
+
+
+def _validate_prompt_template(value: str) -> str:
+    prompt_template = (value or "").strip()
+    if prompt_template and prompt_template.count("{prompt}") != 1:
+        raise ValueError("prompt_template must contain {prompt} exactly once")
+    return prompt_template
+
+
+def _validate_style_profile(data: dict) -> dict:
+    missing = [key for key in REQUIRED_STYLE_PROFILE_KEYS if key not in data]
+    if missing:
+        raise ValueError(f"style_profile missing keys: {', '.join(missing)}")
+
+    style_profile = {key: (data.get(key) or "").strip() for key in REQUIRED_STYLE_PROFILE_KEYS}
+    style_profile["style_kind"] = _validate_style_kind(style_profile["style_kind"])
+    return style_profile
+
+
 def _parse_resolved_style_spec(response: str, source: StyleSourceSpec) -> ResolvedStyleSpec:
     data = json.loads(response)
+    style_kind = _validate_style_kind(data["style_kind"])
+    prompt_template = _validate_prompt_template(data.get("prompt_template") or "")
+    style_profile = _validate_style_profile(data["style_profile"])
     return ResolvedStyleSpec(
-        style_kind=data["style_kind"],
-        prompt_template=(data.get("prompt_template") or "").strip(),
+        style_kind=style_kind,
+        prompt_template=prompt_template,
         negative_prompt=(data.get("negative_prompt") or "").strip(),
-        style_profile=data["style_profile"],
+        style_profile=style_profile,
         content_hash=source.content_hash,
         resolver_version=RESOLVER_VERSION,
         source_identity=source.source_identity,
@@ -377,11 +452,28 @@ async def resolve_style_spec(llm_service, source: StyleSourceSpec) -> ResolvedSt
 
 ```python
 # pixelle_video/prompts/__init__.py
+from pixelle_video.prompts.content_narration import build_content_narration_prompt
+from pixelle_video.prompts.image_generation import (
+    DEFAULT_IMAGE_STYLE,
+    IMAGE_STYLE_PRESETS,
+    build_image_prompt_prompt,
+)
+from pixelle_video.prompts.prompt_prefix_generation import build_prompt_prefix_generation_prompt
+from pixelle_video.prompts.style_conversion import build_style_conversion_prompt
 from pixelle_video.prompts.style_resolution import build_style_resolution_prompt
+from pixelle_video.prompts.title_generation import build_title_generation_prompt
+from pixelle_video.prompts.topic_narration import build_topic_narration_prompt
 
 __all__ = [
-    # existing exports...
+    "build_topic_narration_prompt",
+    "build_content_narration_prompt",
+    "build_title_generation_prompt",
+    "build_image_prompt_prompt",
+    "build_style_conversion_prompt",
+    "build_prompt_prefix_generation_prompt",
     "build_style_resolution_prompt",
+    "IMAGE_STYLE_PRESETS",
+    "DEFAULT_IMAGE_STYLE",
 ]
 ```
 
@@ -389,7 +481,7 @@ __all__ = [
 
 Run: `pytest tests/test_style_resolution.py -v`
 
-Expected: PASS with `3 passed`.
+Expected: PASS with `4 passed`.
 
 - [ ] **Step 5: Commit**
 
@@ -524,7 +616,10 @@ async def test_generate_styled_image_prompt_batch_falls_back_to_legacy_prefix_wh
 import json
 from pathlib import Path
 
-from pixelle_video.utils.workflow_capabilities import get_workflow_capabilities
+from pixelle_video.utils.workflow_capabilities import (
+    get_workflow_capabilities,
+    infer_media_domain_from_workflow,
+)
 
 
 def test_get_workflow_capabilities_reads_negative_prompt_from_selfhost_metadata(monkeypatch, tmp_path):
@@ -568,6 +663,12 @@ def test_get_workflow_capabilities_defaults_wrapper_optional_fields_to_false(tmp
     )
 
     assert caps.supports_negative_prompt is False
+
+
+def test_infer_media_domain_from_workflow_handles_video_prefix():
+    assert infer_media_domain_from_workflow("selfhost/video_demo.json") == "video"
+    assert infer_media_domain_from_workflow("selfhost/image_demo.json") == "image"
+    assert infer_media_domain_from_workflow(None) == "image"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -584,7 +685,7 @@ import json
 from typing import Any, List, Optional
 
 IMAGE_PROMPT_GENERATION_PROMPT = """# Role Definition
-You are a professional visual creative designer...
+You are a professional visual creative designer, skilled at converting narration into strong English image prompts for AI image generation.
 
 # Input Style Profile
 {style_profile_json}
@@ -597,7 +698,9 @@ You are a professional visual creative designer...
 - Description structure: scene + character action + emotion + symbolic elements
 - If a style profile is provided, subject design, material, palette, lighting, world elements, and consistency must obey that style profile first.
 - When `style_kind` is `ip_world`, redesign the subject into the target universe without replacing the subject semantics.
-...
+- Return exactly one prompt per narration.
+- Return JSON only in the form {"image_prompts": [...]}.
+- Keep prompts visually concrete and directly imageable.
 """
 
 
@@ -633,6 +736,14 @@ class WorkflowCapabilities:
     supports_negative_prompt: bool = False
 
 
+def infer_media_domain_from_workflow(workflow: str | None) -> str:
+    normalized = (workflow or "").strip().lower()
+    filename = Path(normalized).name
+    if filename.startswith("video_") or "/video_" in normalized:
+        return "video"
+    return "image"
+
+
 def get_workflow_capabilities(workflow_info: Dict[str, Any]) -> WorkflowCapabilities:
     if workflow_info["source"] == "selfhost":
         metadata = WorkflowParser().parse_workflow_file(str(workflow_info["path"]))
@@ -647,8 +758,9 @@ def get_workflow_capabilities(workflow_info: Dict[str, Any]) -> WorkflowCapabili
     )
 
 
-def get_media_workflow_capabilities(media_service, workflow: str | None, media_type: str = "image") -> WorkflowCapabilities:
-    workflow_info = media_service._resolve_workflow(workflow=workflow, workflow_domain=media_type)
+def get_media_workflow_capabilities(media_service, workflow: str | None, media_type: str | None = None) -> WorkflowCapabilities:
+    workflow_domain = media_type or infer_media_domain_from_workflow(workflow)
+    workflow_info = media_service._resolve_workflow(workflow=workflow, workflow_domain=workflow_domain)
     return get_workflow_capabilities(workflow_info)
 ```
 
@@ -709,10 +821,14 @@ def assemble_negative_prompt(
 
 ```python
 # pixelle_video/utils/content_generators.py
+from pixelle_video.prompts import build_image_prompt_prompt
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.utils.prompt_helper import assemble_image_prompt, assemble_negative_prompt
 from pixelle_video.utils.style_resolution import resolve_style_source, resolve_style_spec
-from pixelle_video.utils.workflow_capabilities import WorkflowCapabilities, get_media_workflow_capabilities
+from pixelle_video.utils.workflow_capabilities import (
+    WorkflowCapabilities,
+    get_media_workflow_capabilities,
+)
 
 
 async def generate_image_prompts(
@@ -725,14 +841,23 @@ async def generate_image_prompts(
     progress_callback: Optional[callable] = None,
     style_profile: Optional[dict] = None,
 ) -> List[str]:
-    ...
-    prompt = build_image_prompt_prompt(
-        narrations=batch_narrations,
-        min_words=min_words,
-        max_words=max_words,
-        style_profile=style_profile,
-    )
-    ...
+    # keep the existing batching / retry structure and only thread style_profile into the batch prompt builder
+
+
+# Inside the existing per-batch attempt loop in generate_image_prompts(...):
+prompt = build_image_prompt_prompt(
+    narrations=batch_narrations,
+    min_words=min_words,
+    max_words=max_words,
+    style_profile=style_profile,
+)
+response = await llm_service(
+    prompt=prompt,
+    temperature=0.7,
+    max_tokens=8192,
+)
+result = _parse_json(response)
+batch_prompts = result["image_prompts"]
 
 
 async def generate_styled_image_prompt_batch(
@@ -772,7 +897,7 @@ async def generate_styled_image_prompt_batch(
     )
 
     capabilities = (
-        get_media_workflow_capabilities(media_service, workflow=workflow, media_type="image")
+        get_media_workflow_capabilities(media_service, workflow=workflow)
         if media_service is not None
         else WorkflowCapabilities()
     )
@@ -796,7 +921,7 @@ async def generate_styled_image_prompt_batch(
 
 Run: `pytest tests/test_styled_image_prompt_batch.py tests/test_workflow_capabilities.py -v`
 
-Expected: PASS with `4 passed`.
+Expected: PASS with `5 passed`.
 
 - [ ] **Step 5: Commit**
 
@@ -965,7 +1090,6 @@ from pixelle_video.models.style_resolution import ResolvedStyleSpec
 
 @dataclass
 class PipelineContext:
-    ...
     image_prompts: List[Optional[str]] = field(default_factory=list)
     resolved_style: Optional[ResolvedStyleSpec] = None
     media_negative_prompt: Optional[str] = None
@@ -977,7 +1101,6 @@ class PipelineContext:
 class StoryboardConfig:
     media_width: int
     media_height: int
-    ...
     media_workflow: Optional[str] = None
     media_negative_prompt: Optional[str] = None
     frame_template: str = "1080x1920/default.html"
@@ -995,7 +1118,7 @@ from pixelle_video.utils.content_generators import (
 
 
 async def plan_visuals(self, ctx: PipelineContext):
-    ...
+    image_config = self.core.config.get("comfyui", {}).get("image", {})
     styled_batch = await generate_styled_image_prompt_batch(
         llm_service=self.llm,
         narrations=ctx.narrations,
@@ -1017,7 +1140,8 @@ async def plan_visuals(self, ctx: PipelineContext):
 ctx.config = StoryboardConfig(
     task_id=ctx.task_id,
     n_storyboard=len(ctx.narrations),
-    ...
+    media_width=ctx.params.get("media_width"),
+    media_height=ctx.params.get("media_height"),
     media_workflow=ctx.params.get("media_workflow"),
     media_negative_prompt=ctx.media_negative_prompt,
     frame_template=ctx.params.get("frame_template") or "1080x1920/default.html",
@@ -1043,7 +1167,20 @@ if config.media_negative_prompt:
 # pixelle_video/services/persistence.py
 def _config_to_dict(self, config: StoryboardConfig) -> Dict[str, Any]:
     return {
-        ...
+        "task_id": config.task_id,
+        "n_storyboard": config.n_storyboard,
+        "min_narration_words": config.min_narration_words,
+        "max_narration_words": config.max_narration_words,
+        "min_image_prompt_words": config.min_image_prompt_words,
+        "max_image_prompt_words": config.max_image_prompt_words,
+        "video_fps": config.video_fps,
+        "tts_inference_mode": config.tts_inference_mode,
+        "voice_id": config.voice_id,
+        "tts_workflow": config.tts_workflow,
+        "tts_speed": config.tts_speed,
+        "ref_audio": config.ref_audio,
+        "media_width": config.media_width,
+        "media_height": config.media_height,
         "media_workflow": config.media_workflow,
         "media_negative_prompt": config.media_negative_prompt,
         "frame_template": config.frame_template,
@@ -1053,7 +1190,20 @@ def _config_to_dict(self, config: StoryboardConfig) -> Dict[str, Any]:
 
 def _dict_to_config(self, data: Dict[str, Any]) -> StoryboardConfig:
     return StoryboardConfig(
-        ...
+        task_id=data.get("task_id"),
+        n_storyboard=data.get("n_storyboard", 5),
+        min_narration_words=data.get("min_narration_words", 5),
+        max_narration_words=data.get("max_narration_words", 20),
+        min_image_prompt_words=data.get("min_image_prompt_words", 30),
+        max_image_prompt_words=data.get("max_image_prompt_words", 60),
+        video_fps=data.get("video_fps", 30),
+        tts_inference_mode=data.get("tts_inference_mode", "local"),
+        voice_id=data.get("voice_id"),
+        tts_workflow=data.get("tts_workflow"),
+        tts_speed=data.get("tts_speed"),
+        ref_audio=data.get("ref_audio"),
+        media_width=data.get("media_width", data.get("image_width", 1024)),
+        media_height=data.get("media_height", data.get("image_height", 1024)),
         media_workflow=data.get("media_workflow", data.get("image_workflow")),
         media_negative_prompt=data.get("media_negative_prompt"),
         frame_template=data.get("frame_template", "1080x1920/default.html"),
@@ -1083,6 +1233,8 @@ git commit -m "feat: thread resolved image styles through standard pipeline"
 - Test: `tests/test_content_image_prompt_api.py`
 - Test: `tests/test_style_config_prompt_prefix_ui.py`
 
+Scope note: this task only upgrades image prompt-prefix preview flows. The separate `comfyui.video.prompt_prefix` preview branch remains unchanged in V1.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```python
@@ -1098,20 +1250,14 @@ class _FakePixelleVideo:
     def __init__(self):
         self.llm = object()
         self.media = object()
-        self.core = type(
-            "Core",
-            (),
-            {
-                "config": {
-                    "comfyui": {
-                        "image": {
-                            "prompt_prefix": "legacy prefix",
-                            "prompt_prefix_library": {"active_prefix_id": None, "items": []},
-                        }
-                    }
+        self.config = {
+            "comfyui": {
+                "image": {
+                    "prompt_prefix": "legacy prefix",
+                    "prompt_prefix_library": {"active_prefix_id": None, "items": []},
                 }
-            },
-        )()
+            }
+        }
 
 
 @pytest.mark.asyncio
@@ -1163,20 +1309,14 @@ def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeyp
 
     class _FakePixelleVideo:
         llm = object()
-        core = type(
-            "Core",
-            (),
-            {
-                "config": {
-                    "comfyui": {
-                        "image": {
-                            "prompt_prefix": "",
-                            "prompt_prefix_library": {"active_prefix_id": None, "items": []},
-                        }
-                    }
+        config = {
+            "comfyui": {
+                "image": {
+                    "prompt_prefix": "",
+                    "prompt_prefix_library": {"active_prefix_id": None, "items": []},
                 }
-            },
-        )()
+            }
+        }
 
         async def media(self, **kwargs):
             captured["media_kwargs"] = kwargs
@@ -1237,7 +1377,7 @@ async def generate_image_prompt(
     request: ImagePromptGenerateRequest,
     pixelle_video: PixelleVideoDep
 ):
-    image_config = pixelle_video.core.config.get("comfyui", {}).get("image", {})
+    image_config = pixelle_video.config.get("comfyui", {}).get("image", {})
     batch = await generate_styled_image_prompt_batch(
         llm_service=pixelle_video.llm,
         narrations=request.narrations,
@@ -1265,7 +1405,7 @@ def _generate_prompt_prefix_preview_results(
     items: list[dict],
 ) -> list[dict]:
     preview_results: list[dict] = []
-    image_config = pixelle_video.core.config.get("comfyui", {}).get("image", {})
+    image_config = pixelle_video.config.get("comfyui", {}).get("image", {})
 
     for item in items:
         styled_batch = run_async(
