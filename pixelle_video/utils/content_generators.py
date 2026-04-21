@@ -19,6 +19,7 @@ These functions are reusable across different pipelines.
 
 import json
 import re
+import unicodedata
 from typing import List, Literal, Optional
 
 from loguru import logger
@@ -216,6 +217,47 @@ def _split_text_by_delimiters(script: str, delimiters: str) -> List[str]:
     return [segment.strip() for segment in re.findall(pattern, cleaned) if segment.strip()]
 
 
+def _is_unicode_punctuation(char: str) -> bool:
+    """Return True when the character belongs to any Unicode punctuation category."""
+    return unicodedata.category(char).startswith("P")
+
+
+def _split_text_by_unicode_punctuation(script: str) -> List[str]:
+    """Split text on any Unicode punctuation while keeping delimiter runs attached."""
+    cleaned = re.sub(r"\s+", " ", script.strip())
+    if not cleaned:
+        return []
+
+    narrations: List[str] = []
+    current: List[str] = []
+    has_text = False
+
+    for index, char in enumerate(cleaned):
+        current.append(char)
+        if not char.isspace() and not _is_unicode_punctuation(char):
+            has_text = True
+
+        next_char = cleaned[index + 1] if index + 1 < len(cleaned) else ""
+        should_split = (
+            has_text
+            and _is_unicode_punctuation(char)
+            and (not next_char or not _is_unicode_punctuation(next_char))
+        )
+        if should_split:
+            segment = "".join(current).strip()
+            if segment:
+                narrations.append(segment)
+            current = []
+            has_text = False
+
+    if current:
+        segment = "".join(current).strip()
+        if segment:
+            narrations.append(segment)
+
+    return narrations
+
+
 async def split_narration_script(
     script: str,
     split_mode: Literal["paragraph", "line", "sentence", "punctuation"] = "paragraph",
@@ -229,7 +271,7 @@ async def split_narration_script(
             - "paragraph": Split by double newline (\\n\\n), preserve single newlines within paragraphs
             - "line": Split by single newline (\\n), each line is a segment
             - "sentence": Split by sentence-ending punctuation (。.!?！？)
-            - "punctuation": Split by common punctuation (，、；：。.!?！？,;:…)
+            - "punctuation": Split by any Unicode punctuation (Chinese and English)
     
     Returns:
         List of narration segments
@@ -261,8 +303,8 @@ async def split_narration_script(
         logger.info(f"✅ Split script into {len(narrations)} segments (by sentence)")
 
     elif split_mode == "punctuation":
-        # Split by common punctuation for finer-grained storyboard generation
-        narrations = _split_text_by_delimiters(script, "，、；：。.!?！？,;:…")
+        # Split by any Unicode punctuation for the finest-grained storyboard generation
+        narrations = _split_text_by_unicode_punctuation(script)
         logger.info(f"✅ Split script into {len(narrations)} segments (by punctuation)")
 
     else:

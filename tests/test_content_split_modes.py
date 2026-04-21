@@ -19,3 +19,12 @@ async def test_split_narration_script_punctuation_mode_splits_on_common_punctuat
     narrations = await split_narration_script(script, split_mode="punctuation")
 
     assert narrations == ["第一句，", "第二句；", "第三句：", "继续。", "第四句？"]
+
+
+@pytest.mark.asyncio
+async def test_split_narration_script_punctuation_mode_splits_on_all_unicode_punctuation():
+    script = "Alpha-Beta/Next，中文；Done。"
+
+    narrations = await split_narration_script(script, split_mode="punctuation")
+
+    assert narrations == ["Alpha-", "Beta/", "Next，", "中文；", "Done。"]
