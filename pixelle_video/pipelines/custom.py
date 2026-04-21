@@ -231,28 +231,29 @@ class CustomPipeline(BasePipeline):
         # If your template is static_*.html, you can skip this entire step!
         if template_requires_image:
             # Template requires images - generate image prompts using LLM
-            from pixelle_video.utils.content_generators import generate_image_prompts
+            from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
             
-            image_prompts = await generate_image_prompts(
-                self.llm,
-                narrations=narrations,
-                min_words=30,
-                max_words=60
-            )
-            
-            # Example: Apply custom prompt prefix
-            from pixelle_video.utils.prompt_helper import build_image_prompt
             custom_prefix = "cinematic style, professional lighting"  # Customize this
-            
-            final_image_prompts = []
-            for base_prompt in image_prompts:
-                final_prompt = build_image_prompt(base_prompt, custom_prefix)
-                final_image_prompts.append(final_prompt)
+            image_config = self.core.config.get("comfyui", {}).get("image", {})
+            styled_batch = await generate_styled_image_prompt_batch(
+                llm_service=self.llm,
+                narrations=narrations,
+                image_config=image_config,
+                prompt_prefix=custom_prefix,
+                workflow=media_workflow,
+                media_service=self.core.media,
+                min_words=30,
+                max_words=60,
+            )
+
+            final_image_prompts = styled_batch.prompts
+            media_negative_prompt = styled_batch.negative_prompt
             
             logger.info(f"✅ Generated {len(final_image_prompts)} image prompts")
         else:
             # Template doesn't need images - skip image generation entirely
             final_image_prompts = [None] * len(narrations)
+            media_negative_prompt = None
             logger.info(f"⚡ Skipped image prompt generation (template doesn't need images)")
             logger.info(f"   💡 Savings: {len(narrations)} LLM calls + {len(narrations)} image generations")
         
@@ -273,6 +274,7 @@ class CustomPipeline(BasePipeline):
             media_width=media_width,
             media_height=media_height,
             media_workflow=media_workflow,
+            media_negative_prompt=media_negative_prompt,
             frame_template=frame_template
         )
         
@@ -560,4 +562,3 @@ class QuickPipeline(BasePipeline):
 pixelle_video.pipelines["quick"] = QuickPipeline(pixelle_video)
 result = await pixelle_video.generate_video(text=content, pipeline="quick")
 """
-

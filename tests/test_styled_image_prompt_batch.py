@@ -104,3 +104,98 @@ async def test_generate_styled_image_prompt_batch_falls_back_to_legacy_prefix_wh
 
     assert result.prompts == ["flat illustration, base scene prompt"]
     assert result.negative_prompt is None
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_preserves_raw_ip_world_prefix_when_template_missing(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["base scene prompt"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: StyleSourceSpec(
+            origin="request",
+            raw_content="Angry Birds style",
+            content_hash="hash-123",
+            source_identity="request:hash-123",
+            item_id=None,
+        ),
+    )
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        return ResolvedStyleSpec(
+            style_kind="ip_world",
+            prompt_template="",
+            negative_prompt="",
+            style_profile=_resolved_ip_world().style_profile,
+            content_hash="hash-123",
+            resolver_version="2026-04-21-v1",
+            source_identity="request:hash-123",
+            raw_content="Angry Birds style",
+        )
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["一只小狗在奔跑"],
+        image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+        media_service=None,
+        prompt_prefix="Angry Birds style",
+    )
+
+    assert result.prompts == ["Angry Birds style, base scene prompt"]
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_ignores_capability_probe_failures(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["base scene prompt"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: StyleSourceSpec(
+            origin="request",
+            raw_content="Angry Birds style",
+            content_hash="hash-123",
+            source_identity="request:hash-123",
+            item_id=None,
+        ),
+    )
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        return _resolved_ip_world()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("workflow missing")),
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["一只小狗在奔跑"],
+        image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+        media_service=object(),
+        workflow="missing.json",
+        prompt_prefix="Angry Birds style",
+    )
+
+    assert result.prompts == [
+        "base scene prompt, same playful bird-universe silhouette"
+    ]
+    assert result.negative_prompt is None

@@ -61,14 +61,21 @@ def assemble_image_prompt(
     if resolved_style is None:
         return build_image_prompt(base_prompt, raw_prefix)
 
+    base_prompt = base_prompt.strip()
     template = (resolved_style.prompt_template or "").strip()
     if template and "{prompt}" in template:
-        templated = template.replace("{prompt}", base_prompt.strip())
+        templated = template.replace("{prompt}", base_prompt)
     else:
-        templated = base_prompt.strip()
+        templated = base_prompt
 
     if resolved_style.style_kind == "ip_world":
-        return templated
+        if template:
+            return templated
+
+        world_prefix = raw_prefix.strip() or (resolved_style.raw_content or "").strip()
+        if world_prefix and world_prefix.lower() not in base_prompt.lower():
+            return build_image_prompt(base_prompt, world_prefix)
+        return base_prompt
 
     if resolved_style.style_kind == "hybrid":
         raw_prefix = raw_prefix.strip()

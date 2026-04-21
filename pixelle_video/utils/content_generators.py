@@ -469,11 +469,14 @@ async def generate_styled_image_prompt_batch(
         style_profile=style_profile,
     )
 
-    capabilities = (
-        get_media_workflow_capabilities(media_service, workflow=workflow)
-        if media_service is not None
-        else WorkflowCapabilities()
-    )
+    capabilities = WorkflowCapabilities()
+    if media_service is not None:
+        try:
+            capabilities = get_media_workflow_capabilities(media_service, workflow=workflow)
+        except Exception as exc:
+            logger.warning(
+                f"Workflow capability probe failed, falling back to default workflow capabilities: {exc}"
+            )
     final_prompts = [
         assemble_image_prompt(base_prompt, raw_prefix=raw_prefix, resolved_style=resolved_style)
         for base_prompt in base_prompts
