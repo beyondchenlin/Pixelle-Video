@@ -35,8 +35,13 @@ class _FlattenedToken:
 
 
 class _QwenForcedAlignerClient:
-    def __init__(self, model_path: str = DEFAULT_ALIGNMENT_MODEL_PATH):
+    def __init__(
+        self,
+        model_path: str = DEFAULT_ALIGNMENT_MODEL_PATH,
+        model_kwargs: Mapping[str, Any] | None = None,
+    ):
         self.model_path = model_path
+        self.model_kwargs = dict(model_kwargs or {})
         self._aligner = None
 
     def _load_aligner(self):
@@ -50,7 +55,10 @@ class _QwenForcedAlignerClient:
                 "qwen-asr is required for the default alignment client."
             ) from exc
 
-        self._aligner = Qwen3ForcedAligner.from_pretrained(self.model_path)
+        self._aligner = Qwen3ForcedAligner.from_pretrained(
+            self.model_path,
+            **self.model_kwargs,
+        )
         return self._aligner
 
     def align(self, audio: Any, text: str, language: str = DEFAULT_ALIGNMENT_LANGUAGE) -> Any:
@@ -67,8 +75,12 @@ class AlignmentService:
         client: AlignmentClient | None = None,
         language: str = DEFAULT_ALIGNMENT_LANGUAGE,
         model_path: str = DEFAULT_ALIGNMENT_MODEL_PATH,
+        model_kwargs: Mapping[str, Any] | None = None,
     ):
-        self.client = client or _QwenForcedAlignerClient(model_path=model_path)
+        self.client = client or _QwenForcedAlignerClient(
+            model_path=model_path,
+            model_kwargs=model_kwargs,
+        )
         self.language = language
 
     def align_block(
