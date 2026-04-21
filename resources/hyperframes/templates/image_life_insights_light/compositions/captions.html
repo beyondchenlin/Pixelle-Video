@@ -69,6 +69,15 @@
         return response.json();
       }
 
+      function padTimelineToDuration(timeline, duration) {
+        const resolvedDuration = Math.max(Number(duration) || 0, 0);
+        const currentDuration = Math.max(Number(timeline.duration()) || 0, 0);
+        if (resolvedDuration > currentDuration) {
+          timeline.to({}, { duration: resolvedDuration - currentDuration });
+        }
+        return timeline;
+      }
+
       (async function bootstrapCaptions() {
         const [manifest, payload] = await Promise.all([
           fetchJson("../data/render_manifest.json"),
@@ -122,6 +131,7 @@
             Number(caption.end || 0),
           );
         });
+        padTimelineToDuration(tl, duration);
 
         window.__timelines = window.__timelines || {};
         window.__timelines["captions"] = tl;

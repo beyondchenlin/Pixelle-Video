@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { renderProject, resolveRenderRequest } from "../src/render.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
 async function createProjectDir({ taskId = "task-6", fps = 24 } = {}) {
   const projectDir = await mkdtemp(path.join(tmpdir(), "pixelle-hyperframes-"));
@@ -83,4 +87,28 @@ test("renderProject calls createRenderJob and executeRenderJob with resolved pat
   assert.equal(calls.projectDir, projectDir);
   assert.equal(calls.outputPath, outputPath);
   assert.deepEqual(progressEvents, [[0.5, "halfway"]]);
+});
+
+test("reference templates explicitly pad timelines to the resolved duration", async () => {
+  const [indexTemplate, captionsTemplate] = await Promise.all([
+    readFile(
+      path.join(
+        repoRoot,
+        "resources/hyperframes/templates/image_life_insights_light/index.html",
+      ),
+      "utf8",
+    ),
+    readFile(
+      path.join(
+        repoRoot,
+        "resources/hyperframes/templates/image_life_insights_light/compositions/captions.html",
+      ),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(indexTemplate, /function padTimelineToDuration\(timeline, duration\)/);
+  assert.match(captionsTemplate, /function padTimelineToDuration\(timeline, duration\)/);
+  assert.match(indexTemplate, /padTimelineToDuration\(tl, duration\);/);
+  assert.match(captionsTemplate, /padTimelineToDuration\(tl, duration\);/);
 });

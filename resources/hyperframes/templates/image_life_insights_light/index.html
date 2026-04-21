@@ -196,6 +196,15 @@
         return Math.max(8, ...ranges, 0);
       }
 
+      function padTimelineToDuration(timeline, duration) {
+        const resolvedDuration = Math.max(Number(duration) || 0, 0);
+        const currentDuration = Math.max(Number(timeline.duration()) || 0, 0);
+        if (resolvedDuration > currentDuration) {
+          timeline.to({}, { duration: resolvedDuration - currentDuration });
+        }
+        return timeline;
+      }
+
       function applyFrameSize(root, manifest) {
         const width = manifest.width || 1080;
         const height = manifest.height || 1920;
@@ -301,6 +310,7 @@
           { scale: 1, autoAlpha: 1, duration: 1.2, ease: "power2.out" },
           0,
         );
+        padTimelineToDuration(tl, duration);
 
         window.__timelines = window.__timelines || {};
         window.__timelines["main-comp"] = tl;
