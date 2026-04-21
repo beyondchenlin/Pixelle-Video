@@ -9,8 +9,8 @@ from typing import Any, DefaultDict, List, Mapping, Protocol, Sequence
 
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 
-DEFAULT_ALIGNMENT_MODEL_PATH = "models/Qwen3-ForcedAligner-0.6B"
-DEFAULT_ALIGNMENT_LANGUAGE = "zh"
+DEFAULT_ALIGNMENT_MODEL_PATH = "Qwen/Qwen3-ForcedAligner-0.6B"
+DEFAULT_ALIGNMENT_LANGUAGE = "Chinese"
 
 _TOKEN_RE = re.compile(
     r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?|[\u4e00-\u9fff]|[\u3040-\u30ff]|[\uac00-\ud7a3]+",
@@ -66,8 +66,9 @@ class AlignmentService:
         self,
         client: AlignmentClient | None = None,
         language: str = DEFAULT_ALIGNMENT_LANGUAGE,
+        model_path: str = DEFAULT_ALIGNMENT_MODEL_PATH,
     ):
-        self.client = client or _QwenForcedAlignerClient()
+        self.client = client or _QwenForcedAlignerClient(model_path=model_path)
         self.language = language
 
     def align_block(

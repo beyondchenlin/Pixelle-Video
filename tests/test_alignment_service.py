@@ -3,7 +3,7 @@ from pixelle_video.services.alignment_service import AlignmentService
 
 
 class FakeAligner:
-    def align(self, audio, text, language="zh"):
+    def align(self, audio, text, language="Chinese"):
         return {
             "words": [
                 {"text": "Sentence", "start": 0.10, "end": 0.80},
@@ -18,7 +18,7 @@ class BlockAwareFakeAligner:
     def __init__(self):
         self.calls = []
 
-    def align(self, audio, text, language="zh"):
+    def align(self, audio, text, language="Chinese"):
         self.calls.append((audio, text, language))
         if audio == "block-0.wav":
             return {
@@ -136,8 +136,8 @@ def test_alignment_service_groups_sentences_by_block_id_when_aligning_multiple_b
     aligned = service.align_blocks(blocks, sentences)
 
     assert client.calls == [
-        ("block-0.wav", "Alpha one. Beta two.", "zh"),
-        ("block-1.wav", "Gamma three. Delta four.", "zh"),
+        ("block-0.wav", "Alpha one. Beta two.", "Chinese"),
+        ("block-1.wav", "Gamma three. Delta four.", "Chinese"),
     ]
     assert [sentence.source_start for sentence in aligned if sentence.block_id == "block-0"] == [
         0.0,
