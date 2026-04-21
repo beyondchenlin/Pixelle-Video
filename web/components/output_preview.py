@@ -24,35 +24,13 @@ from pixelle_video.models.progress import ProgressEvent
 from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
 
-VIDEO_PREVIEW_CONTAINER_KEY = "output_video_preview"
-VIDEO_PREVIEW_SCALE_PERCENT = 50
-
-
-def build_video_preview_css(
-    container_key: str = VIDEO_PREVIEW_CONTAINER_KEY,
-    *,
-    scale_percent: int = VIDEO_PREVIEW_SCALE_PERCENT,
-) -> str:
-    """Build scoped CSS that shrinks the generated video preview inside one container."""
-    scale_percent = max(10, min(scale_percent, 100))
-    return f"""
-    <style>
-    .st-key-{container_key} [data-testid="stVideo"] {{
-        width: {scale_percent}%;
-        max-width: 100%;
-        margin-inline: auto;
-    }}
-    .st-key-{container_key} [data-testid="stVideo"] video {{
-        width: 100%;
-    }}
-    </style>
-    """
+VIDEO_PREVIEW_COLUMN_SPEC = [1, 2, 1]
 
 
 def render_scaled_video_preview(video_path: str) -> None:
     """Render the generated video preview at a smaller, centered size."""
-    st.markdown(build_video_preview_css(), unsafe_allow_html=True)
-    with st.container(key=VIDEO_PREVIEW_CONTAINER_KEY):
+    _, preview_col, _ = st.columns(VIDEO_PREVIEW_COLUMN_SPEC)
+    with preview_col:
         st.video(video_path, width="stretch")
 
 

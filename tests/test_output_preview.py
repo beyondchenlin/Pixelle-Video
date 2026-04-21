@@ -1,11 +1,40 @@
-from web.components.output_preview import build_video_preview_css
+from web.components import output_preview
 
 
-def test_build_video_preview_css_targets_local_preview_container():
-    css = build_video_preview_css("output_preview_media", scale_percent=50)
+def test_render_scaled_video_preview_uses_center_column_layout():
+    captured = {}
 
-    assert ".st-key-output_preview_media [data-testid=\"stVideo\"]" in css
-    assert "width: 50%;" in css
-    assert "margin-inline: auto;" in css
-    assert ".st-key-output_preview_media [data-testid=\"stVideo\"] video" in css
-    assert "width: 100%;" in css
+    class _FakeColumn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeContainer:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeStreamlit:
+        def columns(self, spec):
+            captured["columns"] = spec
+            return (_FakeColumn(), _FakeColumn(), _FakeColumn())
+
+        def video(self, path, *, width):
+            captured["video"] = (path, width)
+
+        def markdown(self, *_args, **_kwargs):
+            captured["markdown_called"] = True
+
+        def container(self, **_kwargs):
+            return _FakeContainer()
+
+    output_preview.st = FakeStreamlit()
+
+    output_preview.render_scaled_video_preview("final.mp4")
+
+    assert captured["columns"] == [1, 2, 1]
+    assert captured["video"] == ("final.mp4", "stretch")
