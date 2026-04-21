@@ -1,3 +1,5 @@
+from pixelle_video.config.loader import load_config_dict, save_config_dict
+from pixelle_video.config.schema import PixelleVideoConfig
 from pixelle_video.models.render_package import (
     AudioBlock,
     CaptionCue,
@@ -95,3 +97,42 @@ def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path
     assert restored.silence_trim_tool == "ffmpeg"
     assert restored.silence_trim_margin_ms == 80
     assert restored.render_backend == "hyperframes"
+
+
+def test_render_config_loads_and_saves_through_yaml_round_trip(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    saved_path = tmp_path / "saved-config.yaml"
+    config_path.write_text(
+        """
+render:
+  backend: hyperframes
+  timing:
+    tts_batching_mode: sentence
+    tts_batch_max_sentences: 6
+    tts_batch_max_chars: 180
+    subtitle_alignment_engine: whisperx
+    silence_trim_tool: ffmpeg
+    silence_trim_margin_ms: 90
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_config_dict(str(config_path))
+
+    parsed = PixelleVideoConfig(**loaded)
+    assert parsed.render.backend == "hyperframes"
+    assert parsed.render.timing.tts_batching_mode == "sentence"
+    assert parsed.render.timing.tts_batch_max_sentences == 6
+    assert parsed.render.timing.tts_batch_max_chars == 180
+    assert parsed.render.timing.subtitle_alignment_engine == "whisperx"
+    assert parsed.render.timing.silence_trim_tool == "ffmpeg"
+    assert parsed.render.timing.silence_trim_margin_ms == 90
+
+    save_config_dict(parsed.to_dict(), str(saved_path))
+    reloaded = load_config_dict(str(saved_path))
+    reparsed = PixelleVideoConfig(**reloaded)
+
+    assert reparsed.render.backend == "hyperframes"
+    assert reparsed.render.timing.tts_batching_mode == "sentence"
+    assert reparsed.render.timing.silence_trim_tool == "ffmpeg"

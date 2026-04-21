@@ -150,12 +150,34 @@ class TemplateConfig(BaseModel):
     )
 
 
+class RenderTimingConfig(BaseModel):
+    """Render timing configuration."""
+
+    tts_batching_mode: str = Field(default="paragraph", description="TTS batching mode")
+    tts_batch_max_sentences: int = Field(default=8, ge=1, description="Maximum sentences per TTS batch")
+    tts_batch_max_chars: int = Field(default=220, ge=1, description="Maximum characters per TTS batch")
+    subtitle_alignment_engine: str = Field(
+        default="qwen_forced_aligner",
+        description="Subtitle alignment engine",
+    )
+    silence_trim_tool: Optional[str] = Field(default=None, description="Optional silence trim tool")
+    silence_trim_margin_ms: int = Field(default=120, ge=0, description="Silence trim margin in milliseconds")
+
+
+class RenderConfig(BaseModel):
+    """Render configuration."""
+
+    backend: str = Field(default="hyperframes", description="Render backend")
+    timing: RenderTimingConfig = Field(default_factory=RenderTimingConfig)
+
+
 class PixelleVideoConfig(BaseModel):
     """Pixelle-Video main configuration"""
     project_name: str = Field(default="Pixelle-Video", description="Project name")
     llm: LLMConfig = Field(default_factory=LLMConfig)
     comfyui: ComfyUIConfig = Field(default_factory=ComfyUIConfig)
     template: TemplateConfig = Field(default_factory=TemplateConfig)
+    render: RenderConfig = Field(default_factory=RenderConfig)
     
     def is_llm_configured(self) -> bool:
         """Check if LLM is properly configured"""
