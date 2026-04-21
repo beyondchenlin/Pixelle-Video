@@ -101,13 +101,14 @@ Rules:
 - subtitle timing is expressed on the same global clock
 - the final render uses one global timeline, not per-frame segment concatenation
 
-### 2. Script Must Be Preserved
+### 2. Script and Sentence Boundaries Must Be Preserved
 
 Best practice is not `audio only`.
 
 Pixelle must preserve and pass through:
 
 - frame narration text
+- sentence boundaries inside narration text
 - frame order
 - frame durations
 
@@ -127,24 +128,52 @@ But the normal architecture should prefer:
 2. Pixelle-provided text + future forced alignment
 3. HyperFrames `transcribe` only when text is absent
 
+### 4. Block TTS Plus Forced Alignment Is the Default Timing Strategy
+
+For Pixelle-generated content, the default timing strategy should be:
+
+1. preserve the original sentence split
+2. synthesize audio in block-sized TTS requests instead of sentence-by-sentence requests
+3. align the resulting block audio back to the known text
+4. aggregate aligned word or character timings into sentence-level subtitle cues
+
+This gives better TTS throughput than sentence-by-sentence synthesis while still producing sentence-level timing that can drive:
+
+- image clip boundaries
+- subtitle cue boundaries
+- future word-level emphasis
+
+### 5. Silence Trimming Is Optional and Must Preserve Time Remapping Metadata
+
+When long synthetic pauses harm pacing, Pixelle may run an optional silence-trimming stage after block TTS.
+
+This stage must:
+
+- preserve the original untrimmed master narration audio
+- write a machine-readable edit timeline
+- remap sentence and subtitle timings onto the trimmed timeline before export
+
+Silence trimming is a pacing optimization, not a substitute for alignment.
+
 ## Caption Source Policy
 
 Caption timing must follow this priority order:
 
-### Primary Source: Pixelle Narration + Timing Metadata
+### Primary Source: Pixelle Narration + Forced Alignment
 
-When Pixelle has `frame.narration` and `frame.duration`, it can deterministically build phrase-level subtitle cues without any transcription model.
+When Pixelle has known narration text and generated audio, it should use forced alignment to recover timing.
 
-This is the default source for the first HyperFrames rollout.
+Recommended default engine:
 
-### Preferred Future Upgrade: Pixelle Narration + Forced Alignment
+- `Qwen3-ForcedAligner-0.6B`
 
-When better subtitle granularity is needed, Pixelle should add a forced-alignment stage using:
+This gives word-level or character-level timings without guessing text from audio, and those fine-grained timings can then be aggregated into sentence-level subtitle cues.
 
-- known narration text
-- generated audio
+### Bootstrap Fallback: Pixelle Narration + Direct Duration Metadata
 
-This gives phrase-level or word-level timestamps without guessing text from audio.
+If forced alignment is temporarily unavailable, Pixelle may still build coarse phrase-level cues from its own narration and duration metadata.
+
+This path is acceptable as a bootstrap or compatibility mode, but it is not the preferred best-practice timing source for normal Pixelle-generated tasks.
 
 ### Fallback Source: HyperFrames Transcribe
 
@@ -303,11 +332,13 @@ After the reference template is proven:
 
 The target final render flow becomes:
 
-1. Pixelle generates storyboard, audio, and media
-2. Pixelle computes a global narration timeline
-3. Pixelle exports a HyperFrames render package
-4. Pixelle writes or updates HyperFrames composition files for the selected template
-5. HyperFrames renders the final MP4 from the render package
+1. Pixelle generates storyboard, media, and preserved sentence boundaries
+2. Pixelle synthesizes narration audio in block-sized TTS requests
+3. Pixelle aligns block audio back to text and optionally trims long silence with remapping metadata
+4. Pixelle computes the global narration timeline
+5. Pixelle exports a HyperFrames render package
+6. Pixelle writes or updates HyperFrames composition files for the selected template
+7. HyperFrames renders the final MP4 from the render package
 
 This replaces:
 
@@ -359,7 +390,8 @@ Deliverable:
 
 Upgrade caption timing quality:
 
-- optional forced alignment when narration text is present
+- default forced alignment when narration text is present
+- optional silence trimming with timing remap metadata
 - optional HyperFrames `transcribe` fallback when narration text is missing
 - richer grouping and emphasis logic
 
