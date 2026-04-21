@@ -26,6 +26,7 @@ from loguru import logger
 
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.utils.prompt_helper import assemble_image_prompt, assemble_negative_prompt
+from pixelle_video.utils.text_splitting import split_text_into_sentences
 from pixelle_video.utils.style_resolution import resolve_style_source, resolve_style_spec
 from pixelle_video.utils.workflow_capabilities import (
     WorkflowCapabilities,
@@ -264,74 +265,6 @@ def _split_text_by_unicode_punctuation(script: str) -> List[str]:
             narrations.append(segment)
 
     return narrations
-
-
-_SENTENCE_CLOSE_CHARS = {'"', "'", "”", "’", ")", "]", "}"}
-
-
-def _is_sentence_boundary(text: str, index: int) -> bool:
-    char = text[index]
-    if char not in {".", "!", "?", "。", "！", "？"}:
-        return False
-
-    prev_char = text[index - 1] if index > 0 else ""
-    next_char = text[index + 1] if index + 1 < len(text) else ""
-
-    if char == "." and prev_char.isdigit() and next_char.isdigit():
-        return False
-
-    if char in {"。", "！", "？"}:
-        return True
-
-    if not next_char:
-        return True
-
-    return next_char.isspace() or next_char in _SENTENCE_CLOSE_CHARS
-
-
-def split_text_into_sentences(text: str) -> List[str]:
-    """
-    Split text into sentence-like units while preserving punctuation and closing quotes.
-
-    This helper is shared by narration script splitting and timing planning so sentence
-    boundaries stay consistent across the pipeline.
-    """
-    cleaned = re.sub(r"\s+", " ", text.strip())
-    if not cleaned:
-        return []
-
-    sentences: List[str] = []
-    current: List[str] = []
-    index = 0
-
-    while index < len(cleaned):
-        char = cleaned[index]
-        current.append(char)
-
-        if _is_sentence_boundary(cleaned, index):
-            next_index = index + 1
-            while next_index < len(cleaned) and cleaned[next_index] in _SENTENCE_CLOSE_CHARS:
-                current.append(cleaned[next_index])
-                next_index += 1
-
-            segment = "".join(current).strip()
-            if segment:
-                sentences.append(segment)
-
-            current = []
-            index = next_index
-            while index < len(cleaned) and cleaned[index].isspace():
-                index += 1
-            continue
-
-        index += 1
-
-    if current:
-        segment = "".join(current).strip()
-        if segment:
-            sentences.append(segment)
-
-    return sentences
 
 
 async def split_narration_script(

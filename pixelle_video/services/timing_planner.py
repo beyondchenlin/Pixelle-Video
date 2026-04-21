@@ -3,7 +3,7 @@ from typing import List, Sequence
 
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.models.storyboard import StoryboardFrame
-from pixelle_video.utils.content_generators import split_text_into_sentences
+from pixelle_video.utils.text_splitting import split_text_into_sentences
 
 
 @dataclass

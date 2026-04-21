@@ -77,3 +77,17 @@ def test_timing_planner_respects_max_chars_when_grouping_blocks():
 
     assert [b.text for b in plan.blocks] == ["Alpha beta. Gamma delta.", "Epsilon zeta."]
     assert [b.source_frame_indices for b in plan.blocks] == [[0, 1], [2]]
+
+
+def test_timing_planner_splits_no_space_english_boundary_within_single_frame():
+    frames = [
+        StoryboardFrame(index=0, narration="Wait!Another sentence.", image_prompt="p1"),
+    ]
+
+    planner = TimingPlanner(mode="paragraph", max_sentences=8, max_chars=80)
+    plan = planner.build(frames)
+
+    assert [s.text for s in plan.sentences] == ["Wait!", "Another sentence."]
+    assert [s.frame_indices for s in plan.sentences] == [[0], [0]]
+    assert [b.text for b in plan.blocks] == ["Wait! Another sentence."]
+    assert [b.source_frame_indices for b in plan.blocks] == [[0, 0]]

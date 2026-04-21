@@ -1,6 +1,7 @@
 import pytest
 
-from pixelle_video.utils.content_generators import split_narration_script, split_text_into_sentences
+from pixelle_video.utils.content_generators import split_narration_script
+from pixelle_video.utils.text_splitting import split_text_into_sentences
 
 
 @pytest.mark.asyncio
@@ -56,4 +57,13 @@ async def test_split_narration_script_sentence_mode_reuses_shared_sentence_split
         '第一段。',
         '第二段！',
         '第三段？',
+    ]
+
+
+def test_split_text_into_sentences_handles_no_space_english_boundary():
+    text = "Wait!Another sentence."
+
+    assert split_text_into_sentences(text) == [
+        "Wait!",
+        "Another sentence.",
     ]
