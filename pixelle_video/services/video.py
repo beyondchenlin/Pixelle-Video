@@ -643,25 +643,41 @@ class VideoService:
         logger.info("Creating video from image and audio")
         
         try:
-            # Get audio duration to ensure exact video duration match
+            # Align both streams to the same frame grid so segment boundaries
+            # stay consistent after concatenation.
             probe = ffmpeg.probe(audio)
             audio_duration = float(probe['format']['duration'])
-            logger.debug(f"Audio duration: {audio_duration:.3f}s")
+            target_frame_count = max(1, int(audio_duration * fps + 0.5))
+            target_duration = target_frame_count / fps
+            pad_duration = max(0.0, target_duration - audio_duration)
+            logger.debug(
+                f"Audio duration: {audio_duration:.3f}s, "
+                f"target frames: {target_frame_count}, "
+                f"target duration: {target_duration:.3f}s"
+            )
             
             # Input image with loop (loop=1 means loop indefinitely)
             # Use framerate to set input framerate
             input_image = ffmpeg.input(image, loop=1, framerate=fps)
             input_audio = ffmpeg.input(audio)
+            audio_stream = input_audio.audio
+            if pad_duration > 0:
+                audio_stream = audio_stream.filter("apad", pad_dur=pad_duration)
+            audio_stream = (
+                audio_stream
+                .filter("atrim", duration=target_duration)
+                .filter("asetpts", "N/SR/TB")
+            )
             
             # Combine image and audio
-            # Use -t to explicitly set video duration = audio duration
+            # Drive both streams to the same snapped duration.
             (
                 ffmpeg
                 .output(
-                    input_image,
-                    input_audio,
+                    input_image.video,
+                    audio_stream,
                     output,
-                    t=audio_duration,  # Force video duration to match audio exactly
+                    vframes=target_frame_count,
                     vcodec='libx264',
                     acodec='aac',
                     pix_fmt='yuv420p',
@@ -674,7 +690,10 @@ class VideoService:
                 .run(capture_stdout=True, capture_stderr=True)
             )
             
-            logger.success(f"Video created from image: {output} (duration: {audio_duration:.3f}s)")
+            logger.success(
+                f"Video created from image: {output} "
+                f"(audio: {audio_duration:.3f}s, target: {target_duration:.3f}s)"
+            )
             return output
         except ffmpeg.Error as e:
             error_msg = e.stderr.decode() if e.stderr else str(e)
