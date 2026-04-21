@@ -220,6 +220,68 @@ async def test_standard_pipeline_initialize_storyboard_uses_render_config_defaul
     assert ctx.config.silence_trim_tool == "ffmpeg"
     assert ctx.config.silence_trim_margin_ms == 75
     assert ctx.config.render_backend == "cinematic"
+    assert ctx.timing_plan is not None
+    assert [sentence.text for sentence in ctx.timing_plan.sentences] == [
+        "Sentence 1.",
+    ]
+    assert [block.text for block in ctx.timing_plan.blocks] == [
+        "Sentence 1.",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_initialize_storyboard_builds_sentence_level_timing_plan():
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {
+                "render": {
+                    "backend": "cinematic",
+                    "timing": {
+                        "tts_batching_mode": "paragraph",
+                        "tts_batch_max_sentences": 8,
+                        "tts_batch_max_chars": 220,
+                        "subtitle_alignment_engine": "whisperx",
+                        "silence_trim_tool": "ffmpeg",
+                        "silence_trim_margin_ms": 75,
+                    },
+                }
+            },
+            "llm": None,
+            "tts": None,
+            "media": None,
+            "video": None,
+        },
+    )()
+
+    pipeline = StandardPipeline(fake_core)
+    ctx = PipelineContext(
+        input_text="demo",
+        params={
+            "media_width": 1080,
+            "media_height": 1920,
+        },
+    )
+    ctx.task_id = "task-2"
+    ctx.title = "demo"
+    ctx.narrations = ["Sentence 1. Sentence 2!"]
+    ctx.image_prompts = ["prompt"]
+
+    await pipeline.initialize_storyboard(ctx)
+
+    assert ctx.timing_plan is not None
+    assert [sentence.text for sentence in ctx.timing_plan.sentences] == [
+        "Sentence 1.",
+        "Sentence 2!",
+    ]
+    assert [sentence.frame_indices for sentence in ctx.timing_plan.sentences] == [
+        [0],
+        [0],
+    ]
+    assert [block.source_frame_indices for block in ctx.timing_plan.blocks] == [
+        [0, 0],
+    ]
 
 
 @pytest.mark.asyncio
