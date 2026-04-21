@@ -68,6 +68,7 @@ class BuiltinPromptPrefix:
             "is_builtin": self.is_builtin,
             "note": self.note,
             "preview_asset_path": self.preview_asset_path,
+            "workflow_preview_assets": {},
             "created_at": self.created_at,
         }
 
@@ -194,6 +195,60 @@ def get_prompt_prefix_preview_asset(item: dict[str, Any]) -> str:
         if resolved_path.exists():
             return preview_asset_path
     return DEFAULT_PROMPT_PREFIX_PLACEHOLDER
+
+
+def _resolve_prompt_prefix_asset_path(asset_path: str | None) -> str | None:
+    normalized_asset_path = (asset_path or "").strip()
+    if not normalized_asset_path:
+        return None
+
+    resolved_path = PROJECT_ROOT / normalized_asset_path
+    if resolved_path.exists():
+        return normalized_asset_path
+    return None
+
+
+def resolve_prompt_prefix_gallery_cover(item: dict[str, Any], workflow_key: str | None) -> dict[str, Any]:
+    """Resolve the best gallery cover for one prompt-prefix card."""
+    normalized_workflow_key = (workflow_key or "").strip()
+    workflow_preview_assets = item.get("workflow_preview_assets") or {}
+
+    if normalized_workflow_key:
+        current_workflow_asset = _resolve_prompt_prefix_asset_path(
+            workflow_preview_assets.get(normalized_workflow_key)
+        )
+        if current_workflow_asset:
+            return {
+                "asset_path": current_workflow_asset,
+                "source": "workflow",
+                "is_stale": False,
+                "workflow_key": normalized_workflow_key,
+            }
+
+    latest_other_asset: tuple[float, str, str] | None = None
+    for other_workflow_key, other_asset_path in workflow_preview_assets.items():
+        resolved_asset_path = _resolve_prompt_prefix_asset_path(other_asset_path)
+        if not resolved_asset_path:
+            continue
+        asset_mtime = (PROJECT_ROOT / resolved_asset_path).stat().st_mtime
+        if latest_other_asset is None or asset_mtime > latest_other_asset[0]:
+            latest_other_asset = (asset_mtime, other_workflow_key, resolved_asset_path)
+
+    if latest_other_asset is not None:
+        _, stale_workflow_key, stale_asset_path = latest_other_asset
+        return {
+            "asset_path": stale_asset_path,
+            "source": "workflow",
+            "is_stale": True,
+            "workflow_key": stale_workflow_key,
+        }
+
+    return {
+        "asset_path": get_prompt_prefix_preview_asset(item),
+        "source": "reference",
+        "is_stale": False,
+        "workflow_key": None,
+    }
 
 
 def filter_prompt_prefix_items(

@@ -16,6 +16,7 @@ Pure UI helpers for prompt prefix library interactions.
 
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 from typing import Any, MutableMapping
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
@@ -42,6 +43,7 @@ def create_prompt_prefix_item(
     source: str = "manual",
     item_id: str | None = None,
     preview_asset_path: str | None = None,
+    workflow_preview_assets: dict[str, str] | None = None,
 ) -> dict[str, str | bool | None]:
     """Create a normalized prompt prefix library item payload."""
     return {
@@ -54,6 +56,11 @@ def create_prompt_prefix_item(
         "is_builtin": False,
         "note": note.strip(),
         "preview_asset_path": preview_asset_path.strip() if preview_asset_path else None,
+        "workflow_preview_assets": {
+            str(workflow_key).strip(): str(asset_path).strip()
+            for workflow_key, asset_path in (workflow_preview_assets or {}).items()
+            if str(workflow_key).strip() and str(asset_path).strip()
+        },
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -114,6 +121,11 @@ def _infer_prompt_prefix_preview_suffix(source_name: str) -> str:
     return DEFAULT_PROMPT_PREFIX_PREVIEW_SUFFIX
 
 
+def _normalize_prompt_prefix_preview_stem_token(token: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", token.strip())
+    return normalized.strip("_") or "default"
+
+
 def _resolve_custom_prompt_prefix_preview_path(preview_asset_path: str | None) -> Path | None:
     normalized_asset_path = (preview_asset_path or "").strip()
     if not normalized_asset_path:
@@ -137,12 +149,14 @@ def _persist_prompt_prefix_preview_bytes(
     item_id: str,
     source_name: str,
     previous_preview_asset_path: str | None = None,
+    asset_stem_suffix: str | None = None,
 ) -> str:
     output_dir = _get_custom_prompt_prefix_preview_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     suffix = _infer_prompt_prefix_preview_suffix(source_name)
-    output_path = output_dir / f"{item_id}{suffix}"
+    normalized_suffix = f"__{_normalize_prompt_prefix_preview_stem_token(asset_stem_suffix)}" if asset_stem_suffix else ""
+    output_path = output_dir / f"{item_id}{normalized_suffix}{suffix}"
     output_path.write_bytes(preview_bytes)
 
     relative_output_path = output_path.relative_to(PROJECT_ROOT).as_posix()
@@ -235,4 +249,26 @@ def persist_generated_prompt_prefix_preview(
         item_id=item_id,
         source_name=normalized_preview_media_path,
         previous_preview_asset_path=previous_preview_asset_path,
+    )
+
+
+def persist_generated_prompt_prefix_workflow_preview(
+    preview_media_path: str | None,
+    item_id: str,
+    workflow_key: str,
+    previous_preview_asset_path: str | None = None,
+) -> str | None:
+    """Persist one generated preview image for a specific workflow and return a repo-relative path."""
+    normalized_preview_media_path = (preview_media_path or "").strip()
+    normalized_workflow_key = (workflow_key or "").strip()
+    if not normalized_preview_media_path or not normalized_workflow_key:
+        return None
+
+    preview_media = load_preview_media(normalized_preview_media_path, "image")
+    return _persist_prompt_prefix_preview_bytes(
+        preview_bytes=preview_media.data,
+        item_id=item_id,
+        source_name=normalized_preview_media_path,
+        previous_preview_asset_path=previous_preview_asset_path,
+        asset_stem_suffix=normalized_workflow_key,
     )

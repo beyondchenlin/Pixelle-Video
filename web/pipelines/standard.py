@@ -46,7 +46,7 @@ class StandardPipelineUI(PipelineUI):
     
     def render(self, pixelle_video: Any):
         # Three-column layout
-        left_col, middle_col, right_col = st.columns([1, 1, 1])
+        left_col, middle_col, right_col = st.columns([0.8, 1.8, 1.0])
         
         # ====================================================================
         # Left Column: Content Input & BGM

@@ -66,6 +66,7 @@ class PromptPrefixItemConfig(BaseModel):
     is_builtin: bool = Field(default=False)
     note: str = Field(default="")
     preview_asset_path: Optional[str] = Field(default=None)
+    workflow_preview_assets: dict[str, str] = Field(default_factory=dict)
     created_at: Optional[str] = Field(default=None)
 
 

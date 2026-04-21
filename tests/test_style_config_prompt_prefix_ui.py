@@ -1,4 +1,5 @@
 from web.components import style_config
+from pixelle_video.config import prompt_prefix_library
 from web.utils.preview_media import PreviewMediaData
 from web.utils.prompt_prefix_ui import (
     clone_prompt_prefix_preview_asset,
@@ -7,11 +8,13 @@ from web.utils.prompt_prefix_ui import (
     get_localized_prompt_prefix_category_options,
     get_prompt_prefix_form_item_id,
     persist_generated_prompt_prefix_preview,
+    persist_generated_prompt_prefix_workflow_preview,
     persist_uploaded_prompt_prefix_preview,
     sanitize_prompt_prefix_preview_selection,
     toggle_prompt_prefix_preview_selection,
 )
 import json
+import os
 from pathlib import Path
 
 
@@ -25,6 +28,9 @@ def test_create_prompt_prefix_item_trims_fields_and_preserves_category_ids():
         note="  soft and healing  ",
         source="manual",
         preview_asset_path=" resources/prompt_prefix_previews/custom/card.svg ",
+        workflow_preview_assets={
+            "selfhost/image_z_image_turbo.json": " resources/prompt_prefix_previews/custom/manual-test.webp ",
+        },
     )
 
     assert item["id"] == "manual-test"
@@ -34,6 +40,9 @@ def test_create_prompt_prefix_item_trims_fields_and_preserves_category_ids():
     assert item["scene_category_id"] == "childrens_story"
     assert item["note"] == "soft and healing"
     assert item["preview_asset_path"] == "resources/prompt_prefix_previews/custom/card.svg"
+    assert item["workflow_preview_assets"] == {
+        "selfhost/image_z_image_turbo.json": "resources/prompt_prefix_previews/custom/manual-test.webp",
+    }
 
 
 def test_get_localized_prompt_prefix_category_options_exposes_human_labels():
@@ -149,6 +158,29 @@ def test_persist_generated_prompt_prefix_preview_saves_relative_asset(monkeypatc
     assert (tmp_path / asset_path).read_bytes() == b"preview-bytes"
 
 
+def test_persist_generated_prompt_prefix_workflow_preview_includes_workflow_slug(monkeypatch, tmp_path):
+    monkeypatch.setattr("web.utils.prompt_prefix_ui.PROJECT_ROOT", tmp_path)
+
+    def fake_load_preview_media(path, media_type):
+        assert path == "http://127.0.0.1:8000/view?filename=story-cover.webp&type=output"
+        assert media_type == "image"
+        return PreviewMediaData(data=b"preview-bytes")
+
+    monkeypatch.setattr("web.utils.prompt_prefix_ui.load_preview_media", fake_load_preview_media)
+
+    asset_path = persist_generated_prompt_prefix_workflow_preview(
+        "http://127.0.0.1:8000/view?filename=story-cover.webp&type=output",
+        "llm-test",
+        "selfhost/image_z_image_turbo.json",
+    )
+
+    assert asset_path == (
+        "resources/prompt_prefix_previews/custom/"
+        "llm-test__selfhost_image_z_image_turbo_json.webp"
+    )
+    assert (tmp_path / asset_path).read_bytes() == b"preview-bytes"
+
+
 def test_clone_prompt_prefix_preview_asset_copies_custom_asset(monkeypatch, tmp_path):
     monkeypatch.setattr("web.utils.prompt_prefix_ui.PROJECT_ROOT", tmp_path)
     source_asset = tmp_path / "resources" / "prompt_prefix_previews" / "custom" / "manual-source.webp"
@@ -182,6 +214,12 @@ def test_delete_image_prompt_prefix_item_cleans_up_custom_preview_asset(monkeypa
             {
                 "id": "manual-test",
                 "preview_asset_path": "resources/prompt_prefix_previews/custom/manual-test.png",
+                "workflow_preview_assets": {
+                    "selfhost/image_z_image_turbo.json": (
+                        "resources/prompt_prefix_previews/custom/manual-test__"
+                        "selfhost_image_z_image_turbo_json.webp"
+                    )
+                },
             }
         ],
     }
@@ -215,13 +253,16 @@ def test_delete_image_prompt_prefix_item_cleans_up_custom_preview_asset(monkeypa
 
     style_config._delete_image_prompt_prefix_item("manual-test")
 
-    assert deleted_assets == ["resources/prompt_prefix_previews/custom/manual-test.png"]
+    assert deleted_assets == [
+        "resources/prompt_prefix_previews/custom/manual-test.png",
+        "resources/prompt_prefix_previews/custom/manual-test__selfhost_image_z_image_turbo_json.webp",
+    ]
     assert fake_manager.saved_library["items"] == []
     assert fake_manager.saved_library["active_prefix_id"] is None
     assert fake_manager.save_calls == 1
 
 
-def test_prepare_prompt_prefix_item_for_library_save_persists_generated_preview(monkeypatch):
+def test_prepare_prompt_prefix_item_for_library_save_persists_generated_workflow_preview(monkeypatch):
     candidate = create_prompt_prefix_item(
         item_id="llm-test",
         name="AI Candidate",
@@ -232,29 +273,81 @@ def test_prepare_prompt_prefix_item_for_library_save_persists_generated_preview(
     )
     persisted_calls = []
 
-    def fake_persist_generated_prompt_prefix_preview(preview_media_path, item_id, previous_preview_asset_path=None):
-        persisted_calls.append((preview_media_path, item_id, previous_preview_asset_path))
-        return "resources/prompt_prefix_previews/custom/llm-test.png"
+    def fake_persist_generated_prompt_prefix_workflow_preview(
+        preview_media_path,
+        item_id,
+        workflow_key,
+        previous_preview_asset_path=None,
+    ):
+        persisted_calls.append((preview_media_path, item_id, workflow_key, previous_preview_asset_path))
+        return "resources/prompt_prefix_previews/custom/llm-test__workflow.webp"
 
     monkeypatch.setattr(
         style_config,
-        "persist_generated_prompt_prefix_preview",
-        fake_persist_generated_prompt_prefix_preview,
+        "persist_generated_prompt_prefix_workflow_preview",
+        fake_persist_generated_prompt_prefix_workflow_preview,
     )
 
     prepared_item = style_config._prepare_prompt_prefix_item_for_library_save(
         candidate,
+        workflow_key="selfhost/image_z_image_turbo.json",
         preview_media_path="http://127.0.0.1:8000/view?filename=llm-test.png",
     )
 
-    assert prepared_item["preview_asset_path"] == "resources/prompt_prefix_previews/custom/llm-test.png"
+    assert prepared_item["preview_asset_path"] is None
+    assert prepared_item["workflow_preview_assets"] == {
+        "selfhost/image_z_image_turbo.json": "resources/prompt_prefix_previews/custom/llm-test__workflow.webp"
+    }
     assert persisted_calls == [
         (
             "http://127.0.0.1:8000/view?filename=llm-test.png",
             "llm-test",
+            "selfhost/image_z_image_turbo.json",
             None,
         )
     ]
+
+
+def test_resolve_prompt_prefix_gallery_cover_prefers_current_workflow_then_stale_then_reference(monkeypatch, tmp_path):
+    monkeypatch.setattr(prompt_prefix_library, "PROJECT_ROOT", tmp_path)
+
+    reference_asset = tmp_path / "resources" / "prompt_prefix_previews" / "builtin" / "warm_storybook.svg"
+    stale_asset = tmp_path / "resources" / "prompt_prefix_previews" / "custom" / "item__old.webp"
+    current_asset = tmp_path / "resources" / "prompt_prefix_previews" / "custom" / "item__current.webp"
+    current_asset.parent.mkdir(parents=True, exist_ok=True)
+    reference_asset.parent.mkdir(parents=True, exist_ok=True)
+    reference_asset.write_text("<svg/>", encoding="utf-8")
+    stale_asset.write_bytes(b"old")
+    current_asset.write_bytes(b"current")
+    os.utime(stale_asset, (1, 1))
+    os.utime(current_asset, (2, 2))
+
+    item = {
+        "preview_asset_path": "resources/prompt_prefix_previews/builtin/warm_storybook.svg",
+        "workflow_preview_assets": {
+            "selfhost/old.json": "resources/prompt_prefix_previews/custom/item__old.webp",
+            "selfhost/current.json": "resources/prompt_prefix_previews/custom/item__current.webp",
+        },
+    }
+
+    current = prompt_prefix_library.resolve_prompt_prefix_gallery_cover(item, "selfhost/current.json")
+    stale = prompt_prefix_library.resolve_prompt_prefix_gallery_cover(item, "selfhost/missing.json")
+    empty = prompt_prefix_library.resolve_prompt_prefix_gallery_cover(
+        {"preview_asset_path": "resources/prompt_prefix_previews/builtin/warm_storybook.svg"},
+        "selfhost/missing.json",
+    )
+
+    assert current["asset_path"] == "resources/prompt_prefix_previews/custom/item__current.webp"
+    assert current["is_stale"] is False
+    assert current["source"] == "workflow"
+
+    assert stale["asset_path"] == "resources/prompt_prefix_previews/custom/item__current.webp"
+    assert stale["is_stale"] is True
+    assert stale["source"] == "workflow"
+
+    assert empty["asset_path"] == "resources/prompt_prefix_previews/builtin/warm_storybook.svg"
+    assert empty["is_stale"] is False
+    assert empty["source"] == "reference"
 
 
 def test_build_prompt_prefix_live_preview_map_ignores_compare_preview_results(monkeypatch):
@@ -321,13 +414,17 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "build_prompt_prefix_generation_prompt" in source
     assert "get_prompt_prefix_preview_asset" in source
     assert "get_prompt_prefix_form_item_id" in source
-    assert "persist_generated_prompt_prefix_preview" in source
+    assert "persist_generated_prompt_prefix_workflow_preview" in source
     assert "clone_prompt_prefix_preview_asset" in source
     assert "delete_prompt_prefix_preview_asset" in source
     assert "_remove_generated_candidate_from_session" in source
     assert "prompt_prefix_panel_mode" in source
     assert "style.prefix_library.toolbar_add" in source
     assert "style.prefix_library.compare_count" in source
+    assert "style.prefix_library.thumbnail_prompt" in source
+    assert "style.prefix_library.generate_thumbnails" in source
+    assert "st.columns([2.25, 1.05]" not in source
+    assert "st.columns([1, 1, 1.2, 0.8, 0.9]" not in source
 
 
 def test_prompt_prefix_library_locale_keys_exist():
@@ -342,3 +439,5 @@ def test_prompt_prefix_library_locale_keys_exist():
         assert "style.prefix_library.ai_generate" in translations
         assert "style.prefix_library.toolbar_add" in translations
         assert "style.prefix_library.compare_count" in translations
+        assert "style.prefix_library.thumbnail_prompt" in translations
+        assert "style.prefix_library.generate_thumbnails" in translations
