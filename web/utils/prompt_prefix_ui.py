@@ -184,6 +184,24 @@ def delete_prompt_prefix_preview_asset(preview_asset_path: str | None) -> bool:
     return True
 
 
+def clone_prompt_prefix_preview_asset(
+    preview_asset_path: str | None,
+    item_id: str,
+) -> str | None:
+    """Clone one custom preview asset for a duplicated item, preserving builtins by reference."""
+    resolved_path = _resolve_custom_prompt_prefix_preview_path(preview_asset_path)
+    if resolved_path is None:
+        return preview_asset_path.strip() if isinstance(preview_asset_path, str) and preview_asset_path.strip() else None
+    if not resolved_path.exists():
+        return None
+
+    return _persist_prompt_prefix_preview_bytes(
+        preview_bytes=resolved_path.read_bytes(),
+        item_id=item_id,
+        source_name=resolved_path.name,
+    )
+
+
 def persist_uploaded_prompt_prefix_preview(
     uploaded_file,
     item_id: str,

@@ -16,6 +16,7 @@ Style configuration components for web UI (middle column)
 
 import os
 from pathlib import Path
+from uuid import uuid4
 
 import streamlit as st
 from loguru import logger
@@ -40,6 +41,7 @@ from web.utils.async_helpers import run_async
 from web.utils.preview_media import load_preview_media
 from web.utils.prompt_prefix_ui import (
     clear_prompt_prefix_form_item_id,
+    clone_prompt_prefix_preview_asset,
     create_prompt_prefix_item,
     delete_prompt_prefix_preview_asset,
     get_localized_prompt_prefix_category_options,
@@ -107,6 +109,20 @@ def _set_active_image_prompt_prefix(item_id: str):
     """Set active image prompt prefix id and persist it."""
     config_manager.set_active_image_prompt_prefix(item_id)
     config_manager.save()
+
+
+def _remove_generated_candidate_from_session(item_id: str):
+    """Remove one generated candidate and its transient preview state after it is saved."""
+    st.session_state["prompt_prefix_generated_candidates"] = [
+        candidate
+        for candidate in st.session_state.get("prompt_prefix_generated_candidates", [])
+        if candidate.get("id") != item_id
+    ]
+    st.session_state["prompt_prefix_generated_preview_results"] = [
+        result
+        for result in st.session_state.get("prompt_prefix_generated_preview_results", [])
+        if result.get("id") != item_id
+    ]
 
 
 def _prepare_prompt_prefix_item_for_library_save(
@@ -521,11 +537,6 @@ def _build_prompt_prefix_live_preview_map() -> dict[str, str]:
     """Collect session-scoped preview overrides for gallery cards."""
     preview_map: dict[str, str] = {}
 
-    for result in st.session_state.get("prompt_prefix_preview_results", []):
-        preview_path = result.get("preview_media_path")
-        if preview_path:
-            preview_map[result["id"]] = preview_path
-
     for result in st.session_state.get("prompt_prefix_generated_preview_results", []):
         preview_path = result.get("preview_media_path")
         if preview_path:
@@ -812,14 +823,19 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                         key=f"detail_duplicate_{panel_item['id']}",
                         width="stretch",
                     ):
+                        duplicated_item_id = f"manual-{uuid4().hex[:12]}"
                         duplicated_item = create_prompt_prefix_item(
+                            item_id=duplicated_item_id,
                             name=f"{panel_item['name']} Copy",
                             content=panel_item["content"],
                             style_category_id=panel_item["style_category_id"],
                             scene_category_id=panel_item["scene_category_id"],
                             note=panel_item.get("note", ""),
                             source="manual",
-                            preview_asset_path=panel_item.get("preview_asset_path"),
+                            preview_asset_path=clone_prompt_prefix_preview_asset(
+                                panel_item.get("preview_asset_path"),
+                                duplicated_item_id,
+                            ),
                         )
                         _upsert_image_prompt_prefix_item(duplicated_item)
                         safe_rerun()
@@ -1084,6 +1100,7 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                                             preview_media_path=candidate_preview_map.get(candidate["id"]),
                                         )
                                     )
+                                    _remove_generated_candidate_from_session(candidate["id"])
                                     safe_rerun()
                             with active_col:
                                 if st.button(
@@ -1098,6 +1115,7 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                                         ),
                                         set_active=True,
                                     )
+                                    _remove_generated_candidate_from_session(candidate["id"])
                                     safe_rerun()
 
                             generated_in_preview = candidate["id"] in selected_preview_ids
@@ -1189,6 +1207,7 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                                     ),
                                     set_active=True,
                                 )
+                                _remove_generated_candidate_from_session(preview_result["id"])
                             else:
                                 _set_active_image_prompt_prefix(preview_result["id"])
                             safe_rerun()

@@ -1,6 +1,7 @@
 from web.components import style_config
 from web.utils.preview_media import PreviewMediaData
 from web.utils.prompt_prefix_ui import (
+    clone_prompt_prefix_preview_asset,
     create_prompt_prefix_item,
     delete_prompt_prefix_preview_asset,
     get_localized_prompt_prefix_category_options,
@@ -148,6 +149,22 @@ def test_persist_generated_prompt_prefix_preview_saves_relative_asset(monkeypatc
     assert (tmp_path / asset_path).read_bytes() == b"preview-bytes"
 
 
+def test_clone_prompt_prefix_preview_asset_copies_custom_asset(monkeypatch, tmp_path):
+    monkeypatch.setattr("web.utils.prompt_prefix_ui.PROJECT_ROOT", tmp_path)
+    source_asset = tmp_path / "resources" / "prompt_prefix_previews" / "custom" / "manual-source.webp"
+    source_asset.parent.mkdir(parents=True, exist_ok=True)
+    source_asset.write_bytes(b"cover-bytes")
+
+    cloned_asset_path = clone_prompt_prefix_preview_asset(
+        "resources/prompt_prefix_previews/custom/manual-source.webp",
+        "manual-copy",
+    )
+
+    assert cloned_asset_path == "resources/prompt_prefix_previews/custom/manual-copy.webp"
+    assert (tmp_path / cloned_asset_path).read_bytes() == b"cover-bytes"
+    assert source_asset.read_bytes() == b"cover-bytes"
+
+
 def test_get_prompt_prefix_form_item_id_reuses_manual_draft_id():
     session_state = {}
 
@@ -240,6 +257,61 @@ def test_prepare_prompt_prefix_item_for_library_save_persists_generated_preview(
     ]
 
 
+def test_build_prompt_prefix_live_preview_map_ignores_compare_preview_results(monkeypatch):
+    fake_streamlit = type(
+        "FakeStreamlit",
+        (),
+        {
+            "session_state": {
+                "prompt_prefix_preview_results": [
+                    {"id": "library-a", "preview_media_path": "compare-preview.png"}
+                ],
+                "prompt_prefix_generated_preview_results": [
+                    {"id": "generated-a", "preview_media_path": "candidate-preview.png"}
+                ],
+            }
+        },
+    )()
+
+    monkeypatch.setattr(style_config, "st", fake_streamlit)
+
+    assert style_config._build_prompt_prefix_live_preview_map() == {
+        "generated-a": "candidate-preview.png"
+    }
+
+
+def test_remove_generated_candidate_from_session_cleans_saved_candidate(monkeypatch):
+    fake_streamlit = type(
+        "FakeStreamlit",
+        (),
+        {
+            "session_state": {
+                "prompt_prefix_generated_candidates": [
+                    {"id": "llm-test"},
+                    {"id": "llm-keep"},
+                ],
+                "prompt_prefix_generated_preview_results": [
+                    {"id": "llm-test", "preview_media_path": "preview-a.png"},
+                    {"id": "llm-keep", "preview_media_path": "preview-b.png"},
+                ],
+                "prompt_prefix_preview_ids": ["llm-test", "library-a"],
+            }
+        },
+    )()
+
+    monkeypatch.setattr(style_config, "st", fake_streamlit)
+
+    style_config._remove_generated_candidate_from_session("llm-test")
+
+    assert fake_streamlit.session_state["prompt_prefix_generated_candidates"] == [
+        {"id": "llm-keep"}
+    ]
+    assert fake_streamlit.session_state["prompt_prefix_generated_preview_results"] == [
+        {"id": "llm-keep", "preview_media_path": "preview-b.png"}
+    ]
+    assert fake_streamlit.session_state["prompt_prefix_preview_ids"] == ["llm-test", "library-a"]
+
+
 def test_style_config_source_references_prompt_prefix_library_ui():
     project_root = Path(__file__).resolve().parent.parent
     source = (project_root / "web" / "components" / "style_config.py").read_text(encoding="utf-8")
@@ -250,7 +322,9 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "get_prompt_prefix_preview_asset" in source
     assert "get_prompt_prefix_form_item_id" in source
     assert "persist_generated_prompt_prefix_preview" in source
+    assert "clone_prompt_prefix_preview_asset" in source
     assert "delete_prompt_prefix_preview_asset" in source
+    assert "_remove_generated_candidate_from_session" in source
     assert "prompt_prefix_panel_mode" in source
     assert "style.prefix_library.toolbar_add" in source
     assert "style.prefix_library.compare_count" in source
