@@ -266,3 +266,76 @@ def test_write_project_data_clamps_and_filters_timeline_spans_before_export(tmp_
             "style_profile": "image_life_insights_light",
         },
     ]
+
+
+def test_write_project_data_drops_captions_for_sentences_whose_remapped_span_collapses(tmp_path):
+    manifest = RenderManifest(
+        task_id="task-4",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_life_insights_light",
+        master_audio_path="output/task-4/trimmed_master_audio.wav",
+        sentence_units=[
+            SentenceUnit(
+                id="sentence-1",
+                text="Sentence 1.",
+                frame_indices=[0],
+                source_start=0.2,
+                source_end=0.8,
+                remapped_start=2.0,
+                remapped_end=2.5,
+            )
+        ],
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    project_paths = service.write_project_data(manifest, master_audio_duration=1.0)
+
+    manifest_data = json.loads((project_paths.data_dir / "render_manifest.json").read_text(encoding="utf-8"))
+    captions_data = json.loads((project_paths.data_dir / "captions.json").read_text(encoding="utf-8"))
+
+    assert manifest_data["sentence_units"][0]["source_start"] is None
+    assert manifest_data["sentence_units"][0]["source_end"] is None
+    assert manifest_data["sentence_units"][0]["remapped_start"] is None
+    assert manifest_data["sentence_units"][0]["remapped_end"] is None
+    assert captions_data["captions"] == []
+
+
+def test_write_project_data_clears_sentence_block_id_when_audio_block_is_removed(tmp_path):
+    manifest = RenderManifest(
+        task_id="task-5",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_life_insights_light",
+        audio_blocks=[
+            AudioBlock(
+                id="block-1",
+                text="Sentence 1.",
+                start=2.0,
+                end=3.0,
+                source_frame_indices=[0],
+            )
+        ],
+        sentence_units=[
+            SentenceUnit(
+                id="sentence-1",
+                text="Sentence 1.",
+                frame_indices=[0],
+                block_id="block-1",
+                source_start=0.2,
+                source_end=0.8,
+            )
+        ],
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    project_paths = service.write_project_data(manifest, master_audio_duration=1.0)
+
+    manifest_data = json.loads((project_paths.data_dir / "render_manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest_data["audio_blocks"] == []
+    assert manifest_data["sentence_units"][0]["block_id"] is None

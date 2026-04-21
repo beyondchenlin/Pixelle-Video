@@ -418,6 +418,54 @@ async def test_post_production_skips_shell_image_fallback_for_missing_raw_media(
 
 
 @pytest.mark.asyncio
+async def test_post_production_warns_and_keeps_clips_for_mixed_raw_media_availability(monkeypatch, tmp_path):
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
+
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+    ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
+
+    ctx.storyboard.frames[0].media_type = "image"
+    ctx.storyboard.frames[0].image_path = str(tmp_path / "00_raw.png")
+    Path(ctx.storyboard.frames[0].image_path).write_text("raw", encoding="utf-8")
+    ctx.storyboard.frames[0].composed_image_path = str(tmp_path / "00_shell.png")
+    Path(ctx.storyboard.frames[0].composed_image_path).write_text("shell", encoding="utf-8")
+
+    ctx.storyboard.frames[1].media_type = "image"
+    ctx.storyboard.frames[1].image_path = None
+    ctx.storyboard.frames[1].composed_image_path = str(tmp_path / "01_shell.png")
+    Path(ctx.storyboard.frames[1].composed_image_path).write_text("shell", encoding="utf-8")
+
+    warnings: list[str] = []
+
+    def fake_warning(message):
+        warnings.append(message)
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    def fake_concat_audio_files(audio_paths, output_path):
+        Path(output_path).write_bytes(b"master-wav")
+
+    def fake_get_audio_duration(audio_path):
+        return 2.0
+
+    monkeypatch.setattr("pixelle_video.pipelines.standard.logger.warning", fake_warning)
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", fake_get_audio_duration)
+
+    await pipeline.post_production(ctx)
+
+    manifest = core.hyperframes_project_service.manifest
+    assert [clip.media_path for clip in manifest.visual_clips] == [str(tmp_path / "00_raw.png")]
+    assert warnings
+    assert "missing raw media" in warnings[0]
+
+
+@pytest.mark.asyncio
 async def test_post_production_warns_when_hyperframes_falls_back_to_legacy_rendering(monkeypatch, tmp_path):
     calls = {}
     warnings: list[str] = []

@@ -95,10 +95,16 @@ class HyperFramesProjectService:
         master_audio_duration: float | None,
     ) -> RenderManifest:
         duration = self._resolve_master_audio_duration(manifest, master_audio_duration)
+        normalized_audio_blocks = self._normalize_audio_blocks(manifest.audio_blocks, duration)
+        valid_block_ids = {block.id for block in normalized_audio_blocks}
         return replace(
             manifest,
-            audio_blocks=self._normalize_audio_blocks(manifest.audio_blocks, duration),
-            sentence_units=self._normalize_sentence_units(manifest.sentence_units, duration),
+            audio_blocks=normalized_audio_blocks,
+            sentence_units=self._normalize_sentence_units(
+                manifest.sentence_units,
+                duration,
+                valid_block_ids=valid_block_ids,
+            ),
             visual_clips=self._normalize_visual_clips(manifest.visual_clips, duration),
             caption_cues=self._normalize_caption_cues(manifest.caption_cues, duration),
         )
@@ -139,13 +145,19 @@ class HyperFramesProjectService:
         self,
         sentence_units: list[SentenceUnit],
         duration: float,
+        *,
+        valid_block_ids: set[str] | None = None,
     ) -> list[SentenceUnit]:
         normalized_sentences: list[SentenceUnit] = []
         for sentence in sentence_units:
             source_span = self._normalize_time_span(sentence.source_start, sentence.source_end, duration)
             remapped_span = self._normalize_time_span(sentence.remapped_start, sentence.remapped_end, duration)
-            if source_span is None and remapped_span is None:
+            has_remapped_span = sentence.remapped_start is not None or sentence.remapped_end is not None
+            if source_span is None and remapped_span is None and not has_remapped_span:
                 continue
+
+            if has_remapped_span and remapped_span is None:
+                source_span = None
 
             normalized_sentences.append(
                 replace(
@@ -154,6 +166,11 @@ class HyperFramesProjectService:
                     source_end=source_span[1] if source_span else None,
                     remapped_start=remapped_span[0] if remapped_span else None,
                     remapped_end=remapped_span[1] if remapped_span else None,
+                    block_id=(
+                        sentence.block_id
+                        if valid_block_ids is None or sentence.block_id in valid_block_ids
+                        else None
+                    ),
                 )
             )
         return normalized_sentences

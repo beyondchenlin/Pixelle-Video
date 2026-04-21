@@ -954,6 +954,9 @@ class StandardPipeline(LinearVideoPipeline):
 
             raw_media_path = frame.video_path if frame.media_type == "video" else frame.image_path
             if not raw_media_path:
+                logger.warning(
+                    f"Skipping HyperFrames visual clip for frame {frame.index + 1}: missing raw media"
+                )
                 continue
 
             visual_clips.append(
