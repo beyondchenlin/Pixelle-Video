@@ -6,6 +6,8 @@ import pytest
 
 import pixelle_video.service as service_module
 from pixelle_video.service import PixelleVideoCore
+from pixelle_video.services.alignment_service import AlignmentService
+from pixelle_video.services.audio_edit_service import AudioEditService
 from pixelle_video.services.hyperframes_project_service import HyperFramesProjectService
 from pixelle_video.services.hyperframes_renderer import HyperFramesRenderer
 
@@ -169,5 +171,7 @@ async def test_initialize_wires_hyperframes_services(monkeypatch):
 
     await core.initialize()
 
+    assert isinstance(core.alignment_service, AlignmentService)
+    assert isinstance(core.audio_edit_service, AudioEditService)
     assert isinstance(core.hyperframes_project_service, HyperFramesProjectService)
     assert isinstance(core.hyperframes_renderer, HyperFramesRenderer)

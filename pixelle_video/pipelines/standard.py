@@ -23,10 +23,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable, Literal, List
 import asyncio
+import os
+import subprocess
 import shutil
 
 from loguru import logger
 
+from pixelle_video.models.render_package import RenderManifest, VisualClip
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
@@ -370,6 +373,27 @@ class StandardPipeline(LinearVideoPipeline):
             use_staged_mode=use_staged_mode,
         )
 
+    def _resolve_hyperframes_template_id(self, config: StoryboardConfig) -> str:
+        return Path(config.frame_template).stem
+
+    def _is_hyperframes_render_path(self, ctx: PipelineContext) -> bool:
+        config = ctx.config
+        if config.render_backend != "hyperframes":
+            return False
+
+        execution_mode = self._resolve_asset_execution_mode(ctx)
+        if execution_mode.template_type != "image" or execution_mode.media_domain != "image":
+            return False
+
+        template_dir = (
+            Path(__file__).resolve().parents[2]
+            / "resources"
+            / "hyperframes"
+            / "templates"
+            / self._resolve_hyperframes_template_id(config)
+        )
+        return template_dir.exists()
+
     def _stage_progress(
         self,
         stage_start: float,
@@ -476,6 +500,10 @@ class StandardPipeline(LinearVideoPipeline):
         """Step 6: Generate audio, images, and render frames (Core processing)."""
         storyboard = ctx.storyboard
         config = ctx.config
+        if self._is_hyperframes_render_path(ctx):
+            await self._produce_assets_hyperframes(ctx)
+            logger.info("All frames processed in HyperFrames image mode")
+            return
         execution_mode = self._resolve_asset_execution_mode(ctx)
         
         # Get concurrent limit from config_manager (supports hot reload without restart)
@@ -589,8 +617,54 @@ class StandardPipeline(LinearVideoPipeline):
                 storyboard.total_duration += processed_frame.duration
                 logger.info(f"✅ Frame {i+1} completed ({processed_frame.duration:.2f}s)")
 
+    async def _produce_assets_hyperframes(self, ctx: PipelineContext):
+        storyboard = ctx.storyboard
+        config = ctx.config
+        total_frames = len(storyboard.frames)
+
+        logger.info("Using HyperFrames image asset production path")
+
+        for frame in storyboard.frames:
+            has_existing_media = frame.image_path is not None or frame.video_path is not None
+            needs_generation = frame.image_prompt is not None
+
+            if needs_generation:
+                self._report_staged_frame_progress(
+                    ctx.progress_callback,
+                    stage_start=0.25,
+                    stage_end=0.55,
+                    frame_current=frame.index + 1,
+                    frame_total=total_frames,
+                    step=2,
+                    action="media",
+                )
+                await self.core.frame_processor._step_generate_media(frame, config)
+            elif not has_existing_media:
+                frame.image_path = None
+                frame.media_type = None
+
+            self._report_staged_frame_progress(
+                ctx.progress_callback,
+                stage_start=0.55,
+                stage_end=0.80,
+                frame_current=frame.index + 1,
+                frame_total=total_frames,
+                step=3,
+                action="compose",
+            )
+            await self.core.frame_processor._step_compose_frame(
+                frame,
+                storyboard,
+                config,
+                body_text_override="",
+            )
+
     async def post_production(self, ctx: PipelineContext):
         """Step 7: Concatenate videos and add BGM."""
+        if self._is_hyperframes_render_path(ctx):
+            await self._post_production_hyperframes(ctx)
+            return
+
         self._report_progress(ctx.progress_callback, "concatenating", 0.85)
         
         storyboard = ctx.storyboard
@@ -619,6 +693,248 @@ class StandardPipeline(LinearVideoPipeline):
             storyboard.final_video_path = user_specified_output
         
         logger.success(f"🎬 Video generation completed: {ctx.final_video_path}")
+
+    async def _post_production_hyperframes(self, ctx: PipelineContext):
+        self._report_progress(ctx.progress_callback, "rendering_hyperframes", 0.85)
+
+        storyboard = ctx.storyboard
+        config = ctx.config
+        timing_plan = ctx.timing_plan
+
+        if timing_plan is None:
+            raise RuntimeError("HyperFrames render path requires a timing plan.")
+        if self.core.hyperframes_project_service is None or self.core.hyperframes_renderer is None:
+            raise RuntimeError("HyperFrames services are not initialized.")
+        if getattr(self.core, "alignment_service", None) is None:
+            raise RuntimeError("Alignment service is not initialized.")
+        if config.silence_trim_tool == "auto_editor" and getattr(self.core, "audio_edit_service", None) is None:
+            raise RuntimeError("Audio edit service is not initialized.")
+
+        master_audio_path = await self._synthesize_hyperframes_audio(ctx)
+        self.core.alignment_service.align_blocks(timing_plan.blocks, timing_plan.sentences)
+        self._offset_sentence_timings_to_master_timeline(timing_plan)
+
+        if config.silence_trim_tool == "auto_editor":
+            self.core.audio_edit_service.remap_sentence_units_from_audio(
+                master_audio_path,
+                timing_plan.sentences,
+            )
+
+        storyboard.total_duration = timing_plan.blocks[-1].end if timing_plan.blocks else 0.0
+
+        manifest = RenderManifest(
+            task_id=ctx.task_id,
+            title=storyboard.title,
+            width=config.media_width,
+            height=config.media_height,
+            fps=config.video_fps,
+            template_id=self._resolve_hyperframes_template_id(config),
+            master_audio_path=master_audio_path,
+            audio_blocks=list(timing_plan.blocks),
+            sentence_units=list(timing_plan.sentences),
+            visual_clips=self._build_hyperframes_visual_clips(storyboard, timing_plan),
+        )
+        project_paths = self.core.hyperframes_project_service.write_project_data(manifest)
+
+        final_video_path = self.core.hyperframes_renderer.render(
+            str(project_paths.project_dir),
+            output_path=ctx.final_video_path,
+        )
+
+        storyboard.final_video_path = final_video_path
+        storyboard.completed_at = datetime.now()
+
+        user_specified_output = ctx.params.get("output_path")
+        if user_specified_output:
+            Path(user_specified_output).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(final_video_path, user_specified_output)
+            logger.info(f"Copied final video to user path: {user_specified_output}")
+            ctx.final_video_path = user_specified_output
+            storyboard.final_video_path = user_specified_output
+        else:
+            ctx.final_video_path = final_video_path
+            storyboard.final_video_path = final_video_path
+
+        logger.success(f"HyperFrames video generation completed: {ctx.final_video_path}")
+
+    async def _synthesize_hyperframes_audio(self, ctx: PipelineContext) -> str:
+        task_audio_dir = Path(ctx.task_dir) / "audio"
+        task_audio_dir.mkdir(parents=True, exist_ok=True)
+
+        block_paths: List[str] = []
+        cursor = 0.0
+
+        for block in ctx.timing_plan.blocks:
+            block_output_path = task_audio_dir / f"{block.id}.mp3"
+            await self.core.tts(
+                **self._build_tts_params(
+                    config=ctx.config,
+                    text=block.text,
+                    output_path=str(block_output_path),
+                )
+            )
+            block.audio_path = str(block_output_path)
+            duration = self._get_audio_duration(block.audio_path)
+            block.start = cursor
+            block.end = cursor + duration
+            cursor = block.end
+            block_paths.append(block.audio_path)
+
+        master_audio_path = task_audio_dir / "master_audio.mp3"
+        self._concat_audio_files(block_paths, str(master_audio_path))
+        return str(master_audio_path)
+
+    def _build_tts_params(
+        self,
+        *,
+        config: StoryboardConfig,
+        text: str,
+        output_path: str,
+    ) -> dict:
+        tts_params = {
+            "text": text,
+            "inference_mode": config.tts_inference_mode,
+            "output_path": output_path,
+        }
+
+        if config.tts_inference_mode == "local":
+            if config.voice_id:
+                tts_params["voice"] = config.voice_id
+            if config.tts_speed is not None:
+                tts_params["speed"] = config.tts_speed
+        else:
+            if config.tts_workflow:
+                tts_params["workflow"] = config.tts_workflow
+            if config.voice_id:
+                tts_params["voice"] = config.voice_id
+            if config.tts_speed is not None:
+                tts_params["speed"] = config.tts_speed
+            if config.ref_audio:
+                tts_params["ref_audio"] = config.ref_audio
+
+        return tts_params
+
+    def _concat_audio_files(self, audio_paths: List[str], output_path: str) -> None:
+        if not audio_paths:
+            raise ValueError("HyperFrames audio synthesis requires at least one block.")
+
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+        if len(audio_paths) == 1:
+            shutil.copy2(audio_paths[0], output_path)
+            return
+
+        from tempfile import NamedTemporaryFile
+
+        filelist_path = ""
+        try:
+            with NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as handle:
+                filelist_path = handle.name
+                for audio_path in audio_paths:
+                    escaped_path = str(Path(audio_path).resolve()).replace("'", "'\\''")
+                    handle.write(f"file '{escaped_path}'\n")
+
+            completed = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    filelist_path,
+                    "-c",
+                    "copy",
+                    "-y",
+                    output_path,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if completed.returncode != 0:
+                detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+                raise RuntimeError(f"Failed to concatenate HyperFrames audio: {detail}")
+        finally:
+            if filelist_path and os.path.exists(filelist_path):
+                os.remove(filelist_path)
+
+    def _get_audio_duration(self, audio_path: str) -> float:
+        try:
+            import ffmpeg
+
+            probe = ffmpeg.probe(audio_path)
+            return float(probe["format"]["duration"])
+        except Exception as exc:
+            logger.warning(f"Failed to get audio duration for {audio_path}: {exc}, using estimate")
+            file_size = os.path.getsize(audio_path)
+            estimated_duration = file_size / 2000
+            return max(1.0, estimated_duration)
+
+    def _offset_sentence_timings_to_master_timeline(self, timing_plan) -> None:
+        block_lookup = {block.id: block for block in timing_plan.blocks}
+        for sentence in timing_plan.sentences:
+            block = block_lookup.get(sentence.block_id)
+            if block is None:
+                continue
+            if sentence.source_start is not None:
+                sentence.source_start += block.start
+            if sentence.source_end is not None:
+                sentence.source_end += block.start
+
+    def _build_hyperframes_visual_clips(
+        self,
+        storyboard: Storyboard,
+        timing_plan,
+    ) -> List[VisualClip]:
+        visual_clips: List[VisualClip] = []
+
+        for frame in storyboard.frames:
+            sentence_units = [
+                sentence
+                for sentence in timing_plan.sentences
+                if frame.index in sentence.frame_indices
+            ]
+            clip_start = self._resolve_sentence_time(sentence_units, minimum=True)
+            clip_end = self._resolve_sentence_time(sentence_units, minimum=False)
+            if clip_start is None or clip_end is None:
+                continue
+
+            raw_media_path = frame.video_path if frame.media_type == "video" else frame.image_path
+            media_path = raw_media_path or frame.composed_image_path
+            if not media_path:
+                continue
+
+            visual_clips.append(
+                VisualClip(
+                    id=f"clip-{frame.index + 1}",
+                    frame_index=frame.index,
+                    start=clip_start,
+                    end=clip_end,
+                    media_path=media_path,
+                    media_type=frame.media_type or "image",
+                )
+            )
+
+        return visual_clips
+
+    def _resolve_sentence_time(
+        self,
+        sentence_units,
+        *,
+        minimum: bool,
+    ) -> Optional[float]:
+        values = []
+        for sentence in sentence_units:
+            preferred = sentence.remapped_start if minimum else sentence.remapped_end
+            fallback = sentence.source_start if minimum else sentence.source_end
+            value = preferred if preferred is not None else fallback
+            if value is not None:
+                values.append(float(value))
+
+        if not values:
+            return None
+        return min(values) if minimum else max(values)
 
     async def finalize(self, ctx: PipelineContext) -> VideoGenerationResult:
         """Step 8: Create result object and persist metadata."""

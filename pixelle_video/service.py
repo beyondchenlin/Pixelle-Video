@@ -33,6 +33,8 @@ from pixelle_video.services.video import VideoService
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.persistence import PersistenceService
 from pixelle_video.services.history_manager import HistoryManager
+from pixelle_video.services.alignment_service import AlignmentService
+from pixelle_video.services.audio_edit_service import AudioEditService
 from pixelle_video.services.hyperframes_project_service import HyperFramesProjectService
 from pixelle_video.services.hyperframes_renderer import HyperFramesRenderer
 from pixelle_video.pipelines.standard import StandardPipeline
@@ -96,6 +98,8 @@ class PixelleVideoCore:
         self.frame_processor: Optional[FrameProcessor] = None
         self.persistence: Optional[PersistenceService] = None
         self.history: Optional[HistoryManager] = None
+        self.alignment_service: Optional[AlignmentService] = None
+        self.audio_edit_service: Optional[AudioEditService] = None
         self.hyperframes_project_service: Optional[HyperFramesProjectService] = None
         self.hyperframes_renderer: Optional[HyperFramesRenderer] = None
         
@@ -218,6 +222,8 @@ class PixelleVideoCore:
         self.frame_processor = FrameProcessor(self)
         self.persistence = PersistenceService(output_dir="output")
         self.history = HistoryManager(self.persistence)
+        self.alignment_service = AlignmentService()
+        self.audio_edit_service = AudioEditService()
         self.hyperframes_project_service = HyperFramesProjectService(output_dir="output")
         self.hyperframes_renderer = HyperFramesRenderer(self.config)
         
