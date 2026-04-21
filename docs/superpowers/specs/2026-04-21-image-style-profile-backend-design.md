@@ -11,6 +11,8 @@ This rollout must:
 - support stronger `ip_world` behavior for world-building styles
 - improve multi-frame consistency by sharing one resolved style contract across the whole task
 - stay compatible with the existing `prompt_prefix_library`
+- keep request-time temporary prefix overrides working
+- keep preview output semantically aligned with real generation
 
 ## Non-Goals
 
@@ -80,11 +82,14 @@ and must apply them during `base prompt` generation, not only after it.
 
 The same prefix should not be reinterpreted from scratch on every task.
 
-Resolved style metadata should be stored with the prefix item so the system can:
+In V1, resolved style metadata should be cached by prefix identity in runtime memory, not auto-written back into global config during generation.
+
+This lets the system:
 
 - improve consistency
 - reduce LLM calls
 - support future model upgrades without redesigning the style layer
+- avoid mutating shared config during normal generation
 
 ## Data Model
 
@@ -104,24 +109,40 @@ These fields stay and remain the frontend-facing shape:
 - `workflow_preview_assets`
 - `created_at`
 
-### New Backend-Only Fields
+### Runtime Resolved Object
 
-Add optional fields to `PromptPrefixItemConfig`:
+V1 introduces a backend-only runtime object, referred to here as `ResolvedStyleSpec`.
 
-- `style_kind: Optional[Literal["visual_only", "ip_world", "hybrid"]]`
-- `prompt_template: str = ""`
-- `negative_prompt: str = ""`
-- `style_profile: Optional[dict[str, Any]]`
-- `resolved_from_content_hash: Optional[str]`
-- `style_resolution_version: Optional[str]`
+Recommended fields:
+
+- `style_kind`
+- `prompt_template`
+- `negative_prompt`
+- `style_profile`
+- `content_hash`
+- `resolver_version`
+- `source_identity`
 
 Purpose:
 
 - `prompt_template` borrows the Fooocus-style wrapper idea
 - `negative_prompt` supports compatible workflows now and stronger models later
 - `style_profile` stores structured style constraints
-- `resolved_from_content_hash` detects whether `content` changed
-- `style_resolution_version` invalidates old resolution output after resolver upgrades
+- `content_hash` detects whether source prefix content changed
+- `resolver_version` invalidates old runtime cache after resolver upgrades
+- `source_identity` distinguishes library items from request-scoped temporary prefixes
+
+### Persisted Structured Fields
+
+Persisting resolved style metadata back into `PromptPrefixItemConfig` is not part of V1 generation flow.
+
+Reason:
+
+- current config writes are whole-object updates
+- concurrent tasks can overwrite each other
+- normal generation should not silently mutate global user config
+
+Future persistence can be added later behind an explicit save or migration flow.
 
 ## Minimal `style_profile`
 
@@ -150,17 +171,34 @@ Field intent:
 
 ## Style Resolution Pipeline
 
-### Step 1: Resolve the active prefix item
+### Step 1: Resolve the prefix input source
 
-Keep the current active-prefix selection behavior.
+The backend must support two input sources:
+
+1. Request-scoped temporary prefix override
+2. Active prefix item from the global library
+
+Rules:
+
+- if the request explicitly passes `prompt_prefix`, treat it as an ephemeral style source for this request only
+- if no request override exists, use the active library item
+- the ephemeral path must use the same style resolver as the library path
+- ephemeral resolution must not write anything back to the library
 
 ### Step 2: Reuse or build structured style metadata
 
-Reuse existing structured metadata only if:
+Use a runtime cache as the V1 source of truth.
 
-- `style_profile` exists
-- `resolved_from_content_hash` matches current `content`
-- `style_resolution_version` matches the current resolver version
+Cache key recommendation:
+
+- library item: `library:{item_id}:{content_hash}:{resolver_version}`
+- request override: `request:{content_hash}:{resolver_version}`
+
+Reuse a cached resolved result only if:
+
+- a runtime cache entry exists
+- `content_hash` matches current `content`
+- `resolver_version` matches the current resolver version
 
 Otherwise, call a new style-resolution prompt that returns:
 
@@ -168,6 +206,11 @@ Otherwise, call a new style-resolution prompt that returns:
 - `prompt_template`
 - `negative_prompt`
 - `style_profile`
+
+V1 rule:
+
+- generation may populate the runtime cache
+- generation must not auto-persist resolver output into `config.yaml`
 
 ### Step 3: Generate image prompts with style guidance
 
@@ -191,6 +234,7 @@ Preferred behavior:
 
 - wrap `base prompt` using `prompt_template` if available
 - otherwise fall back to simple positive prefixing
+- raw `content` may still be used as fallback positive text when needed
 
 #### `ip_world`
 
@@ -199,6 +243,8 @@ Preferred behavior:
 - do not depend on simple prefix concatenation
 - force world-constrained subject redesign inside `base prompt` generation
 - allow `prompt_template` only as a secondary helper
+- raw `content` is not blindly prepended at the end
+- any lexical carryover that must survive into final prompt must be emitted by the resolver through `prompt_template` and `style_profile`
 
 #### `hybrid`
 
@@ -206,6 +252,7 @@ Preferred behavior:
 
 - use `style_profile` to shape both visual language and narrative tone
 - optionally use `prompt_template` if it is helpful and not redundant
+- raw `content` may be retained only when it adds non-duplicated signal
 
 ## Prompt Assembly Rules
 
@@ -223,6 +270,14 @@ Recommended final order:
 
 The system must stop treating raw `content` as the only source of style meaning.
 
+Additional assembly rules:
+
+- `visual_only`: fallback raw prefix text is allowed
+- `ip_world`: fallback raw prefix text is disallowed by default
+- `hybrid`: fallback raw prefix text is allowed only if it adds signal not already captured by resolver output
+
+This removes ambiguity around when raw prefix text may appear in final prompt.
+
 ## Workflow Compatibility
 
 ### Positive prompt
@@ -239,12 +294,35 @@ Compatibility rules:
 - if the workflow does not expose it, keep the field but do not force usage
 - if the team later switches to a stronger model or a different workflow, reuse the same style-resolution layer
 
+### Capability detection source of truth
+
+Workflow capability must not be guessed from prompt text or workflow name.
+
+V1 source of truth:
+
+- for selfhost workflows, use parsed workflow parameter metadata
+- if `WorkflowParser` reports `negative_prompt` as an exposed parameter, pass it through
+- if the parsed workflow metadata does not expose it, do not pass it
+- for runninghub wrappers, use explicit wrapper metadata if present
+- if a runninghub wrapper does not declare capability metadata, default to not passing optional fields such as `negative_prompt`
+
 ### Why this matters
 
 This keeps the style system independent from the currently selected image workflow:
 
 - current `z-image` can keep using positive prompt only
 - future workflows can adopt `negative_prompt`, edit inputs, or reference-image inputs without redesigning style resolution
+
+## Preview Parity
+
+Frontend layout does not need to change, but preview semantics must match real generation semantics.
+
+Rule:
+
+- all preview entry points must call the same backend prompt-assembly pipeline used by formal generation
+- preview code must stop directly calling old string-only prefix concatenation helpers
+
+This matters because otherwise users will see preview results that do not match the new style-aware generation path.
 
 ## Backward Compatibility
 
@@ -256,6 +334,7 @@ Rules:
 2. old prefix items without structured fields are resolved lazily on first use
 3. if resolution fails, the system falls back to current simple prefix concatenation
 4. the current frontend input shape stays unchanged
+5. request-scoped temporary prefixes remain supported without requiring library save
 
 ## Files in Scope
 
@@ -263,11 +342,14 @@ Expected backend work touches:
 
 - `pixelle_video/config/schema.py`
 - `pixelle_video/config/prompt_prefix_library.py`
+- a new runtime style-resolution helper
+- a new workflow capability helper
 - a new style-resolution prompt file
 - `pixelle_video/prompts/image_generation.py`
 - `pixelle_video/utils/content_generators.py`
 - `pixelle_video/pipelines/standard.py`
 - `pixelle_video/utils/prompt_helper.py`
+- preview-generation call sites that currently assemble prompts directly
 - related tests
 
 ## Risks
@@ -296,6 +378,13 @@ Mitigation:
 - keep style resolution separate from workflow inputs
 - treat `negative_prompt`, reference-image support, and edit-model inputs as capability-gated features
 
+### 4. Preview and generation diverge
+
+Mitigation:
+
+- route preview through the same backend assembly helper used by final generation
+- add tests for preview/build parity
+
 ## Success Criteria
 
 This design is successful if:
@@ -305,4 +394,6 @@ This design is successful if:
 3. `visual_only`, `ip_world`, and `hybrid` use different generation strategies
 4. all frames in one task share the same `style_profile`
 5. `ip_world` improves subject and world consistency in a visible way
-6. unsupported workflow capabilities do not block the long-term style architecture
+6. request-scoped temporary prefixes still work without touching library state
+7. preview and real generation use the same prompt-assembly semantics
+8. unsupported workflow capabilities do not block the long-term style architecture
