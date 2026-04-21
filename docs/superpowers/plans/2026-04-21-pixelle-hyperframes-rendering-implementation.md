@@ -15,6 +15,7 @@
 **Files:**
 - Create: `pixelle_video/models/render_package.py`
 - Modify: `pixelle_video/models/storyboard.py`
+- Modify: `pixelle_video/services/persistence.py`
 - Modify: `config.example.yaml`
 - Test: `tests/test_render_package_models.py`
 
@@ -172,6 +173,68 @@ render:
     silence_trim_margin_ms: 120
 ```
 
+```python
+# pixelle_video/services/persistence.py
+def _config_to_dict(self, config: StoryboardConfig) -> Dict[str, Any]:
+    return {
+        "task_id": config.task_id,
+        "n_storyboard": config.n_storyboard,
+        "min_narration_words": config.min_narration_words,
+        "max_narration_words": config.max_narration_words,
+        "min_image_prompt_words": config.min_image_prompt_words,
+        "max_image_prompt_words": config.max_image_prompt_words,
+        "video_fps": config.video_fps,
+        "tts_inference_mode": config.tts_inference_mode,
+        "voice_id": config.voice_id,
+        "tts_workflow": config.tts_workflow,
+        "tts_speed": config.tts_speed,
+        "ref_audio": config.ref_audio,
+        "media_width": config.media_width,
+        "media_height": config.media_height,
+        "media_workflow": config.media_workflow,
+        "media_negative_prompt": config.media_negative_prompt,
+        "frame_template": config.frame_template,
+        "template_params": config.template_params,
+        "tts_batching_mode": config.tts_batching_mode,
+        "tts_batch_max_sentences": config.tts_batch_max_sentences,
+        "tts_batch_max_chars": config.tts_batch_max_chars,
+        "subtitle_alignment_engine": config.subtitle_alignment_engine,
+        "silence_trim_tool": config.silence_trim_tool,
+        "silence_trim_margin_ms": config.silence_trim_margin_ms,
+        "render_backend": config.render_backend,
+    }
+
+
+def _dict_to_config(self, data: Dict[str, Any]) -> StoryboardConfig:
+    return StoryboardConfig(
+        task_id=data.get("task_id"),
+        n_storyboard=data.get("n_storyboard", 5),
+        min_narration_words=data.get("min_narration_words", 5),
+        max_narration_words=data.get("max_narration_words", 20),
+        min_image_prompt_words=data.get("min_image_prompt_words", 30),
+        max_image_prompt_words=data.get("max_image_prompt_words", 60),
+        video_fps=data.get("video_fps", 30),
+        tts_inference_mode=data.get("tts_inference_mode", "local"),
+        voice_id=data.get("voice_id"),
+        tts_workflow=data.get("tts_workflow"),
+        tts_speed=data.get("tts_speed"),
+        ref_audio=data.get("ref_audio"),
+        media_width=data.get("media_width", data.get("image_width", 1024)),
+        media_height=data.get("media_height", data.get("image_height", 1024)),
+        media_workflow=data.get("media_workflow", data.get("image_workflow")),
+        media_negative_prompt=data.get("media_negative_prompt"),
+        frame_template=data.get("frame_template", "1080x1920/default.html"),
+        template_params=data.get("template_params"),
+        tts_batching_mode=data.get("tts_batching_mode", "paragraph"),
+        tts_batch_max_sentences=data.get("tts_batch_max_sentences", 8),
+        tts_batch_max_chars=data.get("tts_batch_max_chars", 220),
+        subtitle_alignment_engine=data.get("subtitle_alignment_engine", "qwen_forced_aligner"),
+        silence_trim_tool=data.get("silence_trim_tool"),
+        silence_trim_margin_ms=data.get("silence_trim_margin_ms", 120),
+        render_backend=data.get("render_backend", "hyperframes"),
+    )
+```
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_render_package_models.py -v`
@@ -180,7 +243,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add pixelle_video/models/render_package.py pixelle_video/models/storyboard.py config.example.yaml tests/test_render_package_models.py
+git add pixelle_video/models/render_package.py pixelle_video/models/storyboard.py pixelle_video/services/persistence.py config.example.yaml tests/test_render_package_models.py
 git commit -m "feat: add hyperframes render package contract"
 ```
 
@@ -385,7 +448,7 @@ class AlignmentService:
             from qwen_asr import Qwen3ForcedAligner
 
             self._client = Qwen3ForcedAligner.from_pretrained(
-                "Qwen/Qwen3-ForcedAligner-0.6B",
+                "models/Qwen3-ForcedAligner-0.6B",
                 device_map="cuda:0",
             )
         return self._client
@@ -393,14 +456,12 @@ class AlignmentService:
     def align_block(self, block, sentences: Iterable):
         result = self._get_client().align(audio=block.audio_path, text=block.text, language="zh")
         words = result["words"]
-        cursor = 0
         aligned: List = []
         for sentence in sentences:
             bare = _strip_trailing_subtitle_punctuation(sentence.text)
-            match = words[cursor]
-            sentence.source_start = match["start"]
-            sentence.source_end = match["end"]
-            cursor += 1
+            sentence_words = [word for word in words if word["text"].replace(" ", "") in bare.replace(" ", "")]
+            sentence.source_start = sentence_words[0]["start"]
+            sentence.source_end = sentence_words[-1]["end"]
             aligned.append(sentence)
         return aligned
 
@@ -819,6 +880,7 @@ git commit -m "feat: add hyperframes render bridge"
 
 **Files:**
 - Modify: `pixelle_video/pipelines/standard.py`
+- Modify: `pixelle_video/services/frame_processor.py`
 - Create: `tests/test_standard_pipeline_hyperframes_mode.py`
 - Create: `workflows/down/hyperframes_render_依赖与下载说明.md`
 
@@ -843,7 +905,7 @@ async def test_standard_pipeline_uses_hyperframes_renderer_when_enabled(monkeypa
         called["render"] = True
 
     monkeypatch.setattr(pipeline, "_render_with_hyperframes", fake_render)
-    await pipeline.finalize_video(ctx)
+    await pipeline.post_production(ctx)
     assert called["render"] is True
 ```
 
@@ -860,11 +922,23 @@ from pathlib import Path
 
 import ffmpeg
 
-async def finalize_video(self, ctx: PipelineContext):
+async def produce_assets(self, ctx: PipelineContext):
     if ctx.storyboard.config.render_backend == "hyperframes":
-        await self._render_with_hyperframes(ctx)
+        await self._produce_hyperframes_assets(ctx)
         return
-    return super().finalize_video(ctx)
+    return await super().produce_assets(ctx)
+
+
+async def _produce_hyperframes_assets(self, ctx: PipelineContext):
+    for frame in ctx.storyboard.frames:
+        if frame.image_prompt is not None:
+            await self.core.frame_processor._step_generate_media(frame, ctx.config)
+        await self.core.frame_processor._step_compose_frame(
+            frame,
+            ctx.storyboard,
+            ctx.config,
+            body_text_override="",
+        )
 
 
 async def _synthesize_audio_blocks(self, ctx: PipelineContext):
@@ -898,6 +972,26 @@ async def _render_with_hyperframes(self, ctx: PipelineContext):
     project_dir = self.core.hyperframes_project.write_project(self.core.persistence.get_task_dir(ctx.storyboard.config.task_id), manifest)
     final_video_path = await self.core.hyperframes_renderer.render(project_dir=project_dir, output_path=str(self.core.persistence.get_task_dir(ctx.storyboard.config.task_id) / "final.mp4"), width=manifest.width, height=manifest.height, fps=manifest.fps)
     ctx.storyboard.final_video_path = final_video_path
+
+
+async def post_production(self, ctx: PipelineContext):
+    if ctx.storyboard.config.render_backend == "hyperframes":
+        await self._render_with_hyperframes(ctx)
+        return
+    return await super().post_production(ctx)
+```
+
+```python
+# pixelle_video/services/frame_processor.py
+async def _step_compose_frame(self, frame, storyboard, config, *, body_text_override: Optional[str] = None):
+    task_dir = self._get_task_dir(frame, storyboard)
+    task_dir.mkdir(parents=True, exist_ok=True)
+    frame.composed_image_path = await self._compose_frame_html(
+        frame,
+        storyboard,
+        task_dir=task_dir,
+        body_text_override=body_text_override,
+    )
 ```
 
 ```markdown
@@ -952,6 +1046,6 @@ Expected: prints a task-local `final.mp4` path rendered through the HyperFrames 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add pixelle_video/pipelines/standard.py tests/test_standard_pipeline_hyperframes_mode.py workflows/down/hyperframes_render_依赖与下载说明.md
+git add pixelle_video/pipelines/standard.py pixelle_video/services/frame_processor.py tests/test_standard_pipeline_hyperframes_mode.py workflows/down/hyperframes_render_依赖与下载说明.md
 git commit -m "feat: render standard pipeline with hyperframes"
 ```
