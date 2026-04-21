@@ -363,3 +363,29 @@ async def test_produce_assets_disables_runninghub_parallel_for_mixed_selfhost_me
 
     assert core.frame_processor.invocations == [0, 1]
     assert core.frame_processor.max_active == 1
+
+
+@pytest.mark.asyncio
+async def test_post_production_uses_filter_concat_for_standard_pipeline(monkeypatch, tmp_path):
+    calls = {}
+
+    class _FakeVideoService:
+        def concat_videos(self, videos, output, **kwargs):
+            calls["videos"] = videos
+            calls["output"] = output
+            calls["kwargs"] = kwargs
+            return output
+
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _FakeVideoService)
+
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = _build_storyboard_ctx()
+    ctx.final_video_path = str(tmp_path / "final.mp4")
+    ctx.storyboard.frames[0].video_segment_path = "segment-0.mp4"
+    ctx.storyboard.frames[1].video_segment_path = "segment-1.mp4"
+
+    await pipeline.post_production(ctx)
+
+    assert calls["videos"] == ["segment-0.mp4", "segment-1.mp4"]
+    assert calls["output"] == ctx.final_video_path
+    assert calls["kwargs"]["method"] == "filter"

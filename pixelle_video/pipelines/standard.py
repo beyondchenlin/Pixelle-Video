@@ -587,6 +587,7 @@ class StandardPipeline(LinearVideoPipeline):
         final_video_path = video_service.concat_videos(
             videos=segment_paths,
             output=ctx.final_video_path,
+            method="filter",
             bgm_path=ctx.params.get("bgm_path"),
             bgm_volume=ctx.params.get("bgm_volume", 0.2),
             bgm_mode=ctx.params.get("bgm_mode", "loop")
