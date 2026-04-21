@@ -35,6 +35,11 @@ def _probe_stream_durations(path: Path) -> dict[str, float]:
     }
 
 
+def _probe_format_duration(path: Path) -> float:
+    probe = ffmpeg.probe(str(path))
+    return float(probe["format"]["duration"])
+
+
 @pytest.mark.parametrize("duration", [1.915646, 1.917])
 def test_create_video_from_image_aligns_output_stream_durations(tmp_path, duration):
     audio_path = tmp_path / "sample.mp3"
@@ -54,3 +59,25 @@ def test_create_video_from_image_aligns_output_stream_durations(tmp_path, durati
     drift = abs(durations["video"] - durations["audio"])
 
     assert drift <= 0.005
+
+
+@pytest.mark.parametrize("duration", [1.915646, 1.917, 2.449705])
+def test_create_video_from_image_does_not_end_before_source_audio(tmp_path, duration):
+    audio_path = tmp_path / "sample.mp3"
+    output_path = tmp_path / "segment.mp4"
+
+    _create_sine_mp3(audio_path, duration=duration)
+    raw_audio_duration = _probe_format_duration(audio_path)
+
+    service = VideoService()
+    service.create_video_from_image(
+        image=str(Path("resources/example.png")),
+        audio=str(audio_path),
+        output=str(output_path),
+        fps=30,
+    )
+
+    durations = _probe_stream_durations(output_path)
+
+    assert durations["audio"] >= raw_audio_duration
+    assert durations["audio"] - raw_audio_duration < (1 / 30) + 0.005

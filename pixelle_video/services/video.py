@@ -25,6 +25,7 @@ Note: Requires FFmpeg to be installed on the system.
 """
 
 import os
+import math
 import shutil
 import tempfile
 import uuid
@@ -630,7 +631,8 @@ class VideoService:
         
         Note:
             - Image is displayed as static frame for the duration of audio
-            - Video duration matches audio duration
+            - Output duration is snapped to the next video frame so
+              narration is not cut short
             - Useful for creating video segments from storyboard frames
         
         Example:
@@ -647,7 +649,7 @@ class VideoService:
             # stay consistent after concatenation.
             probe = ffmpeg.probe(audio)
             audio_duration = float(probe['format']['duration'])
-            target_frame_count = max(1, int(audio_duration * fps + 0.5))
+            target_frame_count = max(1, math.ceil(audio_duration * fps))
             target_duration = target_frame_count / fps
             pad_duration = max(0.0, target_duration - audio_duration)
             logger.debug(
