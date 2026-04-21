@@ -14,17 +14,46 @@
 Output preview components for web UI (right column)
 """
 
-import base64
 import os
-from pathlib import Path
 
 import streamlit as st
 from loguru import logger
 
-from web.i18n import tr, get_language
-from web.utils.async_helpers import run_async
-from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.config import config_manager
+from pixelle_video.models.progress import ProgressEvent
+from web.i18n import get_language, tr
+from web.utils.async_helpers import run_async
+
+VIDEO_PREVIEW_CONTAINER_KEY = "output_video_preview"
+VIDEO_PREVIEW_SCALE_PERCENT = 50
+
+
+def build_video_preview_css(
+    container_key: str = VIDEO_PREVIEW_CONTAINER_KEY,
+    *,
+    scale_percent: int = VIDEO_PREVIEW_SCALE_PERCENT,
+) -> str:
+    """Build scoped CSS that shrinks the generated video preview inside one container."""
+    scale_percent = max(10, min(scale_percent, 100))
+    return f"""
+    <style>
+    .st-key-{container_key} [data-testid="stVideo"] {{
+        width: {scale_percent}%;
+        max-width: 100%;
+        margin-inline: auto;
+    }}
+    .st-key-{container_key} [data-testid="stVideo"] video {{
+        width: 100%;
+    }}
+    </style>
+    """
+
+
+def render_scaled_video_preview(video_path: str) -> None:
+    """Render the generated video preview at a smaller, centered size."""
+    st.markdown(build_video_preview_css(), unsafe_allow_html=True)
+    with st.container(key=VIDEO_PREVIEW_CONTAINER_KEY):
+        st.video(video_path, width="stretch")
 
 
 def render_output_preview(pixelle_video, video_params):
@@ -172,7 +201,10 @@ def render_single_output(pixelle_video, video_params):
                 file_size_mb = result.file_size / (1024 * 1024)
                 
                 # Parse video size from template path
-                from pixelle_video.utils.template_util import parse_template_size, resolve_template_path
+                from pixelle_video.utils.template_util import (
+                    parse_template_size,
+                    resolve_template_path,
+                )
                 template_path = resolve_template_path(result.storyboard.config.frame_template)
                 video_width, video_height = parse_template_size(template_path)
                 
@@ -188,7 +220,7 @@ def render_single_output(pixelle_video, video_params):
                 
                 # Video preview
                 if os.path.exists(result.video_path):
-                    st.video(result.video_path)
+                    render_scaled_video_preview(result.video_path)
                     
                     # Download button
                     with open(result.video_path, "rb") as video_file:
@@ -332,8 +364,9 @@ def render_batch_output(pixelle_video, video_params):
                 return callback
             
             # Execute batch generation
-            from web.utils.batch_manager import SimpleBatchManager
             import time
+
+            from web.utils.batch_manager import SimpleBatchManager
             
             batch_manager = SimpleBatchManager()
             start_time = time.time()
