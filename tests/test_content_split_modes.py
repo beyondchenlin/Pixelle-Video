@@ -1,6 +1,6 @@
 import pytest
 
-from pixelle_video.utils.content_generators import split_narration_script
+from pixelle_video.utils.content_generators import split_narration_script, split_text_into_sentences
 
 
 @pytest.mark.asyncio
@@ -28,3 +28,32 @@ async def test_split_narration_script_punctuation_mode_splits_on_all_unicode_pun
     narrations = await split_narration_script(script, split_mode="punctuation")
 
     assert narrations == ["Alpha-", "Beta/", "Next，", "中文；", "Done。"]
+
+
+def test_split_text_into_sentences_handles_decimals_quotes_and_cjk():
+    text = 'Version 2.1 is out. He said, "Go." Then left. 第一段。第二段！第三段？'
+
+    assert split_text_into_sentences(text) == [
+        'Version 2.1 is out.',
+        'He said, "Go."',
+        'Then left.',
+        '第一段。',
+        '第二段！',
+        '第三段？',
+    ]
+
+
+@pytest.mark.asyncio
+async def test_split_narration_script_sentence_mode_reuses_shared_sentence_splitter():
+    script = 'Version 2.1 is out. He said, "Go." Then left. 第一段。第二段！第三段？'
+
+    narrations = await split_narration_script(script, split_mode="sentence")
+
+    assert narrations == [
+        'Version 2.1 is out.',
+        'He said, "Go."',
+        'Then left.',
+        '第一段。',
+        '第二段！',
+        '第三段？',
+    ]

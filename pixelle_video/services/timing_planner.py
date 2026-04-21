@@ -1,12 +1,9 @@
-import re
-from dataclasses import dataclass, field
+﻿from dataclasses import dataclass, field
 from typing import List, Sequence
 
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.models.storyboard import StoryboardFrame
-
-_SENTENCE_ENDINGS = "。.!?！？"
-_SENTENCE_PATTERN = re.compile(rf".+?(?:[{re.escape(_SENTENCE_ENDINGS)}]+|$)")
+from pixelle_video.utils.content_generators import split_text_into_sentences
 
 
 @dataclass
@@ -28,30 +25,19 @@ class TimingPlanner:
 
     def _build_sentence_units(self, frames: Sequence[StoryboardFrame]) -> List[SentenceUnit]:
         sentences: List[SentenceUnit] = []
-        for position, frame in enumerate(frames, start=1):
+        for frame in frames:
             for sentence_offset, sentence_text in enumerate(
-                self._split_narration_into_sentences(frame.narration),
+                split_text_into_sentences(frame.narration),
                 start=1,
             ):
                 sentences.append(
                     SentenceUnit(
-                        id=f"sentence-{position}-{sentence_offset}",
+                        id=f"sentence-{frame.index + 1}-{sentence_offset}",
                         text=sentence_text,
                         frame_indices=[frame.index],
                     )
                 )
         return sentences
-
-    def _split_narration_into_sentences(self, narration: str) -> List[str]:
-        cleaned = re.sub(r"\s+", " ", narration.strip())
-        if not cleaned:
-            return []
-
-        return [
-            segment.strip()
-            for segment in _SENTENCE_PATTERN.findall(cleaned)
-            if segment.strip()
-        ]
 
     def _build_audio_blocks(self, sentences: Sequence[SentenceUnit]) -> List[AudioBlock]:
         if not sentences:

@@ -1,4 +1,4 @@
-# Copyright (C) 2025 AIDC-AI
+﻿# Copyright (C) 2025 AIDC-AI
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -266,6 +266,74 @@ def _split_text_by_unicode_punctuation(script: str) -> List[str]:
     return narrations
 
 
+_SENTENCE_CLOSE_CHARS = {'"', "'", "”", "’", ")", "]", "}"}
+
+
+def _is_sentence_boundary(text: str, index: int) -> bool:
+    char = text[index]
+    if char not in {".", "!", "?", "。", "！", "？"}:
+        return False
+
+    prev_char = text[index - 1] if index > 0 else ""
+    next_char = text[index + 1] if index + 1 < len(text) else ""
+
+    if char == "." and prev_char.isdigit() and next_char.isdigit():
+        return False
+
+    if char in {"。", "！", "？"}:
+        return True
+
+    if not next_char:
+        return True
+
+    return next_char.isspace() or next_char in _SENTENCE_CLOSE_CHARS
+
+
+def split_text_into_sentences(text: str) -> List[str]:
+    """
+    Split text into sentence-like units while preserving punctuation and closing quotes.
+
+    This helper is shared by narration script splitting and timing planning so sentence
+    boundaries stay consistent across the pipeline.
+    """
+    cleaned = re.sub(r"\s+", " ", text.strip())
+    if not cleaned:
+        return []
+
+    sentences: List[str] = []
+    current: List[str] = []
+    index = 0
+
+    while index < len(cleaned):
+        char = cleaned[index]
+        current.append(char)
+
+        if _is_sentence_boundary(cleaned, index):
+            next_index = index + 1
+            while next_index < len(cleaned) and cleaned[next_index] in _SENTENCE_CLOSE_CHARS:
+                current.append(cleaned[next_index])
+                next_index += 1
+
+            segment = "".join(current).strip()
+            if segment:
+                sentences.append(segment)
+
+            current = []
+            index = next_index
+            while index < len(cleaned) and cleaned[index].isspace():
+                index += 1
+            continue
+
+        index += 1
+
+    if current:
+        segment = "".join(current).strip()
+        if segment:
+            sentences.append(segment)
+
+    return sentences
+
+
 async def split_narration_script(
     script: str,
     split_mode: Literal["paragraph", "line", "sentence", "punctuation"] = "paragraph",
@@ -278,7 +346,7 @@ async def split_narration_script(
         split_mode: Splitting strategy
             - "paragraph": Split by double newline (\\n\\n), preserve single newlines within paragraphs
             - "line": Split by single newline (\\n), each line is a segment
-            - "sentence": Split by sentence-ending punctuation (。.!?！？)
+            - "sentence": Split by sentence-ending punctuation (Chinese and English)
             - "punctuation": Split by any Unicode punctuation (Chinese and English)
     
     Returns:
@@ -297,23 +365,21 @@ async def split_narration_script(
             cleaned = para.strip()
             if cleaned:
                 narrations.append(para)
-        logger.info(f"✅ Split script into {len(narrations)} segments (by paragraph)")
+        logger.info(f"鉁?Split script into {len(narrations)} segments (by paragraph)")
     
     elif split_mode == "line":
         # Split by single newline (original behavior)
         narrations = [line.strip() for line in script.split('\n') if line.strip()]
-        logger.info(f"✅ Split script into {len(narrations)} segments (by line)")
+        logger.info(f"鉁?Split script into {len(narrations)} segments (by line)")
     
     elif split_mode == "sentence":
-        # Split by sentence-ending punctuation
-        # Supports Chinese (。！？) and English (.!?)
-        narrations = _split_text_by_delimiters(script, "。.!?！？")
-        logger.info(f"✅ Split script into {len(narrations)} segments (by sentence)")
+        narrations = split_text_into_sentences(script)
+        logger.info(f"鉁?Split script into {len(narrations)} segments (by sentence)")
 
     elif split_mode == "punctuation":
         # Split by any Unicode punctuation for the finest-grained storyboard generation
         narrations = _split_text_by_unicode_punctuation(script)
-        logger.info(f"✅ Split script into {len(narrations)} segments (by punctuation)")
+        logger.info(f"鉁?Split script into {len(narrations)} segments (by punctuation)")
 
     else:
         # Fallback to line mode
@@ -410,7 +476,7 @@ async def generate_image_prompts(
                         raise ValueError(error_msg)
                 
                 # Success!
-                logger.info(f"✅ Batch {batch_idx} completed successfully ({len(batch_prompts)} prompts)")
+                logger.info(f"鉁?Batch {batch_idx} completed successfully ({len(batch_prompts)} prompts)")
                 all_prompts.extend(batch_prompts)
                 
                 # Report progress
@@ -429,7 +495,7 @@ async def generate_image_prompts(
                     raise
                 logger.info(f"Retrying batch {batch_idx}...")
     
-    logger.info(f"✅ Generated {len(all_prompts)} image prompts")
+    logger.info(f"鉁?Generated {len(all_prompts)} image prompts")
     return all_prompts
 
 
@@ -572,7 +638,7 @@ async def generate_video_prompts(
                 
                 # Success - add to all_prompts
                 all_prompts.extend(batch_prompts)
-                logger.info(f"✓ Batch {batch_idx} completed: {len(batch_prompts)} video prompts")
+                logger.info(f"鉁?Batch {batch_idx} completed: {len(batch_prompts)} video prompts")
                 
                 # Report progress
                 if progress_callback:
@@ -583,12 +649,12 @@ async def generate_video_prompts(
                 break  # Success, move to next batch
             
             except Exception as e:
-                logger.warning(f"✗ Batch {batch_idx} attempt {attempt} failed: {e}")
+                logger.warning(f"鉁?Batch {batch_idx} attempt {attempt} failed: {e}")
                 if attempt >= max_retries:
                     raise
                 logger.info(f"Retrying batch {batch_idx}...")
     
-    logger.info(f"✅ Generated {len(all_prompts)} video prompts")
+    logger.info(f"鉁?Generated {len(all_prompts)} video prompts")
     return all_prompts
 
 
@@ -631,3 +697,4 @@ def _parse_json(text: str) -> dict:
     
     # If all fails, raise error
     raise json.JSONDecodeError("No valid JSON found", text, 0)
+
