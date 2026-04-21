@@ -18,7 +18,7 @@ Minimalist black-and-white illustration, clean lines, simple style
 
 Different dimensions for different scenarios:
 
-- **1024x1024**: Square, suitable for Xiaohongshu
+- **768x768**: Square, suitable for Xiaohongshu
 - **1080x1920**: Portrait, suitable for TikTok, Kuaishou
 - **1920x1080**: Landscape, suitable for Bilibili, YouTube
 

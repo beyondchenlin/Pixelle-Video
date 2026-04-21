@@ -2,6 +2,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 from web.state.async_runtime import AsyncRuntime
 from web.state.async_runtime import shutdown_all_async_runtimes
 from pixelle_video.services.frame_html import HTMLFrameGenerator
@@ -104,3 +106,13 @@ def test_html_frame_generator_isolates_browser_instances_per_runtime(monkeypatch
             pass
         runtime_a.close()
         runtime_b.close()
+
+
+@pytest.mark.parametrize(
+    "template_path",
+    sorted(Path("templates").rglob("image_*.html")),
+)
+def test_all_image_templates_use_768_square_media_defaults(template_path):
+    generator = HTMLFrameGenerator(str(template_path))
+
+    assert generator.get_media_size() == (768, 768)

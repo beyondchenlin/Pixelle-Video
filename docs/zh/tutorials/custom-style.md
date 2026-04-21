@@ -18,7 +18,7 @@ Minimalist black-and-white illustration, clean lines, simple style
 
 不同尺寸适用于不同场景：
 
-- **1024x1024**: 方形，适合小红书
+- **768x768**: 方形，适合小红书
 - **1080x1920**: 竖屏，适合抖音、快手
 - **1920x1080**: 横屏，适合B站、YouTube
 
