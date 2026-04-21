@@ -60,11 +60,12 @@ def test_write_project_data_writes_manifest_and_captions_files(tmp_path):
     service = HyperFramesProjectService(output_dir=str(tmp_path))
 
     project_paths = service.write_project_data(manifest)
-    manifest_path = project_paths.data_dir / "render-manifest.json"
+    manifest_path = project_paths.data_dir / "render_manifest.json"
     captions_path = project_paths.data_dir / "captions.json"
 
     assert manifest_path.exists()
     assert captions_path.exists()
+    assert project_paths.manifest_path == manifest_path
 
     manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
     captions_data = json.loads(captions_path.read_text(encoding="utf-8"))
@@ -72,6 +73,7 @@ def test_write_project_data_writes_manifest_and_captions_files(tmp_path):
     assert manifest_data["task_id"] == "task-1"
     assert captions_data["task_id"] == "task-1"
     assert captions_data["captions"][0]["text"] == "Sentence 1"
+    assert not (project_paths.data_dir / "render-manifest.json").exists()
 
 
 def test_write_project_data_derives_captions_from_sentence_units_when_manifest_cues_missing(tmp_path):

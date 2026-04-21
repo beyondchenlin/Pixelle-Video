@@ -39,7 +39,7 @@ class HyperFramesProjectService:
         data_dir = self.get_data_dir(manifest.task_id)
         data_dir.mkdir(parents=True, exist_ok=True)
 
-        manifest_path = data_dir / "render-manifest.json"
+        manifest_path = data_dir / "render_manifest.json"
         captions_path = data_dir / "captions.json"
 
         self._write_json(manifest_path, manifest.to_dict())

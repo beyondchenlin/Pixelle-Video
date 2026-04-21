@@ -71,7 +71,8 @@ class FrameProcessor:
         storyboard: 'Storyboard',
         config: StoryboardConfig,
         total_frames: int = 1,
-        progress_callback: Optional[Callable[[ProgressEvent], None]] = None
+        progress_callback: Optional[Callable[[ProgressEvent], None]] = None,
+        body_text_override: Optional[str] = None,
     ) -> StoryboardFrame:
         """
         Process single frame through complete pipeline
@@ -88,6 +89,7 @@ class FrameProcessor:
             config: Storyboard configuration
             total_frames: Total number of frames in storyboard
             progress_callback: Optional callback for progress updates (receives ProgressEvent)
+            body_text_override: Optional burned-in body text override for shell-only rendering
             
         Returns:
             Processed frame with all paths filled
@@ -150,7 +152,12 @@ class FrameProcessor:
                     step=3,
                     action="compose"
                 ))
-            await self._step_compose_frame(frame, storyboard, config)
+            await self._step_compose_frame(
+                frame,
+                storyboard,
+                config,
+                body_text_override=body_text_override,
+            )
             
             # Step 4: Create video segment
             if progress_callback:

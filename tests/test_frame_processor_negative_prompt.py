@@ -150,6 +150,55 @@ async def test_compose_frame_html_allows_blank_body_text_override_for_shell_only
 
 
 @pytest.mark.asyncio
+async def test_frame_processor_call_forwards_body_text_override_to_shell_only_render(monkeypatch, tmp_path):
+    captured = {}
+
+    class _FakeCore:
+        async def media(self, **kwargs):
+            return MediaResult(media_type="image", url="https://example.com/frame.png")
+
+    processor = FrameProcessor(_FakeCore())
+
+    async def fake_generate_audio(frame, config):
+        frame.audio_path = str(tmp_path / "audio.mp3")
+        frame.duration = 1.0
+
+    async def fake_generate_media(frame, config):
+        frame.image_path = str(tmp_path / "frame.png")
+        frame.media_type = "image"
+
+    async def fake_compose_frame(frame, storyboard, config, *, body_text_override=None):
+        captured["body_text_override"] = body_text_override
+        frame.composed_image_path = str(tmp_path / "composed.png")
+
+    async def fake_create_video_segment(frame, config):
+        frame.video_segment_path = str(tmp_path / "segment.mp4")
+
+    monkeypatch.setattr(processor, "_step_generate_audio", fake_generate_audio)
+    monkeypatch.setattr(processor, "_step_generate_media", fake_generate_media)
+    monkeypatch.setattr(processor, "_step_compose_frame", fake_compose_frame)
+    monkeypatch.setattr(processor, "_step_create_video_segment", fake_create_video_segment)
+
+    config = StoryboardConfig(
+        media_width=1024,
+        media_height=1024,
+        task_id="task-1",
+    )
+    frame = StoryboardFrame(index=0, narration="Original subtitle text.", image_prompt="prompt")
+    storyboard = Storyboard(title="Test title", config=config, frames=[frame])
+
+    result = await processor(
+        frame=frame,
+        storyboard=storyboard,
+        config=config,
+        body_text_override="",
+    )
+
+    assert result is frame
+    assert captured["body_text_override"] == ""
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("configured_fps", "expected_fps"),
     [
