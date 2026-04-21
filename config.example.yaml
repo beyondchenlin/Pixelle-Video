@@ -82,3 +82,15 @@ template:
   #   - 1920x1080 (horizontal/landscape): image_film.html, image_full.html, etc.
   # See templates/ directory for all available templates
   default_template: "1080x1920/image_default.html"
+
+# ==================== Render Configuration ====================
+# Render contract defaults used by storyboard and persistence layers
+render:
+  backend: hyperframes
+  timing:
+    tts_batching_mode: paragraph
+    tts_batch_max_sentences: 8
+    tts_batch_max_chars: 220
+    subtitle_alignment_engine: qwen_forced_aligner
+    silence_trim_tool: null
+    silence_trim_margin_ms: 120

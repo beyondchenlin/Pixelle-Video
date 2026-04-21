@@ -380,6 +380,13 @@ class PersistenceService:
             "tts_workflow": config.tts_workflow,
             "tts_speed": config.tts_speed,
             "ref_audio": config.ref_audio,
+            "tts_batching_mode": config.tts_batching_mode,
+            "tts_batch_max_sentences": config.tts_batch_max_sentences,
+            "tts_batch_max_chars": config.tts_batch_max_chars,
+            "subtitle_alignment_engine": config.subtitle_alignment_engine,
+            "silence_trim_tool": config.silence_trim_tool,
+            "silence_trim_margin_ms": config.silence_trim_margin_ms,
+            "render_backend": config.render_backend,
             "media_width": config.media_width,
             "media_height": config.media_height,
             "media_workflow": config.media_workflow,
@@ -403,6 +410,13 @@ class PersistenceService:
             tts_workflow=data.get("tts_workflow"),
             tts_speed=data.get("tts_speed"),
             ref_audio=data.get("ref_audio"),
+            tts_batching_mode=data.get("tts_batching_mode", "paragraph"),
+            tts_batch_max_sentences=data.get("tts_batch_max_sentences", 8),
+            tts_batch_max_chars=data.get("tts_batch_max_chars", 220),
+            subtitle_alignment_engine=data.get("subtitle_alignment_engine", "qwen_forced_aligner"),
+            silence_trim_tool=data.get("silence_trim_tool"),
+            silence_trim_margin_ms=data.get("silence_trim_margin_ms", 120),
+            render_backend=data.get("render_backend", "hyperframes"),
             media_width=data.get("media_width", data.get("image_width", 1024)),  # Backward compatibility
             media_height=data.get("media_height", data.get("image_height", 1024)),  # Backward compatibility
             media_workflow=data.get("media_workflow", data.get("image_workflow")),  # Backward compatibility

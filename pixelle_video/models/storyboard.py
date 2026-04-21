@@ -45,6 +45,15 @@ class StoryboardConfig:
     tts_workflow: Optional[str] = None         # TTS workflow filename (for ComfyUI mode, None = use default)
     tts_speed: Optional[float] = None          # TTS speed multiplier (0.5-2.0, 1.0 = normal)
     ref_audio: Optional[str] = None            # Reference audio for voice cloning (ComfyUI mode only)
+
+    # Render contract
+    tts_batching_mode: str = "paragraph"       # TTS batching mode
+    tts_batch_max_sentences: int = 8           # Maximum sentences per TTS batch
+    tts_batch_max_chars: int = 220             # Maximum characters per TTS batch
+    subtitle_alignment_engine: str = "qwen_forced_aligner"  # Subtitle alignment engine
+    silence_trim_tool: Optional[str] = None    # Silence trim tool name
+    silence_trim_margin_ms: int = 120          # Silence trim margin in milliseconds
+    render_backend: str = "hyperframes"       # Render backend
     
     # Media workflow
     media_workflow: Optional[str] = None       # Media workflow filename (image or video, None = use default)
