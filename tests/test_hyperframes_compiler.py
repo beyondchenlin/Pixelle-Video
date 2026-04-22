@@ -166,6 +166,19 @@ def test_phase1_templates_reference_local_gsap_vendor_and_register_timelines():
         assert timeline_registration in content
 
 
+def test_phase1_main_templates_keep_visual_materials_as_hard_cuts():
+    template_paths = [
+        Path("resources/hyperframes/templates/image_default/index.template.html"),
+        Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
+    ]
+
+    for path in template_paths:
+        content = path.read_text(encoding="utf-8")
+        assert "visualClips.forEach" not in content
+        assert 'tl.fromTo(\n            clip,' not in content
+        assert 'tl.to(\n            clip,' not in content
+
+
 @pytest.mark.parametrize(
     "template_id",
     ["image_default", "image_life_insights_light"],
