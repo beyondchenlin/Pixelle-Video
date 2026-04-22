@@ -15,11 +15,22 @@ Frame/Template rendering API schemas
 """
 
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class FrameRenderRequest(BaseModel):
     """Frame rendering request"""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "template": "1080x1920/default.html",
+                "title": "Sample Title",
+                "text": "This is a sample text for the frame.",
+                "image": "resources/example.png",
+            }
+        }
+    )
+
     template: str = Field(
         ..., 
         description="Template key (e.g., '1080x1920/default.html'). Can also be just filename (e.g., 'default.html') to use default size."
@@ -27,16 +38,6 @@ class FrameRenderRequest(BaseModel):
     title: Optional[str] = Field(None, description="Frame title (optional)")
     text: str = Field(..., description="Frame text content")
     image: Optional[str] = Field(None, description="Image path or URL (optional)")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "template": "1080x1920/default.html",
-                "title": "Sample Title",
-                "text": "This is a sample text for the frame.",
-                "image": "resources/example.png"
-            }
-        }
 
 
 class FrameRenderResponse(BaseModel):
@@ -66,4 +67,3 @@ class TemplateParamsResponse(BaseModel):
         default_factory=dict,
         description="Custom parameters defined in template. Key is parameter name, value is config."
     )
-

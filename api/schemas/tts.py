@@ -15,11 +15,21 @@ TTS API schemas
 """
 
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TTSSynthesizeRequest(BaseModel):
     """TTS synthesis request"""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "text": "Hello, welcome to Pixelle-Video!",
+                "workflow": "runninghub/tts_edge.json",
+                "ref_audio": None,
+            }
+        }
+    )
+
     text: str = Field(..., description="Text to synthesize")
     workflow: Optional[str] = Field(
         None, 
@@ -33,15 +43,6 @@ class TTSSynthesizeRequest(BaseModel):
         None, 
         description="Voice ID (deprecated, use workflow instead)"
     )
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "text": "Hello, welcome to Pixelle-Video!",
-                "workflow": "runninghub/tts_edge.json",
-                "ref_audio": None
-            }
-        }
 
 
 class TTSSynthesizeResponse(BaseModel):
@@ -50,4 +51,3 @@ class TTSSynthesizeResponse(BaseModel):
     message: str = "Success"
     audio_path: str = Field(..., description="Path to generated audio file")
     duration: float = Field(..., description="Audio duration in seconds")
-

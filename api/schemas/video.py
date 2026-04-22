@@ -71,6 +71,22 @@ class StoryboardFrameOverride(BaseModel):
 
 class VideoGenerateRequest(BaseModel):
     """Video generation request"""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "text": "Atomic Habits teaches us that small changes compound over time to produce remarkable results.",
+                "mode": "generate",
+                "n_scenes": 5,
+                "frame_template": "1080x1920/image_default.html",
+                "render_backend": "legacy",
+                "template_params": {
+                    "accent_color": "#3498db",
+                    "background": "https://example.com/custom-bg.jpg",
+                },
+                "title": "The Power of Atomic Habits",
+            }
+        }
+    )
     
     # === Input ===
     text: str = Field(..., description="Source text for video generation")
@@ -158,22 +174,6 @@ class VideoGenerateRequest(BaseModel):
     # === BGM ===
     bgm_path: Optional[str] = Field(None, description="Background music path")
     bgm_volume: float = Field(0.3, ge=0.0, le=1.0, description="BGM volume (0.0-1.0)")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "text": "Atomic Habits teaches us that small changes compound over time to produce remarkable results.",
-                "mode": "generate",
-                "n_scenes": 5,
-                "frame_template": "1080x1920/image_default.html",
-                "render_backend": "legacy",
-                "template_params": {
-                    "accent_color": "#3498db",
-                    "background": "https://example.com/custom-bg.jpg"
-                },
-                "title": "The Power of Atomic Habits"
-            }
-        }
 
 
 class VideoGenerateResponse(BaseModel):

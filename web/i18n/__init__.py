@@ -187,15 +187,7 @@ def detect_system_language() -> str:
                 except Exception as e:
                     logger.debug(f"macOS AppleLanguages detection failed: {e}")
         
-        # Method 2: Get from environment locale (cross-platform)
-        if not system_locale:
-            try:
-                system_locale = locale.getdefaultlocale()[0]
-                logger.debug(f"System locale from getdefaultlocale(): {system_locale}")
-            except Exception as e:
-                logger.debug(f"getdefaultlocale() failed: {e}")
-        
-        # Method 3: Get from current locale
+        # Method 2: Get from the active locale without using deprecated APIs
         if not system_locale:
             try:
                 system_locale = locale.getlocale()[0]
@@ -203,7 +195,7 @@ def detect_system_language() -> str:
             except Exception as e:
                 logger.debug(f"getlocale() failed: {e}")
         
-        # Method 4: Try to get from environment variables
+        # Method 3: Try to get from environment variables
         if not system_locale:
             for env_var in ['LC_ALL', 'LC_MESSAGES', 'LANG', 'LANGUAGE']:
                 env_value = os.environ.get(env_var)
@@ -246,4 +238,3 @@ load_locales()
 _detected_language = detect_system_language()
 _current_language = _detected_language
 logger.info(f"Default language initialized to: {_current_language}")
-

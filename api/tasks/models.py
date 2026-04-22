@@ -17,7 +17,7 @@ Task data models
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 
 class TaskStatus(str, Enum):
@@ -62,9 +62,7 @@ class Task(BaseModel):
     
     # Request parameters (for reference)
     request_params: Optional[dict] = None
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
+    @field_serializer("created_at", "started_at", "completed_at", when_used="json")
+    def serialize_datetimes(self, value: Optional[datetime]) -> Optional[str]:
+        return value.isoformat() if value is not None else None
