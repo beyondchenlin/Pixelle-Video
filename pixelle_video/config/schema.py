@@ -180,7 +180,7 @@ def _normalize_storyboard_library_item(incoming_item: Any) -> dict[str, Any]:
     if isinstance(incoming_item, dict):
         incoming_payload = incoming_item
     elif hasattr(incoming_item, "model_dump"):
-        incoming_payload = incoming_item.model_dump()
+        incoming_payload = incoming_item.model_dump(exclude_unset=True)
     else:
         raise ValueError("malformed storyboard preset item: expected mapping-like input")
 
@@ -231,6 +231,8 @@ class StoryboardWorldPresetItemConfig(BaseModel):
 
     preset_id: str
     display_name: str
+    display_name_key: Optional[str] = Field(default=None)
+    description_key: Optional[str] = Field(default=None)
     supported_modes: list[ContentMode] = Field(default_factory=list)
     style_core: str = Field(default="")
     world_elements: list[str] = Field(default_factory=list)
@@ -309,6 +311,8 @@ class StoryboardShotPresetItemConfig(BaseModel):
 
     preset_id: str
     display_name: str
+    display_name_key: Optional[str] = Field(default=None)
+    description_key: Optional[str] = Field(default=None)
     supported_scene_count: list[int] = Field(default_factory=list)
     max_consecutive_same: int = Field(default=2)
     shot_distribution_rules: list[str] = Field(default_factory=list)

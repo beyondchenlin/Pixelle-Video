@@ -3,7 +3,11 @@ import itertools
 import pytest
 
 from pixelle_video.config.manager import ConfigManager
-from pixelle_video.config.schema import PixelleVideoConfig
+from pixelle_video.config.schema import (
+    PixelleVideoConfig,
+    StoryboardShotPresetItemConfig,
+    StoryboardWorldPresetItemConfig,
+)
 from pixelle_video.config.storyboard_preset_library import (
     build_builtin_shot_preset_library_dict,
     build_builtin_world_preset_library_dict,
@@ -60,6 +64,68 @@ def test_storyboard_shot_preset_schema_preserves_numeric_repair_rule():
 
     assert balanced["max_consecutive_same"] == 2
     assert detail_focus["max_consecutive_same"] == 1
+
+
+def test_storyboard_world_preset_schema_preserves_localization_metadata():
+    config = PixelleVideoConfig()
+
+    model_dump = config.storyboard.world_preset_library.model_dump()
+    neutral = next(item for item in model_dump["items"] if item["preset_id"] == "neutral_knowledge_storyboard")
+
+    assert neutral["display_name_key"] == "storyboard.preset.world.neutral_knowledge_storyboard.name"
+    assert neutral["description_key"] == "storyboard.preset.world.neutral_knowledge_storyboard.description"
+
+
+def test_storyboard_shot_preset_schema_preserves_localization_metadata():
+    config = PixelleVideoConfig()
+
+    model_dump = config.storyboard.shot_preset_library.model_dump()
+    balanced = next(item for item in model_dump["items"] if item["preset_id"] == "balanced_explainer")
+
+    assert balanced["display_name_key"] == "storyboard.preset.shot.balanced_explainer.name"
+    assert balanced["description_key"] == "storyboard.preset.shot.balanced_explainer.description"
+
+
+def test_partial_typed_storyboard_override_preserves_localization_metadata():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "storyboard": {
+                "world_preset_library": {
+                    "items": [
+                        StoryboardWorldPresetItemConfig(
+                            preset_id="neutral_knowledge_storyboard",
+                            display_name="Neutral Knowledge Storyboard",
+                            supported_modes=["theme_mapping", "concept_explainer"],
+                            conservative_fallback_mode="concept_explainer",
+                            cast_slots_by_mode={"theme_mapping": [], "concept_explainer": []},
+                        )
+                    ],
+                },
+                "shot_preset_library": {
+                    "items": [
+                        StoryboardShotPresetItemConfig(
+                            preset_id="balanced_explainer",
+                            display_name="Balanced Explainer",
+                        )
+                    ],
+                },
+            }
+        }
+    )
+
+    world_item = next(
+        item for item in config.storyboard.world_preset_library.model_dump()["items"]
+        if item["preset_id"] == "neutral_knowledge_storyboard"
+    )
+    shot_item = next(
+        item for item in config.storyboard.shot_preset_library.model_dump()["items"]
+        if item["preset_id"] == "balanced_explainer"
+    )
+
+    assert world_item["display_name_key"] == "storyboard.preset.world.neutral_knowledge_storyboard.name"
+    assert world_item["description_key"] == "storyboard.preset.world.neutral_knowledge_storyboard.description"
+    assert shot_item["display_name_key"] == "storyboard.preset.shot.balanced_explainer.name"
+    assert shot_item["description_key"] == "storyboard.preset.shot.balanced_explainer.description"
 
 
 def test_pixelle_video_config_bootstraps_storyboard_libraries():
