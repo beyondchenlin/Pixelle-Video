@@ -36,8 +36,8 @@ from typing import List, Dict, Any, Optional, Callable
 from pathlib import Path
 
 from loguru import logger
-from pydantic import BaseModel, Field
 
+from pixelle_video.models.asset_script import AssetCatalogEntry, AssetScriptResponse
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.models.progress import ProgressEvent
@@ -48,21 +48,6 @@ from pixelle_video.utils.os_util import (
 
 # Type alias for progress callback
 ProgressCallback = Optional[Callable[[ProgressEvent], None]]
-
-
-# ==================== Structured Output Models ====================
-
-class SceneScript(BaseModel):
-    """Single scene in the video script"""
-    scene_number: int = Field(description="Scene number starting from 1")
-    asset_path: str = Field(description="Path to the asset file for this scene")
-    narrations: List[str] = Field(description="List of narration sentences for this scene (1-5 sentences)")
-    duration: int = Field(description="Estimated duration in seconds for this scene")
-
-
-class VideoScript(BaseModel):
-    """Complete video script with scenes"""
-    scenes: List[SceneScript] = Field(description="List of scenes in the video")
 
 
 class AssetBasedPipeline(LinearVideoPipeline):
@@ -81,6 +66,23 @@ class AssetBasedPipeline(LinearVideoPipeline):
         """
         super().__init__(core)
         self.asset_index: Dict[str, Any] = {}  # In-memory asset metadata
+        self._progress_callback: ProgressCallback = None
+
+    @staticmethod
+    def _build_asset_id(index: int) -> str:
+        return f"asset_{index:03d}"
+
+    def _serialize_asset_catalog(self) -> list[AssetCatalogEntry]:
+        return [
+            AssetCatalogEntry(
+                asset_id=str(asset_id),
+                asset_path=str(metadata["path"]),
+                asset_type=str(metadata["type"]),
+                asset_name=str(metadata["name"]),
+                description=str(metadata["description"]),
+            )
+            for asset_id, metadata in self.asset_index.items()
+        ]
     
     async def __call__(
         self,
@@ -224,12 +226,14 @@ class AssetBasedPipeline(LinearVideoPipeline):
                 # Analyze image using ImageAnalysisService
                 analysis_source = context.request.get("source", "runninghub")
                 description = await self.core.image_analysis(asset_path, source=analysis_source)
-                
-                self.asset_index[asset_path] = {
+
+                asset_id = self._build_asset_id(i)
+                self.asset_index[asset_id] = {
+                    "asset_id": asset_id,
                     "path": asset_path,
                     "type": "image",
                     "name": asset_path_obj.name,
-                    "description": description
+                    "description": description,
                 }
                 
                 logger.info(f"✅ Image analyzed: {description[:50]}...")
@@ -239,26 +243,33 @@ class AssetBasedPipeline(LinearVideoPipeline):
                 analysis_source = context.request.get("source", "runninghub")
                 try:
                     description = await self.core.video_analysis(asset_path, source=analysis_source)
-                    
-                    self.asset_index[asset_path] = {
+
+                    asset_id = self._build_asset_id(i)
+                    self.asset_index[asset_id] = {
+                        "asset_id": asset_id,
                         "path": asset_path,
                         "type": "video",
                         "name": asset_path_obj.name,
-                        "description": description
+                        "description": description,
                     }
                     
                     logger.info(f"✅ Video analyzed: {description[:50]}...")
                 except Exception as e:
                     logger.warning(f"Video analysis failed for {asset_path_obj.name}: {e}, using fallback")
-                    self.asset_index[asset_path] = {
+                    asset_id = self._build_asset_id(i)
+                    self.asset_index[asset_id] = {
+                        "asset_id": asset_id,
                         "path": asset_path,
                         "type": "video",
                         "name": asset_path_obj.name,
-                        "description": "Video asset (analysis failed)"
+                        "description": "Video asset (analysis failed)",
                     }
             
             else:
                 logger.warning(f"Unknown asset type: {asset_path}")
+
+        if not self.asset_index:
+            raise ValueError("No valid assets could be analyzed. Please upload supported image or video files.")
         
         logger.success(f"✅ Asset analysis complete: {len(self.asset_index)} assets indexed")
         
@@ -299,15 +310,15 @@ class AssetBasedPipeline(LinearVideoPipeline):
     
     async def generate_content(self, context: PipelineContext) -> PipelineContext:
         """
-        Generate video script using LLM with structured output
-        
-        LLM directly assigns assets to scenes - no complex matching logic needed.
+        Generate video script using LLM with structured output.
+
+        The LLM selects stable asset_ids and the pipeline resolves them to local paths.
         
         Args:
             context: Pipeline context
         
         Returns:
-            Updated context with generated script (scenes already have asset_path assigned)
+            Updated context with generated script and resolved asset paths
         """
         from pixelle_video.prompts.asset_script_generation import build_asset_script_prompt
         
@@ -324,50 +335,35 @@ class AssetBasedPipeline(LinearVideoPipeline):
         duration = context.request.get("duration", 30)
         title = context.title  # May be empty if user didn't provide one
         
-        # Prepare asset descriptions with full paths for LLM to reference
-        asset_info = []
-        for asset_path, metadata in self.asset_index.items():
-            asset_info.append(f"- Path: {asset_path}\n  Description: {metadata['description']}")
-        
-        assets_text = "\n".join(asset_info)
+        asset_catalog = self._serialize_asset_catalog()
         
         # Build prompt using the centralized prompt function
         prompt = build_asset_script_prompt(
             intent=intent,
             duration=duration,
-            assets_text=assets_text,
+            assets=asset_catalog,
             title=title
         )
         
         # Call LLM with structured output
-        script: VideoScript = await self.core.llm(
+        script: AssetScriptResponse = await self.core.llm(
             prompt=prompt,
-            response_type=VideoScript,
+            response_type=AssetScriptResponse,
             temperature=0.8,
             max_tokens=4000
         )
-        
-        # Convert to dict format for compatibility with downstream code
-        context.script = [scene.model_dump() for scene in script.scenes]
-        
-        # Validate asset paths exist
-        for scene in context.script:
-            asset_path = scene.get("asset_path")
-            if asset_path not in self.asset_index:
-                # Find closest match (in case LLM slightly modified the path)
-                matched = False
-                for known_path in self.asset_index.keys():
-                    if Path(known_path).name == Path(asset_path).name:
-                        scene["asset_path"] = known_path
-                        matched = True
-                        logger.warning(f"Corrected asset path: {asset_path} -> {known_path}")
-                        break
-                
-                if not matched:
-                    # Fallback to first available asset
-                    fallback_path = list(self.asset_index.keys())[0]
-                    logger.warning(f"Unknown asset path '{asset_path}', using fallback: {fallback_path}")
-                    scene["asset_path"] = fallback_path
+
+        context.script = []
+        for scene in script.scenes:
+            asset_metadata = self.asset_index.get(scene.asset_id)
+            if asset_metadata is None:
+                raise ValueError(f"asset-based script references unknown asset_id: {scene.asset_id}")
+
+            scene_payload = scene.model_dump()
+            scene_payload["asset_path"] = asset_metadata["path"]
+            scene_payload["asset_name"] = asset_metadata["name"]
+            scene_payload["asset_type"] = asset_metadata["type"]
+            context.script.append(scene_payload)
         
         logger.success(f"✅ Generated script with {len(context.script)} scenes")
         
@@ -384,7 +380,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
             if isinstance(narrations, str):
                 narrations = [narrations]
             narration_preview = " | ".join([n[:30] + "..." if len(n) > 30 else n for n in narrations[:2]])
-            asset_name = Path(scene.get("asset_path", "unknown")).name
+            asset_name = scene.get("asset_name") or Path(scene.get("asset_path", "unknown")).name
             logger.info(f"Scene {scene['scene_number']} [{asset_name}]: {narration_preview}")
         
         return context
@@ -393,7 +389,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
         """
         Prepare matched scenes from LLM-generated script
         
-        Since LLM already assigned asset_path in generate_content, this method
+        Since generate_content already resolved asset_id to asset_path, this method
         simply converts the script format to matched_scenes format.
         
         Args:
@@ -404,12 +400,12 @@ class AssetBasedPipeline(LinearVideoPipeline):
         """
         logger.info("🎯 Preparing scene-asset mapping...")
         
-        # LLM already assigned asset_path to each scene in generate_content
-        # Just convert to matched_scenes format for downstream compatibility
+        # Generate downstream-compatible scene mappings with both asset_id and resolved path.
         context.matched_scenes = [
             {
                 **scene,
-                "matched_asset": scene["asset_path"]  # Alias for compatibility
+                "matched_asset_id": scene["asset_id"],
+                "matched_asset": scene["asset_path"]
             }
             for scene in context.script
         ]
@@ -417,12 +413,13 @@ class AssetBasedPipeline(LinearVideoPipeline):
         # Log asset usage summary
         asset_usage = {}
         for scene in context.matched_scenes:
-            asset = scene["matched_asset"]
-            asset_usage[asset] = asset_usage.get(asset, 0) + 1
+            asset_id = scene["matched_asset_id"]
+            asset_usage[asset_id] = asset_usage.get(asset_id, 0) + 1
         
         logger.info(f"📊 Asset usage summary:")
-        for asset_path, count in asset_usage.items():
-            logger.info(f"   {Path(asset_path).name}: {count} scene(s)")
+        for asset_id, count in asset_usage.items():
+            asset_metadata = self.asset_index.get(asset_id, {})
+            logger.info(f"   {asset_metadata.get('name', asset_id)}: {count} scene(s)")
         
         return context
     
@@ -509,10 +506,13 @@ class AssetBasedPipeline(LinearVideoPipeline):
                 created_at=datetime.now()
             )
             
-            # Get asset path and determine actual media type from asset_index
-            asset_path = scene["matched_asset"]
-            asset_metadata = self.asset_index.get(asset_path, {})
-            asset_type = asset_metadata.get("type", "image")  # Default to image if not found
+            # Get asset metadata and determine actual media type from asset_index
+            asset_id = scene["matched_asset_id"]
+            asset_metadata = self.asset_index.get(asset_id)
+            if asset_metadata is None:
+                raise ValueError(f"matched scene references unknown asset_id: {asset_id}")
+            asset_path = str(asset_metadata["path"])
+            asset_type = asset_metadata.get("type", "image")
             
             # Set media type and path based on actual asset type
             if asset_type == "video":
