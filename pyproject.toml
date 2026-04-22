@@ -38,6 +38,9 @@ dev = [
 alignment = [
     "qwen-asr",
 ]
+audio-edit = [
+    "auto-editor",
+]
 
 [project.scripts]
 pixelle-video = "pixelle_video.cli:main"
