@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import replace
 from typing import Any, Mapping, Sequence
 
@@ -19,7 +21,7 @@ _USER_OVERRIDE_FIELDS = {
     "focus_detail",
     "prompt_intent",
 }
-_OVERRIDE_METADATA_FIELDS = {"scene_id", "locked_fields", "override_source"}
+_OVERRIDE_METADATA_FIELDS = {"scene_id", "snapshot_identity", "locked_fields", "override_source"}
 _REPAIR_SHOT_TYPE_PRIORITY = (
     "close_up",
     "medium_shot",
@@ -70,6 +72,18 @@ def _merge_locked_fields(*, original: FramePlan, override_locked_fields: tuple[s
             seen.add(field_name)
 
     return tuple(merged)
+
+
+def _build_frame_plan_snapshot_identity(frame_plans: Sequence[FramePlan]) -> str:
+    canonical_payload = json.dumps(
+        [frame.to_prompt_dict() for frame in frame_plans],
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    fingerprint = hashlib.sha1(canonical_payload.encode("utf-8")).hexdigest()
+    return f"storyboard_snapshot_{fingerprint}"
 
 
 def _get_max_consecutive_same(shot_rules: Any) -> int:
@@ -170,6 +184,7 @@ def apply_frame_overrides(
     if not frame_overrides:
         return list(frame_plans)
 
+    current_snapshot_identity = _build_frame_plan_snapshot_identity(frame_plans)
     by_scene_id = {frame.scene_id: frame for frame in frame_plans}
     ordered_scene_ids = [frame.scene_id for frame in frame_plans]
 
@@ -183,6 +198,11 @@ def apply_frame_overrides(
 
         scene_id = override.get("scene_id")
         scene_id = _ensure_override_scalar("scene_id", scene_id)
+
+        snapshot_identity = override.get("snapshot_identity")
+        snapshot_identity = _ensure_override_scalar("snapshot_identity", snapshot_identity)
+        if snapshot_identity != current_snapshot_identity:
+            raise ValueError("frame override snapshot_identity does not match current frame plans")
 
         original = by_scene_id.get(scene_id)
         if original is None:

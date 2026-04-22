@@ -32,6 +32,12 @@ from api.tasks import TaskType, task_manager
 router = APIRouter(prefix="/video", tags=["Video Generation"])
 
 
+def _serialize_frame_overrides(frame_overrides):
+    if frame_overrides is None:
+        return None
+    return [override.model_dump(exclude_none=True) for override in frame_overrides]
+
+
 def path_to_url(request: Request, file_path: str) -> str:
     """
     Convert file path to accessible URL
@@ -142,7 +148,7 @@ async def generate_video_sync(
             "role_strategy": request_body.role_strategy,
             "role_locking_strength": request_body.role_locking_strength,
             "shot_strategy": request_body.shot_strategy,
-            "frame_overrides": request_body.frame_overrides,
+            "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
             "bgm_path": request_body.bgm_path,
             "bgm_volume": request_body.bgm_volume,
         }
@@ -256,7 +262,7 @@ async def generate_video_async(
                 "role_strategy": request_body.role_strategy,
                 "role_locking_strength": request_body.role_locking_strength,
                 "shot_strategy": request_body.shot_strategy,
-                "frame_overrides": request_body.frame_overrides,
+                "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
                 "bgm_path": request_body.bgm_path,
                 "bgm_volume": request_body.bgm_volume,
                 # Progress callback can be added here if needed

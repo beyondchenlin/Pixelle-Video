@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from api.routers.content import generate_image_prompt
 from api.schemas.content import ImagePromptGenerateRequest
@@ -19,6 +20,47 @@ class _FakePixelleVideo:
         }
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("content_mode", "bogus"),
+        ("role_strategy", "bogus"),
+        ("consistency_strength", "bogus"),
+        ("role_locking_strength", "bogus"),
+        ("shot_strategy", "bogus"),
+    ],
+)
+def test_image_prompt_generate_request_rejects_invalid_storyboard_controls(field_name: str, value: str):
+    with pytest.raises(ValidationError):
+        ImagePromptGenerateRequest(
+            narrations=["scene one"],
+            **{field_name: value},
+        )
+
+
+@pytest.mark.parametrize(
+    "frame_overrides",
+    [
+        [{"scene_id": "1"}],
+        [
+            {
+                "scene_id": "1",
+                "snapshot_identity": "snapshot:demo",
+                "locked_fields": ["shot_type"],
+                "shot_type": "medium_shot",
+                "unexpected": "value",
+            }
+        ],
+    ],
+)
+def test_image_prompt_generate_request_rejects_malformed_frame_overrides(frame_overrides: list[dict[str, str]]):
+    with pytest.raises(ValidationError):
+        ImagePromptGenerateRequest(
+            narrations=["scene one"],
+            frame_overrides=frame_overrides,
+        )
+
+
 @pytest.mark.asyncio
 async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypatch):
     async def fake_generate_styled_image_prompt_batch(**kwargs):
@@ -34,6 +76,7 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
         assert kwargs["frame_overrides"] == [
             {
                 "scene_id": "scene-1",
+                "snapshot_identity": "snapshot:scene-1",
                 "locked_fields": ["shot_type"],
                 "shot_type": "medium_shot",
             }
@@ -64,6 +107,7 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
             frame_overrides=[
                 {
                     "scene_id": "scene-1",
+                    "snapshot_identity": "snapshot:scene-1",
                     "locked_fields": ["shot_type"],
                     "shot_type": "medium_shot",
                 }

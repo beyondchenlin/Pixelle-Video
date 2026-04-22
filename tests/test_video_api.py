@@ -32,6 +32,49 @@ def test_video_generate_request_rejects_removed_hyperframes_alias():
         )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("content_mode", "bogus"),
+        ("role_strategy", "bogus"),
+        ("consistency_strength", "bogus"),
+        ("role_locking_strength", "bogus"),
+        ("shot_strategy", "bogus"),
+    ],
+)
+def test_video_generate_request_rejects_invalid_storyboard_controls(field_name: str, value: str):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            **{field_name: value},
+        )
+
+
+@pytest.mark.parametrize(
+    "frame_overrides",
+    [
+        [{"scene_id": "1"}],
+        [
+            {
+                "scene_id": "1",
+                "snapshot_identity": "snapshot:demo",
+                "locked_fields": ["shot_type"],
+                "shot_type": "medium_shot",
+                "unexpected": "value",
+            }
+        ],
+    ],
+)
+def test_video_generate_request_rejects_malformed_frame_overrides(frame_overrides: list[dict[str, str]]):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            frame_overrides=frame_overrides,
+        )
+
+
 @pytest.mark.asyncio
 async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monkeypatch, tmp_path):
     class _FakeFrameGenerator:
@@ -68,6 +111,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             frame_overrides=[
                 {
                     "scene_id": "scene-1",
+                    "snapshot_identity": "snapshot:scene-1",
                     "locked_fields": ["shot_type"],
                     "shot_type": "medium_shot",
                 }
@@ -106,6 +150,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "frame_overrides": [
                 {
                     "scene_id": "scene-1",
+                    "snapshot_identity": "snapshot:scene-1",
                     "locked_fields": ["shot_type"],
                     "shot_type": "medium_shot",
                 }

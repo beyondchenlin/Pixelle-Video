@@ -24,6 +24,21 @@ EDITABLE_STORYBOARD_FIELDS: tuple[str, ...] = (
 LIST_LIKE_STORYBOARD_FIELDS = {"world_elements", "continuity_anchors"}
 
 
+def build_storyboard_preview_snapshot_identity(
+    planning_snapshot: Mapping[str, Any] | None,
+) -> str:
+    """Build a stable identity for the snapshot frames currently shown in preview."""
+    canonical_payload = json.dumps(
+        (planning_snapshot or {}).get("frames") or [],
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    fingerprint = hashlib.sha1(canonical_payload.encode("utf-8")).hexdigest()
+    return f"storyboard_snapshot_{fingerprint}"
+
+
 def build_storyboard_preview_state_namespace(
     planning_snapshot: Mapping[str, Any] | None,
 ) -> str:
@@ -66,17 +81,20 @@ def _normalize_override_value(field_name: str, value: Any) -> Any:
 def build_frame_override_payload(
     *,
     scene_id: str,
+    snapshot_identity: str | None,
     locked_fields: Sequence[str] | None,
     values: Mapping[str, Any] | None,
     override_source: str = "user_preview",
 ) -> dict[str, Any] | None:
     """Build one frame override payload and keep only explicitly locked fields."""
     normalized_locked_fields = _normalize_locked_fields(locked_fields)
-    if not scene_id or not normalized_locked_fields:
+    normalized_snapshot_identity = str(snapshot_identity or "").strip()
+    if not scene_id or not normalized_snapshot_identity or not normalized_locked_fields:
         return None
 
     payload: dict[str, Any] = {
         "scene_id": scene_id,
+        "snapshot_identity": normalized_snapshot_identity,
         "locked_fields": normalized_locked_fields,
     }
     if override_source:
@@ -98,6 +116,7 @@ def build_frame_override_payload(
 def collect_storyboard_preview_overrides(
     entries: Sequence[Mapping[str, Any]] | None,
     *,
+    snapshot_identity: str | None,
     override_source: str = "user_preview",
 ) -> list[dict[str, Any]]:
     """Collect non-empty frame overrides from preview state entries."""
@@ -105,6 +124,7 @@ def collect_storyboard_preview_overrides(
     for entry in entries or ():
         payload = build_frame_override_payload(
             scene_id=str(entry.get("scene_id", "")).strip(),
+            snapshot_identity=snapshot_identity,
             locked_fields=entry.get("locked_fields"),
             values=entry.get("values"),
             override_source=override_source,
@@ -142,6 +162,7 @@ def render_storyboard_preview(planning_snapshot: Mapping[str, Any] | None) -> li
         st.caption(tr("storyboard.preview.empty"))
         return []
 
+    snapshot_identity = build_storyboard_preview_snapshot_identity(planning_snapshot)
     state_namespace = build_storyboard_preview_state_namespace(planning_snapshot)
     draft_entries: list[dict[str, Any]] = []
     with st.expander(tr("storyboard.preview.title"), expanded=False):
@@ -192,4 +213,7 @@ def render_storyboard_preview(planning_snapshot: Mapping[str, Any] | None) -> li
                     }
                 )
 
-    return collect_storyboard_preview_overrides(draft_entries)
+    return collect_storyboard_preview_overrides(
+        draft_entries,
+        snapshot_identity=snapshot_identity,
+    )

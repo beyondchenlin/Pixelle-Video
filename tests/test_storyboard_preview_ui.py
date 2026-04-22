@@ -2,6 +2,7 @@ from pathlib import Path
 
 from web.components.storyboard_preview import (
     build_frame_override_payload,
+    build_storyboard_preview_snapshot_identity,
     build_storyboard_preview_state_namespace,
     collect_storyboard_preview_overrides,
 )
@@ -10,6 +11,7 @@ from web.components.storyboard_preview import (
 def test_build_frame_override_payload_only_keeps_locked_fields():
     payload = build_frame_override_payload(
         scene_id="scene-1",
+        snapshot_identity="snapshot:scene-1",
         locked_fields=["shot_type", "world_elements"],
         values={
             "shot_type": "medium_shot",
@@ -21,6 +23,7 @@ def test_build_frame_override_payload_only_keeps_locked_fields():
 
     assert payload == {
         "scene_id": "scene-1",
+        "snapshot_identity": "snapshot:scene-1",
         "locked_fields": ["shot_type", "world_elements"],
         "shot_type": "medium_shot",
         "world_elements": ["strategy board"],
@@ -29,6 +32,21 @@ def test_build_frame_override_payload_only_keeps_locked_fields():
 
 
 def test_collect_storyboard_preview_overrides_skips_empty_entries():
+    snapshot = {
+        "frames": [
+            {
+                "scene_id": "scene-1",
+                "shot_type": "medium_shot",
+                "shot_purpose": "context",
+                "primary_subject": "coach",
+                "world_elements": ["strategy board"],
+                "continuity_anchors": ["desk"],
+                "focus_detail": "marker notes",
+                "prompt_intent": "teach concept A",
+            }
+        ]
+    }
+    snapshot_identity = build_storyboard_preview_snapshot_identity(snapshot)
     overrides = collect_storyboard_preview_overrides(
         [
             {
@@ -41,17 +59,47 @@ def test_collect_storyboard_preview_overrides_skips_empty_entries():
                 "locked_fields": [],
                 "values": {"shot_type": "close_up"},
             },
-        ]
+        ],
+        snapshot_identity=snapshot_identity,
     )
 
     assert overrides == [
         {
             "scene_id": "scene-1",
+            "snapshot_identity": snapshot_identity,
             "locked_fields": ["shot_type"],
             "shot_type": "medium_shot",
             "override_source": "user_preview",
         }
     ]
+
+
+def test_storyboard_preview_snapshot_identity_hashes_snapshot_frames():
+    snapshot = {
+        "frames": [
+            {
+                "scene_id": "scene-1",
+                "shot_type": "medium_shot",
+                "shot_purpose": "context",
+                "primary_subject": "coach",
+                "world_elements": ["strategy board"],
+                "continuity_anchors": ["desk"],
+                "focus_detail": "marker notes",
+                "prompt_intent": "teach concept A",
+            }
+        ]
+    }
+
+    identity = build_storyboard_preview_snapshot_identity(snapshot)
+    payload = build_frame_override_payload(
+        scene_id="scene-1",
+        snapshot_identity=identity,
+        locked_fields=["shot_type"],
+        values={"shot_type": "close_up"},
+    )
+
+    assert payload is not None
+    assert payload["snapshot_identity"] == identity
 
 
 def test_storyboard_preview_state_namespace_changes_with_snapshot_content():

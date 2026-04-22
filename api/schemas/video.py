@@ -16,9 +16,57 @@ Video generation API schemas
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from pixelle_video.models.storyboard_planning import (
+    ConsistencyStrength,
+    ContentMode,
+    FrameOverrideSource,
+    RoleStrategy,
+    ShotOverridePolicy,
+)
 from pixelle_video.render_backend import RenderBackend
+
+StoryboardOverrideField = Literal[
+    "narration_fragment",
+    "knowledge_goal",
+    "shot_type",
+    "shot_purpose",
+    "primary_subject",
+    "secondary_subjects",
+    "world_elements",
+    "continuity_anchors",
+    "focus_detail",
+    "prompt_intent",
+]
+
+
+class StoryboardFrameOverride(BaseModel):
+    """Structured per-frame storyboard override payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scene_id: str = Field(..., min_length=1, description="Storyboard scene id")
+    snapshot_identity: str = Field(..., min_length=1, description="Identity of the preview snapshot that produced this override")
+    locked_fields: List[StoryboardOverrideField] = Field(
+        ...,
+        min_length=1,
+        description="Editable frame fields that should stay locked on replay",
+    )
+    override_source: Optional[FrameOverrideSource] = Field(
+        None,
+        description="Origin of the override payload",
+    )
+    narration_fragment: Optional[str] = Field(None, description="Locked narration fragment override")
+    knowledge_goal: Optional[str] = Field(None, description="Locked knowledge goal override")
+    shot_type: Optional[str] = Field(None, description="Locked shot type override")
+    shot_purpose: Optional[str] = Field(None, description="Locked shot purpose override")
+    primary_subject: Optional[str] = Field(None, description="Locked primary subject override")
+    secondary_subjects: Optional[List[str]] = Field(None, description="Locked secondary subject overrides")
+    world_elements: Optional[List[str]] = Field(None, description="Locked world element overrides")
+    continuity_anchors: Optional[List[str]] = Field(None, description="Locked continuity anchor overrides")
+    focus_detail: Optional[str] = Field(None, description="Locked focus detail override")
+    prompt_intent: Optional[str] = Field(None, description="Locked prompt intent override")
 
 
 class VideoGenerateRequest(BaseModel):
@@ -91,18 +139,18 @@ class VideoGenerateRequest(BaseModel):
     # === Storyboard Planning ===
     world_preset_id: Optional[str] = Field(None, description="Storyboard world preset id")
     shot_preset_id: Optional[str] = Field(None, description="Storyboard shot preset id")
-    consistency_strength: Optional[str] = Field(
+    consistency_strength: Optional[ConsistencyStrength] = Field(
         None,
         description="Storyboard consistency strength",
     )
-    content_mode: Optional[str] = Field(None, description="Storyboard content mode override")
-    role_strategy: Optional[str] = Field(None, description="Storyboard role strategy override")
-    role_locking_strength: Optional[str] = Field(
+    content_mode: Optional[ContentMode] = Field(None, description="Storyboard content mode override")
+    role_strategy: Optional[RoleStrategy] = Field(None, description="Storyboard role strategy override")
+    role_locking_strength: Optional[ConsistencyStrength] = Field(
         None,
         description="Storyboard role locking strength override",
     )
-    shot_strategy: Optional[str] = Field(None, description="Storyboard shot strategy override")
-    frame_overrides: Optional[List[Dict[str, Any]]] = Field(
+    shot_strategy: Optional[ShotOverridePolicy] = Field(None, description="Storyboard shot strategy override")
+    frame_overrides: Optional[List[StoryboardFrameOverride]] = Field(
         None,
         description="Per-frame storyboard overrides collected from preview",
     )

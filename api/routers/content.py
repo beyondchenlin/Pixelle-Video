@@ -37,6 +37,12 @@ from pixelle_video.utils.content_generators import (
 router = APIRouter(prefix="/content", tags=["Content Generation"])
 
 
+def _serialize_frame_overrides(frame_overrides):
+    if frame_overrides is None:
+        return None
+    return [override.model_dump(exclude_none=True) for override in frame_overrides]
+
+
 @router.post("/narration", response_model=NarrationGenerateResponse)
 async def generate_narration(
     request: NarrationGenerateRequest,
@@ -111,7 +117,7 @@ async def generate_image_prompt(
             role_strategy=request.role_strategy,
             role_locking_strength=request.role_locking_strength,
             shot_strategy=request.shot_strategy,
-            frame_overrides=request.frame_overrides,
+            frame_overrides=_serialize_frame_overrides(request.frame_overrides),
         )
 
         return ImagePromptGenerateResponse(

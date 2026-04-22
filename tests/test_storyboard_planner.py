@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from pixelle_video.models.storyboard_planning import FramePlan
@@ -12,6 +14,7 @@ from pixelle_video.services.storyboard_planner import (
     resolve_role_strategy,
     resolve_shot_preset,
 )
+from web.components.storyboard_preview import build_storyboard_preview_snapshot_identity
 
 
 def _neutral_world() -> dict[str, object]:
@@ -38,6 +41,16 @@ def _max_consecutive_run_length(shot_types: list[str]) -> int:
         max_run = max(max_run, run_length)
 
     return max_run
+
+
+def _snapshot_identity_for_frames(frames: list[FramePlan | dict[str, object]]) -> str:
+    serialized_frames: list[dict[str, object]] = []
+    for frame in frames:
+        if isinstance(frame, FramePlan):
+            serialized_frames.append(frame.to_prompt_dict())
+        else:
+            serialized_frames.append(dict(frame))
+    return build_storyboard_preview_snapshot_identity({"frames": serialized_frames})
 
 
 def test_resolve_content_mode_prefers_forced_mode_over_classifier_result():
@@ -172,6 +185,7 @@ def test_repair_frame_plan_shots_respects_locked_shot_type():
         frame_overrides=[
             {
                 "scene_id": "3",
+                "snapshot_identity": _snapshot_identity_for_frames(plans),
                 "locked_fields": ["shot_type"],
                 "shot_type": "close_up",
                 "override_source": "user_preview",
@@ -201,6 +215,7 @@ def test_apply_frame_overrides_locks_requested_fields_and_keeps_override_source(
         frame_overrides=[
             {
                 "scene_id": "2",
+                "snapshot_identity": _snapshot_identity_for_frames(plans),
                 "locked_fields": ["shot_type"],
                 "shot_type": "close_up",
                 "override_source": "user_preview",
@@ -218,18 +233,21 @@ def test_apply_frame_overrides_preserves_prior_locks_across_repeated_overrides()
     plans = [
         FramePlan(scene_id="1", shot_type="wide_shot", focus_detail="orig", prompt_intent="opening"),
     ]
+    snapshot_identity = _snapshot_identity_for_frames(plans)
 
     overridden = apply_frame_overrides(
         frame_plans=plans,
         frame_overrides=[
             {
                 "scene_id": "1",
+                "snapshot_identity": snapshot_identity,
                 "locked_fields": ["shot_type"],
                 "shot_type": "medium_shot",
                 "override_source": "user_preview",
             },
             {
                 "scene_id": "1",
+                "snapshot_identity": snapshot_identity,
                 "locked_fields": ["focus_detail"],
                 "focus_detail": "user focus note",
                 "override_source": "user_preview",
@@ -252,6 +270,7 @@ def test_apply_frame_overrides_rejects_missing_scene_id():
             frame_plans=plans,
             frame_overrides=[
                 {
+                    "snapshot_identity": _snapshot_identity_for_frames(plans),
                     "locked_fields": ["shot_type"],
                     "shot_type": "medium_shot",
                     "override_source": "user_preview",
@@ -269,6 +288,7 @@ def test_apply_frame_overrides_rejects_unknown_scene_id():
             frame_overrides=[
                 {
                     "scene_id": "2",
+                    "snapshot_identity": _snapshot_identity_for_frames(plans),
                     "locked_fields": ["shot_type"],
                     "shot_type": "medium_shot",
                     "override_source": "user_preview",
@@ -305,9 +325,29 @@ def test_apply_frame_overrides_rejects_invalid_override_attempts(
     match: str,
 ):
     plans = [FramePlan(scene_id="1", shot_type="wide_shot", prompt_intent="opening")]
+    override_payload = dict(override_payload)
+    override_payload["snapshot_identity"] = _snapshot_identity_for_frames(plans)
 
     with pytest.raises(ValueError, match=match):
         apply_frame_overrides(frame_plans=plans, frame_overrides=[override_payload])
+
+
+def test_apply_frame_overrides_rejects_snapshot_identity_mismatch():
+    plans = [FramePlan(scene_id="1", shot_type="wide_shot", prompt_intent="opening")]
+
+    with pytest.raises(ValueError, match="snapshot_identity"):
+        apply_frame_overrides(
+            frame_plans=plans,
+            frame_overrides=[
+                {
+                    "scene_id": "1",
+                    "snapshot_identity": "snapshot:stale",
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                    "override_source": "user_preview",
+                }
+            ],
+        )
 
 
 def test_parse_storyboard_frames_raises_when_required_fields_are_missing():
@@ -402,70 +442,68 @@ def test_parse_storyboard_frames_rejects_missing_frames_key():
 @pytest.mark.asyncio
 async def test_plan_storyboard_batch_runs_prompt_parse_override_repair_and_snapshot(monkeypatch):
     captured_prompts: list[str] = []
+    planner_frames = [
+        {
+            "scene_id": "1",
+            "narration_fragment": "intro",
+            "knowledge_goal": "goal 1",
+            "shot_type": "medium_shot",
+            "shot_purpose": "context",
+            "primary_subject": "subject 1",
+            "secondary_subjects": [],
+            "world_elements": ["board"],
+            "continuity_anchors": ["anchor 1"],
+            "focus_detail": "detail 1",
+            "prompt_intent": "intent 1",
+            "locked_fields": [],
+            "override_source": None,
+            "frame_source": "planner_generated",
+            "replan_scope": "local",
+            "planner_version": "1.0",
+        },
+        {
+            "scene_id": "2",
+            "narration_fragment": "middle",
+            "knowledge_goal": "goal 2",
+            "shot_type": "medium_shot",
+            "shot_purpose": "explain",
+            "primary_subject": "subject 2",
+            "secondary_subjects": [],
+            "world_elements": ["board"],
+            "continuity_anchors": ["anchor 2"],
+            "focus_detail": "detail 2",
+            "prompt_intent": "intent 2",
+            "locked_fields": [],
+            "override_source": None,
+            "frame_source": "planner_generated",
+            "replan_scope": "local",
+            "planner_version": "1.0",
+        },
+        {
+            "scene_id": "3",
+            "narration_fragment": "ending",
+            "knowledge_goal": "goal 3",
+            "shot_type": "medium_shot",
+            "shot_purpose": "summary",
+            "primary_subject": "subject 3",
+            "secondary_subjects": [],
+            "world_elements": ["board"],
+            "continuity_anchors": ["anchor 3"],
+            "focus_detail": "detail 3",
+            "prompt_intent": "intent 3",
+            "locked_fields": [],
+            "override_source": None,
+            "frame_source": "planner_generated",
+            "replan_scope": "local",
+            "planner_version": "1.0",
+        },
+    ]
+    raw_planner_response = json.dumps({"frames": planner_frames})
 
     class FakeLLM:
         async def __call__(self, *, prompt: str, **kwargs):
             captured_prompts.append(prompt)
-            return """
-            {
-              "frames": [
-                {
-                  "scene_id": "1",
-                  "narration_fragment": "intro",
-                  "knowledge_goal": "goal 1",
-                  "shot_type": "medium_shot",
-                  "shot_purpose": "context",
-                  "primary_subject": "subject 1",
-                  "secondary_subjects": [],
-                  "world_elements": ["board"],
-                  "continuity_anchors": ["anchor 1"],
-                  "focus_detail": "detail 1",
-                  "prompt_intent": "intent 1",
-                  "locked_fields": [],
-                  "override_source": null,
-                  "frame_source": "planner_generated",
-                  "replan_scope": "local",
-                  "planner_version": "1.0"
-                },
-                {
-                  "scene_id": "2",
-                  "narration_fragment": "middle",
-                  "knowledge_goal": "goal 2",
-                  "shot_type": "medium_shot",
-                  "shot_purpose": "explain",
-                  "primary_subject": "subject 2",
-                  "secondary_subjects": [],
-                  "world_elements": ["board"],
-                  "continuity_anchors": ["anchor 2"],
-                  "focus_detail": "detail 2",
-                  "prompt_intent": "intent 2",
-                  "locked_fields": [],
-                  "override_source": null,
-                  "frame_source": "planner_generated",
-                  "replan_scope": "local",
-                  "planner_version": "1.0"
-                },
-                {
-                  "scene_id": "3",
-                  "narration_fragment": "ending",
-                  "knowledge_goal": "goal 3",
-                  "shot_type": "medium_shot",
-                  "shot_purpose": "summary",
-                  "primary_subject": "subject 3",
-                  "secondary_subjects": [],
-                  "world_elements": ["board"],
-                  "continuity_anchors": ["anchor 3"],
-                  "focus_detail": "detail 3",
-                  "prompt_intent": "intent 3",
-                  "locked_fields": [],
-                  "override_source": null,
-                  "frame_source": "planner_generated",
-                  "replan_scope": "local",
-                  "planner_version": "1.0"
-                }
-              ]
-            }
-            """
+            return raw_planner_response
 
     result = await plan_storyboard_batch(
         llm_service=FakeLLM(),
@@ -498,6 +536,7 @@ async def test_plan_storyboard_batch_runs_prompt_parse_override_repair_and_snaps
         frame_overrides=[
             {
                 "scene_id": "2",
+                "snapshot_identity": _snapshot_identity_for_frames(planner_frames),
                 "locked_fields": ["focus_detail"],
                 "focus_detail": "user focus note",
                 "override_source": "user_preview",
