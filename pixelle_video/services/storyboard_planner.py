@@ -7,8 +7,10 @@ from typing import Any, Mapping, Sequence
 from pixelle_video.config import config_manager
 from pixelle_video.config.storyboard_preset_library import load_shot_preset_map, lookup_world_preset
 from pixelle_video.models.storyboard_planning import (
+    FramePlan,
     ResolvedContentMode,
     ResolvedShotPreset,
+    StoryboardPlanningResponse,
     StoryboardPlanningResult,
 )
 from pixelle_video.prompts.storyboard_planning import (
@@ -58,6 +60,16 @@ def _normalize_override_payloads(frame_overrides: Sequence[Mapping[str, Any]] | 
                 payload["locked_fields"] = [locked_fields]
         normalized.append(payload)
     return normalized
+
+
+def _coerce_storyboard_frame_plans(llm_response: Any) -> list[FramePlan]:
+    if isinstance(llm_response, StoryboardPlanningResponse):
+        return llm_response.to_frame_plans()
+    if isinstance(llm_response, Mapping):
+        return StoryboardPlanningResponse.model_validate(llm_response).to_frame_plans()
+    if isinstance(llm_response, str):
+        return parse_storyboard_frames(llm_response)
+    raise ValueError("storyboard planner returned an unsupported response type")
 
 
 def resolve_content_mode(
@@ -265,8 +277,13 @@ async def plan_storyboard_batch(
         role_locking_strength=selected_role_locking_strength,
         shot_strategy=selected_shot_strategy,
     )
-    llm_response = await llm_service(prompt=planner_prompt, temperature=0.2, max_tokens=2400)
-    frame_plans = parse_storyboard_frames(llm_response)
+    llm_response = await llm_service(
+        prompt=planner_prompt,
+        response_type=StoryboardPlanningResponse,
+        temperature=0.2,
+        max_tokens=2400,
+    )
+    frame_plans = _coerce_storyboard_frame_plans(llm_response)
     if len(frame_plans) != len(narrations):
         raise ValueError("storyboard planner returned a frame count that does not match the narrations")
 

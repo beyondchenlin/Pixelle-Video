@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 ContentMode = Literal["theme_mapping", "concept_explainer"]
 ConsistencyStrength = Literal["standard", "strong"]
 RoleStrategy = Literal["auto", "stable_explainer_cast", "theme_mapping"]
@@ -16,6 +18,24 @@ ReplanScope = Literal["local", "adjacent", "global"]
 
 def _to_list(values: tuple[Any, ...] | list[Any]) -> list[Any]:
     return list(values)
+
+
+def _normalize_scene_id_value(value: Any) -> str:
+    if isinstance(value, bool):
+        raise ValueError("storyboard frame field scene_id must be a string or integer-like number")
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        raise ValueError("storyboard frame field scene_id must be a string or integer-like number")
+    if not isinstance(value, str):
+        raise ValueError("storyboard frame field scene_id must be a string or integer-like number")
+
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("storyboard frame field scene_id must be a non-empty string")
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -182,6 +202,63 @@ class FramePlan:
             "replan_scope": self.replan_scope,
             "planner_version": self.planner_version,
         }
+
+
+class StoryboardPlanningFrameResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    scene_id: str = Field(
+        description='Quoted string scene identifier matching narration order, for example "1", "2", "3". Never return it as a number.'
+    )
+    narration_fragment: str
+    knowledge_goal: str
+    shot_type: str
+    shot_purpose: str
+    primary_subject: str
+    secondary_subjects: list[str]
+    world_elements: list[str]
+    continuity_anchors: list[str]
+    focus_detail: str
+    prompt_intent: str
+    locked_fields: list[str]
+    override_source: Optional[FrameOverrideSource] = None
+    frame_source: FrameSource
+    replan_scope: ReplanScope
+    planner_version: str
+
+    @field_validator("scene_id", mode="before")
+    @classmethod
+    def _validate_scene_id(cls, value: Any) -> str:
+        return _normalize_scene_id_value(value)
+
+    def to_frame_plan(self) -> "FramePlan":
+        return FramePlan(
+            scene_id=self.scene_id,
+            narration_fragment=self.narration_fragment,
+            knowledge_goal=self.knowledge_goal,
+            shot_type=self.shot_type,
+            shot_purpose=self.shot_purpose,
+            primary_subject=self.primary_subject,
+            secondary_subjects=tuple(self.secondary_subjects),
+            world_elements=tuple(self.world_elements),
+            continuity_anchors=tuple(self.continuity_anchors),
+            focus_detail=self.focus_detail,
+            prompt_intent=self.prompt_intent,
+            locked_fields=tuple(self.locked_fields),
+            override_source=self.override_source,
+            frame_source=self.frame_source,
+            replan_scope=self.replan_scope,
+            planner_version=self.planner_version,
+        )
+
+
+class StoryboardPlanningResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    frames: list[StoryboardPlanningFrameResponse]
+
+    def to_frame_plans(self) -> list["FramePlan"]:
+        return [frame.to_frame_plan() for frame in self.frames]
 
 
 @dataclass(frozen=True)

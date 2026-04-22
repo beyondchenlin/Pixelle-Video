@@ -2,7 +2,12 @@ import json
 
 import pytest
 
-from pixelle_video.models.storyboard_planning import FramePlan
+import pixelle_video.services.storyboard_planner as storyboard_planner_module
+from pixelle_video.models.storyboard_planning import (
+    FramePlan,
+    StoryboardPlanningFrameResponse,
+    StoryboardPlanningResponse,
+)
 from pixelle_video.prompts.storyboard_planning import (
     build_storyboard_planning_prompt,
     parse_storyboard_frames,
@@ -383,7 +388,7 @@ def test_parse_storyboard_frames_raises_when_required_fields_are_missing():
 
 
 def test_parse_storyboard_frames_raises_when_field_types_are_invalid():
-    with pytest.raises(ValueError, match="secondary_subjects must be a list or tuple of strings"):
+    with pytest.raises(ValueError, match="secondary_subjects"):
         parse_storyboard_frames(
             """
             {
@@ -454,9 +459,9 @@ def test_build_storyboard_planning_prompt_instructs_string_scene_ids():
         )
     )
 
-    frame_properties = prompt["required_output"]["properties"]["frames"]["items"]["properties"]
-    assert frame_properties["scene_id"]["type"] == "string"
-    assert "quoted string" in frame_properties["scene_id"]["description"].lower()
+    frame_schema = prompt["required_output"]["$defs"]["StoryboardPlanningFrameResponse"]
+    assert frame_schema["properties"]["scene_id"]["type"] == "string"
+    assert "quoted string" in frame_schema["properties"]["scene_id"]["description"].lower()
     assert any("never a number" in instruction for instruction in prompt["instructions"])
 
 
@@ -568,7 +573,7 @@ def test_parse_storyboard_frames_accepts_markdown_fenced_json():
     ],
 )
 def test_parse_storyboard_frames_rejects_non_json_wrappers(raw_response: str):
-    with pytest.raises(ValueError, match="raw JSON only"):
+    with pytest.raises(ValueError, match="JSON payload"):
         parse_storyboard_frames(raw_response)
 
 
@@ -580,6 +585,7 @@ def test_parse_storyboard_frames_rejects_missing_frames_key():
 @pytest.mark.asyncio
 async def test_plan_storyboard_batch_runs_prompt_parse_override_repair_and_snapshot(monkeypatch):
     captured_prompts: list[str] = []
+    captured_kwargs: list[dict[str, object]] = []
     planner_frames = [
         {
             "scene_id": "1",
@@ -641,6 +647,7 @@ async def test_plan_storyboard_batch_runs_prompt_parse_override_repair_and_snaps
     class FakeLLM:
         async def __call__(self, *, prompt: str, **kwargs):
             captured_prompts.append(prompt)
+            captured_kwargs.append(dict(kwargs))
             return raw_planner_response
 
     result = await plan_storyboard_batch(
@@ -684,6 +691,7 @@ async def test_plan_storyboard_batch_runs_prompt_parse_override_repair_and_snaps
     )
 
     assert captured_prompts
+    assert captured_kwargs[0]["response_type"] is StoryboardPlanningResponse
     assert '"task": "plan_storyboard_frames"' in captured_prompts[0]
     assert result.planning_snapshot["requested_shot_preset_id"] == "balanced_explainer"
     assert result.planning_snapshot["effective_final_shot_preset"] == "balanced_explainer"
@@ -778,3 +786,74 @@ async def test_plan_storyboard_batch_respects_preset_max_consecutive_same(monkey
     assert result.resolved_shot_preset.max_consecutive_same == 1
     assert result.planning_snapshot["resolved_shot_preset_details"]["max_consecutive_same"] == 1
     assert _max_consecutive_run_length([plan.shot_type for plan in result.frames]) <= 1
+
+
+@pytest.mark.asyncio
+async def test_plan_storyboard_batch_accepts_structured_response_instance(monkeypatch):
+    monkeypatch.setattr(
+        storyboard_planner_module,
+        "parse_storyboard_frames",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("text parser should not run")),
+    )
+
+    captured_response_type: list[object] = []
+
+    class FakeLLM:
+        async def __call__(self, *, prompt: str, **kwargs):
+            captured_response_type.append(kwargs.get("response_type"))
+            return StoryboardPlanningResponse(
+                frames=[
+                    StoryboardPlanningFrameResponse(
+                        scene_id="1",
+                        narration_fragment="intro",
+                        knowledge_goal="goal 1",
+                        shot_type="medium_shot",
+                        shot_purpose="context",
+                        primary_subject="subject 1",
+                        secondary_subjects=[],
+                        world_elements=["board"],
+                        continuity_anchors=["anchor 1"],
+                        focus_detail="detail 1",
+                        prompt_intent="intent 1",
+                        locked_fields=[],
+                        override_source=None,
+                        frame_source="planner_generated",
+                        replan_scope="local",
+                        planner_version="1.0",
+                    )
+                ]
+            )
+
+    result = await plan_storyboard_batch(
+        llm_service=FakeLLM(),
+        narrations=["first"],
+        world_preset_library={
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [
+                {
+                    "preset_id": "neutral_knowledge_storyboard",
+                    "supported_modes": ["theme_mapping", "concept_explainer"],
+                    "default_shot_preset_ids": ["balanced_explainer"],
+                    "conservative_fallback_mode": "concept_explainer",
+                }
+            ],
+        },
+        shot_preset_library={
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [
+                {
+                    "preset_id": "balanced_explainer",
+                    "supported_scene_count": [1],
+                    "override_policy": "adaptive",
+                    "shot_distribution_rules": [],
+                }
+            ],
+        },
+        shot_preset_id="balanced_explainer",
+        content_mode="concept_explainer",
+        role_strategy="auto",
+        classifier_result={"mode": "concept_explainer", "confidence": 0.91},
+    )
+
+    assert captured_response_type == [StoryboardPlanningResponse]
+    assert [frame.scene_id for frame in result.frames] == ["1"]
