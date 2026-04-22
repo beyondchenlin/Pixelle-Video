@@ -8,25 +8,6 @@ from typing import Any, Mapping
 
 from pixelle_video.models.storyboard_planning import FramePlan
 
-_FRAME_REQUIRED_FIELDS = (
-    "scene_id",
-    "narration_fragment",
-    "knowledge_goal",
-    "shot_type",
-    "shot_purpose",
-    "primary_subject",
-    "secondary_subjects",
-    "world_elements",
-    "continuity_anchors",
-    "focus_detail",
-    "prompt_intent",
-    "locked_fields",
-    "override_source",
-    "frame_source",
-    "replan_scope",
-    "planner_version",
-)
-
 
 def _to_tuple(value: Any) -> tuple[Any, ...]:
     if value is None:
@@ -74,6 +55,7 @@ def build_storyboard_planning_prompt(
 ) -> str:
     """Build the structured planning prompt sent to the LLM."""
 
+    required_frame_fields = list(FramePlan.required_prompt_fields())
     payload = {
         "task": "plan_storyboard_frames",
         "resolved_mode": resolved_mode,
@@ -84,7 +66,7 @@ def build_storyboard_planning_prompt(
         "narrations": narrations,
         "world_preset": dict(world_preset),
         "shot_preset": dict(shot_preset),
-        "required_frame_fields": list(_FRAME_REQUIRED_FIELDS),
+        "required_frame_fields": required_frame_fields,
         "required_output": {
             "type": "object",
             "properties": {
@@ -92,7 +74,7 @@ def build_storyboard_planning_prompt(
                     "type": "array",
                     "items": {
                         "type": "object",
-                        "required": list(_FRAME_REQUIRED_FIELDS),
+                        "required": required_frame_fields,
                     },
                 }
             },
@@ -110,6 +92,7 @@ def parse_storyboard_frames(raw_response: str) -> list[FramePlan]:
     """Parse storyboard frame plans from an LLM response."""
 
     payload = _extract_json_payload(raw_response)
+    required_fields = FramePlan.required_prompt_fields()
     frames_data: Any
 
     if isinstance(payload, list):
@@ -127,7 +110,7 @@ def parse_storyboard_frames(raw_response: str) -> list[FramePlan]:
         if not isinstance(frame, Mapping):
             raise ValueError("storyboard planning response frames must contain objects")
 
-        for field_name in _FRAME_REQUIRED_FIELDS:
+        for field_name in required_fields:
             if field_name not in frame:
                 raise ValueError(f"missing required storyboard frame field: {field_name}")
             if field_name != "override_source" and frame[field_name] is None:

@@ -10,6 +10,7 @@ ConsistencyStrength = Literal["standard", "strong"]
 RoleStrategy = Literal["auto", "stable_explainer_cast", "theme_mapping"]
 ShotOverridePolicy = Literal["adaptive", "strict"]
 FrameSource = Literal["planner_generated", "user_edited", "repair_adjusted", "fallback_regenerated"]
+FrameOverrideSource = Literal["user_preview"]
 ReplanScope = Literal["local", "adjacent", "global"]
 
 
@@ -132,10 +133,31 @@ class FramePlan:
     focus_detail: str = ""
     prompt_intent: str = ""
     locked_fields: tuple[str, ...] = ()
-    override_source: Optional[FrameSource] = None
+    override_source: Optional[FrameOverrideSource] = None
     frame_source: FrameSource = "planner_generated"
     replan_scope: ReplanScope = "local"
     planner_version: str = "1.0"
+
+    @classmethod
+    def required_prompt_fields(cls) -> tuple[str, ...]:
+        return (
+            "scene_id",
+            "narration_fragment",
+            "knowledge_goal",
+            "shot_type",
+            "shot_purpose",
+            "primary_subject",
+            "secondary_subjects",
+            "world_elements",
+            "continuity_anchors",
+            "focus_detail",
+            "prompt_intent",
+            "locked_fields",
+            "override_source",
+            "frame_source",
+            "replan_scope",
+            "planner_version",
+        )
 
     def to_prompt_dict(self) -> dict[str, Any]:
         return {

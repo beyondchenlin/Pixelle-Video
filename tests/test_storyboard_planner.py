@@ -109,7 +109,7 @@ def test_repair_frame_plan_shots_breaks_four_consecutive_identical_medium_shots(
 
     assert _max_consecutive_run_length([plan.shot_type for plan in repaired]) <= 2
     assert repaired[2].frame_source == "repair_adjusted"
-    assert repaired[3].frame_source == "repair_adjusted"
+    assert repaired[3].frame_source == "planner_generated"
 
 
 def test_repair_frame_plan_shots_breaks_four_consecutive_close_up_frames():
@@ -129,7 +129,7 @@ def test_repair_frame_plan_shots_breaks_four_consecutive_close_up_frames():
     assert repaired[2].shot_type == "medium_shot"
     assert repaired[2].frame_source == "repair_adjusted"
     assert repaired[3].shot_type == "close_up"
-    assert repaired[3].frame_source == "repair_adjusted"
+    assert repaired[3].frame_source == "planner_generated"
 
 
 def test_repair_frame_plan_shots_avoids_merging_into_adjacent_close_up_frames():
@@ -149,6 +149,37 @@ def test_repair_frame_plan_shots_avoids_merging_into_adjacent_close_up_frames():
 
     assert repaired[3].shot_type == "medium_shot"
     assert repaired[3].frame_source == "repair_adjusted"
+    assert _max_consecutive_run_length([plan.shot_type for plan in repaired]) <= 2
+
+
+def test_repair_frame_plan_shots_respects_locked_shot_type():
+    plans = [
+        FramePlan(scene_id="1", shot_type="close_up", shot_purpose="a", prompt_intent="a"),
+        FramePlan(scene_id="2", shot_type="close_up", shot_purpose="b", prompt_intent="b"),
+        FramePlan(scene_id="3", shot_type="close_up", shot_purpose="c", prompt_intent="c"),
+        FramePlan(scene_id="4", shot_type="close_up", shot_purpose="d", prompt_intent="d"),
+    ]
+
+    overridden = apply_frame_overrides(
+        frame_plans=plans,
+        frame_overrides=[
+            {
+                "scene_id": "3",
+                "locked_fields": ["shot_type"],
+                "shot_type": "close_up",
+                "override_source": "user_preview",
+            }
+        ],
+    )
+
+    repaired = repair_frame_plan_shots(
+        frame_plans=overridden,
+        shot_rules={"max_consecutive_same": 2},
+    )
+
+    assert repaired[2].shot_type == "close_up"
+    assert repaired[2].frame_source == "user_edited"
+    assert repaired[1].frame_source == "repair_adjusted"
     assert _max_consecutive_run_length([plan.shot_type for plan in repaired]) <= 2
 
 

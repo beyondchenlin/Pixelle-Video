@@ -43,19 +43,79 @@ def _get_max_consecutive_same(shot_rules: Any) -> int:
     return 2
 
 
-def _select_repair_shot_type(previous_shot_type: str, next_shot_type: str | None) -> str:
-    for candidate in _REPAIR_SHOT_TYPE_PRIORITY:
-        if candidate == previous_shot_type:
-            continue
-        if next_shot_type is not None and candidate == next_shot_type:
-            continue
-        return candidate
+def _is_shot_locked(frame: FramePlan) -> bool:
+    return "shot_type" in frame.locked_fields
+
+
+def _max_consecutive_run_length(shot_types: Sequence[str]) -> int:
+    max_run = 0
+    current = None
+    run_length = 0
+
+    for shot_type in shot_types:
+        if shot_type == current:
+            run_length += 1
+        else:
+            current = shot_type
+            run_length = 1
+        max_run = max(max_run, run_length)
+
+    return max_run
+
+
+def _candidate_repair_shot_types(previous_shot_type: str | None, next_shot_type: str | None, current_shot_type: str) -> tuple[str, ...]:
+    preferred: list[str] = []
+    fallback: list[str] = []
 
     for candidate in _REPAIR_SHOT_TYPE_PRIORITY:
-        if candidate != previous_shot_type:
-            return candidate
+        if candidate == current_shot_type:
+            continue
+        if candidate == previous_shot_type or candidate == next_shot_type:
+            continue
+        preferred.append(candidate)
 
-    return "medium_shot"
+    if preferred:
+        return tuple(preferred)
+
+    for candidate in _REPAIR_SHOT_TYPE_PRIORITY:
+        if candidate != current_shot_type:
+            fallback.append(candidate)
+
+    return tuple(fallback)
+
+
+def _try_repair_run(
+    repaired: list[FramePlan],
+    *,
+    run_start: int,
+    run_end: int,
+    max_consecutive_same: int,
+) -> bool:
+    unlocked_indices = [index for index in range(run_end - 1, run_start - 1, -1) if not _is_shot_locked(repaired[index])]
+    if not unlocked_indices:
+        return False
+
+    for repair_index in unlocked_indices:
+        previous_shot_type = repaired[repair_index - 1].shot_type if repair_index > 0 else None
+        next_shot_type = repaired[repair_index + 1].shot_type if repair_index + 1 < len(repaired) else None
+        current_shot_type = repaired[repair_index].shot_type
+
+        for candidate_shot_type in _candidate_repair_shot_types(
+            previous_shot_type,
+            next_shot_type,
+            current_shot_type,
+        ):
+            candidate_frames = list(repaired)
+            candidate_frames[repair_index] = replace(
+                repaired[repair_index],
+                shot_type=candidate_shot_type,
+                frame_source="repair_adjusted",
+            )
+            if _max_consecutive_run_length(frame.shot_type for frame in candidate_frames) <= max_consecutive_same:
+                repaired[repair_index] = candidate_frames[repair_index]
+                return True
+
+    return False
 
 
 def apply_frame_overrides(
@@ -106,7 +166,7 @@ def repair_frame_plan_shots(
     frame_plans: Sequence[FramePlan],
     shot_rules: Any,
 ) -> list[FramePlan]:
-    """Repair overlong same-shot runs by converting later frames to close_up."""
+    """Repair overlong same-shot runs while respecting locked shot_type frames."""
 
     if not frame_plans:
         return []
@@ -114,24 +174,29 @@ def repair_frame_plan_shots(
     max_consecutive_same = _get_max_consecutive_same(shot_rules)
     repaired = list(frame_plans)
 
-    run_start = 0
-    for index in range(1, len(repaired) + 1):
-        run_ended = index == len(repaired) or repaired[index].shot_type != repaired[run_start].shot_type
-        if not run_ended:
-            continue
+    while True:
+        changed = False
+        run_start = 0
 
-        run_length = index - run_start
-        if run_length > max_consecutive_same:
-            for repair_index in range(run_start + max_consecutive_same, index):
-                previous_shot_type = repaired[repair_index - 1].shot_type
-                next_shot_type = repaired[repair_index + 1].shot_type if repair_index + 1 < len(repaired) else None
-                repaired[repair_index] = replace(
-                    repaired[repair_index],
-                    shot_type=_select_repair_shot_type(previous_shot_type, next_shot_type),
-                    frame_source="repair_adjusted",
-                )
+        for index in range(1, len(repaired) + 1):
+            run_ended = index == len(repaired) or repaired[index].shot_type != repaired[run_start].shot_type
+            if not run_ended:
+                continue
 
-        run_start = index
+            run_length = index - run_start
+            if run_length > max_consecutive_same and _try_repair_run(
+                repaired,
+                run_start=run_start,
+                run_end=index,
+                max_consecutive_same=max_consecutive_same,
+            ):
+                changed = True
+                break
+
+            run_start = index
+
+        if not changed:
+            break
 
     return repaired
 
