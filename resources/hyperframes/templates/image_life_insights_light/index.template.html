@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=__CANVAS_WIDTH__, height=__CANVAS_HEIGHT__" />
     <title>Pixelle HyperFrames - Life Insights Light</title>
+    <link rel="stylesheet" href="./runtime/fonts/phase1_fonts.css" />
     <style>
       * {
         margin: 0;
@@ -19,7 +20,7 @@
       }
 
       body {
-        font-family: "PingFang SC", "Source Han Sans", "Microsoft YaHei", sans-serif;
+        font-family: var(--hf-font-display);
         background: #f5f1e8;
         position: relative;
         display: flex;
@@ -166,6 +167,7 @@
       .author {
         width: 100%;
         font-size: 30px;
+        font-family: var(--hf-font-brush);
         margin: 0 20px 20px 0;
         text-align: right;
         position: absolute;

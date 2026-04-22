@@ -69,9 +69,14 @@ class HyperFramesRenderer:
         expect_audio: bool = False,
     ) -> str:
         project_path = Path(project_dir).resolve()
-        manifest = self._load_manifest(project_path)
-        template_id = _validate_manifest_identifier("template_id", manifest.get("template_id"))
-        if not self._has_compiled_entrypoint(project_path):
+        has_compiled_entrypoint = self._has_compiled_entrypoint(project_path)
+        manifest = self._load_manifest(project_path, required=not has_compiled_entrypoint)
+        if not has_compiled_entrypoint:
+            if manifest is None:
+                raise FileNotFoundError(
+                    f"HyperFrames manifest not found: {project_path / 'data' / 'render_manifest.json'}"
+                )
+            template_id = _validate_manifest_identifier("template_id", manifest.get("template_id"))
             self._materialize_template(project_path, template_id)
 
         resolved_output_path = (
@@ -79,7 +84,7 @@ class HyperFramesRenderer:
             if output_path
             else project_path
             / "renders"
-            / f'{_validate_manifest_identifier("task_id", manifest.get("task_id"))}.mp4'
+            / f'{self._resolve_task_id(project_path, manifest)}.mp4'
         )
         resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -126,13 +131,30 @@ class HyperFramesRenderer:
 
         return final_output_path
 
-    def _load_manifest(self, project_dir: Path) -> dict[str, Any]:
+    def _load_manifest(
+        self,
+        project_dir: Path,
+        *,
+        required: bool = True,
+    ) -> dict[str, Any] | None:
         manifest_path = project_dir / "data" / "render_manifest.json"
         if not manifest_path.exists():
-            raise FileNotFoundError(f"HyperFrames manifest not found: {manifest_path}")
+            if required:
+                raise FileNotFoundError(f"HyperFrames manifest not found: {manifest_path}")
+            return None
 
         with open(manifest_path, "r", encoding="utf-8") as handle:
             return json.load(handle)
+
+    def _resolve_task_id(
+        self,
+        project_dir: Path,
+        manifest: dict[str, Any] | None,
+    ) -> str:
+        if manifest is not None and manifest.get("task_id") is not None:
+            return _validate_manifest_identifier("task_id", manifest.get("task_id"))
+
+        return _validate_manifest_identifier("task_id", project_dir.parent.name)
 
     def _materialize_template(self, project_dir: Path, template_id: str) -> None:
         template_dir = self.template_root / template_id

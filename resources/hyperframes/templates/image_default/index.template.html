@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=__CANVAS_WIDTH__, height=__CANVAS_HEIGHT__" />
     <title>Pixelle HyperFrames - Image Default</title>
+    <link rel="stylesheet" href="./runtime/fonts/phase1_fonts.css" />
     <style>
       :root {
         --frame-width: __CANVAS_WIDTH__px;
@@ -23,7 +24,7 @@
         overflow: hidden;
         background: var(--bg);
         color: var(--ink);
-        font-family: "PingFang SC", "Source Han Sans", "Microsoft YaHei", sans-serif;
+        font-family: var(--hf-font-sans);
       }
 
       #main-comp {

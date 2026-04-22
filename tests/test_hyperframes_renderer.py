@@ -135,6 +135,49 @@ def test_render_preserves_compiled_project_entrypoint_when_present(monkeypatch, 
     assert (project_dir / "index.html").read_text(encoding="utf-8") == "<!doctype html><title>compiled</title>"
 
 
+def test_render_allows_compiled_project_without_manifest_when_output_path_is_explicit(
+    monkeypatch,
+    tmp_path,
+):
+    project_dir = tmp_path / "output" / "task-compiled" / "hyperframes"
+    compositions_dir = project_dir / "compositions"
+    compositions_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "index.html").write_text(
+        "<!doctype html><title>compiled</title>",
+        encoding="utf-8",
+    )
+    (compositions_dir / "captions.html").write_text(
+        "<div data-composition-id='captions'></div>",
+        encoding="utf-8",
+    )
+
+    bridge_script = tmp_path / "render.mjs"
+    bridge_script.write_text("// bridge placeholder", encoding="utf-8")
+    explicit_output = project_dir / "renders" / "task-compiled.mp4"
+
+    def fake_run(command, capture_output, text, check, cwd):
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout=json.dumps({"output_path": str(explicit_output)}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    renderer = HyperFramesRenderer(
+        bridge_script=str(bridge_script),
+        template_root=str(tmp_path / "missing-templates"),
+    )
+
+    output_path = renderer.render(
+        str(project_dir),
+        output_path=str(explicit_output),
+    )
+
+    assert output_path == str(explicit_output)
+
+
 def test_render_rejects_video_without_audio_stream(monkeypatch, tmp_path):
     project_dir = tmp_path / "output" / "task-7" / "hyperframes"
     project_dir.mkdir(parents=True, exist_ok=True)

@@ -2,16 +2,26 @@ from __future__ import annotations
 
 from html import escape
 from pathlib import Path
+from shutil import copy2
 
 from pixelle_video.models.template_render_context import TemplateRenderContext
 
 
 class HyperFramesCompiler:
-    def __init__(self, template_root: Path | None = None):
+    def __init__(
+        self,
+        template_root: Path | None = None,
+        runtime_root: Path | None = None,
+    ):
         self.template_root = (
             Path(template_root)
             if template_root is not None
             else Path("resources/hyperframes/templates")
+        )
+        self.runtime_root = (
+            Path(runtime_root)
+            if runtime_root is not None
+            else Path("resources/hyperframes/runtime")
         )
 
     def compile(self, *, project_dir: Path, context: TemplateRenderContext) -> None:
@@ -40,6 +50,7 @@ class HyperFramesCompiler:
         compiled_captions = self._replace_placeholders(captions_template, replacements)
 
         (project_dir / "compositions").mkdir(parents=True, exist_ok=True)
+        self._copy_runtime_assets(project_dir)
         (project_dir / "index.html").write_text(compiled_index, encoding="utf-8")
         (project_dir / "compositions" / "captions.html").write_text(
             compiled_captions,
@@ -57,7 +68,8 @@ class HyperFramesCompiler:
             )
             rendered.append(
                 (
-                    f'<div class="visual-clip" data-start="{clip.start}" '
+                    f'<div id="{escape(clip.id, quote=True)}" class="clip visual-clip" '
+                    f'data-start="{clip.start}" '
                     f'data-duration="{duration}" data-track-index="{track_index}">'
                     '<div class="visual-frame">'
                     f"{media_tag}"
@@ -107,7 +119,7 @@ class HyperFramesCompiler:
             duration = max(float(cue.end) - float(cue.start), 0.1)
             rendered.append(
                 (
-                    '<div class="caption-group" '
+                    f'<div id="{escape(cue.id, quote=True)}" class="clip caption-group" '
                     f'data-start="{cue.start}" '
                     f'data-duration="{duration}" '
                     'data-track-index="1">'
@@ -116,6 +128,21 @@ class HyperFramesCompiler:
                 )
             )
         return "".join(rendered)
+
+    def _copy_runtime_assets(self, project_dir: Path) -> None:
+        if not self.runtime_root.exists():
+            return
+
+        for source_path in self.runtime_root.rglob("*"):
+            relative_path = source_path.relative_to(self.runtime_root)
+            target_path = project_dir / "runtime" / relative_path
+
+            if source_path.is_dir():
+                target_path.mkdir(parents=True, exist_ok=True)
+                continue
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            copy2(source_path, target_path)
 
     @staticmethod
     def _replace_placeholders(template: str, replacements: dict[str, str]) -> str:

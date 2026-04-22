@@ -16,20 +16,30 @@ def test_phase1_runtime_assets_are_local_only():
 
 def test_compiler_emits_static_index_without_manifest_fetch_or_remote_urls(tmp_path: Path):
     template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
     (template_root / "image_default" / "compositions").mkdir(parents=True)
+    (runtime_root / "fonts").mkdir(parents=True)
     (template_root / "image_default" / "index.template.html").write_text(
         (
             '<div id="root" data-width="__CANVAS_WIDTH__" '
             'data-height="__CANVAS_HEIGHT__" data-duration="__DURATION__">'
+            '<link rel="stylesheet" href="./runtime/fonts/phase1_fonts.css" />'
             "__VISUALS____AUDIO__</div>"
         ),
         encoding="utf-8",
     )
     (template_root / "image_default" / "compositions" / "captions.template.html").write_text(
-        '<div id="captions-root" data-duration="__DURATION__">__CAPTIONS__</div>',
+        (
+            '<link rel="stylesheet" href="../runtime/fonts/phase1_fonts.css" />'
+            '<div id="captions-root" data-duration="__DURATION__">__CAPTIONS__</div>'
+        ),
         encoding="utf-8",
     )
-    compiler = HyperFramesCompiler(template_root=template_root)
+    (runtime_root / "fonts" / "phase1_fonts.css").write_text(
+        ":root { --hf-font-sans: sans-serif; }",
+        encoding="utf-8",
+    )
+    compiler = HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root)
     context = TemplateRenderContext(
         template_id="image_default",
         canvas_width=1080,
@@ -77,7 +87,12 @@ def test_compiler_emits_static_index_without_manifest_fetch_or_remote_urls(tmp_p
     assert "https://" not in index_html
     assert 'src="assets/audio/master_audio.wav"' in index_html
     assert 'src="assets/images/01_image.png"' in index_html
+    assert 'class="clip visual-clip"' in index_html
+    assert 'href="./runtime/fonts/phase1_fonts.css"' in index_html
+    assert 'class="clip caption-group"' in captions_html
+    assert 'href="../runtime/fonts/phase1_fonts.css"' in captions_html
     assert 'data-duration="12.5"' in captions_html
+    assert (project_dir / "runtime" / "fonts" / "phase1_fonts.css").exists()
 
 
 def test_phase1_templates_do_not_depend_on_remote_fonts_or_cdn_scripts():
@@ -96,6 +111,23 @@ def test_phase1_templates_do_not_depend_on_remote_fonts_or_cdn_scripts():
         content = path.read_text(encoding="utf-8")
         assert "https://fonts.googleapis.com" not in content
         assert "https://cdnjs.cloudflare.com" not in content
+
+
+def test_phase1_templates_reference_local_font_entrypoint():
+    template_paths = [
+        Path("resources/hyperframes/templates/image_default/index.template.html"),
+        Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
+        Path(
+            "resources/hyperframes/templates/image_default/compositions/captions.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
+        ),
+    ]
+
+    for path in template_paths:
+        content = path.read_text(encoding="utf-8")
+        assert "phase1_fonts.css" in content
 
 
 def test_phase1_templates_preserve_source_shell_regions():
