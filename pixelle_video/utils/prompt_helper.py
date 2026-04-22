@@ -16,9 +16,37 @@ Prompt helper utilities
 Simple utilities for building prompts with optional prefixes.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
+
+
+def _read_value(container: Any, key: str, default: Any = None) -> Any:
+    if isinstance(container, dict):
+        return container.get(key, default)
+    return getattr(container, key, default)
+
+
+def _normalize_prompt_list(values: Any) -> list[str]:
+    if values is None:
+        return []
+    if isinstance(values, (list, tuple)):
+        raw_values = values
+    else:
+        raw_values = [values]
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in raw_values:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            continue
+        lowered = cleaned.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        normalized.append(cleaned)
+    return normalized
 
 
 def build_image_prompt(prompt: str, prefix: str = "") -> str:
@@ -86,6 +114,31 @@ def assemble_image_prompt(
     if template:
         return templated
     return build_image_prompt(base_prompt, raw_prefix)
+
+
+def assemble_storyboard_prompt(
+    *,
+    base_prompt: str,
+    frame_plan: Any,
+    world_preset: Any,
+    normalized_style: Optional[dict[str, Any]] = None,
+) -> str:
+    parts: list[str] = []
+    parts.extend(
+        _normalize_prompt_list(
+            [
+                _read_value(world_preset, "display_name", ""),
+                _read_value(world_preset, "style_core", ""),
+                _read_value(frame_plan, "shot_type", ""),
+                _read_value(frame_plan, "shot_purpose", ""),
+            ]
+        )
+    )
+    parts.extend(_normalize_prompt_list(_read_value(frame_plan, "world_elements", ())))
+    parts.extend(_normalize_prompt_list([base_prompt]))
+    if normalized_style is not None:
+        parts.extend(_normalize_prompt_list([normalized_style.get("visual_suffix", "")]))
+    return ", ".join(parts)
 
 
 def assemble_negative_prompt(

@@ -16,7 +16,8 @@ Helpers for turning raw style prefixes into runtime structured style specs.
 
 import hashlib
 import json
-from typing import Optional
+import re
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -101,6 +102,105 @@ def build_style_resolution_cache_key(source: StyleSourceSpec) -> str:
     if source.origin == "library" and source.item_id:
         return f"library:{source.item_id}:{source.content_hash}:{RESOLVER_VERSION}"
     return f"{source.origin}:{source.content_hash}:{RESOLVER_VERSION}"
+
+
+def _read_value(container: Any, key: str, default: Any = None) -> Any:
+    if isinstance(container, dict):
+        return container.get(key, default)
+    return getattr(container, key, default)
+
+
+def _unique_non_empty(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            continue
+        lowered = cleaned.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        deduped.append(cleaned)
+    return deduped
+
+
+def _world_identity_tokens(world_preset: Any) -> set[str]:
+    raw_values = [
+        str(_read_value(world_preset, "preset_id", "") or ""),
+        str(_read_value(world_preset, "display_name", "") or ""),
+        str(_read_value(world_preset, "style_core", "") or ""),
+    ]
+    tokens: set[str] = set()
+    for value in raw_values:
+        for token in re.findall(r"[a-z0-9]+", value.lower()):
+            if len(token) >= 4:
+                tokens.add(token)
+    return tokens
+
+
+def _style_mentions_world_identity(resolved_style: ResolvedStyleSpec, world_preset: Any) -> bool:
+    world_tokens = _world_identity_tokens(world_preset)
+    if not world_tokens:
+        return False
+
+    style_text = " ".join(
+        [
+            resolved_style.raw_content,
+            str(resolved_style.style_profile.get("consistency_anchor", "") or ""),
+            str(resolved_style.style_profile.get("world_elements", "") or ""),
+            resolved_style.prompt_template,
+        ]
+    ).lower()
+    return any(token in style_text for token in world_tokens)
+
+
+def normalize_storyboard_style(
+    *,
+    resolved_style: Optional[ResolvedStyleSpec],
+    world_preset: Any,
+) -> Optional[dict[str, Any]]:
+    if resolved_style is None:
+        return None
+
+    style_profile = resolved_style.style_profile or {}
+    visual_fields = {
+        "shape_language": (style_profile.get("shape_language") or "").strip(),
+        "material": (style_profile.get("material") or "").strip(),
+        "palette": (style_profile.get("palette") or "").strip(),
+        "lighting": (style_profile.get("lighting") or "").strip(),
+    }
+    classification = "compatible_refinement"
+    keep_consistency_anchor = True
+
+    if resolved_style.style_kind in {"ip_world", "hybrid"} and not _style_mentions_world_identity(
+        resolved_style,
+        world_preset,
+    ):
+        classification = "conflicting_world_override"
+        keep_consistency_anchor = False
+
+    suffix_parts = list(visual_fields.values())
+    if keep_consistency_anchor:
+        suffix_parts.append((style_profile.get("consistency_anchor") or "").strip())
+    visual_suffix = ", ".join(_unique_non_empty(suffix_parts))
+
+    normalized_profile = {
+        "style_kind": "visual_only",
+        "subject_policy": "preserve_subject_semantics",
+        "shape_language": visual_fields["shape_language"],
+        "material": visual_fields["material"],
+        "palette": visual_fields["palette"],
+        "lighting": visual_fields["lighting"],
+        "world_elements": "",
+        "consistency_anchor": (style_profile.get("consistency_anchor") or "").strip() if keep_consistency_anchor else "",
+        "negative_rules": (style_profile.get("negative_rules") or "").strip(),
+    }
+    return {
+        "classification": classification,
+        "visual_suffix": visual_suffix,
+        "style_profile": normalized_profile,
+    }
 
 
 def _validate_style_kind(value: str) -> str:

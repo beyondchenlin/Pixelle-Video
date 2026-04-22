@@ -20,14 +20,25 @@ These functions are reusable across different pipelines.
 import json
 import re
 import unicodedata
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from loguru import logger
 
+from pixelle_video.config import config_manager
+from pixelle_video.config.storyboard_preset_library import lookup_world_preset
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
-from pixelle_video.utils.prompt_helper import assemble_image_prompt, assemble_negative_prompt
+from pixelle_video.services.storyboard_planner import plan_storyboard_batch
+from pixelle_video.utils.prompt_helper import (
+    assemble_image_prompt,
+    assemble_negative_prompt,
+    assemble_storyboard_prompt,
+)
+from pixelle_video.utils.style_resolution import (
+    normalize_storyboard_style,
+    resolve_style_source,
+    resolve_style_spec,
+)
 from pixelle_video.utils.text_splitting import split_text_into_sentences
-from pixelle_video.utils.style_resolution import resolve_style_source, resolve_style_spec
 from pixelle_video.utils.workflow_capabilities import (
     WorkflowCapabilities,
     get_media_workflow_capabilities,
@@ -445,11 +456,34 @@ async def generate_styled_image_prompt_batch(
     batch_size: int = 10,
     max_retries: int = 3,
     progress_callback: Optional[callable] = None,
+    world_preset_id: Optional[str] = None,
+    shot_preset_id: Optional[str] = None,
+    consistency_strength: str = "standard",
+    content_mode: Optional[str] = None,
+    role_strategy: Optional[str] = None,
+    role_locking_strength: Optional[str] = None,
+    shot_strategy: Optional[str] = None,
+    frame_overrides: Optional[list[dict[str, Any]]] = None,
 ) -> StyledImagePromptBatch:
+    def _storyboard_controls_enabled() -> bool:
+        return any(
+            [
+                world_preset_id is not None,
+                shot_preset_id is not None,
+                content_mode is not None,
+                role_strategy is not None,
+                role_locking_strength is not None,
+                shot_strategy is not None,
+                bool(frame_overrides),
+                consistency_strength != "standard",
+            ]
+        )
+
     source = resolve_style_source(image_config, prompt_prefix_override=prompt_prefix)
     raw_prefix = source.raw_content if source else ""
     resolved_style = None
     style_profile = None
+    planning_snapshot = None
 
     if source is not None:
         try:
@@ -457,6 +491,40 @@ async def generate_styled_image_prompt_batch(
             style_profile = resolved_style.style_profile
         except Exception:
             logger.exception("Style resolution failed, falling back to legacy prefix concatenation")
+
+    storyboard_enabled = _storyboard_controls_enabled()
+    planning = None
+    normalized_style = None
+    if storyboard_enabled:
+        storyboard_world_preset = lookup_world_preset(
+            config_manager.get_storyboard_world_preset_library(),
+            world_preset_id,
+        )
+        normalized_style = normalize_storyboard_style(
+            resolved_style=resolved_style,
+            world_preset=storyboard_world_preset,
+        )
+        if normalized_style is not None:
+            style_profile = normalized_style["style_profile"]
+
+        planning = await plan_storyboard_batch(
+            llm_service=llm_service,
+            narrations=narrations,
+            image_config=image_config,
+            prompt_prefix=prompt_prefix,
+            world_preset_id=world_preset_id,
+            shot_preset_id=shot_preset_id,
+            workflow=workflow,
+            media_service=media_service,
+            media_type=media_type,
+            consistency_strength=consistency_strength,
+            content_mode=content_mode,
+            role_strategy=role_strategy,
+            role_locking_strength=role_locking_strength,
+            shot_strategy=shot_strategy,
+            frame_overrides=frame_overrides,
+        )
+        planning_snapshot = dict(getattr(planning, "planning_snapshot", None) or {})
 
     prompt_generator = generate_video_prompts if media_type == "video" else generate_image_prompts
     base_prompts = await prompt_generator(
@@ -482,10 +550,28 @@ async def generate_styled_image_prompt_batch(
             logger.warning(
                 f"Workflow capability probe failed, falling back to default workflow capabilities: {exc}"
             )
-    final_prompts = [
-        assemble_image_prompt(base_prompt, raw_prefix=raw_prefix, resolved_style=resolved_style)
-        for base_prompt in base_prompts
-    ]
+
+    if planning is not None:
+        frame_plans = list(getattr(planning, "frames", ()) or ())
+        if len(frame_plans) != len(base_prompts):
+            raise ValueError("storyboard planner frames do not match generated base prompt count")
+
+        world_preset = planning_snapshot.get("world_preset") or {}
+        final_prompts = [
+            assemble_storyboard_prompt(
+                base_prompt=base_prompt,
+                frame_plan=frame_plans[index],
+                world_preset=world_preset,
+                normalized_style=normalized_style,
+            )
+            for index, base_prompt in enumerate(base_prompts)
+        ]
+    else:
+        final_prompts = [
+            assemble_image_prompt(base_prompt, raw_prefix=raw_prefix, resolved_style=resolved_style)
+            for base_prompt in base_prompts
+        ]
+
     negative_prompt = assemble_negative_prompt(
         resolved_style,
         supports_negative_prompt=capabilities.supports_negative_prompt,
@@ -494,6 +580,7 @@ async def generate_styled_image_prompt_batch(
         prompts=final_prompts,
         negative_prompt=negative_prompt,
         resolved_style=resolved_style,
+        planning_snapshot=planning_snapshot,
     )
 
 

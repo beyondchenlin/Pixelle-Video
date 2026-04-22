@@ -48,3 +48,4 @@ class StyledImagePromptBatch:
     prompts: list[str]
     negative_prompt: Optional[str]
     resolved_style: Optional[ResolvedStyleSpec]
+    planning_snapshot: Optional[dict[str, Any]] = None
