@@ -81,3 +81,24 @@ def test_render_generated_style_preview_uses_video_bytes_and_format(monkeypatch)
 
     assert captured["load"] == ("http://127.0.0.1:8000/view?filename=test.mp4", "video")
     assert captured["video"] == (VIDEO_BYTES, "video/mp4")
+
+
+def test_render_template_gallery_preview_falls_back_when_image_raises_memory_error(monkeypatch):
+    captured = {}
+
+    class FakeStreamlit:
+        def image(self, *_args, **_kwargs):
+            raise MemoryError("preview too large")
+
+        def markdown(self, html, *, unsafe_allow_html):
+            captured["markdown"] = (html, unsafe_allow_html)
+
+    monkeypatch.setattr(style_config, "st", FakeStreamlit())
+
+    style_config._render_template_gallery_preview(
+        "docs/images/1080x1920/image_default.jpg",
+        "image_default",
+    )
+
+    assert "image_default" in captured["markdown"][0]
+    assert captured["markdown"][1] is True

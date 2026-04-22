@@ -81,6 +81,48 @@ def render_generated_style_preview(preview_media_path: str, template_media_type:
     )
 
 
+def _render_template_gallery_preview_placeholder(template_name: str):
+    """Render a compact placeholder card when a template preview is unavailable."""
+    escaped_name = escape(template_name)
+    st.markdown(
+        f"""
+        <div style="
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            border-radius: 8px;
+            color: white;
+            margin-bottom: 15px;
+            padding: 10px;
+        ">
+            <div style="
+                font-size: 14px;
+                opacity: 0.95;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                display: -webkit-box;
+                -webkit-line-clamp: 5;
+                -webkit-box-orient: vertical;
+                word-break: break-all;
+            ">{escaped_name}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_template_gallery_preview(preview_path: str, template_name: str):
+    """Render one template preview image, falling back to a placeholder on preview failures."""
+    try:
+        st.image(preview_path, width="stretch")
+    except Exception as exc:
+        logger.warning(f"Template preview render failed for {preview_path}: {exc}")
+        _render_template_gallery_preview_placeholder(template_name)
+
+
 def build_storyboard_control_payload(
     *,
     world_preset_id: str | None = None,
@@ -2043,37 +2085,9 @@ def render_style_config(pixelle_video):
                                 
                                 # Display preview image or placeholder
                                 if preview_path and os.path.exists(preview_path):
-                                    st.image(preview_path, width="stretch")
+                                    _render_template_gallery_preview(preview_path, template.display_info.name)
                                 else:
-                                    # Placeholder for templates without preview (fixed height, compact layout)
-                                    st.markdown(
-                                        f"""
-                                        <div style="
-                                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                                            height: 150px;
-                                            display: flex;
-                                            align-items: center;
-                                            justify-content: center;
-                                            text-align: center;
-                                            border-radius: 8px;
-                                            color: white;
-                                            margin-bottom: 15px;
-                                            padding: 10px;
-                                        ">
-                                            <div style="
-                                                font-size: 14px; 
-                                                opacity: 0.95;
-                                                overflow: hidden;
-                                                text-overflow: ellipsis;
-                                                display: -webkit-box;
-                                                -webkit-line-clamp: 5;
-                                                -webkit-box-orient: vertical;
-                                                word-break: break-all;
-                                            ">{template.display_info.name}</div>
-                                        </div>
-                                        """,
-                                        unsafe_allow_html=True
-                                    )
+                                    _render_template_gallery_preview_placeholder(template.display_info.name)
                                 
                                 # Select button (unified label)
                                 is_selected = (st.session_state['selected_template'] == template.template_path)
