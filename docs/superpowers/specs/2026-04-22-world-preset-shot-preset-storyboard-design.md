@@ -272,6 +272,7 @@ Each preset should define:
 - `negative_rules`
 - `default_shot_preset_ids`
 - `cast_slots`
+- `cast_slots_by_mode`: optional mode-specific cast definition map
 
 ### Example responsibilities
 
@@ -299,6 +300,14 @@ V1 schema rule:
 - `forced_mode` may only be set to one value already listed inside `supported_modes`
 - single-mode presets should use `supported_modes` with one entry plus matching `forced_mode`
 - dual-mode presets should omit `forced_mode`
+- single-mode presets may use `cast_slots` as their only cast definition
+- dual-mode presets must define `cast_slots_by_mode`
+- if both `cast_slots` and `cast_slots_by_mode` exist, `cast_slots` should be treated only as shared defaults and mode-specific definitions win on conflict
+
+This avoids schema ambiguity when one world supports both:
+
+- `theme_mapping` with entity-mapped roles
+- `concept_explainer` with stable explainer roles
 
 ## Cast Bible
 
@@ -413,6 +422,15 @@ Each shot preset should define:
 - `purpose_bias`
 - `override_policy`
 
+`override_policy` must be a schema-level contract, not just a label.
+
+Recommended V1 values:
+
+- `adaptive`: planner may rebalance unlocked frames to satisfy shot rules and preserve narrative flow
+- `strict`: planner should preserve the preset rhythm as much as possible and only repair hard-rule violations
+
+User-selected shot strategy may override the preset default for one task, but the resolved value must be stored in the task snapshot.
+
 ### Recommended initial shot presets
 
 - `balanced_explainer`
@@ -475,6 +493,17 @@ Each frame plan should define:
 - `frame_source`
 - `replan_scope`
 - `planner_version`
+
+`frame_source` must also be normalized.
+
+Recommended V1 values:
+
+- `planner_generated`
+- `user_edited`
+- `repair_adjusted`
+- `fallback_regenerated`
+
+This is required so preview logic, repair logic, and history inspection can all explain why a frame looks the way it does.
 
 ### Why this layer matters
 
@@ -673,6 +702,8 @@ This setting should influence at least:
 - continuity-anchor density in prompt construction
 - downgrade behavior on weaker capability tiers
 
+It should also act as the default policy source for advanced consistency controls unless the user explicitly overrides a narrower dimension.
+
 ### Advanced controls
 
 Expandable advanced settings may expose:
@@ -681,6 +712,19 @@ Expandable advanced settings may expose:
 - role locking strength
 - shot strategy: adaptive / strict preset
 - per-frame overrides
+
+### Advanced-control precedence
+
+Advanced controls should narrow or override only their own dimension.
+
+V1 rule:
+
+- `consistency strength` defines the default consistency policy for the whole task
+- `role locking strength`, if set, overrides only the cast-locking sub-policy derived from `consistency strength`
+- `shot strategy`, if set, overrides only the resolved `override_policy`
+- other consistency dimensions continue to follow the selected `consistency strength`
+
+This prevents one advanced control from silently rewriting unrelated planning behavior.
 
 ### Pre-Generation Storyboard Preview
 
@@ -695,6 +739,8 @@ Each frame card should show:
 - intended knowledge point
 
 This preview is a major product benefit of the storyboard-first system because it allows correction before image generation spend.
+
+If the system auto-selects a safe default world preset, the preview must explicitly show that preset name and indicate that it was auto-selected rather than user-selected.
 
 Per-frame overrides should initially allow:
 
@@ -738,8 +784,14 @@ These should remain task-local or session-local:
 When a task is submitted, the system should persist a snapshot of:
 
 - selected world preset
+- world-preset selection source (`user_selected` or `auto_defaulted`)
 - resolved cast bible
 - selected shot preset
+- resolved shot override policy
+- resolved content mode
+- effective routing confidence threshold
+- selected consistency strength
+- effective role locking policy
 - final storyboard plan
 - normalized style inputs
 
@@ -759,6 +811,19 @@ Rules:
 4. If shot planning fails, the system may fall back to a conservative default shot preset instead of failing the whole task.
 5. Existing simple prompt-generation endpoints may coexist during migration, but the new storyboard-first path should become the preferred route.
 6. Historical tasks should remain reproducible through stored task snapshots even if shared presets are later edited.
+
+### Safe Default Preset Contract
+
+V1 should use one built-in neutral educational preset as the storyboard-first safe default.
+
+Rules:
+
+- the safe default preset must not imply a strong branded or IP-like universe
+- it should be suitable for both `theme_mapping` and `concept_explainer` content with conservative world language
+- it must appear explicitly in preview and task history when auto-selected
+- V1 should not silently choose among multiple different default worlds based on heuristic content guessing
+
+This keeps no-preset behavior deterministic and prevents the system from secretly switching users into different universes.
 
 ## Files and Systems in Scope
 
