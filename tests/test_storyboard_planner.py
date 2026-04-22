@@ -3,7 +3,10 @@ import json
 import pytest
 
 from pixelle_video.models.storyboard_planning import FramePlan
-from pixelle_video.prompts.storyboard_planning import parse_storyboard_frames
+from pixelle_video.prompts.storyboard_planning import (
+    build_storyboard_planning_prompt,
+    parse_storyboard_frames,
+)
 from pixelle_video.services.storyboard_consistency import (
     apply_frame_overrides,
     repair_frame_plan_shots,
@@ -407,6 +410,134 @@ def test_parse_storyboard_frames_raises_when_field_types_are_invalid():
             }
             """
         )
+
+
+def test_parse_storyboard_frames_normalizes_numeric_scene_id_to_string():
+    plans = parse_storyboard_frames(
+        """
+        {
+          "frames": [
+            {
+              "scene_id": 1,
+              "narration_fragment": "intro",
+              "knowledge_goal": "goal",
+              "shot_type": "wide_shot",
+              "shot_purpose": "opening",
+              "primary_subject": "subject",
+              "secondary_subjects": [],
+              "world_elements": [],
+              "continuity_anchors": [],
+              "focus_detail": "detail",
+              "prompt_intent": "intent",
+              "locked_fields": [],
+              "override_source": null,
+              "frame_source": "planner_generated",
+              "replan_scope": "local",
+              "planner_version": "1.0"
+            }
+          ]
+        }
+        """
+    )
+
+    assert [plan.scene_id for plan in plans] == ["1"]
+
+
+def test_build_storyboard_planning_prompt_instructs_string_scene_ids():
+    prompt = json.loads(
+        build_storyboard_planning_prompt(
+            narrations=["intro"],
+            world_preset=_neutral_world(),
+            shot_preset={"preset_id": "balanced_explainer"},
+            resolved_mode="concept_explainer",
+            consistency_strength="standard",
+        )
+    )
+
+    frame_properties = prompt["required_output"]["properties"]["frames"]["items"]["properties"]
+    assert frame_properties["scene_id"]["type"] == "string"
+    assert "quoted string" in frame_properties["scene_id"]["description"].lower()
+    assert any("never a number" in instruction for instruction in prompt["instructions"])
+
+
+@pytest.mark.asyncio
+async def test_plan_storyboard_batch_normalizes_numeric_scene_ids_from_llm():
+    class FakeLLM:
+        async def __call__(self, *, prompt: str, **kwargs):
+            return """
+            {
+              "frames": [
+                {
+                  "scene_id": 1,
+                  "narration_fragment": "intro",
+                  "knowledge_goal": "goal 1",
+                  "shot_type": "medium_shot",
+                  "shot_purpose": "context",
+                  "primary_subject": "subject 1",
+                  "secondary_subjects": [],
+                  "world_elements": ["board"],
+                  "continuity_anchors": ["anchor 1"],
+                  "focus_detail": "detail 1",
+                  "prompt_intent": "intent 1",
+                  "locked_fields": [],
+                  "override_source": null,
+                  "frame_source": "planner_generated",
+                  "replan_scope": "local",
+                  "planner_version": "1.0"
+                },
+                {
+                  "scene_id": 2,
+                  "narration_fragment": "middle",
+                  "knowledge_goal": "goal 2",
+                  "shot_type": "medium_shot",
+                  "shot_purpose": "summary",
+                  "primary_subject": "subject 2",
+                  "secondary_subjects": [],
+                  "world_elements": ["board"],
+                  "continuity_anchors": ["anchor 2"],
+                  "focus_detail": "detail 2",
+                  "prompt_intent": "intent 2",
+                  "locked_fields": [],
+                  "override_source": null,
+                  "frame_source": "planner_generated",
+                  "replan_scope": "local",
+                  "planner_version": "1.0"
+                }
+              ]
+            }
+            """
+
+    result = await plan_storyboard_batch(
+        narrations=["intro", "middle"],
+        world_preset_id="neutral_knowledge_storyboard",
+        shot_preset_id="balanced_explainer",
+        world_preset_library={
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [
+                {
+                    "preset_id": "neutral_knowledge_storyboard",
+                    "supported_modes": ["theme_mapping", "concept_explainer"],
+                    "default_shot_preset_ids": ["balanced_explainer"],
+                    "conservative_fallback_mode": "concept_explainer",
+                }
+            ],
+        },
+        shot_preset_library={
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [
+                {
+                    "preset_id": "balanced_explainer",
+                    "supported_scene_count": [2],
+                    "override_policy": "adaptive",
+                    "shot_distribution_rules": [],
+                }
+            ],
+        },
+        content_mode="concept_explainer",
+        llm_service=FakeLLM(),
+    )
+
+    assert [frame.scene_id for frame in result.frames] == ["1", "2"]
 
 
 @pytest.mark.parametrize(

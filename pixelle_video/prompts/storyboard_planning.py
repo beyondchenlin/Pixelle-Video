@@ -29,6 +29,26 @@ def _require_string_field(frame: Mapping[str, Any], field_name: str) -> str:
     return value
 
 
+def _require_scene_id_field(frame: Mapping[str, Any]) -> str:
+    value = frame["scene_id"]
+
+    if isinstance(value, bool):
+        raise ValueError("storyboard frame field scene_id must be a string or integer-like number")
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        raise ValueError("storyboard frame field scene_id must be a string or integer-like number")
+    if not isinstance(value, str):
+        raise ValueError("storyboard frame field scene_id must be a string or integer-like number")
+
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("storyboard frame field scene_id must be a non-empty string")
+    return normalized
+
+
 def _require_string_sequence_field(frame: Mapping[str, Any], field_name: str) -> tuple[str, ...]:
     value = frame[field_name]
     if not isinstance(value, (list, tuple)):
@@ -71,6 +91,30 @@ def _extract_json_payload(raw_response: str) -> Any:
         raise ValueError("storyboard planning response must be raw JSON only") from exc
 
 
+def _build_frame_properties_schema() -> dict[str, Any]:
+    return {
+        "scene_id": {
+            "type": "string",
+            "description": 'Quoted string scene identifier matching narration order, for example "1", "2", "3". Never return it as a number.',
+        },
+        "narration_fragment": {"type": "string"},
+        "knowledge_goal": {"type": "string"},
+        "shot_type": {"type": "string"},
+        "shot_purpose": {"type": "string"},
+        "primary_subject": {"type": "string"},
+        "secondary_subjects": {"type": "array", "items": {"type": "string"}},
+        "world_elements": {"type": "array", "items": {"type": "string"}},
+        "continuity_anchors": {"type": "array", "items": {"type": "string"}},
+        "focus_detail": {"type": "string"},
+        "prompt_intent": {"type": "string"},
+        "locked_fields": {"type": "array", "items": {"type": "string"}},
+        "override_source": {"type": ["string", "null"], "enum": [None, *sorted(_ALLOWED_OVERRIDE_SOURCES)]},
+        "frame_source": {"type": "string", "enum": sorted(_ALLOWED_FRAME_SOURCES)},
+        "replan_scope": {"type": "string", "enum": sorted(_ALLOWED_REPLAN_SCOPES)},
+        "planner_version": {"type": "string"},
+    }
+
+
 def build_storyboard_planning_prompt(
     *,
     narrations: list[str],
@@ -85,6 +129,7 @@ def build_storyboard_planning_prompt(
     """Build the structured planning prompt sent to the LLM."""
 
     required_frame_fields = list(FramePlan.required_prompt_fields())
+    frame_properties = _build_frame_properties_schema()
     payload = {
         "task": "plan_storyboard_frames",
         "resolved_mode": resolved_mode,
@@ -104,6 +149,7 @@ def build_storyboard_planning_prompt(
                     "items": {
                         "type": "object",
                         "required": required_frame_fields,
+                        "properties": frame_properties,
                     },
                 }
             },
@@ -112,6 +158,9 @@ def build_storyboard_planning_prompt(
             "Return JSON only.",
             "Produce exactly one frame plan per narration.",
             "Keep the same order as the input narrations.",
+            'Return every "scene_id" as a quoted string matching narration order, never a number.',
+            "Make every array field contain strings only.",
+            "Validate the final payload against required_output before returning it.",
         ],
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
@@ -144,7 +193,7 @@ def parse_storyboard_frames(raw_response: str) -> list[FramePlan]:
 
         plans.append(
             FramePlan(
-                scene_id=_require_string_field(frame, "scene_id"),
+                scene_id=_require_scene_id_field(frame),
                 narration_fragment=_require_string_field(frame, "narration_fragment"),
                 knowledge_goal=_require_string_field(frame, "knowledge_goal"),
                 shot_type=_require_string_field(frame, "shot_type"),
