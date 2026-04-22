@@ -1070,6 +1070,7 @@ class StandardPipeline(LinearVideoPipeline):
             input_with_title["text"] = ctx.input_text # Ensure text is included
             if not input_with_title.get("title"):
                 input_with_title["title"] = storyboard.title
+            input_with_title.setdefault("render_backend", storyboard.config.render_backend)
             
             metadata = {
                 "task_id": task_id,

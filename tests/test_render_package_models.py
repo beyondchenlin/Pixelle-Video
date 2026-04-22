@@ -589,6 +589,7 @@ async def test_custom_pipeline_persist_task_data_records_render_backend(tmp_path
     assert fake_core.persistence.saved_metadata is not None
     _, metadata = fake_core.persistence.saved_metadata
     assert metadata["config"]["render_backend"] == "legacy"
+    assert metadata["input"]["render_backend"] == "legacy"
 
 
 @pytest.mark.asyncio
@@ -642,3 +643,4 @@ async def test_asset_based_pipeline_persist_task_data_records_render_backend(tmp
     assert fake_core.persistence.saved_metadata is not None
     _, metadata = fake_core.persistence.saved_metadata
     assert metadata["config"]["render_backend"] == "legacy"
+    assert metadata["input"]["render_backend"] == "legacy"

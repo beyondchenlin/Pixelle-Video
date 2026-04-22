@@ -32,6 +32,7 @@ from web.state.session import init_session_state, init_i18n, get_pixelle_video
 from web.components.header import render_header
 from web.i18n import tr
 from web.utils.async_helpers import run_async
+from web.utils.render_backend_ui import get_task_render_backend
 
 # Page config
 st.set_page_config(
@@ -292,6 +293,9 @@ def render_task_detail_modal(task_id: str, pixelle_video):
         st.markdown(f"**{tr('history.detail.n_scenes')}:** {input_params.get('n_scenes', 'N/A')}")
         st.markdown(f"**{tr('history.detail.tts_mode')}:** {input_params.get('tts_inference_mode', 'N/A')}")
         st.markdown(f"**{tr('history.detail.voice')}:** {input_params.get('tts_voice', 'N/A')}")
+        st.markdown(
+            f"**{tr('history.detail.render_backend')}:** {get_task_render_backend(metadata) or 'N/A'}"
+        )
         
         # Input text
         with st.expander(tr("history.detail.text"), expanded=True):

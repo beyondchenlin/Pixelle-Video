@@ -572,6 +572,14 @@
     "selfhost.warning.title": "You have selected a SelfHost (local) workflow. Please confirm the following:",
     "selfhost.warning.message": "1. First, **load and run** `{workflow_path}` workflow in your ComfyUI environment ({comfyui_url})\n2. Ensure the workflow **runs successfully** without missing nodes or models\n3. After the workflow is verified, return to this project to use it",
     "selfhost.warning.hint": "⚠️ If you haven't verified this workflow in ComfyUI, subsequent runs **will definitely fail** (usually 400 error)! Do not skip this step.",
-    "selfhost.warning.confirm": "I understand, continue"
+    "selfhost.warning.confirm": "I understand, continue",
+    "section.render_backend": "Render Backend",
+    "render_backend.label": "Render backend",
+    "render_backend.help": "Choose which rendering path this task should use.",
+    "render_backend.option.legacy": "Legacy",
+    "render_backend.option.hyperframes_compiled": "HyperFrames Compiled",
+    "render_backend.caption.legacy": "Uses the existing non-HyperFrames path for stable upstream validation.",
+    "render_backend.caption.hyperframes_compiled": "Uses the new compiled HyperFrames path for rollout testing.",
+    "history.detail.render_backend": "Render Backend"
   }
 }

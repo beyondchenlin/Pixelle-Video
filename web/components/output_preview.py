@@ -23,6 +23,7 @@ from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent
 from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
+from web.utils.render_backend_ui import copy_render_backend
 
 VIDEO_PREVIEW_CONTAINER_KEY = "output_video_preview"
 VIDEO_PREVIEW_WIDTH = "50%"
@@ -65,6 +66,81 @@ def render_output_preview(pixelle_video, video_params):
     else:
         # Single video generation mode (original logic)
         render_single_output(pixelle_video, video_params)
+
+
+def build_single_generation_request(video_params, *, progress_callback, session_state):
+    """Build a single generate_video() request from UI params."""
+    request = {
+        "text": video_params.get("text", ""),
+        "mode": video_params.get("mode", "generate"),
+        "title": video_params.get("title") if video_params.get("title") else None,
+        "n_scenes": video_params.get("n_scenes", 5),
+        "split_mode": video_params.get("split_mode", "paragraph"),
+        "media_workflow": video_params.get("media_workflow"),
+        "frame_template": video_params.get("frame_template"),
+        "prompt_prefix": video_params.get("prompt_prefix", ""),
+        "bgm_path": video_params.get("bgm_path"),
+        "bgm_volume": video_params.get("bgm_volume", 0.2)
+        if video_params.get("bgm_path")
+        else 0.2,
+        "progress_callback": progress_callback,
+        "media_width": session_state.get("template_media_width"),
+        "media_height": session_state.get("template_media_height"),
+        "tts_inference_mode": video_params.get("tts_inference_mode", "local"),
+    }
+
+    if request["tts_inference_mode"] == "local":
+        request["tts_voice"] = video_params.get("tts_voice")
+        request["tts_speed"] = video_params.get("tts_speed")
+    else:
+        request["tts_workflow"] = video_params.get("tts_workflow")
+        ref_audio_path = video_params.get("ref_audio")
+        if ref_audio_path:
+            request["ref_audio"] = str(ref_audio_path)
+
+    template_params = video_params.get("template_params", {})
+    if template_params:
+        request["template_params"] = template_params
+
+    copy_render_backend(video_params, request)
+    return request
+
+
+def build_batch_shared_config(video_params):
+    """Build batch shared_config from Web UI params."""
+    shared_config = {
+        "title_prefix": video_params.get("title_prefix"),
+        "n_scenes": video_params.get("n_scenes") or 5,
+        "media_workflow": video_params.get("media_workflow"),
+        "frame_template": video_params.get("frame_template"),
+        "prompt_prefix": video_params.get("prompt_prefix") or "",
+        "bgm_path": video_params.get("bgm_path"),
+        "bgm_volume": video_params.get("bgm_volume") or 0.2,
+        "tts_inference_mode": video_params.get("tts_inference_mode") or "local",
+        "media_width": video_params.get("media_width"),
+        "media_height": video_params.get("media_height"),
+    }
+
+    if shared_config["tts_inference_mode"] == "local":
+        tts_voice = video_params.get("tts_voice")
+        tts_speed = video_params.get("tts_speed")
+        if tts_voice:
+            shared_config["tts_voice"] = tts_voice
+        if tts_speed:
+            shared_config["tts_speed"] = tts_speed
+    else:
+        tts_workflow = video_params.get("tts_workflow")
+        if tts_workflow:
+            shared_config["tts_workflow"] = tts_workflow
+        ref_audio = video_params.get("ref_audio")
+        if ref_audio:
+            shared_config["ref_audio"] = str(ref_audio)
+
+    if video_params.get("template_params"):
+        shared_config["template_params"] = video_params["template_params"]
+
+    copy_render_backend(video_params, shared_config)
+    return shared_config
 
 
 def render_single_output(pixelle_video, video_params):
@@ -150,39 +226,31 @@ def render_single_output(pixelle_video, video_params):
                     status_text.text(message)
                     progress_bar.progress(min(int(event.progress * 100), 99))  # Cap at 99% until complete
                 
-                # Generate video (directly pass parameters)
-                # Note: media_width and media_height are auto-determined from template
-                video_params = {
-                    "text": text,
-                    "mode": mode,
-                    "title": title if title else None,
-                    "n_scenes": n_scenes,
-                    "split_mode": split_mode,
-                    "media_workflow": workflow_key,
-                    "frame_template": frame_template,
-                    "prompt_prefix": prompt_prefix,
-                    "bgm_path": bgm_path,
-                    "bgm_volume": bgm_volume if bgm_path else 0.2,
-                    "progress_callback": update_progress,
-                    "media_width": st.session_state.get('template_media_width'),
-                    "media_height": st.session_state.get('template_media_height'),
-                }
-                
-                # Add TTS parameters based on mode
-                video_params["tts_inference_mode"] = tts_mode
-                if tts_mode == "local":
-                    video_params["tts_voice"] = selected_voice
-                    video_params["tts_speed"] = tts_speed
-                else:  # comfyui
-                    video_params["tts_workflow"] = tts_workflow_key
-                    if ref_audio_path:
-                        video_params["ref_audio"] = str(ref_audio_path)
-                
-                # Add custom template parameters if any
-                if custom_values_for_video:
-                    video_params["template_params"] = custom_values_for_video
-                
-                result = run_async(pixelle_video.generate_video(**video_params))
+                generation_request = build_single_generation_request(
+                    {
+                        "text": text,
+                        "mode": mode,
+                        "title": title,
+                        "n_scenes": n_scenes,
+                        "split_mode": split_mode,
+                        "media_workflow": workflow_key,
+                        "frame_template": frame_template,
+                        "prompt_prefix": prompt_prefix,
+                        "bgm_path": bgm_path,
+                        "bgm_volume": bgm_volume,
+                        "tts_inference_mode": tts_mode,
+                        "tts_voice": selected_voice,
+                        "tts_speed": tts_speed,
+                        "tts_workflow": tts_workflow_key,
+                        "ref_audio": ref_audio_path,
+                        "template_params": custom_values_for_video,
+                        "render_backend": video_params.get("render_backend"),
+                    },
+                    progress_callback=update_progress,
+                    session_state=st.session_state,
+                )
+
+                result = run_async(pixelle_video.generate_video(**generation_request))
                 
                 # Calculate total generation time
                 total_generation_time = time.time() - start_time
@@ -276,38 +344,7 @@ def render_batch_output(pixelle_video, video_params):
             help=tr("batch.generate_help")
         ):
             # Prepare shared config
-            shared_config = {
-                "title_prefix": video_params.get("title_prefix"),
-                "n_scenes": video_params.get("n_scenes") or 5,
-                "media_workflow": video_params.get("media_workflow"),
-                "frame_template": video_params.get("frame_template"),
-                "prompt_prefix": video_params.get("prompt_prefix") or "",
-                "bgm_path": video_params.get("bgm_path"),
-                "bgm_volume": video_params.get("bgm_volume") or 0.2,
-                "tts_inference_mode": video_params.get("tts_inference_mode") or "local",
-                "media_width": video_params.get("media_width"),
-                "media_height": video_params.get("media_height"),
-            }
-            
-            # Add TTS parameters based on mode (only add non-None values)
-            if shared_config["tts_inference_mode"] == "local":
-                tts_voice = video_params.get("tts_voice")
-                tts_speed = video_params.get("tts_speed")
-                if tts_voice:
-                    shared_config["tts_voice"] = tts_voice
-                if tts_speed:
-                    shared_config["tts_speed"] = tts_speed
-            else:  # comfyui
-                tts_workflow = video_params.get("tts_workflow")
-                if tts_workflow:
-                    shared_config["tts_workflow"] = tts_workflow
-                ref_audio = video_params.get("ref_audio")
-                if ref_audio:
-                    shared_config["ref_audio"] = str(ref_audio)
-            
-            # Add template parameters
-            if video_params.get("template_params"):
-                shared_config["template_params"] = video_params["template_params"]
+            shared_config = build_batch_shared_config(video_params)
             
             # UI containers
             overall_progress_container = st.container()

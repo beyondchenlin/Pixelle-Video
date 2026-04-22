@@ -30,6 +30,7 @@ from pixelle_video.config.prompt_prefix_library import (
     get_prompt_prefix_preview_asset,
     resolve_prompt_prefix_gallery_cover,
 )
+from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
 from pixelle_video.prompts.prompt_prefix_generation import (
     build_prompt_prefix_generation_prompt,
 )
@@ -42,6 +43,7 @@ from pixelle_video.utils.content_generators import generate_styled_image_prompt_
 from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
 from web.utils.preview_media import load_preview_media
+from web.utils.render_backend_ui import get_render_backend_default
 from web.utils.prompt_prefix_ui import (
     clear_prompt_prefix_form_item_id,
     clone_prompt_prefix_preview_asset,
@@ -1608,6 +1610,10 @@ def render_style_config(pixelle_video):
                     except Exception as e:
                         st.error(tr("tts.preview_failed", error=str(e)))
                         logger.exception(e)
+
+    with st.container(border=True):
+        st.markdown(f"**{tr('section.render_backend')}**")
+        render_backend = render_render_backend_selector()
     
     # ====================================================================
     # Storyboard Template Section
@@ -2219,6 +2225,7 @@ def render_style_config(pixelle_video):
         "tts_speed": tts_speed if tts_mode == "local" else None,
         "tts_workflow": tts_workflow_key if tts_mode == "comfyui" else None,
         "ref_audio": str(ref_audio_path) if ref_audio_path else None,
+        "render_backend": render_backend,
         "frame_template": frame_template,
         "template_params": custom_values_for_video if custom_values_for_video else None,
         "media_workflow": workflow_key,
@@ -2226,3 +2233,21 @@ def render_style_config(pixelle_video):
         "media_width": media_width,
         "media_height": media_height
     }
+
+
+def render_render_backend_selector() -> str:
+    """Render the per-task render backend selector for Web UI."""
+    options = list(SUPPORTED_RENDER_BACKENDS)
+    configured_backend = get_render_backend_default(config_manager.config.render.backend)
+
+    selected_backend = st.radio(
+        tr("render_backend.label"),
+        options,
+        index=options.index(configured_backend),
+        horizontal=True,
+        format_func=lambda value: tr(f"render_backend.option.{value}"),
+        key="render_backend_select",
+        help=tr("render_backend.help"),
+    )
+    st.caption(tr(f"render_backend.caption.{selected_backend}"))
+    return selected_backend

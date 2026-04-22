@@ -59,3 +59,56 @@ def test_video_generation_pipelines_use_shared_scaled_preview_renderer():
     for path in files:
         source = path.read_text(encoding="utf-8")
         assert "render_scaled_video_preview(" in source, f"{path.name} should use shared preview renderer"
+
+
+def test_build_single_generation_request_includes_render_backend():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "title": "Demo",
+            "n_scenes": 3,
+            "split_mode": "paragraph",
+            "media_workflow": "runninghub/image_flux.json",
+            "frame_template": "1080x1920/image_default.html",
+            "prompt_prefix": "clean",
+            "bgm_path": None,
+            "bgm_volume": 0.3,
+            "tts_inference_mode": "local",
+            "tts_voice": "zh-CN-YunjianNeural",
+            "tts_speed": 1.2,
+            "template_params": {"accent_color": "#fff"},
+            "render_backend": "hyperframes_compiled",
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["render_backend"] == "hyperframes_compiled"
+    assert request["progress_callback"] is _progress
+
+
+def test_build_batch_shared_config_includes_render_backend():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "title_prefix": "Series",
+            "n_scenes": 5,
+            "media_workflow": "runninghub/image_flux.json",
+            "frame_template": "1080x1920/image_default.html",
+            "prompt_prefix": "clean",
+            "bgm_path": None,
+            "bgm_volume": 0.2,
+            "tts_inference_mode": "local",
+            "tts_voice": "zh-CN-YunjianNeural",
+            "tts_speed": 1.1,
+            "template_params": {"accent_color": "#fff"},
+            "media_width": 1080,
+            "media_height": 1920,
+            "render_backend": "hyperframes_compiled",
+        }
+    )
+
+    assert shared_config["render_backend"] == "hyperframes_compiled"

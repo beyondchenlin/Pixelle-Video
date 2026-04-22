@@ -658,3 +658,4 @@ async def test_persist_task_data_records_resolved_render_backend(tmp_path):
     assert core.persistence.saved_metadata is not None
     _, metadata = core.persistence.saved_metadata
     assert metadata["config"]["render_backend"] == "legacy"
+    assert metadata["input"]["render_backend"] == "legacy"

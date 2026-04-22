@@ -813,6 +813,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
                 "source": ctx.request.get("source"),
                 "voice_id": ctx.request.get("voice_id"),
                 "tts_speed": ctx.request.get("tts_speed"),
+                "render_backend": storyboard.config.render_backend if storyboard else None,
             }
             
             metadata = {
