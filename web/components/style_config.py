@@ -160,6 +160,35 @@ def build_storyboard_control_payload(
     return normalized_payload
 
 
+def resolve_storyboard_toggle_default(session_state, storyboard_default_enabled: bool, preview_snapshot):
+    """Resolve the storyboard checkbox default from session state, preview state, then caller default."""
+    if session_state is not None and "storyboard_planning_enabled" in session_state:
+        return bool(session_state.get("storyboard_planning_enabled"))
+    if preview_snapshot is not None:
+        return bool(preview_snapshot)
+    return bool(storyboard_default_enabled)
+
+
+def resolve_storyboard_preset_label(item) -> str:
+    """Resolve a localized storyboard preset label with a display-name fallback."""
+    if isinstance(item, dict):
+        translation_key = item.get("display_name_key") or item.get("translation_key")
+        display_name = item.get("display_name")
+        preset_id = item.get("preset_id")
+    else:
+        translation_key = getattr(item, "display_name_key", None) or getattr(item, "translation_key", None)
+        display_name = getattr(item, "display_name", None)
+        preset_id = getattr(item, "preset_id", None)
+
+    if translation_key:
+        localized_label = tr(translation_key)
+        if localized_label != translation_key:
+            return localized_label
+    if display_name:
+        return display_name
+    return str(preset_id or "")
+
+
 STORYBOARD_GUIDE_FIELD_SPECS: tuple[tuple[str, str], ...] = (
     ("storyboard.world_preset", "storyboard.guide.field.world_preset"),
     ("storyboard.shot_preset", "storyboard.guide.field.shot_preset"),
@@ -1765,7 +1794,7 @@ def _render_image_prompt_prefix_library(
     return effective_prefix
 
 
-def render_style_config(pixelle_video):
+def render_style_config(pixelle_video, storyboard_default_enabled: bool = False):
     """Render style configuration section (middle column)"""
     # TTS Section (moved from left column)
     # ====================================================================
@@ -1988,9 +2017,10 @@ def render_style_config(pixelle_video):
 
         storyboard_enabled = st.checkbox(
             tr("storyboard.enabled"),
-            value=bool(
-                st.session_state.get("storyboard_planning_enabled", False)
-                or st.session_state.get("storyboard_preview_snapshot")
+            value=resolve_storyboard_toggle_default(
+                st.session_state,
+                storyboard_default_enabled=storyboard_default_enabled,
+                preview_snapshot=st.session_state.get("storyboard_preview_snapshot"),
             ),
             key="storyboard_planning_enabled",
             help=tr("storyboard.enabled_help"),
@@ -2005,8 +2035,8 @@ def render_style_config(pixelle_video):
             shot_items = shot_library.get("items", [])
             world_ids = [item["preset_id"] for item in world_items]
             shot_ids = [item["preset_id"] for item in shot_items]
-            world_label_map = {item["preset_id"]: item["display_name"] for item in world_items}
-            shot_label_map = {item["preset_id"]: item["display_name"] for item in shot_items}
+            world_label_map = {item["preset_id"]: resolve_storyboard_preset_label(item) for item in world_items}
+            shot_label_map = {item["preset_id"]: resolve_storyboard_preset_label(item) for item in shot_items}
 
             default_world_id = world_library.get("default_world_preset_id")
             if default_world_id not in world_ids and world_ids:

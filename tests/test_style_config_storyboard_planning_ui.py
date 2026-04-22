@@ -3,6 +3,7 @@ from pathlib import Path
 
 import web.components.style_config as style_config
 from web.components.style_config import build_storyboard_control_payload
+import web.pipelines.standard as standard_pipeline
 
 
 class _FakeContext:
@@ -25,6 +26,93 @@ class _FakeStreamlit:
     def expander(self, label, expanded=False):
         self.expanders.append((label, expanded))
         return _FakeContext()
+
+
+def test_resolve_storyboard_toggle_default_prefers_session_state_then_preview_snapshot_then_default():
+    assert (
+        style_config.resolve_storyboard_toggle_default(
+            {"storyboard_planning_enabled": False},
+            storyboard_default_enabled=True,
+            preview_snapshot={"frame_overrides": []},
+        )
+        is False
+    )
+
+    assert (
+        style_config.resolve_storyboard_toggle_default(
+            {},
+            storyboard_default_enabled=True,
+            preview_snapshot={"frame_overrides": []},
+        )
+        is True
+    )
+
+    assert (
+        style_config.resolve_storyboard_toggle_default(
+            {},
+            storyboard_default_enabled=False,
+            preview_snapshot=None,
+        )
+        is False
+    )
+
+
+def test_resolve_storyboard_preset_label_uses_translation_key_or_display_name_fallback(monkeypatch):
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: f"localized:{key}")
+
+    assert (
+        style_config.resolve_storyboard_preset_label(
+            {"preset_id": "balanced_explainer", "display_name_key": "storyboard.preset.shot.balanced_explainer.name"}
+        )
+        == "localized:storyboard.preset.shot.balanced_explainer.name"
+    )
+
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+
+    assert (
+        style_config.resolve_storyboard_preset_label(
+            {
+                "preset_id": "fallback_only",
+                "display_name_key": "storyboard.preset.shot.fallback_only.name",
+                "display_name": "Fallback Name",
+            }
+        )
+        == "Fallback Name"
+    )
+
+    assert (
+        style_config.resolve_storyboard_preset_label(
+            {"preset_id": "fallback_only", "display_name": "Fallback Name"}
+        )
+        == "Fallback Name"
+    )
+
+
+def test_standard_pipeline_ui_passes_storyboard_default_enabled_to_render_style_config(monkeypatch):
+    captured = {}
+
+    class _FakeColumn(_FakeContext):
+        pass
+
+    def fake_columns(_sizes):
+        return [_FakeColumn(), _FakeColumn(), _FakeColumn()]
+
+    def fake_render_style_config(pixelle_video, storyboard_default_enabled=False):
+        captured["pixelle_video"] = pixelle_video
+        captured["storyboard_default_enabled"] = storyboard_default_enabled
+        return {"style": "ok"}
+
+    monkeypatch.setattr(standard_pipeline.st, "columns", fake_columns)
+    monkeypatch.setattr(standard_pipeline, "render_content_input", lambda: {"content": "ok"})
+    monkeypatch.setattr(standard_pipeline, "render_bgm_section", lambda: {"bgm": "ok"})
+    monkeypatch.setattr(standard_pipeline, "render_version_info", lambda: None)
+    monkeypatch.setattr(standard_pipeline, "render_style_config", fake_render_style_config)
+    monkeypatch.setattr(standard_pipeline, "render_output_preview", lambda pixelle_video, video_params: None)
+
+    pipeline = standard_pipeline.StandardPipelineUI()
+    pipeline.render(object())
+
+    assert captured["storyboard_default_enabled"] is True
 
 
 def test_build_storyboard_control_payload_includes_storyboard_fields():

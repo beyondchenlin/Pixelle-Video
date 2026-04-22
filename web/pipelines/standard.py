@@ -66,7 +66,7 @@ class StandardPipelineUI(PipelineUI):
         # ====================================================================
         with middle_col:
             # Style configuration (TTS, template, workflow, etc.)
-            style_params = render_style_config(pixelle_video)
+            style_params = render_style_config(pixelle_video, storyboard_default_enabled=True)
         
         # ====================================================================
         # Right Column: Output Preview
