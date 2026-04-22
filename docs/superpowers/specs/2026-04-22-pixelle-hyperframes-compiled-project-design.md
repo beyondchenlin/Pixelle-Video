@@ -230,7 +230,9 @@ TemplateRenderContext
   fps
   title
   author
+  footer
   theme
+  style_profile
   template_params
   visuals[]
   captions[]
@@ -243,6 +245,34 @@ Minimum rules:
 - migrated templates must consume this normalized contract instead of introducing template-specific runtime fetches
 - `template_params` may extend styling or decoration, but must not redefine timing, canvas size, or asset path ownership
 - all template migrations should map their shell needs into this contract before adding new one-off fields
+- each migrated template must publish a field inventory that maps the original Pixelle source template into `TemplateRenderContext`
+- field inventory must cover at least:
+  - title region
+  - media slot geometry and safe area
+  - subtitle safe area
+  - author or footer region
+  - decorative background or ornament layers
+  - style profile selection
+- if a template requires new shell data, the contract must be extended first; templates may not invent ad-hoc globals at compile time
+
+### Phase-1 Template Equivalence Rule
+
+For the first migration batch:
+
+- `image_default`
+- `image_life_insights_light`
+
+success means equivalent migration, not placeholder migration.
+
+Equivalent migration means:
+
+- preserve the original template's visual structure and layout language
+- preserve media slot placement and sizing intent
+- preserve title, footer, and author positioning semantics when present
+- preserve the original template's decorative or background system in local form
+- move dynamic subtitle timing into `captions.html` without collapsing the shell into a minimal placeholder layout
+
+Phase 1 may modernize implementation details, but it may not replace a rich source template with a stripped shell that only proves the pipeline works.
 
 ### What Is Runtime-Critical
 
@@ -259,6 +289,8 @@ Additionally:
 - audio and visual sources must already point to project-local paths in static HTML
 - runtime-critical compositions must not depend on `render_manifest.json` fetch to become renderable
 - runtime-critical compositions must not depend on public network fonts, public CDN scripts, or any other remote runtime asset
+- root composition duration must be compiled from the canonical master audio duration, not inferred from the last caption cue
+- visual clips and caption cues must be clamped to the compiled master audio duration before HTML is emitted
 
 ### What Is Diagnostic
 
@@ -409,6 +441,20 @@ Default policy:
 - link or symlink optimization is optional and must be explicitly enabled
 - copy-first avoids cross-volume, permission, and Windows path edge cases leaking back into render behavior
 
+### Step 2A: Localize Runtime Dependencies
+
+Before a template is considered migrated, Pixelle must ensure that all runtime-critical template dependencies are local to the repository or the compiled project.
+
+Rules:
+
+- no public font URL may remain in shell or captions compositions
+- no public CDN script URL may remain in shell or captions compositions
+- if a source template used a web font, migration must either:
+  - package a local font asset with a relative URL, or
+  - replace it with an approved local fallback stack documented as part of template equivalence review
+- if a template requires GSAP or another runtime library, that dependency must be vendored locally and referenced through repository-relative assets
+- "the tests only assert URLs are gone" is not sufficient; the migration must specify how the visual intent is preserved after localization
+
 ### Step 3: Compile Static `index.html`
 
 Pixelle writes a task-specific `index.html` with:
@@ -424,6 +470,7 @@ This HTML should not need runtime manifest fetch to become renderable.
 Required constraint:
 
 - the compiler must not emit placeholder durations such as `8` with the expectation that runtime JS will replace them later
+- the compiler must set root duration from the compiled master audio duration, even if captions end earlier
 
 ### Step 4: Compile Static `captions.html`
 
@@ -560,5 +607,6 @@ Adopt the corrected architecture:
 - existing Pixelle templates are migrated into HyperFrames shell + captions compositions
 - upstream HyperFrames remains minimally touched
 - the repository keeps a clean separation between vendor code, bridge code, template resources, and compiler logic
+- phase-1 template migration is judged on render correctness and visual equivalence, not just whether a minimal shell can render
 
 This is the strongest source-level solution because it fixes the boundary that caused missing audio, wrong aspect behavior, and broken media mounting instead of patching each symptom individually.

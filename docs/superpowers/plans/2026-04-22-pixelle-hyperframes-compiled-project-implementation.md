@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace Pixelle's current runtime-manifest HyperFrames path with a compiled-project pipeline that emits fully renderable HyperFrames projects for `1080x1920` image templates, starting with `image_default` and `image_life_insights_light`.
+**Goal:** Replace Pixelle's current runtime-manifest HyperFrames path with a compiled-project pipeline that emits fully renderable HyperFrames projects for `1080x1920` image templates, starting with `image_default` and `image_life_insights_light`, while preserving the visual structure of those source templates rather than replacing them with minimal shells.
 
 **Architecture:** Pixelle remains responsible for storyboarding, TTS, image generation, sentence timing acquisition, template data preparation, and project compilation. HyperFrames receives a task-local project directory with static `index.html`, static `captions.html`, project-local assets, and a single canonical timeline, then renders the final MP4. The first rollout only covers `1080x1920` image templates and keeps the legacy path for all other templates.
 
@@ -20,6 +20,10 @@
   - Copies task-local images/audio/video into `output/<task>/hyperframes/assets/...`.
 - Create: `pixelle_video/services/hyperframes_compiler.py`
   - Compiles static `index.html`, `compositions/captions.html`, and diagnostic JSON from `TemplateRenderContext`.
+- Create: `resources/hyperframes/runtime/fonts/`
+  - Stores local font CSS and packaged font assets used by migrated templates.
+- Create: `resources/hyperframes/runtime/vendor/`
+  - Stores vendored runtime libraries if a migrated template requires them.
 - Modify: `pixelle_video/services/hyperframes_project_service.py`
   - Becomes the orchestration layer that builds render context, materializes assets, and invokes the compiler.
 - Modify: `pixelle_video/services/hyperframes_renderer.py`
@@ -37,6 +41,7 @@
 - Modify: `tests/test_hyperframes_project_service.py`
 - Modify: `tests/test_hyperframes_renderer.py`
 - Modify: `tests/test_standard_pipeline_hyperframes_mode.py`
+- Create: `tests/test_hyperframes_runtime_contract.py`
 - Modify: `workflows/down/hyperframes_render_依赖与下载说明.md`
   - Documents the compiled-project path and local-only runtime dependency rule.
 
@@ -91,7 +96,9 @@ def test_template_render_context_uses_render_timeline_values():
         fps=30,
         title="demo",
         author=None,
+        footer=None,
         theme=None,
+        style_profile="image_default",
         template_params={},
         visuals=[
             VisualClip(
@@ -140,7 +147,9 @@ class TemplateRenderContext:
     fps: int
     title: str
     author: Optional[str]
+    footer: Optional[str]
     theme: Optional[str]
+    style_profile: str
     template_params: Dict[str, Any] = field(default_factory=dict)
     visuals: List[VisualClip] = field(default_factory=list)
     captions: List[CaptionCue] = field(default_factory=list)
@@ -160,6 +169,7 @@ class RenderManifest:
     fps: int
     template_id: str
     master_audio_path: Optional[str] = None
+    master_audio_duration: Optional[float] = None
     audio_blocks: List[AudioBlock] = field(default_factory=list)
     sentence_units: List[SentenceUnit] = field(default_factory=list)
     visual_clips: List[VisualClip] = field(default_factory=list)
@@ -281,7 +291,68 @@ git add pixelle_video/services/hyperframes_asset_materializer.py tests/test_hype
 git commit -m "feat: materialize hyperframes assets locally"
 ```
 
-### Task 3: Compile static `index.html` and `captions.html` for `image_default`
+### Task 3: Lock phase-1 template field mapping and local runtime dependency strategy
+
+**Files:**
+- Modify: `pixelle_video/models/template_render_context.py`
+- Create: `resources/hyperframes/runtime/fonts/phase1_fonts.css`
+- Create: `resources/hyperframes/runtime/vendor/README.md`
+- Modify: `tests/test_template_render_context.py`
+- Modify: `tests/test_hyperframes_compiler.py`
+
+- [ ] **Step 1: Write the failing field-mapping and local-dependency tests**
+
+```python
+from pathlib import Path
+
+from pixelle_video.models.template_render_context import TemplateRenderContext
+
+
+def test_template_render_context_exposes_phase1_shell_fields():
+    field_names = TemplateRenderContext.__dataclass_fields__.keys()
+    assert "title" in field_names
+    assert "author" in field_names
+    assert "footer" in field_names
+    assert "style_profile" in field_names
+    assert "template_params" in field_names
+
+
+def test_phase1_runtime_assets_are_local_only():
+    assert Path("resources/hyperframes/runtime/fonts/phase1_fonts.css").exists()
+    assert Path("resources/hyperframes/runtime/vendor").exists()
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `uv run pytest tests/test_template_render_context.py tests/test_hyperframes_compiler.py -v`
+Expected: FAIL because phase-1 shell fields and local runtime assets are not yet fully defined
+
+- [ ] **Step 3: Define the phase-1 field inventory and local dependency policy**
+
+- Extend `TemplateRenderContext` so phase-1 templates can consume normalized shell data without ad-hoc globals.
+- Create `resources/hyperframes/runtime/fonts/phase1_fonts.css` as the only approved entrypoint for local font stacks and packaged font files used by migrated templates.
+- Create `resources/hyperframes/runtime/vendor/README.md` as the only approved home for vendored runtime libraries.
+- Add a phase-1 field inventory in code comments or companion docs that maps each source template to:
+  - title region
+  - media slot geometry and safe area
+  - subtitle safe area
+  - author/footer region
+  - decorative background system
+  - style profile name
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `uv run pytest tests/test_template_render_context.py tests/test_hyperframes_compiler.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add pixelle_video/models/template_render_context.py resources/hyperframes/runtime tests/test_template_render_context.py tests/test_hyperframes_compiler.py
+git commit -m "feat: define phase1 hyperframes template contract"
+```
+
+### Task 4: Compile static `index.html` and `captions.html` for `image_default` with equivalent shell migration
 
 **Files:**
 - Create: `pixelle_video/services/hyperframes_compiler.py`
@@ -319,7 +390,9 @@ def test_compiler_emits_static_index_without_manifest_fetch_or_remote_urls(tmp_p
         fps=30,
         title="demo",
         author=None,
+        footer=None,
         theme=None,
+        style_profile="image_default",
         template_params={},
         visuals=[VisualClip(id="v1", frame_index=0, start=0.0, end=3.0, media_path="assets/images/01_image.png", media_type="image")],
         captions=[CaptionCue(id="c1", text="第一句", start=0.0, end=3.0, frame_indices=[0], style_profile="image_default")],
@@ -399,8 +472,20 @@ class HyperFramesCompiler:
 <html lang="zh-CN">
   <body>
     <div id="root" data-width="__CANVAS_WIDTH__" data-height="__CANVAS_HEIGHT__" data-duration="__DURATION__">
-      <div class="shell-title">__TITLE__</div>
-      <div class="media-track">__VISUALS__</div>
+      <div class="bg-decoration"></div>
+      <div class="page-container">
+        <section class="video-title-wrapper">
+          <div class="video-title">__TITLE__</div>
+        </section>
+        <section class="image-wrapper">
+          <div class="image-container">__VISUALS__</div>
+          <div class="corner-mark tl"></div>
+          <div class="corner-mark tr"></div>
+          <div class="corner-mark bl"></div>
+          <div class="corner-mark br"></div>
+        </section>
+        <footer class="footer-region">__FOOTER__</footer>
+      </div>
       <iframe src="./compositions/captions.html" data-timeline-role="captions" data-caption-root="true"></iframe>
       __AUDIO__
     </div>
@@ -418,6 +503,13 @@ class HyperFramesCompiler:
 </html>
 ```
 
+- The migrated shell must preserve the original `templates/1080x1920/image_default.html` layout language:
+  - centered title block
+  - decorative background layer
+  - framed 900x900 media region with corner marks
+  - footer-safe area
+- A minimal placeholder shell that only proves clip rendering is **not** acceptable for this task.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_hyperframes_compiler.py -v`
@@ -430,7 +522,7 @@ git add pixelle_video/services/hyperframes_compiler.py resources/hyperframes/tem
 git commit -m "feat: compile static hyperframes projects"
 ```
 
-### Task 4: Migrate `image_life_insights_light` with local-only runtime assets
+### Task 5: Migrate `image_life_insights_light` with equivalent shell migration and local-only runtime assets
 
 **Files:**
 - Create: `resources/hyperframes/templates/image_life_insights_light/index.template.html`
@@ -454,6 +546,15 @@ def test_phase1_templates_do_not_depend_on_remote_fonts_or_cdn_scripts():
         content = path.read_text(encoding="utf-8")
         assert "https://fonts.googleapis.com" not in content
         assert "https://cdnjs.cloudflare.com" not in content
+
+
+def test_phase1_templates_preserve_source_shell_regions():
+    content = Path("resources/hyperframes/templates/image_life_insights_light/index.template.html").read_text(encoding="utf-8")
+    assert "bg-pattern" in content
+    assert "header" in content
+    assert "content" in content
+    assert "bottom-section" in content
+    assert "author" in content
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -469,8 +570,13 @@ Expected: FAIL until the new phase-1 templates exist and remove remote runtime d
 <html lang="zh-CN">
   <body>
     <div id="root" data-width="__CANVAS_WIDTH__" data-height="__CANVAS_HEIGHT__" data-duration="__DURATION__">
-      <header class="title-wrap">__TITLE__</header>
-      <main class="light-card-media">__VISUALS__</main>
+      <div class="bg-pattern"></div>
+      <header class="header">
+        <div class="title">__TITLE__</div>
+      </header>
+      <main class="content">__VISUALS__</main>
+      <section class="bottom-section">__FOOTER__</section>
+      <div class="author">__AUTHOR__</div>
       <iframe src="./compositions/captions.html" data-timeline-role="captions" data-caption-root="true"></iframe>
       __AUDIO__
     </div>
@@ -488,6 +594,14 @@ Expected: FAIL until the new phase-1 templates exist and remove remote runtime d
 </html>
 ```
 
+- The migrated shell must preserve the original `templates/1080x1920/image_life_insights_light.html` structure:
+  - patterned background system
+  - title header region
+  - centered content image region
+  - bottom text safe area
+  - author region
+- If the source template used a web font, this task must replace it with packaged local font assets or an approved local fallback defined in `resources/hyperframes/runtime/fonts/phase1_fonts.css`.
+
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_hyperframes_compiler.py -v`
@@ -500,7 +614,7 @@ git add resources/hyperframes/templates/image_life_insights_light tests/test_hyp
 git commit -m "feat: migrate first hyperframes phase templates"
 ```
 
-### Task 5: Route the standard pipeline through the compiled-project path
+### Task 6: Route the standard pipeline through the compiled-project path
 
 **Files:**
 - Modify: `pixelle_video/services/hyperframes_project_service.py`
@@ -539,12 +653,13 @@ def test_build_template_render_context_prefers_remapped_timing_when_present(tmp_
         media_height=768,
         fps=30,
         template_id="image_default",
+        master_audio_duration=3.0,
         sentence_units=sentences,
         visual_clips=[VisualClip(id="v1", frame_index=0, start=0.1, end=2.2, media_path="assets/images/01_image.png", media_type="image")],
         caption_cues=[CaptionCue(id="c1", text="第一句", start=0.1, end=2.2, frame_indices=[0], style_profile="image_default")],
     )
     context = build_template_render_context(manifest, template_params={"author": "demo"})
-    assert context.duration == 2.2
+    assert context.duration == 3.0
     assert context.captions[0].start == 0.1
 ```
 
@@ -564,7 +679,10 @@ from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 
 
 def build_template_render_context(manifest: RenderManifest, *, template_params: dict) -> TemplateRenderContext:
-    duration = max([cue.end for cue in manifest.caption_cues] + [0.0])
+    if manifest.master_audio_duration is not None:
+        duration = manifest.master_audio_duration
+    else:
+        duration = max([cue.end for cue in manifest.caption_cues] + [0.0])
     return TemplateRenderContext(
         template_id=manifest.template_id,
         canvas_width=manifest.canvas_width,
@@ -573,7 +691,9 @@ def build_template_render_context(manifest: RenderManifest, *, template_params: 
         fps=manifest.fps,
         title=manifest.title,
         author=template_params.get("author"),
+        footer=template_params.get("footer"),
         theme=template_params.get("theme"),
+        style_profile=template_params.get("style_profile", manifest.template_id),
         template_params=template_params,
         visuals=manifest.visual_clips,
         captions=manifest.caption_cues,
@@ -620,7 +740,7 @@ git add pixelle_video/services/hyperframes_project_service.py pixelle_video/pipe
 git commit -m "feat: compile hyperframes projects from standard pipeline"
 ```
 
-### Task 6: Add hard post-render validation and document phase-1 cutover rules
+### Task 7: Add hard post-render validation and document phase-1 cutover rules
 
 **Files:**
 - Modify: `pixelle_video/services/hyperframes_renderer.py`
@@ -733,11 +853,61 @@ git add pixelle_video/services/hyperframes_renderer.py tests/test_hyperframes_re
 git commit -m "feat: validate compiled hyperframes renders"
 ```
 
+### Task 8: Codify HyperFrames runtime authority and upgrade policy
+
+**Files:**
+- Create: `tests/test_hyperframes_runtime_contract.py`
+- Modify: `tools/hyperframes_bridge/package.json`
+- Modify: `tools/hyperframes_bridge/package-lock.json`
+
+- [ ] **Step 1: Write the failing runtime-authority test**
+
+```python
+import json
+from pathlib import Path
+
+
+def test_hyperframes_runtime_authority_is_npm_package():
+    package_json = json.loads(Path("tools/hyperframes_bridge/package.json").read_text(encoding="utf-8"))
+    assert "@hyperframes/producer" in package_json["dependencies"]
+
+
+def test_vendor_snapshot_is_not_runtime_dependency():
+    for path in Path("tools/hyperframes_bridge/src").rglob("*"):
+        if path.is_file():
+            content = path.read_text(encoding="utf-8")
+            assert "vendor/hyperframes" not in content
+            assert "third_party/hyperframes" not in content
+```
+
+- [ ] **Step 2: Run test to verify it fails or enforces the contract**
+
+Run: `uv run pytest tests/test_hyperframes_runtime_contract.py -v`
+Expected: PASS only when runtime authority is clearly pinned to `@hyperframes/producer`
+
+- [ ] **Step 3: Make the runtime-source rule executable**
+
+- Keep `@hyperframes/producer` pinned in `tools/hyperframes_bridge/package.json` and lock it in `package-lock.json`.
+- Do not load runtime behavior from `vendor/hyperframes/` or `third_party/hyperframes/`.
+- Treat vendor snapshots as upgrade-review references only.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `uv run pytest tests/test_hyperframes_runtime_contract.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/test_hyperframes_runtime_contract.py tools/hyperframes_bridge/package.json tools/hyperframes_bridge/package-lock.json
+git commit -m "chore: codify hyperframes runtime authority"
+```
+
 ## Self-Review
 
-- **Spec coverage:** This plan covers canonical timeline rules, `TemplateRenderContext`, copy-first asset materialization, local-only template dependencies, phase-1 template migration, compiled-project orchestration, and ffprobe-based output validation.
+- **Spec coverage:** This plan covers canonical timeline rules, `TemplateRenderContext`, copy-first asset materialization, local-only template dependencies, phase-1 equivalent template migration, compiled-project orchestration, ffprobe-based output validation, and explicit HyperFrames runtime authority.
 - **Placeholder scan:** No `TODO`, `TBD`, or implied "fill this in later" steps remain. Each task names exact files, exact tests, exact commands, and explicit implementation targets.
-- **Type consistency:** `RenderManifest` uses `canvas_width/canvas_height`, `TemplateRenderContext` uses compiled render-time fields, and the renderer accepts explicit `expected_duration` plus `expect_audio`, matching the spec's render validation requirements.
+- **Type consistency:** `RenderManifest` uses `canvas_width/canvas_height`, `master_audio_duration` remains the duration authority, `TemplateRenderContext` uses compiled render-time fields, and the renderer accepts explicit `expected_duration` plus `expect_audio`, matching the spec's render validation requirements.
 
 ## Execution Handoff
 
