@@ -16,7 +16,7 @@ Storyboard data models for video generation
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, validate_render_backend
 from pixelle_video.tts_audio_strategy import (
@@ -69,6 +69,13 @@ class StoryboardConfig:
     # Frame template (includes size information in path)
     frame_template: str = "1080x1920/default.html"  # Template path with size (e.g., "1080x1920/default.html")
     template_params: Optional[Dict[str, Any]] = None  # Custom template parameters (e.g., {"accent_color": "#ff0000"})
+    world_preset_id: Optional[str] = None
+    shot_preset_id: Optional[str] = None
+    content_mode: Optional[str] = None
+    consistency_strength: Optional[str] = None
+    role_strategy: Optional[str] = None
+    role_locking_strength: Optional[str] = None
+    shot_strategy: Optional[str] = None
 
     def __post_init__(self):
         self.render_backend = validate_render_backend(self.render_backend)
@@ -93,6 +100,9 @@ class StoryboardFrame:
     # Metadata
     duration: float = 0.0                      # Frame duration (seconds, from audio or video)
     created_at: Optional[datetime] = None
+    shot_type: Optional[str] = None
+    shot_purpose: Optional[str] = None
+    frame_source: Optional[str] = None
     
     def __post_init__(self):
         if self.created_at is None:
@@ -124,6 +134,7 @@ class Storyboard:
     # Final output
     final_video_path: Optional[str] = None
     total_duration: float = 0.0
+    planning_snapshot: Optional[Dict[str, Any]] = None
     
     # Metadata
     created_at: Optional[datetime] = None
@@ -161,3 +172,77 @@ class VideoGenerationResult:
     duration: float                            # Total duration
     file_size: int                             # File size (bytes)
     created_at: datetime = field(default_factory=datetime.now)
+
+
+def _first_non_none(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _read_mapping_value(data: Any, key: str) -> Any:
+    if isinstance(data, dict):
+        return data.get(key)
+    return getattr(data, key, None)
+
+
+def build_storyboard_config_planning_kwargs(
+    planning_snapshot: Optional[Dict[str, Any]],
+    params: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    snapshot = planning_snapshot or {}
+    request_params = params or {}
+    return {
+        "world_preset_id": _first_non_none(
+            snapshot.get("world_preset_id"),
+            request_params.get("world_preset_id"),
+        ),
+        "shot_preset_id": _first_non_none(
+            snapshot.get("shot_preset_id"),
+            snapshot.get("effective_final_shot_preset"),
+            request_params.get("shot_preset_id"),
+        ),
+        "content_mode": _first_non_none(
+            snapshot.get("content_mode"),
+            snapshot.get("resolved_content_mode"),
+            request_params.get("content_mode"),
+        ),
+        "consistency_strength": _first_non_none(
+            snapshot.get("consistency_strength"),
+            snapshot.get("selected_consistency_strength"),
+            request_params.get("consistency_strength"),
+        ),
+        "role_strategy": _first_non_none(
+            snapshot.get("role_strategy"),
+            snapshot.get("resolved_role_strategy"),
+            request_params.get("role_strategy"),
+        ),
+        "role_locking_strength": _first_non_none(
+            snapshot.get("role_locking_strength"),
+            snapshot.get("selected_role_locking_strength"),
+            request_params.get("role_locking_strength"),
+        ),
+        "shot_strategy": _first_non_none(
+            snapshot.get("shot_strategy"),
+            snapshot.get("selected_shot_strategy"),
+            request_params.get("shot_strategy"),
+        ),
+    }
+
+
+def build_storyboard_frame_planning_kwargs(
+    planning_snapshot: Optional[Dict[str, Any]],
+    frame_index: int,
+) -> Dict[str, Any]:
+    snapshot = planning_snapshot or {}
+    frames = snapshot.get("frames")
+    if not isinstance(frames, list) or frame_index >= len(frames):
+        return {}
+
+    frame_data = frames[frame_index]
+    return {
+        "shot_type": _read_mapping_value(frame_data, "shot_type"),
+        "shot_purpose": _read_mapping_value(frame_data, "shot_purpose"),
+        "frame_source": _read_mapping_value(frame_data, "frame_source"),
+    }

@@ -21,22 +21,24 @@ For real projects, copy this file and modify it according to your needs.
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 from loguru import logger
 
+from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.storyboard import (
+    ContentMetadata,
+    Storyboard,
+    StoryboardConfig,
+    StoryboardFrame,
+    VideoGenerationResult,
+    build_storyboard_config_planning_kwargs,
+    build_storyboard_frame_planning_kwargs,
+)
 from pixelle_video.pipelines.base import BasePipeline
 from pixelle_video.pipelines.storyboard_config import (
     STORYBOARD_RENDER_DEFAULTS,
     resolve_storyboard_render_kwargs,
-)
-from pixelle_video.models.progress import ProgressEvent
-from pixelle_video.models.storyboard import (
-    Storyboard,
-    StoryboardFrame,
-    StoryboardConfig,
-    ContentMetadata,
-    VideoGenerationResult
 )
 
 
@@ -81,7 +83,18 @@ class CustomPipeline(BasePipeline):
             # Your custom parameters here
         )
     """
-    
+
+    _STORYBOARD_PLANNING_PARAM_NAMES = {
+        "world_preset_id",
+        "shot_preset_id",
+        "consistency_strength",
+        "content_mode",
+        "role_strategy",
+        "role_locking_strength",
+        "shot_strategy",
+        "frame_overrides",
+    }
+
     async def __call__(
         self,
         text: str,
@@ -136,7 +149,10 @@ class CustomPipeline(BasePipeline):
         logger.info(f"Input text length: {len(text)} chars")
         logger.info(f"Custom parameter: {custom_param_example}")
         ignored_kwargs = sorted(
-            key for key in kwargs.keys() if key not in STORYBOARD_RENDER_DEFAULTS
+            key
+            for key in kwargs.keys()
+            if key not in STORYBOARD_RENDER_DEFAULTS
+            and key not in self._STORYBOARD_PLANNING_PARAM_NAMES
         )
         if ignored_kwargs:
             logger.debug(f"Ignoring extra custom pipeline kwargs: {ignored_kwargs}")
@@ -168,10 +184,7 @@ class CustomPipeline(BasePipeline):
         self._report_progress(progress_callback, "initializing", 0.05)
         
         # Create task directory
-        from pixelle_video.utils.os_util import (
-            create_task_output_dir,
-            get_task_final_video_path
-        )
+        from pixelle_video.utils.os_util import create_task_output_dir, get_task_final_video_path
         
         task_dir, task_id = create_task_output_dir()
         logger.info(f"Task directory: {task_dir}")
@@ -191,9 +204,8 @@ class CustomPipeline(BasePipeline):
         
         # ========== Step 0.5: Check template requirements ==========
         # Detect template type by filename prefix
-        from pathlib import Path
         from pixelle_video.services.frame_html import HTMLFrameGenerator
-        from pixelle_video.utils.template_util import resolve_template_path, get_template_type
+        from pixelle_video.utils.template_util import get_template_type, resolve_template_path
         
         template_name = Path(frame_template).name
         template_type = get_template_type(template_name)
@@ -206,12 +218,12 @@ class CustomPipeline(BasePipeline):
         logger.info(f"📐 Media size from template: {media_width}x{media_height}")
         
         if template_type == "image":
-            logger.info(f"📸 Template requires image generation")
+            logger.info("📸 Template requires image generation")
         elif template_type == "video":
-            logger.info(f"🎬 Template requires video generation")
+            logger.info("🎬 Template requires video generation")
         else:  # static
-            logger.info(f"⚡ Static template - skipping media generation pipeline")
-            logger.info(f"   💡 Benefits: Faster generation + Lower cost + No ComfyUI dependency")
+            logger.info("⚡ Static template - skipping media generation pipeline")
+            logger.info("   💡 Benefits: Faster generation + Lower cost + No ComfyUI dependency")
         
         # ========== Step 1: Process content (CUSTOMIZE THIS) ==========
         self._report_progress(progress_callback, "processing_content", 0.10)
@@ -239,6 +251,7 @@ class CustomPipeline(BasePipeline):
         
         # ========== Step 2: Generate image prompts (CONDITIONAL - CUSTOMIZE THIS) ==========
         self._report_progress(progress_callback, "generating_image_prompts", 0.25)
+        planning_snapshot = None
         
         # IMPORTANT: Check if template is image type
         # If your template is static_*.html, you can skip this entire step!
@@ -258,17 +271,26 @@ class CustomPipeline(BasePipeline):
                 media_type=media_type,
                 min_words=min_image_prompt_words,
                 max_words=max_image_prompt_words,
+                world_preset_id=kwargs.get("world_preset_id"),
+                shot_preset_id=kwargs.get("shot_preset_id"),
+                consistency_strength=kwargs.get("consistency_strength", "standard"),
+                content_mode=kwargs.get("content_mode"),
+                role_strategy=kwargs.get("role_strategy"),
+                role_locking_strength=kwargs.get("role_locking_strength"),
+                shot_strategy=kwargs.get("shot_strategy"),
+                frame_overrides=kwargs.get("frame_overrides"),
             )
 
             final_image_prompts = styled_batch.prompts
             media_negative_prompt = styled_batch.negative_prompt
+            planning_snapshot = dict(styled_batch.planning_snapshot or {}) or None
             
             logger.info(f"✅ Generated {len(final_image_prompts)} image prompts")
         else:
             # Template doesn't need images - skip image generation entirely
             final_image_prompts = [None] * len(narrations)
             media_negative_prompt = None
-            logger.info(f"⚡ Skipped image prompt generation (template doesn't need images)")
+            logger.info("⚡ Skipped image prompt generation (template doesn't need images)")
             logger.info(f"   💡 Savings: {len(narrations)} LLM calls + {len(narrations)} image generations")
         
         # ========== Step 3: Create storyboard ==========
@@ -291,7 +313,8 @@ class CustomPipeline(BasePipeline):
             media_height=media_height,
             media_workflow=media_workflow,
             media_negative_prompt=media_negative_prompt,
-            frame_template=frame_template
+            frame_template=frame_template,
+            **build_storyboard_config_planning_kwargs(planning_snapshot, kwargs),
         )
         
         # Optional: Add custom metadata
@@ -304,7 +327,8 @@ class CustomPipeline(BasePipeline):
             title=title,
             config=config,
             content_metadata=content_metadata,
-            created_at=datetime.now()
+            created_at=datetime.now(),
+            planning_snapshot=planning_snapshot,
         )
         
         # Create frames
@@ -313,7 +337,8 @@ class CustomPipeline(BasePipeline):
                 index=i,
                 narration=narration,
                 image_prompt=image_prompt,
-                created_at=datetime.now()
+                created_at=datetime.now(),
+                **build_storyboard_frame_planning_kwargs(planning_snapshot, i),
             )
             storyboard.frames.append(frame)
         
@@ -388,7 +413,7 @@ class CustomPipeline(BasePipeline):
                 file_size=file_size
             )
             
-            logger.info(f"Custom pipeline completed")
+            logger.info("Custom pipeline completed")
             logger.info(f"Title: {title}")
             logger.info(f"Duration: {storyboard.total_duration:.2f}s")
             logger.info(f"Size: {file_size / (1024*1024):.2f} MB")

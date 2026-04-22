@@ -18,35 +18,46 @@ This is the default pipeline for general-purpose video generation.
 Refactored to use LinearVideoPipeline (Template Method Pattern).
 """
 
+import asyncio
+import os
+import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Callable, Literal, List
-import asyncio
-import os
-import subprocess
-import shutil
+from typing import Callable, List, Literal, Optional
 
 from loguru import logger
 
-from pixelle_video.models.render_package import RenderManifest, VisualClip
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
-from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
-from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.render_package import RenderManifest, VisualClip
 from pixelle_video.models.storyboard import (
     Storyboard,
-    StoryboardFrame,
     StoryboardConfig,
-    ContentMetadata,
-    VideoGenerationResult
+    StoryboardFrame,
+    VideoGenerationResult,
+    build_storyboard_config_planning_kwargs,
+    build_storyboard_frame_planning_kwargs,
+)
+from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
+from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
+from pixelle_video.render_backend import (
+    HYPERFRAMES_COMPILED_RENDER_BACKEND,
+    LEGACY_RENDER_BACKEND,
 )
 from pixelle_video.services.timing_planner import TimingPlanner
+from pixelle_video.services.video import VideoService
+from pixelle_video.tts_audio_strategy import (
+    AUTO_TTS_AUDIO_STRATEGY,
+    MASTER_TRACK_TTS_AUDIO_STRATEGY,
+    PER_FRAME_TTS_AUDIO_STRATEGY,
+)
 from pixelle_video.utils.content_generators import (
-    generate_title,
     generate_narrations_from_topic,
-    split_narration_script,
     generate_styled_image_prompt_batch,
+    generate_title,
+    split_narration_script,
 )
 from pixelle_video.utils.os_util import (
     create_task_output_dir,
@@ -55,16 +66,6 @@ from pixelle_video.utils.os_util import (
     get_task_path,
 )
 from pixelle_video.utils.template_util import get_template_type, parse_template_size
-from pixelle_video.services.video import VideoService
-from pixelle_video.render_backend import (
-    HYPERFRAMES_COMPILED_RENDER_BACKEND,
-    LEGACY_RENDER_BACKEND,
-)
-from pixelle_video.tts_audio_strategy import (
-    AUTO_TTS_AUDIO_STRATEGY,
-    MASTER_TRACK_TTS_AUDIO_STRATEGY,
-    PER_FRAME_TTS_AUDIO_STRATEGY,
-)
 
 
 @dataclass(frozen=True)
@@ -189,12 +190,12 @@ class StandardPipeline(LinearVideoPipeline):
         template_requires_media = (template_type in ["image", "video"])
         
         if template_type == "image":
-            logger.info(f"📸 Template requires image generation")
+            logger.info("📸 Template requires image generation")
         elif template_type == "video":
-            logger.info(f"🎬 Template requires video generation")
+            logger.info("🎬 Template requires video generation")
         else:  # static
-            logger.info(f"⚡ Static template - skipping media generation pipeline")
-            logger.info(f"   💡 Benefits: Faster generation + Lower cost + No ComfyUI dependency")
+            logger.info("⚡ Static template - skipping media generation pipeline")
+            logger.info("   💡 Benefits: Faster generation + Lower cost + No ComfyUI dependency")
         
         # Only generate image prompts if template requires media
         if template_requires_media:
@@ -231,11 +232,20 @@ class StandardPipeline(LinearVideoPipeline):
                 min_words=min_words,
                 max_words=max_words,
                 progress_callback=image_prompt_progress,
+                world_preset_id=ctx.params.get("world_preset_id"),
+                shot_preset_id=ctx.params.get("shot_preset_id"),
+                consistency_strength=ctx.params.get("consistency_strength", "standard"),
+                content_mode=ctx.params.get("content_mode"),
+                role_strategy=ctx.params.get("role_strategy"),
+                role_locking_strength=ctx.params.get("role_locking_strength"),
+                shot_strategy=ctx.params.get("shot_strategy"),
+                frame_overrides=ctx.params.get("frame_overrides"),
             )
 
             ctx.image_prompts = styled_batch.prompts
             ctx.resolved_style = styled_batch.resolved_style
             ctx.media_negative_prompt = styled_batch.negative_prompt
+            ctx.planning_snapshot = dict(styled_batch.planning_snapshot or {}) or None
             
             logger.info(f"✅ Generated {len(ctx.image_prompts)} image prompts")
         else:
@@ -243,7 +253,8 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.image_prompts = [None] * len(ctx.narrations)
             ctx.resolved_style = None
             ctx.media_negative_prompt = None
-            logger.info(f"⚡ Skipped image prompt generation (static template)")
+            ctx.planning_snapshot = None
+            logger.info("⚡ Skipped image prompt generation (static template)")
             logger.info(f"   💡 Savings: {len(ctx.narrations)} LLM calls + {len(ctx.narrations)} media generations")
 
     async def initialize_storyboard(self, ctx: PipelineContext):
@@ -291,7 +302,8 @@ class StandardPipeline(LinearVideoPipeline):
             media_workflow=ctx.params.get("media_workflow"),
             media_negative_prompt=ctx.media_negative_prompt,
             frame_template=ctx.params.get("frame_template") or "1080x1920/default.html",
-            template_params=ctx.params.get("template_params")
+            template_params=ctx.params.get("template_params"),
+            **build_storyboard_config_planning_kwargs(ctx.planning_snapshot, ctx.params),
         )
         
         # Create storyboard
@@ -299,7 +311,8 @@ class StandardPipeline(LinearVideoPipeline):
             title=ctx.title,
             config=ctx.config,
             content_metadata=ctx.params.get("content_metadata"),
-            created_at=datetime.now()
+            created_at=datetime.now(),
+            planning_snapshot=dict(ctx.planning_snapshot or {}) or None,
         )
         
         # Create frames
@@ -308,7 +321,8 @@ class StandardPipeline(LinearVideoPipeline):
                 index=i,
                 narration=narration,
                 image_prompt=image_prompt,
-                created_at=datetime.now()
+                created_at=datetime.now(),
+                **build_storyboard_frame_planning_kwargs(ctx.planning_snapshot, i),
             )
             ctx.storyboard.frames.append(frame)
 

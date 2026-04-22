@@ -56,10 +56,33 @@ async def test_custom_pipeline_uses_styled_batch_and_threads_negative_prompt(mon
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured["prompt_prefix"] = kwargs["prompt_prefix"]
+        captured["world_preset_id"] = kwargs["world_preset_id"]
+        captured["shot_preset_id"] = kwargs["shot_preset_id"]
+        captured["content_mode"] = kwargs["content_mode"]
+        captured["consistency_strength"] = kwargs["consistency_strength"]
+        captured["role_strategy"] = kwargs["role_strategy"]
+        captured["role_locking_strength"] = kwargs["role_locking_strength"]
+        captured["shot_strategy"] = kwargs["shot_strategy"]
         return StyledImagePromptBatch(
             prompts=["styled prompt"],
             negative_prompt="avoid realism",
             resolved_style=None,
+            planning_snapshot={
+                "world_preset_id": "neutral_knowledge_storyboard",
+                "effective_final_shot_preset": "balanced_explainer",
+                "resolved_content_mode": "concept_explainer",
+                "selected_consistency_strength": "strong",
+                "resolved_role_strategy": "stable_explainer_cast",
+                "selected_role_locking_strength": "strong",
+                "selected_shot_strategy": "strict",
+                "frames": [
+                    {
+                        "shot_type": "medium_shot",
+                        "shot_purpose": "context",
+                        "frame_source": "planner_generated",
+                    }
+                ],
+            },
         )
 
     monkeypatch.setattr("pixelle_video.utils.os_util.create_task_output_dir", lambda: (str(task_dir), "task-1"))
@@ -79,10 +102,35 @@ async def test_custom_pipeline_uses_styled_batch_and_threads_negative_prompt(mon
     result = await pipeline(
         text="scene one",
         tts_inference_mode="local",
+        world_preset_id="neutral_knowledge_storyboard",
+        shot_preset_id="balanced_explainer",
+        content_mode="concept_explainer",
+        consistency_strength="strong",
+        role_strategy="auto",
+        role_locking_strength="strong",
+        shot_strategy="strict",
     )
 
     assert captured["prompt_prefix"] is None
+    assert captured["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert captured["shot_preset_id"] == "balanced_explainer"
+    assert captured["content_mode"] == "concept_explainer"
+    assert captured["consistency_strength"] == "strong"
+    assert captured["role_strategy"] == "auto"
+    assert captured["role_locking_strength"] == "strong"
+    assert captured["shot_strategy"] == "strict"
     assert captured["media_negative_prompt"] == "avoid realism"
+    assert result.storyboard.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert result.storyboard.config.world_preset_id == "neutral_knowledge_storyboard"
+    assert result.storyboard.config.shot_preset_id == "balanced_explainer"
+    assert result.storyboard.config.content_mode == "concept_explainer"
+    assert result.storyboard.config.consistency_strength == "strong"
+    assert result.storyboard.config.role_strategy == "stable_explainer_cast"
+    assert result.storyboard.config.role_locking_strength == "strong"
+    assert result.storyboard.config.shot_strategy == "strict"
+    assert result.storyboard.frames[0].shot_type == "medium_shot"
+    assert result.storyboard.frames[0].shot_purpose == "context"
+    assert result.storyboard.frames[0].frame_source == "planner_generated"
     assert result.storyboard.frames[0].image_prompt == "styled prompt"
 
 

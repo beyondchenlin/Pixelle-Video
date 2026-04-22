@@ -17,12 +17,18 @@ Handles task metadata and storyboard persistence to filesystem.
 """
 
 import json
-from pathlib import Path
-from typing import List, Optional, Dict, Any
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from loguru import logger
 
-from pixelle_video.models.storyboard import Storyboard, StoryboardFrame, StoryboardConfig, ContentMetadata
+from pixelle_video.models.storyboard import (
+    ContentMetadata,
+    Storyboard,
+    StoryboardConfig,
+    StoryboardFrame,
+)
 from pixelle_video.render_backend import (
     DEFAULT_RENDER_BACKEND,
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
@@ -320,25 +326,6 @@ class PersistenceService:
         """Check if task exists"""
         return self.get_task_dir(task_id).exists()
     
-    async def delete_task(self, task_id: str):
-        """
-        Delete task directory and all files
-        
-        Args:
-            task_id: Task ID
-        """
-        try:
-            task_dir = self.get_task_dir(task_id)
-            
-            if task_dir.exists():
-                import shutil
-                shutil.rmtree(task_dir)
-                logger.info(f"Deleted task: {task_id}")
-            
-        except Exception as e:
-            logger.error(f"Failed to delete task {task_id}: {e}")
-            raise
-    
     # ========================================================================
     # Serialization Helpers
     # ========================================================================
@@ -352,6 +339,7 @@ class PersistenceService:
             "content_metadata": self._content_metadata_to_dict(storyboard.content_metadata) if storyboard.content_metadata else None,
             "final_video_path": storyboard.final_video_path,
             "total_duration": storyboard.total_duration,
+            "planning_snapshot": storyboard.planning_snapshot,
             "created_at": storyboard.created_at.isoformat() if storyboard.created_at else None,
             "completed_at": storyboard.completed_at.isoformat() if storyboard.completed_at else None,
         }
@@ -365,6 +353,7 @@ class PersistenceService:
             content_metadata=self._dict_to_content_metadata(data["content_metadata"]) if data.get("content_metadata") else None,
             final_video_path=data.get("final_video_path"),
             total_duration=data.get("total_duration", 0.0),
+            planning_snapshot=data.get("planning_snapshot"),
             created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None,
             completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
         )
@@ -398,6 +387,13 @@ class PersistenceService:
             "media_negative_prompt": config.media_negative_prompt,
             "frame_template": config.frame_template,
             "template_params": config.template_params,
+            "world_preset_id": config.world_preset_id,
+            "shot_preset_id": config.shot_preset_id,
+            "content_mode": config.content_mode,
+            "consistency_strength": config.consistency_strength,
+            "role_strategy": config.role_strategy,
+            "role_locking_strength": config.role_locking_strength,
+            "shot_strategy": config.shot_strategy,
         }
     
     def _dict_to_config(self, data: Dict[str, Any]) -> StoryboardConfig:
@@ -431,6 +427,13 @@ class PersistenceService:
             media_negative_prompt=data.get("media_negative_prompt"),
             frame_template=data.get("frame_template", "1080x1920/default.html"),
             template_params=data.get("template_params"),
+            world_preset_id=data.get("world_preset_id"),
+            shot_preset_id=data.get("shot_preset_id", data.get("effective_final_shot_preset")),
+            content_mode=data.get("content_mode", data.get("resolved_content_mode")),
+            consistency_strength=data.get("consistency_strength", data.get("selected_consistency_strength")),
+            role_strategy=data.get("role_strategy", data.get("resolved_role_strategy")),
+            role_locking_strength=data.get("role_locking_strength", data.get("selected_role_locking_strength")),
+            shot_strategy=data.get("shot_strategy", data.get("selected_shot_strategy")),
         )
 
     def _normalize_persisted_render_backend(self, render_backend: Any) -> str:
@@ -460,6 +463,9 @@ class PersistenceService:
             "composed_image_path": frame.composed_image_path,
             "video_segment_path": frame.video_segment_path,
             "duration": frame.duration,
+            "shot_type": frame.shot_type,
+            "shot_purpose": frame.shot_purpose,
+            "frame_source": frame.frame_source,
             "created_at": frame.created_at.isoformat() if frame.created_at else None,
         }
     
@@ -476,6 +482,9 @@ class PersistenceService:
             composed_image_path=data.get("composed_image_path"),
             video_segment_path=data.get("video_segment_path"),
             duration=data.get("duration", 0.0),
+            shot_type=data.get("shot_type"),
+            shot_purpose=data.get("shot_purpose"),
+            frame_source=data.get("frame_source"),
             created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None,
         )
     

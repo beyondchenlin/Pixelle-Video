@@ -19,17 +19,14 @@ process orchestration.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any, Callable
+from typing import Any, Callable, Dict, List, Optional
+
 from loguru import logger
 
-from pixelle_video.pipelines.base import BasePipeline
-from pixelle_video.models.storyboard import (
-    Storyboard,
-    VideoGenerationResult,
-    StoryboardConfig
-)
 from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, VideoGenerationResult
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
+from pixelle_video.pipelines.base import BasePipeline
 from pixelle_video.services.timing_planner import TimingPlan
 
 
@@ -57,6 +54,7 @@ class PipelineContext:
     image_prompts: List[Optional[str]] = field(default_factory=list)
     resolved_style: Optional[ResolvedStyleSpec] = None
     media_negative_prompt: Optional[str] = None
+    planning_snapshot: Optional[Dict[str, Any]] = None
     timing_plan: Optional[TimingPlan] = None
     
     # === Configuration & Storyboard ===

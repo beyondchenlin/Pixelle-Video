@@ -17,8 +17,8 @@ Business logic for history management (UI-agnostic).
 Provides high-level operations on top of PersistenceService.
 """
 
-from typing import List, Dict, Optional, Any
-from pathlib import Path
+from typing import Any, Dict, Optional
+
 from loguru import logger
 
 from pixelle_video.services.persistence import PersistenceService
@@ -103,6 +103,7 @@ class HistoryManager:
         return {
             "metadata": metadata,
             "storyboard": storyboard,
+            "planning_snapshot": storyboard.planning_snapshot if storyboard else None,
         }
     
     async def get_statistics(self) -> Dict[str, Any]:
@@ -221,4 +222,3 @@ class HistoryManager:
         """
         logger.warning("export_task is not implemented yet (Phase 3 feature)")
         return None
-
