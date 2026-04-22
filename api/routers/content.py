@@ -21,10 +21,10 @@ from loguru import logger
 
 from api.dependencies import PixelleVideoDep
 from api.schemas.content import (
-    NarrationGenerateRequest,
-    NarrationGenerateResponse,
     ImagePromptGenerateRequest,
     ImagePromptGenerateResponse,
+    NarrationGenerateRequest,
+    NarrationGenerateResponse,
     TitleGenerateRequest,
     TitleGenerateResponse,
 )
@@ -104,6 +104,14 @@ async def generate_image_prompt(
             media_service=pixelle_video.media,
             min_words=request.min_words,
             max_words=request.max_words,
+            world_preset_id=request.world_preset_id,
+            shot_preset_id=request.shot_preset_id,
+            consistency_strength=request.consistency_strength or "standard",
+            content_mode=request.content_mode,
+            role_strategy=request.role_strategy,
+            role_locking_strength=request.role_locking_strength,
+            shot_strategy=request.shot_strategy,
+            frame_overrides=request.frame_overrides,
         )
 
         return ImagePromptGenerateResponse(

@@ -88,6 +88,14 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "media_width": session_state.get("template_media_width"),
         "media_height": session_state.get("template_media_height"),
         "tts_inference_mode": video_params.get("tts_inference_mode", "local"),
+        "world_preset_id": video_params.get("world_preset_id"),
+        "shot_preset_id": video_params.get("shot_preset_id"),
+        "consistency_strength": video_params.get("consistency_strength") or "standard",
+        "content_mode": video_params.get("content_mode"),
+        "role_strategy": video_params.get("role_strategy"),
+        "role_locking_strength": video_params.get("role_locking_strength"),
+        "shot_strategy": video_params.get("shot_strategy"),
+        "frame_overrides": video_params.get("frame_overrides"),
     }
 
     if request["tts_inference_mode"] == "local":
@@ -124,6 +132,14 @@ def build_batch_shared_config(video_params):
         "tts_inference_mode": video_params.get("tts_inference_mode") or "local",
         "media_width": video_params.get("media_width"),
         "media_height": video_params.get("media_height"),
+        "world_preset_id": video_params.get("world_preset_id"),
+        "shot_preset_id": video_params.get("shot_preset_id"),
+        "consistency_strength": video_params.get("consistency_strength") or "standard",
+        "content_mode": video_params.get("content_mode"),
+        "role_strategy": video_params.get("role_strategy"),
+        "role_locking_strength": video_params.get("role_locking_strength"),
+        "shot_strategy": video_params.get("shot_strategy"),
+        "frame_overrides": video_params.get("frame_overrides"),
     }
 
     tts_speed = video_params.get("tts_speed")
@@ -258,6 +274,11 @@ def render_single_output(pixelle_video, video_params):
                 )
 
                 result = run_async(pixelle_video.generate_video(**generation_request))
+                st.session_state["storyboard_preview_snapshot"] = getattr(
+                    result.storyboard,
+                    "planning_snapshot",
+                    None,
+                )
                 
                 # Calculate total generation time
                 total_generation_time = time.time() - start_time

@@ -33,7 +33,7 @@ def test_video_generate_request_rejects_removed_hyperframes_alias():
 
 
 @pytest.mark.asyncio
-async def test_generate_video_sync_passes_render_backend_to_video_core(monkeypatch, tmp_path):
+async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monkeypatch, tmp_path):
     class _FakeFrameGenerator:
         def __init__(self, template_path):
             self.template_path = template_path
@@ -58,6 +58,20 @@ async def test_generate_video_sync_passes_render_backend_to_video_core(monkeypat
             text="demo",
             frame_template="1080x1920/image_default.html",
             render_backend="hyperframes_compiled",
+            world_preset_id="neutral_knowledge_storyboard",
+            shot_preset_id="balanced_explainer",
+            consistency_strength="strong",
+            content_mode="concept_explainer",
+            role_strategy="auto",
+            role_locking_strength="strong",
+            shot_strategy="strict",
+            frame_overrides=[
+                {
+                    "scene_id": "scene-1",
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                }
+            ],
         ),
         fake_pixelle_video,
         SimpleNamespace(base_url="http://testserver/"),
@@ -82,5 +96,19 @@ async def test_generate_video_sync_passes_render_backend_to_video_core(monkeypat
             "bgm_path": None,
             "bgm_volume": 0.3,
             "render_backend": "hyperframes_compiled",
+            "world_preset_id": "neutral_knowledge_storyboard",
+            "shot_preset_id": "balanced_explainer",
+            "consistency_strength": "strong",
+            "content_mode": "concept_explainer",
+            "role_strategy": "auto",
+            "role_locking_strength": "strong",
+            "shot_strategy": "strict",
+            "frame_overrides": [
+                {
+                    "scene_id": "scene-1",
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                }
+            ],
         }
     ]

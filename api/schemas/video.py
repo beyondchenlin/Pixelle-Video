@@ -14,7 +14,8 @@
 Video generation API schemas
 """
 
-from typing import Optional, Literal, Dict, Any
+from typing import Any, Dict, List, Literal, Optional
+
 from pydantic import BaseModel, Field
 
 from pixelle_video.render_backend import RenderBackend
@@ -86,6 +87,25 @@ class VideoGenerateRequest(BaseModel):
     
     # === Image Style ===
     prompt_prefix: Optional[str] = Field(None, description="Image style prefix")
+
+    # === Storyboard Planning ===
+    world_preset_id: Optional[str] = Field(None, description="Storyboard world preset id")
+    shot_preset_id: Optional[str] = Field(None, description="Storyboard shot preset id")
+    consistency_strength: Optional[str] = Field(
+        None,
+        description="Storyboard consistency strength",
+    )
+    content_mode: Optional[str] = Field(None, description="Storyboard content mode override")
+    role_strategy: Optional[str] = Field(None, description="Storyboard role strategy override")
+    role_locking_strength: Optional[str] = Field(
+        None,
+        description="Storyboard role locking strength override",
+    )
+    shot_strategy: Optional[str] = Field(None, description="Storyboard shot strategy override")
+    frame_overrides: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Per-frame storyboard overrides collected from preview",
+    )
     
     # === BGM ===
     bgm_path: Optional[str] = Field(None, description="Background music path")

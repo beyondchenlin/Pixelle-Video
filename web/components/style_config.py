@@ -27,26 +27,23 @@ from pixelle_video.config.prompt_prefix_library import (
     filter_prompt_prefix_items,
     get_effective_image_prompt_prefix,
     get_prompt_prefix_category_label,
-    get_prompt_prefix_preview_asset,
     resolve_prompt_prefix_gallery_cover,
 )
-from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
-from pixelle_video.tts_audio_strategy import SUPPORTED_TTS_AUDIO_STRATEGIES
 from pixelle_video.prompts.prompt_prefix_generation import (
     build_prompt_prefix_generation_prompt,
 )
+from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
+from pixelle_video.tts_audio_strategy import SUPPORTED_TTS_AUDIO_STRATEGIES
+from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_prefix_generation import (
     PromptPrefixGenerationResult,
     build_prompt_prefix_preview_batch,
     sanitize_prompt_prefix_candidates,
 )
-from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
+from web.components.storyboard_preview import render_storyboard_preview
 from web.i18n import get_language, tr
-from web.utils.tts_ui import resolve_comfyui_tts_speed
 from web.utils.async_helpers import run_async
 from web.utils.preview_media import load_preview_media
-from web.utils.render_backend_ui import get_render_backend_default
-from web.utils.tts_audio_strategy_ui import get_tts_audio_strategy_default
 from web.utils.prompt_prefix_ui import (
     clear_prompt_prefix_form_item_id,
     clone_prompt_prefix_preview_asset,
@@ -59,7 +56,10 @@ from web.utils.prompt_prefix_ui import (
     sanitize_prompt_prefix_preview_selection,
     toggle_prompt_prefix_preview_selection,
 )
+from web.utils.render_backend_ui import get_render_backend_default
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow, safe_rerun
+from web.utils.tts_audio_strategy_ui import get_tts_audio_strategy_default
+from web.utils.tts_ui import resolve_comfyui_tts_speed
 from web.utils.workflow_defaults import resolve_selectbox_default_index
 
 
@@ -76,6 +76,43 @@ def render_generated_style_preview(preview_media_path: str, template_media_type:
         caption=tr("style.preview_caption"),
         width="stretch",
     )
+
+
+def build_storyboard_control_payload(
+    *,
+    world_preset_id: str | None = None,
+    shot_preset_id: str | None = None,
+    consistency_strength: str | None = None,
+    content_mode: str | None = None,
+    role_strategy: str | None = None,
+    role_locking_strength: str | None = None,
+    shot_strategy: str | None = None,
+    frame_overrides: list[dict] | None = None,
+) -> dict:
+    """Build a normalized storyboard control payload from UI selections."""
+    payload = {
+        "world_preset_id": world_preset_id,
+        "shot_preset_id": shot_preset_id,
+        "consistency_strength": consistency_strength,
+        "content_mode": content_mode,
+        "role_strategy": role_strategy,
+        "role_locking_strength": role_locking_strength,
+        "shot_strategy": shot_strategy,
+    }
+
+    normalized_payload: dict = {}
+    for key, value in payload.items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                continue
+        normalized_payload[key] = value
+
+    if frame_overrides:
+        normalized_payload["frame_overrides"] = frame_overrides
+    return normalized_payload
 
 
 def _save_image_prompt_prefix_library(library: dict):
@@ -1619,6 +1656,113 @@ def render_style_config(pixelle_video):
         st.markdown(f"**{tr('section.render_backend')}**")
         render_backend = render_render_backend_selector()
         tts_audio_strategy = render_tts_audio_strategy_selector()
+
+    storyboard_world_preset_id = None
+    storyboard_shot_preset_id = None
+    storyboard_consistency_strength = None
+    storyboard_content_mode = None
+    storyboard_role_strategy = None
+    storyboard_role_locking_strength = None
+    storyboard_shot_strategy = None
+    storyboard_frame_overrides: list[dict] = []
+
+    with st.container(border=True):
+        st.markdown(f"**{tr('section.storyboard_planning')}**")
+
+        storyboard_enabled = st.checkbox(
+            tr("storyboard.enabled"),
+            value=bool(
+                st.session_state.get("storyboard_planning_enabled", False)
+                or st.session_state.get("storyboard_preview_snapshot")
+            ),
+            key="storyboard_planning_enabled",
+            help=tr("storyboard.enabled_help"),
+        )
+
+        if storyboard_enabled:
+            world_library = config_manager.get_storyboard_world_preset_library()
+            shot_library = config_manager.get_storyboard_shot_preset_library()
+            world_items = world_library.get("items", [])
+            shot_items = shot_library.get("items", [])
+            world_ids = [item["preset_id"] for item in world_items]
+            shot_ids = [item["preset_id"] for item in shot_items]
+            world_label_map = {item["preset_id"]: item["display_name"] for item in world_items}
+            shot_label_map = {item["preset_id"]: item["display_name"] for item in shot_items}
+
+            default_world_id = world_library.get("default_world_preset_id")
+            if default_world_id not in world_ids and world_ids:
+                default_world_id = world_ids[0]
+            default_shot_id = shot_library.get("default_shot_preset_id")
+            if default_shot_id not in shot_ids and shot_ids:
+                default_shot_id = shot_ids[0]
+
+            storyboard_col1, storyboard_col2 = st.columns(2)
+            with storyboard_col1:
+                if world_ids:
+                    storyboard_world_preset_id = st.selectbox(
+                        tr("storyboard.world_preset"),
+                        options=world_ids,
+                        index=world_ids.index(default_world_id),
+                        format_func=lambda value: world_label_map.get(value, value),
+                        key="storyboard_world_preset_id",
+                    )
+                storyboard_consistency_strength = st.radio(
+                    tr("storyboard.consistency_strength"),
+                    options=["standard", "strong"],
+                    index=0,
+                    horizontal=True,
+                    format_func=lambda value: tr(f"storyboard.option.consistency.{value}"),
+                    key="storyboard_consistency_strength",
+                )
+                content_mode_selection = st.selectbox(
+                    tr("storyboard.content_mode"),
+                    options=["auto", "concept_explainer", "theme_mapping"],
+                    index=0,
+                    format_func=lambda value: tr(f"storyboard.option.content_mode.{value}"),
+                    key="storyboard_content_mode",
+                )
+                storyboard_content_mode = (
+                    None if content_mode_selection == "auto" else content_mode_selection
+                )
+
+            with storyboard_col2:
+                if shot_ids:
+                    storyboard_shot_preset_id = st.selectbox(
+                        tr("storyboard.shot_preset"),
+                        options=shot_ids,
+                        index=shot_ids.index(default_shot_id),
+                        format_func=lambda value: shot_label_map.get(value, value),
+                        key="storyboard_shot_preset_id",
+                    )
+                storyboard_role_strategy = st.selectbox(
+                    tr("storyboard.role_strategy"),
+                    options=["auto", "stable_explainer_cast", "theme_mapping"],
+                    index=0,
+                    format_func=lambda value: tr(f"storyboard.option.role_strategy.{value}"),
+                    key="storyboard_role_strategy",
+                )
+                storyboard_role_locking_strength = st.radio(
+                    tr("storyboard.role_locking_strength"),
+                    options=["standard", "strong"],
+                    index=0,
+                    horizontal=True,
+                    format_func=lambda value: tr(f"storyboard.option.consistency.{value}"),
+                    key="storyboard_role_locking_strength",
+                )
+                storyboard_shot_strategy = st.radio(
+                    tr("storyboard.shot_strategy"),
+                    options=["adaptive", "strict"],
+                    index=0,
+                    horizontal=True,
+                    format_func=lambda value: tr(f"storyboard.option.shot_strategy.{value}"),
+                    key="storyboard_shot_strategy",
+                )
+
+            storyboard_frame_overrides = render_storyboard_preview(
+                st.session_state.get("storyboard_preview_snapshot")
+            )
+        else:
+            st.caption(tr("storyboard.preview.empty"))
     
     # ====================================================================
     # Storyboard Template Section
@@ -2223,6 +2367,17 @@ def render_style_config(pixelle_video):
             workflow_key = None
             prompt_prefix = ""
     
+    storyboard_payload = build_storyboard_control_payload(
+        world_preset_id=storyboard_world_preset_id,
+        shot_preset_id=storyboard_shot_preset_id,
+        consistency_strength=storyboard_consistency_strength,
+        content_mode=storyboard_content_mode,
+        role_strategy=storyboard_role_strategy,
+        role_locking_strength=storyboard_role_locking_strength,
+        shot_strategy=storyboard_shot_strategy,
+        frame_overrides=storyboard_frame_overrides,
+    )
+
     # Return all style configuration parameters
     return {
         "tts_inference_mode": tts_mode,
@@ -2237,7 +2392,8 @@ def render_style_config(pixelle_video):
         "media_workflow": workflow_key,
         "prompt_prefix": prompt_prefix if prompt_prefix else "",
         "media_width": media_width,
-        "media_height": media_height
+        "media_height": media_height,
+        **storyboard_payload,
     }
 
 

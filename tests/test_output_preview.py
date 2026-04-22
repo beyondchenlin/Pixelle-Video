@@ -93,6 +93,51 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["progress_callback"] is _progress
 
 
+def test_build_single_generation_request_includes_storyboard_controls_and_frame_overrides():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "world_preset_id": "neutral_knowledge_storyboard",
+            "shot_preset_id": "balanced_explainer",
+            "consistency_strength": "strong",
+            "content_mode": "concept_explainer",
+            "role_strategy": "auto",
+            "role_locking_strength": "strong",
+            "shot_strategy": "strict",
+            "frame_overrides": [
+                {
+                    "scene_id": "scene-1",
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                }
+            ],
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert request["shot_preset_id"] == "balanced_explainer"
+    assert request["consistency_strength"] == "strong"
+    assert request["content_mode"] == "concept_explainer"
+    assert request["role_strategy"] == "auto"
+    assert request["role_locking_strength"] == "strong"
+    assert request["shot_strategy"] == "strict"
+    assert request["frame_overrides"] == [
+        {
+            "scene_id": "scene-1",
+            "locked_fields": ["shot_type"],
+            "shot_type": "medium_shot",
+        }
+    ]
+
+
 def test_build_batch_shared_config_includes_render_backend():
     shared_config = output_preview.build_batch_shared_config(
         {
@@ -116,6 +161,45 @@ def test_build_batch_shared_config_includes_render_backend():
 
     assert shared_config["render_backend"] == "hyperframes_compiled"
     assert shared_config["tts_audio_strategy"] == "master_track"
+
+
+def test_build_batch_shared_config_includes_storyboard_controls_and_frame_overrides():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "n_scenes": 5,
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "world_preset_id": "neutral_knowledge_storyboard",
+            "shot_preset_id": "balanced_explainer",
+            "consistency_strength": "strong",
+            "content_mode": "concept_explainer",
+            "role_strategy": "auto",
+            "role_locking_strength": "strong",
+            "shot_strategy": "strict",
+            "frame_overrides": [
+                {
+                    "scene_id": "scene-1",
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                }
+            ],
+        }
+    )
+
+    assert shared_config["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert shared_config["shot_preset_id"] == "balanced_explainer"
+    assert shared_config["consistency_strength"] == "strong"
+    assert shared_config["content_mode"] == "concept_explainer"
+    assert shared_config["role_strategy"] == "auto"
+    assert shared_config["role_locking_strength"] == "strong"
+    assert shared_config["shot_strategy"] == "strict"
+    assert shared_config["frame_overrides"] == [
+        {
+            "scene_id": "scene-1",
+            "locked_fields": ["shot_type"],
+            "shot_type": "medium_shot",
+        }
+    ]
 
 
 def test_build_single_generation_request_includes_tts_speed_for_comfyui():

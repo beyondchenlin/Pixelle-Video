@@ -13,11 +13,12 @@
 """
 History Page - View generation history and manage tasks
 """
+# ruff: noqa: E402
 
-import sys
-from pathlib import Path
-from datetime import datetime
 import os
+import sys
+from datetime import datetime
+from pathlib import Path
 
 # Add project root to sys.path
 _script_dir = Path(__file__).resolve().parent
@@ -26,11 +27,10 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 import streamlit as st
-from loguru import logger
 
-from web.state.session import init_session_state, init_i18n, get_pixelle_video
 from web.components.header import render_header
 from web.i18n import tr
+from web.state.session import get_pixelle_video, init_i18n, init_session_state
 from web.utils.async_helpers import run_async
 from web.utils.render_backend_ui import get_task_render_backend
 
@@ -73,7 +73,7 @@ def format_datetime(iso_string: str) -> str:
     try:
         dt = datetime.fromisoformat(iso_string)
         return dt.strftime("%m-%d %H:%M")
-    except:
+    except Exception:
         return iso_string
 
 
@@ -82,6 +82,67 @@ def truncate_text(text: str, max_length: int = 60) -> str:
     if len(text) <= max_length:
         return text
     return text[:max_length] + "..."
+
+
+def extract_storyboard_planning_snapshot(detail: dict) -> dict:
+    """Read storyboard planning snapshot from task detail payloads."""
+    storyboard = detail.get("storyboard")
+    storyboard_snapshot = getattr(storyboard, "planning_snapshot", None)
+    if storyboard_snapshot:
+        return dict(storyboard_snapshot)
+
+    metadata = detail.get("metadata", {}) or {}
+    input_snapshot = metadata.get("input", {}).get("storyboard_planning_snapshot")
+    if input_snapshot:
+        return dict(input_snapshot)
+
+    result_snapshot = metadata.get("result", {}).get("storyboard_planning_snapshot")
+    if result_snapshot:
+        return dict(result_snapshot)
+
+    return {}
+
+
+def summarize_storyboard_planning_snapshot(snapshot: dict) -> list[tuple[str, str]]:
+    """Summarize the key storyboard planning fields for History UI."""
+    summary_items = [
+        ("history.detail.storyboard_world_preset", snapshot.get("world_preset_id")),
+        (
+            "history.detail.storyboard_shot_preset",
+            snapshot.get("requested_shot_preset_id")
+            or snapshot.get("effective_final_shot_preset")
+            or snapshot.get("shot_preset_id"),
+        ),
+        (
+            "history.detail.storyboard_content_mode",
+            snapshot.get("resolved_content_mode") or snapshot.get("content_mode"),
+        ),
+        (
+            "history.detail.storyboard_consistency",
+            snapshot.get("selected_consistency_strength")
+            or snapshot.get("consistency_strength"),
+        ),
+        (
+            "history.detail.storyboard_role_strategy",
+            snapshot.get("resolved_role_strategy") or snapshot.get("role_strategy"),
+        ),
+        (
+            "history.detail.storyboard_role_locking",
+            snapshot.get("selected_role_locking_strength")
+            or snapshot.get("role_locking_strength"),
+        ),
+        (
+            "history.detail.storyboard_shot_strategy",
+            snapshot.get("selected_shot_strategy") or snapshot.get("shot_strategy"),
+        ),
+    ]
+
+    normalized: list[tuple[str, str]] = []
+    for label_key, value in summary_items:
+        if value in (None, ""):
+            continue
+        normalized.append((label_key, str(value)))
+    return normalized
 
 
 def render_sidebar_controls(pixelle_video):
@@ -195,8 +256,8 @@ def render_grid_task_card(task: dict, pixelle_video):
             st.video(video_path, autoplay=False, loop=False, muted=False)
         else:
             st.markdown(
-                f"<div style='background: #f0f0f0; height: 180px; display: flex; align-items: center; "
-                f"justify-content: center; border-radius: 4px; font-size: 48px;'>📹</div>",
+                "<div style='background: #f0f0f0; height: 180px; display: flex; align-items: center; "
+                "justify-content: center; border-radius: 4px; font-size: 48px;'>📹</div>",
                 unsafe_allow_html=True
             )
         
@@ -270,6 +331,7 @@ def render_task_detail_modal(task_id: str, pixelle_video):
     
     metadata = detail["metadata"]
     storyboard = detail["storyboard"]
+    planning_snapshot = extract_storyboard_planning_snapshot(detail)
     
     # Close button at the top
     if st.button("❌ " + tr("history.detail.close"), key=f"close_detail_top_{task_id}"):
@@ -296,6 +358,15 @@ def render_task_detail_modal(task_id: str, pixelle_video):
         st.markdown(
             f"**{tr('history.detail.render_backend')}:** {get_task_render_backend(metadata) or 'N/A'}"
         )
+        planning_summary = summarize_storyboard_planning_snapshot(planning_snapshot)
+        if planning_summary:
+            st.markdown(f"**{tr('history.detail.storyboard_planning')}**")
+            for label_key, value in planning_summary:
+                st.markdown(f"**{tr(label_key)}:** {value}")
+            override_count = len(planning_snapshot.get("frame_overrides") or [])
+            st.markdown(
+                f"**{tr('history.detail.storyboard_override_count')}:** {override_count}"
+            )
         
         # Input text
         with st.expander(tr("history.detail.text"), expanded=True):
