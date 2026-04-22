@@ -119,6 +119,25 @@ Default-on does not need to apply automatically to:
 - standalone prompt-generation helpers
 - low-commitment experimentation surfaces where the user expectation is speed over continuity
 
+### Default-on technical contract
+
+The current shared UI implementation uses one shared storyboard toggle inside `web/components/style_config.py`. The default-on scope must therefore be expressed as one explicit caller-provided contract rather than ad hoc branching inside multiple pages.
+
+Approved V1 contract:
+
+- the shared style-config renderer should accept one explicit boolean input such as `storyboard_default_enabled`
+- main multi-scene video-generation entry points pass `True`
+- exploratory style-preview or prompt-helper entry points pass `False` unless they deliberately opt into storyboard-first behavior
+- the shared component must not infer this from page title, route name, or heuristics
+
+State precedence:
+
+1. user-changed session state
+2. existing storyboard preview session state
+3. caller-provided `storyboard_default_enabled`
+
+This keeps one source of truth for default behavior and avoids different entry points silently diverging.
+
 ## World Preset Expansion
 
 The built-in world preset library should move from 2 presets to a broader initial set.
@@ -133,6 +152,31 @@ These remain useful as:
 - safe default
 - neutral fallback
 - compatibility/testing anchors
+
+### Required schema contract for added world presets
+
+The new built-in presets must not be added as prose-only concepts. Each one must be specified as a concrete `WorldPresetDefinition` payload compatible with the parent storyboard spec.
+
+At minimum, every new built-in world preset added in this patch must declare:
+
+- `preset_id`
+- `display_name`
+- `supported_modes`
+- `forced_mode` when single-mode
+- `style_core`
+- `world_elements`
+- `knowledge_scene_rules`
+- `negative_rules`
+- `default_shot_preset_ids`
+- `conservative_fallback_mode`
+- `cast_slots` or `cast_slots_by_mode`
+
+For built-in user-facing presets, V1 should also add:
+
+- `display_name_key`
+- optional `description_key`
+
+so the UI can localize preset names and short explanations without relying on raw English strings.
 
 ### Add new built-in world presets
 
@@ -159,6 +203,21 @@ Preferred use:
 - character/faction explanations
 - history-theme branded knowledge content
 
+Required V1 contract:
+
+- `supported_modes = ("theme_mapping",)`
+- `forced_mode = "theme_mapping"`
+- `conservative_fallback_mode = "theme_mapping"`
+- `default_shot_preset_ids = ("character_relationship", "opening_world_building", "balanced_explainer")`
+- use `cast_slots` with stable slots such as:
+  - `shu_leader`
+  - `wei_leader`
+  - `strategist`
+  - `warrior_support`
+  - `learner_observer`
+
+The implementation must not ship this preset without explicit role anchors for faction and role mapping.
+
 #### 2. `angry_birds_knowledge_classroom`
 
 Display name:
@@ -182,6 +241,19 @@ Preferred use:
 - science explainers
 - general educational videos needing one repeatable host world
 
+Required V1 contract:
+
+- `supported_modes = ("concept_explainer",)`
+- `forced_mode = "concept_explainer"`
+- `conservative_fallback_mode = "concept_explainer"`
+- `default_shot_preset_ids = ("classroom_demo", "balanced_explainer", "detail_focus")`
+- use `cast_slots` with stable slots such as:
+  - `host_explainer`
+  - `learner_support`
+  - `demo_assistant`
+
+The implementation must treat this preset as a stable explainer-world preset, not a generic dual-mode placeholder.
+
 #### 3. `angry_birds_history_classroom`
 
 Display name:
@@ -203,6 +275,18 @@ Preferred use:
 - history teaching content that is not as character-centric as Three Kingdoms
 - culture/history breakdowns that still benefit from a branded world wrapper
 
+Required V1 contract:
+
+- `supported_modes = ("theme_mapping", "concept_explainer")`
+- omit `forced_mode`
+- `conservative_fallback_mode = "concept_explainer"`
+- `default_shot_preset_ids = ("opening_world_building", "balanced_explainer", "character_relationship")`
+- use `cast_slots_by_mode`
+  - `theme_mapping` should define stable history-role slots such as `history_figure_lead`, `era_context_support`, `narrator_moderator`
+  - `concept_explainer` should define stable explainer slots such as `history_host`, `timeline_support`
+
+This preset must be implemented as a real dual-mode preset, not a single-mode preset with vague history wording.
+
 ### Future additions
 
 These do not need to ship in the same patch, but should be treated as explicit follow-up candidates:
@@ -223,6 +307,30 @@ The built-in shot preset library should move from 2 presets to at least 5 preset
 
 ### Add new built-in shot presets
 
+### Required schema contract for added shot presets
+
+The new built-in shot presets must also be expressed as concrete `ShotPresetDefinition` payloads rather than only descriptive labels.
+
+At minimum, every new built-in shot preset added in this patch must declare:
+
+- `preset_id`
+- `display_name`
+- `supported_scene_count`
+- `max_consecutive_same`
+- `shot_distribution_rules`
+- `opening_rules`
+- `closing_rules`
+- `transition_rules`
+- `purpose_bias`
+- `override_policy`
+
+For built-in user-facing shot presets, V1 should also add:
+
+- `display_name_key`
+- optional `description_key`
+
+so the UI can localize the preset catalog consistently.
+
 #### 1. `opening_world_building`
 
 Purpose:
@@ -234,6 +342,16 @@ Bias:
 - more long/full shots early
 - clearer location and cast staging
 - useful for branded worlds and theme-heavy storytelling
+
+Required V1 contract:
+
+- `supported_scene_count = (4, 5, 6, 7)`
+- `max_consecutive_same = 2`
+- `shot_distribution_rules` must require at least one long/full establishing frame in the opening portion
+- `opening_rules` must explicitly prioritize world/context establishment
+- `closing_rules` should return to a readable knowledge takeaway after the wider setup
+- `transition_rules` should tighten gradually from wide to medium/detail emphasis
+- `override_policy = "adaptive"`
 
 #### 2. `character_relationship`
 
@@ -247,6 +365,16 @@ Bias:
 - more paired or grouped compositions
 - especially good for faction,人物关系,角色对照内容
 
+Required V1 contract:
+
+- `supported_scene_count = (3, 4, 5, 6, 7)`
+- `max_consecutive_same = 2`
+- `shot_distribution_rules` must preserve relational readability rather than object-detail bias
+- `opening_rules` should establish the key pair/group before detail inserts
+- `closing_rules` should end on a relationship summary or comparison beat
+- `transition_rules` should prefer full/medium alternation over frequent extreme close-ups
+- `override_policy = "adaptive"`
+
 #### 3. `classroom_demo`
 
 Purpose:
@@ -258,6 +386,16 @@ Bias:
 - stable medium-shot teaching rhythm
 - close-ups reserved for key props or experiment details
 - useful for concept explanation and classroom-style knowledge content
+
+Required V1 contract:
+
+- `supported_scene_count = (3, 4, 5, 6)`
+- `max_consecutive_same = 2`
+- `shot_distribution_rules` must keep a stable teaching rhythm with medium shots as the backbone
+- `opening_rules` should establish the explainer or teaching setup quickly
+- `closing_rules` should end on the final demonstrated takeaway or key teaching prop
+- `transition_rules` should move from explainer framing to prop/detail framing in a controlled way
+- `override_policy = "adaptive"`
 
 ## Recommended Initial Built-in Preset Inventory
 
@@ -331,6 +469,21 @@ The guide should instead communicate:
 - users can turn it off when exploring fast
 - presets are not advanced-only extras; they are the normal route for continuity
 
+### Preset localization contract
+
+The current UI renders preset option labels directly from preset metadata. If built-in presets are expanded without a localization contract, the Chinese UI will degrade into a mixed-language catalog.
+
+Approved V1 contract:
+
+- built-in world presets should expose `display_name_key` and may expose `description_key`
+- built-in shot presets should expose `display_name_key` and may expose `description_key`
+- `zh_CN` and `en_US` locale files must provide translations for every built-in preset key shipped in this patch
+- UI label resolution order should be:
+  1. translated `display_name_key`
+  2. raw `display_name`
+
+History and task snapshots should continue to store stable `preset_id` values as the source of truth rather than localized labels.
+
 ### Recommended guide structure
 
 The guide should answer four things, in this order:
@@ -379,9 +532,11 @@ This is not a full UI redesign. It is a maintainability refactor that should hap
 
 ## Expected Files in Scope
 
+- `pixelle_video/models/storyboard_planning.py`
 - `pixelle_video/config/storyboard_preset_library.py`
 - `pixelle_video/config/schema.py`
 - `web/components/style_config.py`
+- `web/pipelines/standard.py`
 - `web/i18n/locales/zh_CN.json`
 - `web/i18n/locales/en_US.json`
 - tests covering:
@@ -389,6 +544,8 @@ This is not a full UI redesign. It is a maintainability refactor that should hap
   - preset cross-reference validity
   - storyboard UI default enabled behavior
   - default preset selection behavior
+  - default-on scope behavior for main vs exploratory entry points
+  - preset localization fallback behavior
   - guide copy or rendering expectations where appropriate
 
 ## Risks
