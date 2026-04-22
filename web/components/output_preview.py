@@ -459,7 +459,7 @@ def render_batch_output(pixelle_video, video_params):
 
             if latest_planning_snapshot is not None:
                 st.session_state["storyboard_preview_snapshot"] = latest_planning_snapshot
-            elif batch_result.get("success_count", 0) == 0:
+            else:
                 st.session_state["storyboard_preview_snapshot"] = None
             
             total_time = time.time() - start_time
