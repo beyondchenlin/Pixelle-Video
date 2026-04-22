@@ -18,6 +18,7 @@ Supports structured output via response_type parameter (Pydantic model).
 
 import json
 from typing import Optional, Type, TypeVar, Union
+from urllib.parse import urlparse
 
 from loguru import logger
 from openai import AsyncOpenAI
@@ -174,7 +175,7 @@ class LLMService:
         
         try:
             if response_type is not None:
-                # Structured output mode - try beta.chat.completions.parse first
+                # Structured output mode
                 return await self._call_with_structured_output(
                     client=client,
                     model=final_model,
@@ -215,9 +216,10 @@ class LLMService:
     ) -> T:
         """
         Call LLM with structured output support
-        
-        Uses JSON schema instruction appended to prompt for maximum compatibility
-        across all OpenAI-compatible providers (Qwen, DeepSeek, etc.).
+
+        Prefer provider-native structured output for supported OpenAI models and
+        fall back to JSON-schema-in-prompt mode for compatible providers that do
+        not support the native parse API.
         
         Args:
             client: OpenAI client
@@ -231,11 +233,93 @@ class LLMService:
         Returns:
             Parsed Pydantic model instance
         """
-        # Build JSON schema instruction and append to prompt
+        if self._should_use_native_structured_output(client=client, model=model):
+            return await self._call_with_native_structured_output(
+                client=client,
+                model=model,
+                prompt=prompt,
+                response_type=response_type,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs
+            )
+
+        return await self._call_with_prompt_schema_structured_output(
+            client=client,
+            model=model,
+            prompt=prompt,
+            response_type=response_type,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs
+        )
+
+    def _should_use_native_structured_output(self, *, client: AsyncOpenAI, model: str) -> bool:
+        base_url = str(client.base_url or "").strip().lower()
+        hostname = urlparse(base_url).hostname or ""
+        is_openai_provider = not hostname or hostname.endswith("openai.com")
+        if not is_openai_provider:
+            return False
+
+        normalized_model = (model or "").strip().lower()
+        native_prefixes = (
+            "gpt-4",
+            "gpt-5",
+            "chatgpt-4",
+            "o1",
+            "o3",
+            "o4",
+        )
+        return normalized_model.startswith(native_prefixes)
+
+    async def _call_with_native_structured_output(
+        self,
+        client: AsyncOpenAI,
+        model: str,
+        prompt: str,
+        response_type: Type[T],
+        temperature: float,
+        max_tokens: int,
+        **kwargs
+    ) -> T:
+        response = await client.beta.chat.completions.parse(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            response_format=response_type,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs
+        )
+        message = response.choices[0].message
+        parsed = getattr(message, "parsed", None)
+        if parsed is not None:
+            return parsed
+
+        refusal = getattr(message, "refusal", None)
+        if refusal:
+            raise ValueError(f"Structured output request refused by model: {refusal}")
+
+        content = getattr(message, "content", None) or ""
+        if content:
+            return self._parse_response_as_model(content, response_type)
+
+        raise ValueError(
+            f"Structured output response from model {model} did not include parsed content"
+        )
+
+    async def _call_with_prompt_schema_structured_output(
+        self,
+        client: AsyncOpenAI,
+        model: str,
+        prompt: str,
+        response_type: Type[T],
+        temperature: float,
+        max_tokens: int,
+        **kwargs
+    ) -> T:
         json_schema_instruction = self._get_json_schema_instruction(response_type)
         enhanced_prompt = f"{prompt}\n\n{json_schema_instruction}"
-        
-        # Call LLM with enhanced prompt
+
         response = await client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": enhanced_prompt}],
@@ -244,10 +328,9 @@ class LLMService:
             **kwargs
         )
         content = response.choices[0].message.content
-        
+
         logger.debug(f"Structured output response length: {len(content)} chars")
-        
-        # Parse JSON from response content
+
         return self._parse_response_as_model(content, response_type)
     
     def _get_json_schema_instruction(self, response_type: Type[T]) -> str:
