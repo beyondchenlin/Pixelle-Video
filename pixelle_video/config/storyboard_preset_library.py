@@ -133,9 +133,231 @@ DUAL_MODE_WORLD_PRESET = WorldPresetDefinition(
 )
 
 
+ANGRY_BIRDS_THREE_KINGDOMS_WORLD_PRESET = WorldPresetDefinition(
+    preset_id="angry_birds_three_kingdoms",
+    display_name="Angry Birds Three Kingdoms",
+    display_name_key="storyboard.preset.world.angry_birds_three_kingdoms.name",
+    description_key="storyboard.preset.world.angry_birds_three_kingdoms.description",
+    supported_modes=("theme_mapping",),
+    style_core="Angry Birds-inspired teaching world with Three Kingdoms faction cues and stable role silhouettes",
+    world_elements=(
+        "faction banners",
+        "strategy board",
+        "war maps",
+        "camp structures",
+        "study scrolls",
+    ),
+    knowledge_scene_rules=(
+        "keep role mapping and relationship readability ahead of spectacle",
+        "preserve a playful classroom-like teaching tone for historical themes",
+    ),
+    negative_rules=(
+        "avoid realistic war violence",
+        "avoid drifting into game screenshot framing",
+    ),
+    default_shot_preset_ids=("character_relationship", "opening_world_building", "balanced_explainer"),
+    cast_slots=(
+        {
+            "slot_id": "shu_leader",
+            "semantic_role": "shu_leader",
+            "visual_anchor": "warm-toned leader bird",
+            "prop_anchor": "banner or oath scroll",
+            "personality_anchor": "benevolent and steady",
+            "theme_mapping_rule": "map Shu leadership figures into this slot",
+            "reuse_priority": 95,
+        },
+        {
+            "slot_id": "wei_leader",
+            "semantic_role": "wei_leader",
+            "visual_anchor": "cool-toned command bird",
+            "prop_anchor": "command tablet or banner",
+            "personality_anchor": "strategic and forceful",
+            "theme_mapping_rule": "map Wei leadership figures into this slot",
+            "reuse_priority": 94,
+        },
+        {
+            "slot_id": "strategist",
+            "semantic_role": "strategist",
+            "visual_anchor": "clever adviser bird",
+            "prop_anchor": "war map or fan",
+            "personality_anchor": "calm and analytical",
+            "theme_mapping_rule": "map tacticians and planners into this slot",
+            "reuse_priority": 92,
+        },
+        {
+            "slot_id": "warrior_support",
+            "semantic_role": "warrior_support",
+            "visual_anchor": "strong support bird",
+            "prop_anchor": "weapon prop or shield marker",
+            "personality_anchor": "loyal and energetic",
+            "theme_mapping_rule": "map martial support roles into this slot",
+            "reuse_priority": 88,
+        },
+        {
+            "slot_id": "learner_observer",
+            "semantic_role": "learner_observer",
+            "visual_anchor": "curious observer bird",
+            "prop_anchor": "notes or study card",
+            "personality_anchor": "curious and attentive",
+            "theme_mapping_rule": "use as the audience-surrogate learner slot",
+            "reuse_priority": 80,
+        },
+    ),
+    conservative_fallback_mode="theme_mapping",
+    forced_mode="theme_mapping",
+)
+
+
+ANGRY_BIRDS_KNOWLEDGE_CLASSROOM_WORLD_PRESET = WorldPresetDefinition(
+    preset_id="angry_birds_knowledge_classroom",
+    display_name="Angry Birds Knowledge Classroom",
+    display_name_key="storyboard.preset.world.angry_birds_knowledge_classroom.name",
+    description_key="storyboard.preset.world.angry_birds_knowledge_classroom.description",
+    supported_modes=("concept_explainer",),
+    style_core="playful bird classroom with readable teaching props and repeatable presenter staging",
+    world_elements=(
+        "teaching board",
+        "pointer",
+        "labeled sample objects",
+        "charts",
+        "demo table",
+    ),
+    knowledge_scene_rules=(
+        "keep the explainer identity stable across the lesson",
+        "reserve detail emphasis for key props and examples",
+    ),
+    negative_rules=(
+        "avoid high-chaos action composition",
+        "avoid historical faction staging in general knowledge topics",
+    ),
+    default_shot_preset_ids=("classroom_demo", "balanced_explainer", "detail_focus"),
+    cast_slots=(
+        {
+            "slot_id": "host_explainer",
+            "semantic_role": "host_explainer",
+            "visual_anchor": "confident presenter bird",
+            "prop_anchor": "board pointer or diagram card",
+            "personality_anchor": "clear and friendly",
+            "theme_mapping_rule": "keep the main explainer stable across concept topics",
+            "reuse_priority": 96,
+        },
+        {
+            "slot_id": "learner_support",
+            "semantic_role": "learner_support",
+            "visual_anchor": "engaged learner bird",
+            "prop_anchor": "notebook or label card",
+            "personality_anchor": "curious and receptive",
+            "theme_mapping_rule": "support teaching beats with reaction and comparison framing",
+            "reuse_priority": 84,
+        },
+        {
+            "slot_id": "demo_assistant",
+            "semantic_role": "demo_assistant",
+            "visual_anchor": "helper bird near props",
+            "prop_anchor": "sample object or experiment prop",
+            "personality_anchor": "helpful and practical",
+            "theme_mapping_rule": "support demonstrations and staged comparisons",
+            "reuse_priority": 78,
+        },
+    ),
+    conservative_fallback_mode="concept_explainer",
+    forced_mode="concept_explainer",
+)
+
+
+ANGRY_BIRDS_HISTORY_CLASSROOM_WORLD_PRESET = WorldPresetDefinition(
+    preset_id="angry_birds_history_classroom",
+    display_name="Angry Birds History Classroom",
+    display_name_key="storyboard.preset.world.angry_birds_history_classroom.name",
+    description_key="storyboard.preset.world.angry_birds_history_classroom.description",
+    supported_modes=("theme_mapping", "concept_explainer"),
+    style_core="history-teaching bird classroom with archive motifs, timelines, and lecture staging",
+    world_elements=(
+        "timeline wall",
+        "archive shelves",
+        "lecture podium",
+        "history map",
+        "artifact stand",
+    ),
+    knowledge_scene_rules=(
+        "keep the history-teaching atmosphere consistent across scenes",
+        "reuse archive, lecture, and timeline motifs to support continuity",
+    ),
+    negative_rules=(
+        "avoid flattening into a generic neutral classroom",
+        "avoid parody overwhelming historical readability",
+    ),
+    default_shot_preset_ids=("opening_world_building", "balanced_explainer", "character_relationship"),
+    cast_slots_by_mode={
+        "theme_mapping": (
+            {
+                "slot_id": "history_figure_lead",
+                "semantic_role": "history_figure_lead",
+                "visual_anchor": "mapped history lead bird",
+                "prop_anchor": "timeline marker or emblem",
+                "personality_anchor": "grounded and recognizable",
+                "theme_mapping_rule": "map named historical figures into this lead slot",
+                "reuse_priority": 90,
+            },
+            {
+                "slot_id": "era_context_support",
+                "semantic_role": "era_context_support",
+                "visual_anchor": "era context support bird",
+                "prop_anchor": "map or era card",
+                "personality_anchor": "contextual and explanatory",
+                "theme_mapping_rule": "carry factions, periods, or comparison context",
+                "reuse_priority": 82,
+            },
+            {
+                "slot_id": "narrator_moderator",
+                "semantic_role": "narrator_moderator",
+                "visual_anchor": "teaching moderator bird",
+                "prop_anchor": "pointer or podium",
+                "personality_anchor": "measured and helpful",
+                "theme_mapping_rule": "stabilize narration through topic shifts",
+                "reuse_priority": 85,
+            },
+        ),
+        "concept_explainer": (
+            {
+                "slot_id": "history_host",
+                "semantic_role": "history_host",
+                "visual_anchor": "history lecturer bird",
+                "prop_anchor": "timeline board or podium",
+                "personality_anchor": "clear and welcoming",
+                "theme_mapping_rule": "anchor history explainer lessons with a stable host",
+                "reuse_priority": 92,
+            },
+            {
+                "slot_id": "timeline_support",
+                "semantic_role": "timeline_support",
+                "visual_anchor": "timeline guide bird",
+                "prop_anchor": "timeline marker or era card",
+                "personality_anchor": "organized and contextual",
+                "theme_mapping_rule": "support chronology, sequence, and era transitions in history lessons",
+                "reuse_priority": 80,
+            },
+            {
+                "slot_id": "student_observer",
+                "semantic_role": "student_observer",
+                "visual_anchor": "learner observer bird",
+                "prop_anchor": "notes or question card",
+                "personality_anchor": "curious and focused",
+                "theme_mapping_rule": "provide audience viewpoint for history concept beats",
+                "reuse_priority": 76,
+            },
+        ),
+    },
+    conservative_fallback_mode="concept_explainer",
+)
+
+
 BUILTIN_WORLD_PRESETS = (
     NEUTRAL_KNOWLEDGE_WORLD_PRESET,
     DUAL_MODE_WORLD_PRESET,
+    ANGRY_BIRDS_THREE_KINGDOMS_WORLD_PRESET,
+    ANGRY_BIRDS_KNOWLEDGE_CLASSROOM_WORLD_PRESET,
+    ANGRY_BIRDS_HISTORY_CLASSROOM_WORLD_PRESET,
 )
 
 
@@ -188,9 +410,89 @@ DETAIL_FOCUS_SHOT_PRESET = ShotPresetDefinition(
 )
 
 
+OPENING_WORLD_BUILDING_SHOT_PRESET = ShotPresetDefinition(
+    preset_id="opening_world_building",
+    display_name="Opening World Building",
+    display_name_key="storyboard.preset.shot.opening_world_building.name",
+    description_key="storyboard.preset.shot.opening_world_building.description",
+    supported_scene_count=(4, 5, 6, 7),
+    max_consecutive_same=2,
+    shot_distribution_rules=(
+        "favor wider establishing coverage early before tightening into teaching beats",
+        "require at least one long/full establishing frame in the opening portion",
+        "adapt shot distance based on scene count while keeping the world readable",
+    ),
+    opening_rules=(
+        "open with a long/full establishing frame that makes world, cast, and spatial context immediately readable",
+    ),
+    closing_rules=(
+        "close on a clear knowledge takeaway after the world has been established",
+    ),
+    transition_rules=(
+        "tighten coverage gradually with a wide -> medium -> detail progression as the lesson focus sharpens",
+    ),
+    purpose_bias="world-establishing opening bias for teaching-first story setups",
+    override_policy="adaptive",
+)
+
+
+CHARACTER_RELATIONSHIP_SHOT_PRESET = ShotPresetDefinition(
+    preset_id="character_relationship",
+    display_name="Character Relationship",
+    display_name_key="storyboard.preset.shot.character_relationship.name",
+    description_key="storyboard.preset.shot.character_relationship.description",
+    supported_scene_count=(3, 4, 5, 6, 7),
+    max_consecutive_same=2,
+    shot_distribution_rules=(
+        "favor two-shots and readable groupings when relationships matter",
+        "prefer full/medium alternation so relationship beats stay legible across scenes",
+        "adapt framing to preserve comparison clarity across scene counts",
+    ),
+    opening_rules=(
+        "open with relationship context that makes the key subjects readable together",
+    ),
+    closing_rules=(
+        "end on the clearest relationship takeaway or contrast beat",
+    ),
+    transition_rules=(
+        "prefer full/medium alternation over frequent/repeated extreme close-ups to preserve relationship readability",
+    ),
+    purpose_bias="relationship readability bias for role, faction, and comparison-heavy topics",
+    override_policy="adaptive",
+)
+
+
+CLASSROOM_DEMO_SHOT_PRESET = ShotPresetDefinition(
+    preset_id="classroom_demo",
+    display_name="Classroom Demo",
+    display_name_key="storyboard.preset.shot.classroom_demo.name",
+    description_key="storyboard.preset.shot.classroom_demo.description",
+    supported_scene_count=(3, 4, 5, 6),
+    max_consecutive_same=2,
+    shot_distribution_rules=(
+        "favor medium teaching frames as the backbone of the lesson rhythm",
+        "adapt close detail inserts around the core teaching cadence when needed",
+    ),
+    opening_rules=(
+        "start with a readable teacher-and-demo setup",
+    ),
+    closing_rules=(
+        "end on the clearest demonstrated takeaway or recap beat",
+    ),
+    transition_rules=(
+        "cycle between medium teaching coverage and selective detail emphasis",
+    ),
+    purpose_bias="medium-shot teaching rhythm bias for classroom demonstrations",
+    override_policy="adaptive",
+)
+
+
 BUILTIN_SHOT_PRESETS = (
     BALANCED_EXPLAINER_SHOT_PRESET,
     DETAIL_FOCUS_SHOT_PRESET,
+    OPENING_WORLD_BUILDING_SHOT_PRESET,
+    CHARACTER_RELATIONSHIP_SHOT_PRESET,
+    CLASSROOM_DEMO_SHOT_PRESET,
 )
 
 
@@ -236,11 +538,17 @@ def load_shot_preset_map(library: Any) -> dict[str, dict[str, Any]]:
 
 
 __all__ = [
+    "ANGRY_BIRDS_HISTORY_CLASSROOM_WORLD_PRESET",
+    "ANGRY_BIRDS_KNOWLEDGE_CLASSROOM_WORLD_PRESET",
+    "ANGRY_BIRDS_THREE_KINGDOMS_WORLD_PRESET",
     "BALANCED_EXPLAINER_SHOT_PRESET",
     "BUILTIN_SHOT_PRESETS",
     "BUILTIN_WORLD_PRESETS",
+    "CHARACTER_RELATIONSHIP_SHOT_PRESET",
+    "CLASSROOM_DEMO_SHOT_PRESET",
     "DETAIL_FOCUS_SHOT_PRESET",
     "NEUTRAL_KNOWLEDGE_WORLD_PRESET",
+    "OPENING_WORLD_BUILDING_SHOT_PRESET",
     "build_builtin_shot_preset_library_dict",
     "build_builtin_world_preset_library_dict",
     "load_shot_preset_map",
