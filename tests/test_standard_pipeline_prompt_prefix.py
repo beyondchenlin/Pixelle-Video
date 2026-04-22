@@ -232,3 +232,41 @@ async def test_standard_pipeline_plan_visuals_uses_video_config_and_media_type(m
     assert captured["media_type"] == "video"
     assert ctx.image_prompts == ["dynamic video prompt"]
     assert ctx.media_negative_prompt == "washed out frames"
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_static_path_does_not_persist_pseudo_resolved_planning_fields(monkeypatch):
+    monkeypatch.setattr("pixelle_video.pipelines.standard.get_template_type", lambda template_name: "static")
+
+    pipeline = StandardPipeline(_DummyCore({}))
+    ctx = PipelineContext(
+        input_text="topic",
+        params={
+            "frame_template": "1080x1920/default.html",
+            "media_width": 1024,
+            "media_height": 1024,
+            "world_preset_id": "neutral_knowledge_storyboard",
+            "shot_preset_id": "balanced_explainer",
+            "content_mode": "concept_explainer",
+            "consistency_strength": "strong",
+            "role_strategy": "auto",
+            "role_locking_strength": "strong",
+            "shot_strategy": "strict",
+        },
+    )
+    ctx.title = "Static Storyboard"
+    ctx.task_id = "task-static"
+    ctx.narrations = ["scene one"]
+
+    await pipeline.plan_visuals(ctx)
+    await pipeline.initialize_storyboard(ctx)
+
+    assert ctx.planning_snapshot is None
+    assert ctx.storyboard.planning_snapshot is None
+    assert ctx.storyboard.config.world_preset_id is None
+    assert ctx.storyboard.config.shot_preset_id is None
+    assert ctx.storyboard.config.content_mode is None
+    assert ctx.storyboard.config.consistency_strength is None
+    assert ctx.storyboard.config.role_strategy is None
+    assert ctx.storyboard.config.role_locking_strength is None
+    assert ctx.storyboard.config.shot_strategy is None

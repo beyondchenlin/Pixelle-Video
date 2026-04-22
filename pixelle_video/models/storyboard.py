@@ -192,41 +192,36 @@ def build_storyboard_config_planning_kwargs(
     params: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     snapshot = planning_snapshot or {}
-    request_params = params or {}
+    if not snapshot:
+        return {}
+
     return {
         "world_preset_id": _first_non_none(
             snapshot.get("world_preset_id"),
-            request_params.get("world_preset_id"),
         ),
         "shot_preset_id": _first_non_none(
             snapshot.get("shot_preset_id"),
             snapshot.get("effective_final_shot_preset"),
-            request_params.get("shot_preset_id"),
         ),
         "content_mode": _first_non_none(
             snapshot.get("content_mode"),
             snapshot.get("resolved_content_mode"),
-            request_params.get("content_mode"),
         ),
         "consistency_strength": _first_non_none(
             snapshot.get("consistency_strength"),
             snapshot.get("selected_consistency_strength"),
-            request_params.get("consistency_strength"),
         ),
         "role_strategy": _first_non_none(
             snapshot.get("role_strategy"),
             snapshot.get("resolved_role_strategy"),
-            request_params.get("role_strategy"),
         ),
         "role_locking_strength": _first_non_none(
             snapshot.get("role_locking_strength"),
             snapshot.get("selected_role_locking_strength"),
-            request_params.get("role_locking_strength"),
         ),
         "shot_strategy": _first_non_none(
             snapshot.get("shot_strategy"),
             snapshot.get("selected_shot_strategy"),
-            request_params.get("shot_strategy"),
         ),
     }
 
