@@ -125,6 +125,26 @@ def get_available_languages() -> Dict[str, str]:
     }
 
 
+def _normalize_system_locale_name(system_locale: str) -> str:
+    """Normalize OS locale strings into stable language codes when possible."""
+    normalized = system_locale.replace("-", "_").split(".")[0].strip()
+    readable_locale = normalized.lower()
+
+    windows_named_locales = (
+        ("chinese (simplified)", "zh_CN"),
+        ("chinese (traditional)", "zh_TW"),
+        ("chinese", "zh"),
+        ("english", "en"),
+        ("japanese", "ja"),
+        ("korean", "ko"),
+    )
+    for prefix, locale_code in windows_named_locales:
+        if readable_locale.startswith(prefix):
+            return locale_code
+
+    return normalized
+
+
 def detect_system_language() -> str:
     """
     Detect system/OS language and return the best matching locale code.
@@ -208,7 +228,7 @@ def detect_system_language() -> str:
         if system_locale:
             # Normalize the locale string
             # Handle formats: zh_CN, zh-CN, zh_CN.UTF-8, etc.
-            system_locale = system_locale.replace('-', '_').split('.')[0]
+            system_locale = _normalize_system_locale_name(system_locale)
             
             # Direct match (e.g., "zh_CN")
             for locale_code in _locales.keys():
