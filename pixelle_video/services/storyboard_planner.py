@@ -27,13 +27,6 @@ def _read_value(container: Any, key: str, default: Any = None) -> Any:
     return getattr(container, key, default)
 
 
-def _attach_attribute(target: Any, name: str, value: Any) -> None:
-    try:
-        object.__setattr__(target, name, value)
-    except Exception:
-        pass
-
-
 def _normalize_supported_modes(world_preset: Any) -> set[str]:
     supported_modes = _read_value(world_preset, "supported_modes", ())
     return {str(mode) for mode in supported_modes}
@@ -90,8 +83,8 @@ def resolve_content_mode(
             mixed_content_flag=bool(classifier_result.get("mixed_content_flag", False)),
             dominant_anchor_type=str(classifier_result.get("dominant_anchor_type", "")),
             reason_summary="world preset forced_mode",
+            selection_source="forced_mode",
         )
-        _attach_attribute(resolved, "selection_source", "forced_mode")
         return resolved
 
     if user_mode is not None:
@@ -104,8 +97,8 @@ def resolve_content_mode(
             mixed_content_flag=bool(classifier_result.get("mixed_content_flag", False)),
             dominant_anchor_type=str(classifier_result.get("dominant_anchor_type", "")),
             reason_summary="user requested content mode",
+            selection_source="user_selected",
         )
-        _attach_attribute(resolved, "selection_source", "user_selected")
         return resolved
 
     if classifier_mode is not None and (
@@ -117,8 +110,8 @@ def resolve_content_mode(
             mixed_content_flag=bool(classifier_result.get("mixed_content_flag", False)),
             dominant_anchor_type=str(classifier_result.get("dominant_anchor_type", "")),
             reason_summary=str(classifier_result.get("reason_summary", "classifier result")),
+            selection_source="classifier",
         )
-        _attach_attribute(resolved, "selection_source", "classifier")
         return resolved
 
     resolved = ResolvedContentMode(
@@ -127,8 +120,8 @@ def resolve_content_mode(
         mixed_content_flag=bool(classifier_result.get("mixed_content_flag", False)),
         dominant_anchor_type=str(classifier_result.get("dominant_anchor_type", "")),
         reason_summary="conservative fallback mode",
+        selection_source="fallback_mode",
     )
-    _attach_attribute(resolved, "selection_source", "fallback_mode")
     return resolved
 
 
@@ -229,7 +222,7 @@ async def plan_storyboard_batch(
         world_preset=world_preset,
         default_threshold=default_threshold,
     )
-    resolved_mode_source = getattr(resolved_mode, "selection_source", "fallback_mode")
+    resolved_mode_source = resolved_mode.selection_source
 
     resolved_shot_preset = resolve_shot_preset(
         requested_preset_id=shot_preset_id,
@@ -266,20 +259,7 @@ async def plan_storyboard_batch(
     )
     repaired_frame_plans = repair_frame_plan_shots(
         frame_plans=applied_overrides,
-        shot_rules={"max_consecutive_same": 2},
-    )
-
-    result = StoryboardPlanningResult(
-        requested_content_mode=content_mode,
-        resolved_content_mode=resolved_mode,
-        world_preset_id=str(_read_value(world_preset, "preset_id", "")),
-        resolved_shot_preset=resolved_shot_preset,
-        frames=tuple(repaired_frame_plans),
-        scene_count=len(narrations),
-        consistency_strength=consistency_strength,
-        role_strategy=resolved_role_strategy,
-        warnings=(),
-        planner_version=planner_version,
+        shot_rules=resolved_shot_preset,
     )
 
     snapshot = {
@@ -300,9 +280,19 @@ async def plan_storyboard_batch(
         "shot_preset": dict(shot_preset_map.get(resolved_shot_preset.preset_id, {})),
         "planner_version": planner_version,
     }
-    _attach_attribute(result, "planning_snapshot", snapshot)
-    _attach_attribute(result, "snapshot", snapshot)
-    return result
+    return StoryboardPlanningResult(
+        requested_content_mode=content_mode,
+        resolved_content_mode=resolved_mode,
+        world_preset_id=str(_read_value(world_preset, "preset_id", "")),
+        resolved_shot_preset=resolved_shot_preset,
+        planning_snapshot=snapshot,
+        frames=tuple(repaired_frame_plans),
+        scene_count=len(narrations),
+        consistency_strength=consistency_strength,
+        role_strategy=resolved_role_strategy,
+        warnings=(),
+        planner_version=planner_version,
+    )
 
 
 __all__ = [

@@ -87,6 +87,7 @@ class ResolvedContentMode:
     mixed_content_flag: bool = False
     dominant_anchor_type: str = ""
     reason_summary: str = ""
+    selection_source: str = "fallback_mode"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -95,6 +96,7 @@ class ResolvedContentMode:
             "mixed_content_flag": self.mixed_content_flag,
             "dominant_anchor_type": self.dominant_anchor_type,
             "reason_summary": self.reason_summary,
+            "selection_source": self.selection_source,
         }
 
 
@@ -162,6 +164,7 @@ class StoryboardPlanningResult:
     resolved_content_mode: ResolvedContentMode
     world_preset_id: str
     resolved_shot_preset: ResolvedShotPreset
+    planning_snapshot: dict[str, Any] = field(default_factory=dict)
     frames: tuple[FramePlan, ...] = ()
     scene_count: int = 0
     consistency_strength: ConsistencyStrength = "standard"
@@ -175,6 +178,7 @@ class StoryboardPlanningResult:
             "resolved_content_mode": self.resolved_content_mode.to_dict(),
             "world_preset_id": self.world_preset_id,
             "resolved_shot_preset": self.resolved_shot_preset.to_dict(),
+            "planning_snapshot": dict(self.planning_snapshot),
             "frames": [frame.to_prompt_dict() for frame in self.frames],
             "scene_count": self.scene_count,
             "consistency_strength": self.consistency_strength,

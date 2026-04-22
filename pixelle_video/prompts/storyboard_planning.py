@@ -127,27 +127,30 @@ def parse_storyboard_frames(raw_response: str) -> list[FramePlan]:
         if not isinstance(frame, Mapping):
             raise ValueError("storyboard planning response frames must contain objects")
 
-        if "scene_id" not in frame or frame["scene_id"] in (None, ""):
-            raise ValueError("storyboard planning response frame is missing scene_id")
+        for field_name in _FRAME_REQUIRED_FIELDS:
+            if field_name not in frame:
+                raise ValueError(f"missing required storyboard frame field: {field_name}")
+            if field_name != "override_source" and frame[field_name] is None:
+                raise ValueError(f"missing required storyboard frame field: {field_name}")
 
         plans.append(
             FramePlan(
                 scene_id=str(frame["scene_id"]),
-                narration_fragment=str(frame.get("narration_fragment", "")),
-                knowledge_goal=str(frame.get("knowledge_goal", "")),
-                shot_type=str(frame.get("shot_type", "")),
-                shot_purpose=str(frame.get("shot_purpose", "")),
-                primary_subject=str(frame.get("primary_subject", "")),
-                secondary_subjects=_to_tuple(frame.get("secondary_subjects")),
-                world_elements=_to_tuple(frame.get("world_elements")),
-                continuity_anchors=_to_tuple(frame.get("continuity_anchors")),
-                focus_detail=str(frame.get("focus_detail", "")),
-                prompt_intent=str(frame.get("prompt_intent", "")),
-                locked_fields=tuple(str(value) for value in _to_tuple(frame.get("locked_fields"))),
-                override_source=frame.get("override_source"),
-                frame_source=str(frame.get("frame_source", "planner_generated")),
-                replan_scope=str(frame.get("replan_scope", "local")),
-                planner_version=str(frame.get("planner_version", "1.0")),
+                narration_fragment=str(frame["narration_fragment"]),
+                knowledge_goal=str(frame["knowledge_goal"]),
+                shot_type=str(frame["shot_type"]),
+                shot_purpose=str(frame["shot_purpose"]),
+                primary_subject=str(frame["primary_subject"]),
+                secondary_subjects=_to_tuple(frame["secondary_subjects"]),
+                world_elements=_to_tuple(frame["world_elements"]),
+                continuity_anchors=_to_tuple(frame["continuity_anchors"]),
+                focus_detail=str(frame["focus_detail"]),
+                prompt_intent=str(frame["prompt_intent"]),
+                locked_fields=tuple(str(value) for value in _to_tuple(frame["locked_fields"])),
+                override_source=frame["override_source"],
+                frame_source=str(frame["frame_source"]),
+                replan_scope=str(frame["replan_scope"]),
+                planner_version=str(frame["planner_version"]),
             )
         )
 

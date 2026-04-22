@@ -81,7 +81,7 @@ def repair_frame_plan_shots(
     frame_plans: Sequence[FramePlan],
     shot_rules: Any,
 ) -> list[FramePlan]:
-    """Repair overlong same-shot runs by converting the last frame to close-up."""
+    """Repair overlong same-shot runs by converting only the last frame to close_up."""
 
     if not frame_plans:
         return []
@@ -97,12 +97,12 @@ def repair_frame_plan_shots(
 
         run_length = index - run_start
         if run_length > max_consecutive_same:
-            for repair_index in range(run_start + max_consecutive_same, index):
-                repaired[repair_index] = replace(
-                    repaired[repair_index],
-                    shot_type="close_up",
-                    frame_source="repair_adjusted",
-                )
+            repair_index = index - 1
+            repaired[repair_index] = replace(
+                repaired[repair_index],
+                shot_type="close_up",
+                frame_source="repair_adjusted",
+            )
 
         run_start = index
 
