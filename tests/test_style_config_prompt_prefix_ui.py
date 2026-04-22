@@ -466,6 +466,24 @@ def test_resolve_prompt_prefix_workflow_display_label_prefers_display_name_map()
     assert style_config._resolve_prompt_prefix_workflow_display_label(None, workflow_display_map) is None
 
 
+def test_get_prompt_prefix_source_label_maps_known_sources():
+    translations = {
+        "style.prefix_library.source_builtin": "Built-in",
+        "style.prefix_library.source_manual": "Manual",
+        "style.prefix_library.source_llm": "AI",
+    }
+
+    original_tr = style_config.tr
+    style_config.tr = lambda key, **_: translations.get(key, key)
+    try:
+        assert style_config._get_prompt_prefix_source_label("builtin") == "Built-in"
+        assert style_config._get_prompt_prefix_source_label("manual") == "Manual"
+        assert style_config._get_prompt_prefix_source_label("llm") == "AI"
+        assert style_config._get_prompt_prefix_source_label("custom") == "custom"
+    finally:
+        style_config.tr = original_tr
+
+
 def test_build_prompt_prefix_live_preview_map_ignores_compare_preview_results(monkeypatch):
     fake_streamlit = type(
         "FakeStreamlit",
@@ -547,8 +565,12 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "style.prefix_library.thumbnail_workflow_label" in source
     assert "style.prefix_library.thumbnail_generated_at_label" in source
     assert "style.prefix_library.thumbnail_reference_prompt_label" in source
+    assert "style.prefix_library.source_builtin" in source
+    assert "style.prefix_library.source_manual" in source
+    assert "style.prefix_library.source_llm" in source
     assert "_format_prompt_prefix_generated_at" in source
     assert "_resolve_prompt_prefix_workflow_display_label" in source
+    assert "_get_prompt_prefix_source_label" in source
     assert "workflow_display_map=workflow_display_map" in source
     assert 'st.container(key="prompt_prefix_library_root")' in current_prefix_section
     assert ".st-key-prompt_prefix_library_root div.stButton > button p" in current_prefix_section
@@ -557,6 +579,7 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "style.prefix_library.compare_chip_short" in source
     assert "num_cols = 4" in current_prefix_section
     assert "num_cols = 5" not in current_prefix_section
+    assert " 路 " not in current_prefix_section
     assert "generated_at:" not in current_prefix_section
     assert "reference_prompt:" not in current_prefix_section
     assert "num_cols = 1" not in source
@@ -586,6 +609,9 @@ def test_prompt_prefix_library_locale_keys_exist():
         assert "style.prefix_library.thumbnail_workflow_label" in translations
         assert "style.prefix_library.thumbnail_generated_at_label" in translations
         assert "style.prefix_library.thumbnail_reference_prompt_label" in translations
+        assert "style.prefix_library.source_builtin" in translations
+        assert "style.prefix_library.source_manual" in translations
+        assert "style.prefix_library.source_llm" in translations
 
 
 def test_runtime_asset_dirs_are_gitignored():

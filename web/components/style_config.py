@@ -294,7 +294,9 @@ def _render_image_prompt_prefix_library_legacy(pixelle_video, workflow_key: str,
         scene_label = get_prompt_prefix_category_label(item["scene_category_id"], "scene", language)
         with st.container(border=True):
             st.markdown(f"**{item['name']}**")
-            st.caption(f"{style_label} · {scene_label} · {item.get('source', 'manual')}")
+            st.caption(
+                f"{style_label} / {scene_label} / {_get_prompt_prefix_source_label(item.get('source', 'manual'))}"
+            )
             if item.get("note"):
                 st.caption(item["note"])
             st.code(item["content"], language=None)
@@ -730,6 +732,19 @@ def _resolve_prompt_prefix_workflow_display_label(
     return workflow_display_map.get(normalized) or normalized
 
 
+def _get_prompt_prefix_source_label(source: str | None) -> str:
+    """Return a localized source label for prompt-prefix cards and details."""
+    normalized = (source or "").strip().lower()
+    key = {
+        "builtin": "style.prefix_library.source_builtin",
+        "manual": "style.prefix_library.source_manual",
+        "llm": "style.prefix_library.source_llm",
+    }.get(normalized)
+    if key:
+        return tr(key)
+    return normalized or "manual"
+
+
 def _render_image_prompt_prefix_library(
     pixelle_video,
     workflow_key: str,
@@ -931,7 +946,7 @@ def _render_image_prompt_prefix_library(
                 in_preview = item["id"] in selected_preview_ids
                 title_html = escape(item["name"])
                 meta_label = escape(" / ".join([style_label, scene_label]))
-                source_label = escape(str(item.get("source", "manual")).upper())
+                source_label = escape(_get_prompt_prefix_source_label(item.get("source", "manual")))
                 status_label = escape(_get_prompt_prefix_cover_status_label(cover_state))
 
                 with gallery_columns[idx % num_cols]:
@@ -1050,9 +1065,9 @@ def _render_image_prompt_prefix_library(
                 detail_cover_asset = panel_cover_state["asset_path"]
                 st.image(detail_cover_asset, width="stretch")
                 st.caption(
-                    f"{get_prompt_prefix_category_label(panel_item['style_category_id'], 'style', language)} · "
-                    f"{get_prompt_prefix_category_label(panel_item['scene_category_id'], 'scene', language)} · "
-                    f"{panel_item.get('source', 'manual')}"
+                    f"{get_prompt_prefix_category_label(panel_item['style_category_id'], 'style', language)} / "
+                    f"{get_prompt_prefix_category_label(panel_item['scene_category_id'], 'scene', language)} / "
+                    f"{_get_prompt_prefix_source_label(panel_item.get('source', 'manual'))}"
                 )
                 if panel_item.get("note"):
                     st.caption(panel_item["note"])
