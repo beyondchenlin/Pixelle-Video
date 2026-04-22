@@ -4,16 +4,38 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from pixelle_video.models.render_package import SentenceUnit
 
 DEFAULT_AUTO_EDITOR_EXPORT = "timeline:api=1"
 DEFAULT_AUTO_EDITOR_EXECUTABLE = "auto-editor"
+
+
+def resolve_auto_editor_executable(
+    *,
+    repo_root: Path | None = None,
+    which_fn: Callable[[str], str | None] = shutil.which,
+) -> str:
+    resolved_from_path = which_fn(DEFAULT_AUTO_EDITOR_EXECUTABLE)
+    if resolved_from_path:
+        return resolved_from_path
+
+    project_root = repo_root or Path(__file__).resolve().parents[2]
+    candidate_paths = [
+        project_root / ".venv" / "Scripts" / "auto-editor.exe",
+        project_root / ".venv" / "bin" / "auto-editor",
+    ]
+    for candidate in candidate_paths:
+        if candidate.exists():
+            return str(candidate)
+
+    return DEFAULT_AUTO_EDITOR_EXECUTABLE
 
 
 class AutoEditorRunner(Protocol):
@@ -126,10 +148,10 @@ class AutoEditorTrimResult:
 class _SubprocessAutoEditorRunner:
     def __init__(
         self,
-        executable: str = DEFAULT_AUTO_EDITOR_EXECUTABLE,
+        executable: str | None = None,
         export_mode: str = DEFAULT_AUTO_EDITOR_EXPORT,
     ):
-        self.executable = executable
+        self.executable = executable or resolve_auto_editor_executable()
         self.export_mode = export_mode
 
     def export_timeline(self, audio_path: str, margin_ms: int | None = None) -> str:

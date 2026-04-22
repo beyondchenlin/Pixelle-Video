@@ -1,5 +1,6 @@
 from web.components import style_config
 from web.utils import render_backend_ui
+from web.utils import tts_ui
 
 
 def test_get_task_render_backend_prefers_input_then_config():
@@ -63,3 +64,17 @@ def test_render_render_backend_selector_uses_runtime_default(monkeypatch):
     assert captured["options"] == ["legacy", "hyperframes_compiled"]
     assert captured["index"] == 1
     assert captured["key"] == "render_backend_select"
+
+
+def test_resolve_comfyui_tts_speed_prefers_comfyui_then_local_then_default():
+    assert (
+        tts_ui.resolve_comfyui_tts_speed(
+            {
+                "comfyui": {"speed": 1.1},
+                "local": {"speed": 1.2},
+            }
+        )
+        == 1.1
+    )
+    assert tts_ui.resolve_comfyui_tts_speed({"local": {"speed": 1.3}}) == 1.3
+    assert tts_ui.resolve_comfyui_tts_speed({}) == 1.2

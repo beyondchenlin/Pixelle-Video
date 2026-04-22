@@ -91,12 +91,15 @@ def build_single_generation_request(video_params, *, progress_callback, session_
 
     if request["tts_inference_mode"] == "local":
         request["tts_voice"] = video_params.get("tts_voice")
-        request["tts_speed"] = video_params.get("tts_speed")
     else:
         request["tts_workflow"] = video_params.get("tts_workflow")
         ref_audio_path = video_params.get("ref_audio")
         if ref_audio_path:
             request["ref_audio"] = str(ref_audio_path)
+
+    tts_speed = video_params.get("tts_speed")
+    if tts_speed is not None:
+        request["tts_speed"] = tts_speed
 
     template_params = video_params.get("template_params", {})
     if template_params:
@@ -121,13 +124,14 @@ def build_batch_shared_config(video_params):
         "media_height": video_params.get("media_height"),
     }
 
+    tts_speed = video_params.get("tts_speed")
+    if tts_speed is not None:
+        shared_config["tts_speed"] = tts_speed
+
     if shared_config["tts_inference_mode"] == "local":
         tts_voice = video_params.get("tts_voice")
-        tts_speed = video_params.get("tts_speed")
         if tts_voice:
             shared_config["tts_voice"] = tts_voice
-        if tts_speed:
-            shared_config["tts_speed"] = tts_speed
     else:
         tts_workflow = video_params.get("tts_workflow")
         if tts_workflow:

@@ -112,3 +112,54 @@ def test_build_batch_shared_config_includes_render_backend():
     )
 
     assert shared_config["render_backend"] == "hyperframes_compiled"
+
+
+def test_build_single_generation_request_includes_tts_speed_for_comfyui():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "title": "Demo",
+            "n_scenes": 3,
+            "split_mode": "paragraph",
+            "media_workflow": "runninghub/image_flux.json",
+            "frame_template": "1080x1920/image_default.html",
+            "prompt_prefix": "clean",
+            "bgm_path": None,
+            "bgm_volume": 0.3,
+            "tts_inference_mode": "comfyui",
+            "tts_workflow": "selfhost/tts_index2.json",
+            "tts_speed": 1.2,
+            "ref_audio": "temp/ref.wav",
+            "render_backend": "hyperframes_compiled",
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["tts_speed"] == 1.2
+    assert request["tts_workflow"] == "selfhost/tts_index2.json"
+
+
+def test_build_batch_shared_config_includes_tts_speed_for_comfyui():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "title_prefix": "Series",
+            "n_scenes": 5,
+            "media_workflow": "runninghub/image_flux.json",
+            "frame_template": "1080x1920/image_default.html",
+            "prompt_prefix": "clean",
+            "bgm_path": None,
+            "bgm_volume": 0.2,
+            "tts_inference_mode": "comfyui",
+            "tts_workflow": "selfhost/tts_index2.json",
+            "tts_speed": 1.2,
+            "ref_audio": "temp/ref.wav",
+        }
+    )
+
+    assert shared_config["tts_workflow"] == "selfhost/tts_index2.json"
+    assert shared_config["tts_speed"] == 1.2

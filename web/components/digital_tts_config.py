@@ -22,6 +22,7 @@ from loguru import logger
 
 from web.i18n import tr, get_language
 from web.utils.async_helpers import run_async
+from web.utils.tts_ui import resolve_comfyui_tts_speed
 from pixelle_video.config import config_manager
 
 
@@ -147,7 +148,7 @@ def render_style_config(pixelle_video):
             
             # Variables for video generation
             selected_voice = None
-            tts_speed = None
+            tts_speed = resolve_comfyui_tts_speed(tts_config)
         
         # ================================================================
         # TTS Preview (works for both modes)
@@ -176,6 +177,7 @@ def render_style_config(pixelle_video):
                             tts_params["speed"] = tts_speed
                         else:  # comfyui
                             tts_params["workflow"] = tts_workflow_key
+                            tts_params["speed"] = tts_speed
                             if ref_audio_path:
                                 tts_params["ref_audio"] = str(ref_audio_path)
                         
@@ -203,7 +205,7 @@ def render_style_config(pixelle_video):
     return {
         "tts_inference_mode": tts_mode,
         "tts_voice": selected_voice if tts_mode == "local" else None,
-        "tts_speed": tts_speed if tts_mode == "local" else None,
+        "tts_speed": tts_speed,
         "tts_workflow": tts_workflow_key if tts_mode == "comfyui" else None,
         "ref_audio": str(ref_audio_path) if ref_audio_path else None,
     }

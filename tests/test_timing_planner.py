@@ -37,19 +37,21 @@ def test_timing_planner_splits_multiple_sentences_within_one_frame():
 
     assert [s.text for s in plan.sentences] == [
         "Version 2.1 is out.",
-        'He said, "Go."',
+        "He said,",
+        '"Go."',
         "Then left.",
         "第一段。",
         "第二段！",
         "Third sentence.",
     ]
-    assert [s.frame_indices for s in plan.sentences] == [[0], [0], [0], [0], [0], [1]]
+    assert [s.frame_indices for s in plan.sentences] == [[0], [0], [0], [0], [0], [0], [1]]
     assert [b.text for b in plan.blocks] == [
-        'Version 2.1 is out. He said, "Go."',
-        "Then left. 第一段。",
-        "第二段！ Third sentence.",
+        "Version 2.1 is out. He said,",
+        '"Go." Then left.',
+        "第一段。第二段！",
+        "Third sentence.",
     ]
-    assert [b.source_frame_indices for b in plan.blocks] == [[0, 0], [0, 0], [0, 1]]
+    assert [b.source_frame_indices for b in plan.blocks] == [[0, 0], [0, 0], [0, 0], [1]]
 
 
 def test_timing_planner_sentence_mode_keeps_each_sentence_in_its_own_block():
@@ -90,4 +92,25 @@ def test_timing_planner_splits_no_space_english_boundary_within_single_frame():
     assert [s.text for s in plan.sentences] == ["Wait!", "Another sentence."]
     assert [s.frame_indices for s in plan.sentences] == [[0], [0]]
     assert [b.text for b in plan.blocks] == ["Wait! Another sentence."]
+    assert [b.source_frame_indices for b in plan.blocks] == [[0, 0]]
+
+
+def test_timing_planner_splits_clause_boundaries_for_subtitle_units_within_single_frame():
+    frames = [
+        StoryboardFrame(
+            index=0,
+            narration="了解女人心并不难，关键在于细心观察和倾听",
+            image_prompt="p1",
+        ),
+    ]
+
+    planner = TimingPlanner(mode="paragraph", max_sentences=8, max_chars=80)
+    plan = planner.build(frames)
+
+    assert [s.text for s in plan.sentences] == [
+        "了解女人心并不难，",
+        "关键在于细心观察和倾听",
+    ]
+    assert [s.frame_indices for s in plan.sentences] == [[0], [0]]
+    assert [b.text for b in plan.blocks] == ["了解女人心并不难，关键在于细心观察和倾听"]
     assert [b.source_frame_indices for b in plan.blocks] == [[0, 0]]

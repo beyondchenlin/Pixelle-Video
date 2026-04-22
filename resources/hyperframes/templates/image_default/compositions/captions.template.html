@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <title>Pixelle HyperFrames - Image Default Captions</title>
     <link rel="stylesheet" href="../runtime/fonts/phase1_fonts.css" />
+    <script src="../runtime/vendor/gsap.min.js"></script>
     <style>
       html,
       body {
@@ -39,6 +40,9 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        opacity: 0;
+        visibility: hidden;
+        will-change: transform, opacity;
       }
 
       .caption-text {
@@ -135,5 +139,44 @@
         </div>
       </div>
     </div>
+    <script>
+      function padTimelineToDuration(timeline, duration) {
+        const resolvedDuration = Math.max(Number(duration) || 0, 0);
+        const currentDuration = Math.max(Number(timeline.duration()) || 0, 0);
+        if (resolvedDuration > currentDuration) {
+          timeline.to({}, { duration: resolvedDuration - currentDuration });
+        }
+        return timeline;
+      }
+
+      (function bootstrapCaptionsTimeline() {
+        const root = document.getElementById("captions-root");
+        const duration = Math.max(Number(root?.dataset?.duration || 0), 0);
+        const captions = Array.from(document.querySelectorAll(".caption-group"));
+        const tl = gsap.timeline({ paused: true });
+
+        gsap.set(captions, { autoAlpha: 0, y: 14 });
+        captions.forEach((caption) => {
+          const start = Number(caption.dataset.start || 0);
+          const clipDuration = Math.max(Number(caption.dataset.duration || 0), 0.1);
+          const fadeOutAt = Math.max(start + 0.12, start + clipDuration - 0.12);
+
+          tl.to(
+            caption,
+            { autoAlpha: 1, y: 0, duration: 0.16, ease: "power2.out" },
+            start,
+          );
+          tl.to(
+            caption,
+            { autoAlpha: 0, y: -10, duration: 0.12, ease: "power2.in" },
+            fadeOutAt,
+          );
+        });
+
+        padTimelineToDuration(tl, duration);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["captions"] = tl;
+      })();
+    </script>
   </body>
 </html>

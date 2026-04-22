@@ -10,9 +10,11 @@ from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 def test_phase1_runtime_assets_are_local_only():
     fonts_css = Path("resources/hyperframes/runtime/fonts/phase1_fonts.css")
     vendor_readme = Path("resources/hyperframes/runtime/vendor/README.md")
+    vendor_gsap = Path("resources/hyperframes/runtime/vendor/gsap.min.js")
 
     assert fonts_css.exists()
     assert vendor_readme.exists()
+    assert vendor_gsap.exists()
     assert "https://" not in fonts_css.read_text(encoding="utf-8")
 
 
@@ -130,6 +132,38 @@ def test_phase1_templates_reference_local_font_entrypoint():
     for path in template_paths:
         content = path.read_text(encoding="utf-8")
         assert "phase1_fonts.css" in content
+
+
+def test_phase1_templates_reference_local_gsap_vendor_and_register_timelines():
+    template_expectations = {
+        Path("resources/hyperframes/templates/image_default/index.template.html"): (
+            "./runtime/vendor/gsap.min.js",
+            'window.__timelines["main-comp"]',
+        ),
+        Path(
+            "resources/hyperframes/templates/image_life_insights_light/index.template.html"
+        ): (
+            "./runtime/vendor/gsap.min.js",
+            'window.__timelines["main-comp"]',
+        ),
+        Path(
+            "resources/hyperframes/templates/image_default/compositions/captions.template.html"
+        ): (
+            "../runtime/vendor/gsap.min.js",
+            'window.__timelines["captions"]',
+        ),
+        Path(
+            "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
+        ): (
+            "../runtime/vendor/gsap.min.js",
+            'window.__timelines["captions"]',
+        ),
+    }
+
+    for path, (script_path, timeline_registration) in template_expectations.items():
+        content = path.read_text(encoding="utf-8")
+        assert script_path in content
+        assert timeline_registration in content
 
 
 @pytest.mark.parametrize(
