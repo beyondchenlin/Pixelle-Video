@@ -180,7 +180,17 @@ def resolve_shot_preset(
                 selection_source="auto_selected",
             )
 
-    raise ValueError("no world default shot preset supports the requested scene count")
+    fallback_preset = available_presets.get("balanced_explainer")
+    if fallback_preset is None:
+        raise ValueError("balanced_explainer shot preset is not available")
+
+    return ResolvedShotPreset(
+        preset_id="balanced_explainer",
+        override_policy=str(_read_value(fallback_preset, "override_policy", "adaptive")),
+        supported_scene_count=tuple(_read_value(fallback_preset, "supported_scene_count", ())),
+        selection_source="fallback_substituted",
+        fallback_reason="no world default shot preset supported the requested scene count",
+    )
 
 
 async def plan_storyboard_batch(

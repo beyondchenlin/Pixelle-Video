@@ -62,23 +62,28 @@ def test_resolve_shot_preset_selects_first_world_default_supporting_scene_count(
     assert resolved.preset_id == "balanced_explainer"
 
 
-def test_resolve_shot_preset_raises_when_no_world_default_supports_scene_count():
-    with pytest.raises(ValueError, match="no world default shot preset supports the requested scene count"):
-        resolve_shot_preset(
-            requested_preset_id=None,
-            scene_count=5,
-            world_preset_default_ids=("detail_focus",),
-            available_presets={
-                "detail_focus": {"supported_scene_count": (3, 4)},
-            },
-        )
+def test_resolve_shot_preset_falls_back_to_balanced_explainer_when_no_world_default_matches():
+    resolved = resolve_shot_preset(
+        requested_preset_id=None,
+        scene_count=5,
+        world_preset_default_ids=("detail_focus",),
+        available_presets={
+            "detail_focus": {"supported_scene_count": (3, 4)},
+            "balanced_explainer": {"supported_scene_count": (3, 4, 5, 6), "override_policy": "adaptive"},
+        },
+    )
+
+    assert resolved.preset_id == "balanced_explainer"
+    assert resolved.selection_source == "fallback_substituted"
+    assert resolved.fallback_reason == "no world default shot preset supported the requested scene count"
 
 
-def test_repair_frame_plan_shots_breaks_three_consecutive_identical_medium_shots():
+def test_repair_frame_plan_shots_breaks_four_consecutive_identical_medium_shots():
     plans = [
         FramePlan(scene_id="1", shot_type="medium_shot", shot_purpose="context", prompt_intent="a"),
         FramePlan(scene_id="2", shot_type="medium_shot", shot_purpose="explain", prompt_intent="b"),
         FramePlan(scene_id="3", shot_type="medium_shot", shot_purpose="detail", prompt_intent="c"),
+        FramePlan(scene_id="4", shot_type="medium_shot", shot_purpose="summary", prompt_intent="d"),
     ]
 
     repaired = repair_frame_plan_shots(
@@ -86,8 +91,14 @@ def test_repair_frame_plan_shots_breaks_three_consecutive_identical_medium_shots
         shot_rules={"max_consecutive_same": 2},
     )
 
-    assert repaired[-1].shot_type == "close_up"
-    assert repaired[-1].frame_source == "repair_adjusted"
+    assert [plan.shot_type for plan in repaired] == [
+        "medium_shot",
+        "medium_shot",
+        "close_up",
+        "close_up",
+    ]
+    assert repaired[2].frame_source == "repair_adjusted"
+    assert repaired[3].frame_source == "repair_adjusted"
 
 
 def test_apply_frame_overrides_locks_requested_fields_and_keeps_override_source():
