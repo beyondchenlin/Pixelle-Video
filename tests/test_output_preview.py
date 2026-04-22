@@ -1,4 +1,6 @@
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from web.components import output_preview
 
@@ -251,3 +253,140 @@ def test_build_batch_shared_config_includes_tts_speed_for_comfyui():
 
     assert shared_config["tts_workflow"] == "selfhost/tts_index2.json"
     assert shared_config["tts_speed"] == 1.2
+
+
+def test_render_single_output_passes_storyboard_controls_to_generate_video(monkeypatch, tmp_path):
+    captured = {}
+    video_path = tmp_path / "final.mp4"
+    video_path.write_bytes(b"video")
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeProgressBar:
+        def progress(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+    class _FakeStatus:
+        def text(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+        def markdown(self, _value):
+            return None
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "template_media_width": 1080,
+                "template_media_height": 1920,
+            }
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def button(self, *_args, **_kwargs):
+            return True
+
+        def error(self, message):
+            raise AssertionError(message)
+
+        def stop(self):
+            raise AssertionError("st.stop should not be called")
+
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            return _FakeStatus()
+
+        def success(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, *_args, **_kwargs):
+            return None
+
+        def download_button(self, **_kwargs):
+            return None
+
+    class _FakePixelleVideo:
+        async def generate_video(self, **kwargs):
+            captured["request"] = kwargs
+            return SimpleNamespace(
+                video_path=str(video_path),
+                file_size=len(video_path.read_bytes()),
+                storyboard=SimpleNamespace(
+                    planning_snapshot={"world_preset_id": "neutral_knowledge_storyboard"},
+                    config=SimpleNamespace(frame_template="1080x1920/image_default.html"),
+                    frames=[object()],
+                ),
+            )
+
+    monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+    monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(output_preview, "get_language", lambda: "en_US")
+    monkeypatch.setattr(output_preview, "render_scaled_video_preview", lambda _path: None)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+
+    output_preview.render_single_output(
+        _FakePixelleVideo(),
+        {
+            "text": "demo",
+            "mode": "generate",
+            "title": "Demo",
+            "n_scenes": 3,
+            "split_mode": "paragraph",
+            "media_workflow": "runninghub/image_flux.json",
+            "frame_template": "1080x1920/image_default.html",
+            "prompt_prefix": "clean",
+            "tts_inference_mode": "local",
+            "tts_voice": "zh-CN-YunjianNeural",
+            "render_backend": "hyperframes_compiled",
+            "tts_audio_strategy": "master_track",
+            "world_preset_id": "neutral_knowledge_storyboard",
+            "shot_preset_id": "balanced_explainer",
+            "consistency_strength": "strong",
+            "content_mode": "concept_explainer",
+            "role_strategy": "auto",
+            "role_locking_strength": "strong",
+            "shot_strategy": "strict",
+            "frame_overrides": [
+                {
+                    "scene_id": "scene-1",
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                }
+            ],
+        },
+    )
+
+    assert captured["request"]["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert captured["request"]["shot_preset_id"] == "balanced_explainer"
+    assert captured["request"]["consistency_strength"] == "strong"
+    assert captured["request"]["content_mode"] == "concept_explainer"
+    assert captured["request"]["role_strategy"] == "auto"
+    assert captured["request"]["role_locking_strength"] == "strong"
+    assert captured["request"]["shot_strategy"] == "strict"
+    assert captured["request"]["frame_overrides"] == [
+        {
+            "scene_id": "scene-1",
+            "locked_fields": ["shot_type"],
+            "shot_type": "medium_shot",
+        }
+    ]
