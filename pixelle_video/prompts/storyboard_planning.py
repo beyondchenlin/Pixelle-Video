@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Mapping
 
 from pixelle_video.models.storyboard_planning import FramePlan
@@ -63,25 +62,13 @@ def _require_enum_field(frame: Mapping[str, Any], field_name: str, allowed_value
 
 def _extract_json_payload(raw_response: str) -> Any:
     text = raw_response.strip()
+    if not text:
+        raise ValueError("storyboard planning response does not contain JSON")
 
-    fenced_match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text, re.IGNORECASE)
-    if fenced_match:
-        text = fenced_match.group(1).strip()
-
-    if text.startswith("{") or text.startswith("["):
+    try:
         return json.loads(text)
-
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end > start:
-        return json.loads(text[start : end + 1])
-
-    start = text.find("[")
-    end = text.rfind("]")
-    if start != -1 and end > start:
-        return json.loads(text[start : end + 1])
-
-    raise ValueError("storyboard planning response does not contain JSON")
+    except json.JSONDecodeError as exc:
+        raise ValueError("storyboard planning response must be raw JSON only") from exc
 
 
 def build_storyboard_planning_prompt(
@@ -135,15 +122,12 @@ def parse_storyboard_frames(raw_response: str) -> list[FramePlan]:
 
     payload = _extract_json_payload(raw_response)
     required_fields = FramePlan.required_prompt_fields()
-    frames_data: Any
+    if not isinstance(payload, dict):
+        raise ValueError("storyboard planning response must be a JSON object")
+    if "frames" not in payload:
+        raise ValueError("storyboard planning response must include a frames array")
 
-    if isinstance(payload, list):
-        frames_data = payload
-    elif isinstance(payload, dict):
-        frames_data = payload.get("frames", [])
-    else:
-        raise ValueError("storyboard planning response must be a JSON object or array")
-
+    frames_data = payload["frames"]
     if not isinstance(frames_data, list):
         raise ValueError("storyboard planning response frames must be a list")
 

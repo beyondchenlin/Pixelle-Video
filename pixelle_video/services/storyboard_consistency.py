@@ -7,7 +7,19 @@ from typing import Any, Mapping, Sequence
 
 from pixelle_video.models.storyboard_planning import FramePlan
 
-_FRAME_FIELDS = set(FramePlan.__dataclass_fields__.keys())
+_USER_OVERRIDE_FIELDS = {
+    "narration_fragment",
+    "knowledge_goal",
+    "shot_type",
+    "shot_purpose",
+    "primary_subject",
+    "secondary_subjects",
+    "world_elements",
+    "continuity_anchors",
+    "focus_detail",
+    "prompt_intent",
+}
+_OVERRIDE_METADATA_FIELDS = {"scene_id", "locked_fields", "override_source"}
 _REPAIR_SHOT_TYPE_PRIORITY = (
     "close_up",
     "medium_shot",
@@ -30,12 +42,30 @@ def _to_tuple(value: Any) -> tuple[Any, ...]:
     return (value,)
 
 
+def _ensure_override_sequence(field_name: str, value: Any) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"frame override field {field_name} must be a list or tuple of strings")
+
+    normalized: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"frame override field {field_name} must contain non-empty strings")
+        normalized.append(item)
+    return tuple(normalized)
+
+
+def _ensure_override_scalar(field_name: str, value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"frame override field {field_name} must be a non-empty string")
+    return value
+
+
 def _merge_locked_fields(*, original: FramePlan, override_locked_fields: tuple[str, ...]) -> tuple[str, ...]:
     merged: list[str] = []
     seen: set[str] = set()
 
     for field_name in (*original.locked_fields, *override_locked_fields):
-        if field_name in _FRAME_FIELDS and field_name not in seen:
+        if field_name in _USER_OVERRIDE_FIELDS and field_name not in seen:
             merged.append(field_name)
             seen.add(field_name)
 
@@ -144,35 +174,60 @@ def apply_frame_overrides(
     ordered_scene_ids = [frame.scene_id for frame in frame_plans]
 
     for override in frame_overrides:
+        if not isinstance(override, Mapping):
+            raise ValueError("frame override must be a mapping")
+
+        invalid_keys = set(override.keys()) - _USER_OVERRIDE_FIELDS - _OVERRIDE_METADATA_FIELDS
+        if invalid_keys:
+            raise ValueError(f"unsupported frame override field: {sorted(invalid_keys)[0]}")
+
         scene_id = override.get("scene_id")
-        if scene_id is None:
-            continue
+        scene_id = _ensure_override_scalar("scene_id", scene_id)
 
-        original = by_scene_id.get(str(scene_id))
+        original = by_scene_id.get(scene_id)
         if original is None:
-            continue
+            raise ValueError(f"frame override scene_id does not match any frame plan: {scene_id}")
 
-        requested_locked_fields = tuple(
-            field_name for field_name in _to_tuple(override.get("locked_fields")) if field_name in _FRAME_FIELDS
-        )
+        if "locked_fields" not in override:
+            raise ValueError("frame override must include locked_fields")
+
+        requested_locked_fields = _ensure_override_sequence("locked_fields", override.get("locked_fields"))
+        invalid_locked_fields = [field_name for field_name in requested_locked_fields if field_name not in _USER_OVERRIDE_FIELDS]
+        if invalid_locked_fields:
+            raise ValueError(f"unsupported locked frame field: {invalid_locked_fields[0]}")
+
+        provided_override_fields = [field_name for field_name in override.keys() if field_name in _USER_OVERRIDE_FIELDS]
+        for field_name in provided_override_fields:
+            if field_name not in requested_locked_fields:
+                raise ValueError(f"frame override field {field_name} must be listed in locked_fields")
+
         locked_fields = _merge_locked_fields(
             original=original,
             override_locked_fields=requested_locked_fields,
         )
+        override_source = override.get("override_source", original.override_source)
+        if override_source is not None:
+            override_source = _ensure_override_scalar("override_source", override_source)
+            if override_source != "user_preview":
+                raise ValueError("unsupported frame override_source")
+
         replacement_values: dict[str, Any] = {
             "locked_fields": locked_fields,
-            "override_source": override.get("override_source", original.override_source),
+            "override_source": override_source,
             "frame_source": "user_edited",
         }
 
         for field_name in requested_locked_fields:
-            if field_name in override:
-                value = override[field_name]
-                if field_name in {"secondary_subjects", "world_elements", "continuity_anchors", "locked_fields"}:
-                    value = _to_tuple(value)
-                replacement_values[field_name] = value
+            if field_name not in override:
+                continue
 
-        by_scene_id[str(scene_id)] = replace(original, **replacement_values)
+            value = override[field_name]
+            if field_name in {"secondary_subjects", "world_elements", "continuity_anchors"}:
+                replacement_values[field_name] = _ensure_override_sequence(field_name, value)
+            else:
+                replacement_values[field_name] = _ensure_override_scalar(field_name, value)
+
+        by_scene_id[scene_id] = replace(original, **replacement_values)
 
     return [by_scene_id[scene_id] for scene_id in ordered_scene_ids]
 

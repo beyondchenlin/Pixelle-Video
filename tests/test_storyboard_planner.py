@@ -244,6 +244,72 @@ def test_apply_frame_overrides_preserves_prior_locks_across_repeated_overrides()
     assert overridden[0].frame_source == "user_edited"
 
 
+def test_apply_frame_overrides_rejects_missing_scene_id():
+    plans = [FramePlan(scene_id="1", shot_type="wide_shot", prompt_intent="opening")]
+
+    with pytest.raises(ValueError, match="scene_id must be a non-empty string"):
+        apply_frame_overrides(
+            frame_plans=plans,
+            frame_overrides=[
+                {
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                    "override_source": "user_preview",
+                }
+            ],
+        )
+
+
+def test_apply_frame_overrides_rejects_unknown_scene_id():
+    plans = [FramePlan(scene_id="1", shot_type="wide_shot", prompt_intent="opening")]
+
+    with pytest.raises(ValueError, match="does not match any frame plan"):
+        apply_frame_overrides(
+            frame_plans=plans,
+            frame_overrides=[
+                {
+                    "scene_id": "2",
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                    "override_source": "user_preview",
+                }
+            ],
+        )
+
+
+@pytest.mark.parametrize(
+    ("override_payload", "match"),
+    [
+        (
+            {
+                "scene_id": "1",
+                "locked_fields": ["shot_type"],
+                "frame_source": "planner_generated",
+                "override_source": "user_preview",
+            },
+            "unsupported frame override field",
+        ),
+        (
+            {
+                "scene_id": "1",
+                "locked_fields": ["shot_type"],
+                "focus_detail": "not allowed unless locked",
+                "override_source": "user_preview",
+            },
+            "must be listed in locked_fields",
+        ),
+    ],
+)
+def test_apply_frame_overrides_rejects_invalid_override_attempts(
+    override_payload: dict[str, object],
+    match: str,
+):
+    plans = [FramePlan(scene_id="1", shot_type="wide_shot", prompt_intent="opening")]
+
+    with pytest.raises(ValueError, match=match):
+        apply_frame_overrides(frame_plans=plans, frame_overrides=[override_payload])
+
+
 def test_parse_storyboard_frames_raises_when_required_fields_are_missing():
     with pytest.raises(ValueError, match="missing required storyboard frame field"):
         parse_storyboard_frames(
@@ -301,6 +367,36 @@ def test_parse_storyboard_frames_raises_when_field_types_are_invalid():
             }
             """
         )
+
+
+@pytest.mark.parametrize(
+    "raw_response",
+    [
+        """
+        ```json
+        {
+          "frames": []
+        }
+        ```
+        """,
+        """
+        Here is the plan:
+        {"frames": []}
+        """,
+        """
+        {"frames": []}
+        trailing prose
+        """,
+    ],
+)
+def test_parse_storyboard_frames_rejects_wrapped_or_trailing_text(raw_response: str):
+    with pytest.raises(ValueError, match="raw JSON only"):
+        parse_storyboard_frames(raw_response)
+
+
+def test_parse_storyboard_frames_rejects_missing_frames_key():
+    with pytest.raises(ValueError, match="include a frames array"):
+        parse_storyboard_frames('{"not_frames": []}')
 
 
 @pytest.mark.asyncio
@@ -421,3 +517,87 @@ async def test_plan_storyboard_batch_runs_prompt_parse_override_repair_and_snaps
     assert result.frames[1].frame_source == "user_edited"
     assert result.frames[2].shot_type == "close_up"
     assert result.frames[2].frame_source == "repair_adjusted"
+
+
+@pytest.mark.asyncio
+async def test_plan_storyboard_batch_respects_preset_max_consecutive_same(monkeypatch):
+    class FakeLLM:
+        async def __call__(self, *, prompt: str, **kwargs):
+            return """
+            {
+              "frames": [
+                {
+                  "scene_id": "1",
+                  "narration_fragment": "first",
+                  "knowledge_goal": "goal 1",
+                  "shot_type": "medium_shot",
+                  "shot_purpose": "context",
+                  "primary_subject": "subject 1",
+                  "secondary_subjects": [],
+                  "world_elements": ["board"],
+                  "continuity_anchors": ["anchor 1"],
+                  "focus_detail": "detail 1",
+                  "prompt_intent": "intent 1",
+                  "locked_fields": [],
+                  "override_source": null,
+                  "frame_source": "planner_generated",
+                  "replan_scope": "local",
+                  "planner_version": "1.0"
+                },
+                {
+                  "scene_id": "2",
+                  "narration_fragment": "second",
+                  "knowledge_goal": "goal 2",
+                  "shot_type": "medium_shot",
+                  "shot_purpose": "explain",
+                  "primary_subject": "subject 2",
+                  "secondary_subjects": [],
+                  "world_elements": ["board"],
+                  "continuity_anchors": ["anchor 2"],
+                  "focus_detail": "detail 2",
+                  "prompt_intent": "intent 2",
+                  "locked_fields": [],
+                  "override_source": null,
+                  "frame_source": "planner_generated",
+                  "replan_scope": "local",
+                  "planner_version": "1.0"
+                }
+              ]
+            }
+            """
+
+    result = await plan_storyboard_batch(
+        llm_service=FakeLLM(),
+        narrations=["first", "second"],
+        world_preset_library={
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [
+                {
+                    "preset_id": "neutral_knowledge_storyboard",
+                    "supported_modes": ["theme_mapping", "concept_explainer"],
+                    "default_shot_preset_ids": ["strict_alternating"],
+                    "conservative_fallback_mode": "concept_explainer",
+                }
+            ],
+        },
+        shot_preset_library={
+            "default_shot_preset_id": "strict_alternating",
+            "items": [
+                {
+                    "preset_id": "strict_alternating",
+                    "supported_scene_count": [2],
+                    "max_consecutive_same": 1,
+                    "override_policy": "adaptive",
+                    "shot_distribution_rules": [],
+                }
+            ],
+        },
+        shot_preset_id="strict_alternating",
+        content_mode="concept_explainer",
+        role_strategy="auto",
+        classifier_result={"mode": "concept_explainer", "confidence": 0.91},
+    )
+
+    assert result.resolved_shot_preset.max_consecutive_same == 1
+    assert result.planning_snapshot["resolved_shot_preset_details"]["max_consecutive_same"] == 1
+    assert _max_consecutive_run_length([plan.shot_type for plan in result.frames]) <= 1

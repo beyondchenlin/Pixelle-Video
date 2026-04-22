@@ -167,6 +167,7 @@ def resolve_shot_preset(
             preset_id=requested_preset_id,
             override_policy=str(_read_value(preset, "override_policy", "adaptive")),
             supported_scene_count=supported_scene_count,
+            max_consecutive_same=max(1, int(_read_value(preset, "max_consecutive_same", 2))),
             selection_source="user_selected",
         )
 
@@ -181,6 +182,7 @@ def resolve_shot_preset(
                 preset_id=preset_id,
                 override_policy=str(_read_value(preset, "override_policy", "adaptive")),
                 supported_scene_count=supported_scene_count,
+                max_consecutive_same=max(1, int(_read_value(preset, "max_consecutive_same", 2))),
                 selection_source="auto_selected",
             )
 
@@ -192,6 +194,7 @@ def resolve_shot_preset(
         preset_id="balanced_explainer",
         override_policy=str(_read_value(fallback_preset, "override_policy", "adaptive")),
         supported_scene_count=tuple(_read_value(fallback_preset, "supported_scene_count", ())),
+        max_consecutive_same=max(1, int(_read_value(fallback_preset, "max_consecutive_same", 2))),
         selection_source="fallback_substituted",
         fallback_reason="no world default shot preset supported the requested scene count",
     )

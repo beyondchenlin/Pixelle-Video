@@ -106,6 +106,7 @@ class ResolvedShotPreset:
     preset_id: str
     override_policy: ShotOverridePolicy
     supported_scene_count: tuple[int, ...] = ()
+    max_consecutive_same: int = 2
     selection_source: str = "auto_selected"
     fallback_reason: Optional[str] = None
 
@@ -114,6 +115,7 @@ class ResolvedShotPreset:
             "preset_id": self.preset_id,
             "override_policy": self.override_policy,
             "supported_scene_count": _to_list(self.supported_scene_count),
+            "max_consecutive_same": self.max_consecutive_same,
             "selection_source": self.selection_source,
             "fallback_reason": self.fallback_reason,
         }
