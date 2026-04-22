@@ -16,11 +16,17 @@ Configuration schema with Pydantic models
 Single source of truth for all configuration defaults and validation.
 """
 from typing import Any, Literal, Optional
+
 from pydantic import BaseModel, Field, model_validator
 
 from pixelle_video.config.prompt_prefix_library import (
     build_builtin_prompt_prefix_library_dict,
 )
+from pixelle_video.config.storyboard_preset_library import (
+    build_builtin_shot_preset_library_dict,
+    build_builtin_world_preset_library_dict,
+)
+from pixelle_video.models.storyboard_planning import ContentMode, ShotOverridePolicy
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, RenderBackend
 
 
@@ -127,6 +133,69 @@ class VideoSubConfig(BaseModel):
     )
 
 
+class StoryboardWorldPresetItemConfig(BaseModel):
+    """Single storyboard world preset definition."""
+
+    preset_id: str
+    display_name: str
+    supported_modes: list[ContentMode] = Field(default_factory=list)
+    style_core: str = Field(default="")
+    world_elements: list[str] = Field(default_factory=list)
+    knowledge_scene_rules: list[str] = Field(default_factory=list)
+    negative_rules: list[str] = Field(default_factory=list)
+    default_shot_preset_ids: list[str] = Field(default_factory=list)
+    cast_slots: list[dict[str, Any]] = Field(default_factory=list)
+    cast_slots_by_mode: dict[ContentMode, list[dict[str, Any]]] = Field(default_factory=dict)
+    conservative_fallback_mode: ContentMode = Field(default="concept_explainer")
+    safe_default: bool = Field(default=False)
+    forced_mode: Optional[ContentMode] = Field(default=None)
+
+
+class StoryboardWorldPresetLibraryConfig(BaseModel):
+    """Storyboard world preset library configuration."""
+
+    default_world_preset_id: str = Field(default="neutral_knowledge_storyboard")
+    items: list[StoryboardWorldPresetItemConfig] = Field(default_factory=list)
+
+
+class StoryboardShotPresetItemConfig(BaseModel):
+    """Single storyboard shot preset definition."""
+
+    preset_id: str
+    display_name: str
+    supported_scene_count: list[int] = Field(default_factory=list)
+    shot_distribution_rules: list[str] = Field(default_factory=list)
+    opening_rules: list[str] = Field(default_factory=list)
+    closing_rules: list[str] = Field(default_factory=list)
+    transition_rules: list[str] = Field(default_factory=list)
+    purpose_bias: str = Field(default="")
+    override_policy: ShotOverridePolicy = Field(default="adaptive")
+
+
+class StoryboardShotPresetLibraryConfig(BaseModel):
+    """Storyboard shot preset library configuration."""
+
+    default_shot_preset_id: str = Field(default="balanced_explainer")
+    items: list[StoryboardShotPresetItemConfig] = Field(default_factory=list)
+
+
+class StoryboardSubConfig(BaseModel):
+    """Storyboard planning configuration."""
+
+    world_preset_library: StoryboardWorldPresetLibraryConfig = Field(
+        default_factory=lambda: StoryboardWorldPresetLibraryConfig.model_validate(
+            build_builtin_world_preset_library_dict()
+        ),
+        description="Storyboard world preset library",
+    )
+    shot_preset_library: StoryboardShotPresetLibraryConfig = Field(
+        default_factory=lambda: StoryboardShotPresetLibraryConfig.model_validate(
+            build_builtin_shot_preset_library_dict()
+        ),
+        description="Storyboard shot preset library",
+    )
+
+
 class ComfyUIConfig(BaseModel):
     """ComfyUI configuration (includes global settings and service-specific configs)"""
     comfyui_url: str = Field(default="http://127.0.0.1:8188", description="ComfyUI Server URL")
@@ -179,6 +248,7 @@ class PixelleVideoConfig(BaseModel):
     comfyui: ComfyUIConfig = Field(default_factory=ComfyUIConfig)
     template: TemplateConfig = Field(default_factory=TemplateConfig)
     render: RenderConfig = Field(default_factory=RenderConfig)
+    storyboard: StoryboardSubConfig = Field(default_factory=StoryboardSubConfig, description="Storyboard planning configuration")
     
     def is_llm_configured(self) -> bool:
         """Check if LLM is properly configured"""

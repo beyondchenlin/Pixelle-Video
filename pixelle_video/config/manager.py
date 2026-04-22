@@ -17,9 +17,11 @@ Provides unified access to configuration with automatic validation.
 """
 from pathlib import Path
 from typing import Any, Optional
+
 from loguru import logger
-from .schema import PixelleVideoConfig
+
 from .loader import load_config_dict, save_config_dict
+from .schema import PixelleVideoConfig
 
 
 class ConfigManager:
@@ -150,6 +152,14 @@ class ConfigManager:
     def get_image_prompt_prefix_library(self) -> dict:
         """Get image prompt prefix library as dict."""
         return self.config.comfyui.image.prompt_prefix_library.model_dump()
+
+    def get_storyboard_world_preset_library(self) -> dict:
+        """Get storyboard world preset library as dict."""
+        return self.config.storyboard.world_preset_library.model_dump()
+
+    def get_storyboard_shot_preset_library(self) -> dict:
+        """Get storyboard shot preset library as dict."""
+        return self.config.storyboard.shot_preset_library.model_dump()
 
     def set_image_prompt_prefix_library(self, library: dict):
         """Replace image prompt prefix library configuration."""
