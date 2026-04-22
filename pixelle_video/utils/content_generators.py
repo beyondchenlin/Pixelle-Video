@@ -17,7 +17,6 @@ Pure/stateless functions for generating content using LLM.
 These functions are reusable across different pipelines.
 """
 
-import json
 import re
 import unicodedata
 from typing import Any, List, Literal, Optional
@@ -26,9 +25,13 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.storyboard_preset_library import lookup_world_preset
+from pixelle_video.models.content_generation import (
+    ImagePromptBatchResponse,
+    NarrationBatchResponse,
+    VideoPromptBatchResponse,
+)
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
-from pixelle_video.utils.json_parsing import parse_llm_json_response
 from pixelle_video.utils.prompt_helper import (
     assemble_image_prompt,
     assemble_negative_prompt,
@@ -171,21 +174,14 @@ async def generate_narrations_from_topic(
         max_words=max_words
     )
     
-    response = await llm_service(
+    response: NarrationBatchResponse = await llm_service(
         prompt=prompt,
+        response_type=NarrationBatchResponse,
         temperature=0.8,
         max_tokens=2000
     )
-    
-    logger.debug(f"LLM response: {response[:200]}...")
-    
-    # Parse JSON
-    result = _parse_json(response)
-    
-    if "narrations" not in result:
-        raise ValueError("Invalid response format: missing 'narrations' key")
-    
-    narrations = result["narrations"]
+
+    narrations = list(response.narrations)
     
     # Validate count
     if len(narrations) > n_scenes:
@@ -229,19 +225,14 @@ async def generate_narrations_from_content(
         max_words=max_words
     )
     
-    response = await llm_service(
+    response: NarrationBatchResponse = await llm_service(
         prompt=prompt,
+        response_type=NarrationBatchResponse,
         temperature=0.8,
         max_tokens=2000
     )
-    
-    # Parse JSON
-    result = _parse_json(response)
-    
-    if "narrations" not in result:
-        raise ValueError("Invalid response format: missing 'narrations' key")
-    
-    narrations = result["narrations"]
+
+    narrations = list(response.narrations)
     
     # Validate count
     if len(narrations) > n_scenes:
@@ -415,21 +406,14 @@ async def generate_image_prompts(
                     style_profile=style_profile,
                 )
                 
-                response = await llm_service(
+                response: ImagePromptBatchResponse = await llm_service(
                     prompt=prompt,
+                    response_type=ImagePromptBatchResponse,
                     temperature=0.7,
                     max_tokens=8192
                 )
-                
-                logger.debug(f"Batch {batch_idx} attempt {attempt}: LLM response length: {len(response)} chars")
-                
-                # Parse JSON
-                result = _parse_json(response)
-                
-                if "image_prompts" not in result:
-                    raise KeyError("Invalid response format: missing 'image_prompts'")
-                
-                batch_prompts = result["image_prompts"]
+
+                batch_prompts = list(response.image_prompts)
                 
                 # Validate count
                 if len(batch_prompts) != len(batch_narrations):
@@ -460,8 +444,8 @@ async def generate_image_prompts(
                 
                 break
                 
-            except json.JSONDecodeError as e:
-                logger.error(f"Batch {batch_idx} JSON parse error (attempt {attempt}/{max_retries}): {e}")
+            except Exception as e:
+                logger.error(f"Batch {batch_idx} generation error (attempt {attempt}/{max_retries}): {e}")
                 if attempt >= max_retries:
                     raise
                 logger.info(f"Retrying batch {batch_idx}...")
@@ -670,21 +654,14 @@ async def generate_video_prompts(
                     style_profile=style_profile,
                 )
                 
-                response = await llm_service(
+                response: VideoPromptBatchResponse = await llm_service(
                     prompt=prompt,
+                    response_type=VideoPromptBatchResponse,
                     temperature=0.7,
                     max_tokens=8192
                 )
-                
-                logger.debug(f"Batch {batch_idx} attempt {attempt}: LLM response length: {len(response)} chars")
-                
-                # Parse JSON
-                result = _parse_json(response)
-                
-                if "video_prompts" not in result:
-                    raise KeyError("Invalid response format: missing 'video_prompts'")
-                
-                batch_prompts = result["video_prompts"]
+
+                batch_prompts = list(response.video_prompts)
                 
                 # Validate batch result
                 if len(batch_prompts) != len(batch_narrations):
@@ -713,26 +690,4 @@ async def generate_video_prompts(
     logger.info(f"鉁?Generated {len(all_prompts)} video prompts")
     return all_prompts
 
-
-def _parse_json(text: str) -> dict:
-    """
-    Parse JSON from text, with fallback to extract JSON from markdown code blocks
-    
-    Args:
-        text: Text containing JSON
-        
-    Returns:
-        Parsed JSON dict
-        
-    Raises:
-        json.JSONDecodeError: If no valid JSON found
-    """
-    payload = parse_llm_json_response(
-        text,
-        allow_code_fence=True,
-        allow_embedded_json=True,
-    )
-    if not isinstance(payload, dict):
-        raise json.JSONDecodeError("Top-level JSON payload must be an object", text, 0)
-    return payload
 
