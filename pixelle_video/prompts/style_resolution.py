@@ -14,38 +14,29 @@
 Prompt builder for structured style resolution.
 """
 
-STYLE_RESOLUTION_PROMPT = """# Role
-You convert one raw image-style prefix into structured backend style metadata.
+from __future__ import annotations
 
-# Input Prefix
-{raw_prefix}
+import json
 
-# Output JSON
-{{
-  "style_kind": "visual_only | ip_world | hybrid",
-  "prompt_template": "optional wrapper that contains {{prompt}} exactly once",
-  "negative_prompt": "optional negative prompt",
-  "style_profile": {{
-    "style_kind": "repeat the same value as the top-level style_kind",
-    "subject_policy": "how the subject should be preserved or redesigned",
-    "shape_language": "the intended silhouette and geometric language",
-    "material": "surface or rendering material cues",
-    "palette": "dominant color guidance",
-    "lighting": "lighting and atmosphere guidance",
-    "world_elements": "background props and universe cues",
-    "consistency_anchor": "shared multi-frame consistency rule",
-    "negative_rules": "things the image prompt should avoid"
-  }}
-}}
-
-Rules:
-- Return JSON only.
-- `style_kind` must be one of `visual_only`, `ip_world`, or `hybrid`.
-- If `prompt_template` is non-empty it must contain `{{prompt}}` exactly once.
-- For `ip_world`, `subject_policy`, `world_elements`, and `consistency_anchor` must be specific.
-- For `visual_only`, do not replace the subject with a named IP character.
-"""
+from pixelle_video.models.style_resolution import StyleResolutionResponse
 
 
 def build_style_resolution_prompt(raw_prefix: str) -> str:
-    return STYLE_RESOLUTION_PROMPT.format(raw_prefix=raw_prefix.strip())
+    payload = {
+        "task": "resolve_style_prefix",
+        "raw_prefix": raw_prefix.strip(),
+        "required_output": StyleResolutionResponse.model_json_schema(),
+        "instructions": [
+            "Return JSON only.",
+            "Resolve the prefix into backend-ready style metadata.",
+            "Return style_profile.style_kind identical to the top-level style_kind.",
+            "If prompt_template is non-empty it must contain {prompt} exactly once.",
+            "Use concise but specific strings for every style_profile field.",
+            "Do not leave any style_profile field empty.",
+            "For ip_world, subject_policy, world_elements, and consistency_anchor must describe the persistent world rules.",
+            "For visual_only, preserve the subject semantics instead of replacing it with a named IP character.",
+            "Validate the final payload against required_output before returning it.",
+            "Do not wrap the JSON in markdown fences.",
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)

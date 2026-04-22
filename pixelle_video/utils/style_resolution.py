@@ -14,32 +14,24 @@
 Helpers for turning raw style prefixes into runtime structured style specs.
 """
 
+from collections import OrderedDict
 import hashlib
-import json
 import re
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from loguru import logger
 
 from pixelle_video.config.prompt_prefix_library import get_active_image_prompt_prefix_item
-from pixelle_video.models.style_resolution import ResolvedStyleSpec, StyleSourceSpec
+from pixelle_video.models.style_resolution import (
+    ResolvedStyleSpec,
+    StyleResolutionResponse,
+    StyleSourceSpec,
+)
 from pixelle_video.prompts import build_style_resolution_prompt
 
 RESOLVER_VERSION = "2026-04-21-v1"
-VALID_STYLE_KINDS = {"visual_only", "ip_world", "hybrid"}
-REQUIRED_STYLE_PROFILE_KEYS = (
-    "style_kind",
-    "subject_policy",
-    "shape_language",
-    "material",
-    "palette",
-    "lighting",
-    "world_elements",
-    "consistency_anchor",
-    "negative_rules",
-)
-
-_STYLE_RESOLUTION_CACHE: dict[str, ResolvedStyleSpec] = {}
+_STYLE_RESOLUTION_CACHE_MAX_SIZE = 128
+_STYLE_RESOLUTION_CACHE: OrderedDict[str, ResolvedStyleSpec] = OrderedDict()
 _WORLD_IDENTITY_STOPWORDS = {
     "concept",
     "educational",
@@ -233,57 +225,43 @@ def normalize_storyboard_style(
     }
 
 
-def _validate_style_kind(value: str) -> str:
-    style_kind = (value or "").strip()
-    if style_kind not in VALID_STYLE_KINDS:
-        raise ValueError(f"Invalid style_kind: {style_kind}")
-    return style_kind
+def _coerce_style_resolution_response(response: Any) -> StyleResolutionResponse:
+    if isinstance(response, StyleResolutionResponse):
+        return response
+
+    if isinstance(response, Mapping):
+        return StyleResolutionResponse.model_validate(dict(response))
+
+    raise ValueError("style resolver returned an unsupported response type")
 
 
-def _validate_prompt_template(value: str) -> str:
-    prompt_template = (value or "").strip()
-    if prompt_template and prompt_template.count("{prompt}") != 1:
-        raise ValueError("prompt_template must contain {prompt} exactly once")
-    return prompt_template
+def _remember_resolved_style(cache_key: str, resolved: ResolvedStyleSpec) -> None:
+    _STYLE_RESOLUTION_CACHE[cache_key] = resolved
+    _STYLE_RESOLUTION_CACHE.move_to_end(cache_key)
 
-
-def _validate_style_profile(data: dict) -> dict:
-    missing = [key for key in REQUIRED_STYLE_PROFILE_KEYS if key not in data]
-    if missing:
-        raise ValueError(f"style_profile missing keys: {', '.join(missing)}")
-
-    style_profile = {key: (data.get(key) or "").strip() for key in REQUIRED_STYLE_PROFILE_KEYS}
-    style_profile["style_kind"] = _validate_style_kind(style_profile["style_kind"])
-    return style_profile
-
-
-def _parse_resolved_style_spec(response: str, source: StyleSourceSpec) -> ResolvedStyleSpec:
-    data = json.loads(response)
-    style_kind = _validate_style_kind(data["style_kind"])
-    prompt_template = _validate_prompt_template(data.get("prompt_template") or "")
-    style_profile = _validate_style_profile(data["style_profile"])
-
-    return ResolvedStyleSpec(
-        style_kind=style_kind,
-        prompt_template=prompt_template,
-        negative_prompt=(data.get("negative_prompt") or "").strip(),
-        style_profile=style_profile,
-        content_hash=source.content_hash,
-        resolver_version=RESOLVER_VERSION,
-        source_identity=source.source_identity,
-        raw_content=source.raw_content,
-    )
+    while len(_STYLE_RESOLUTION_CACHE) > _STYLE_RESOLUTION_CACHE_MAX_SIZE:
+        evicted_key, _ = _STYLE_RESOLUTION_CACHE.popitem(last=False)
+        logger.debug("Evicted style resolution cache entry {}", evicted_key)
 
 
 async def resolve_style_spec(llm_service, source: StyleSourceSpec) -> ResolvedStyleSpec:
     cache_key = build_style_resolution_cache_key(source)
     cached = _STYLE_RESOLUTION_CACHE.get(cache_key)
     if cached is not None:
+        _STYLE_RESOLUTION_CACHE.move_to_end(cache_key)
         return cached
 
     prompt = build_style_resolution_prompt(source.raw_content)
-    response = await llm_service(prompt=prompt, temperature=0.2, max_tokens=1200)
-    resolved = _parse_resolved_style_spec(response, source)
-    _STYLE_RESOLUTION_CACHE[cache_key] = resolved
+    response = await llm_service(
+        prompt=prompt,
+        response_type=StyleResolutionResponse,
+        temperature=0.2,
+        max_tokens=1200,
+    )
+    resolved = _coerce_style_resolution_response(response).to_resolved_style_spec(
+        source=source,
+        resolver_version=RESOLVER_VERSION,
+    )
+    _remember_resolved_style(cache_key, resolved)
     logger.debug("Resolved style {} via runtime cache key {}", source.source_identity, cache_key)
     return resolved
