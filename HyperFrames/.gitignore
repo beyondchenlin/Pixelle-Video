@@ -1,0 +1,16 @@
+renders/
+README.upstream.md
+.hyperframes/
+!examples/
+!examples/**/
+!examples/**/AGENTS.md
+!examples/**/CLAUDE.md
+!examples/**/DESIGN.md
+!examples/**/hyperframes.json
+!examples/**/index.html
+!examples/**/meta.json
+!examples/**/assets/
+!examples/**/assets/vendor/
+!examples/**/assets/vendor/gsap.min.js
+examples/*/renders/
+examples/*/.hyperframes/

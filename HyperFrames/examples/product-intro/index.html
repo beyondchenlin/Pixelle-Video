@@ -1,0 +1,839 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>HyperFrames Product Intro Example</title>
+    <link rel="icon" href="data:," />
+    <script src="./assets/vendor/gsap.min.js"></script>
+    <style>
+      :root {
+        --ink: #120e0b;
+        --panel: #241a14;
+        --panel-soft: rgba(36, 26, 20, 0.76);
+        --copper: #d8874f;
+        --copper-soft: rgba(216, 135, 79, 0.22);
+        --pearl: #f5ebdd;
+        --muted: #d7c2ae;
+        --line: rgba(245, 235, 221, 0.14);
+        --shadow: 0 30px 80px rgba(0, 0, 0, 0.32);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--ink);
+        color: var(--pearl);
+        font-family: "Oswald", "Segoe UI", sans-serif;
+      }
+
+      body {
+        background:
+          radial-gradient(circle at 22% 20%, rgba(216, 135, 79, 0.22), rgba(216, 135, 79, 0) 34%),
+          radial-gradient(circle at 80% 74%, rgba(140, 96, 60, 0.18), rgba(140, 96, 60, 0) 32%),
+          linear-gradient(135deg, #100b08 0%, #19110c 46%, #0d0907 100%);
+      }
+
+      .stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      .grain,
+      .vignette {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .grain {
+        background:
+          repeating-linear-gradient(
+            0deg,
+            rgba(255, 255, 255, 0.015) 0 2px,
+            transparent 2px 4px
+          ),
+          repeating-linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.01) 0 1px,
+            transparent 1px 3px
+          );
+        mix-blend-mode: soft-light;
+        opacity: 0.38;
+      }
+
+      .vignette {
+        box-shadow: inset 0 0 160px rgba(0, 0, 0, 0.48);
+      }
+
+      .halo,
+      .arc {
+        position: absolute;
+        border-radius: 999px;
+      }
+
+      .halo {
+        top: 140px;
+        right: 180px;
+        width: 520px;
+        height: 520px;
+        background: radial-gradient(circle, rgba(216, 135, 79, 0.26), rgba(216, 135, 79, 0) 68%);
+        filter: blur(6px);
+      }
+
+      .arc {
+        border: 1px solid rgba(245, 235, 221, 0.12);
+        box-shadow: 0 0 0 14px rgba(216, 135, 79, 0.05);
+      }
+
+      .arc-a {
+        width: 420px;
+        height: 420px;
+        top: 190px;
+        right: 230px;
+      }
+
+      .arc-b {
+        width: 250px;
+        height: 250px;
+        top: 275px;
+        right: 315px;
+      }
+
+      .scene {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .scene::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 84% 28%, rgba(216, 135, 79, 0.1), rgba(216, 135, 79, 0) 28%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0));
+        pointer-events: none;
+      }
+
+      .scene-content {
+        width: 100%;
+        height: 100%;
+        padding: 70px 88px;
+        display: flex;
+        flex-direction: column;
+        gap: 28px;
+      }
+
+      .scene-1 .scene-content {
+        justify-content: space-between;
+      }
+
+      .scene-2 {
+        background:
+          linear-gradient(180deg, rgba(23, 16, 12, 0.98), rgba(14, 10, 8, 0.99)),
+          radial-gradient(circle at 16% 22%, rgba(216, 135, 79, 0.14), rgba(216, 135, 79, 0) 24%);
+      }
+
+      .scene-3 {
+        background:
+          radial-gradient(circle at 50% 20%, rgba(216, 135, 79, 0.14), rgba(216, 135, 79, 0) 28%),
+          linear-gradient(180deg, #100b08 0%, #120d0b 100%);
+      }
+
+      .topline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 15px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .brand-mark {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--copper);
+        box-shadow: 0 0 18px rgba(216, 135, 79, 0.62);
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(245, 235, 221, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--muted);
+        font-size: 14px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow-line {
+        width: 32px;
+        height: 1px;
+        background: rgba(216, 135, 79, 0.72);
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 38px;
+        align-items: center;
+      }
+
+      .copy {
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+
+      h1,
+      h2,
+      .hero-number {
+        font-family: "Playfair Display", serif;
+        font-weight: 700;
+      }
+
+      h1 {
+        max-width: 760px;
+        font-size: 114px;
+        line-height: 0.93;
+        letter-spacing: -0.05em;
+      }
+
+      .hero-subtitle {
+        max-width: 680px;
+        color: #e8d8c7;
+        font-size: 30px;
+        line-height: 1.42;
+      }
+
+      .hero-footer {
+        display: flex;
+        align-items: end;
+        gap: 28px;
+      }
+
+      .hero-number {
+        font-size: 88px;
+        line-height: 0.9;
+      }
+
+      .hero-caption {
+        max-width: 280px;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.5;
+      }
+
+      .product-shell {
+        position: relative;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 560px;
+      }
+
+      .product-shadow {
+        position: absolute;
+        width: 400px;
+        height: 80px;
+        bottom: 54px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.42);
+        filter: blur(18px);
+      }
+
+      .product-card {
+        position: relative;
+        width: 430px;
+        height: 540px;
+        padding: 30px;
+        border-radius: 34px;
+        background:
+          linear-gradient(180deg, rgba(65, 47, 35, 0.95), rgba(24, 18, 14, 0.98)),
+          linear-gradient(120deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0));
+        border: 1px solid rgba(245, 235, 221, 0.16);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .product-card::before {
+        content: "";
+        position: absolute;
+        inset: 18px;
+        border-radius: 24px;
+        border: 1px solid rgba(245, 235, 221, 0.1);
+      }
+
+      .product-card::after {
+        content: "";
+        position: absolute;
+        left: 44px;
+        right: 44px;
+        top: 62px;
+        height: 280px;
+        border-radius: 26px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.03)),
+          radial-gradient(circle at 60% 20%, rgba(216, 135, 79, 0.34), rgba(216, 135, 79, 0) 55%);
+      }
+
+      .product-meta {
+        position: absolute;
+        left: 42px;
+        bottom: 52px;
+        right: 42px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+
+      .product-stat {
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+      }
+
+      .product-label {
+        color: var(--muted);
+        font-size: 14px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .product-value {
+        margin-top: 10px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 28px;
+        color: var(--pearl);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .ticker {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 18px;
+      }
+
+      .ticker-item {
+        min-height: 148px;
+        padding: 22px 24px;
+        border-radius: 24px;
+        background: var(--panel-soft);
+        border: 1px solid rgba(245, 235, 221, 0.12);
+      }
+
+      .ticker-name {
+        color: var(--muted);
+        font-size: 14px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .ticker-value {
+        margin-top: 20px;
+        font-family: "Playfair Display", serif;
+        font-size: 48px;
+      }
+
+      .ticker-copy {
+        margin-top: 12px;
+        color: #ebdccd;
+        font-size: 18px;
+        line-height: 1.46;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 28px;
+      }
+
+      .section-copy {
+        max-width: 620px;
+        color: #eadbc9;
+        font-size: 24px;
+        line-height: 1.48;
+      }
+
+      .section-head h2 {
+        max-width: 860px;
+        font-size: 88px;
+        line-height: 0.94;
+        letter-spacing: -0.05em;
+      }
+
+      .spec-grid {
+        display: grid;
+        grid-template-columns: 0.9fr 1.1fr;
+        gap: 30px;
+        flex: 1;
+      }
+
+      .feature-stack {
+        display: grid;
+        gap: 16px;
+      }
+
+      .feature-card {
+        padding: 24px 26px;
+        border-radius: 26px;
+        background: rgba(255, 255, 255, 0.035);
+        border: 1px solid rgba(245, 235, 221, 0.1);
+      }
+
+      .feature-kicker {
+        color: var(--muted);
+        font-size: 13px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .feature-title {
+        margin-top: 16px;
+        font-family: "Playfair Display", serif;
+        font-size: 38px;
+      }
+
+      .feature-copy {
+        margin-top: 12px;
+        color: #efdfcd;
+        font-size: 20px;
+        line-height: 1.45;
+      }
+
+      .feature-meter {
+        margin-top: 18px;
+        height: 6px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .feature-meter-fill {
+        height: 100%;
+        border-radius: inherit;
+        transform-origin: left center;
+        background: linear-gradient(90deg, #d8874f, #f5ebdd);
+      }
+
+      .device-wall {
+        position: relative;
+        border-radius: 34px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01)),
+          rgba(31, 23, 18, 0.94);
+        border: 1px solid rgba(245, 235, 221, 0.12);
+        overflow: hidden;
+        box-shadow: var(--shadow);
+      }
+
+      .device-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 24px 28px 0;
+      }
+
+      .device-label {
+        color: var(--muted);
+        font-size: 14px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .device-list {
+        display: grid;
+        gap: 16px;
+        padding: 22px 28px 28px;
+      }
+
+      .device-row {
+        display: grid;
+        grid-template-columns: 180px 1fr 90px;
+        gap: 16px;
+        align-items: center;
+      }
+
+      .device-name {
+        color: var(--pearl);
+        font-size: 22px;
+      }
+
+      .device-bar {
+        height: 16px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        overflow: hidden;
+      }
+
+      .device-bar-fill {
+        height: 100%;
+        border-radius: inherit;
+        transform-origin: left center;
+        background: linear-gradient(90deg, rgba(216, 135, 79, 0.95), rgba(245, 235, 221, 0.9));
+      }
+
+      .device-score {
+        text-align: right;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 20px;
+        color: #f1deca;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .closing {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        gap: 24px;
+      }
+
+      .closing h2 {
+        max-width: 1060px;
+        font-size: 118px;
+        line-height: 0.92;
+        letter-spacing: -0.05em;
+      }
+
+      .closing-copy {
+        max-width: 780px;
+        color: #ecdece;
+        font-size: 30px;
+        line-height: 1.46;
+      }
+
+      .closing-band {
+        width: 740px;
+        height: 76px;
+        padding: 10px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(245, 235, 221, 0.14);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .band-fill {
+        flex: 1;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, rgba(216, 135, 79, 0.92), rgba(245, 235, 221, 0.82));
+        transform-origin: left center;
+      }
+
+      .band-label {
+        padding: 0 22px 0 12px;
+        font-size: 16px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--pearl);
+      }
+
+      .closing-tag {
+        color: var(--muted);
+        font-size: 18px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+      }
+
+      .scene-1,
+      .scene-2,
+      .scene-3,
+      .transition-wipe {
+        will-change: transform, opacity, filter;
+      }
+
+      .transition-wipe {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, rgba(216, 135, 79, 0), rgba(216, 135, 79, 0.28), rgba(216, 135, 79, 0));
+        opacity: 0;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="10"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div class="stage">
+        <div class="halo" id="halo"></div>
+        <div class="arc arc-a" id="arc-a"></div>
+        <div class="arc arc-b" id="arc-b"></div>
+
+        <section class="scene scene-1" id="scene-1">
+          <div class="scene-content">
+            <div class="topline" id="topline">
+              <div class="brand">
+                <span class="brand-mark"></span>
+                <span>Velar One</span>
+              </div>
+              <div>Launch Story / 10s</div>
+            </div>
+
+            <div class="hero">
+              <div class="copy">
+                <div class="eyebrow" id="eyebrow">
+                  <span class="eyebrow-line"></span>
+                  <span>Premium listening device</span>
+                </div>
+                <h1 id="hero-title">Quiet power for the moments that matter.</h1>
+                <p class="hero-subtitle" id="hero-subtitle">
+                  A launch example built with HyperFrames: warm lighting, bold editorial type,
+                  and a three-act rhythm that moves from reveal to proof to promise.
+                </p>
+                <div class="hero-footer">
+                  <div class="hero-number" id="hero-number">42h</div>
+                  <p class="hero-caption" id="hero-caption">
+                    Long battery, rich detail, and a product silhouette staged like a keynote hero frame.
+                  </p>
+                </div>
+              </div>
+
+              <div class="product-shell">
+                <div class="product-shadow" id="product-shadow"></div>
+                <div class="product-card" id="product-card">
+                  <div class="product-meta">
+                    <div class="product-stat">
+                      <div class="product-label">Finish</div>
+                      <div class="product-value">Copper</div>
+                    </div>
+                    <div class="product-stat">
+                      <div class="product-label">Driver</div>
+                      <div class="product-value">40 mm</div>
+                    </div>
+                    <div class="product-stat">
+                      <div class="product-label">Latency</div>
+                      <div class="product-value">38 ms</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="ticker" id="ticker">
+              <article class="ticker-item">
+                <div class="ticker-name">Studio-grade</div>
+                <div class="ticker-value">Lossless</div>
+                <div class="ticker-copy">Focused tuning for spoken voice and detailed music playback.</div>
+              </article>
+              <article class="ticker-item">
+                <div class="ticker-name">Adaptive fit</div>
+                <div class="ticker-value">Memory foam</div>
+                <div class="ticker-copy">Soft, durable materials shaped for long sessions and travel.</div>
+              </article>
+              <article class="ticker-item">
+                <div class="ticker-name">Control</div>
+                <div class="ticker-value">One dial</div>
+                <div class="ticker-copy">A minimal interface that keeps the product feeling tactile and calm.</div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <div class="transition-wipe" id="wipe-1"></div>
+
+        <section class="scene scene-2" id="scene-2">
+          <div class="scene-content">
+            <div class="section-head">
+              <div>
+                <div class="eyebrow" id="section-eyebrow">
+                  <span class="eyebrow-line"></span>
+                  <span>Proof points</span>
+                </div>
+                <h2 id="section-title">Three features, one premium story.</h2>
+              </div>
+              <p class="section-copy" id="section-copy">
+                The middle act translates the hero promise into tactile details, performance, and trust-building data.
+              </p>
+            </div>
+
+            <div class="spec-grid">
+              <div class="feature-stack" id="feature-stack">
+                <article class="feature-card">
+                  <div class="feature-kicker">01 / Comfort</div>
+                  <div class="feature-title">All-day fit</div>
+                  <div class="feature-copy">Deep cushions and balanced weight distribution keep the frame easy to wear.</div>
+                  <div class="feature-meter"><div class="feature-meter-fill" id="meter-a"></div></div>
+                </article>
+                <article class="feature-card">
+                  <div class="feature-kicker">02 / Control</div>
+                  <div class="feature-title">Intentional interface</div>
+                  <div class="feature-copy">A single tactile input replaces crowded buttons and keeps the silhouette clean.</div>
+                  <div class="feature-meter"><div class="feature-meter-fill" id="meter-b"></div></div>
+                </article>
+                <article class="feature-card">
+                  <div class="feature-kicker">03 / Sound</div>
+                  <div class="feature-title">Balanced response</div>
+                  <div class="feature-copy">Clear mids, stable low end, and tuned detail for music, calls, and film.</div>
+                  <div class="feature-meter"><div class="feature-meter-fill" id="meter-c"></div></div>
+                </article>
+              </div>
+
+              <div class="device-wall" id="device-wall">
+                <div class="device-header">
+                  <div class="device-label">Launch review board</div>
+                  <div class="device-label">Score</div>
+                </div>
+                <div class="device-list">
+                  <div class="device-row">
+                    <div class="device-name">Craft finish</div>
+                    <div class="device-bar"><div class="device-bar-fill" id="bar-a" style="width: 92%"></div></div>
+                    <div class="device-score">92</div>
+                  </div>
+                  <div class="device-row">
+                    <div class="device-name">Battery life</div>
+                    <div class="device-bar"><div class="device-bar-fill" id="bar-b" style="width: 88%"></div></div>
+                    <div class="device-score">88</div>
+                  </div>
+                  <div class="device-row">
+                    <div class="device-name">Voice clarity</div>
+                    <div class="device-bar"><div class="device-bar-fill" id="bar-c" style="width: 95%"></div></div>
+                    <div class="device-score">95</div>
+                  </div>
+                  <div class="device-row">
+                    <div class="device-name">Case design</div>
+                    <div class="device-bar"><div class="device-bar-fill" id="bar-d" style="width: 84%"></div></div>
+                    <div class="device-score">84</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="transition-wipe" id="wipe-2"></div>
+
+        <section class="scene scene-3" id="scene-3">
+          <div class="scene-content">
+            <div class="topline" id="closing-topline">
+              <div class="brand">
+                <span class="brand-mark"></span>
+                <span>Velar One</span>
+              </div>
+              <div>Ships globally / Summer 2026</div>
+            </div>
+
+            <div class="closing">
+              <h2 id="closing-title">Make the last frame feel like desire, not noise.</h2>
+              <p class="closing-copy" id="closing-copy">
+                This closing scene lands the promise with one message, one meter, and enough space for the product to feel elevated.
+              </p>
+              <div class="closing-band" id="closing-band">
+                <div class="band-fill" id="band-fill"></div>
+                <div class="band-label">Reserve your listening slot</div>
+              </div>
+              <div class="closing-tag" id="closing-tag">HyperFrames example / product intro</div>
+            </div>
+          </div>
+        </section>
+
+        <div class="grain"></div>
+        <div class="vignette"></div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      gsap.set(["#scene-2", "#scene-3"], { opacity: 0 });
+      gsap.set(["#meter-a", "#meter-b", "#meter-c", "#bar-a", "#bar-b", "#bar-c", "#bar-d", "#band-fill"], {
+        scaleX: 0,
+      });
+
+      tl.from("#topline", { y: -24, opacity: 0, duration: 0.55, ease: "power2.out" }, 0.14);
+      tl.from("#eyebrow", { y: 16, opacity: 0, duration: 0.48, ease: "power1.out" }, 0.28);
+      tl.from("#hero-title", { y: 60, opacity: 0, duration: 0.9, ease: "power3.out" }, 0.42);
+      tl.from("#hero-subtitle", { y: 34, opacity: 0, duration: 0.72, ease: "sine.out" }, 0.8);
+      tl.from("#hero-number", { y: 26, opacity: 0, duration: 0.58, ease: "back.out(1.8)" }, 1.08);
+      tl.from("#hero-caption", { y: 18, opacity: 0, duration: 0.58, ease: "power2.out" }, 1.18);
+      tl.from("#product-card", { y: 54, opacity: 0, rotateX: -10, duration: 0.95, ease: "expo.out" }, 0.64);
+      tl.from("#product-shadow", { scale: 0.72, opacity: 0, duration: 0.7, ease: "power2.out" }, 0.82);
+      tl.from("#ticker .ticker-item", { y: 28, duration: 0.6, stagger: 0.1, ease: "power3.out" }, 0.2);
+      tl.to("#halo", { x: -30, y: 26, duration: 2.2, ease: "sine.inOut" }, 1.9);
+      tl.to("#arc-a", { rotation: 10, scale: 1.04, duration: 2, ease: "sine.inOut" }, 2.1);
+      tl.to("#arc-b", { rotation: -12, scale: 0.96, duration: 2, ease: "sine.inOut" }, 2.2);
+
+      tl.fromTo(
+        "#wipe-1",
+        { opacity: 0, xPercent: -110 },
+        { opacity: 1, xPercent: 120, duration: 0.6, ease: "power3.inOut" },
+        3.08
+      );
+      tl.from(
+        "#scene-2",
+        { opacity: 0, y: 44, scale: 0.98, filter: "blur(18px)", duration: 0.76, ease: "power2.out" },
+        3.16
+      );
+      tl.from("#section-eyebrow", { y: 18, opacity: 0, duration: 0.45, ease: "power1.out" }, 3.4);
+      tl.from("#section-title", { y: 38, opacity: 0, duration: 0.72, ease: "power3.out" }, 3.54);
+      tl.from("#section-copy", { x: 30, opacity: 0, duration: 0.68, ease: "sine.out" }, 3.7);
+      tl.from("#feature-stack .feature-card", { x: -34, opacity: 0, duration: 0.66, stagger: 0.14, ease: "power2.out" }, 3.82);
+      tl.from("#device-wall", { x: 42, opacity: 0, duration: 0.78, ease: "expo.out" }, 4.02);
+      tl.to("#meter-a", { scaleX: 0.86, duration: 0.65, ease: "power2.out" }, 4.28);
+      tl.to("#meter-b", { scaleX: 0.91, duration: 0.65, ease: "power2.out" }, 4.46);
+      tl.to("#meter-c", { scaleX: 0.95, duration: 0.65, ease: "power2.out" }, 4.64);
+      tl.to("#bar-a", { scaleX: 1, duration: 0.62, ease: "power2.out" }, 4.18);
+      tl.to("#bar-b", { scaleX: 1, duration: 0.62, ease: "power2.out" }, 4.34);
+      tl.to("#bar-c", { scaleX: 1, duration: 0.62, ease: "power2.out" }, 4.5);
+      tl.to("#bar-d", { scaleX: 1, duration: 0.62, ease: "power2.out" }, 4.66);
+
+      tl.fromTo(
+        "#wipe-2",
+        { opacity: 0, xPercent: -110 },
+        { opacity: 1, xPercent: 120, duration: 0.6, ease: "power3.inOut" },
+        6.52
+      );
+      tl.from(
+        "#scene-3",
+        { opacity: 0, y: 34, scale: 0.985, filter: "blur(16px)", duration: 0.82, ease: "power2.out" },
+        6.62
+      );
+      tl.from("#closing-topline", { y: -22, opacity: 0, duration: 0.48, ease: "power2.out" }, 6.88);
+      tl.from("#closing-title", { y: 48, opacity: 0, duration: 0.82, ease: "expo.out" }, 7.02);
+      tl.from("#closing-copy", { y: 28, opacity: 0, duration: 0.68, ease: "sine.out" }, 7.26);
+      tl.from("#closing-band", { y: 20, opacity: 0, duration: 0.6, ease: "back.out(1.7)" }, 7.42);
+      tl.to("#band-fill", { scaleX: 1, duration: 0.78, ease: "power2.out" }, 7.58);
+      tl.from("#closing-tag", { y: 18, opacity: 0, duration: 0.52, ease: "power1.out" }, 7.74);
+
+      tl.to("#scene-3", { opacity: 0, duration: 0.52, ease: "power2.inOut" }, 9.32);
+      tl.to(["#halo", "#arc-a", "#arc-b"], { opacity: 0.4, duration: 0.52, ease: "power2.inOut" }, 9.32);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

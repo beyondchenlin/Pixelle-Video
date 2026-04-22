@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>HyperFrames Repo Architecture Example</title>
+    <link rel="icon" href="data:," />
+    <script src="./assets/vendor/gsap.min.js"></script>
+    <style>
+      :root {
+        --bg: #08131d;
+        --bg-soft: #102331;
+        --panel: rgba(18, 48, 64, 0.9);
+        --panel-soft: rgba(18, 48, 64, 0.62);
+        --signal: #7ee6ff;
+        --signal-soft: rgba(126, 230, 255, 0.18);
+        --paper: #f1e9d7;
+        --muted: #b7d0db;
+        --line: rgba(156, 184, 199, 0.16);
+        --shadow: 0 28px 80px rgba(0, 0, 0, 0.28);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--paper);
+        font-family: "Oswald", "Segoe UI", sans-serif;
+      }
+
+      body {
+        background:
+          radial-gradient(circle at 18% 20%, rgba(126, 230, 255, 0.16), rgba(126, 230, 255, 0) 24%),
+          radial-gradient(circle at 82% 24%, rgba(241, 233, 215, 0.08), rgba(241, 233, 215, 0) 18%),
+          linear-gradient(180deg, #08131d 0%, #0a1822 52%, #071019 100%);
+      }
+
+      .stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      .grid,
+      .vignette {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .grid {
+        background:
+          linear-gradient(rgba(156, 184, 199, 0.06) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(156, 184, 199, 0.06) 1px, transparent 1px);
+        background-size: 60px 60px;
+        opacity: 0.66;
+      }
+
+      .vignette {
+        box-shadow: inset 0 0 180px rgba(0, 0, 0, 0.38);
+      }
+
+      .beam {
+        position: absolute;
+        width: 420px;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(126, 230, 255, 0), rgba(126, 230, 255, 0.62), rgba(126, 230, 255, 0));
+        opacity: 0.72;
+      }
+
+      .beam-a {
+        top: 170px;
+        right: 110px;
+        transform: rotate(-14deg);
+      }
+
+      .beam-b {
+        bottom: 160px;
+        left: 90px;
+        transform: rotate(16deg);
+      }
+
+      .scene {
+        position: absolute;
+        inset: 0;
+      }
+
+      .scene-1::before,
+      .scene-2::before,
+      .scene-3::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 86% 18%, rgba(126, 230, 255, 0.08), rgba(126, 230, 255, 0) 28%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
+      }
+
+      .scene-2 {
+        background:
+          linear-gradient(180deg, rgba(8, 19, 29, 0.98), rgba(10, 25, 37, 0.99)),
+          radial-gradient(circle at 70% 18%, rgba(126, 230, 255, 0.14), rgba(126, 230, 255, 0) 24%);
+      }
+
+      .scene-3 {
+        background:
+          radial-gradient(circle at 50% 18%, rgba(126, 230, 255, 0.14), rgba(126, 230, 255, 0) 24%),
+          linear-gradient(180deg, rgba(7, 16, 25, 0.99), rgba(8, 17, 28, 1));
+      }
+
+      .scene-content {
+        width: 100%;
+        height: 100%;
+        padding: 68px 82px;
+        display: flex;
+        flex-direction: column;
+        gap: 30px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 15px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .topbar-left {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--signal);
+        box-shadow: 0 0 18px rgba(126, 230, 255, 0.65);
+      }
+
+      .pill {
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(126, 230, 255, 0.22);
+        background: rgba(14, 45, 60, 0.5);
+        color: #d8f8ff;
+      }
+
+      .hero-layout {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 34px;
+        align-items: center;
+      }
+
+      .hero-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        width: fit-content;
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(241, 233, 215, 0.12);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--muted);
+        font-size: 14px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow-line {
+        width: 28px;
+        height: 1px;
+        background: rgba(126, 230, 255, 0.78);
+      }
+
+      h1,
+      h2 {
+        font-size: 96px;
+        line-height: 0.94;
+        letter-spacing: -0.05em;
+      }
+
+      .hero-copy p,
+      .section-copy,
+      .step-copy {
+        color: #deedf2;
+        font-size: 28px;
+        line-height: 1.44;
+      }
+
+      .repo-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-top: 10px;
+      }
+
+      .repo-stat {
+        padding: 18px 20px;
+        border-radius: 22px;
+        background: var(--panel-soft);
+        border: 1px solid rgba(156, 184, 199, 0.14);
+      }
+
+      .repo-stat-label {
+        color: var(--muted);
+        font-size: 13px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .repo-stat-value {
+        margin-top: 14px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 34px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .module-stack {
+        display: grid;
+        gap: 18px;
+      }
+
+      .module-card {
+        position: relative;
+        padding: 24px 24px 22px;
+        border-radius: 24px;
+        background: var(--panel);
+        border: 1px solid rgba(126, 230, 255, 0.12);
+        box-shadow: var(--shadow);
+      }
+
+      .module-card::before {
+        content: "";
+        position: absolute;
+        inset: 1px;
+        border-radius: 23px;
+        border: 1px solid rgba(255, 255, 255, 0.03);
+      }
+
+      .module-path {
+        font-family: "JetBrains Mono", monospace;
+        color: var(--signal);
+        font-size: 17px;
+      }
+
+      .module-title {
+        margin-top: 14px;
+        font-size: 34px;
+      }
+
+      .module-copy {
+        margin-top: 12px;
+        color: #deedf2;
+        font-size: 20px;
+        line-height: 1.42;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 34px;
+      }
+
+      .section-head h2 {
+        max-width: 900px;
+      }
+
+      .architecture-shell {
+        flex: 1;
+        position: relative;
+        border-radius: 34px;
+        border: 1px solid rgba(126, 230, 255, 0.12);
+        background:
+          linear-gradient(180deg, rgba(18, 48, 64, 0.58), rgba(8, 19, 29, 0.9)),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .architecture-grid {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(rgba(126, 230, 255, 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(126, 230, 255, 0.05) 1px, transparent 1px);
+        background-size: 72px 72px;
+        opacity: 0.5;
+      }
+
+      .hub {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 340px;
+        height: 190px;
+        transform: translate(-50%, -50%);
+        border-radius: 28px;
+        background: rgba(12, 34, 48, 0.96);
+        border: 1px solid rgba(241, 233, 215, 0.12);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        z-index: 2;
+      }
+
+      .hub-kicker,
+      .node-kicker,
+      .step-kicker {
+        color: var(--muted);
+        font-size: 13px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .hub-title {
+        font-size: 48px;
+      }
+
+      .hub-copy {
+        max-width: 240px;
+        text-align: center;
+        color: #d7ebf2;
+        font-size: 18px;
+        line-height: 1.42;
+      }
+
+      .node {
+        position: absolute;
+        width: 300px;
+        min-height: 156px;
+        padding: 22px 24px;
+        border-radius: 24px;
+        background: rgba(14, 38, 52, 0.94);
+        border: 1px solid rgba(126, 230, 255, 0.12);
+        z-index: 2;
+      }
+
+      .node-top-left {
+        left: 120px;
+        top: 108px;
+      }
+
+      .node-top-right {
+        right: 120px;
+        top: 108px;
+      }
+
+      .node-bottom-left {
+        left: 160px;
+        bottom: 104px;
+      }
+
+      .node-bottom-right {
+        right: 160px;
+        bottom: 104px;
+      }
+
+      .node-title {
+        margin-top: 12px;
+        font-size: 28px;
+      }
+
+      .node-copy {
+        margin-top: 10px;
+        color: #d7ebf2;
+        font-size: 18px;
+        line-height: 1.42;
+      }
+
+      .link {
+        position: absolute;
+        height: 2px;
+        background: linear-gradient(90deg, rgba(126, 230, 255, 0.16), rgba(126, 230, 255, 0.85));
+        transform-origin: left center;
+        z-index: 1;
+      }
+
+      .link-a {
+        left: 410px;
+        top: 222px;
+        width: 380px;
+        transform: rotate(16deg);
+      }
+
+      .link-b {
+        right: 410px;
+        top: 222px;
+        width: 380px;
+        transform-origin: right center;
+        transform: rotate(-16deg);
+      }
+
+      .link-c {
+        left: 444px;
+        bottom: 214px;
+        width: 320px;
+        transform: rotate(-13deg);
+      }
+
+      .link-d {
+        right: 444px;
+        bottom: 214px;
+        width: 320px;
+        transform-origin: right center;
+        transform: rotate(13deg);
+      }
+
+      .workflow {
+        flex: 1;
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 16px;
+        align-items: stretch;
+      }
+
+      .step {
+        position: relative;
+        padding: 24px 22px;
+        border-radius: 24px;
+        background: var(--panel);
+        border: 1px solid rgba(126, 230, 255, 0.12);
+        box-shadow: var(--shadow);
+      }
+
+      .step-index {
+        font-family: "JetBrains Mono", monospace;
+        color: var(--signal);
+        font-size: 16px;
+      }
+
+      .step-title {
+        margin-top: 16px;
+        font-size: 34px;
+        line-height: 1.02;
+      }
+
+      .step-copy {
+        margin-top: 12px;
+        font-size: 20px;
+      }
+
+      .step-meter {
+        position: absolute;
+        left: 22px;
+        right: 22px;
+        bottom: 22px;
+        height: 6px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.07);
+      }
+
+      .step-meter-fill {
+        height: 100%;
+        border-radius: inherit;
+        transform-origin: left center;
+        background: linear-gradient(90deg, rgba(126, 230, 255, 0.94), rgba(241, 233, 215, 0.9));
+      }
+
+      .closing-ribbon {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 22px;
+        border-radius: 999px;
+        border: 1px solid rgba(241, 233, 215, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        color: #dcedf3;
+        font-size: 18px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .transition-band {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(90deg, rgba(126, 230, 255, 0), rgba(126, 230, 255, 0.28), rgba(126, 230, 255, 0)),
+          linear-gradient(180deg, rgba(8, 19, 29, 0), rgba(8, 19, 29, 0.08));
+        opacity: 0;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="10"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div class="stage">
+        <div class="grid" id="grid"></div>
+        <div class="beam beam-a" id="beam-a"></div>
+        <div class="beam beam-b" id="beam-b"></div>
+
+        <section class="scene scene-1" id="scene-1">
+          <div class="scene-content">
+            <div class="topbar" id="topbar">
+              <div class="topbar-left">
+                <span class="dot"></span>
+                <span>heygen-com/hyperframes</span>
+              </div>
+              <div class="pill">Repo explainer / 10s</div>
+            </div>
+
+            <div class="hero-layout">
+              <div class="hero-copy">
+                <div class="eyebrow" id="eyebrow">
+                  <span class="eyebrow-line"></span>
+                  <span>What this repo does</span>
+                </div>
+                <h1 id="hero-title">It turns HTML, timing, and motion into rendered video.</h1>
+                <p id="hero-copy">
+                  HyperFrames is not just a starter template. It is a structured system for composing scenes, previewing them live, validating quality, and exporting deterministic MP4 output.
+                </p>
+                <div class="repo-stats" id="repo-stats">
+                  <div class="repo-stat">
+                    <div class="repo-stat-label">Source of truth</div>
+                    <div class="repo-stat-value">HTML + GSAP</div>
+                  </div>
+                  <div class="repo-stat">
+                    <div class="repo-stat-label">Workflow</div>
+                    <div class="repo-stat-value">Init -> Preview</div>
+                  </div>
+                  <div class="repo-stat">
+                    <div class="repo-stat-label">Output</div>
+                    <div class="repo-stat-value">1080p MP4</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="module-stack" id="module-stack">
+                <article class="module-card">
+                  <div class="module-path">packages/player</div>
+                  <div class="module-title">Preview in the browser</div>
+                  <div class="module-copy">Seekable playback keeps composition timing visible while you iterate.</div>
+                </article>
+                <article class="module-card">
+                  <div class="module-path">packages/renderer</div>
+                  <div class="module-title">Render deterministically</div>
+                  <div class="module-copy">The same timeline can be captured frame by frame into final video output.</div>
+                </article>
+                <article class="module-card">
+                  <div class="module-path">skills/ + CLI</div>
+                  <div class="module-title">Teach the agent the workflow</div>
+                  <div class="module-copy">The README examples are really about speeding up composition authoring and iteration.</div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="transition-band" id="transition-a"></div>
+
+        <section class="scene scene-2" id="scene-2">
+          <div class="scene-content">
+            <div class="section-head">
+              <div>
+                <div class="eyebrow" id="arch-eyebrow">
+                  <span class="eyebrow-line"></span>
+                  <span>Architecture view</span>
+                </div>
+                <h2 id="arch-title">The repo is organized around authoring, runtime, and delivery.</h2>
+              </div>
+              <p class="section-copy" id="arch-copy">
+                Think of the center as the composition contract, with packages and skills feeding into it from different responsibilities.
+              </p>
+            </div>
+
+            <div class="architecture-shell" id="architecture-shell">
+              <div class="architecture-grid"></div>
+              <div class="link link-a" id="link-a"></div>
+              <div class="link link-b" id="link-b"></div>
+              <div class="link link-c" id="link-c"></div>
+              <div class="link link-d" id="link-d"></div>
+
+              <div class="hub" id="hub">
+                <div class="hub-kicker">Core contract</div>
+                <div class="hub-title">Compositions</div>
+                <div class="hub-copy">HTML structure, `data-*` timing, and a GSAP timeline registered for playback.</div>
+              </div>
+
+              <article class="node node-top-left" id="node-a">
+                <div class="node-kicker">packages/cli</div>
+                <div class="node-title">Initialize and lint</div>
+                <div class="node-copy">Scaffold projects, validate structure, and keep authoring reliable.</div>
+              </article>
+
+              <article class="node node-top-right" id="node-b">
+                <div class="node-kicker">packages/player</div>
+                <div class="node-title">Preview and inspect</div>
+                <div class="node-copy">A local player runs the composition so edits feel immediate.</div>
+              </article>
+
+              <article class="node node-bottom-left" id="node-c">
+                <div class="node-kicker">packages/registry</div>
+                <div class="node-title">Blocks and patterns</div>
+                <div class="node-copy">Reusable pieces help the system feel more like a toolkit than a blank canvas.</div>
+              </article>
+
+              <article class="node node-bottom-right" id="node-d">
+                <div class="node-kicker">skills/</div>
+                <div class="node-title">Agent guidance</div>
+                <div class="node-copy">The skills teach composition rules, motion, linting, and production workflow.</div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <div class="transition-band" id="transition-b"></div>
+
+        <section class="scene scene-3" id="scene-3">
+          <div class="scene-content">
+            <div class="section-head">
+              <div>
+                <div class="eyebrow" id="workflow-eyebrow">
+                  <span class="eyebrow-line"></span>
+                  <span>How you use it</span>
+                </div>
+                <h2 id="workflow-title">From prompt to MP4 in a repeatable loop.</h2>
+              </div>
+              <p class="section-copy" id="workflow-copy">
+                This is the practical story the README tells: start a project, author HTML, preview it, validate it, and render the final cut.
+              </p>
+            </div>
+
+            <div class="workflow" id="workflow">
+              <article class="step">
+                <div class="step-index">01</div>
+                <div class="step-kicker">Initialize</div>
+                <div class="step-title">Init</div>
+                <div class="step-copy">Create a new project and pull in the right project structure.</div>
+                <div class="step-meter"><div class="step-meter-fill" id="meter-a"></div></div>
+              </article>
+              <article class="step">
+                <div class="step-index">02</div>
+                <div class="step-kicker">Author</div>
+                <div class="step-title">Write</div>
+                <div class="step-copy">Build scenes in HTML, CSS, and GSAP with deterministic timing.</div>
+                <div class="step-meter"><div class="step-meter-fill" id="meter-b"></div></div>
+              </article>
+              <article class="step">
+                <div class="step-index">03</div>
+                <div class="step-kicker">Review</div>
+                <div class="step-title">Preview</div>
+                <div class="step-copy">Use the local player to iterate in the browser with live reload.</div>
+                <div class="step-meter"><div class="step-meter-fill" id="meter-c"></div></div>
+              </article>
+              <article class="step">
+                <div class="step-index">04</div>
+                <div class="step-kicker">Quality</div>
+                <div class="step-title">Validate</div>
+                <div class="step-copy">Catch structure or contrast issues before final capture.</div>
+                <div class="step-meter"><div class="step-meter-fill" id="meter-d"></div></div>
+              </article>
+              <article class="step">
+                <div class="step-index">05</div>
+                <div class="step-kicker">Deliver</div>
+                <div class="step-title">Render</div>
+                <div class="step-copy">Produce a video file you can review, ship, or hand off downstream.</div>
+                <div class="step-meter"><div class="step-meter-fill" id="meter-e"></div></div>
+              </article>
+            </div>
+
+            <div class="closing-ribbon" id="closing-ribbon">
+              <span>Prompt -> HTML -> Preview -> Render</span>
+              <span>README scenario / repo explainer</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="vignette"></div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      gsap.set(["#scene-2", "#scene-3"], { opacity: 0 });
+      gsap.set(["#link-a", "#link-c"], { scaleX: 0 });
+      gsap.set(["#link-b", "#link-d"], { scaleX: 0 });
+      gsap.set(["#meter-a", "#meter-b", "#meter-c", "#meter-d", "#meter-e"], { scaleX: 0 });
+
+      tl.from("#topbar", { y: -22, opacity: 0, duration: 0.52, ease: "power2.out" }, 0.14);
+      tl.from("#eyebrow", { y: 18, opacity: 0, duration: 0.46, ease: "power1.out" }, 0.28);
+      tl.from("#hero-title", { y: 54, opacity: 0, duration: 0.88, ease: "expo.out" }, 0.4);
+      tl.from("#hero-copy", { y: 28, opacity: 0, duration: 0.66, ease: "sine.out" }, 0.82);
+      tl.from("#repo-stats .repo-stat", { y: 18, opacity: 0, duration: 0.54, stagger: 0.1, ease: "power2.out" }, 1.1);
+      tl.from("#module-stack .module-card", { x: 34, opacity: 0, duration: 0.68, stagger: 0.12, ease: "power3.out" }, 0.92);
+      tl.to("#beam-a", { x: -48, duration: 2.1, ease: "sine.inOut" }, 1.8);
+      tl.to("#beam-b", { x: 42, duration: 2.1, ease: "sine.inOut" }, 1.94);
+      tl.to("#grid", { opacity: 0.54, duration: 1.8, ease: "sine.inOut" }, 2.1);
+
+      tl.fromTo(
+        "#transition-a",
+        { opacity: 0, xPercent: -110 },
+        { opacity: 1, xPercent: 120, duration: 0.56, ease: "power3.inOut" },
+        3.08
+      );
+      tl.from(
+        "#scene-2",
+        { opacity: 0, y: 34, scale: 0.985, filter: "blur(14px)", duration: 0.74, ease: "power2.out" },
+        3.18
+      );
+      tl.from("#arch-eyebrow", { y: 18, opacity: 0, duration: 0.46, ease: "power1.out" }, 3.42);
+      tl.from("#arch-title", { y: 40, opacity: 0, duration: 0.78, ease: "expo.out" }, 3.56);
+      tl.from("#arch-copy", { x: 28, opacity: 0, duration: 0.64, ease: "sine.out" }, 3.74);
+      tl.from("#hub", { scale: 0.9, opacity: 0, duration: 0.72, ease: "back.out(1.6)" }, 3.92);
+      tl.from(["#node-a", "#node-b", "#node-c", "#node-d"], { opacity: 0, duration: 0.7, stagger: 0.12, ease: "power2.out" }, 4.06);
+      tl.from(["#node-a", "#node-c"], { x: -24, duration: 0.7, stagger: 0.08, ease: "power3.out" }, 4.06);
+      tl.from(["#node-b", "#node-d"], { x: 24, duration: 0.7, stagger: 0.08, ease: "power3.out" }, 4.14);
+      tl.to("#link-a", { scaleX: 1, duration: 0.54, ease: "power2.out" }, 4.32);
+      tl.to("#link-b", { scaleX: 1, duration: 0.54, ease: "power2.out" }, 4.48);
+      tl.to("#link-c", { scaleX: 1, duration: 0.54, ease: "power2.out" }, 4.64);
+      tl.to("#link-d", { scaleX: 1, duration: 0.54, ease: "power2.out" }, 4.8);
+
+      tl.fromTo(
+        "#transition-b",
+        { opacity: 0, xPercent: -110 },
+        { opacity: 1, xPercent: 120, duration: 0.56, ease: "power3.inOut" },
+        6.42
+      );
+      tl.from(
+        "#scene-3",
+        { opacity: 0, y: 30, scale: 0.99, filter: "blur(12px)", duration: 0.78, ease: "power2.out" },
+        6.52
+      );
+      tl.from("#workflow-eyebrow", { y: 16, opacity: 0, duration: 0.44, ease: "power1.out" }, 6.82);
+      tl.from("#workflow-title", { y: 38, opacity: 0, duration: 0.76, ease: "expo.out" }, 6.96);
+      tl.from("#workflow-copy", { x: 24, opacity: 0, duration: 0.6, ease: "sine.out" }, 7.12);
+      tl.from("#workflow .step", { y: 26, opacity: 0, duration: 0.62, stagger: 0.12, ease: "power3.out" }, 7.22);
+      tl.to("#meter-a", { scaleX: 0.82, duration: 0.5, ease: "power2.out" }, 7.5);
+      tl.to("#meter-b", { scaleX: 0.9, duration: 0.5, ease: "power2.out" }, 7.64);
+      tl.to("#meter-c", { scaleX: 0.88, duration: 0.5, ease: "power2.out" }, 7.78);
+      tl.to("#meter-d", { scaleX: 0.76, duration: 0.5, ease: "power2.out" }, 7.92);
+      tl.to("#meter-e", { scaleX: 0.96, duration: 0.5, ease: "power2.out" }, 8.06);
+      tl.from("#closing-ribbon", { y: 18, opacity: 0, duration: 0.52, ease: "back.out(1.6)" }, 8.16);
+
+      tl.to("#scene-3", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 9.34);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

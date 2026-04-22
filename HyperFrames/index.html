@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Pixelle x HyperFrames Demo</title>
+    <link rel="icon" href="data:," />
+    <script src="./assets/vendor/gsap.min.js"></script>
+    <style>
+      :root {
+        --bg: #07111f;
+        --bg-soft: #0e1f38;
+        --panel: rgba(8, 18, 36, 0.74);
+        --panel-strong: rgba(9, 22, 42, 0.92);
+        --line: rgba(136, 176, 255, 0.18);
+        --cyan: #77f6ff;
+        --blue: #7da4ff;
+        --mint: #89ffcd;
+        --rose: #ff87c8;
+        --text: #eef5ff;
+        --muted: rgba(236, 243, 255, 0.82);
+        --soft: rgba(238, 244, 255, 0.72);
+        --shadow: 0 32px 90px rgba(0, 0, 0, 0.45);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #030816;
+        color: var(--text);
+        font-family: "Outfit", "Segoe UI", sans-serif;
+      }
+
+      body {
+        background:
+          radial-gradient(circle at 15% 18%, rgba(125, 164, 255, 0.22), transparent 28%),
+          radial-gradient(circle at 82% 22%, rgba(255, 135, 200, 0.18), transparent 30%),
+          radial-gradient(circle at 70% 78%, rgba(137, 255, 205, 0.16), transparent 26%),
+          linear-gradient(135deg, #04111d 0%, #08172b 45%, #050a13 100%);
+      }
+
+      .stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      .grid,
+      .grain,
+      .vignette {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .grid {
+        background:
+          linear-gradient(rgba(125, 164, 255, 0.06) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(125, 164, 255, 0.06) 1px, transparent 1px);
+        background-size: 64px 64px;
+        mask-image: radial-gradient(circle at center, black 52%, transparent 100%);
+        opacity: 0.75;
+      }
+
+      .grain {
+        background:
+          repeating-linear-gradient(
+            0deg,
+            rgba(255, 255, 255, 0.018) 0 2px,
+            transparent 2px 5px
+          ),
+          repeating-linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.014) 0 1px,
+            transparent 1px 3px
+          );
+        opacity: 0.28;
+        mix-blend-mode: soft-light;
+      }
+
+      .vignette {
+        box-shadow: inset 0 0 220px rgba(0, 0, 0, 0.58);
+      }
+
+      .orb {
+        position: absolute;
+        border-radius: 999px;
+        filter: blur(24px);
+        opacity: 0.9;
+      }
+
+      .orb-a {
+        top: 120px;
+        right: 240px;
+        width: 340px;
+        height: 340px;
+        background: radial-gradient(circle, rgba(125, 164, 255, 0.42), transparent 70%);
+      }
+
+      .orb-b {
+        bottom: 120px;
+        left: 120px;
+        width: 280px;
+        height: 280px;
+        background: radial-gradient(circle, rgba(119, 246, 255, 0.32), transparent 72%);
+      }
+
+      .orb-c {
+        top: 320px;
+        left: 720px;
+        width: 220px;
+        height: 220px;
+        background: radial-gradient(circle, rgba(255, 135, 200, 0.18), transparent 74%);
+      }
+
+      .frame {
+        position: absolute;
+        inset: 56px;
+        border: 1px solid rgba(173, 202, 255, 0.16);
+        border-radius: 34px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+      }
+
+      .topbar {
+        position: absolute;
+        top: 34px;
+        left: 54px;
+        right: 54px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--soft);
+        letter-spacing: 0.22em;
+        font-size: 15px;
+        text-transform: uppercase;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .brand-mark {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--cyan), var(--blue));
+        box-shadow: 0 0 22px rgba(119, 246, 255, 0.65);
+      }
+
+      .topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 28px;
+      }
+
+      .status-pill {
+        border: 1px solid rgba(137, 255, 205, 0.24);
+        background: rgba(20, 50, 46, 0.36);
+        padding: 10px 16px;
+        border-radius: 999px;
+        color: #c9ffea;
+        font-size: 13px;
+        letter-spacing: 0.18em;
+      }
+
+      .content {
+        position: absolute;
+        top: 120px;
+        left: 82px;
+        right: 82px;
+        bottom: 84px;
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 34px;
+      }
+
+      .hero {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .hero-main {
+        padding-top: 26px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.045);
+        color: var(--muted);
+        font-size: 15px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--mint);
+        box-shadow: 0 0 14px rgba(137, 255, 205, 0.7);
+      }
+
+      h1 {
+        margin-top: 24px;
+        max-width: 830px;
+        font-size: 106px;
+        line-height: 0.92;
+        letter-spacing: -0.05em;
+        text-transform: uppercase;
+        font-family: "Playfair Display", "Outfit", sans-serif;
+      }
+
+      .title-accent {
+        display: block;
+        background: linear-gradient(90deg, #eef5ff 0%, #8ff9ff 42%, #90a8ff 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .subtitle {
+        margin-top: 24px;
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 28px;
+        line-height: 1.45;
+      }
+
+      .chips {
+        margin-top: 30px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+      }
+
+      .chip {
+        padding: 14px 18px;
+        border-radius: 16px;
+        background: rgba(11, 24, 44, 0.74);
+        border: 1px solid rgba(144, 168, 255, 0.16);
+        color: var(--text);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+      }
+
+      .chip-label {
+        display: block;
+        color: var(--soft);
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .chip-value {
+        display: block;
+        margin-top: 6px;
+        font-size: 28px;
+        font-weight: 700;
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 18px;
+        align-self: end;
+      }
+
+      .card {
+        position: relative;
+        min-height: 220px;
+        padding: 24px 24px 22px;
+        border-radius: 26px;
+        background: linear-gradient(180deg, rgba(14, 30, 54, 0.92), rgba(8, 18, 34, 0.84));
+        border: 1px solid rgba(173, 202, 255, 0.14);
+        box-shadow: var(--shadow);
+      }
+
+      .card::before {
+        content: "";
+        position: absolute;
+        inset: 1px;
+        border-radius: 25px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 40%);
+        opacity: 0.7;
+        pointer-events: none;
+      }
+
+      .card-index {
+        color: rgba(241, 246, 255, 0.68);
+        font-size: 14px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .card-title {
+        margin-top: 26px;
+        font-size: 30px;
+        line-height: 1.04;
+      }
+
+      .card-copy {
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 20px;
+        line-height: 1.4;
+      }
+
+      .card-meter {
+        position: absolute;
+        left: 24px;
+        right: 24px;
+        bottom: 22px;
+        height: 6px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .card-meter-fill {
+        height: 100%;
+        border-radius: inherit;
+        transform-origin: left center;
+      }
+
+      .fill-cyan {
+        background: linear-gradient(90deg, var(--cyan), #9fc8ff);
+      }
+
+      .fill-mint {
+        background: linear-gradient(90deg, var(--mint), #c9fff4);
+      }
+
+      .fill-rose {
+        background: linear-gradient(90deg, var(--rose), #ffb0d8);
+      }
+
+      .dashboard {
+        position: relative;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 18px;
+      }
+
+      .panel {
+        position: relative;
+        border-radius: 30px;
+        border: 1px solid rgba(173, 202, 255, 0.14);
+        background: linear-gradient(180deg, rgba(12, 26, 48, 0.93), rgba(6, 14, 28, 0.92));
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 24px 28px 0;
+      }
+
+      .panel-title {
+        font-size: 18px;
+        letter-spacing: 0.18em;
+        color: var(--soft);
+        text-transform: uppercase;
+      }
+
+      .panel-score {
+        color: #c9ffea;
+        font-size: 16px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .preview {
+        min-height: 442px;
+      }
+
+      .preview-inner {
+        padding: 18px 28px 28px;
+      }
+
+      .chart-wrap {
+        margin-top: 18px;
+        padding: 18px 20px 18px;
+        border-radius: 24px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01)),
+          rgba(4, 10, 22, 0.62);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .chart-meta {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+      }
+
+      .chart-number {
+        font-size: 52px;
+        font-weight: 700;
+      }
+
+      .chart-caption {
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .chart-labels {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 8px;
+        color: rgba(235, 242, 255, 0.5);
+        font-size: 14px;
+        letter-spacing: 0.08em;
+      }
+
+      .chart-svg {
+        display: block;
+        width: 100%;
+        height: 210px;
+        margin-top: 6px;
+      }
+
+      .mini-columns {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+      }
+
+      .mini-col {
+        height: 86px;
+        border-radius: 16px 16px 8px 8px;
+        background: linear-gradient(180deg, rgba(119, 246, 255, 0.2), rgba(119, 246, 255, 0.04));
+        border: 1px solid rgba(119, 246, 255, 0.1);
+        transform-origin: center bottom;
+      }
+
+      .timeline-panel {
+        padding: 24px 28px 28px;
+      }
+
+      .timeline-list {
+        margin-top: 20px;
+        display: grid;
+        gap: 16px;
+      }
+
+      .timeline-item {
+        display: grid;
+        grid-template-columns: 112px 1fr;
+        gap: 16px;
+        align-items: center;
+      }
+
+      .timeline-time {
+        color: rgba(238, 244, 255, 0.74);
+        font-size: 15px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .timeline-track {
+        position: relative;
+        height: 54px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.045);
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .timeline-fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        border-radius: inherit;
+        transform-origin: left center;
+      }
+
+      .timeline-fill-a {
+        width: 76%;
+        background: linear-gradient(90deg, rgba(119, 246, 255, 0.36), rgba(125, 164, 255, 0.2));
+      }
+
+      .timeline-fill-b {
+        width: 88%;
+        background: linear-gradient(90deg, rgba(137, 255, 205, 0.34), rgba(125, 164, 255, 0.18));
+      }
+
+      .timeline-fill-c {
+        width: 64%;
+        background: linear-gradient(90deg, rgba(255, 135, 200, 0.32), rgba(255, 214, 145, 0.18));
+      }
+
+      .timeline-copy {
+        position: absolute;
+        left: 18px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #eef5ff;
+        font-size: 18px;
+      }
+
+      .footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 22px 24px 0;
+      }
+
+      .footer-copy {
+        max-width: 480px;
+        color: var(--muted);
+        font-size: 20px;
+        line-height: 1.45;
+      }
+
+      .footer-tag {
+        padding: 14px 18px;
+        border-radius: 999px;
+        border: 1px solid rgba(173, 202, 255, 0.14);
+        color: #eef5ff;
+        background: rgba(255, 255, 255, 0.04);
+        font-size: 15px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .ring {
+        position: absolute;
+        right: 48px;
+        top: 74px;
+        width: 160px;
+        height: 160px;
+        border-radius: 50%;
+        border: 1px solid rgba(119, 246, 255, 0.28);
+        box-shadow:
+          0 0 0 10px rgba(119, 246, 255, 0.03),
+          0 0 42px rgba(119, 246, 255, 0.12);
+      }
+
+      .ring::before,
+      .ring::after {
+        content: "";
+        position: absolute;
+        inset: 20px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .ring::after {
+        inset: 42px;
+        border-color: rgba(137, 255, 205, 0.3);
+      }
+
+      .beam {
+        position: absolute;
+        width: 360px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(119, 246, 255, 0.7), transparent);
+        opacity: 0.7;
+      }
+
+      .beam-a {
+        top: 168px;
+        right: 120px;
+        transform: rotate(-15deg);
+      }
+
+      .beam-b {
+        bottom: 180px;
+        left: 140px;
+        transform: rotate(16deg);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="10"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div class="stage">
+        <div class="orb orb-a" id="orb-a"></div>
+        <div class="orb orb-b" id="orb-b"></div>
+        <div class="orb orb-c" id="orb-c"></div>
+        <div class="grid" id="grid"></div>
+        <div class="grain"></div>
+        <div class="beam beam-a" id="beam-a"></div>
+        <div class="beam beam-b" id="beam-b"></div>
+        <div class="frame"></div>
+
+        <div class="topbar" id="topbar">
+          <div class="brand">
+            <span class="brand-mark"></span>
+            <span>Pixelle / HyperFrames Demo</span>
+          </div>
+          <div class="topbar-right">
+            <span>Case Video 01</span>
+            <span class="status-pill">Ready to Render</span>
+          </div>
+        </div>
+
+        <div class="content">
+          <section class="hero">
+            <div class="hero-main">
+              <div class="eyebrow" id="eyebrow">
+                <span class="eyebrow-dot"></span>
+                <span>AI Storytelling Pipeline</span>
+              </div>
+
+              <h1 id="title">
+                <span>Pixelle turns</span>
+                <span class="title-accent">ideas into motion</span>
+              </h1>
+
+              <p class="subtitle" id="subtitle">
+                From one short prompt to a polished vertical or widescreen video:
+                structure, pacing, visuals, captions, and final render move through one
+                clean pipeline.
+              </p>
+
+              <div class="chips" id="chips">
+                <div class="chip">
+                  <span class="chip-label">Build Time</span>
+                  <span class="chip-value">10s demo</span>
+                </div>
+                <div class="chip">
+                  <span class="chip-label">Output</span>
+                  <span class="chip-value">1080p MP4</span>
+                </div>
+                <div class="chip">
+                  <span class="chip-label">Flow</span>
+                  <span class="chip-value">Prompt -> Publish</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="cards" id="cards">
+              <article class="card" id="card-a">
+                <div class="card-index">01 / Script</div>
+                <h2 class="card-title">Script to Scene</h2>
+                <p class="card-copy">
+                  Turn one compact idea into scenes, rhythm, and visual direction.
+                </p>
+                <div class="card-meter">
+                  <div class="card-meter-fill fill-cyan" id="meter-a"></div>
+                </div>
+              </article>
+
+              <article class="card" id="card-b">
+                <div class="card-index">02 / Audio</div>
+                <h2 class="card-title">Voice + Captions</h2>
+                <p class="card-copy">
+                  Keep narration, subtitle timing, and layout synchronized.
+                </p>
+                <div class="card-meter">
+                  <div class="card-meter-fill fill-mint" id="meter-b"></div>
+                </div>
+              </article>
+
+              <article class="card" id="card-c">
+                <div class="card-index">03 / Delivery</div>
+                <h2 class="card-title">Final Assembly</h2>
+                <p class="card-copy">
+                  Render review-ready video with one deterministic timeline.
+                </p>
+                <div class="card-meter">
+                  <div class="card-meter-fill fill-rose" id="meter-c"></div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="dashboard">
+            <div class="panel preview" id="preview-panel">
+              <div class="ring" id="ring"></div>
+              <div class="panel-header">
+                <div class="panel-title">Pipeline Snapshot</div>
+                <div class="panel-score">Live score 97</div>
+              </div>
+
+              <div class="preview-inner">
+                <div class="chart-wrap" id="chart-wrap">
+                  <div class="chart-meta">
+                    <div class="chart-number">3.8x</div>
+                    <div class="chart-caption">faster concept-to-cut iteration</div>
+                  </div>
+
+                  <svg class="chart-svg" viewBox="0 0 620 210" fill="none">
+                    <defs>
+                      <linearGradient id="lineGradient" x1="0" y1="0" x2="620" y2="0">
+                        <stop offset="0%" stop-color="#77f6ff" />
+                        <stop offset="55%" stop-color="#8fefff" />
+                        <stop offset="100%" stop-color="#90a8ff" />
+                      </linearGradient>
+                      <linearGradient id="fillGradient" x1="0" y1="0" x2="0" y2="210">
+                        <stop offset="0%" stop-color="rgba(119,246,255,0.32)" />
+                        <stop offset="100%" stop-color="rgba(119,246,255,0)" />
+                      </linearGradient>
+                    </defs>
+                    <path
+                      d="M15 175 C105 165, 125 80, 200 94 S315 178, 392 120 S505 24, 605 52"
+                      stroke="rgba(255,255,255,0.08)"
+                      stroke-width="2"
+                      stroke-dasharray="6 10"
+                    />
+                    <path
+                      d="M15 175 C105 165, 125 80, 200 94 S315 178, 392 120 S505 24, 605 52 L605 210 L15 210 Z"
+                      fill="url(#fillGradient)"
+                      opacity="0.46"
+                    />
+                    <path
+                      id="chart-glow"
+                      d="M15 175 C105 165, 125 80, 200 94 S315 178, 392 120 S505 24, 605 52"
+                      stroke="rgba(119,246,255,0.3)"
+                      stroke-width="10"
+                      stroke-linecap="round"
+                      opacity="0.4"
+                    />
+                    <path
+                      id="chart-line"
+                      d="M15 175 C105 165, 125 80, 200 94 S315 178, 392 120 S505 24, 605 52"
+                      stroke="url(#lineGradient)"
+                      stroke-width="4"
+                      stroke-linecap="round"
+                    />
+                    <circle id="point-a" cx="200" cy="94" r="7" fill="#77f6ff" />
+                    <circle id="point-b" cx="392" cy="120" r="7" fill="#89ffcd" />
+                    <circle id="point-c" cx="605" cy="52" r="7" fill="#ff87c8" />
+                  </svg>
+
+                  <div class="chart-labels">
+                    <span>Outline</span>
+                    <span>Assets</span>
+                    <span>Timing</span>
+                    <span>Render</span>
+                  </div>
+
+                  <div class="mini-columns">
+                    <div class="mini-col" id="mini-a"></div>
+                    <div class="mini-col" id="mini-b"></div>
+                    <div class="mini-col" id="mini-c"></div>
+                    <div class="mini-col" id="mini-d"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel timeline-panel" id="timeline-panel">
+              <div class="panel-header" style="padding: 0">
+                <div class="panel-title">Timeline Choreography</div>
+                <div class="panel-score">10 seconds</div>
+              </div>
+
+              <div class="timeline-list">
+                <div class="timeline-item" id="timeline-a">
+                  <div class="timeline-time">00 - 03</div>
+                  <div class="timeline-track">
+                    <div class="timeline-fill timeline-fill-a" id="fill-a"></div>
+                    <div class="timeline-copy">Hook the viewer with a confident opening.</div>
+                  </div>
+                </div>
+                <div class="timeline-item" id="timeline-b">
+                  <div class="timeline-time">03 - 07</div>
+                  <div class="timeline-track">
+                    <div class="timeline-fill timeline-fill-b" id="fill-b"></div>
+                    <div class="timeline-copy">Show what the system can automate cleanly.</div>
+                  </div>
+                </div>
+                <div class="timeline-item" id="timeline-c">
+                  <div class="timeline-time">07 - 10</div>
+                  <div class="timeline-track">
+                    <div class="timeline-fill timeline-fill-c" id="fill-c"></div>
+                    <div class="timeline-copy">Land on one clear promise and a premium finish.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="footer" id="footer">
+                <p class="footer-copy">
+                  Built as a self-contained HyperFrames composition so preview and render stay
+                  reliable on this machine.
+                </p>
+                <div class="footer-tag">Prompt. Compose. Deliver.</div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="vignette"></div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      const tl = gsap.timeline({ paused: true });
+
+      const cards = ["#card-a", "#card-b", "#card-c"];
+      const chips = gsap.utils.toArray(".chip");
+      const lines = ["#chart-line", "#chart-glow"];
+      const points = ["#point-a", "#point-b", "#point-c"];
+      const columns = ["#mini-a", "#mini-b", "#mini-c", "#mini-d"];
+
+      gsap.set(lines, { strokeDasharray: 860, strokeDashoffset: 860 });
+      gsap.set(points, { scale: 0.2, transformOrigin: "center center" });
+      gsap.set(["#meter-a", "#meter-b", "#meter-c", "#fill-a", "#fill-b", "#fill-c"], {
+        scaleX: 0,
+      });
+      gsap.set(columns, { scaleY: 0.16, transformOrigin: "center bottom" });
+
+      tl.from("#topbar", { y: -24, opacity: 0, duration: 0.55, ease: "power2.out" }, 0.1);
+      tl.from("#eyebrow", { y: 18, opacity: 0, duration: 0.55, ease: "power2.out" }, 0.25);
+      tl.from(
+        "#title span",
+        {
+          yPercent: 100,
+          opacity: 0,
+          duration: 0.9,
+          stagger: 0.12,
+          ease: "power3.out",
+        },
+        0.45
+      );
+      tl.from("#subtitle", { y: 34, opacity: 0, duration: 0.75, ease: "power2.out" }, 0.95);
+      tl.from(chips, { y: 18, opacity: 0, duration: 0.55, stagger: 0.1, ease: "power2.out" }, 1.25);
+      tl.from(cards, { y: 46, opacity: 0, duration: 0.7, stagger: 0.12, ease: "power3.out" }, 1.55);
+      tl.to("#meter-a", { scaleX: 0.92, duration: 0.7, ease: "power2.out" }, 1.85);
+      tl.to("#meter-b", { scaleX: 0.88, duration: 0.7, ease: "power2.out" }, 2.05);
+      tl.to("#meter-c", { scaleX: 0.8, duration: 0.7, ease: "power2.out" }, 2.25);
+
+      tl.from("#preview-panel", { x: 70, opacity: 0, duration: 0.9, ease: "power3.out" }, 1.7);
+      tl.from("#timeline-panel", { y: 42, opacity: 0, duration: 0.7, ease: "power3.out" }, 2.05);
+      tl.from("#chart-wrap", { scale: 0.94, opacity: 0, duration: 0.75, ease: "power2.out" }, 2.25);
+      tl.to(lines, { strokeDashoffset: 0, duration: 1.35, stagger: 0.06, ease: "power2.inOut" }, 2.6);
+      tl.to(points, { scale: 1, duration: 0.4, stagger: 0.18, ease: "back.out(2)" }, 3.1);
+      tl.to(columns, { scaleY: 1, duration: 0.7, stagger: 0.08, ease: "power2.out" }, 3.25);
+      tl.to("#fill-a", { scaleX: 1, duration: 0.7, ease: "power2.out" }, 3.3);
+      tl.to("#fill-b", { scaleX: 1, duration: 0.7, ease: "power2.out" }, 3.55);
+      tl.to("#fill-c", { scaleX: 1, duration: 0.7, ease: "power2.out" }, 3.8);
+      tl.from("#footer", { y: 24, opacity: 0, duration: 0.7, ease: "power2.out" }, 4.1);
+
+      tl.to("#ring", { scale: 1.08, rotation: 18, duration: 1.2, ease: "sine.inOut" }, 4.6);
+      tl.to("#orb-a", { x: -38, y: 28, duration: 2.2, ease: "sine.inOut" }, 4.5);
+      tl.to("#orb-b", { x: 28, y: -24, duration: 2.2, ease: "sine.inOut" }, 4.65);
+      tl.to("#orb-c", { x: 16, y: 20, duration: 2.0, ease: "sine.inOut" }, 4.7);
+      tl.to("#beam-a", { opacity: 1, x: -36, duration: 1.3, ease: "sine.inOut" }, 5.05);
+      tl.to("#beam-b", { opacity: 1, x: 32, duration: 1.3, ease: "sine.inOut" }, 5.2);
+      tl.to("#grid", { opacity: 0.42, duration: 1.4, ease: "sine.inOut" }, 5.4);
+
+      tl.to("#title", { y: -6, duration: 1.0, ease: "sine.inOut" }, 6.3);
+      tl.to(cards, { y: -8, duration: 0.9, stagger: 0.08, ease: "sine.inOut" }, 6.45);
+      tl.to("#preview-panel", { y: -6, duration: 0.9, ease: "sine.inOut" }, 6.6);
+      tl.to("#timeline-panel", { y: -4, duration: 0.9, ease: "sine.inOut" }, 6.7);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
