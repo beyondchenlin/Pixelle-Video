@@ -173,6 +173,23 @@ Compiled HTML must already agree with itself before HyperFrames starts:
 
 The compiler must not rely on "we will fix it in JS after page load."
 
+### 7. Canonical Timeline Must Be Explicit
+
+Compiled projects must define one canonical render timeline.
+
+Rules:
+
+- if silence trimming or any other remap step is applied, compiled HTML and captions must use remapped timing
+- if no remap step is applied, compiled HTML and captions must use source timing
+- shell visuals, captions, and master audio must all be compiled against the same chosen timeline
+- no compiled artifact may mix `source_*` times for one layer and `remapped_*` times for another
+
+Operationally:
+
+- `source_start` / `source_end` remain the pre-remap audit record
+- `remapped_start` / `remapped_end` become the render-time values when present
+- compiled HTML should never force HyperFrames to infer which timeline is authoritative
+
 ## Compiled Project Contract
 
 Each task should compile to a project-local HyperFrames directory:
@@ -198,6 +215,35 @@ output/<task_id>/hyperframes/
     captions.json
 ```
 
+### Template Render Context
+
+Pixelle should compile each task against a normalized template input contract rather than passing ad-hoc fields per template.
+
+Recommended structure:
+
+```text
+TemplateRenderContext
+  template_id
+  canvas_width
+  canvas_height
+  duration
+  fps
+  title
+  author
+  theme
+  template_params
+  visuals[]
+  captions[]
+  audio
+```
+
+Minimum rules:
+
+- `TemplateRenderContext` is the only source of task-specific shell data used to compile `index.html`
+- migrated templates must consume this normalized contract instead of introducing template-specific runtime fetches
+- `template_params` may extend styling or decoration, but must not redefine timing, canvas size, or asset path ownership
+- all template migrations should map their shell needs into this contract before adding new one-off fields
+
 ### What Is Runtime-Critical
 
 These must be final before render starts:
@@ -211,6 +257,8 @@ Additionally:
 - root composition duration must already be final in static HTML
 - shell composition dimensions must already be final in static HTML
 - audio and visual sources must already point to project-local paths in static HTML
+- runtime-critical compositions must not depend on `render_manifest.json` fetch to become renderable
+- runtime-critical compositions must not depend on public network fonts, public CDN scripts, or any other remote runtime asset
 
 ### What Is Diagnostic
 
@@ -277,6 +325,7 @@ Rule:
 
 - treat this directory as vendor code
 - do not place Pixelle template or bridge logic here
+- this snapshot is a reference for upgrade review, not the runtime authority
 
 ### 2. Pixelle Node Integration Layer
 
@@ -291,6 +340,12 @@ Purpose:
 - host Node-side validation or orchestration glue
 
 This is Pixelle-owned integration code.
+
+Runtime authority:
+
+- `@hyperframes/producer` is the runtime source of truth
+- if `vendor/hyperframes/` or `third_party/hyperframes/` is present, it exists for source comparison and upgrade analysis only
+- Pixelle must not silently mix behavior from a vendor snapshot into bridge runtime without an explicit dependency/version change
 
 ### 3. Pixelle HyperFrames Template Resources
 
@@ -332,15 +387,27 @@ Pixelle continues to generate:
 - master audio
 - sentence timing
 
+Caption timing policy:
+
+- primary = `qwen_forced_aligner` for known text plus generated audio
+- fallback = `funasr_transcribe` only for audio-only or missing-text inputs
+- compiled projects must never silently downgrade a normal `text + audio` task from forced alignment to transcription
+
 ### Step 2: Materialize Project-Local Assets
 
-Pixelle copies or links the exact render inputs into:
+Pixelle materializes the exact render inputs into:
 
 - `hyperframes/assets/audio/`
 - `hyperframes/assets/images/`
 - `hyperframes/assets/video/`
 
 Compiled compositions should only reference these local assets.
+
+Default policy:
+
+- default strategy is copy
+- link or symlink optimization is optional and must be explicitly enabled
+- copy-first avoids cross-volume, permission, and Windows path edge cases leaking back into render behavior
 
 ### Step 3: Compile Static `index.html`
 
@@ -365,6 +432,13 @@ Pixelle writes a task-specific captions composition with:
 - cue data embedded or loaded from a project-local static data file
 - final `data-duration`
 - no dependency on Pixelle-specific runtime patching
+- render-time cue boundaries resolved against the canonical timeline rule above
+
+If a project-local static data file is used:
+
+- it must live inside the compiled project directory
+- it must be optional from HyperFrames' point of view, not a substitute for unresolved timing
+- the captions composition must remain renderable without remote data access
 
 ### Step 5: Keep Manifest for Audit
 
@@ -455,6 +529,8 @@ Validate that compiled templates have:
 - no runtime requirement to discover critical assets
 - no placeholder duration values that differ from compiled duration
 - only project-local asset references in critical media elements
+- no public network dependencies in runtime-critical shell or captions paths
+- template fields are sourced from `TemplateRenderContext` rather than ad-hoc runtime globals
 
 ### 3. Render Validation Tests
 

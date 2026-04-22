@@ -3,6 +3,7 @@
 > **Status:** Superseded as the primary rollout plan by the compiled-project architecture in
 > [2026-04-22-pixelle-hyperframes-compiled-project-design.md](/d:/demo1/Pixelle/Pixelle/docs/superpowers/specs/2026-04-22-pixelle-hyperframes-compiled-project-design.md).
 > This plan documents the earlier runtime-manifest approach and remains useful as historical context, but new implementation work should follow the compiled-project direction instead.
+> Use [2026-04-22-pixelle-hyperframes-compiled-project-implementation.md](/d:/demo1/Pixelle/Pixelle/docs/superpowers/plans/2026-04-22-pixelle-hyperframes-compiled-project-implementation.md) as the active execution plan.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
