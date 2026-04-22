@@ -3,7 +3,7 @@ from typing import List, Sequence
 
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.models.storyboard import StoryboardFrame
-from pixelle_video.utils.text_splitting import join_text_units, split_text_into_subtitle_phrases
+from pixelle_video.utils.text_splitting import join_text_units, split_text_into_sentences
 
 
 @dataclass
@@ -27,7 +27,7 @@ class TimingPlanner:
         sentences: List[SentenceUnit] = []
         for frame in frames:
             for sentence_offset, sentence_text in enumerate(
-                split_text_into_subtitle_phrases(frame.narration),
+                split_text_into_sentences(frame.narration),
                 start=1,
             ):
                 sentences.append(
@@ -73,15 +73,9 @@ class TimingPlanner:
         if sentence_count > self.max_sentences:
             return True
 
-        current_text = " ".join(sentence.text for sentence in current_group).strip()
-        next_text = next_sentence.text.strip()
-        if not current_text:
-            candidate_text = next_text
-        elif not next_text:
-            candidate_text = current_text
-        else:
-            candidate_text = f"{current_text} {next_text}"
-
+        candidate_text = join_text_units(
+            [*(sentence.text for sentence in current_group), next_sentence.text]
+        )
         return len(candidate_text) > self.max_chars
 
     def _create_block(

@@ -157,17 +157,22 @@ def test_audio_edit_service_parses_mapping_chunks_and_rejects_zero_timebase():
         )
 
 
-def test_resolve_auto_editor_executable_prefers_path_when_available(tmp_path):
+def test_resolve_auto_editor_executable_prefers_repo_venv_binary_over_path(tmp_path):
+    repo_root = tmp_path / "repo"
     path_binary = tmp_path / "path-bin" / "auto-editor.exe"
+    venv_binary = repo_root / ".venv" / "Scripts" / "auto-editor.exe"
+
     path_binary.parent.mkdir(parents=True, exist_ok=True)
     path_binary.write_text("binary", encoding="utf-8")
+    venv_binary.parent.mkdir(parents=True, exist_ok=True)
+    venv_binary.write_text("binary", encoding="utf-8")
 
     resolved = resolve_auto_editor_executable(
-        repo_root=tmp_path / "repo",
+        repo_root=repo_root,
         which_fn=lambda _: str(path_binary),
     )
 
-    assert resolved == str(path_binary)
+    assert resolved == str(venv_binary)
 
 
 def test_resolve_auto_editor_executable_falls_back_to_repo_venv_binary(tmp_path):
@@ -182,3 +187,16 @@ def test_resolve_auto_editor_executable_falls_back_to_repo_venv_binary(tmp_path)
     )
 
     assert resolved == str(venv_binary)
+
+
+def test_resolve_auto_editor_executable_falls_back_to_path_when_repo_venv_is_missing(tmp_path):
+    path_binary = tmp_path / "path-bin" / "auto-editor.exe"
+    path_binary.parent.mkdir(parents=True, exist_ok=True)
+    path_binary.write_text("binary", encoding="utf-8")
+
+    resolved = resolve_auto_editor_executable(
+        repo_root=tmp_path / "repo",
+        which_fn=lambda _: str(path_binary),
+    )
+
+    assert resolved == str(path_binary)

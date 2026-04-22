@@ -26,7 +26,8 @@ def test_timing_planner_splits_multiple_sentences_within_one_frame():
     frames = [
         StoryboardFrame(
             index=0,
-            narration='Version 2.1 is out. He said, "Go." Then left. 第一段。第二段！',
+            narration='Version 2.1 is out. He said, "Go." Then left. '
+            "\u7b2c\u4e00\u6bb5\u3002\u7b2c\u4e8c\u6bb5\uff01",
             image_prompt="p1",
         ),
         StoryboardFrame(index=1, narration="Third sentence.", image_prompt="p2"),
@@ -37,21 +38,19 @@ def test_timing_planner_splits_multiple_sentences_within_one_frame():
 
     assert [s.text for s in plan.sentences] == [
         "Version 2.1 is out.",
-        "He said,",
-        '"Go."',
+        'He said, "Go."',
         "Then left.",
-        "第一段。",
-        "第二段！",
+        "\u7b2c\u4e00\u6bb5\u3002",
+        "\u7b2c\u4e8c\u6bb5\uff01",
         "Third sentence.",
     ]
-    assert [s.frame_indices for s in plan.sentences] == [[0], [0], [0], [0], [0], [0], [1]]
+    assert [s.frame_indices for s in plan.sentences] == [[0], [0], [0], [0], [0], [1]]
     assert [b.text for b in plan.blocks] == [
-        "Version 2.1 is out. He said,",
-        '"Go." Then left.',
-        "第一段。第二段！",
-        "Third sentence.",
+        'Version 2.1 is out. He said, "Go."',
+        "Then left. \u7b2c\u4e00\u6bb5\u3002",
+        "\u7b2c\u4e8c\u6bb5\uff01Third sentence.",
     ]
-    assert [b.source_frame_indices for b in plan.blocks] == [[0, 0], [0, 0], [0, 0], [1]]
+    assert [b.source_frame_indices for b in plan.blocks] == [[0, 0], [0, 0], [0, 1]]
 
 
 def test_timing_planner_sentence_mode_keeps_each_sentence_in_its_own_block():
@@ -65,6 +64,19 @@ def test_timing_planner_sentence_mode_keeps_each_sentence_in_its_own_block():
 
     assert [b.text for b in plan.blocks] == ["Sentence 1.", "Sentence 2."]
     assert [b.source_frame_indices for b in plan.blocks] == [[3], [7]]
+
+
+def test_timing_planner_sentence_mode_does_not_split_on_clause_punctuation():
+    frames = [
+        StoryboardFrame(index=0, narration="Alpha, beta. Gamma.", image_prompt="p1"),
+    ]
+
+    planner = TimingPlanner(mode="sentence", max_sentences=8, max_chars=120)
+    plan = planner.build(frames)
+
+    assert [s.text for s in plan.sentences] == ["Alpha, beta.", "Gamma."]
+    assert [b.text for b in plan.blocks] == ["Alpha, beta.", "Gamma."]
+    assert [b.source_frame_indices for b in plan.blocks] == [[0], [0]]
 
 
 def test_timing_planner_respects_max_chars_when_grouping_blocks():
@@ -81,6 +93,19 @@ def test_timing_planner_respects_max_chars_when_grouping_blocks():
     assert [b.source_frame_indices for b in plan.blocks] == [[0, 1], [2]]
 
 
+def test_timing_planner_uses_joined_text_rules_when_applying_max_chars():
+    frames = [
+        StoryboardFrame(index=0, narration="\u7532\u3002", image_prompt="p1"),
+        StoryboardFrame(index=1, narration="\u4e59\u3002", image_prompt="p2"),
+    ]
+
+    planner = TimingPlanner(mode="paragraph", max_sentences=8, max_chars=4)
+    plan = planner.build(frames)
+
+    assert [b.text for b in plan.blocks] == ["\u7532\u3002\u4e59\u3002"]
+    assert [b.source_frame_indices for b in plan.blocks] == [[0, 1]]
+
+
 def test_timing_planner_splits_no_space_english_boundary_within_single_frame():
     frames = [
         StoryboardFrame(index=0, narration="Wait!Another sentence.", image_prompt="p1"),
@@ -92,25 +117,4 @@ def test_timing_planner_splits_no_space_english_boundary_within_single_frame():
     assert [s.text for s in plan.sentences] == ["Wait!", "Another sentence."]
     assert [s.frame_indices for s in plan.sentences] == [[0], [0]]
     assert [b.text for b in plan.blocks] == ["Wait! Another sentence."]
-    assert [b.source_frame_indices for b in plan.blocks] == [[0, 0]]
-
-
-def test_timing_planner_splits_clause_boundaries_for_subtitle_units_within_single_frame():
-    frames = [
-        StoryboardFrame(
-            index=0,
-            narration="了解女人心并不难，关键在于细心观察和倾听",
-            image_prompt="p1",
-        ),
-    ]
-
-    planner = TimingPlanner(mode="paragraph", max_sentences=8, max_chars=80)
-    plan = planner.build(frames)
-
-    assert [s.text for s in plan.sentences] == [
-        "了解女人心并不难，",
-        "关键在于细心观察和倾听",
-    ]
-    assert [s.frame_indices for s in plan.sentences] == [[0], [0]]
-    assert [b.text for b in plan.blocks] == ["了解女人心并不难，关键在于细心观察和倾听"]
     assert [b.source_frame_indices for b in plan.blocks] == [[0, 0]]

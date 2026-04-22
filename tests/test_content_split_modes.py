@@ -1,7 +1,10 @@
 import pytest
 
 from pixelle_video.utils.content_generators import split_narration_script
-from pixelle_video.utils.text_splitting import split_text_into_sentences
+from pixelle_video.utils.text_splitting import (
+    split_text_into_sentences,
+    split_text_into_subtitle_phrases,
+)
 
 
 @pytest.mark.asyncio
@@ -78,3 +81,21 @@ def test_split_text_into_sentences_handles_no_space_english_boundary():
 )
 def test_split_text_into_sentences_keeps_common_abbreviation_patterns_together(text, expected):
     assert split_text_into_sentences(text) == expected
+
+
+def test_split_text_into_sentences_keeps_ellipsis_inside_the_same_sentence():
+    text = "Wait... really."
+
+    assert split_text_into_sentences(text) == ["Wait... really."]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Wait... really?", ["Wait...", "really?"]),
+        ("\u7b49\u4e00\u7b49\u2026\u2026\u518d\u51b3\u5b9a\u3002", ["\u7b49\u4e00\u7b49\u2026\u2026", "\u518d\u51b3\u5b9a\u3002"]),
+        ("Pause\u2014then act.", ["Pause\u2014", "then act."]),
+    ],
+)
+def test_split_text_into_subtitle_phrases_splits_on_expression_pauses(text, expected):
+    assert split_text_into_subtitle_phrases(text) == expected

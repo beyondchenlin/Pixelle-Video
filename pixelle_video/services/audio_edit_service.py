@@ -22,10 +22,6 @@ def resolve_auto_editor_executable(
     repo_root: Path | None = None,
     which_fn: Callable[[str], str | None] = shutil.which,
 ) -> str:
-    resolved_from_path = which_fn(DEFAULT_AUTO_EDITOR_EXECUTABLE)
-    if resolved_from_path:
-        return resolved_from_path
-
     project_root = repo_root or Path(__file__).resolve().parents[2]
     candidate_paths = [
         project_root / ".venv" / "Scripts" / "auto-editor.exe",
@@ -34,6 +30,10 @@ def resolve_auto_editor_executable(
     for candidate in candidate_paths:
         if candidate.exists():
             return str(candidate)
+
+    resolved_from_path = which_fn(DEFAULT_AUTO_EDITOR_EXECUTABLE)
+    if resolved_from_path:
+        return resolved_from_path
 
     return DEFAULT_AUTO_EDITOR_EXECUTABLE
 

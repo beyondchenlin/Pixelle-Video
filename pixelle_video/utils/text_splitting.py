@@ -8,6 +8,21 @@ from typing import Iterable, List
 _SENTENCE_CLOSE_CHARS = {'"', "'", "\u201d", "\u2019", ")", "]", "}"}
 _SENTENCE_PUNCTUATION = {".", "!", "?", "\u3002", "\uff01", "\uff1f"}
 _CLAUSE_PUNCTUATION = {",", ";", ":", "\u3001", "\uff0c", "\uff1b", "\uff1a"}
+_CLAUSE_BREAK_TOKENS = (
+    "......",
+    "...",
+    "\u2026\u2026",
+    "\u2026",
+    "\u2014\u2014",
+    "\u2014",
+    ",",
+    ";",
+    ":",
+    "\u3001",
+    "\uff0c",
+    "\uff1b",
+    "\uff1a",
+)
 _JOIN_WITHOUT_SPACE_AFTER = {
     "\u3001",
     "\uff0c",
@@ -23,6 +38,9 @@ _JOIN_WITHOUT_SPACE_AFTER = {
 def _is_sentence_boundary(text: str, index: int) -> bool:
     char = text[index]
     if char not in _SENTENCE_PUNCTUATION:
+        return False
+
+    if char == "." and _is_ellipsis_dot(text, index):
         return False
 
     prev_char = text[index - 1] if index > 0 else ""
@@ -41,6 +59,14 @@ def _is_sentence_boundary(text: str, index: int) -> bool:
         return next_char.isspace() or next_char in _SENTENCE_CLOSE_CHARS
 
     return next_char.isspace() or next_char in _SENTENCE_CLOSE_CHARS or next_char.isupper()
+
+
+def _is_ellipsis_dot(text: str, index: int) -> bool:
+    if text[index] != ".":
+        return False
+    prev_char = text[index - 1] if index > 0 else ""
+    next_char = text[index + 1] if index + 1 < len(text) else ""
+    return prev_char == "." or next_char == "."
 
 
 def split_text_into_sentences(text: str) -> List[str]:
@@ -119,17 +145,22 @@ def _split_sentence_into_clauses(text: str) -> List[str]:
     clauses: List[str] = []
     current: List[str] = []
 
-    for index, char in enumerate(cleaned):
-        current.append(char)
-        next_char = cleaned[index + 1] if index + 1 < len(cleaned) else ""
-        should_split = char in _CLAUSE_PUNCTUATION and (
-            not next_char or next_char not in _CLAUSE_PUNCTUATION
-        )
-        if should_split:
+    index = 0
+    while index < len(cleaned):
+        token = _match_clause_break_token(cleaned, index)
+        if token is not None:
+            current.append(token)
             segment = "".join(current).strip()
             if segment:
                 clauses.append(segment)
             current = []
+            index += len(token)
+            while index < len(cleaned) and cleaned[index].isspace():
+                index += 1
+            continue
+
+        current.append(cleaned[index])
+        index += 1
 
     if current:
         segment = "".join(current).strip()
@@ -137,3 +168,13 @@ def _split_sentence_into_clauses(text: str) -> List[str]:
             clauses.append(segment)
 
     return clauses
+
+
+def _match_clause_break_token(text: str, index: int) -> str | None:
+    for token in _CLAUSE_BREAK_TOKENS:
+        if text.startswith(token, index):
+            return token
+    char = text[index]
+    if char in _CLAUSE_PUNCTUATION:
+        return char
+    return None

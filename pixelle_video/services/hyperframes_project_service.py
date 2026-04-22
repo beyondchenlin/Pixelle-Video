@@ -20,6 +20,7 @@ from pixelle_video.models.template_render_context import TemplateAudioRef, Templ
 from pixelle_video.services.hyperframes_asset_materializer import HyperFramesAssetMaterializer
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 from pixelle_video.utils.os_util import get_output_path
+from pixelle_video.utils.text_splitting import split_text_into_subtitle_phrases
 
 
 @dataclass(frozen=True)
@@ -39,17 +40,78 @@ def _build_caption_cues_from_sentences(manifest: RenderManifest) -> list[Caption
         except ValueError:
             continue
 
-        captions.append(
+        captions.extend(
+            _build_sentence_caption_cues(
+                sentence=sentence,
+                start=float(start),
+                end=float(end),
+                style_profile=manifest.template_id,
+            )
+        )
+    return captions
+
+
+def _build_sentence_caption_cues(
+    *,
+    sentence: SentenceUnit,
+    start: float,
+    end: float,
+    style_profile: str,
+) -> list[CaptionCue]:
+    phrases = split_text_into_subtitle_phrases(sentence.text)
+    if not phrases:
+        return []
+
+    if len(phrases) == 1 or end <= start:
+        return [
             CaptionCue(
                 id=sentence.id,
                 text=sentence.text,
                 start=float(start),
                 end=float(end),
                 frame_indices=list(sentence.frame_indices),
-                style_profile=manifest.template_id,
+                style_profile=style_profile,
+            )
+        ]
+
+    weights = [_estimate_caption_phrase_weight(phrase) for phrase in phrases]
+    total_weight = sum(weights) or len(phrases)
+    span = float(end) - float(start)
+    elapsed_weight = 0.0
+    captions: list[CaptionCue] = []
+
+    for index, (phrase, weight) in enumerate(zip(phrases, weights), start=1):
+        cue_start = float(start) if index == 1 else captions[-1].end
+        if index == len(phrases):
+            cue_end = float(end)
+        else:
+            elapsed_weight += weight
+            cue_end = float(start) + span * (elapsed_weight / total_weight)
+
+        if cue_end <= cue_start:
+            continue
+
+        captions.append(
+            CaptionCue(
+                id=f"{sentence.id}-cue-{index}",
+                text=phrase,
+                start=cue_start,
+                end=cue_end,
+                frame_indices=list(sentence.frame_indices),
+                style_profile=style_profile,
             )
         )
+
+    if not captions:
+        return []
+
+    captions[-1] = replace(captions[-1], end=float(end))
     return captions
+
+
+def _estimate_caption_phrase_weight(text: str) -> int:
+    visible_chars = [char for char in text if not char.isspace()]
+    return max(1, len(visible_chars))
 
 
 def build_template_render_context(
