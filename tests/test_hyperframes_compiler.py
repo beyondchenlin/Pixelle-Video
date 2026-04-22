@@ -9,13 +9,19 @@ from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 
 def test_phase1_runtime_assets_are_local_only():
     fonts_css = Path("resources/hyperframes/runtime/fonts/phase1_fonts.css")
+    noto_font = Path("resources/hyperframes/runtime/fonts/assets/NotoSansSC-wght.ttf")
+    brush_font = Path("resources/hyperframes/runtime/fonts/assets/MaShanZheng-Regular.ttf")
     vendor_readme = Path("resources/hyperframes/runtime/vendor/README.md")
     vendor_gsap = Path("resources/hyperframes/runtime/vendor/gsap.min.js")
 
     assert fonts_css.exists()
+    assert noto_font.exists()
+    assert brush_font.exists()
     assert vendor_readme.exists()
     assert vendor_gsap.exists()
     assert "https://" not in fonts_css.read_text(encoding="utf-8")
+    assert 'url("./assets/NotoSansSC-wght.ttf")' in fonts_css.read_text(encoding="utf-8")
+    assert 'url("./assets/MaShanZheng-Regular.ttf")' in fonts_css.read_text(encoding="utf-8")
 
 
 def test_compiler_emits_static_index_without_manifest_fetch_or_remote_urls(tmp_path: Path):
@@ -132,6 +138,14 @@ def test_phase1_templates_reference_local_font_entrypoint():
     for path in template_paths:
         content = path.read_text(encoding="utf-8")
         assert "phase1_fonts.css" in content
+
+
+def test_life_insights_caption_template_does_not_embed_hardcoded_english_label():
+    content = Path(
+        "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
+    ).read_text(encoding="utf-8")
+
+    assert "Key takeaway" not in content
 
 
 def test_phase1_templates_reference_local_gsap_vendor_and_register_timelines():

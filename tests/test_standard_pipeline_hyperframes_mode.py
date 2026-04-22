@@ -761,3 +761,34 @@ async def test_persist_task_data_records_resolved_render_backend(tmp_path):
     _, metadata = core.persistence.saved_metadata
     assert metadata["config"]["render_backend"] == "legacy"
     assert metadata["input"]["render_backend"] == "legacy"
+
+
+@pytest.mark.asyncio
+async def test_persist_task_data_records_requested_and_effective_backend_when_hyperframes_falls_back(
+    tmp_path,
+):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes_compiled")
+    ctx.config.frame_template = "1080x1920/image_modern.html"
+    output_path = Path(tmp_path / "task-1" / "final.mp4")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(b"video")
+    ctx.final_video_path = str(output_path)
+    ctx.storyboard.completed_at = ctx.storyboard.created_at
+    ctx.result = SimpleNamespace(
+        video_path=str(output_path),
+        duration=2.0,
+        file_size=output_path.stat().st_size,
+    )
+
+    await pipeline._persist_task_data(ctx)
+
+    assert core.persistence.saved_metadata is not None
+    _, metadata = core.persistence.saved_metadata
+    assert metadata["input"]["render_backend"] == "legacy"
+    assert metadata["input"]["render_backend_requested"] == "hyperframes_compiled"
+    assert metadata["input"]["render_backend_effective"] == "legacy"
+    assert metadata["config"]["render_backend"] == "legacy"
+    assert metadata["config"]["render_backend_requested"] == "hyperframes_compiled"
+    assert metadata["config"]["render_backend_effective"] == "legacy"

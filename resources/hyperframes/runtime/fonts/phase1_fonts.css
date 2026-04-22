@@ -3,54 +3,15 @@
 
 @font-face {
   font-family: "PixelleNotoSansSC";
-  src:
-    local("Noto Sans SC"),
-    local("NotoSansSC-Regular"),
-    local("NotoSansSC");
+  src: url("./assets/NotoSansSC-wght.ttf") format("truetype");
   font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "PixelleNotoSansSC";
-  src:
-    local("Noto Sans SC Medium"),
-    local("NotoSansSC-Medium"),
-    local("Noto Sans SC");
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "PixelleNotoSansSC";
-  src:
-    local("Noto Sans SC Bold"),
-    local("NotoSansSC-Bold"),
-    local("Noto Sans SC");
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "PixelleNotoSansSC";
-  src:
-    local("Noto Sans SC Black"),
-    local("NotoSansSC-Black"),
-    local("Noto Sans SC");
-  font-style: normal;
-  font-weight: 900;
+  font-weight: 100 900;
   font-display: swap;
 }
 
 @font-face {
   font-family: "PixelleBrushSC";
-  src:
-    local("Liu Jian Mao Cao"),
-    local("ZCOOL KuaiLe"),
-    local("Ma Shan Zheng");
+  src: url("./assets/MaShanZheng-Regular.ttf") format("truetype");
   font-style: normal;
   font-weight: 400;
   font-display: swap;

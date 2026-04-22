@@ -22,7 +22,12 @@ def get_task_render_backend(metadata: Mapping[str, Any]) -> Optional[str]:
     input_params = metadata.get("input") or {}
     config_params = metadata.get("config") or {}
 
-    for candidate in (input_params.get("render_backend"), config_params.get("render_backend")):
+    for candidate in (
+        input_params.get("render_backend_effective"),
+        config_params.get("render_backend_effective"),
+        input_params.get("render_backend"),
+        config_params.get("render_backend"),
+    ):
         if candidate:
             return str(candidate)
     return None

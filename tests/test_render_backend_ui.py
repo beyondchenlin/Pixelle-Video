@@ -3,7 +3,22 @@ from web.utils import render_backend_ui
 from web.utils import tts_ui
 
 
-def test_get_task_render_backend_prefers_input_then_config():
+def test_get_task_render_backend_prefers_effective_backend_then_requested_backend():
+    assert (
+        render_backend_ui.get_task_render_backend(
+            {
+                "input": {
+                    "render_backend": "hyperframes_compiled",
+                    "render_backend_effective": "legacy",
+                },
+                "config": {
+                    "render_backend": "hyperframes_compiled",
+                    "render_backend_effective": "legacy",
+                },
+            }
+        )
+        == "legacy"
+    )
     assert (
         render_backend_ui.get_task_render_backend(
             {

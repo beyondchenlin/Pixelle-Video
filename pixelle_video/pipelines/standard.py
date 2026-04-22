@@ -54,7 +54,10 @@ from pixelle_video.utils.os_util import (
 )
 from pixelle_video.utils.template_util import get_template_type, parse_template_size
 from pixelle_video.services.video import VideoService
-from pixelle_video.render_backend import HYPERFRAMES_COMPILED_RENDER_BACKEND
+from pixelle_video.render_backend import (
+    HYPERFRAMES_COMPILED_RENDER_BACKEND,
+    LEGACY_RENDER_BACKEND,
+)
 
 
 @dataclass(frozen=True)
@@ -419,6 +422,11 @@ class StandardPipeline(LinearVideoPipeline):
         if ctx.config.render_backend != HYPERFRAMES_COMPILED_RENDER_BACKEND:
             return False
         return self._get_hyperframes_fallback_reason(ctx) is None
+
+    def _resolve_effective_render_backend(self, ctx: PipelineContext) -> str:
+        if self._is_hyperframes_render_path(ctx):
+            return HYPERFRAMES_COMPILED_RENDER_BACKEND
+        return LEGACY_RENDER_BACKEND
 
     def _stage_progress(
         self,
@@ -1101,7 +1109,11 @@ class StandardPipeline(LinearVideoPipeline):
             input_with_title["text"] = ctx.input_text # Ensure text is included
             if not input_with_title.get("title"):
                 input_with_title["title"] = storyboard.title
-            input_with_title.setdefault("render_backend", storyboard.config.render_backend)
+            requested_backend = storyboard.config.render_backend
+            effective_backend = self._resolve_effective_render_backend(ctx)
+            input_with_title["render_backend"] = effective_backend
+            input_with_title["render_backend_requested"] = requested_backend
+            input_with_title["render_backend_effective"] = effective_backend
             
             metadata = {
                 "task_id": task_id,
@@ -1123,7 +1135,9 @@ class StandardPipeline(LinearVideoPipeline):
                     "llm_base_url": self.core.config.get("llm", {}).get("base_url", "unknown"),
                     "comfyui_url": self.core.config.get("comfyui", {}).get("comfyui_url", "unknown"),
                     "runninghub_enabled": bool(self.core.config.get("comfyui", {}).get("runninghub_api_key")),
-                    "render_backend": storyboard.config.render_backend,
+                    "render_backend": effective_backend,
+                    "render_backend_requested": requested_backend,
+                    "render_backend_effective": effective_backend,
                 }
             }
             
