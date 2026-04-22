@@ -6,7 +6,11 @@
 
 **Architecture:** Python remains the system of record for storyboard generation, media generation, sentence/block planning, audio alignment, silence-remap metadata, and render-package export. A small Node bridge wraps `@hyperframes/producer` and renders one global HTML timeline where visual clips, captions, and master audio all share the same clock.
 
+**Caption Timing Policy:** `primary = qwen_forced_aligner` for `known text + generated audio`; `fallback = funasr_transcribe` only for `audio-only` or missing-text inputs. `FunClip` is an allowed helper when a ready-made `SRT` interoperability artifact is useful, but it does not replace the primary timing path.
+
 **Tech Stack:** Python 3.11+, pytest, `qwen-asr`, ModelScope, `auto-editor`, Node.js 22+, `@hyperframes/producer`, FFmpeg, HyperFrames HTML/CSS compositions
+
+**Non-Goal for V1:** Do not treat `FunASR` or `FunClip` as the normal subtitle source for Pixelle-generated tasks. They are fallback integrations that should remain behind an explicit strategy boundary.
 
 ---
 
@@ -484,6 +488,16 @@ Expected: PASS
 git add pyproject.toml pixelle_video/services/alignment_service.py tests/test_alignment_service.py
 git commit -m "feat: add qwen forced alignment service"
 ```
+
+### Follow-up Strategy Note: Add explicit transcription fallback without changing the primary path
+
+This plan intentionally makes `Qwen3-ForcedAligner-0.6B` the default sentence-timing engine for normal Pixelle-generated tasks. If a later implementation phase adds `funasr_transcribe`, it must obey all of the following rules:
+
+- only activate when Pixelle narration text is absent or explicitly marked unusable
+- produce text plus timing as a compatibility path, not as the main contract
+- allow `FunClip` to emit `SRT` only as an interoperability artifact
+- keep `ASS` generation, if needed, on the Pixelle export side
+- never silently downgrade a `text + audio` task from forced alignment to transcription
 
 ### Task 4: Add optional auto-editor silence trimming and time remapping
 

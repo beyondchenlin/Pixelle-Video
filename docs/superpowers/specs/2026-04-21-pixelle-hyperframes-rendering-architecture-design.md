@@ -175,14 +175,31 @@ If forced alignment is temporarily unavailable, Pixelle may still build coarse p
 
 This path is acceptable as a bootstrap or compatibility mode, but it is not the preferred best-practice timing source for normal Pixelle-generated tasks.
 
-### Fallback Source: HyperFrames Transcribe
+### Fallback Source: FunASR / FunClip Transcribe
 
-When only audio exists, HyperFrames `transcribe` can generate `transcript.json` from audio or video input.
+When only audio exists, Pixelle should use a dedicated transcription fallback instead of reusing the normal forced-alignment path.
+
+Recommended fallback stack:
+
+- `FunASR` for speech recognition and timestamp recovery
+- `FunClip` when a ready-made `SRT` export path is useful
+
+Fallback responsibilities:
+
+- recover text when Pixelle narration text is missing
+- recover phrase-level or sentence-level timing when only audio or video is available
+- optionally export `SRT` as an interoperability artifact
+
+Important limitation:
+
+- this fallback is not the preferred path for Pixelle-generated tasks with known narration text
+- `ASS` remains a Pixelle-side export responsibility if required later
 
 Important design rule:
 
 - this is a compatibility path
 - it must not become the main path for normal Pixelle-generated tasks
+- it must not replace `Qwen3-ForcedAligner-0.6B` as the default timing engine for `text + audio`
 
 ## Render Package Contract
 
@@ -392,7 +409,7 @@ Upgrade caption timing quality:
 
 - default forced alignment when narration text is present
 - optional silence trimming with timing remap metadata
-- optional HyperFrames `transcribe` fallback when narration text is missing
+- optional `FunASR` / `FunClip` transcription fallback when narration text is missing
 - richer grouping and emphasis logic
 
 Deliverable:
@@ -433,6 +450,7 @@ Main risks:
 2. Introducing a Python-to-Node bridge adds deployment and environment coordination work
 3. The first template migration may reveal assumptions in Pixelle templates that are too tightly coupled to burned-in frame text
 4. Audio-only fallback transcription may be less accurate than preserved-script timing, so the system must not silently downgrade normal tasks to audio-only behavior
+5. `FunASR` / `FunClip` fallback introduces a second subtitle source, so the system must keep a strict policy boundary between `primary = forced alignment` and `fallback = transcription`
 
 ## Testing Strategy
 
@@ -484,6 +502,7 @@ Adopt a HyperFrames-first target architecture:
 Primary rule for subtitle data:
 
 - preserve Pixelle narration text and durations as first-class render inputs
-- use audio-only transcription only as a fallback, not as the normal contract
+- use `Qwen3-ForcedAligner-0.6B` as the default timing engine for `text + audio`
+- use `FunASR` / `FunClip` audio-only transcription only as a fallback, not as the normal contract
 
 This is the strongest long-term architecture for solving Pixelle's current synchronization problems while keeping room for future reuse of HyperFrames `agent`, `capture`, `tts`, and `transcribe` features.
