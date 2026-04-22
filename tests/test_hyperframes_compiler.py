@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from pixelle_video.models.render_package import CaptionCue, VisualClip
 from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
@@ -128,6 +130,63 @@ def test_phase1_templates_reference_local_font_entrypoint():
     for path in template_paths:
         content = path.read_text(encoding="utf-8")
         assert "phase1_fonts.css" in content
+
+
+@pytest.mark.parametrize(
+    "template_id",
+    ["image_default", "image_life_insights_light"],
+)
+def test_phase1_caption_templates_compile_with_context_canvas_dimensions(
+    tmp_path: Path,
+    template_id: str,
+):
+    compiler = HyperFramesCompiler()
+    context = TemplateRenderContext(
+        template_id=template_id,
+        canvas_width=720,
+        canvas_height=1280,
+        duration=6.0,
+        fps=30,
+        title="示例标题",
+        author="LanRen.AI",
+        footer="LanRen",
+        theme=None,
+        style_profile=template_id,
+        template_params={"author_desc": "LanRen"},
+        visuals=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0.0,
+                end=6.0,
+                media_path="assets/images/01_image.png",
+                media_type="image",
+            )
+        ],
+        captions=[
+            CaptionCue(
+                id="c1",
+                text="第一句字幕",
+                start=0.0,
+                end=2.0,
+                frame_indices=[0],
+                style_profile=template_id,
+            )
+        ],
+        audio=TemplateAudioRef(path="assets/audio/master_audio.wav", duration=6.0),
+    )
+
+    project_dir = tmp_path / "task" / "hyperframes"
+    compiler.compile(project_dir=project_dir, context=context)
+
+    captions_html = (project_dir / "compositions" / "captions.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'data-width="720"' in captions_html
+    assert 'data-height="1280"' in captions_html
+    assert "width: 720px;" in captions_html
+    assert "height: 1280px;" in captions_html
 
 
 def test_phase1_templates_preserve_source_shell_regions():

@@ -449,6 +449,60 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
 
 
 @pytest.mark.asyncio
+async def test_post_production_uses_template_canvas_size_instead_of_square_media_size(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
+
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(
+        tmp_path,
+        frame_template="1080x1920/image_default.html",
+    )
+    ctx.config.media_width = 768
+    ctx.config.media_height = 768
+    ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        Path(frame.image_path).write_text("raw", encoding="utf-8")
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    def fake_concat_audio_files(audio_paths, output_path):
+        Path(output_path).write_bytes(b"master-audio")
+
+    def fake_get_audio_duration(audio_path):
+        return 4.0
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", fake_get_audio_duration)
+
+    await pipeline.post_production(ctx)
+
+    manifest = core.hyperframes_project_service.manifest
+    assert (manifest.canvas_width, manifest.canvas_height) == (1080, 1920)
+    assert (manifest.media_width, manifest.media_height) == (768, 768)
+    assert core.hyperframes_renderer.calls == [
+        {
+            "project_dir": str(tmp_path / "task-1" / "hyperframes"),
+            "output_path": str(tmp_path / "task-1" / "final.mp4"),
+            "width": 1080,
+            "height": 1920,
+            "fps": 30,
+            "expected_duration": 4.0,
+            "expect_audio": True,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_post_production_respects_direct_duration_alignment_engine(monkeypatch, tmp_path):
     monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
 

@@ -52,7 +52,7 @@ from pixelle_video.utils.os_util import (
     create_task_output_dir,
     get_task_final_video_path
 )
-from pixelle_video.utils.template_util import get_template_type
+from pixelle_video.utils.template_util import get_template_type, parse_template_size
 from pixelle_video.services.video import VideoService
 from pixelle_video.render_backend import HYPERFRAMES_COMPILED_RENDER_BACKEND
 
@@ -379,6 +379,19 @@ class StandardPipeline(LinearVideoPipeline):
         if template_id == "default":
             return "image_default"
         return template_id
+
+    def _resolve_hyperframes_canvas_size(
+        self,
+        config: StoryboardConfig,
+    ) -> tuple[int, int]:
+        try:
+            return parse_template_size(config.frame_template)
+        except ValueError as exc:
+            logger.warning(
+                "Failed to parse HyperFrames canvas size from template "
+                f"{config.frame_template!r}: {exc}. Falling back to media size."
+            )
+            return int(config.media_width), int(config.media_height)
 
     def _get_hyperframes_fallback_reason(self, ctx: PipelineContext) -> Optional[str]:
         config = ctx.config
@@ -748,12 +761,13 @@ class StandardPipeline(LinearVideoPipeline):
         if timing_plan.blocks:
             timing_plan.blocks[-1].end = master_audio_duration
         storyboard.total_duration = master_audio_duration
+        canvas_width, canvas_height = self._resolve_hyperframes_canvas_size(config)
 
         manifest = RenderManifest(
             task_id=ctx.task_id,
             title=storyboard.title,
-            canvas_width=config.media_width,
-            canvas_height=config.media_height,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
             media_width=config.media_width,
             media_height=config.media_height,
             fps=config.video_fps,
@@ -781,8 +795,8 @@ class StandardPipeline(LinearVideoPipeline):
         final_video_path = self.core.hyperframes_renderer.render(
             str(project_paths.project_dir),
             output_path=ctx.final_video_path,
-            width=config.media_width,
-            height=config.media_height,
+            width=canvas_width,
+            height=canvas_height,
             fps=config.video_fps,
             expected_duration=master_audio_duration,
             expect_audio=bool(master_audio_path),

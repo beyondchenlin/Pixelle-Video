@@ -8,16 +8,16 @@
       html,
       body {
         margin: 0;
-        width: 1080px;
-        height: 1920px;
+        width: __CANVAS_WIDTH__px;
+        height: __CANVAS_HEIGHT__px;
         overflow: hidden;
         font-family: var(--hf-font-sans);
       }
 
       [data-composition-id="captions"] {
         position: relative;
-        width: 1080px;
-        height: 1920px;
+        width: __CANVAS_WIDTH__px;
+        height: __CANVAS_HEIGHT__px;
         overflow: hidden;
       }
 
@@ -63,8 +63,8 @@
     <div
       id="captions-root"
       data-composition-id="captions"
-      data-width="1080"
-      data-height="1920"
+      data-width="__CANVAS_WIDTH__"
+      data-height="__CANVAS_HEIGHT__"
       data-start="0"
       data-duration="__DURATION__"
     >
