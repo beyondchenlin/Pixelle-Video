@@ -1,11 +1,20 @@
-from pathlib import Path
-
+from pixelle_video.config import config_manager
 from web.components.storyboard_preview import (
     build_frame_override_payload,
     build_storyboard_preview_snapshot_identity,
     build_storyboard_preview_state_namespace,
     collect_storyboard_preview_overrides,
 )
+from web.i18n import tr
+
+
+def expected_preset_label(item):
+    translation_key = item.get("display_name_key") or item.get("translation_key")
+    if translation_key:
+        localized_label = tr(translation_key)
+        if localized_label != translation_key:
+            return localized_label
+    return item.get("display_name") or item.get("preset_id") or ""
 
 
 def test_build_frame_override_payload_only_keeps_locked_fields():
@@ -130,15 +139,49 @@ def test_storyboard_preview_state_namespace_changes_with_snapshot_content():
     assert first_namespace != second_namespace
 
 
-def test_history_page_source_mentions_planning_snapshot_fields():
-    source = (
-        Path(__file__).resolve().parents[1]
-        / "web"
-        / "pages"
-        / "2_📚_History.py"
-    ).read_text(encoding="utf-8")
+def test_history_storyboard_summary_localizes_preset_labels():
+    import importlib
 
-    assert "world_preset_id" in source
-    assert "shot_preset_id" in source
-    assert "resolved_content_mode" in source
-    assert "selected_role_locking_strength" in source
+    history_page = importlib.import_module("web.pages.2_📚_History")
+
+    snapshot = {
+        "world_preset_id": "neutral_knowledge_storyboard",
+        "requested_shot_preset_id": "balanced_explainer",
+    }
+
+    summary = dict(history_page.summarize_storyboard_planning_snapshot(snapshot))
+    world_library = config_manager.get_storyboard_world_preset_library()
+    shot_library = config_manager.get_storyboard_shot_preset_library()
+
+    world_item = next(
+        item for item in world_library["items"] if item["preset_id"] == "neutral_knowledge_storyboard"
+    )
+    shot_item = next(
+        item for item in shot_library["items"] if item["preset_id"] == "balanced_explainer"
+    )
+
+    assert summary["history.detail.storyboard_world_preset"] == expected_preset_label(world_item)
+    assert summary["history.detail.storyboard_shot_preset"] == expected_preset_label(shot_item)
+
+
+def test_history_storyboard_summary_prefers_effective_shot_label_over_stale_request():
+    import importlib
+
+    history_page = importlib.import_module("web.pages.2_📚_History")
+
+    shot_library = config_manager.get_storyboard_shot_preset_library()
+    effective_item = next(
+        item for item in shot_library["items"] if item["preset_id"] == "balanced_explainer"
+    )
+
+    snapshot = {
+        "requested_shot_preset_id": "stale_requested_shot",
+        "effective_final_shot_preset": "balanced_explainer",
+    }
+
+    summary = dict(history_page.summarize_storyboard_planning_snapshot(snapshot))
+
+    assert summary["history.detail.storyboard_shot_preset"] == expected_preset_label(
+        effective_item
+    )
+    assert summary["history.detail.storyboard_shot_preset"] != "stale_requested_shot"

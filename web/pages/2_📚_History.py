@@ -28,7 +28,9 @@ if str(_project_root) not in sys.path:
 
 import streamlit as st
 
+from pixelle_video.config import config_manager
 from web.components.header import render_header
+from web.components.style_config import resolve_storyboard_preset_label
 from web.i18n import tr
 from web.state.session import get_pixelle_video, init_i18n, init_session_state
 from web.utils.async_helpers import run_async
@@ -105,14 +107,52 @@ def extract_storyboard_planning_snapshot(detail: dict) -> dict:
 
 def summarize_storyboard_planning_snapshot(snapshot: dict) -> list[tuple[str, str]]:
     """Summarize the key storyboard planning fields for History UI."""
+
+    def _resolve_world_preset_label(
+        preset_id: str | None,
+        library: dict,
+    ) -> str | None:
+        if preset_id in (None, ""):
+            return None
+
+        for item in library.get("items", []):
+            if item.get("preset_id") == preset_id:
+                return resolve_storyboard_preset_label(item)
+        return str(preset_id)
+
+    def _resolve_shot_preset_label(
+        candidate_ids: list[str | None],
+        library: dict,
+    ) -> str | None:
+        first_non_empty_candidate = None
+
+        for preset_id in candidate_ids:
+            if preset_id in (None, ""):
+                continue
+            if first_non_empty_candidate is None:
+                first_non_empty_candidate = str(preset_id)
+            for item in library.get("items", []):
+                if item.get("preset_id") == preset_id:
+                    return resolve_storyboard_preset_label(item)
+
+        return first_non_empty_candidate
+
+    world_preset_label = _resolve_world_preset_label(
+        snapshot.get("world_preset_id"),
+        config_manager.get_storyboard_world_preset_library(),
+    )
+    shot_preset_label = _resolve_shot_preset_label(
+        [
+            snapshot.get("requested_shot_preset_id"),
+            snapshot.get("effective_final_shot_preset"),
+            snapshot.get("shot_preset_id"),
+        ],
+        config_manager.get_storyboard_shot_preset_library(),
+    )
+
     summary_items = [
-        ("history.detail.storyboard_world_preset", snapshot.get("world_preset_id")),
-        (
-            "history.detail.storyboard_shot_preset",
-            snapshot.get("requested_shot_preset_id")
-            or snapshot.get("effective_final_shot_preset")
-            or snapshot.get("shot_preset_id"),
-        ),
+        ("history.detail.storyboard_world_preset", world_preset_label),
+        ("history.detail.storyboard_shot_preset", shot_preset_label),
         (
             "history.detail.storyboard_content_mode",
             snapshot.get("resolved_content_mode") or snapshot.get("content_mode"),
