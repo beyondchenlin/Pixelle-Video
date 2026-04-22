@@ -121,6 +121,17 @@ npm install
 
 ### 2. qwen-asr
 
+说明：
+- 从 HyperFrames V1 开始，仓库默认配置使用 `render_backend = hyperframes` 与 `subtitle_alignment_engine = qwen_forced_aligner`
+- 因此 `qwen-asr` 已提升为项目基础依赖，常规 `uv sync` 应直接安装到当前环境
+- 如果当前环境缺失，可按下面命令补装
+
+优先使用仓库环境同步：
+
+```powershell
+uv sync
+```
+
 如果当前虚拟环境有 `pip`：
 
 ```powershell

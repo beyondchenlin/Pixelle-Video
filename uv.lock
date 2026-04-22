@@ -2902,14 +2902,12 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-multipart" },
     { name = "pyyaml" },
+    { name = "qwen-asr" },
     { name = "streamlit" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.optional-dependencies]
-alignment = [
-    { name = "qwen-asr" },
-]
 audio-edit = [
     { name = "auto-editor" },
 ]
@@ -2940,12 +2938,12 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
     { name = "python-multipart", specifier = ">=0.0.12" },
     { name = "pyyaml", specifier = ">=6.0.0" },
-    { name = "qwen-asr", marker = "extra == 'alignment'" },
+    { name = "qwen-asr" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
     { name = "streamlit", specifier = ">=1.40.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
-provides-extras = ["dev", "alignment", "audio-edit"]
+provides-extras = ["dev", "audio-edit"]
 
 [[package]]
 name = "platformdirs"

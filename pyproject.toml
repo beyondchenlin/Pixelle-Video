@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "loguru>=0.7.0",
     "pyyaml>=6.0.0",
+    "qwen-asr",
     "edge-tts==7.2.7",
     "certifi>=2025.10.5",
     "ffmpeg-python>=0.2.0",
@@ -34,9 +35,6 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "ruff>=0.6.0",
-]
-alignment = [
-    "qwen-asr",
 ]
 audio-edit = [
     "auto-editor",
