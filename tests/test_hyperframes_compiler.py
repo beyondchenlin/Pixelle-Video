@@ -78,3 +78,33 @@ def test_compiler_emits_static_index_without_manifest_fetch_or_remote_urls(tmp_p
     assert 'src="assets/audio/master_audio.wav"' in index_html
     assert 'src="assets/images/01_image.png"' in index_html
     assert 'data-duration="12.5"' in captions_html
+
+
+def test_phase1_templates_do_not_depend_on_remote_fonts_or_cdn_scripts():
+    template_paths = [
+        Path("resources/hyperframes/templates/image_default/index.template.html"),
+        Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
+        Path(
+            "resources/hyperframes/templates/image_default/compositions/captions.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
+        ),
+    ]
+
+    for path in template_paths:
+        content = path.read_text(encoding="utf-8")
+        assert "https://fonts.googleapis.com" not in content
+        assert "https://cdnjs.cloudflare.com" not in content
+
+
+def test_phase1_templates_preserve_source_shell_regions():
+    content = Path(
+        "resources/hyperframes/templates/image_life_insights_light/index.template.html"
+    ).read_text(encoding="utf-8")
+
+    assert "bg-pattern" in content
+    assert "header" in content
+    assert "content" in content
+    assert "bottom-section" in content
+    assert "author" in content

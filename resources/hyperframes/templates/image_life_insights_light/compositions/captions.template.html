@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Pixelle HyperFrames - Life Insights Light Captions</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        font-family: "PingFang SC", "Source Han Sans", "Microsoft YaHei", sans-serif;
+      }
+
+      [data-composition-id="captions"] {
+        position: relative;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+      }
+
+      #captions-shell {
+        position: absolute;
+        left: 88px;
+        right: 88px;
+        bottom: 124px;
+        padding: 28px 34px 34px;
+        border-radius: 30px;
+        background: rgba(255, 250, 245, 0.9);
+        box-shadow: 0 18px 54px rgba(56, 33, 19, 0.12);
+      }
+
+      .captions-label {
+        margin-bottom: 20px;
+        color: #d76c43;
+        font-size: 20px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      #captions-container {
+        position: relative;
+        min-height: 158px;
+      }
+
+      .caption-group {
+        position: absolute;
+        inset: 0;
+      }
+
+      .caption-text {
+        font-size: 56px;
+        line-height: 1.04;
+        letter-spacing: -0.04em;
+        color: #1f1b18;
+        white-space: normal;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="captions-root"
+      data-composition-id="captions"
+      data-width="1080"
+      data-height="1920"
+      data-start="0"
+      data-duration="__DURATION__"
+    >
+      <div id="captions-shell">
+        <div class="captions-label">Key takeaway</div>
+        <div id="captions-container">__CAPTIONS__</div>
+      </div>
+    </div>
+  </body>
+</html>
