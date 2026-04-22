@@ -61,7 +61,7 @@ def apply_frame_overrides(
         replacement_values: dict[str, Any] = {
             "locked_fields": locked_fields,
             "override_source": override.get("override_source", original.override_source),
-            "frame_source": "user_locked",
+            "frame_source": "user_edited",
         }
 
         for field_name in locked_fields:

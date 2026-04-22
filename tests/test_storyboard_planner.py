@@ -60,6 +60,18 @@ def test_resolve_shot_preset_selects_first_world_default_supporting_scene_count(
     assert resolved.preset_id == "balanced_explainer"
 
 
+def test_resolve_shot_preset_raises_when_no_world_default_supports_scene_count():
+    with pytest.raises(ValueError, match="no world default shot preset supports the requested scene count"):
+        resolve_shot_preset(
+            requested_preset_id=None,
+            scene_count=5,
+            world_preset_default_ids=("detail_focus",),
+            available_presets={
+                "detail_focus": {"supported_scene_count": (3, 4)},
+            },
+        )
+
+
 def test_repair_frame_plan_shots_breaks_three_consecutive_identical_medium_shots():
     plans = [
         FramePlan(scene_id="1", shot_type="medium_shot", shot_purpose="context", prompt_intent="a"),
@@ -97,4 +109,4 @@ def test_apply_frame_overrides_locks_requested_fields_and_keeps_override_source(
     assert overridden[1].shot_type == "close_up"
     assert overridden[1].locked_fields == ("shot_type",)
     assert overridden[1].override_source == "user_preview"
-    assert overridden[1].frame_source == "user_locked"
+    assert overridden[1].frame_source == "user_edited"
