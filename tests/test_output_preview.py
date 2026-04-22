@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from web.components import output_preview
+from web.utils import batch_manager as batch_manager_module
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -267,6 +268,12 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
         def __exit__(self, exc_type, exc, tb):
             return False
 
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            return _FakeStatus()
+
     class _FakeProgressBar:
         def progress(self, _value):
             return None
@@ -390,3 +397,129 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
             "shot_type": "medium_shot",
         }
     ]
+
+
+def test_render_batch_output_writes_last_successful_planning_snapshot(monkeypatch):
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            return _FakeStatus()
+
+    class _FakeProgressBar:
+        def progress(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+    class _FakeStatus:
+        def markdown(self, _value):
+            return None
+
+        def text(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+    class _FakeColumn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def metric(self, *_args, **_kwargs):
+            return None
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {"storyboard_preview_snapshot": {"stale": True}}
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, *_args, **_kwargs):
+            return None
+
+        def button(self, *_args, **_kwargs):
+            return True
+
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            return _FakeStatus()
+
+        def columns(self, spec):
+            count = spec if isinstance(spec, int) else len(spec)
+            return [_FakeColumn() for _ in range(count)]
+
+        def success(self, *_args, **_kwargs):
+            return None
+
+        def error(self, message):
+            raise AssertionError(message)
+
+        def expander(self, *_args, **_kwargs):
+            return _FakeContext()
+
+        def code(self, *_args, **_kwargs):
+            return None
+
+    class _FakeBatchManager:
+        def execute_batch(self, **_kwargs):
+            return {
+                "results": [
+                    {
+                        "index": 1,
+                        "topic": "demo one",
+                        "status": "success",
+                        "planning_snapshot": {"world_preset_id": "first"},
+                    },
+                    {
+                        "index": 2,
+                        "topic": "demo two",
+                        "status": "success",
+                        "planning_snapshot": {"world_preset_id": "last"},
+                    },
+                ],
+                "errors": [],
+                "total_count": 2,
+                "success_count": 2,
+                "failed_count": 0,
+            }
+
+    monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+    monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(batch_manager_module, "SimpleBatchManager", _FakeBatchManager)
+
+    output_preview.render_batch_output(
+        object(),
+        {
+            "topics": ["demo one", "demo two"],
+            "tts_inference_mode": "local",
+        },
+    )
+
+    assert output_preview.st.session_state["storyboard_preview_snapshot"] == {
+        "world_preset_id": "last"
+    }

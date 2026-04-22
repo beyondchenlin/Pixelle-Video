@@ -450,6 +450,17 @@ def render_batch_output(pixelle_video, video_params):
                 overall_progress_callback=update_overall_progress,
                 task_progress_callback_factory=make_task_progress_callback
             )
+
+            latest_planning_snapshot = None
+            for item in batch_result.get("results", []):
+                planning_snapshot = item.get("planning_snapshot")
+                if planning_snapshot is not None:
+                    latest_planning_snapshot = planning_snapshot
+
+            if latest_planning_snapshot is not None:
+                st.session_state["storyboard_preview_snapshot"] = latest_planning_snapshot
+            elif batch_result.get("success_count", 0) == 0:
+                st.session_state["storyboard_preview_snapshot"] = None
             
             total_time = time.time() - start_time
             

@@ -13,9 +13,10 @@
 """
 Lightweight batch manager for Streamlit (Simplified YAGNI version)
 """
-import time
+
 import traceback
-from typing import List, Dict, Any, Optional, Callable
+from typing import Any, Callable, Dict, List, Optional
+
 from loguru import logger
 
 
@@ -122,6 +123,11 @@ class SimpleBatchManager:
                     "topic": topic,
                     "task_id": task_id,
                     "video_path": result.video_path,
+                    "planning_snapshot": getattr(
+                        getattr(result, "storyboard", None),
+                        "planning_snapshot",
+                        None,
+                    ),
                     "status": "success"
                 })
                 
@@ -162,4 +168,3 @@ class SimpleBatchManager:
             "success_count": success_count,
             "failed_count": failed_count
         }
-

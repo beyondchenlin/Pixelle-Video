@@ -2,6 +2,7 @@ from pathlib import Path
 
 from web.components.storyboard_preview import (
     build_frame_override_payload,
+    build_storyboard_preview_state_namespace,
     collect_storyboard_preview_overrides,
 )
 
@@ -51,6 +52,34 @@ def test_collect_storyboard_preview_overrides_skips_empty_entries():
             "override_source": "user_preview",
         }
     ]
+
+
+def test_storyboard_preview_state_namespace_changes_with_snapshot_content():
+    first_snapshot = {
+        "frames": [
+            {
+                "scene_id": "scene-1",
+                "shot_type": "medium_shot",
+                "prompt_intent": "teach concept A",
+            }
+        ]
+    }
+    second_snapshot = {
+        "frames": [
+            {
+                "scene_id": "scene-1",
+                "shot_type": "close_up",
+                "prompt_intent": "teach concept B",
+            }
+        ]
+    }
+
+    first_namespace = build_storyboard_preview_state_namespace(first_snapshot)
+    second_namespace = build_storyboard_preview_state_namespace(second_snapshot)
+
+    assert first_namespace.startswith("storyboard_preview_")
+    assert second_namespace.startswith("storyboard_preview_")
+    assert first_namespace != second_namespace
 
 
 def test_history_page_source_mentions_planning_snapshot_fields():

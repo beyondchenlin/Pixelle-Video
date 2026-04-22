@@ -4,6 +4,8 @@ Minimal storyboard preview helpers for collecting per-frame override payloads.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Mapping, Sequence
 
 import streamlit as st
@@ -20,6 +22,21 @@ EDITABLE_STORYBOARD_FIELDS: tuple[str, ...] = (
     "prompt_intent",
 )
 LIST_LIKE_STORYBOARD_FIELDS = {"world_elements", "continuity_anchors"}
+
+
+def build_storyboard_preview_state_namespace(
+    planning_snapshot: Mapping[str, Any] | None,
+) -> str:
+    """Build a stable widget namespace for one planning snapshot."""
+    canonical_payload = json.dumps(
+        planning_snapshot or {},
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    fingerprint = hashlib.sha1(canonical_payload.encode("utf-8")).hexdigest()[:12]
+    return f"storyboard_preview_{fingerprint}"
 
 
 def _normalize_locked_fields(locked_fields: Sequence[str] | None) -> list[str]:
@@ -125,6 +142,7 @@ def render_storyboard_preview(planning_snapshot: Mapping[str, Any] | None) -> li
         st.caption(tr("storyboard.preview.empty"))
         return []
 
+    state_namespace = build_storyboard_preview_state_namespace(planning_snapshot)
     draft_entries: list[dict[str, Any]] = []
     with st.expander(tr("storyboard.preview.title"), expanded=False):
         st.caption(tr("storyboard.preview.help"))
@@ -138,8 +156,12 @@ def render_storyboard_preview(planning_snapshot: Mapping[str, Any] | None) -> li
                 values: dict[str, Any] = {}
                 for field_name in EDITABLE_STORYBOARD_FIELDS:
                     default_value = row["values"].get(field_name, "")
-                    lock_key = f"storyboard_preview_lock_{scene_id}_{field_name}"
-                    value_key = f"storyboard_preview_value_{scene_id}_{field_name}"
+                    lock_key = (
+                        f"{state_namespace}_lock_{scene_id}_{field_name}"
+                    )
+                    value_key = (
+                        f"{state_namespace}_value_{scene_id}_{field_name}"
+                    )
                     is_locked = st.checkbox(
                         tr(f"storyboard.preview.field.{field_name}"),
                         value=field_name in row["locked_fields"],
