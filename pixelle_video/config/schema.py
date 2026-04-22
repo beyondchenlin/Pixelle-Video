@@ -28,7 +28,6 @@ from pixelle_video.config.storyboard_preset_library import (
 )
 from pixelle_video.models.storyboard_planning import ContentMode, ShotOverridePolicy
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, RenderBackend
-from pixelle_video.tts_audio_strategy import DEFAULT_TTS_AUDIO_STRATEGY, TTSAudioStrategy
 
 
 class LLMConfig(BaseModel):
@@ -376,10 +375,6 @@ class RenderTimingConfig(BaseModel):
     """Render timing configuration."""
 
     tts_batching_mode: str = Field(default="paragraph", description="TTS batching mode")
-    tts_audio_strategy: TTSAudioStrategy = Field(
-        default=DEFAULT_TTS_AUDIO_STRATEGY,
-        description="TTS audio organization strategy",
-    )
     tts_batch_max_sentences: int = Field(default=8, ge=1, description="Maximum sentences per TTS batch")
     tts_batch_max_chars: int = Field(default=220, ge=1, description="Maximum characters per TTS batch")
     subtitle_alignment_engine: str = Field(
