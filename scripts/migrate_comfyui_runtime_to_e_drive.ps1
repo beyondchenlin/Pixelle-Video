@@ -43,7 +43,7 @@ Write-Info "Current ComfyUI Desktop basePath: $currentBasePath"
 Write-Info "Target ComfyUI Desktop basePath:  $TargetBasePath"
 
 Ensure-Directory $TargetBasePath
-foreach ($directoryName in @('input', 'output', 'user')) {
+foreach ($directoryName in @('input', 'output', 'user', 'custom_nodes')) {
     Ensure-Directory (Join-Path $TargetBasePath $directoryName)
 }
 
