@@ -133,6 +133,60 @@ class VideoSubConfig(BaseModel):
     )
 
 
+def _deep_merge_dicts(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overlay.items():
+        base_value = merged.get(key)
+        if isinstance(base_value, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge_dicts(base_value, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _merge_storyboard_library_items(default_items: list[dict[str, Any]], incoming_items: list[Any]) -> list[dict[str, Any]]:
+    merged_by_id = {
+        item["preset_id"]: dict(item)
+        for item in default_items
+        if isinstance(item, dict) and item.get("preset_id")
+    }
+    incoming_new_ids: list[str] = []
+
+    for incoming_item in incoming_items:
+        if isinstance(incoming_item, dict):
+            incoming_payload = incoming_item
+        elif hasattr(incoming_item, "model_dump"):
+            incoming_payload = incoming_item.model_dump()
+        else:
+            continue
+
+        preset_id = incoming_payload.get("preset_id")
+        if not preset_id:
+            continue
+
+        merged_by_id[preset_id] = _deep_merge_dicts(merged_by_id.get(preset_id, {}), incoming_payload)
+        if preset_id not in {item["preset_id"] for item in default_items if item.get("preset_id")}:
+            incoming_new_ids.append(preset_id)
+
+    ordered_items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for item in default_items:
+        preset_id = item.get("preset_id")
+        if not preset_id or preset_id in seen:
+            continue
+        ordered_items.append(merged_by_id[preset_id])
+        seen.add(preset_id)
+
+    for preset_id in incoming_new_ids:
+        if preset_id in seen:
+            continue
+        ordered_items.append(merged_by_id[preset_id])
+        seen.add(preset_id)
+
+    return ordered_items
+
+
 class StoryboardWorldPresetItemConfig(BaseModel):
     """Single storyboard world preset definition."""
 
@@ -157,6 +211,24 @@ class StoryboardWorldPresetLibraryConfig(BaseModel):
     default_world_preset_id: str = Field(default="neutral_knowledge_storyboard")
     items: list[StoryboardWorldPresetItemConfig] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def merge_builtin_world_library_defaults(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+
+        builtins = build_builtin_world_preset_library_dict()
+        merged = dict(builtins)
+
+        if "default_world_preset_id" in data and data["default_world_preset_id"] is not None:
+            merged["default_world_preset_id"] = data["default_world_preset_id"]
+
+        incoming_items = data.get("items")
+        if incoming_items is not None:
+            merged["items"] = _merge_storyboard_library_items(builtins["items"], incoming_items)
+
+        return merged
+
 
 class StoryboardShotPresetItemConfig(BaseModel):
     """Single storyboard shot preset definition."""
@@ -177,6 +249,24 @@ class StoryboardShotPresetLibraryConfig(BaseModel):
 
     default_shot_preset_id: str = Field(default="balanced_explainer")
     items: list[StoryboardShotPresetItemConfig] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def merge_builtin_shot_library_defaults(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+
+        builtins = build_builtin_shot_preset_library_dict()
+        merged = dict(builtins)
+
+        if "default_shot_preset_id" in data and data["default_shot_preset_id"] is not None:
+            merged["default_shot_preset_id"] = data["default_shot_preset_id"]
+
+        incoming_items = data.get("items")
+        if incoming_items is not None:
+            merged["items"] = _merge_storyboard_library_items(builtins["items"], incoming_items)
+
+        return merged
 
 
 class StoryboardSubConfig(BaseModel):

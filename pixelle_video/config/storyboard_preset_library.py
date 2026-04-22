@@ -198,25 +198,20 @@ def build_builtin_shot_preset_library_dict() -> dict[str, Any]:
     }
 
 
-def lookup_world_preset(library: Any, preset_id: Optional[str] = None) -> Optional[dict[str, Any]]:
+def lookup_world_preset(library: Any, preset_id: Optional[str] = None) -> dict[str, Any]:
     items = _read_value(library, "items", [])
     default_preset_id = _read_value(library, "default_world_preset_id", None)
     target_preset_id = (preset_id or default_preset_id or "").strip() or None
+
+    if target_preset_id is None:
+        raise ValueError("world preset library does not define a default preset id")
 
     for item in items:
         item_preset_id = _read_value(item, "preset_id", None)
         if item_preset_id == target_preset_id:
             return item if isinstance(item, dict) else item.model_dump()
 
-    for item in items:
-        if _read_value(item, "safe_default", False):
-            return item if isinstance(item, dict) else item.model_dump()
-
-    if items:
-        first_item = items[0]
-        return first_item if isinstance(first_item, dict) else first_item.model_dump()
-
-    return None
+    raise ValueError(f"unknown world preset id: {target_preset_id}")
 
 
 def load_shot_preset_map(library: Any) -> dict[str, dict[str, Any]]:
