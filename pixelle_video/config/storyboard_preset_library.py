@@ -219,8 +219,8 @@ def load_shot_preset_map(library: Any) -> dict[str, dict[str, Any]]:
     shot_map: dict[str, dict[str, Any]] = {}
     for item in items:
         preset_id = _read_value(item, "preset_id", None)
-        if not preset_id:
-            continue
+        if not isinstance(preset_id, str) or not preset_id.strip():
+            raise ValueError("malformed storyboard shot preset item: missing preset_id")
         shot_map[preset_id] = item if isinstance(item, dict) else item.model_dump()
     return shot_map
 

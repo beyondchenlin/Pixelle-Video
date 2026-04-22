@@ -206,10 +206,38 @@ class StoryboardWorldPresetItemConfig(BaseModel):
     negative_rules: list[str] = Field(default_factory=list)
     default_shot_preset_ids: list[str] = Field(default_factory=list)
     cast_slots: list[dict[str, Any]] = Field(default_factory=list)
-    cast_slots_by_mode: dict[ContentMode, list[dict[str, Any]]] = Field(default_factory=dict)
+    cast_slots_by_mode: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     conservative_fallback_mode: ContentMode = Field(default="concept_explainer")
     safe_default: bool = Field(default=False)
     forced_mode: Optional[ContentMode] = Field(default=None)
+
+    @model_validator(mode="after")
+    def validate_world_preset_consistency(self):
+        supported_modes = set(self.supported_modes)
+        if self.conservative_fallback_mode not in supported_modes:
+            raise ValueError(
+                f"world preset {self.preset_id} conservative_fallback_mode must be one of supported_modes"
+            )
+
+        if self.forced_mode is not None and self.forced_mode not in supported_modes:
+            raise ValueError(f"world preset {self.preset_id} forced_mode must be one of supported_modes")
+
+        cast_modes = set(self.cast_slots_by_mode.keys())
+        if not cast_modes.issubset(supported_modes):
+            unsupported_modes = sorted(cast_modes - supported_modes)
+            raise ValueError(
+                f"world preset {self.preset_id} cast_slots_by_mode contains unsupported modes: "
+                f"{', '.join(unsupported_modes)}"
+            )
+
+        if len(supported_modes) > 1 and cast_modes != supported_modes:
+            missing_modes = sorted(supported_modes - cast_modes)
+            raise ValueError(
+                f"world preset {self.preset_id} cast_slots_by_mode must cover all supported modes: "
+                f"{', '.join(missing_modes)}"
+            )
+
+        return self
 
 
 class StoryboardWorldPresetLibraryConfig(BaseModel):

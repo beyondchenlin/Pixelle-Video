@@ -5,6 +5,7 @@ from pixelle_video.config.schema import PixelleVideoConfig
 from pixelle_video.config.storyboard_preset_library import (
     build_builtin_shot_preset_library_dict,
     build_builtin_world_preset_library_dict,
+    load_shot_preset_map,
     lookup_world_preset,
 )
 
@@ -132,6 +133,67 @@ def test_malformed_storyboard_library_item_without_preset_id_rejects_validation(
         )
 
 
+@pytest.mark.parametrize(
+    ("world_item", "error_message"),
+    [
+        (
+            {
+                "preset_id": "custom_world",
+                "display_name": "Custom World",
+                "supported_modes": ["concept_explainer"],
+                "conservative_fallback_mode": "theme_mapping",
+            },
+            "conservative_fallback_mode must be one of supported_modes",
+        ),
+        (
+            {
+                "preset_id": "custom_world",
+                "display_name": "Custom World",
+                "supported_modes": ["concept_explainer"],
+                "forced_mode": "theme_mapping",
+            },
+            "forced_mode must be one of supported_modes",
+        ),
+        (
+            {
+                "preset_id": "custom_world",
+                "display_name": "Custom World",
+                "supported_modes": ["theme_mapping", "concept_explainer"],
+                "conservative_fallback_mode": "concept_explainer",
+                "cast_slots_by_mode": {
+                    "theme_mapping": [],
+                    "unsupported_mode": [],
+                },
+            },
+            "cast_slots_by_mode contains unsupported modes",
+        ),
+        (
+            {
+                "preset_id": "custom_world",
+                "display_name": "Custom World",
+                "supported_modes": ["theme_mapping", "concept_explainer"],
+                "conservative_fallback_mode": "concept_explainer",
+                "cast_slots_by_mode": {
+                    "theme_mapping": [],
+                },
+            },
+            "cast_slots_by_mode must cover all supported modes",
+        ),
+    ],
+)
+def test_invalid_custom_world_preset_combinations_reject_validation(world_item, error_message):
+    with pytest.raises(ValueError, match=error_message):
+        PixelleVideoConfig.model_validate(
+            {
+                "storyboard": {
+                    "world_preset_library": {
+                        "items": [world_item],
+                    }
+                }
+            }
+        )
+
+
 def test_lookup_world_preset_raises_for_invalid_requested_or_default_ids():
     library = build_builtin_world_preset_library_dict()
 
@@ -141,6 +203,11 @@ def test_lookup_world_preset_raises_for_invalid_requested_or_default_ids():
     invalid_default_library = dict(library, default_world_preset_id="missing_default")
     with pytest.raises(ValueError, match="unknown world preset id: missing_default"):
         lookup_world_preset(invalid_default_library)
+
+
+def test_load_shot_preset_map_rejects_items_missing_preset_id():
+    with pytest.raises(ValueError, match="malformed storyboard shot preset item: missing preset_id"):
+        load_shot_preset_map({"items": [{"display_name": "Broken shot"}]})
 
 
 def test_config_manager_exposes_storyboard_library_getters():
