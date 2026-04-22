@@ -8,6 +8,10 @@ from typing import Any, Mapping
 
 from pixelle_video.models.storyboard_planning import FramePlan
 
+_ALLOWED_FRAME_SOURCES = {"planner_generated", "user_edited", "repair_adjusted", "fallback_regenerated"}
+_ALLOWED_OVERRIDE_SOURCES = {"user_preview"}
+_ALLOWED_REPLAN_SCOPES = {"local", "adjacent", "global"}
+
 
 def _to_tuple(value: Any) -> tuple[Any, ...]:
     if value is None:
@@ -17,6 +21,44 @@ def _to_tuple(value: Any) -> tuple[Any, ...]:
     if isinstance(value, list):
         return tuple(value)
     return (value,)
+
+
+def _require_string_field(frame: Mapping[str, Any], field_name: str) -> str:
+    value = frame[field_name]
+    if not isinstance(value, str):
+        raise ValueError(f"storyboard frame field {field_name} must be a string")
+    return value
+
+
+def _require_string_sequence_field(frame: Mapping[str, Any], field_name: str) -> tuple[str, ...]:
+    value = frame[field_name]
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"storyboard frame field {field_name} must be a list or tuple of strings")
+
+    values: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"storyboard frame field {field_name} must contain strings")
+        values.append(item)
+    return tuple(values)
+
+
+def _require_override_source_field(frame: Mapping[str, Any]) -> str | None:
+    value = frame["override_source"]
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("storyboard frame field override_source must be a string or null")
+    if value not in _ALLOWED_OVERRIDE_SOURCES:
+        raise ValueError("storyboard frame field override_source has an unsupported value")
+    return value
+
+
+def _require_enum_field(frame: Mapping[str, Any], field_name: str, allowed_values: set[str]) -> str:
+    value = _require_string_field(frame, field_name)
+    if value not in allowed_values:
+        raise ValueError(f"storyboard frame field {field_name} has an unsupported value")
+    return value
 
 
 def _extract_json_payload(raw_response: str) -> Any:
@@ -118,22 +160,22 @@ def parse_storyboard_frames(raw_response: str) -> list[FramePlan]:
 
         plans.append(
             FramePlan(
-                scene_id=str(frame["scene_id"]),
-                narration_fragment=str(frame["narration_fragment"]),
-                knowledge_goal=str(frame["knowledge_goal"]),
-                shot_type=str(frame["shot_type"]),
-                shot_purpose=str(frame["shot_purpose"]),
-                primary_subject=str(frame["primary_subject"]),
-                secondary_subjects=_to_tuple(frame["secondary_subjects"]),
-                world_elements=_to_tuple(frame["world_elements"]),
-                continuity_anchors=_to_tuple(frame["continuity_anchors"]),
-                focus_detail=str(frame["focus_detail"]),
-                prompt_intent=str(frame["prompt_intent"]),
-                locked_fields=tuple(str(value) for value in _to_tuple(frame["locked_fields"])),
-                override_source=frame["override_source"],
-                frame_source=str(frame["frame_source"]),
-                replan_scope=str(frame["replan_scope"]),
-                planner_version=str(frame["planner_version"]),
+                scene_id=_require_string_field(frame, "scene_id"),
+                narration_fragment=_require_string_field(frame, "narration_fragment"),
+                knowledge_goal=_require_string_field(frame, "knowledge_goal"),
+                shot_type=_require_string_field(frame, "shot_type"),
+                shot_purpose=_require_string_field(frame, "shot_purpose"),
+                primary_subject=_require_string_field(frame, "primary_subject"),
+                secondary_subjects=_require_string_sequence_field(frame, "secondary_subjects"),
+                world_elements=_require_string_sequence_field(frame, "world_elements"),
+                continuity_anchors=_require_string_sequence_field(frame, "continuity_anchors"),
+                focus_detail=_require_string_field(frame, "focus_detail"),
+                prompt_intent=_require_string_field(frame, "prompt_intent"),
+                locked_fields=_require_string_sequence_field(frame, "locked_fields"),
+                override_source=_require_override_source_field(frame),
+                frame_source=_require_enum_field(frame, "frame_source", _ALLOWED_FRAME_SOURCES),
+                replan_scope=_require_enum_field(frame, "replan_scope", _ALLOWED_REPLAN_SCOPES),
+                planner_version=_require_string_field(frame, "planner_version"),
             )
         )
 

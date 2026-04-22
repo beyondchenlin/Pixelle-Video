@@ -30,6 +30,18 @@ def _to_tuple(value: Any) -> tuple[Any, ...]:
     return (value,)
 
 
+def _merge_locked_fields(*, original: FramePlan, override_locked_fields: tuple[str, ...]) -> tuple[str, ...]:
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    for field_name in (*original.locked_fields, *override_locked_fields):
+        if field_name in _FRAME_FIELDS and field_name not in seen:
+            merged.append(field_name)
+            seen.add(field_name)
+
+    return tuple(merged)
+
+
 def _get_max_consecutive_same(shot_rules: Any) -> int:
     if isinstance(shot_rules, Mapping):
         value = shot_rules.get("max_consecutive_same")
@@ -140,8 +152,12 @@ def apply_frame_overrides(
         if original is None:
             continue
 
-        locked_fields = tuple(
+        requested_locked_fields = tuple(
             field_name for field_name in _to_tuple(override.get("locked_fields")) if field_name in _FRAME_FIELDS
+        )
+        locked_fields = _merge_locked_fields(
+            original=original,
+            override_locked_fields=requested_locked_fields,
         )
         replacement_values: dict[str, Any] = {
             "locked_fields": locked_fields,
@@ -149,7 +165,7 @@ def apply_frame_overrides(
             "frame_source": "user_edited",
         }
 
-        for field_name in locked_fields:
+        for field_name in requested_locked_fields:
             if field_name in override:
                 value = override[field_name]
                 if field_name in {"secondary_subjects", "world_elements", "continuity_anchors", "locked_fields"}:
@@ -166,7 +182,7 @@ def repair_frame_plan_shots(
     frame_plans: Sequence[FramePlan],
     shot_rules: Any,
 ) -> list[FramePlan]:
-    """Repair overlong same-shot runs while respecting locked shot_type frames."""
+    """Repair overlong same-shot runs by adjusting unlocked frames only."""
 
     if not frame_plans:
         return []

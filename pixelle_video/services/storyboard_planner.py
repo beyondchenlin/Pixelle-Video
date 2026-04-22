@@ -159,6 +159,10 @@ def resolve_shot_preset(
             raise ValueError(f"unknown shot preset id: {requested_preset_id}")
 
         supported_scene_count = tuple(_read_value(preset, "supported_scene_count", ()))
+        if scene_count not in supported_scene_count:
+            raise ValueError(
+                f"shot preset {requested_preset_id} does not support the requested scene count: {scene_count}"
+            )
         return ResolvedShotPreset(
             preset_id=requested_preset_id,
             override_policy=str(_read_value(preset, "override_policy", "adaptive")),
