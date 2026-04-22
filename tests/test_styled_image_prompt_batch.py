@@ -334,6 +334,26 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
     assert captured["planner_kwargs"]["shot_strategy"] == "strict"
     assert captured["style_profile"]["style_kind"] == "visual_only"
     assert result.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert result.planning_snapshot["frames"] == [
+        {
+            "scene_id": "scene-1",
+            "narration_fragment": "",
+            "knowledge_goal": "",
+            "shot_type": "medium_shot",
+            "shot_purpose": "context",
+            "primary_subject": "",
+            "secondary_subjects": [],
+            "world_elements": ["strategy board"],
+            "continuity_anchors": [],
+            "focus_detail": "",
+            "prompt_intent": "teach the first relationship",
+            "locked_fields": [],
+            "override_source": None,
+            "frame_source": "planner_generated",
+            "replan_scope": "local",
+            "planner_version": "1.0",
+        }
+    ]
     assert "Neutral Knowledge Storyboard" in result.prompts[0]
     assert "medium_shot" in result.prompts[0]
 

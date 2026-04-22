@@ -46,6 +46,31 @@ from pixelle_video.utils.workflow_capabilities import (
 )
 
 
+def _serialize_storyboard_frame_plan(frame_plan: Any) -> dict[str, Any]:
+    if hasattr(frame_plan, "to_prompt_dict"):
+        return dict(frame_plan.to_prompt_dict())
+    if isinstance(frame_plan, dict):
+        return dict(frame_plan)
+    return {
+        "shot_type": getattr(frame_plan, "shot_type", None),
+        "shot_purpose": getattr(frame_plan, "shot_purpose", None),
+        "frame_source": getattr(frame_plan, "frame_source", None),
+    }
+
+
+def _snapshot_with_serialized_frame_plans(
+    planning_snapshot: Optional[dict[str, Any]],
+    frame_plans: list[Any],
+) -> Optional[dict[str, Any]]:
+    if planning_snapshot is None and not frame_plans:
+        return None
+
+    snapshot = dict(planning_snapshot or {})
+    if frame_plans:
+        snapshot["frames"] = [_serialize_storyboard_frame_plan(frame_plan) for frame_plan in frame_plans]
+    return snapshot
+
+
 async def generate_title(
     llm_service,
     content: str,
@@ -498,6 +523,7 @@ async def generate_styled_image_prompt_batch(
     storyboard_enabled = _storyboard_controls_enabled()
     planning = None
     normalized_style = None
+    frame_plans: list[Any] = []
     if storyboard_enabled:
         storyboard_world_preset = lookup_world_preset(
             config_manager.get_storyboard_world_preset_library(),
@@ -527,7 +553,11 @@ async def generate_styled_image_prompt_batch(
             shot_strategy=shot_strategy,
             frame_overrides=frame_overrides,
         )
-        planning_snapshot = dict(getattr(planning, "planning_snapshot", None) or {})
+        frame_plans = list(getattr(planning, "frames", ()) or ())
+        planning_snapshot = _snapshot_with_serialized_frame_plans(
+            getattr(planning, "planning_snapshot", None),
+            frame_plans,
+        )
 
     prompt_generator = generate_video_prompts if media_type == "video" else generate_image_prompts
     base_prompts = await prompt_generator(
@@ -555,7 +585,6 @@ async def generate_styled_image_prompt_batch(
             )
 
     if planning is not None:
-        frame_plans = list(getattr(planning, "frames", ()) or ())
         if len(frame_plans) != len(base_prompts):
             raise ValueError("storyboard planner frames do not match generated base prompt count")
 

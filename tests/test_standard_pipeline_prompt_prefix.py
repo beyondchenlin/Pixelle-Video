@@ -1,8 +1,10 @@
 import pytest
 
-from pixelle_video.models.style_resolution import StyledImagePromptBatch
+from pixelle_video.models.storyboard_planning import FramePlan
+from pixelle_video.models.style_resolution import StyledImagePromptBatch, StyleSourceSpec
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
+from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 
 
 class _DummyCore:
@@ -18,7 +20,7 @@ class _DummyCore:
 async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypatch):
     captured = {}
 
-    async def fake_generate_styled_image_prompt_batch(**kwargs):
+    async def real_styled_batch_with_capture(**kwargs):
         captured["world_preset_id"] = kwargs["world_preset_id"]
         captured["shot_preset_id"] = kwargs["shot_preset_id"]
         captured["content_mode"] = kwargs["content_mode"]
@@ -26,31 +28,73 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
         captured["role_strategy"] = kwargs["role_strategy"]
         captured["role_locking_strength"] = kwargs["role_locking_strength"]
         captured["shot_strategy"] = kwargs["shot_strategy"]
-        return StyledImagePromptBatch(
-            prompts=["bird-universe dog sprint"],
-            negative_prompt="photo realism",
-            resolved_style=None,
-            planning_snapshot={
-                "world_preset_id": "neutral_knowledge_storyboard",
-                "effective_final_shot_preset": "balanced_explainer",
-                "resolved_content_mode": "concept_explainer",
-                "selected_consistency_strength": "strong",
-                "resolved_role_strategy": "stable_explainer_cast",
-                "selected_role_locking_strength": "strong",
-                "selected_shot_strategy": "strict",
-                "frames": [
-                    {
-                        "shot_type": "medium_shot",
-                        "shot_purpose": "context",
-                        "frame_source": "planner_generated",
-                    }
-                ],
+        return await generate_styled_image_prompt_batch(**kwargs)
+
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["bird-universe dog sprint"]
+
+    async def fake_plan_storyboard_batch(**kwargs):
+        return type(
+            "PlanResult",
+            (),
+            {
+                "frames": (
+                    FramePlan(
+                        scene_id="scene-1",
+                        shot_type="medium_shot",
+                        shot_purpose="context",
+                        world_elements=("strategy board",),
+                        prompt_intent="teach the first relationship",
+                    ),
+                ),
+                "planning_snapshot": {
+                    "world_preset_id": "neutral_knowledge_storyboard",
+                    "effective_final_shot_preset": "balanced_explainer",
+                    "resolved_content_mode": "concept_explainer",
+                    "selected_consistency_strength": "strong",
+                    "resolved_role_strategy": "stable_explainer_cast",
+                    "selected_role_locking_strength": "strong",
+                    "selected_shot_strategy": "strict",
+                    "world_preset": {
+                        "display_name": "Neutral Knowledge Storyboard",
+                        "style_core": "clean educational illustration",
+                    },
+                },
             },
-        )
+        )()
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        raise RuntimeError("resolver boom")
 
     monkeypatch.setattr(
         "pixelle_video.pipelines.standard.generate_styled_image_prompt_batch",
-        fake_generate_styled_image_prompt_batch,
+        real_styled_batch_with_capture,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.plan_storyboard_batch",
+        fake_plan_storyboard_batch,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: StyleSourceSpec(
+            origin="request",
+            raw_content="flat illustration",
+            content_hash="hash-123",
+            source_identity="request:hash-123",
+            item_id=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
+        lambda *args, **kwargs: type("Caps", (), {"supports_negative_prompt": True})(),
     )
 
     pipeline = StandardPipeline(
@@ -99,9 +143,12 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
     assert captured["role_strategy"] == "auto"
     assert captured["role_locking_strength"] == "strong"
     assert captured["shot_strategy"] == "strict"
-    assert ctx.image_prompts == ["bird-universe dog sprint"]
-    assert ctx.media_negative_prompt == "photo realism"
+    assert ctx.image_prompts == [
+        "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, bird-universe dog sprint"
+    ]
+    assert ctx.media_negative_prompt is None
     assert ctx.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert ctx.planning_snapshot["frames"][0]["shot_type"] == "medium_shot"
     assert ctx.storyboard.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
     assert ctx.storyboard.config.world_preset_id == "neutral_knowledge_storyboard"
     assert ctx.storyboard.config.shot_preset_id == "balanced_explainer"
