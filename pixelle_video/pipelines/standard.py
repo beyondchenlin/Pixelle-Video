@@ -50,13 +50,20 @@ from pixelle_video.utils.content_generators import (
 )
 from pixelle_video.utils.os_util import (
     create_task_output_dir,
-    get_task_final_video_path
+    get_task_final_video_path,
+    get_task_frame_path,
+    get_task_path,
 )
 from pixelle_video.utils.template_util import get_template_type, parse_template_size
 from pixelle_video.services.video import VideoService
 from pixelle_video.render_backend import (
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
     LEGACY_RENDER_BACKEND,
+)
+from pixelle_video.tts_audio_strategy import (
+    AUTO_TTS_AUDIO_STRATEGY,
+    MASTER_TRACK_TTS_AUDIO_STRATEGY,
+    PER_FRAME_TTS_AUDIO_STRATEGY,
 )
 
 
@@ -304,6 +311,7 @@ class StandardPipeline(LinearVideoPipeline):
                 created_at=datetime.now()
             )
             ctx.storyboard.frames.append(frame)
+
         effective_max_sentences, effective_max_chars, normalize_block_text_for_tts = (
             self._resolve_effective_timing_plan_settings(ctx.config)
         )
@@ -431,6 +439,17 @@ class StandardPipeline(LinearVideoPipeline):
             return HYPERFRAMES_COMPILED_RENDER_BACKEND
         return LEGACY_RENDER_BACKEND
 
+    def _resolve_effective_tts_audio_strategy(self, ctx: PipelineContext) -> str:
+        if self._is_hyperframes_render_path(ctx):
+            return MASTER_TRACK_TTS_AUDIO_STRATEGY
+
+        requested_strategy = getattr(ctx.config, "tts_audio_strategy", AUTO_TTS_AUDIO_STRATEGY)
+        if requested_strategy == AUTO_TTS_AUDIO_STRATEGY:
+            if ctx.config.tts_inference_mode == "comfyui":
+                return MASTER_TRACK_TTS_AUDIO_STRATEGY
+            return PER_FRAME_TTS_AUDIO_STRATEGY
+        return requested_strategy
+
     def _resolve_effective_timing_plan_settings(
         self,
         config: StoryboardConfig,
@@ -451,8 +470,123 @@ class StandardPipeline(LinearVideoPipeline):
         if config.tts_inference_mode != "comfyui":
             return False
 
-        workflow_stem = Path(str(config.tts_workflow or "")).stem.lower()
+        workflow_key = config.tts_workflow or ""
+        tts_service = getattr(self.core, "tts", None)
+        if tts_service is not None and hasattr(tts_service, "_resolve_workflow"):
+            try:
+                workflow_key = tts_service._resolve_workflow(workflow=config.tts_workflow)["key"]
+            except Exception:
+                workflow_key = config.tts_workflow or workflow_key
+
+        workflow_stem = Path(str(workflow_key or "")).stem.lower()
         return workflow_stem in {"tts_index2", "indextts2", "index_tts2"}
+
+    async def _prepare_legacy_master_track_audio(self, ctx: PipelineContext) -> None:
+        storyboard = ctx.storyboard
+        if not storyboard.frames:
+            return
+        if all(frame.audio_path for frame in storyboard.frames):
+            return
+        if any(frame.audio_path for frame in storyboard.frames):
+            logger.warning(
+                "Skipping legacy master-track audio preparation because some frames already contain audio."
+            )
+            return
+        if ctx.timing_plan is None or not ctx.timing_plan.blocks:
+            logger.warning("Skipping legacy master-track audio preparation: timing plan is empty.")
+            return
+
+        master_audio_path, _ = await self._synthesize_hyperframes_audio(ctx)
+        self._align_legacy_master_track_timings(ctx)
+        self._offset_sentence_timings_to_master_timeline(ctx.timing_plan)
+
+        for frame in storyboard.frames:
+            sentence_units = [
+                sentence
+                for sentence in ctx.timing_plan.sentences
+                if frame.index in sentence.frame_indices
+            ]
+            clip_start = self._resolve_sentence_time(sentence_units, minimum=True)
+            clip_end = self._resolve_sentence_time(sentence_units, minimum=False)
+            if clip_start is None or clip_end is None or clip_end <= clip_start:
+                raise RuntimeError(
+                    f"Unable to resolve master-track timing window for frame {frame.index + 1}."
+                )
+
+            output_path = get_task_frame_path(ctx.config.task_id, frame.index, "audio")
+            self._extract_audio_clip(
+                master_audio_path,
+                output_path,
+                start_time=clip_start,
+                end_time=clip_end,
+            )
+            frame.audio_path = output_path
+            frame.duration = self._get_audio_duration(output_path)
+
+    def _align_legacy_master_track_timings(self, ctx: PipelineContext) -> None:
+        engine = (ctx.config.subtitle_alignment_engine or "qwen_forced_aligner").strip().lower()
+        timing_plan = ctx.timing_plan
+
+        if engine == "direct_duration":
+            self.core.alignment_service.align_blocks_by_duration(
+                timing_plan.blocks,
+                timing_plan.sentences,
+            )
+            return
+
+        try:
+            self.core.alignment_service.align_blocks(
+                timing_plan.blocks,
+                timing_plan.sentences,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Legacy master-track alignment failed with "
+                f"{ctx.config.subtitle_alignment_engine!r}: {exc}. Falling back to duration alignment."
+            )
+            self.core.alignment_service.align_blocks_by_duration(
+                timing_plan.blocks,
+                timing_plan.sentences,
+            )
+
+    def _extract_audio_clip(
+        self,
+        input_path: str,
+        output_path: str,
+        *,
+        start_time: float,
+        end_time: float,
+    ) -> str:
+        duration = max(float(end_time) - float(start_time), 0.01)
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        completed = subprocess.run(
+            [
+                "ffmpeg",
+                "-ss",
+                self._format_ffmpeg_time(start_time),
+                "-i",
+                input_path,
+                "-t",
+                self._format_ffmpeg_time(duration),
+                "-vn",
+                "-c:a",
+                "libmp3lame",
+                "-y",
+                output_path,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+            raise RuntimeError(f"Failed to extract legacy master-track audio clip: {detail}")
+        return output_path
+
+    @staticmethod
+    def _format_ffmpeg_time(value: float) -> str:
+        formatted = format(max(float(value), 0.0), ".12f").rstrip("0").rstrip(".")
+        return formatted or "0"
 
     def _stage_progress(
         self,
@@ -564,6 +698,10 @@ class StandardPipeline(LinearVideoPipeline):
             await self._produce_assets_hyperframes(ctx)
             logger.info("All frames processed in HyperFrames image mode")
             return
+
+        if self._resolve_effective_tts_audio_strategy(ctx) == MASTER_TRACK_TTS_AUDIO_STRATEGY:
+            await self._prepare_legacy_master_track_audio(ctx)
+
         execution_mode = self._resolve_asset_execution_mode(ctx)
         
         # Get concurrent limit from config_manager (supports hot reload without restart)
@@ -875,7 +1013,11 @@ class StandardPipeline(LinearVideoPipeline):
         raise ValueError(f"Unsupported subtitle_alignment_engine: {ctx.config.subtitle_alignment_engine!r}")
 
     async def _synthesize_hyperframes_audio(self, ctx: PipelineContext) -> tuple[str, float]:
-        task_audio_dir = Path(ctx.task_dir) / "audio"
+        task_id = ctx.task_id or ctx.config.task_id
+        if ctx.task_dir:
+            task_audio_dir = Path(ctx.task_dir) / "audio"
+        else:
+            task_audio_dir = Path(get_task_path(task_id, "audio"))
         task_audio_dir.mkdir(parents=True, exist_ok=True)
 
         block_paths: List[str] = []

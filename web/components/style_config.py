@@ -31,6 +31,7 @@ from pixelle_video.config.prompt_prefix_library import (
     resolve_prompt_prefix_gallery_cover,
 )
 from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
+from pixelle_video.tts_audio_strategy import SUPPORTED_TTS_AUDIO_STRATEGIES
 from pixelle_video.prompts.prompt_prefix_generation import (
     build_prompt_prefix_generation_prompt,
 )
@@ -45,6 +46,7 @@ from web.utils.tts_ui import resolve_comfyui_tts_speed
 from web.utils.async_helpers import run_async
 from web.utils.preview_media import load_preview_media
 from web.utils.render_backend_ui import get_render_backend_default
+from web.utils.tts_audio_strategy_ui import get_tts_audio_strategy_default
 from web.utils.prompt_prefix_ui import (
     clear_prompt_prefix_form_item_id,
     clone_prompt_prefix_preview_asset,
@@ -1616,6 +1618,7 @@ def render_style_config(pixelle_video):
     with st.container(border=True):
         st.markdown(f"**{tr('section.render_backend')}**")
         render_backend = render_render_backend_selector()
+        tts_audio_strategy = render_tts_audio_strategy_selector()
     
     # ====================================================================
     # Storyboard Template Section
@@ -2228,6 +2231,7 @@ def render_style_config(pixelle_video):
         "tts_workflow": tts_workflow_key if tts_mode == "comfyui" else None,
         "ref_audio": str(ref_audio_path) if ref_audio_path else None,
         "render_backend": render_backend,
+        "tts_audio_strategy": tts_audio_strategy,
         "frame_template": frame_template,
         "template_params": custom_values_for_video if custom_values_for_video else None,
         "media_workflow": workflow_key,
@@ -2253,3 +2257,23 @@ def render_render_backend_selector() -> str:
     )
     st.caption(tr(f"render_backend.caption.{selected_backend}"))
     return selected_backend
+
+
+def render_tts_audio_strategy_selector() -> str:
+    """Render the per-task TTS audio strategy selector for Web UI."""
+    options = list(SUPPORTED_TTS_AUDIO_STRATEGIES)
+    configured_strategy = get_tts_audio_strategy_default(
+        config_manager.config.render.timing.tts_audio_strategy
+    )
+
+    selected_strategy = st.radio(
+        tr("tts_audio_strategy.label"),
+        options,
+        index=options.index(configured_strategy),
+        horizontal=True,
+        format_func=lambda value: tr(f"tts_audio_strategy.option.{value}"),
+        key="tts_audio_strategy_select",
+        help=tr("tts_audio_strategy.help"),
+    )
+    st.caption(tr(f"tts_audio_strategy.caption.{selected_strategy}"))
+    return selected_strategy

@@ -80,6 +80,7 @@ def test_build_single_generation_request_includes_render_backend():
             "tts_inference_mode": "local",
             "tts_voice": "zh-CN-YunjianNeural",
             "tts_speed": 1.2,
+            "tts_audio_strategy": "master_track",
             "template_params": {"accent_color": "#fff"},
             "render_backend": "hyperframes_compiled",
         },
@@ -88,6 +89,7 @@ def test_build_single_generation_request_includes_render_backend():
     )
 
     assert request["render_backend"] == "hyperframes_compiled"
+    assert request["tts_audio_strategy"] == "master_track"
     assert request["progress_callback"] is _progress
 
 
@@ -104,6 +106,7 @@ def test_build_batch_shared_config_includes_render_backend():
             "tts_inference_mode": "local",
             "tts_voice": "zh-CN-YunjianNeural",
             "tts_speed": 1.1,
+            "tts_audio_strategy": "master_track",
             "template_params": {"accent_color": "#fff"},
             "media_width": 1080,
             "media_height": 1920,
@@ -112,6 +115,7 @@ def test_build_batch_shared_config_includes_render_backend():
     )
 
     assert shared_config["render_backend"] == "hyperframes_compiled"
+    assert shared_config["tts_audio_strategy"] == "master_track"
 
 
 def test_build_single_generation_request_includes_tts_speed_for_comfyui():

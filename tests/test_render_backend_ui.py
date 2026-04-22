@@ -1,6 +1,7 @@
 from web.components import style_config
 from web.utils import render_backend_ui
 from web.utils import tts_ui
+from web.utils import tts_audio_strategy_ui
 
 
 def test_get_task_render_backend_prefers_effective_backend_then_requested_backend():
@@ -79,6 +80,65 @@ def test_render_render_backend_selector_uses_runtime_default(monkeypatch):
     assert captured["options"] == ["legacy", "hyperframes_compiled"]
     assert captured["index"] == 1
     assert captured["key"] == "render_backend_select"
+
+
+def test_render_tts_audio_strategy_selector_uses_runtime_default(monkeypatch):
+    captured = {}
+
+    class FakeStreamlit:
+        def radio(self, label, options, *, index, horizontal, format_func, key, help=None):
+            captured["label"] = label
+            captured["options"] = options
+            captured["index"] = index
+            captured["formatted"] = [format_func(option) for option in options]
+            captured["key"] = key
+            captured["help"] = help
+            return options[index]
+
+        def caption(self, body):
+            captured["caption"] = body
+
+    fake_config = type(
+        "ConfigManager",
+        (),
+        {
+            "config": type(
+                "Config",
+                (),
+                {
+                    "render": type(
+                        "Render",
+                        (),
+                        {
+                            "timing": type("Timing", (), {"tts_audio_strategy": "master_track"})(),
+                        },
+                    )(),
+                },
+            )(),
+        },
+    )()
+
+    monkeypatch.setattr(style_config, "st", FakeStreamlit())
+    monkeypatch.setattr(style_config, "config_manager", fake_config)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+
+    selected = style_config.render_tts_audio_strategy_selector()
+
+    assert selected == "master_track"
+    assert captured["options"] == ["auto", "per_frame", "master_track"]
+    assert captured["index"] == 2
+    assert captured["key"] == "tts_audio_strategy_select"
+
+
+def test_copy_tts_audio_strategy_transfers_supported_value():
+    target = {}
+
+    tts_audio_strategy_ui.copy_tts_audio_strategy(
+        {"tts_audio_strategy": "master_track"},
+        target,
+    )
+
+    assert target["tts_audio_strategy"] == "master_track"
 
 
 def test_resolve_comfyui_tts_speed_prefers_comfyui_then_local_then_default():

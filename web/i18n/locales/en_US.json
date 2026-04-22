@@ -580,6 +580,14 @@
     "render_backend.option.hyperframes_compiled": "HyperFrames Compiled",
     "render_backend.caption.legacy": "Uses the existing non-HyperFrames path for stable upstream validation.",
     "render_backend.caption.hyperframes_compiled": "Uses the new compiled HyperFrames path for rollout testing.",
+    "tts_audio_strategy.label": "TTS audio strategy",
+    "tts_audio_strategy.help": "Choose whether narration is generated per frame or prepared as a master track first.",
+    "tts_audio_strategy.option.auto": "Auto",
+    "tts_audio_strategy.option.per_frame": "Per Frame",
+    "tts_audio_strategy.option.master_track": "Master Track",
+    "tts_audio_strategy.caption.auto": "Auto keeps local legacy on per-frame audio and switches ComfyUI-backed legacy jobs to master-track preparation.",
+    "tts_audio_strategy.caption.per_frame": "Generate narration separately for each frame.",
+    "tts_audio_strategy.caption.master_track": "Generate narration as a master track first, then derive frame clips from it.",
     "history.detail.render_backend": "Render Backend"
   }
 }

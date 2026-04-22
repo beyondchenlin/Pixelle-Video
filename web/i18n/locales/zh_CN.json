@@ -580,6 +580,14 @@
     "render_backend.option.hyperframes_compiled": "HyperFrames Compiled",
     "render_backend.caption.legacy": "使用现有的非 HyperFrames 老链路，适合稳定验证上游文案、语音、图片。",
     "render_backend.caption.hyperframes_compiled": "使用新的 compiled HyperFrames 链路，适合灰度测试新方案。",
+    "tts_audio_strategy.label": "TTS 音频策略",
+    "tts_audio_strategy.help": "选择旁白是逐帧生成，还是先生成主音轨再回切到各分镜。",
+    "tts_audio_strategy.option.auto": "自动",
+    "tts_audio_strategy.option.per_frame": "逐帧",
+    "tts_audio_strategy.option.master_track": "主音轨",
+    "tts_audio_strategy.caption.auto": "自动模式会让 legacy + local 保持逐帧，而 legacy + comfyui 优先走主音轨预处理。",
+    "tts_audio_strategy.caption.per_frame": "为每个分镜单独生成旁白音频。",
+    "tts_audio_strategy.caption.master_track": "先生成一条主音轨，再从中切回各分镜音频。",
     "history.detail.render_backend": "渲染后端"
   }
 }

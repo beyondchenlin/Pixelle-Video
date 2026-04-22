@@ -19,6 +19,10 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, validate_render_backend
+from pixelle_video.tts_audio_strategy import (
+    DEFAULT_TTS_AUDIO_STRATEGY,
+    validate_tts_audio_strategy,
+)
 
 
 @dataclass
@@ -50,6 +54,7 @@ class StoryboardConfig:
 
     # Render contract
     tts_batching_mode: str = "paragraph"       # TTS batching mode
+    tts_audio_strategy: str = DEFAULT_TTS_AUDIO_STRATEGY  # TTS audio organization strategy
     tts_batch_max_sentences: int = 8           # Maximum sentences per TTS batch
     tts_batch_max_chars: int = 220             # Maximum characters per TTS batch
     subtitle_alignment_engine: str = "qwen_forced_aligner"  # Subtitle alignment engine
@@ -67,6 +72,7 @@ class StoryboardConfig:
 
     def __post_init__(self):
         self.render_backend = validate_render_backend(self.render_backend)
+        self.tts_audio_strategy = validate_tts_audio_strategy(self.tts_audio_strategy)
 
 
 @dataclass

@@ -23,6 +23,7 @@ from pixelle_video.services.persistence import PersistenceService
 def test_render_manifest_round_trip_and_timing_config_defaults():
     config = StoryboardConfig(media_width=1080, media_height=1920)
     assert config.tts_batching_mode == "paragraph"
+    assert config.tts_audio_strategy == "auto"
     assert config.subtitle_alignment_engine == "qwen_forced_aligner"
     assert config.silence_trim_tool is None
     assert config.render_backend == "legacy"
@@ -140,6 +141,7 @@ def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path
         media_width=1080,
         media_height=1920,
         tts_batching_mode="sentence",
+        tts_audio_strategy="master_track",
         tts_batch_max_sentences=4,
         tts_batch_max_chars=120,
         subtitle_alignment_engine="whisperx",
@@ -152,6 +154,7 @@ def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path
     restored = service._dict_to_config(service._config_to_dict(config))
 
     assert restored.tts_batching_mode == "sentence"
+    assert restored.tts_audio_strategy == "master_track"
     assert restored.tts_batch_max_sentences == 4
     assert restored.tts_batch_max_chars == 120
     assert restored.subtitle_alignment_engine == "whisperx"
@@ -184,6 +187,7 @@ def test_persistence_loads_historical_hyperframes_backend_as_compiled(tmp_path):
         "tts_speed": None,
         "ref_audio": None,
         "tts_batching_mode": "paragraph",
+        "tts_audio_strategy": "auto",
         "tts_batch_max_sentences": 8,
         "tts_batch_max_chars": 220,
         "subtitle_alignment_engine": "qwen_forced_aligner",
@@ -213,6 +217,7 @@ render:
   backend: hyperframes_compiled
   timing:
     tts_batching_mode: sentence
+    tts_audio_strategy: master_track
     tts_batch_max_sentences: 6
     tts_batch_max_chars: 180
     subtitle_alignment_engine: whisperx
@@ -228,6 +233,7 @@ render:
     parsed = PixelleVideoConfig(**loaded)
     assert parsed.render.backend == "hyperframes_compiled"
     assert parsed.render.timing.tts_batching_mode == "sentence"
+    assert parsed.render.timing.tts_audio_strategy == "master_track"
     assert parsed.render.timing.tts_batch_max_sentences == 6
     assert parsed.render.timing.tts_batch_max_chars == 180
     assert parsed.render.timing.subtitle_alignment_engine == "whisperx"
@@ -240,7 +246,25 @@ render:
 
     assert reparsed.render.backend == "hyperframes_compiled"
     assert reparsed.render.timing.tts_batching_mode == "sentence"
+    assert reparsed.render.timing.tts_audio_strategy == "master_track"
     assert reparsed.render.timing.silence_trim_tool == "ffmpeg"
+
+
+def test_resolve_storyboard_render_kwargs_includes_tts_audio_strategy():
+    resolved = resolve_storyboard_render_kwargs(
+        {
+            "render": {
+                "backend": "legacy",
+                "timing": {
+                    "tts_batching_mode": "sentence",
+                    "tts_audio_strategy": "master_track",
+                },
+            }
+        }
+    )
+
+    assert resolved["tts_batching_mode"] == "sentence"
+    assert resolved["tts_audio_strategy"] == "master_track"
 
 
 def test_render_config_rejects_removed_hyperframes_alias(tmp_path):

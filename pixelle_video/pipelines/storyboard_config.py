@@ -18,9 +18,11 @@ Storyboard configuration helpers for runtime pipeline construction.
 from typing import Any, Dict, Optional
 
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND
+from pixelle_video.tts_audio_strategy import DEFAULT_TTS_AUDIO_STRATEGY
 
 STORYBOARD_RENDER_DEFAULTS: Dict[str, Any] = {
     "tts_batching_mode": "paragraph",
+    "tts_audio_strategy": DEFAULT_TTS_AUDIO_STRATEGY,
     "tts_batch_max_sentences": 8,
     "tts_batch_max_chars": 220,
     "subtitle_alignment_engine": "qwen_forced_aligner",

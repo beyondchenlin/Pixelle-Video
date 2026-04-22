@@ -102,6 +102,13 @@ def test_resolve_asset_execution_mode_disables_staged_mode_for_local_tts():
     assert execution_mode.use_staged_mode is False
 
 
+def test_resolve_effective_tts_audio_strategy_uses_master_track_for_legacy_comfyui_auto():
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = _build_storyboard_ctx(tts_inference_mode="comfyui")
+
+    assert pipeline._resolve_effective_tts_audio_strategy(ctx) == "master_track"
+
+
 class _RecordingFrameProcessor:
     def __init__(self, *, fail_on=None):
         self.calls = []
@@ -167,6 +174,36 @@ async def test_produce_assets_runs_staged_selfhost_image_flow_in_phase_order():
         "segment-0.mp4",
         "segment-1.mp4",
     ]
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_legacy_comfyui_auto_prepares_master_track_audio_first(monkeypatch):
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx(tts_inference_mode="comfyui")
+    calls = []
+
+    async def fake_prepare(context):
+        calls.append([frame.index for frame in context.storyboard.frames])
+        for frame in context.storyboard.frames:
+            frame.audio_path = f"master-{frame.index}.mp3"
+            frame.duration = 2.0
+
+    monkeypatch.setattr(pipeline, "_prepare_legacy_master_track_audio", fake_prepare, raising=False)
+
+    await pipeline.produce_assets(ctx)
+
+    assert calls == [[0, 1]]
+    assert core.frame_processor.calls == [
+        ("media", 0),
+        ("media", 1),
+        ("compose", 0),
+        ("compose", 1),
+        ("segment", 0),
+        ("segment", 1),
+    ]
+    assert ctx.storyboard.total_duration == 4.0
 
 
 @pytest.mark.asyncio
@@ -343,6 +380,26 @@ async def test_produce_assets_staged_skips_existing_audio_and_media():
     assert ctx.storyboard.frames[0].audio_path == "existing-0.mp3"
     assert ctx.storyboard.frames[1].image_path == "existing-1.png"
     assert ctx.storyboard.total_duration == 11.0
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_legacy_comfyui_per_frame_override_skips_master_track_prep(monkeypatch):
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx(tts_inference_mode="comfyui")
+    ctx.config.tts_audio_strategy = "per_frame"
+    calls = []
+
+    async def fake_prepare(context):
+        calls.append("called")
+
+    monkeypatch.setattr(pipeline, "_prepare_legacy_master_track_audio", fake_prepare, raising=False)
+
+    await pipeline.produce_assets(ctx)
+
+    assert calls == []
+    assert core.frame_processor.calls[:2] == [("audio", 0), ("audio", 1)]
 
 
 @pytest.mark.asyncio
