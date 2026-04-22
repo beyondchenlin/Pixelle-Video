@@ -120,6 +120,22 @@ class AlignmentService:
 
         return list(sentences)
 
+    def align_blocks_by_duration(
+        self,
+        blocks: Sequence[AudioBlock],
+        sentences: Sequence[SentenceUnit],
+    ) -> List[SentenceUnit]:
+        sentence_groups: DefaultDict[str | None, List[SentenceUnit]] = defaultdict(list)
+        for sentence in sentences:
+            sentence_groups[sentence.block_id].append(sentence)
+
+        for block in blocks:
+            group = sentence_groups.get(block.id, [])
+            if group:
+                self._apply_duration_alignment(block, group)
+
+        return list(sentences)
+
     def _apply_alignment(
         self,
         sentences: Sequence[SentenceUnit],
@@ -168,6 +184,35 @@ class AlignmentService:
                 flattened.append(_FlattenedToken(token=token, start=start, end=end))
 
         return flattened
+
+    def _apply_duration_alignment(
+        self,
+        block: AudioBlock,
+        sentences: Sequence[SentenceUnit],
+    ) -> None:
+        if not sentences:
+            return
+
+        duration = max(0.0, float(block.end) - float(block.start))
+        if duration <= 0:
+            return
+
+        weights = [self._sentence_duration_weight(sentence.text) for sentence in sentences]
+        total_weight = sum(weights)
+        if total_weight <= 0:
+            weights = [1.0] * len(sentences)
+            total_weight = float(len(sentences))
+
+        cursor = 0.0
+        for index, (sentence, weight) in enumerate(zip(sentences, weights)):
+            sentence.source_start = cursor
+            if index == len(sentences) - 1:
+                sentence.source_end = duration
+            else:
+                cursor += duration * (weight / total_weight)
+                sentence.source_end = cursor
+                continue
+            cursor = duration
 
     def _extract_words(self, alignment: Any) -> List[Any]:
         if alignment is None:
@@ -219,3 +264,12 @@ class AlignmentService:
 
     def _strip_trailing_subtitle_punctuation(self, text: str) -> str:
         return text.strip().rstrip(_TRAILING_SUBTITLE_PUNCTUATION)
+
+    def _sentence_duration_weight(self, text: str) -> float:
+        stripped_text = self._strip_trailing_subtitle_punctuation(text)
+        tokens = self._tokenize_text(stripped_text)
+        if tokens:
+            return float(len(tokens))
+
+        compact_text = "".join(stripped_text.split())
+        return float(max(1, len(compact_text)))

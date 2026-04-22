@@ -374,7 +374,10 @@ class StandardPipeline(LinearVideoPipeline):
         )
 
     def _resolve_hyperframes_template_id(self, config: StoryboardConfig) -> str:
-        return Path(config.frame_template).stem
+        template_id = Path(config.frame_template).stem
+        if template_id == "default":
+            return "image_default"
+        return template_id
 
     def _get_hyperframes_fallback_reason(self, ctx: PipelineContext) -> Optional[str]:
         config = ctx.config
@@ -724,13 +727,14 @@ class StandardPipeline(LinearVideoPipeline):
             raise RuntimeError("Audio edit service is not initialized.")
 
         master_audio_path, master_audio_duration = await self._synthesize_hyperframes_audio(ctx)
-        self.core.alignment_service.align_blocks(timing_plan.blocks, timing_plan.sentences)
+        self._align_hyperframes_timing_plan(ctx)
         self._offset_sentence_timings_to_master_timeline(timing_plan)
 
         if config.silence_trim_tool == "auto_editor":
             trim_result = self.core.audio_edit_service.export_trimmed_audio_and_timeline(
                 master_audio_path,
                 str(Path(master_audio_path).with_name("trimmed_master_audio.wav")),
+                margin_ms=config.silence_trim_margin_ms,
             )
             master_audio_path = trim_result.trimmed_audio_path
             master_audio_duration = self._get_audio_duration(master_audio_path)
@@ -781,6 +785,28 @@ class StandardPipeline(LinearVideoPipeline):
             storyboard.final_video_path = final_video_path
 
         logger.success(f"HyperFrames video generation completed: {ctx.final_video_path}")
+
+    def _align_hyperframes_timing_plan(self, ctx: PipelineContext) -> None:
+        engine = (ctx.config.subtitle_alignment_engine or "qwen_forced_aligner").strip().lower()
+        timing_plan = ctx.timing_plan
+
+        if engine == "qwen_forced_aligner":
+            self.core.alignment_service.align_blocks(timing_plan.blocks, timing_plan.sentences)
+            return
+
+        if engine == "direct_duration":
+            self.core.alignment_service.align_blocks_by_duration(
+                timing_plan.blocks,
+                timing_plan.sentences,
+            )
+            return
+
+        if engine in {"hyperframes_transcribe", "transcribe"}:
+            raise NotImplementedError(
+                "subtitle_alignment_engine='hyperframes_transcribe' is not implemented yet."
+            )
+
+        raise ValueError(f"Unsupported subtitle_alignment_engine: {ctx.config.subtitle_alignment_engine!r}")
 
     async def _synthesize_hyperframes_audio(self, ctx: PipelineContext) -> tuple[str, float]:
         task_audio_dir = Path(ctx.task_dir) / "audio"

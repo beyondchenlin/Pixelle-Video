@@ -1,6 +1,8 @@
 import sys
 import types
 
+import pytest
+
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.services.alignment_service import AlignmentService
 
@@ -150,6 +152,41 @@ def test_alignment_service_groups_sentences_by_block_id_when_aligning_multiple_b
         5.0,
         5.7,
     ]
+
+
+def test_alignment_service_can_estimate_sentence_spans_from_block_duration_metadata():
+    service = AlignmentService(client=FakeAligner())
+    blocks = [
+        AudioBlock(
+            id="block-0",
+            text="Alpha one. Beta two two.",
+            audio_path="block-0.wav",
+            start=0.0,
+            end=4.0,
+            source_frame_indices=[0, 1],
+        )
+    ]
+    sentences = [
+        SentenceUnit(
+            id="s1",
+            text="Alpha one.",
+            frame_indices=[0],
+            block_id="block-0",
+        ),
+        SentenceUnit(
+            id="s2",
+            text="Beta two two.",
+            frame_indices=[1],
+            block_id="block-0",
+        ),
+    ]
+
+    aligned = service.align_blocks_by_duration(blocks, sentences)
+
+    assert aligned[0].source_start == pytest.approx(0.0)
+    assert aligned[0].source_end == pytest.approx(1.6)
+    assert aligned[1].source_start == pytest.approx(1.6)
+    assert aligned[1].source_end == pytest.approx(4.0)
 
 
 def test_alignment_service_forwards_load_kwargs_to_default_qwen_client(monkeypatch):

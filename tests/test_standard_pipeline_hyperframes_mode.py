@@ -82,6 +82,7 @@ class _FakeTTS:
 class _FakeAlignmentService:
     def __init__(self):
         self.calls: list[tuple[list[str], list[str]]] = []
+        self.duration_calls: list[tuple[list[str], list[str]]] = []
 
     def align_blocks(self, blocks, sentences, language=None):
         self.calls.append(
@@ -92,14 +93,40 @@ class _FakeAlignmentService:
             sentence.source_end = 1.1
         return list(sentences)
 
+    def align_blocks_by_duration(self, blocks, sentences):
+        self.duration_calls.append(
+            ([block.id for block in blocks], [sentence.id for sentence in sentences])
+        )
+        blocks_by_id = {block.id: block for block in blocks}
+        grouped = {}
+        for sentence in sentences:
+            grouped.setdefault(sentence.block_id, []).append(sentence)
+
+        for block_id, group in grouped.items():
+            block = blocks_by_id[block_id]
+            duration = max(0.0, float(block.end) - float(block.start))
+            weights = [max(1, len(sentence.text.split())) for sentence in group]
+            total = sum(weights)
+            cursor = 0.0
+            for index, (sentence, weight) in enumerate(zip(group, weights)):
+                sentence.source_start = cursor
+                if index == len(group) - 1:
+                    sentence.source_end = duration
+                else:
+                    cursor += duration * (weight / total)
+                    sentence.source_end = cursor
+                    continue
+                cursor = duration
+        return list(sentences)
+
 
 class _FakeAudioEditService:
     def __init__(self):
         self.remap_calls: list[object] = []
-        self.trim_calls: list[tuple[str, str]] = []
+        self.trim_calls: list[tuple[str, str, int | None]] = []
 
-    def trim_audio_and_export_timeline(self, audio_path, output_path):
-        self.trim_calls.append((audio_path, output_path))
+    def trim_audio_and_export_timeline(self, audio_path, output_path, margin_ms=None):
+        self.trim_calls.append((audio_path, output_path, margin_ms))
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         Path(output_path).write_bytes(b"trimmed-audio")
         return SimpleNamespace(
@@ -110,8 +137,8 @@ class _FakeAudioEditService:
             ),
         )
 
-    def export_trimmed_audio_and_timeline(self, audio_path, output_path):
-        return self.trim_audio_and_export_timeline(audio_path, output_path)
+    def export_trimmed_audio_and_timeline(self, audio_path, output_path, margin_ms=None):
+        return self.trim_audio_and_export_timeline(audio_path, output_path, margin_ms=margin_ms)
 
     def remap_sentence_units(self, sentence_units, timeline):
         self.remap_calls.append(timeline)
@@ -199,6 +226,7 @@ def _build_storyboard_context(
     *,
     render_backend: str = "hyperframes",
     silence_trim_tool: str | None = None,
+    frame_template: str = "1080x1920/image_life_insights_light.html",
 ) -> PipelineContext:
     config = StoryboardConfig(
         media_width=1080,
@@ -206,7 +234,7 @@ def _build_storyboard_context(
         task_id="task-1",
         render_backend=render_backend,
         tts_inference_mode="local",
-        frame_template="1080x1920/image_life_insights_light.html",
+        frame_template=frame_template,
         silence_trim_tool=silence_trim_tool,
     )
     frames = [
@@ -272,6 +300,18 @@ async def test_produce_assets_uses_shell_only_hyperframes_path_without_segments(
     assert [frame.video_segment_path for frame in ctx.storyboard.frames] == [None, None]
 
 
+def test_hyperframes_default_template_alias_resolves_to_supported_template(tmp_path):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(
+        tmp_path,
+        frame_template="1080x1920/default.html",
+    )
+
+    assert pipeline._resolve_hyperframes_template_id(ctx.config) == "image_default"
+    assert pipeline._get_hyperframes_fallback_reason(ctx) is None
+
+
 @pytest.mark.asyncio
 async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths(monkeypatch, tmp_path):
     monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
@@ -319,7 +359,11 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
         (["block-1", "block-2"], ["sentence-1", "sentence-2"])
     ]
     assert core.audio_edit_service.trim_calls == [
-        (str(Path(ctx.task_dir) / "audio" / "master_audio.wav"), str(Path(ctx.task_dir) / "audio" / "trimmed_master_audio.wav"))
+        (
+            str(Path(ctx.task_dir) / "audio" / "master_audio.wav"),
+            str(Path(ctx.task_dir) / "audio" / "trimmed_master_audio.wav"),
+            120,
+        )
     ]
     assert core.audio_edit_service.remap_calls
     assert manifest.master_audio_path.endswith("trimmed_master_audio.wav")
@@ -341,6 +385,72 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
     assert requested_output.exists()
     assert ctx.final_video_path == str(requested_output)
     assert ctx.storyboard.final_video_path == str(requested_output)
+
+
+@pytest.mark.asyncio
+async def test_post_production_respects_direct_duration_alignment_engine(monkeypatch, tmp_path):
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
+
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+    ctx.config.subtitle_alignment_engine = "direct_duration"
+    ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
+
+    ctx.timing_plan = TimingPlan(
+        sentences=[
+            SentenceUnit(
+                id="sentence-1",
+                text="Short line.",
+                frame_indices=[0],
+                block_id="block-1",
+            ),
+            SentenceUnit(
+                id="sentence-2",
+                text="A much longer second line.",
+                frame_indices=[1],
+                block_id="block-1",
+            ),
+        ],
+        blocks=[
+            AudioBlock(
+                id="block-1",
+                text="Short line. A much longer second line.",
+                source_frame_indices=[0, 1],
+            )
+        ],
+    )
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        Path(frame.image_path).write_text("raw", encoding="utf-8")
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    def fake_concat_audio_files(audio_paths, output_path):
+        Path(output_path).write_bytes(b"master-audio")
+
+    def fake_get_audio_duration(audio_path):
+        return 4.0
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", fake_get_audio_duration)
+
+    await pipeline.post_production(ctx)
+
+    manifest = core.hyperframes_project_service.manifest
+
+    assert core.alignment_service.calls == []
+    assert core.alignment_service.duration_calls == [
+        (["block-1"], ["sentence-1", "sentence-2"])
+    ]
+    assert manifest.sentence_units[0].source_start == pytest.approx(0.0)
+    assert manifest.sentence_units[0].source_end <= manifest.sentence_units[1].source_start
+    assert manifest.sentence_units[-1].source_end == pytest.approx(4.0)
 
 
 @pytest.mark.asyncio
@@ -479,7 +589,7 @@ async def test_post_production_warns_when_hyperframes_falls_back_to_legacy_rende
     core = _DummyCore(tmp_path)
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes")
-    ctx.config.frame_template = "1080x1920/default.html"
+    ctx.config.frame_template = "1080x1920/image_modern.html"
     ctx.final_video_path = str(tmp_path / "legacy-final.mp4")
     ctx.storyboard.frames[0].video_segment_path = "segment-0.mp4"
     ctx.storyboard.frames[1].video_segment_path = "segment-1.mp4"

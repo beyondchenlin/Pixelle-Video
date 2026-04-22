@@ -1,0 +1,177 @@
+<template id="image-default-captions">
+  <div
+    data-composition-id="captions"
+    data-width="1080"
+    data-height="1920"
+    data-duration="8"
+  >
+    <div id="captions-shell">
+      <svg class="quote-minimal left" width="60" height="60" viewBox="0 0 24 24" fill="#95a5a6">
+        <path d="M6 17h3l2-4V7H5v6h3zm8 0h3l2-4V7h-6v6h3z"/>
+      </svg>
+      <svg class="quote-minimal right" width="60" height="60" viewBox="0 0 24 24" fill="#95a5a6">
+        <path d="M6 17h3l2-4V7H5v6h3zm8 0h3l2-4V7h-6v6h3z"/>
+      </svg>
+
+      <div id="captions-container"></div>
+
+      <div class="divider-set">
+        <div class="divider short"></div>
+        <div class="divider-dot"></div>
+        <div class="divider long"></div>
+        <div class="divider-dot"></div>
+        <div class="divider short"></div>
+      </div>
+    </div>
+
+    <style>
+      [data-composition-id="captions"] {
+        position: relative;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        font-family: "PingFang SC", "Source Han Sans", "Microsoft YaHei", sans-serif;
+      }
+
+      [data-composition-id="captions"] #captions-shell {
+        position: absolute;
+        left: 115px;
+        right: 115px;
+        bottom: 260px;
+      }
+
+      [data-composition-id="captions"] #captions-container {
+        position: relative;
+        min-height: 240px;
+      }
+
+      [data-composition-id="captions"] .caption-group {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        visibility: hidden;
+      }
+
+      [data-composition-id="captions"] .caption-text {
+        padding: 20px 40px;
+        font-size: 42px;
+        line-height: 1.9;
+        font-weight: 500;
+        color: #2c3e50;
+        text-align: center;
+      }
+
+      [data-composition-id="captions"] .quote-minimal {
+        position: absolute;
+        opacity: 0.25;
+      }
+
+      [data-composition-id="captions"] .quote-minimal.left {
+        top: -10px;
+        left: 0;
+        transform: rotate(180deg);
+      }
+
+      [data-composition-id="captions"] .quote-minimal.right {
+        right: 0;
+        bottom: 44px;
+      }
+
+      [data-composition-id="captions"] .divider-set {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      [data-composition-id="captions"] .divider {
+        height: 2px;
+        background: rgba(149, 165, 166, 0.35);
+      }
+
+      [data-composition-id="captions"] .divider.short {
+        width: 40px;
+      }
+
+      [data-composition-id="captions"] .divider.long {
+        width: 80px;
+      }
+
+      [data-composition-id="captions"] .divider-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(149, 165, 166, 0.45);
+      }
+    </style>
+
+    <script>
+      async function fetchJson(url) {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Failed to load ${url}: ${response.status}`);
+        }
+        return response.json();
+      }
+
+      function padTimelineToDuration(timeline, duration) {
+        const resolvedDuration = Math.max(Number(duration) || 0, 0);
+        const currentDuration = Math.max(Number(timeline.duration()) || 0, 0);
+        if (resolvedDuration > currentDuration) {
+          timeline.to({}, { duration: resolvedDuration - currentDuration });
+        }
+        return timeline;
+      }
+
+      (async function bootstrapCaptions() {
+        const [manifest, payload] = await Promise.all([
+          fetchJson("../data/render_manifest.json"),
+          fetchJson("../data/captions.json"),
+        ]);
+
+        const root = document.querySelector('[data-composition-id="captions"]');
+        root.setAttribute("data-width", String(manifest.width || 1080));
+        root.setAttribute("data-height", String(manifest.height || 1920));
+
+        const captions = payload.captions || [];
+        const duration = Math.max(8, ...captions.map((caption) => Number(caption.end || 0)), 0);
+        root.setAttribute("data-duration", String(duration));
+
+        const container = document.getElementById("captions-container");
+        const tl = gsap.timeline({ paused: true });
+
+        captions.forEach((caption) => {
+          const group = document.createElement("div");
+          group.className = "caption-group";
+
+          const text = document.createElement("div");
+          text.className = "caption-text";
+          text.textContent = caption.text;
+
+          group.appendChild(text);
+          container.appendChild(group);
+
+          tl.fromTo(
+            group,
+            { autoAlpha: 0, y: 16 },
+            { autoAlpha: 1, y: 0, duration: 0.16, ease: "power2.out" },
+            Number(caption.start || 0),
+          );
+          tl.to(
+            group,
+            { autoAlpha: 0, y: -10, duration: 0.12, ease: "power2.in" },
+            Number(caption.end || 0),
+          );
+        });
+
+        padTimelineToDuration(tl, duration);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["captions"] = tl;
+      })();
+    </script>
+  </div>
+</template>

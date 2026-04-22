@@ -17,10 +17,15 @@ DEFAULT_AUTO_EDITOR_EXECUTABLE = "auto-editor"
 
 
 class AutoEditorRunner(Protocol):
-    def export_timeline(self, audio_path: str) -> str:
+    def export_timeline(self, audio_path: str, margin_ms: int | None = None) -> str:
         ...
 
-    def export_trimmed_audio(self, audio_path: str, output_path: str) -> str:
+    def export_trimmed_audio(
+        self,
+        audio_path: str,
+        output_path: str,
+        margin_ms: int | None = None,
+    ) -> str:
         ...
 
 
@@ -127,7 +132,7 @@ class _SubprocessAutoEditorRunner:
         self.executable = executable
         self.export_mode = export_mode
 
-    def export_timeline(self, audio_path: str) -> str:
+    def export_timeline(self, audio_path: str, margin_ms: int | None = None) -> str:
         output_path = ""
         try:
             with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
@@ -136,6 +141,7 @@ class _SubprocessAutoEditorRunner:
             command = [
                 self.executable,
                 audio_path,
+                *self._build_margin_args(margin_ms),
                 "--export",
                 self.export_mode,
                 "-o",
@@ -162,12 +168,18 @@ class _SubprocessAutoEditorRunner:
                 except OSError:
                     pass
 
-    def export_trimmed_audio(self, audio_path: str, output_path: str) -> str:
+    def export_trimmed_audio(
+        self,
+        audio_path: str,
+        output_path: str,
+        margin_ms: int | None = None,
+    ) -> str:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         completed = subprocess.run(
             [
                 self.executable,
                 audio_path,
+                *self._build_margin_args(margin_ms),
                 "-o",
                 output_path,
             ],
@@ -182,13 +194,23 @@ class _SubprocessAutoEditorRunner:
             )
         return output_path
 
+    def _build_margin_args(self, margin_ms: int | None) -> list[str]:
+        if margin_ms is None:
+            return []
+
+        seconds = max(0.0, float(margin_ms) / 1000.0)
+        seconds_str = f"{seconds:.3f}".rstrip("0").rstrip(".")
+        if not seconds_str:
+            seconds_str = "0"
+        return ["--margin", f"{seconds_str}sec"]
+
 
 class AudioEditService:
     def __init__(self, runner: AutoEditorRunner | None = None):
         self.runner = runner or _SubprocessAutoEditorRunner()
 
-    def export_timeline(self, audio_path: str) -> str:
-        return self.runner.export_timeline(audio_path)
+    def export_timeline(self, audio_path: str, margin_ms: int | None = None) -> str:
+        return self.runner.export_timeline(audio_path, margin_ms=margin_ms)
 
     def parse_timeline(self, payload: str | Mapping[str, Any]) -> AutoEditorTimeline:
         if isinstance(payload, str):
@@ -207,9 +229,14 @@ class AudioEditService:
         self,
         audio_path: str,
         output_path: str,
+        margin_ms: int | None = None,
     ) -> AutoEditorTrimResult:
-        trimmed_audio_path = self.runner.export_trimmed_audio(audio_path, output_path)
-        timeline = self.parse_timeline(self.export_timeline(audio_path))
+        trimmed_audio_path = self.runner.export_trimmed_audio(
+            audio_path,
+            output_path,
+            margin_ms=margin_ms,
+        )
+        timeline = self.parse_timeline(self.export_timeline(audio_path, margin_ms=margin_ms))
         return AutoEditorTrimResult(
             trimmed_audio_path=trimmed_audio_path,
             timeline=timeline,
@@ -219,8 +246,9 @@ class AudioEditService:
         self,
         audio_path: str,
         sentence_units: Sequence[SentenceUnit],
+        margin_ms: int | None = None,
     ) -> list[SentenceUnit]:
-        payload = self.export_timeline(audio_path)
+        payload = self.export_timeline(audio_path, margin_ms=margin_ms)
         timeline = self.parse_timeline(payload)
         return self.remap_sentence_units(sentence_units, timeline)
 
