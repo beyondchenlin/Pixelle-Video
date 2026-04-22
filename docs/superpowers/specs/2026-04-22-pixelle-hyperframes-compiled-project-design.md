@@ -26,6 +26,28 @@ This creates avoidable failure modes:
 
 These are not isolated bugs. They are signs that the integration boundary is wrong.
 
+## Review-Driven Root Causes
+
+Two review rounds against the current codebase exposed four root-cause classes that this design must eliminate, not merely patch:
+
+1. **Static duration wins over runtime correction**
+   - if template HTML ships with `data-duration="8"`, HyperFrames may honor that static value before Pixelle runtime JS updates it
+   - consequence: finished videos can be silently truncated even when manifest and audio duration are correct
+
+2. **Canvas contract and media contract are mixed**
+   - current manifest shape allows source media dimensions such as `768x768` to leak into final composition sizing
+   - consequence: wrong aspect ratio, misplaced media slots, and shell layouts rendered on the wrong coordinate system
+
+3. **Absolute local paths leak into browser media loading**
+   - current runtime assembly can inject Windows file paths directly into `img.src` or `audio.src`
+   - consequence: broken image placeholders, missing audio, and non-portable projects
+
+4. **Render completion is not the same as render correctness**
+   - current bridge can treat a produced file as success even when it has no audio stream or the wrong duration
+   - consequence: silent failure slips through as a "successful" render
+
+This compiled-project design is the source-level answer to those review findings.
+
 ## Best-Practice Direction
 
 Pixelle should not teach HyperFrames how to assemble Pixelle data at runtime.
@@ -91,6 +113,12 @@ Template runtime JS may still animate or style content, but it must not be respo
 
 Those values must be compiled into the project before render starts.
 
+Corollary:
+
+- runtime JS may animate already-mounted elements
+- runtime JS may not be the first place that creates `<img>`, `<video>`, or `<audio>` elements that the render engine depends on
+- runtime JS may not be the source of truth for root composition duration
+
 ### 3. All Rendered Assets Must Be Project-Local
 
 Compiled HyperFrames projects must not depend on absolute Windows paths such as:
@@ -133,6 +161,18 @@ After HyperFrames render completes, Pixelle must validate the final artifact:
 
 This is part of the render contract, not optional diagnostics.
 
+### 6. Static Composition Markup Must Be Internally Consistent
+
+Compiled HTML must already agree with itself before HyperFrames starts:
+
+- root `data-duration`
+- child composition `data-duration`
+- audio `data-duration`
+- clip `data-start` / `data-duration`
+- canvas `data-width` / `data-height`
+
+The compiler must not rely on "we will fix it in JS after page load."
+
 ## Compiled Project Contract
 
 Each task should compile to a project-local HyperFrames directory:
@@ -165,6 +205,12 @@ These must be final before render starts:
 - `index.html`
 - `compositions/captions.html`
 - project-local assets in `assets/`
+
+Additionally:
+
+- root composition duration must already be final in static HTML
+- shell composition dimensions must already be final in static HTML
+- audio and visual sources must already point to project-local paths in static HTML
 
 ### What Is Diagnostic
 
@@ -308,6 +354,10 @@ Pixelle writes a task-specific `index.html` with:
 
 This HTML should not need runtime manifest fetch to become renderable.
 
+Required constraint:
+
+- the compiler must not emit placeholder durations such as `8` with the expectation that runtime JS will replace them later
+
 ### Step 4: Compile Static `captions.html`
 
 Pixelle writes a task-specific captions composition with:
@@ -329,6 +379,14 @@ Pixelle still writes `render_manifest.json`, but only as:
 HyperFrames renders the compiled project.
 
 Pixelle then validates the final output with `ffprobe` or equivalent checks.
+
+Minimum acceptance gates:
+
+- final file contains at least one video stream
+- final file contains an audio stream when `master_audio.wav` exists
+- final duration is within tolerance of compiled master audio duration
+- final width and height match compiled canvas size
+- sample frames do not show missing-media placeholders
 
 ## Why This Is Better Than the Current V1 Approach
 
@@ -395,6 +453,8 @@ Validate that compiled templates have:
 - one root composition
 - explicit `data-width`, `data-height`, `data-duration`
 - no runtime requirement to discover critical assets
+- no placeholder duration values that differ from compiled duration
+- only project-local asset references in critical media elements
 
 ### 3. Render Validation Tests
 
@@ -403,6 +463,8 @@ After render:
 - assert output has audio when expected
 - assert output duration matches master audio within tolerance
 - assert output resolution matches canvas size
+- assert output is not truncated to a template placeholder duration
+- assert rendered sample frames do not show broken-image fallback states
 
 ### 4. Acceptance Tests
 

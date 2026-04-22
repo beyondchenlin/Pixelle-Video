@@ -1,5 +1,9 @@
 # Pixelle HyperFrames Rendering Architecture Design
 
+> **Status:** Partially superseded by
+> [2026-04-22-pixelle-hyperframes-compiled-project-design.md](/d:/demo1/Pixelle/Pixelle/docs/superpowers/specs/2026-04-22-pixelle-hyperframes-compiled-project-design.md).
+> This document still explains the HyperFrames-first direction, but its runtime-manifest assembly model is no longer the preferred implementation target.
+
 ## Goal
 
 Make HyperFrames the single final rendering engine for Pixelle so that images, audio, subtitles, and template layout all run on one deterministic timeline.
