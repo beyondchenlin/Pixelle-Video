@@ -148,12 +148,49 @@ The new generation flow changes from:
 
 to:
 
-`copy -> content-mode routing -> world preset -> cast bible -> shot preset -> storyboard planner -> consistency guard -> prompt builder -> generation`
+`copy -> content-mode routing -> world preset -> style-source normalization -> cast bible -> shot preset -> storyboard planner -> consistency guard -> prompt builder -> generation`
 
 Core rule:
 
 - the model should not be asked to directly improvise final frame prompts from copy alone
 - the model should first help produce a structured explanation plan for what each frame is supposed to do
+
+## Source Precedence and Compatibility
+
+The new system must define a strict precedence order between:
+
+- selected `world preset`
+- request-scoped `prompt_prefix`
+- active `prompt_prefix_library` item
+- existing style-resolution output
+
+Rules:
+
+1. `world preset` is the top-level universe contract.
+2. Existing `prompt_prefix` sources are subordinate style modifiers, not equal competitors to the selected world preset.
+3. If a selected or resolved prefix attempts to introduce a different `ip_world` or incompatible narrative universe, that prefix must not override the selected world preset.
+4. If no world preset is selected, the existing styled-prefix pipeline remains the fallback path.
+
+### Compatibility normalization
+
+Before prompt building, the system should normalize style inputs into one of three outcomes:
+
+- `compatible_refinement`
+- `visual_only_refinement`
+- `conflicting_world_override`
+
+Behavior:
+
+- `compatible_refinement`: preserve useful style cues from the prefix
+- `visual_only_refinement`: keep only material, palette, composition, or lighting cues
+- `conflicting_world_override`: drop or downgrade the conflicting world-level prefix signal
+
+This prevents double-universe prompt assembly such as:
+
+- one selected world preset for "Angry Birds Three Kingdoms"
+- another runtime prefix that tries to inject a different `ip_world`
+
+The `prompt builder` should consume normalized style output, not blindly merge all upstream style text.
 
 ## Core Product Rules
 
@@ -199,6 +236,24 @@ The frontend should expose only a small number of high-value controls by default
 
 Advanced controls may be expandable, but the default UX should remain understandable.
 
+### 5. Content routing must be explicit and recoverable
+
+The system must not silently route content into `theme_mapping` or `concept_explainer` without a recoverable contract.
+
+Rules:
+
+- the user may explicitly override the mode
+- if the user does not override, the backend may classify automatically
+- the classifier must emit machine-readable confidence and rationale
+- low-confidence routing must not silently behave like a high-confidence decision
+
+This rule exists because mode routing determines:
+
+- cast strategy
+- world interpretation
+- storyboard behavior
+- prompt composition
+
 ## World Preset
 
 `world preset` is the main product-facing universe selector. It is not just a free-text prompt prefix.
@@ -228,6 +283,12 @@ For "Angry Birds knowledge classroom", the preset defines:
 - a fixed explainer world
 - classroom or lab-like repeated scene motifs
 - a stable teaching grammar for concept-only topics
+
+World presets should also declare:
+
+- whether they are strictly bound to one content mode
+- whether they support both modes with different cast policies
+- what the conservative fallback mode is when auto-routing confidence is low
 
 ## Cast Bible
 
@@ -265,6 +326,43 @@ When content lacks natural characters, the system should activate stable explain
 
 These roles should recur across concept-only topics instead of being reinvented per task.
 
+## Content Mode Routing Contract
+
+Automatic mode selection should follow a strict order:
+
+1. user-specified mode override
+2. world-preset forced mode, if the preset is single-mode
+3. automatic classifier result
+4. preset conservative fallback mode
+
+The automatic classifier should return:
+
+- `mode`
+- `confidence`
+- `mixed_content_flag`
+- `dominant_anchor_type`
+- `reason_summary`
+
+### Confidence behavior
+
+The system should define one explicit confidence threshold for auto-routing.
+
+Recommended V1 behavior:
+
+- high confidence: use classifier result directly
+- low confidence: fall back to the preset's conservative mode and surface a warning in the storyboard preview
+
+### Mixed-content rule
+
+Mixed-content input should still resolve to one primary mode.
+
+Decision rule:
+
+- use `theme_mapping` when canonical entities are themselves the teaching subject
+- use `concept_explainer` when canonical entities are only examples inside a broader conceptual explanation
+
+This avoids introducing a third planning mode while still handling borderline copy.
+
 ## Shot Preset
 
 `shot preset` is the user-selectable rhythm template for scene planning.
@@ -300,6 +398,20 @@ At minimum, V1 should enforce:
 - close-up and extreme close-up must serve a knowledge point, not random magnification
 - opening frames should usually establish world, subject, or context
 
+### Repair policy
+
+Shot presets must define what happens when the first planner output violates shot rules.
+
+Recommended repair order:
+
+1. break illegal consecutive shot runs
+2. inject missing shot-distance diversity into the lowest-priority unlocked frames
+3. repair opening and closing rule violations
+4. re-balance extreme close-up usage
+5. if still invalid, fall back to a conservative default shot preset and surface that downgrade to the user
+
+The system must not stop at validation failure without a defined repair path.
+
 ## Storyboard Planner
 
 `storyboard planner` is the new center of the system.
@@ -327,6 +439,10 @@ Each frame plan should define:
 - `continuity_anchors`
 - `focus_detail`
 - `prompt_intent`
+- `locked_fields`
+- `frame_source`
+- `replan_scope`
+- `planner_version`
 
 ### Why this layer matters
 
@@ -338,6 +454,31 @@ This is the main mechanism that prevents:
 - character drift
 - repeated framing
 - missing educational structure
+
+### Preview-edit and replan contract
+
+The storyboard preview is not read-only. V1 should define how user edits survive replanning.
+
+Rules:
+
+- user-edited fields become locked fields for that frame
+- locked fields must not be silently overwritten by later local replanning
+- local replanning is the default after a single-frame edit
+- global replanning should happen only after explicit user action or after top-level inputs change
+
+Recommended `replan_scope` values:
+
+- `local`
+- `adjacent`
+- `global`
+
+Recommended behavior:
+
+- editing one frame defaults to `local`
+- shot-balance repair may adjust adjacent unlocked frames if necessary
+- world preset or shot preset changes trigger `global` replan
+
+This avoids a common failure mode where the user fixes one frame and the system silently rewrites it on the next pass.
 
 ## Prompt Builder
 
@@ -365,6 +506,13 @@ If the workflow supports optional fields, it may also include:
 - role/reference attachments
 
 If the workflow does not support such fields, the system must degrade to text-only continuity without breaking the pipeline.
+
+The `prompt builder` must also respect normalized style precedence:
+
+- world preset identity first
+- cast continuity second
+- shot-purpose and knowledge intent third
+- compatible style refinements last
 
 ## Consistency Guard
 
@@ -404,6 +552,18 @@ V2 may add post-generation validation through VLM or image-understanding checks,
 ## Model Capability Tiers
 
 The system must adapt to model capability instead of assuming all workflows support the same control surface.
+
+### Capability source of truth
+
+Capability must not be guessed from model nicknames, workflow names, or prompt text.
+
+V1 source of truth should be:
+
+- parsed selfhost workflow metadata
+- explicit runninghub wrapper capability metadata
+- explicit backend capability registry when the workflow layer exposes structured flags
+
+If capability metadata is missing, the system must degrade to the safest lower tier rather than guessing.
 
 ### Tier A
 
@@ -445,6 +605,8 @@ Use:
 
 The user-facing product should stay stable while the backend adapts to model capability automatically.
 
+This keeps capability routing aligned with the earlier workflow-capability design direction and prevents brittle name-based behavior.
+
 ## User Experience Design
 
 ### Default controls
@@ -479,6 +641,55 @@ Each frame card should show:
 
 This preview is a major product benefit of the storyboard-first system because it allows correction before image generation spend.
 
+Per-frame overrides should initially allow:
+
+- shot type
+- primary subject
+- focus detail
+- key world elements
+
+The system should not claim editable preview support without preserving these edits through the replan contract.
+
+## Persistence Scope
+
+The system must separate:
+
+- reusable preset assets
+- runtime plan state
+- immutable task snapshots
+
+### 1. Reusable assets
+
+These should be treated as global or project-level editable assets:
+
+- custom world presets
+- custom shot presets
+- custom cast-bible definitions
+
+Built-in presets remain read-only defaults.
+
+### 2. Runtime state
+
+These should remain task-local or session-local:
+
+- preview selections
+- current storyboard draft
+- unlocked/locked frame editing state before final generation
+
+### 3. Immutable task snapshot
+
+When a task is submitted, the system should persist a snapshot of:
+
+- selected world preset
+- resolved cast bible
+- selected shot preset
+- final storyboard plan
+- normalized style inputs
+
+History replay and task inspection must use this task snapshot, not the latest mutable preset definitions.
+
+This prevents old tasks from changing behavior after users later edit a shared preset.
+
 ## Backward Compatibility
 
 This rollout should remain compatible with the current styled prompt pipeline.
@@ -490,6 +701,7 @@ Rules:
 3. If the model does not support character references, the flow must continue through text-only cast anchors.
 4. If shot planning fails, the system may fall back to a conservative default shot preset instead of failing the whole task.
 5. Existing simple prompt-generation endpoints may coexist during migration, but the new storyboard-first path should become the preferred route.
+6. Historical tasks should remain reproducible through stored task snapshots even if shared presets are later edited.
 
 ## Files and Systems in Scope
 
