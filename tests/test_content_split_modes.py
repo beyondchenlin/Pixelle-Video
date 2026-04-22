@@ -4,6 +4,7 @@ from pixelle_video.utils.content_generators import split_narration_script
 from pixelle_video.utils.text_splitting import (
     split_text_into_sentences,
     split_text_into_subtitle_phrases,
+    split_text_into_tts_phrases,
 )
 
 
@@ -99,3 +100,15 @@ def test_split_text_into_sentences_keeps_ellipsis_inside_the_same_sentence():
 )
 def test_split_text_into_subtitle_phrases_splits_on_expression_pauses(text, expected):
     assert split_text_into_subtitle_phrases(text) == expected
+
+
+def test_split_text_into_tts_phrases_splits_mixed_script_clause_pauses():
+    text = "先学会呼吸控制, then float in water, 保持身体平直, keep your kick relaxed, 最后再稳定划水"
+
+    assert split_text_into_tts_phrases(text) == [
+        "先学会呼吸控制,",
+        "then float in water,",
+        "保持身体平直,",
+        "keep your kick relaxed,",
+        "最后再稳定划水",
+    ]

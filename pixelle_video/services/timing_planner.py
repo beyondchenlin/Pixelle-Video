@@ -4,9 +4,11 @@ from typing import List, Sequence
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.models.storyboard import StoryboardFrame
 from pixelle_video.utils.text_splitting import (
+    estimate_tts_text_budget_length,
     join_text_units,
     join_tts_sentence_units,
     split_text_into_sentences,
+    split_text_into_tts_phrases,
 )
 
 
@@ -38,8 +40,13 @@ class TimingPlanner:
     def _build_sentence_units(self, frames: Sequence[StoryboardFrame]) -> List[SentenceUnit]:
         sentences: List[SentenceUnit] = []
         for frame in frames:
+            text_units = (
+                split_text_into_tts_phrases(frame.narration)
+                if self.normalize_block_text_for_tts and self.mode != "sentence"
+                else split_text_into_sentences(frame.narration)
+            )
             for sentence_offset, sentence_text in enumerate(
-                split_text_into_sentences(frame.narration),
+                text_units,
                 start=1,
             ):
                 sentences.append(
@@ -81,9 +88,10 @@ class TimingPlanner:
         current_group: Sequence[SentenceUnit],
         next_sentence: SentenceUnit,
     ) -> bool:
-        sentence_count = len(current_group) + 1
-        if sentence_count > self.max_sentences:
-            return True
+        if not self.normalize_block_text_for_tts:
+            sentence_count = len(current_group) + 1
+            if sentence_count > self.max_sentences:
+                return True
 
         candidate_text = (
             join_tts_sentence_units(
@@ -94,7 +102,13 @@ class TimingPlanner:
                 [*(sentence.text for sentence in current_group), next_sentence.text]
             )
         )
-        return len(candidate_text) > self.max_chars
+
+        candidate_length = (
+            estimate_tts_text_budget_length(candidate_text)
+            if self.normalize_block_text_for_tts
+            else len(candidate_text)
+        )
+        return candidate_length > self.max_chars
 
     def _create_block(
         self,

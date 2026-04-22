@@ -161,8 +161,80 @@ def test_timing_planner_respects_sentence_and_char_caps_for_index_tts_style_bloc
     plan = planner.build(frames)
 
     assert [b.text for b in plan.blocks] == [
-        "先练呼吸控制。再练水中漂浮。",
-        "保持身体平直。手臂划水流畅。",
-        "坚持练习进步。",
+        "先练呼吸控制。再练水中漂浮。保持身体平直。",
+        "手臂划水流畅。坚持练习进步。",
     ]
-    assert [b.source_frame_indices for b in plan.blocks] == [[0, 1], [2, 3], [4]]
+    assert [b.source_frame_indices for b in plan.blocks] == [[0, 1, 2], [3, 4]]
+
+
+def test_timing_planner_uses_clause_boundaries_for_index_tts_mixed_script_batches():
+    frames = [
+        StoryboardFrame(
+            index=0,
+            narration="先学会呼吸控制, then float in water, 保持身体平直, keep your kick relaxed, 最后再稳定划水",
+            image_prompt="p1",
+        ),
+    ]
+
+    planner = TimingPlanner(
+        mode="paragraph",
+        max_sentences=2,
+        max_chars=120,
+        normalize_block_text_for_tts=True,
+    )
+    plan = planner.build(frames)
+
+    assert [s.text for s in plan.sentences] == [
+        "先学会呼吸控制,",
+        "then float in water,",
+        "保持身体平直,",
+        "keep your kick relaxed,",
+        "最后再稳定划水",
+    ]
+    assert [s.block_id for s in plan.sentences] == [
+        "block-1",
+        "block-1",
+        "block-1",
+        "block-1",
+        "block-1",
+    ]
+    assert [b.text for b in plan.blocks] == [
+        "先学会呼吸控制, then float in water, 保持身体平直, keep your kick relaxed, 最后再稳定划水。",
+    ]
+    assert [b.source_frame_indices for b in plan.blocks] == [[0, 0, 0, 0, 0]]
+
+
+def test_timing_planner_prefers_budget_boundaries_over_fixed_clause_count_for_index_tts():
+    frames = [
+        StoryboardFrame(
+            index=0,
+            narration=(
+                "先学会呼吸控制和漂浮感知, 再慢慢稳定换气节奏, "
+                "保持身体平直不要抬头, 手臂划水时注意发力方向, "
+                "最后再把完整动作串起来"
+            ),
+            image_prompt="p1",
+        ),
+    ]
+
+    planner = TimingPlanner(
+        mode="paragraph",
+        max_sentences=4,
+        max_chars=24,
+        normalize_block_text_for_tts=True,
+    )
+    plan = planner.build(frames)
+
+    assert [s.text for s in plan.sentences] == [
+        "先学会呼吸控制和漂浮感知,",
+        "再慢慢稳定换气节奏,",
+        "保持身体平直不要抬头,",
+        "手臂划水时注意发力方向,",
+        "最后再把完整动作串起来",
+    ]
+    assert [b.text for b in plan.blocks] == [
+        "先学会呼吸控制和漂浮感知, 再慢慢稳定换气节奏。",
+        "保持身体平直不要抬头, 手臂划水时注意发力方向。",
+        "最后再把完整动作串起来。",
+    ]
+    assert [b.source_frame_indices for b in plan.blocks] == [[0, 0], [0, 0], [0]]

@@ -474,9 +474,7 @@ class StandardPipeline(LinearVideoPipeline):
 
         if self._uses_index_tts2_workflow(config):
             normalize_block_text_for_tts = True
-            max_chars = min(max_chars, 60)
-            if config.tts_batching_mode != "sentence":
-                max_sentences = min(max_sentences, 4)
+            max_chars = min(max_chars, 90)
 
         return max_sentences, max_chars, normalize_block_text_for_tts
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Iterable, List
 
@@ -35,6 +36,7 @@ _JOIN_WITHOUT_SPACE_AFTER = {
 }
 _TTS_TERMINAL_PUNCTUATION = _SENTENCE_PUNCTUATION | {".", "\u2026"}
 _CJK_CHAR_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_ASCII_WORD_PATTERN = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?")
 
 
 def _is_sentence_boundary(text: str, index: int) -> bool:
@@ -128,6 +130,51 @@ def split_text_into_subtitle_phrases(text: str) -> List[str]:
     return phrases
 
 
+def split_text_into_tts_phrases(text: str) -> List[str]:
+    """Split TTS text into phrase units around natural punctuation pauses."""
+    return split_text_into_subtitle_phrases(text)
+
+
+def estimate_tts_text_budget_length(text: str) -> int:
+    """
+    Estimate a conservative TTS budget length for mixed-script text.
+
+    Rules of thumb:
+    - CJK characters count as 1
+    - ASCII word runs count as roughly half-length, rounded up
+    - punctuation/whitespace are treated as preferred break hints, not budget drivers
+    """
+    cleaned = re.sub(r"\s+", " ", (text or "").strip())
+    if not cleaned:
+        return 0
+
+    total = 0
+    index = 0
+    while index < len(cleaned):
+        char = cleaned[index]
+        if char.isspace():
+            index += 1
+            continue
+
+        cjk_match = _CJK_CHAR_PATTERN.match(cleaned, index)
+        if cjk_match is not None:
+            total += len(cjk_match.group(0))
+            index = cjk_match.end()
+            continue
+
+        ascii_match = _ASCII_WORD_PATTERN.match(cleaned, index)
+        if ascii_match is not None:
+            total += max(1, math.ceil(len(ascii_match.group(0)) * 0.5))
+            index = ascii_match.end()
+            continue
+
+        if char.isalpha() or char.isdigit():
+            total += 1
+        index += 1
+
+    return total
+
+
 def join_text_units(units: Iterable[str]) -> str:
     """Join aligned text units while avoiding artificial spaces after CJK punctuation."""
     cleaned_units = [unit.strip() for unit in units if unit and unit.strip()]
@@ -139,8 +186,8 @@ def join_text_units(units: Iterable[str]) -> str:
     return re.sub(rf"([{re.escape(no_space_after)}])\s+", r"\1", joined)
 
 
-def normalize_tts_sentence_text(text: str) -> str:
-    """Ensure TTS sentence-like units end with a strong terminal pause marker."""
+def normalize_tts_sentence_text(text: str, *, final_in_block: bool = True) -> str:
+    """Ensure TTS units preserve natural pauses and end blocks with a terminal marker."""
     stripped = re.sub(r"\s+", " ", (text or "").strip())
     if not stripped:
         return ""
@@ -161,7 +208,14 @@ def normalize_tts_sentence_text(text: str) -> str:
         return stripped + "".join(reversed(suffix_chars))
 
     if last_char in _CLAUSE_PUNCTUATION:
+        if not final_in_block:
+            return stripped + "".join(reversed(suffix_chars))
         stripped = stripped[:-1].rstrip()
+
+    if stripped.endswith("\u2014\u2014") or stripped.endswith("\u2014"):
+        if not final_in_block:
+            return stripped + "".join(reversed(suffix_chars))
+        stripped = stripped.rstrip("\u2014").rstrip()
 
     punctuation = "\u3002" if _CJK_CHAR_PATTERN.search(stripped) else "."
     return stripped + punctuation + "".join(reversed(suffix_chars))
@@ -169,10 +223,13 @@ def normalize_tts_sentence_text(text: str) -> str:
 
 def join_tts_sentence_units(units: Iterable[str]) -> str:
     """Join TTS units after normalizing each one to keep natural pauses."""
+    cleaned_units = [unit.strip() for unit in units if unit and unit.strip()]
     normalized_units = [
-        normalize_tts_sentence_text(unit)
-        for unit in units
-        if unit and unit.strip()
+        normalize_tts_sentence_text(
+            unit,
+            final_in_block=index == len(cleaned_units) - 1,
+        )
+        for index, unit in enumerate(cleaned_units)
     ]
     return join_text_units(normalized_units)
 

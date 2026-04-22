@@ -26,7 +26,7 @@ class _FakeCore:
 
 
 @pytest.mark.asyncio
-async def test_standard_pipeline_tightens_index_tts2_batches_and_adds_terminal_pauses():
+async def test_standard_pipeline_tightens_index_tts2_batches_by_budget_and_adds_terminal_pauses():
     pipeline = StandardPipeline(_FakeCore())
     ctx = PipelineContext(
         input_text="demo",
@@ -52,10 +52,8 @@ async def test_standard_pipeline_tightens_index_tts2_batches_and_adds_terminal_p
 
     assert ctx.timing_plan is not None
     assert [block.text for block in ctx.timing_plan.blocks] == [
-        "先练呼吸控制。再练水中漂浮。保持身体平直。手臂划水流畅。",
-        "坚持练习进步。",
+        "先练呼吸控制。再练水中漂浮。保持身体平直。手臂划水流畅。坚持练习进步。",
     ]
     assert [block.source_frame_indices for block in ctx.timing_plan.blocks] == [
-        [0, 1, 2, 3],
-        [4],
+        [0, 1, 2, 3, 4],
     ]
