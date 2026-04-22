@@ -139,6 +139,7 @@ BALANCED_EXPLAINER_SHOT_PRESET = ShotPresetDefinition(
     preset_id="balanced_explainer",
     display_name="Balanced Explainer",
     supported_scene_count=(3, 4, 5, 6, 7),
+    max_consecutive_same=2,
     shot_distribution_rules=(
         "keep at least three distinct shot distances when scene count allows it",
         "avoid more than two consecutive frames of the same shot type",
@@ -161,6 +162,7 @@ DETAIL_FOCUS_SHOT_PRESET = ShotPresetDefinition(
     preset_id="detail_focus",
     display_name="Detail Focus",
     supported_scene_count=(3, 4, 5, 6),
+    max_consecutive_same=1,
     shot_distribution_rules=(
         "prioritize detail clarity and close reading of key elements",
     ),

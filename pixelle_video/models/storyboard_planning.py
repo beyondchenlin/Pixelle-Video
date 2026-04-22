@@ -60,6 +60,7 @@ class ShotPresetDefinition:
     preset_id: str
     display_name: str
     supported_scene_count: tuple[int, ...]
+    max_consecutive_same: int = 2
     shot_distribution_rules: tuple[str, ...] = ()
     opening_rules: tuple[str, ...] = ()
     closing_rules: tuple[str, ...] = ()
@@ -72,6 +73,7 @@ class ShotPresetDefinition:
             "preset_id": self.preset_id,
             "display_name": self.display_name,
             "supported_scene_count": _to_list(self.supported_scene_count),
+            "max_consecutive_same": self.max_consecutive_same,
             "shot_distribution_rules": _to_list(self.shot_distribution_rules),
             "opening_rules": _to_list(self.opening_rules),
             "closing_rules": _to_list(self.closing_rules),
