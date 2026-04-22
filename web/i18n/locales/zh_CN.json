@@ -232,6 +232,7 @@
     "progress.step_compose": "合成画面",
     "progress.step_video": "创建视频片段",
     "progress.concatenating": "正在拼接视频...",
+    "progress.rendering_hyperframes": "正在使用 HyperFrames 渲染...",
     "progress.generation": "正在合成视频...",
     "progress.finalizing": "完成中...",
     "progress.completed": "✅ 生成完成",

@@ -232,6 +232,7 @@
     "progress.step_compose": "Composing frame",
     "progress.step_video": "Creating video segment",
     "progress.concatenating": "Concatenating video...",
+    "progress.rendering_hyperframes": "Rendering with HyperFrames...",
     "progress.finalizing": "Finalizing...",
     "progress.generation": "Video is being synthesized...",
     "progress.completed": "✅ Completed",
