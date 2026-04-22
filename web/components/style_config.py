@@ -719,9 +719,27 @@ def _format_prompt_prefix_generated_at(iso_string: str | None) -> str | None:
     return parsed.strftime("%m-%d %H:%M")
 
 
-def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_width: int, media_height: int) -> str:
+def _resolve_prompt_prefix_workflow_display_label(
+    workflow_key: str | None,
+    workflow_display_map: dict[str, str],
+) -> str | None:
+    """Resolve a human-readable workflow label for prompt-prefix details."""
+    normalized = (workflow_key or "").strip()
+    if not normalized:
+        return None
+    return workflow_display_map.get(normalized) or normalized
+
+
+def _render_image_prompt_prefix_library(
+    pixelle_video,
+    workflow_key: str,
+    media_width: int,
+    media_height: int,
+    workflow_display_map: dict[str, str] | None = None,
+) -> str:
     """Render the gallery-style image prompt prefix library UI and return effective prefix content."""
     language = get_language()
+    workflow_display_map = workflow_display_map or {}
     image_config = config_manager.config.comfyui.image
     library = config_manager.get_image_prompt_prefix_library()
     library_items = library.get("items", [])
@@ -1039,10 +1057,14 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                 if panel_item.get("note"):
                     st.caption(panel_item["note"])
                 st.caption(_get_prompt_prefix_cover_status_label(panel_cover_state))
-                if panel_cover_state.get("workflow_key"):
+                workflow_display_label = _resolve_prompt_prefix_workflow_display_label(
+                    panel_cover_state.get("workflow_key"),
+                    workflow_display_map,
+                )
+                if workflow_display_label:
                     st.caption(
                         f"{tr('style.prefix_library.thumbnail_workflow_label')}: "
-                        f"{panel_cover_state['workflow_key']}"
+                        f"{workflow_display_label}"
                     )
                 if panel_cover_state.get("generated_at"):
                     st.caption(
@@ -2299,6 +2321,10 @@ def render_style_config(pixelle_video):
             # Value: "runninghub/image_flux.json"
             workflow_options = [wf["display_name"] for wf in workflows]
             workflow_keys = [wf["key"] for wf in workflows]
+            workflow_display_map = {
+                str(wf["key"]): str(wf["display_name"])
+                for wf in all_workflows
+            }
         
             # If user has a saved preference in config, try to match it
             comfyui_config = config_manager.get_comfyui_config()
@@ -2391,6 +2417,7 @@ def render_style_config(pixelle_video):
                     workflow_key=workflow_key,
                     media_width=int(media_width),
                     media_height=int(media_height),
+                    workflow_display_map=workflow_display_map,
                 )
         
     

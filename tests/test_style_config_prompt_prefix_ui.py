@@ -444,6 +444,28 @@ def test_format_prompt_prefix_generated_at_uses_compact_timestamp():
     assert style_config._format_prompt_prefix_generated_at("not-an-iso-string") == "not-an-iso-string"
 
 
+def test_resolve_prompt_prefix_workflow_display_label_prefers_display_name_map():
+    workflow_display_map = {
+        "selfhost/image_z_image_turbo.json": "image_z_image_turbo.json - Selfhost",
+    }
+
+    assert (
+        style_config._resolve_prompt_prefix_workflow_display_label(
+            "selfhost/image_z_image_turbo.json",
+            workflow_display_map,
+        )
+        == "image_z_image_turbo.json - Selfhost"
+    )
+    assert (
+        style_config._resolve_prompt_prefix_workflow_display_label(
+            "selfhost/missing.json",
+            workflow_display_map,
+        )
+        == "selfhost/missing.json"
+    )
+    assert style_config._resolve_prompt_prefix_workflow_display_label(None, workflow_display_map) is None
+
+
 def test_build_prompt_prefix_live_preview_map_ignores_compare_preview_results(monkeypatch):
     fake_streamlit = type(
         "FakeStreamlit",
@@ -526,6 +548,8 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "style.prefix_library.thumbnail_generated_at_label" in source
     assert "style.prefix_library.thumbnail_reference_prompt_label" in source
     assert "_format_prompt_prefix_generated_at" in source
+    assert "_resolve_prompt_prefix_workflow_display_label" in source
+    assert "workflow_display_map=workflow_display_map" in source
     assert 'st.container(key="prompt_prefix_library_root")' in current_prefix_section
     assert ".st-key-prompt_prefix_library_root div.stButton > button p" in current_prefix_section
     assert "word-break: keep-all !important" in current_prefix_section
