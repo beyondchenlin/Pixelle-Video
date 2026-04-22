@@ -28,6 +28,7 @@ from pixelle_video.config import config_manager
 from pixelle_video.config.storyboard_preset_library import lookup_world_preset
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
+from pixelle_video.utils.json_parsing import parse_llm_json_response
 from pixelle_video.utils.prompt_helper import (
     assemble_image_prompt,
     assemble_negative_prompt,
@@ -726,30 +727,12 @@ def _parse_json(text: str) -> dict:
     Raises:
         json.JSONDecodeError: If no valid JSON found
     """
-    # Try direct parsing first
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-    
-    # Try to extract JSON from markdown code block
-    json_pattern = r'```(?:json)?\s*([\s\S]+?)\s*```'
-    match = re.search(json_pattern, text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except json.JSONDecodeError:
-            pass
-    
-    # Try to find any JSON object in the text
-    json_pattern = r'\{[^{}]*(?:"narrations"|"image_prompts")\s*:\s*\[[^\]]*\][^{}]*\}'
-    match = re.search(json_pattern, text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            pass
-    
-    # If all fails, raise error
-    raise json.JSONDecodeError("No valid JSON found", text, 0)
+    payload = parse_llm_json_response(
+        text,
+        allow_code_fence=True,
+        allow_embedded_json=True,
+    )
+    if not isinstance(payload, dict):
+        raise json.JSONDecodeError("Top-level JSON payload must be an object", text, 0)
+    return payload
 

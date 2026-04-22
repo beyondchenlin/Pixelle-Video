@@ -6,6 +6,7 @@ import json
 from typing import Any, Mapping
 
 from pixelle_video.models.storyboard_planning import FramePlan
+from pixelle_video.utils.json_parsing import parse_llm_json_response
 
 _ALLOWED_FRAME_SOURCES = {"planner_generated", "user_edited", "repair_adjusted", "fallback_regenerated"}
 _ALLOWED_OVERRIDE_SOURCES = {"user_preview"}
@@ -86,7 +87,7 @@ def _extract_json_payload(raw_response: str) -> Any:
         raise ValueError("storyboard planning response does not contain JSON")
 
     try:
-        return json.loads(text)
+        return parse_llm_json_response(text, allow_code_fence=True, allow_embedded_json=False)
     except json.JSONDecodeError as exc:
         raise ValueError("storyboard planning response must be raw JSON only") from exc
 

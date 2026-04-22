@@ -540,16 +540,23 @@ async def test_plan_storyboard_batch_normalizes_numeric_scene_ids_from_llm():
     assert [frame.scene_id for frame in result.frames] == ["1", "2"]
 
 
-@pytest.mark.parametrize(
-    "raw_response",
-    [
+def test_parse_storyboard_frames_accepts_markdown_fenced_json():
+    plans = parse_storyboard_frames(
         """
         ```json
         {
           "frames": []
         }
         ```
-        """,
+        """
+    )
+
+    assert plans == []
+
+
+@pytest.mark.parametrize(
+    "raw_response",
+    [
         """
         Here is the plan:
         {"frames": []}
@@ -560,7 +567,7 @@ async def test_plan_storyboard_batch_normalizes_numeric_scene_ids_from_llm():
         """,
     ],
 )
-def test_parse_storyboard_frames_rejects_wrapped_or_trailing_text(raw_response: str):
+def test_parse_storyboard_frames_rejects_non_json_wrappers(raw_response: str):
     with pytest.raises(ValueError, match="raw JSON only"):
         parse_storyboard_frames(raw_response)
 

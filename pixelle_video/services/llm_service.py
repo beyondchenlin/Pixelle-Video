@@ -17,12 +17,13 @@ Supports structured output via response_type parameter (Pydantic model).
 """
 
 import json
-import re
 from typing import Optional, Type, TypeVar, Union
 
+from loguru import logger
 from openai import AsyncOpenAI
 from pydantic import BaseModel
-from loguru import logger
+
+from pixelle_video.utils.json_parsing import parse_llm_json_response
 
 
 T = TypeVar("T", bound=BaseModel)
@@ -289,33 +290,15 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
         Returns:
             Parsed model instance
         """
-        # Try direct JSON parsing first
         try:
-            data = json.loads(content)
+            data = parse_llm_json_response(
+                content,
+                allow_code_fence=True,
+                allow_embedded_json=True,
+            )
             return response_type.model_validate(data)
         except json.JSONDecodeError:
             pass
-        
-        # Try extracting from markdown code block
-        json_pattern = r'```(?:json)?\s*([\s\S]+?)\s*```'
-        match = re.search(json_pattern, content, re.DOTALL)
-        if match:
-            try:
-                data = json.loads(match.group(1))
-                return response_type.model_validate(data)
-            except json.JSONDecodeError:
-                pass
-        
-        # Try to find any JSON object in the text
-        brace_start = content.find('{')
-        brace_end = content.rfind('}')
-        if brace_start != -1 and brace_end > brace_start:
-            try:
-                json_str = content[brace_start:brace_end + 1]
-                data = json.loads(json_str)
-                return response_type.model_validate(data)
-            except json.JSONDecodeError:
-                pass
         
         raise ValueError(f"Failed to parse LLM response as {response_type.__name__}: {content[:200]}...")
     
@@ -337,4 +320,3 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
         model = self.active
         base_url = self._get_config_value("base_url", "default")
         return f"<LLMService model={model!r} base_url={base_url!r}>"
-
