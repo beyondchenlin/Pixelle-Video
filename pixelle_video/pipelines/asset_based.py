@@ -834,6 +834,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
                     "llm_model": self.core.config.get("llm", {}).get("model", "unknown"),
                     "llm_base_url": self.core.config.get("llm", {}).get("base_url", "unknown"),
                     "source": ctx.request.get("source", "runninghub"),
+                    "render_backend": storyboard.config.render_backend if storyboard else None,
                 }
             }
             

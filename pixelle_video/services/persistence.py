@@ -23,7 +23,10 @@ from datetime import datetime
 from loguru import logger
 
 from pixelle_video.models.storyboard import Storyboard, StoryboardFrame, StoryboardConfig, ContentMetadata
-from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND
+from pixelle_video.render_backend import (
+    DEFAULT_RENDER_BACKEND,
+    HYPERFRAMES_COMPILED_RENDER_BACKEND,
+)
 
 
 class PersistenceService:
@@ -417,7 +420,9 @@ class PersistenceService:
             subtitle_alignment_engine=data.get("subtitle_alignment_engine", "qwen_forced_aligner"),
             silence_trim_tool=data.get("silence_trim_tool"),
             silence_trim_margin_ms=data.get("silence_trim_margin_ms", 120),
-            render_backend=data.get("render_backend", DEFAULT_RENDER_BACKEND),
+            render_backend=self._normalize_persisted_render_backend(
+                data.get("render_backend", DEFAULT_RENDER_BACKEND)
+            ),
             media_width=data.get("media_width", data.get("image_width", 1024)),  # Backward compatibility
             media_height=data.get("media_height", data.get("image_height", 1024)),  # Backward compatibility
             media_workflow=data.get("media_workflow", data.get("image_workflow")),  # Backward compatibility
@@ -425,6 +430,20 @@ class PersistenceService:
             frame_template=data.get("frame_template", "1080x1920/default.html"),
             template_params=data.get("template_params"),
         )
+
+    def _normalize_persisted_render_backend(self, render_backend: Any) -> str:
+        """
+        Keep historical storyboard.json files readable after backend enum tightening.
+
+        This does not relax runtime config or API validation; it only handles already
+        persisted task data written before `hyperframes_compiled` became the canonical
+        name for the compiled HyperFrames path.
+        """
+        if render_backend == "hyperframes":
+            return HYPERFRAMES_COMPILED_RENDER_BACKEND
+        if not render_backend:
+            return DEFAULT_RENDER_BACKEND
+        return str(render_backend)
     
     def _frame_to_dict(self, frame: StoryboardFrame) -> Dict[str, Any]:
         """Convert StoryboardFrame to dict"""

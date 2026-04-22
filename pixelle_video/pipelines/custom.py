@@ -466,6 +466,7 @@ class CustomPipeline(BasePipeline):
                     "llm_base_url": self.core.config.get("llm", {}).get("base_url", "unknown"),
                     "comfyui_url": self.core.config.get("comfyui", {}).get("comfyui_url", "unknown"),
                     "runninghub_enabled": bool(self.core.config.get("comfyui", {}).get("runninghub_api_key")),
+                    "render_backend": storyboard.config.render_backend,
                 }
             }
             

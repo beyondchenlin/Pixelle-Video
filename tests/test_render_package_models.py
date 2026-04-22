@@ -10,7 +10,7 @@ from pixelle_video.models.render_package import (
     SentenceUnit,
     VisualClip,
 )
-from pixelle_video.models.storyboard import StoryboardConfig
+from pixelle_video.models.storyboard import Storyboard, StoryboardConfig
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.pipelines.linear import PipelineContext
@@ -133,6 +133,41 @@ def test_storyboard_config_rejects_removed_hyperframes_alias():
             media_height=1920,
             render_backend="hyperframes",
         )
+
+
+def test_persistence_loads_historical_hyperframes_backend_as_compiled(tmp_path):
+    config = {
+        "task_id": "task-1",
+        "n_storyboard": 1,
+        "min_narration_words": 5,
+        "max_narration_words": 20,
+        "min_image_prompt_words": 30,
+        "max_image_prompt_words": 60,
+        "video_fps": 30,
+        "tts_inference_mode": "local",
+        "voice_id": None,
+        "tts_workflow": None,
+        "tts_speed": None,
+        "ref_audio": None,
+        "tts_batching_mode": "paragraph",
+        "tts_batch_max_sentences": 8,
+        "tts_batch_max_chars": 220,
+        "subtitle_alignment_engine": "qwen_forced_aligner",
+        "silence_trim_tool": None,
+        "silence_trim_margin_ms": 120,
+        "render_backend": "hyperframes",
+        "media_width": 1080,
+        "media_height": 1920,
+        "media_workflow": None,
+        "media_negative_prompt": None,
+        "frame_template": "1080x1920/image_default.html",
+        "template_params": None,
+    }
+
+    service = PersistenceService(output_dir=str(tmp_path))
+    restored = service._dict_to_config(config)
+
+    assert restored.render_backend == "hyperframes_compiled"
 
 
 def test_render_config_loads_and_saves_through_yaml_round_trip(tmp_path):
@@ -495,3 +530,115 @@ async def test_asset_based_pipeline_initialize_storyboard_uses_render_config_def
     assert captured["silence_trim_tool"] == "ffmpeg"
     assert captured["silence_trim_margin_ms"] == 75
     assert captured["render_backend"] == "legacy"
+
+
+@pytest.mark.asyncio
+async def test_custom_pipeline_persist_task_data_records_render_backend(tmp_path):
+    class _RecordingPersistence:
+        def __init__(self):
+            self.saved_metadata = None
+
+        async def save_task_metadata(self, task_id, metadata):
+            self.saved_metadata = (task_id, metadata)
+
+        async def save_storyboard(self, task_id, storyboard):
+            return None
+
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {
+                "llm": {"model": "demo-llm", "base_url": "http://llm"},
+                "comfyui": {"comfyui_url": "http://comfyui", "runninghub_api_key": None},
+            },
+            "llm": object(),
+            "tts": object(),
+            "media": object(),
+            "video": object(),
+            "persistence": _RecordingPersistence(),
+        },
+    )()
+
+    pipeline = CustomPipeline(fake_core)
+    storyboard = Storyboard(
+        title="demo",
+        config=StoryboardConfig(
+            media_width=1080,
+            media_height=1920,
+            task_id="task-1",
+            render_backend="legacy",
+        ),
+    )
+    result = type(
+        "Result",
+        (),
+        {
+            "video_path": str(tmp_path / "final.mp4"),
+            "duration": 2.0,
+            "file_size": 123,
+        },
+    )()
+
+    await pipeline._persist_task_data(
+        storyboard=storyboard,
+        result=result,
+        input_params={"text": "demo"},
+    )
+
+    assert fake_core.persistence.saved_metadata is not None
+    _, metadata = fake_core.persistence.saved_metadata
+    assert metadata["config"]["render_backend"] == "legacy"
+
+
+@pytest.mark.asyncio
+async def test_asset_based_pipeline_persist_task_data_records_render_backend(tmp_path):
+    class _RecordingPersistence:
+        def __init__(self):
+            self.saved_metadata = None
+
+        async def save_task_metadata(self, task_id, metadata):
+            self.saved_metadata = (task_id, metadata)
+
+        async def save_storyboard(self, task_id, storyboard):
+            return None
+
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {
+                "llm": {"model": "demo-llm", "base_url": "http://llm"},
+            },
+            "llm": object(),
+            "tts": object(),
+            "media": object(),
+            "video": object(),
+            "persistence": _RecordingPersistence(),
+        },
+    )()
+
+    pipeline = AssetBasedPipeline(fake_core)
+    output_path = tmp_path / "final.mp4"
+    output_path.write_bytes(b"video")
+    storyboard = Storyboard(
+        title="demo",
+        config=StoryboardConfig(
+            media_width=1080,
+            media_height=1920,
+            task_id="task-1",
+            render_backend="legacy",
+        ),
+    )
+    ctx = PipelineContext(input_text="demo", params={})
+    ctx.task_id = "task-1"
+    ctx.final_video_path = str(output_path)
+    ctx.storyboard = storyboard
+    ctx.title = "demo"
+    ctx.request = {"source": "runninghub"}
+
+    await pipeline._persist_task_data(ctx)
+
+    assert fake_core.persistence.saved_metadata is not None
+    _, metadata = fake_core.persistence.saved_metadata
+    assert metadata["config"]["render_backend"] == "legacy"
