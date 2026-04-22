@@ -1,5 +1,9 @@
 from pixelle_video.models.render_package import CaptionCue, VisualClip
-from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
+from pixelle_video.models.template_render_context import (
+    PHASE1_TEMPLATE_FIELD_INVENTORY,
+    TemplateAudioRef,
+    TemplateRenderContext,
+)
 
 
 def test_template_render_context_uses_render_timeline_values():
@@ -39,3 +43,30 @@ def test_template_render_context_uses_render_timeline_values():
 
     assert context.visuals[0].start == 0.1
     assert context.captions[0].end == 1.5
+
+
+def test_template_render_context_exposes_phase1_shell_fields():
+    field_names = TemplateRenderContext.__dataclass_fields__.keys()
+
+    assert "title" in field_names
+    assert "author" in field_names
+    assert "footer" in field_names
+    assert "style_profile" in field_names
+    assert "template_params" in field_names
+
+
+def test_phase1_field_inventory_covers_required_shell_regions():
+    required_regions = {
+        "title_region",
+        "media_slot",
+        "subtitle_safe_area",
+        "author_footer_region",
+        "decorative_background",
+        "style_profile",
+    }
+
+    assert {"image_default", "image_life_insights_light"} <= set(
+        PHASE1_TEMPLATE_FIELD_INVENTORY.keys()
+    )
+    for mapping in PHASE1_TEMPLATE_FIELD_INVENTORY.values():
+        assert required_regions <= set(mapping.keys())

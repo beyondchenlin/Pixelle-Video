@@ -1,0 +1,8 @@
+/* Phase-1 HyperFrames font entrypoint.
+   Only repository-local font assets may be referenced from this file. */
+
+:root {
+  --hf-font-sans: "PingFang SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+  --hf-font-display: var(--hf-font-sans);
+  --hf-font-brush: "KaiTi", "STKaiti", "FangSong", cursive;
+}
