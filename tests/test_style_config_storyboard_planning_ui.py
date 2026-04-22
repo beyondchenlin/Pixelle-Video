@@ -1,10 +1,13 @@
 import json
 from pathlib import Path
 
-from pixelle_video.config.storyboard_preset_library import BUILTIN_SHOT_PRESETS, BUILTIN_WORLD_PRESETS
 import web.components.style_config as style_config
-from web.components.style_config import build_storyboard_control_payload
 import web.pipelines.standard as standard_pipeline
+from pixelle_video.config.storyboard_preset_library import (
+    BUILTIN_SHOT_PRESETS,
+    BUILTIN_WORLD_PRESETS,
+)
+from web.components.style_config import build_storyboard_control_payload
 
 
 class _FakeContext:

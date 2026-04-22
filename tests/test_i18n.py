@@ -1,6 +1,9 @@
 import locale
 
-from pixelle_video.config.storyboard_preset_library import BUILTIN_SHOT_PRESETS, BUILTIN_WORLD_PRESETS
+from pixelle_video.config.storyboard_preset_library import (
+    BUILTIN_SHOT_PRESETS,
+    BUILTIN_WORLD_PRESETS,
+)
 from web.i18n import detect_system_language, get_language, set_language, tr
 
 
