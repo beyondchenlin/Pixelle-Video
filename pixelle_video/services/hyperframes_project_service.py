@@ -8,7 +8,17 @@ import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from pixelle_video.models.render_package import AudioBlock, CaptionCue, RenderManifest, SentenceUnit, VisualClip
+from pixelle_video.models.render_package import (
+    AudioBlock,
+    CaptionCue,
+    RenderManifest,
+    SentenceUnit,
+    VisualClip,
+    resolve_render_window,
+)
+from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
+from pixelle_video.services.hyperframes_asset_materializer import HyperFramesAssetMaterializer
+from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 from pixelle_video.utils.os_util import get_output_path
 
 
@@ -21,11 +31,78 @@ class HyperFramesProjectPaths:
     captions_path: Path
 
 
+def _build_caption_cues_from_sentences(manifest: RenderManifest) -> list[CaptionCue]:
+    captions: list[CaptionCue] = []
+    for sentence in manifest.sentence_units:
+        try:
+            start, end = resolve_render_window(sentence)
+        except ValueError:
+            continue
+
+        captions.append(
+            CaptionCue(
+                id=sentence.id,
+                text=sentence.text,
+                start=float(start),
+                end=float(end),
+                frame_indices=list(sentence.frame_indices),
+                style_profile=manifest.template_id,
+            )
+        )
+    return captions
+
+
+def build_template_render_context(
+    manifest: RenderManifest,
+    *,
+    template_params: dict | None,
+) -> TemplateRenderContext:
+    params = dict(template_params or {})
+    caption_cues = list(manifest.caption_cues or _build_caption_cues_from_sentences(manifest))
+
+    duration_candidates = [float(manifest.master_audio_duration or 0.0)]
+    duration_candidates.extend(float(cue.end) for cue in caption_cues)
+    duration_candidates.extend(float(clip.end) for clip in manifest.visual_clips)
+    duration = max(duration_candidates, default=0.0)
+
+    audio = None
+    if manifest.master_audio_path:
+        audio = TemplateAudioRef(
+            path=manifest.master_audio_path,
+            duration=duration,
+        )
+
+    return TemplateRenderContext(
+        template_id=manifest.template_id,
+        canvas_width=manifest.canvas_width,
+        canvas_height=manifest.canvas_height,
+        duration=duration,
+        fps=manifest.fps,
+        title=manifest.title,
+        author=params.get("author"),
+        footer=params.get("footer"),
+        theme=params.get("theme"),
+        style_profile=params.get("style_profile", manifest.template_id),
+        template_params=params,
+        visuals=list(manifest.visual_clips),
+        captions=caption_cues,
+        audio=audio,
+    )
+
+
 class HyperFramesProjectService:
     """Write task-local HyperFrames project data files."""
 
-    def __init__(self, output_dir: str | None = None):
+    def __init__(
+        self,
+        output_dir: str | None = None,
+        *,
+        asset_materializer: HyperFramesAssetMaterializer | None = None,
+        compiler: HyperFramesCompiler | None = None,
+    ):
         self.output_dir = Path(output_dir) if output_dir is not None else Path(get_output_path())
+        self.asset_materializer = asset_materializer or HyperFramesAssetMaterializer()
+        self.compiler = compiler or HyperFramesCompiler()
 
     def get_task_dir(self, task_id: str) -> Path:
         return self.output_dir / task_id
@@ -41,30 +118,48 @@ class HyperFramesProjectService:
         manifest: RenderManifest,
         master_audio_duration: float | None = None,
     ) -> HyperFramesProjectPaths:
-        normalized_manifest = self._normalize_manifest_timeline(manifest, master_audio_duration)
-        data_dir = self.get_data_dir(normalized_manifest.task_id)
-        data_dir.mkdir(parents=True, exist_ok=True)
-
-        manifest_path = data_dir / "render_manifest.json"
-        captions_path = data_dir / "captions.json"
-        effective_caption_cues = self._resolve_caption_cues(normalized_manifest)
-
-        self._write_json(
-            manifest_path,
-            self._build_manifest_payload(normalized_manifest, effective_caption_cues),
+        normalized_manifest, effective_caption_cues = self._prepare_manifest_for_export(
+            manifest,
+            master_audio_duration,
         )
-        self._write_json(
-            captions_path,
-            self._build_captions_payload(normalized_manifest, effective_caption_cues),
+        project_paths = self._build_project_paths(normalized_manifest.task_id)
+        self._write_diagnostic_payloads(
+            project_paths,
+            normalized_manifest,
+            effective_caption_cues,
+        )
+        return project_paths
+
+    def write_project(
+        self,
+        manifest: RenderManifest,
+        *,
+        template_params: dict | None = None,
+        master_audio_duration: float | None = None,
+    ) -> HyperFramesProjectPaths:
+        normalized_manifest, _ = self._prepare_manifest_for_export(
+            manifest,
+            master_audio_duration,
+        )
+        project_paths = self._build_project_paths(normalized_manifest.task_id)
+        localized_manifest = self._materialize_project_assets(
+            normalized_manifest,
+            project_paths.project_dir,
+        )
+        localized_cues = self._resolve_caption_cues(localized_manifest)
+        localized_manifest = replace(localized_manifest, caption_cues=localized_cues)
+        context = build_template_render_context(
+            localized_manifest,
+            template_params=template_params,
         )
 
-        return HyperFramesProjectPaths(
-            task_dir=self.get_task_dir(normalized_manifest.task_id),
-            project_dir=self.get_project_dir(normalized_manifest.task_id),
-            data_dir=data_dir,
-            manifest_path=manifest_path,
-            captions_path=captions_path,
+        self.compiler.compile(project_dir=project_paths.project_dir, context=context)
+        self._write_diagnostic_payloads(
+            project_paths,
+            localized_manifest,
+            localized_cues,
         )
+        return project_paths
 
     def _build_manifest_payload(
         self,
@@ -87,7 +182,94 @@ class HyperFramesProjectService:
         }
 
     def _resolve_caption_cues(self, manifest: RenderManifest) -> list[CaptionCue]:
-        return list(manifest.caption_cues or self._build_caption_cues_from_sentences(manifest))
+        return list(manifest.caption_cues or _build_caption_cues_from_sentences(manifest))
+
+    def _prepare_manifest_for_export(
+        self,
+        manifest: RenderManifest,
+        master_audio_duration: float | None,
+    ) -> tuple[RenderManifest, list[CaptionCue]]:
+        normalized_manifest = self._normalize_manifest_timeline(manifest, master_audio_duration)
+        effective_caption_cues = self._resolve_caption_cues(normalized_manifest)
+        normalized_manifest = replace(
+            normalized_manifest,
+            caption_cues=effective_caption_cues,
+        )
+        return normalized_manifest, effective_caption_cues
+
+    def _build_project_paths(self, task_id: str) -> HyperFramesProjectPaths:
+        data_dir = self.get_data_dir(task_id)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return HyperFramesProjectPaths(
+            task_dir=self.get_task_dir(task_id),
+            project_dir=self.get_project_dir(task_id),
+            data_dir=data_dir,
+            manifest_path=data_dir / "render_manifest.json",
+            captions_path=data_dir / "captions.json",
+        )
+
+    def _write_diagnostic_payloads(
+        self,
+        project_paths: HyperFramesProjectPaths,
+        manifest: RenderManifest,
+        caption_cues: list[CaptionCue],
+    ) -> None:
+        self._write_json(
+            project_paths.manifest_path,
+            self._build_manifest_payload(manifest, caption_cues),
+        )
+        self._write_json(
+            project_paths.captions_path,
+            self._build_captions_payload(manifest, caption_cues),
+        )
+
+    def _materialize_project_assets(
+        self,
+        manifest: RenderManifest,
+        project_dir: Path,
+    ) -> RenderManifest:
+        audio_sources: dict[str, Path] = {}
+        if manifest.master_audio_path:
+            audio_sources[Path(manifest.master_audio_path).name] = Path(manifest.master_audio_path)
+
+        image_sources: dict[str, Path] = {}
+        video_sources: dict[str, Path] = {}
+        for clip in manifest.visual_clips:
+            source_path = Path(clip.media_path)
+            if clip.media_type == "video":
+                video_sources[source_path.name] = source_path
+            else:
+                image_sources[source_path.name] = source_path
+
+        materialized = self.asset_materializer.materialize(
+            project_dir=project_dir,
+            audio_sources=audio_sources,
+            image_sources=image_sources,
+            video_sources=video_sources,
+        )
+
+        localized_visuals: list[VisualClip] = []
+        for clip in manifest.visual_clips:
+            source_name = Path(clip.media_path).name
+            target_group = "video" if clip.media_type == "video" else "images"
+            localized_visuals.append(
+                replace(
+                    clip,
+                    media_path=materialized[target_group][source_name],
+                )
+            )
+
+        localized_master_audio_path = manifest.master_audio_path
+        if manifest.master_audio_path:
+            localized_master_audio_path = materialized["audio"][
+                Path(manifest.master_audio_path).name
+            ]
+
+        return replace(
+            manifest,
+            master_audio_path=localized_master_audio_path,
+            visual_clips=localized_visuals,
+        )
 
     def _normalize_manifest_timeline(
         self,
@@ -215,34 +397,6 @@ class HyperFramesProjectService:
     @staticmethod
     def _clamp_time(value: float, duration: float) -> float:
         return max(0.0, min(float(value), max(0.0, float(duration))))
-
-    def _build_caption_cues_from_sentences(self, manifest: RenderManifest) -> list[CaptionCue]:
-        captions: list[CaptionCue] = []
-        for sentence in manifest.sentence_units:
-            start = (
-                sentence.remapped_start
-                if sentence.remapped_start is not None
-                else sentence.source_start
-            )
-            end = (
-                sentence.remapped_end
-                if sentence.remapped_end is not None
-                else sentence.source_end
-            )
-            if start is None or end is None:
-                continue
-
-            captions.append(
-                CaptionCue(
-                    id=sentence.id,
-                    text=sentence.text,
-                    start=float(start),
-                    end=float(end),
-                    frame_indices=list(sentence.frame_indices),
-                    style_profile=manifest.template_id,
-                )
-            )
-        return captions
 
     def _write_json(self, path: Path, payload: dict) -> None:
         with open(path, "w", encoding="utf-8") as handle:

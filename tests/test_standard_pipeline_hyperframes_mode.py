@@ -161,6 +161,7 @@ class _FakeHyperFramesProjectService:
     def __init__(self, project_dir: Path):
         self.project_dir = project_dir
         self.manifest = None
+        self.write_project_calls: list[dict] = []
 
     def write_project_data(self, manifest, master_audio_duration=None):
         self.manifest = manifest
@@ -174,13 +175,47 @@ class _FakeHyperFramesProjectService:
             captions_path=data_dir / "captions.json",
         )
 
+    def write_project(self, manifest, *, template_params=None, master_audio_duration=None):
+        self.manifest = manifest
+        self.write_project_calls.append(
+            {
+                "manifest": manifest,
+                "template_params": dict(template_params or {}),
+                "master_audio_duration": master_audio_duration,
+            }
+        )
+        return self.write_project_data(
+            manifest,
+            master_audio_duration=master_audio_duration,
+        )
+
 
 class _FakeHyperFramesRenderer:
     def __init__(self):
         self.calls: list[dict] = []
 
-    def render(self, project_dir, output_path=None):
-        self.calls.append({"project_dir": project_dir, "output_path": output_path})
+    def render(
+        self,
+        project_dir,
+        output_path=None,
+        *,
+        width=None,
+        height=None,
+        fps=None,
+        expected_duration=None,
+        expect_audio=None,
+    ):
+        self.calls.append(
+            {
+                "project_dir": project_dir,
+                "output_path": output_path,
+                "width": width,
+                "height": height,
+                "fps": fps,
+                "expected_duration": expected_duration,
+                "expect_audio": expect_audio,
+            }
+        )
         resolved_output = Path(output_path or Path(project_dir) / "renders" / "task.mp4")
         resolved_output.parent.mkdir(parents=True, exist_ok=True)
         resolved_output.write_bytes(b"video")
@@ -332,6 +367,7 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
     core = _DummyCore(tmp_path)
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_context(tmp_path, silence_trim_tool="auto_editor")
+    ctx.storyboard.config.template_params = {"author": "demo", "footer": "LanRen"}
     internal_output = tmp_path / "task-1" / "final.mp4"
     requested_output = tmp_path / "deliverables" / "demo.mp4"
     ctx.final_video_path = str(internal_output)
@@ -381,6 +417,13 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
     assert core.audio_edit_service.remap_calls
     assert manifest.master_audio_path.endswith("trimmed_master_audio.wav")
     assert ctx.storyboard.total_duration == pytest.approx(1.8)
+    assert core.hyperframes_project_service.write_project_calls == [
+        {
+            "manifest": manifest,
+            "template_params": {"author": "demo", "footer": "LanRen"},
+            "master_audio_duration": 1.8,
+        }
+    ]
     assert [clip.media_path for clip in manifest.visual_clips] == [
         str(tmp_path / "00_raw.png"),
         str(tmp_path / "01_raw.png"),
@@ -393,6 +436,11 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
         {
             "project_dir": str(tmp_path / "task-1" / "hyperframes"),
             "output_path": str(internal_output),
+            "width": 1080,
+            "height": 1920,
+            "fps": 30,
+            "expected_duration": 1.8,
+            "expect_audio": True,
         }
     ]
     assert requested_output.exists()

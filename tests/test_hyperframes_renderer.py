@@ -98,6 +98,92 @@ def test_render_materializes_template_and_invokes_node_bridge(monkeypatch, tmp_p
     assert (project_dir / "compositions" / "captions.html").exists()
 
 
+def test_render_preserves_compiled_project_entrypoint_when_present(monkeypatch, tmp_path):
+    project_dir = tmp_path / "output" / "task-compiled" / "hyperframes"
+    compositions_dir = project_dir / "compositions"
+    compositions_dir.mkdir(parents=True, exist_ok=True)
+    _write_manifest(project_dir, task_id="task-compiled")
+    (project_dir / "index.html").write_text(
+        "<!doctype html><title>compiled</title>",
+        encoding="utf-8",
+    )
+    (compositions_dir / "captions.html").write_text(
+        "<div data-composition-id='captions'></div>",
+        encoding="utf-8",
+    )
+
+    bridge_script = tmp_path / "render.mjs"
+    bridge_script.write_text("// bridge placeholder", encoding="utf-8")
+
+    def fake_run(command, capture_output, text, check, cwd):
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout=json.dumps({"output_path": str(project_dir / "renders" / "task-compiled.mp4")}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    renderer = HyperFramesRenderer(
+        bridge_script=str(bridge_script),
+        template_root=str(tmp_path / "missing-templates"),
+    )
+
+    renderer.render(str(project_dir))
+
+    assert (project_dir / "index.html").read_text(encoding="utf-8") == "<!doctype html><title>compiled</title>"
+
+
+def test_render_rejects_video_without_audio_stream(monkeypatch, tmp_path):
+    project_dir = tmp_path / "output" / "task-7" / "hyperframes"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    _write_manifest(project_dir, task_id="task-7")
+
+    template_root = tmp_path / "templates"
+    _write_template(template_root)
+
+    bridge_script = tmp_path / "render.mjs"
+    bridge_script.write_text("// bridge placeholder", encoding="utf-8")
+
+    def fake_run(command, capture_output, text, check, cwd):
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout=json.dumps({"output_path": str(project_dir / "renders" / "task-7.mp4")}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    renderer = HyperFramesRenderer(
+        bridge_script=str(bridge_script),
+        template_root=str(template_root),
+    )
+    monkeypatch.setattr(
+        renderer,
+        "_probe_output",
+        lambda output_path: {
+            "has_video": True,
+            "has_audio": False,
+            "duration": 8.0,
+            "width": 1080,
+            "height": 1920,
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="audio stream"):
+        renderer.render(
+            str(project_dir),
+            output_path=str(project_dir / "renders" / "task-7.mp4"),
+            width=1080,
+            height=1920,
+            fps=30,
+            expected_duration=12.5,
+            expect_audio=True,
+        )
+
+
 def test_render_rejects_invalid_template_id_before_joining_paths(tmp_path):
     project_dir = tmp_path / "output" / "task-6" / "hyperframes"
     project_dir.mkdir(parents=True, exist_ok=True)

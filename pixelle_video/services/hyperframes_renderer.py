@@ -57,11 +57,22 @@ class HyperFramesRenderer:
             else repo_root / "resources" / "hyperframes" / "templates"
         )
 
-    def render(self, project_dir: str, output_path: Optional[str] = None) -> str:
+    def render(
+        self,
+        project_dir: str,
+        output_path: Optional[str] = None,
+        *,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        fps: Optional[int] = None,
+        expected_duration: Optional[float] = None,
+        expect_audio: bool = False,
+    ) -> str:
         project_path = Path(project_dir).resolve()
         manifest = self._load_manifest(project_path)
         template_id = _validate_manifest_identifier("template_id", manifest.get("template_id"))
-        self._materialize_template(project_path, template_id)
+        if not self._has_compiled_entrypoint(project_path):
+            self._materialize_template(project_path, template_id)
 
         resolved_output_path = (
             Path(output_path).resolve()
@@ -93,7 +104,27 @@ class HyperFramesRenderer:
             detail = stderr or stdout or "unknown error"
             raise RuntimeError(f"HyperFrames bridge failed: {detail}")
 
-        return self._parse_output_path(completed.stdout, resolved_output_path)
+        final_output_path = self._parse_output_path(completed.stdout, resolved_output_path)
+
+        if (
+            width is not None
+            or height is not None
+            or expected_duration is not None
+            or expect_audio
+        ):
+            probe = self._probe_output(final_output_path)
+            if not probe["has_video"]:
+                raise RuntimeError("Rendered HyperFrames output is missing a video stream.")
+            if expect_audio and not probe["has_audio"]:
+                raise RuntimeError("Rendered HyperFrames output is missing an audio stream.")
+            if expected_duration is not None and abs(probe["duration"] - float(expected_duration)) > 0.35:
+                raise RuntimeError("Rendered HyperFrames output duration is outside tolerance.")
+            if width is not None and probe["width"] != int(width):
+                raise RuntimeError("Rendered HyperFrames output width does not match the requested canvas.")
+            if height is not None and probe["height"] != int(height):
+                raise RuntimeError("Rendered HyperFrames output height does not match the requested canvas.")
+
+        return final_output_path
 
     def _load_manifest(self, project_dir: Path) -> dict[str, Any]:
         manifest_path = project_dir / "data" / "render_manifest.json"
@@ -118,6 +149,41 @@ class HyperFramesRenderer:
 
             target_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, target_path)
+
+    def _has_compiled_entrypoint(self, project_dir: Path) -> bool:
+        return (
+            (project_dir / "index.html").exists()
+            and (project_dir / "compositions" / "captions.html").exists()
+        )
+
+    def _probe_output(self, output_path: str) -> dict[str, Any]:
+        completed = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-print_format",
+                "json",
+                "-show_streams",
+                "-show_format",
+                output_path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(completed.stdout)
+        streams = payload.get("streams", [])
+        video_stream = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
+        audio_stream = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
+
+        return {
+            "has_video": video_stream is not None,
+            "has_audio": audio_stream is not None,
+            "duration": float(payload.get("format", {}).get("duration", 0.0) or 0.0),
+            "width": int(video_stream.get("width", 0)) if video_stream else 0,
+            "height": int(video_stream.get("height", 0)) if video_stream else 0,
+        }
 
     def _parse_output_path(self, stdout: str, fallback_output_path: Path) -> str:
         for raw_line in reversed(stdout.splitlines()):

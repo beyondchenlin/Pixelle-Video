@@ -270,3 +270,12 @@ Get-ChildItem models\qwen\Qwen3-ForcedAligner-0.6B -Recurse | Select-Object Full
 
 - 不需要。
 - 本仓库任务也明确要求不要把 `tools/hyperframes_bridge/node_modules/` 纳入提交范围。
+
+## 2026-04-22 编译式 HyperFrames 新规则
+
+- `hyperframes_compiled` 现在走 compiled-project 路径，Pixelle 会先在任务目录下编译出可直接渲染的 `index.html` 与 `compositions/captions.html`，再交给 Node bridge 渲染。
+- runtime-critical 文件禁止依赖运行时 `fetch("./data/render_manifest.json")`、Google Fonts、CDN 脚本或其他公网资源。
+- phase-1 模板的本地字体入口统一为 `resources/hyperframes/runtime/fonts/phase1_fonts.css`。
+- phase-1 模板如需运行时库，只能放在 `resources/hyperframes/runtime/vendor/`，不得临时改回公网脚本地址。
+- `@hyperframes/producer` 是运行时真源；`vendor` 目录只承担模板依赖与升级对照责任，不替代 producer 包本身。
+- `data/render_manifest.json` 与 `data/captions.json` 仍然保留，但它们属于诊断输出，不再是运行时是否可渲染的前提条件。

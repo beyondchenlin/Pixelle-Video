@@ -772,14 +772,20 @@ class StandardPipeline(LinearVideoPipeline):
                 else "source"
             ),
         )
-        project_paths = self.core.hyperframes_project_service.write_project_data(
+        project_paths = self.core.hyperframes_project_service.write_project(
             manifest,
+            template_params=storyboard.config.template_params or {},
             master_audio_duration=master_audio_duration,
         )
 
         final_video_path = self.core.hyperframes_renderer.render(
             str(project_paths.project_dir),
             output_path=ctx.final_video_path,
+            width=config.media_width,
+            height=config.media_height,
+            fps=config.video_fps,
+            expected_duration=master_audio_duration,
+            expect_audio=bool(master_audio_path),
         )
 
         storyboard.final_video_path = final_video_path

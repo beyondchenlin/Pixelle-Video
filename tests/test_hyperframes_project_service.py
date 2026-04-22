@@ -1,7 +1,10 @@
 import json
 
 from pixelle_video.models.render_package import AudioBlock, CaptionCue, RenderManifest, SentenceUnit, VisualClip
-from pixelle_video.services.hyperframes_project_service import HyperFramesProjectService
+from pixelle_video.services.hyperframes_project_service import (
+    HyperFramesProjectService,
+    build_template_render_context,
+)
 
 
 def test_write_project_data_writes_manifest_and_captions_files(tmp_path):
@@ -74,6 +77,112 @@ def test_write_project_data_writes_manifest_and_captions_files(tmp_path):
     assert captions_data["task_id"] == "task-1"
     assert captions_data["captions"][0]["text"] == "Sentence 1"
     assert not (project_paths.data_dir / "render-manifest.json").exists()
+
+
+def test_build_template_render_context_prefers_remapped_timing_when_present():
+    sentences = [
+        SentenceUnit(
+            id="s1",
+            text="第一句",
+            frame_indices=[0],
+            block_id="block-1",
+            source_start=0.3,
+            source_end=2.8,
+            remapped_start=0.1,
+            remapped_end=2.2,
+        )
+    ]
+    manifest = RenderManifest(
+        task_id="task-1",
+        title="demo",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=768,
+        media_height=768,
+        fps=30,
+        template_id="image_default",
+        master_audio_path="assets/audio/master_audio.wav",
+        master_audio_duration=3.0,
+        sentence_units=sentences,
+        visual_clips=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0.1,
+                end=2.2,
+                media_path="assets/images/01_image.png",
+                media_type="image",
+            )
+        ],
+    )
+
+    context = build_template_render_context(
+        manifest,
+        template_params={"author": "demo", "footer": "LanRen"},
+    )
+
+    assert context.duration == 3.0
+    assert context.audio.path == "assets/audio/master_audio.wav"
+    assert context.captions[0].start == 0.1
+    assert context.captions[0].end == 2.2
+
+
+def test_write_project_materializes_local_assets_and_compiles_static_html(tmp_path):
+    source_audio = tmp_path / "master_audio.wav"
+    source_image = tmp_path / "01_image.png"
+    source_audio.write_bytes(b"wav")
+    source_image.write_bytes(b"png")
+
+    manifest = RenderManifest(
+        task_id="task-compiled",
+        title="demo",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=768,
+        media_height=768,
+        fps=30,
+        template_id="image_default",
+        master_audio_path=str(source_audio),
+        master_audio_duration=3.0,
+        sentence_units=[
+            SentenceUnit(
+                id="s1",
+                text="第一句",
+                frame_indices=[0],
+                block_id="block-1",
+                source_start=0.0,
+                source_end=1.2,
+                remapped_start=0.1,
+                remapped_end=1.0,
+            )
+        ],
+        visual_clips=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0.1,
+                end=1.0,
+                media_path=str(source_image),
+                media_type="image",
+            )
+        ],
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    project_paths = service.write_project(
+        manifest,
+        template_params={"author": "demo", "footer": "LanRen"},
+    )
+
+    index_html = (project_paths.project_dir / "index.html").read_text(encoding="utf-8")
+    manifest_data = json.loads(project_paths.manifest_path.read_text(encoding="utf-8"))
+
+    assert (project_paths.project_dir / "assets" / "audio" / "master_audio.wav").exists()
+    assert (project_paths.project_dir / "assets" / "images" / "01_image.png").exists()
+    assert 'src="assets/audio/master_audio.wav"' in index_html
+    assert 'src="assets/images/01_image.png"' in index_html
+    assert manifest_data["master_audio_path"] == "assets/audio/master_audio.wav"
+    assert manifest_data["visual_clips"][0]["media_path"] == "assets/images/01_image.png"
 
 
 def test_write_project_data_derives_captions_from_sentence_units_when_manifest_cues_missing(tmp_path):
