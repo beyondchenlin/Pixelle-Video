@@ -160,6 +160,202 @@ def build_storyboard_control_payload(
     return normalized_payload
 
 
+STORYBOARD_GUIDE_FIELD_SPECS: tuple[tuple[str, str], ...] = (
+    ("storyboard.world_preset", "storyboard.guide.field.world_preset"),
+    ("storyboard.shot_preset", "storyboard.guide.field.shot_preset"),
+    ("storyboard.consistency_strength", "storyboard.guide.field.consistency_strength"),
+    ("storyboard.content_mode", "storyboard.guide.field.content_mode"),
+    ("storyboard.role_strategy", "storyboard.guide.field.role_strategy"),
+    ("storyboard.role_locking_strength", "storyboard.guide.field.role_locking_strength"),
+    ("storyboard.shot_strategy", "storyboard.guide.field.shot_strategy"),
+)
+
+STORYBOARD_GUIDE_COMBO_SPECS: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "storyboard.guide.combo.explainer.title",
+        "storyboard.guide.combo.explainer.body",
+        "#b45309",
+        "rgba(255, 247, 237, 0.96)",
+    ),
+    (
+        "storyboard.guide.combo.theme_mapping.title",
+        "storyboard.guide.combo.theme_mapping.body",
+        "#0f766e",
+        "rgba(240, 253, 250, 0.96)",
+    ),
+    (
+        "storyboard.guide.combo.iteration.title",
+        "storyboard.guide.combo.iteration.body",
+        "#1d4ed8",
+        "rgba(239, 246, 255, 0.96)",
+    ),
+)
+
+
+def _build_storyboard_guide_note_html(title_key: str, body_key: str) -> str:
+    return f"""
+    <div style="
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(248, 250, 252, 0.92);
+        margin-bottom: 10px;
+    ">
+        <div style="
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #9a3412;
+            margin-bottom: 6px;
+        ">{escape(tr(title_key))}</div>
+        <div style="
+            font-size: 13px;
+            line-height: 1.65;
+            color: #44403c;
+        ">{escape(tr(body_key))}</div>
+    </div>
+    """
+
+
+def _build_storyboard_guide_combo_html(
+    title_key: str,
+    body_key: str,
+    accent_color: str,
+    background_color: str,
+) -> str:
+    return f"""
+    <div style="
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: {background_color};
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+        margin-bottom: 10px;
+    ">
+        <div style="
+            font-size: 13px;
+            font-weight: 700;
+            color: {accent_color};
+            margin-bottom: 6px;
+        ">{escape(tr(title_key))}</div>
+        <div style="
+            font-size: 13px;
+            line-height: 1.65;
+            color: #334155;
+        ">{escape(tr(body_key))}</div>
+    </div>
+    """
+
+
+def render_storyboard_planning_guide():
+    """Render a mixed quick-start + deep-dive guide for storyboard planning."""
+    st.markdown(
+        f"""
+        <div style="
+            margin: 10px 0 14px 0;
+            padding: 14px 16px;
+            border-radius: 16px;
+            border: 1px solid rgba(245, 158, 11, 0.24);
+            background: linear-gradient(135deg, rgba(255, 247, 237, 0.98), rgba(255, 251, 235, 0.94));
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+        ">
+            <div style="
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: #c2410c;
+                margin-bottom: 6px;
+            ">{escape(tr("storyboard.guide.quick_title"))}</div>
+            <div style="
+                font-size: 13px;
+                line-height: 1.7;
+                color: #44403c;
+            ">{escape(tr("storyboard.guide.quick_body"))}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    combo_cards_html = "".join(
+        _build_storyboard_guide_combo_html(title_key, body_key, accent_color, background_color)
+        for title_key, body_key, accent_color, background_color in STORYBOARD_GUIDE_COMBO_SPECS
+    )
+    field_items_html = "".join(
+        f"""
+        <li style="margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #1f2937;">{escape(tr(label_key))}</span><br/>
+            <span style="color: #475569;">{escape(tr(description_key))}</span>
+        </li>
+        """
+        for label_key, description_key in STORYBOARD_GUIDE_FIELD_SPECS
+    )
+
+    with st.expander(tr("storyboard.guide.title"), expanded=False):
+        st.markdown(
+            f"""
+            {_build_storyboard_guide_note_html("storyboard.guide.when_to_enable.title", "storyboard.guide.when_to_enable.body")}
+            {_build_storyboard_guide_note_html("storyboard.guide.when_to_skip.title", "storyboard.guide.when_to_skip.body")}
+            <div style="margin-top: 12px;">
+                <div style="
+                    font-size: 12px;
+                    font-weight: 700;
+                    letter-spacing: 0.08em;
+                    text-transform: uppercase;
+                    color: #92400e;
+                    margin-bottom: 8px;
+                ">{escape(tr("storyboard.guide.recommended_title"))}</div>
+                {combo_cards_html}
+            </div>
+            <div style="
+                margin-top: 14px;
+                padding: 14px 16px;
+                border-radius: 16px;
+                border: 1px solid rgba(148, 163, 184, 0.18);
+                background: rgba(255, 255, 255, 0.96);
+            ">
+                <div style="
+                    font-size: 12px;
+                    font-weight: 700;
+                    letter-spacing: 0.08em;
+                    text-transform: uppercase;
+                    color: #475569;
+                    margin-bottom: 10px;
+                ">{escape(tr("storyboard.guide.fields_title"))}</div>
+                <ul style="
+                    margin: 0;
+                    padding-left: 18px;
+                    font-size: 13px;
+                    line-height: 1.65;
+                ">
+                    {field_items_html}
+                </ul>
+            </div>
+            <div style="
+                margin-top: 12px;
+                padding: 12px 14px;
+                border-radius: 14px;
+                border: 1px solid rgba(59, 130, 246, 0.18);
+                background: rgba(239, 246, 255, 0.92);
+            ">
+                <div style="
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: #1d4ed8;
+                    margin-bottom: 6px;
+                ">{escape(tr("storyboard.guide.override_title"))}</div>
+                <div style="
+                    font-size: 13px;
+                    line-height: 1.65;
+                    color: #334155;
+                ">{escape(tr("storyboard.guide.override_body"))}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
 def _save_image_prompt_prefix_library(library: dict):
     """Persist image prompt prefix library changes immediately."""
     config_manager.set_image_prompt_prefix_library(library)
@@ -1799,6 +1995,8 @@ def render_style_config(pixelle_video):
             key="storyboard_planning_enabled",
             help=tr("storyboard.enabled_help"),
         )
+
+        render_storyboard_planning_guide()
 
         if storyboard_enabled:
             world_library = config_manager.get_storyboard_world_preset_library()
