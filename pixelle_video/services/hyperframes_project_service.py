@@ -116,6 +116,8 @@ class HyperFramesProjectService:
     ) -> float:
         if master_audio_duration is not None:
             return max(0.0, float(master_audio_duration))
+        if manifest.master_audio_duration is not None:
+            return max(0.0, float(manifest.master_audio_duration))
 
         candidates = [0.0]
         for block in manifest.audio_blocks:

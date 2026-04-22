@@ -9,6 +9,7 @@ from pixelle_video.models.render_package import (
     RenderManifest,
     SentenceUnit,
     VisualClip,
+    resolve_render_window,
 )
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
@@ -83,6 +84,24 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     assert restored.audio_blocks[0].end == 4.2
 
 
+def test_render_manifest_distinguishes_canvas_from_media_dimensions():
+    manifest = RenderManifest(
+        task_id="task-1",
+        title="demo",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=768,
+        media_height=768,
+        fps=30,
+        template_id="image_default",
+    )
+
+    data = manifest.to_dict()
+
+    assert data["canvas_width"] == 1080
+    assert data["media_width"] == 768
+
+
 def test_sentence_unit_round_trip_preserves_remapped_times():
     sentence = SentenceUnit(
         id="s1",
@@ -99,6 +118,21 @@ def test_sentence_unit_round_trip_preserves_remapped_times():
 
     assert restored.remapped_start == 0.0
     assert restored.remapped_end == 1.6
+
+
+def test_resolve_render_window_prefers_remapped_times():
+    sentence = SentenceUnit(
+        id="s1",
+        text="Sentence 1.",
+        frame_indices=[0],
+        block_id="block-1",
+        source_start=0.2,
+        source_end=1.8,
+        remapped_start=0.1,
+        remapped_end=1.5,
+    )
+
+    assert resolve_render_window(sentence) == (0.1, 1.5)
 
 
 def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path):

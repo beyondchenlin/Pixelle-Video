@@ -752,14 +752,25 @@ class StandardPipeline(LinearVideoPipeline):
         manifest = RenderManifest(
             task_id=ctx.task_id,
             title=storyboard.title,
-            width=config.media_width,
-            height=config.media_height,
+            canvas_width=config.media_width,
+            canvas_height=config.media_height,
+            media_width=config.media_width,
+            media_height=config.media_height,
             fps=config.video_fps,
             template_id=self._resolve_hyperframes_template_id(config),
             master_audio_path=master_audio_path,
+            master_audio_duration=master_audio_duration,
             audio_blocks=list(timing_plan.blocks),
             sentence_units=list(timing_plan.sentences),
             visual_clips=self._build_hyperframes_visual_clips(storyboard, timing_plan),
+            canonical_timeline=(
+                "remapped"
+                if any(
+                    sentence.remapped_start is not None and sentence.remapped_end is not None
+                    for sentence in timing_plan.sentences
+                )
+                else "source"
+            ),
         )
         project_paths = self.core.hyperframes_project_service.write_project_data(
             manifest,

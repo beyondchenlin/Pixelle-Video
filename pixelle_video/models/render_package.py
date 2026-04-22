@@ -121,33 +121,108 @@ class CaptionCue:
         )
 
 
-@dataclass
+def resolve_render_window(unit: SentenceUnit) -> tuple[float, float]:
+    if unit.remapped_start is not None and unit.remapped_end is not None:
+        return unit.remapped_start, unit.remapped_end
+    if unit.source_start is None or unit.source_end is None:
+        raise ValueError(f"SentenceUnit {unit.id} is missing source timing.")
+    return unit.source_start, unit.source_end
+
+
+@dataclass(init=False)
 class RenderManifest:
     task_id: str
     title: str
-    width: int
-    height: int
+    canvas_width: int
+    canvas_height: int
+    media_width: Optional[int]
+    media_height: Optional[int]
     fps: int
     template_id: str
     master_audio_path: Optional[str] = None
+    master_audio_duration: Optional[float] = None
     audio_blocks: List[AudioBlock] = field(default_factory=list)
     sentence_units: List[SentenceUnit] = field(default_factory=list)
     visual_clips: List[VisualClip] = field(default_factory=list)
     caption_cues: List[CaptionCue] = field(default_factory=list)
+    canonical_timeline: str = "source"
+
+    def __init__(
+        self,
+        *,
+        task_id: str,
+        title: str,
+        fps: int,
+        template_id: str,
+        canvas_width: Optional[int] = None,
+        canvas_height: Optional[int] = None,
+        media_width: Optional[int] = None,
+        media_height: Optional[int] = None,
+        master_audio_path: Optional[str] = None,
+        master_audio_duration: Optional[float] = None,
+        audio_blocks: Optional[List[AudioBlock]] = None,
+        sentence_units: Optional[List[SentenceUnit]] = None,
+        visual_clips: Optional[List[VisualClip]] = None,
+        caption_cues: Optional[List[CaptionCue]] = None,
+        canonical_timeline: str = "source",
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+    ) -> None:
+        effective_canvas_width = canvas_width if canvas_width is not None else width
+        effective_canvas_height = canvas_height if canvas_height is not None else height
+        if effective_canvas_width is None or effective_canvas_height is None:
+            raise ValueError("RenderManifest requires canvas_width/canvas_height or width/height.")
+
+        self.task_id = task_id
+        self.title = title
+        self.canvas_width = int(effective_canvas_width)
+        self.canvas_height = int(effective_canvas_height)
+        self.media_width = (
+            int(media_width) if media_width is not None else self.canvas_width
+        )
+        self.media_height = (
+            int(media_height) if media_height is not None else self.canvas_height
+        )
+        self.fps = int(fps)
+        self.template_id = template_id
+        self.master_audio_path = master_audio_path
+        self.master_audio_duration = (
+            float(master_audio_duration) if master_audio_duration is not None else None
+        )
+        self.audio_blocks = list(audio_blocks or [])
+        self.sentence_units = list(sentence_units or [])
+        self.visual_clips = list(visual_clips or [])
+        self.caption_cues = list(caption_cues or [])
+        self.canonical_timeline = canonical_timeline
+
+    @property
+    def width(self) -> int:
+        return self.canvas_width
+
+    @property
+    def height(self) -> int:
+        return self.canvas_height
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "task_id": self.task_id,
             "title": self.title,
-            "width": self.width,
-            "height": self.height,
+            "canvas_width": self.canvas_width,
+            "canvas_height": self.canvas_height,
+            "media_width": self.media_width,
+            "media_height": self.media_height,
+            # Compatibility fields for the current runtime-manifest templates.
+            "width": self.canvas_width,
+            "height": self.canvas_height,
             "fps": self.fps,
             "template_id": self.template_id,
             "master_audio_path": self.master_audio_path,
+            "master_audio_duration": self.master_audio_duration,
             "audio_blocks": [block.to_dict() for block in self.audio_blocks],
             "sentence_units": [unit.to_dict() for unit in self.sentence_units],
             "visual_clips": [clip.to_dict() for clip in self.visual_clips],
             "caption_cues": [cue.to_dict() for cue in self.caption_cues],
+            "canonical_timeline": self.canonical_timeline,
         }
 
     @classmethod
@@ -155,13 +230,17 @@ class RenderManifest:
         return cls(
             task_id=data["task_id"],
             title=data["title"],
-            width=data["width"],
-            height=data["height"],
+            canvas_width=data.get("canvas_width", data.get("width")),
+            canvas_height=data.get("canvas_height", data.get("height")),
+            media_width=data.get("media_width"),
+            media_height=data.get("media_height"),
             fps=data["fps"],
             template_id=data["template_id"],
             master_audio_path=data.get("master_audio_path"),
+            master_audio_duration=data.get("master_audio_duration"),
             audio_blocks=[AudioBlock.from_dict(item) for item in data.get("audio_blocks", [])],
             sentence_units=[SentenceUnit.from_dict(item) for item in data.get("sentence_units", [])],
             visual_clips=[VisualClip.from_dict(item) for item in data.get("visual_clips", [])],
             caption_cues=[CaptionCue.from_dict(item) for item in data.get("caption_cues", [])],
+            canonical_timeline=data.get("canonical_timeline", "source"),
         )
