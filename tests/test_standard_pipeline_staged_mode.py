@@ -1,13 +1,16 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
+from pixelle_video.services.timing_planner import TimingPlan
 
 
 def _workflow_info(key: str) -> dict:
@@ -44,6 +47,20 @@ class _DummyCore:
                 "video": "runninghub/video_wan2.1_fusionx.json",
             }
         )
+
+
+class _RecordingAlignmentService:
+    def __init__(self):
+        self.calls = []
+        self.duration_calls = []
+
+    def align_blocks(self, blocks, sentences, language=None):
+        self.calls.append(([block.id for block in blocks], [sentence.id for sentence in sentences]))
+        return list(sentences)
+
+    def align_blocks_by_duration(self, blocks, sentences):
+        self.duration_calls.append(([block.id for block in blocks], [sentence.id for sentence in sentences]))
+        return list(sentences)
 
 
 def _build_ctx(
@@ -400,6 +417,92 @@ async def test_produce_assets_legacy_comfyui_per_frame_override_skips_master_tra
 
     assert calls == []
     assert core.frame_processor.calls[:2] == [("audio", 0), ("audio", 1)]
+
+
+@pytest.mark.asyncio
+async def test_prepare_legacy_master_track_audio_uses_ctx_task_dir_for_frame_clips(monkeypatch, tmp_path):
+    core = _DummyCore()
+    core.alignment_service = _RecordingAlignmentService()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx(tts_inference_mode="comfyui")
+    ctx.task_dir = str(tmp_path / "task-1")
+    Path(ctx.task_dir).mkdir(parents=True, exist_ok=True)
+    ctx.timing_plan = TimingPlan(
+        sentences=[
+            SentenceUnit(
+                id="sentence-1",
+                text="scene 1",
+                frame_indices=[0],
+                block_id="block-1",
+                source_start=0.0,
+                source_end=1.0,
+            ),
+            SentenceUnit(
+                id="sentence-2",
+                text="scene 2",
+                frame_indices=[1],
+                block_id="block-2",
+                source_start=0.0,
+                source_end=1.0,
+            ),
+        ],
+        blocks=[
+            AudioBlock(id="block-1", text="scene 1", start=0.0, end=1.0, source_frame_indices=[0]),
+            AudioBlock(id="block-2", text="scene 2", start=1.0, end=2.0, source_frame_indices=[1]),
+        ],
+    )
+
+    async def fake_synthesize(context):
+        master_audio_path = Path(context.task_dir) / "audio" / "master_audio.wav"
+        master_audio_path.parent.mkdir(parents=True, exist_ok=True)
+        master_audio_path.write_bytes(b"wav")
+        return str(master_audio_path), 2.0
+
+    extracted_paths = []
+
+    def fake_extract(input_path, output_path, *, start_time, end_time):
+        extracted_paths.append(output_path)
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_path).write_bytes(b"mp3")
+        return output_path
+
+    monkeypatch.setattr(pipeline, "_synthesize_hyperframes_audio", fake_synthesize)
+    monkeypatch.setattr(pipeline, "_align_legacy_master_track_timings", lambda context: None)
+    monkeypatch.setattr(pipeline, "_extract_audio_clip", fake_extract)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", lambda path: 1.0)
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.get_task_frame_path",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("legacy master-track extraction should stay inside ctx.task_dir")
+        ),
+    )
+
+    await pipeline._prepare_legacy_master_track_audio(ctx)
+
+    expected_paths = [
+        str(Path(ctx.task_dir) / "frames" / "01_audio.mp3"),
+        str(Path(ctx.task_dir) / "frames" / "02_audio.mp3"),
+    ]
+    assert extracted_paths == expected_paths
+    assert [frame.audio_path for frame in ctx.storyboard.frames] == expected_paths
+
+
+def test_align_legacy_master_track_timings_rejects_unsupported_engine():
+    core = _DummyCore()
+    core.alignment_service = _RecordingAlignmentService()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx(tts_inference_mode="comfyui")
+    ctx.config.subtitle_alignment_engine = "bogus_engine"
+    ctx.timing_plan = TimingPlan(
+        sentences=[SentenceUnit(id="sentence-1", text="scene 1", frame_indices=[0], block_id="block-1")],
+        blocks=[AudioBlock(id="block-1", text="scene 1", start=0.0, end=1.0, source_frame_indices=[0])],
+    )
+
+    with pytest.raises(ValueError, match="Unsupported subtitle_alignment_engine"):
+        pipeline._align_legacy_master_track_timings(ctx)
+
+    assert core.alignment_service.calls == []
+    assert core.alignment_service.duration_calls == []
 
 
 @pytest.mark.asyncio
