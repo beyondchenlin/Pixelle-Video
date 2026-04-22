@@ -169,7 +169,9 @@ Rules:
 1. `world preset` is the top-level universe contract.
 2. Existing `prompt_prefix` sources are subordinate style modifiers, not equal competitors to the selected world preset.
 3. If a selected or resolved prefix attempts to introduce a different `ip_world` or incompatible narrative universe, that prefix must not override the selected world preset.
-4. If no world preset is selected, the existing styled-prefix pipeline remains the fallback path.
+4. If no world preset is selected, behavior depends on the entry path:
+   - storyboard-first entry points must resolve an explicit safe default preset before planning
+   - legacy styled-prompt entry points may continue on the existing styled-prefix fallback path
 
 ### Compatibility normalization
 
@@ -262,7 +264,8 @@ Each preset should define:
 
 - `preset_id`
 - `display_name`
-- `mode`: `theme_mapping` or `concept_explainer`
+- `supported_modes`: one or both of `theme_mapping` and `concept_explainer`
+- `forced_mode`: optional; when present, the preset is treated as single-mode
 - `style_core`
 - `world_elements`
 - `knowledge_scene_rules`
@@ -286,9 +289,16 @@ For "Angry Birds knowledge classroom", the preset defines:
 
 World presets should also declare:
 
-- whether they are strictly bound to one content mode
-- whether they support both modes with different cast policies
+- whether they are single-mode or dual-mode through `supported_modes`
+- whether they define different cast policies for different supported modes
 - what the conservative fallback mode is when auto-routing confidence is low
+
+V1 schema rule:
+
+- `supported_modes` is the source of truth for mode compatibility
+- `forced_mode` may only be set to one value already listed inside `supported_modes`
+- single-mode presets should use `supported_modes` with one entry plus matching `forced_mode`
+- dual-mode presets should omit `forced_mode`
 
 ## Cast Bible
 
@@ -328,10 +338,22 @@ These roles should recur across concept-only topics instead of being reinvented 
 
 ## Content Mode Routing Contract
 
-Automatic mode selection should follow a strict order:
+### Compatibility gate
 
-1. user-specified mode override
-2. world-preset forced mode, if the preset is single-mode
+Mode routing must first validate whether the selected world preset supports the requested mode.
+
+Rules:
+
+- if the user sets a mode override that is not listed in `supported_modes`, pre-planning validation must return a configuration conflict
+- if the preset declares `forced_mode` and the user override does not match it, the system must block generation and ask the user to either change the preset or clear the override
+- the system must not silently rewrite a conflicting user override into another mode
+
+### Resolution order
+
+After compatibility is validated, automatic mode selection should follow this strict order:
+
+1. `forced_mode`, if the preset is single-mode
+2. compatible user-specified mode override
 3. automatic classifier result
 4. preset conservative fallback mode
 
@@ -345,12 +367,22 @@ The automatic classifier should return:
 
 ### Confidence behavior
 
-The system should define one explicit confidence threshold for auto-routing.
+The automatic classifier should emit numeric confidence in the range `[0, 1]`.
+
+V1 default threshold:
+
+- `0.70`
 
 Recommended V1 behavior:
 
 - high confidence: use classifier result directly
 - low confidence: fall back to the preset's conservative mode and surface a warning in the storyboard preview
+
+Threshold contract:
+
+- preview and final generation must use the same resolved threshold for one task
+- V1 should read the threshold from one backend configuration source
+- a world preset may optionally override the default threshold, but only through explicit preset metadata rather than ad hoc prompt logic
 
 ### Mixed-content rule
 
@@ -523,6 +555,7 @@ The `prompt builder` must also respect normalized style precedence:
 Validate whether:
 
 - the chosen world preset fits the content type
+- the requested mode override is allowed by the selected world preset
 - the chosen shot preset fits the requested scene count
 - the requested combination is internally coherent
 
@@ -618,6 +651,28 @@ The default user flow should expose:
 - `consistency strength`
 - `scene count`
 
+### Consistency Strength Contract
+
+`consistency strength` must be a real backend contract, not just a UI label.
+
+V1 should expose:
+
+- `standard`
+- `strong`
+
+Recommended behavior:
+
+- `standard`: balanced planner freedom, normal cast reuse, conservative repair on unlocked frames, compact prompt anchors
+- `strong`: tighter cast reuse, stronger world-element carry-over, lower planner freedom on weaker models, denser continuity anchors, more aggressive repair before falling back
+
+This setting should influence at least:
+
+- cast reuse and locking policy
+- planner freedom
+- shot-repair aggressiveness
+- continuity-anchor density in prompt construction
+- downgrade behavior on weaker capability tiers
+
 ### Advanced controls
 
 Expandable advanced settings may expose:
@@ -660,13 +715,15 @@ The system must separate:
 
 ### 1. Reusable assets
 
-These should be treated as global or project-level editable assets:
+These should be treated as project-level editable assets in V1:
 
 - custom world presets
 - custom shot presets
 - custom cast-bible definitions
 
 Built-in presets remain read-only defaults.
+
+Global cross-project preset libraries are out of scope for V1.
 
 ### 2. Runtime state
 
@@ -697,7 +754,7 @@ This rollout should remain compatible with the current styled prompt pipeline.
 Rules:
 
 1. Existing prefix-library and style-resolution behavior stays usable.
-2. If no world preset is selected, a safe default preset may be applied.
+2. If no world preset is selected, storyboard-first entry points must resolve an explicit safe default preset, while legacy styled-prompt entry points may continue on the existing styled-prefix fallback path.
 3. If the model does not support character references, the flow must continue through text-only cast anchors.
 4. If shot planning fails, the system may fall back to a conservative default shot preset instead of failing the whole task.
 5. Existing simple prompt-generation endpoints may coexist during migration, but the new storyboard-first path should become the preferred route.
