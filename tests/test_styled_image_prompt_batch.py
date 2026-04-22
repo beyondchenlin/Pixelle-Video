@@ -339,6 +339,153 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
 
 
 @pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_storyboard_falls_back_to_legacy_prefix_when_resolver_fails(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        assert kwargs["style_profile"] is None
+        return ["base scene prompt"]
+
+    async def fake_plan_storyboard_batch(**kwargs):
+        return type(
+            "PlanResult",
+            (),
+            {
+                "frames": (
+                    FramePlan(
+                        scene_id="scene-1",
+                        shot_type="medium_shot",
+                        shot_purpose="context",
+                        world_elements=("strategy board",),
+                        prompt_intent="teach the first relationship",
+                    ),
+                ),
+                "planning_snapshot": {
+                    "world_preset_id": "neutral_knowledge_storyboard",
+                    "world_preset": {
+                        "display_name": "Neutral Knowledge Storyboard",
+                        "style_core": "clean educational illustration",
+                    },
+                },
+            },
+        )()
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        raise RuntimeError("resolver boom")
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.plan_storyboard_batch",
+        fake_plan_storyboard_batch,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["scene one"],
+        image_config={"prompt_prefix": "flat illustration", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+        world_preset_id="neutral_knowledge_storyboard",
+    )
+
+    assert result.prompts == [
+        "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, base scene prompt"
+    ]
+    assert result.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_storyboard_keeps_compatible_template_semantics(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        assert kwargs["style_profile"]["style_kind"] == "visual_only"
+        return ["base scene prompt"]
+
+    async def fake_plan_storyboard_batch(**kwargs):
+        return type(
+            "PlanResult",
+            (),
+            {
+                "frames": (
+                    FramePlan(
+                        scene_id="scene-1",
+                        shot_type="close_up",
+                        shot_purpose="detail_focus",
+                        world_elements=("lab bench",),
+                        prompt_intent="show the apparatus clearly",
+                    ),
+                ),
+                "planning_snapshot": {
+                    "world_preset_id": "neutral_knowledge_storyboard",
+                    "world_preset": {
+                        "display_name": "Neutral Knowledge Storyboard",
+                        "style_core": "clean educational illustration",
+                    },
+                },
+            },
+        )()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.plan_storyboard_batch",
+        fake_plan_storyboard_batch,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: StyleSourceSpec(
+            origin="request",
+            raw_content="editorial line art",
+            content_hash="hash-789",
+            source_identity="request:hash-789",
+            item_id=None,
+        ),
+    )
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        return ResolvedStyleSpec(
+            style_kind="visual_only",
+            prompt_template="editorial line art treatment, {prompt}, with etched crosshatching",
+            negative_prompt="",
+            style_profile={
+                "style_kind": "visual_only",
+                "subject_policy": "preserve_subject",
+                "shape_language": "",
+                "material": "",
+                "palette": "",
+                "lighting": "",
+                "world_elements": "",
+                "consistency_anchor": "",
+                "negative_rules": "",
+            },
+            content_hash="hash-789",
+            resolver_version="2026-04-21-v1",
+            source_identity="request:hash-789",
+            raw_content="editorial line art",
+        )
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["scene one"],
+        image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+        world_preset_id="neutral_knowledge_storyboard",
+    )
+
+    assert result.prompts == [
+        "editorial line art treatment, Neutral Knowledge Storyboard, clean educational illustration, close_up, detail_focus, lab bench, base scene prompt, with etched crosshatching"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_keeps_legacy_prompt_path_when_storyboard_controls_disabled(monkeypatch):
     async def fail_plan_storyboard_batch(**kwargs):
         raise AssertionError("storyboard planner should not run without storyboard controls")

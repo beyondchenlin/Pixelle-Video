@@ -80,6 +80,41 @@ def test_normalize_storyboard_style_keeps_compatible_refinement_suffix():
     assert normalized["visual_suffix"] == "soft diagram glow, clean educational illustration finish"
 
 
+def test_normalize_storyboard_style_treats_generic_style_core_overlap_as_conflict():
+    resolved_style = ResolvedStyleSpec(
+        style_kind="hybrid",
+        prompt_template="clean comic adaptation of {prompt}",
+        negative_prompt="",
+        style_profile={
+            "style_kind": "hybrid",
+            "subject_policy": "preserve_subject",
+            "shape_language": "chunky comic forms",
+            "material": "",
+            "palette": "",
+            "lighting": "museum spotlight",
+            "world_elements": "futuristic comic city",
+            "consistency_anchor": "clean illustration finish",
+            "negative_rules": "",
+        },
+        content_hash="hash-generic",
+        resolver_version="2026-04-21-v1",
+        source_identity="request:hash-generic",
+        raw_content="futuristic comic city world",
+    )
+
+    normalized = normalize_storyboard_style(
+        resolved_style=resolved_style,
+        world_preset={
+            "preset_id": "neutral_knowledge_storyboard",
+            "display_name": "Neutral Knowledge Storyboard",
+            "style_core": "clean educational illustration",
+        },
+    )
+
+    assert normalized["classification"] == "conflicting_world_override"
+    assert normalized["prompt_template"] == ""
+
+
 def test_assemble_storyboard_prompt_prefers_world_identity_over_conflicting_ip_prefix():
     prompt = assemble_storyboard_prompt(
         base_prompt="Liu Bei studies a strategy scroll",
@@ -101,6 +136,30 @@ def test_assemble_storyboard_prompt_prefers_world_identity_over_conflicting_ip_p
     assert "Angry Birds Three Kingdoms" in prompt
     assert "dramatic rim light only" in prompt
     assert "different ip world" not in prompt
+
+
+def test_assemble_storyboard_prompt_applies_normalized_prompt_template():
+    prompt = assemble_storyboard_prompt(
+        base_prompt="host explainer introduces penicillin",
+        frame_plan={
+            "shot_type": "close_up",
+            "shot_purpose": "detail_focus",
+            "world_elements": ["lab bench"],
+        },
+        world_preset={
+            "display_name": "Neutral Knowledge Storyboard",
+            "style_core": "clean educational illustration",
+        },
+        normalized_style={
+            "classification": "compatible_refinement",
+            "prompt_template": "editorial line art treatment, {prompt}, with etched crosshatching",
+            "visual_suffix": "",
+        },
+    )
+
+    assert prompt.startswith("editorial line art treatment, ")
+    assert "Neutral Knowledge Storyboard" in prompt
+    assert prompt.endswith("with etched crosshatching")
 
 
 def test_assemble_storyboard_prompt_includes_shot_language_and_world_elements():

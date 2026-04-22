@@ -17,7 +17,6 @@ Runtime models for structured style resolution.
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
-
 StyleKind = Literal["visual_only", "ip_world", "hybrid"]
 StyleSourceOrigin = Literal["request", "library", "legacy"]
 

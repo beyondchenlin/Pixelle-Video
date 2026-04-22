@@ -49,6 +49,13 @@ def _normalize_prompt_list(values: Any) -> list[str]:
     return normalized
 
 
+def _apply_prompt_template(prompt: str, prompt_template: str = "") -> str:
+    template = (prompt_template or "").strip()
+    if template and "{prompt}" in template:
+        return template.replace("{prompt}", prompt)
+    return prompt
+
+
 def build_image_prompt(prompt: str, prefix: str = "") -> str:
     """
     Build final image prompt with optional prefix
@@ -91,10 +98,7 @@ def assemble_image_prompt(
 
     base_prompt = base_prompt.strip()
     template = (resolved_style.prompt_template or "").strip()
-    if template and "{prompt}" in template:
-        templated = template.replace("{prompt}", base_prompt)
-    else:
-        templated = base_prompt
+    templated = _apply_prompt_template(base_prompt, template)
 
     if resolved_style.style_kind == "ip_world":
         if template:
@@ -123,22 +127,27 @@ def assemble_storyboard_prompt(
     world_preset: Any,
     normalized_style: Optional[dict[str, Any]] = None,
 ) -> str:
-    parts: list[str] = []
-    parts.extend(
+    prompt = ", ".join(
         _normalize_prompt_list(
             [
                 _read_value(world_preset, "display_name", ""),
                 _read_value(world_preset, "style_core", ""),
                 _read_value(frame_plan, "shot_type", ""),
                 _read_value(frame_plan, "shot_purpose", ""),
+                *_normalize_prompt_list(_read_value(frame_plan, "world_elements", ())),
+                base_prompt,
             ]
         )
     )
-    parts.extend(_normalize_prompt_list(_read_value(frame_plan, "world_elements", ())))
-    parts.extend(_normalize_prompt_list([base_prompt]))
+
     if normalized_style is not None:
-        parts.extend(_normalize_prompt_list([normalized_style.get("visual_suffix", "")]))
-    return ", ".join(parts)
+        prompt = _apply_prompt_template(prompt, normalized_style.get("prompt_template", ""))
+
+    if normalized_style is not None:
+        visual_suffix = normalized_style.get("visual_suffix", "")
+        if visual_suffix and visual_suffix.lower() not in prompt.lower():
+            prompt = ", ".join(_normalize_prompt_list([prompt, visual_suffix]))
+    return prompt
 
 
 def assemble_negative_prompt(

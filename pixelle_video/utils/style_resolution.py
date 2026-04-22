@@ -25,7 +25,6 @@ from pixelle_video.config.prompt_prefix_library import get_active_image_prompt_p
 from pixelle_video.models.style_resolution import ResolvedStyleSpec, StyleSourceSpec
 from pixelle_video.prompts import build_style_resolution_prompt
 
-
 RESOLVER_VERSION = "2026-04-21-v1"
 VALID_STYLE_KINDS = {"visual_only", "ip_world", "hybrid"}
 REQUIRED_STYLE_PROFILE_KEYS = (
@@ -41,6 +40,19 @@ REQUIRED_STYLE_PROFILE_KEYS = (
 )
 
 _STYLE_RESOLUTION_CACHE: dict[str, ResolvedStyleSpec] = {}
+_WORLD_IDENTITY_STOPWORDS = {
+    "concept",
+    "educational",
+    "explainer",
+    "knowledge",
+    "mapping",
+    "mode",
+    "neutral",
+    "preset",
+    "storyboard",
+    "theme",
+    "world",
+}
 
 
 def reset_style_resolution_cache() -> None:
@@ -129,21 +141,28 @@ def _world_identity_tokens(world_preset: Any) -> set[str]:
     raw_values = [
         str(_read_value(world_preset, "preset_id", "") or ""),
         str(_read_value(world_preset, "display_name", "") or ""),
-        str(_read_value(world_preset, "style_core", "") or ""),
     ]
     tokens: set[str] = set()
     for value in raw_values:
         for token in re.findall(r"[a-z0-9]+", value.lower()):
-            if len(token) >= 4:
+            if len(token) >= 4 and token not in _WORLD_IDENTITY_STOPWORDS:
                 tokens.add(token)
     return tokens
 
 
-def _style_mentions_world_identity(resolved_style: ResolvedStyleSpec, world_preset: Any) -> bool:
-    world_tokens = _world_identity_tokens(world_preset)
-    if not world_tokens:
-        return False
+def _world_identity_aliases(world_preset: Any) -> set[str]:
+    aliases: set[str] = set()
+    for raw_value in (
+        str(_read_value(world_preset, "preset_id", "") or ""),
+        str(_read_value(world_preset, "display_name", "") or ""),
+    ):
+        cleaned = re.sub(r"[_\-\s]+", " ", raw_value.strip().lower()).strip()
+        if cleaned and cleaned not in _WORLD_IDENTITY_STOPWORDS:
+            aliases.add(cleaned)
+    return aliases
 
+
+def _style_mentions_world_identity(resolved_style: ResolvedStyleSpec, world_preset: Any) -> bool:
     style_text = " ".join(
         [
             resolved_style.raw_content,
@@ -152,7 +171,16 @@ def _style_mentions_world_identity(resolved_style: ResolvedStyleSpec, world_pres
             resolved_style.prompt_template,
         ]
     ).lower()
-    return any(token in style_text for token in world_tokens)
+    world_aliases = _world_identity_aliases(world_preset)
+    if any(alias in style_text for alias in world_aliases):
+        return True
+
+    world_tokens = _world_identity_tokens(world_preset)
+    if not world_tokens:
+        return False
+
+    matched_tokens = {token for token in world_tokens if token in style_text}
+    return len(matched_tokens) >= 2
 
 
 def normalize_storyboard_style(
@@ -184,6 +212,7 @@ def normalize_storyboard_style(
     if keep_consistency_anchor:
         suffix_parts.append((style_profile.get("consistency_anchor") or "").strip())
     visual_suffix = ", ".join(_unique_non_empty(suffix_parts))
+    prompt_template = (resolved_style.prompt_template or "").strip() if keep_consistency_anchor else ""
 
     normalized_profile = {
         "style_kind": "visual_only",
@@ -198,6 +227,7 @@ def normalize_storyboard_style(
     }
     return {
         "classification": classification,
+        "prompt_template": prompt_template,
         "visual_suffix": visual_suffix,
         "style_profile": normalized_profile,
     }
