@@ -220,29 +220,50 @@ STORYBOARD_GUIDE_COMBO_SPECS: tuple[tuple[str, str, str, str], ...] = (
     ),
 )
 
+STORYBOARD_GUIDE_NOTE_SPECS: tuple[dict[str, str], ...] = (
+    {
+        "title_key": "storyboard.guide.default_on_title",
+        "body_key": "storyboard.guide.default_on_body",
+        "accent_color": "#c2410c",
+        "background_color": "linear-gradient(135deg, rgba(255, 247, 237, 0.98), rgba(255, 251, 235, 0.94))",
+        "border_color": "rgba(245, 158, 11, 0.24)",
+        "title_size": "12px",
+        "body_color": "#44403c",
+    },
+    {
+        "title_key": "storyboard.guide.when_to_turn_off.title",
+        "body_key": "storyboard.guide.when_to_turn_off.body",
+        "accent_color": "#7c2d12",
+        "background_color": "rgba(248, 250, 252, 0.92)",
+        "border_color": "rgba(148, 163, 184, 0.18)",
+        "title_size": "12px",
+        "body_color": "#44403c",
+    },
+)
 
-def _build_storyboard_guide_note_html(title_key: str, body_key: str) -> str:
+
+def _build_storyboard_guide_note_html(note_spec: dict[str, str]) -> str:
     return f"""
     <div style="
         padding: 12px 14px;
         border-radius: 14px;
-        border: 1px solid rgba(148, 163, 184, 0.18);
-        background: rgba(248, 250, 252, 0.92);
+        border: 1px solid {note_spec["border_color"]};
+        background: {note_spec["background_color"]};
         margin-bottom: 10px;
     ">
         <div style="
-            font-size: 12px;
+            font-size: {note_spec["title_size"]};
             font-weight: 700;
             letter-spacing: 0.06em;
             text-transform: uppercase;
-            color: #9a3412;
+            color: {note_spec["accent_color"]};
             margin-bottom: 6px;
-        ">{escape(tr(title_key))}</div>
+        ">{escape(tr(note_spec["title_key"]))}</div>
         <div style="
             font-size: 13px;
             line-height: 1.65;
-            color: #44403c;
-        ">{escape(tr(body_key))}</div>
+            color: {note_spec["body_color"]};
+        ">{escape(tr(note_spec["body_key"]))}</div>
     </div>
     """
 
@@ -279,33 +300,10 @@ def _build_storyboard_guide_combo_html(
 
 def render_storyboard_planning_guide():
     """Render a mixed quick-start + deep-dive guide for storyboard planning."""
-    st.markdown(
-        f"""
-        <div style="
-            margin: 10px 0 14px 0;
-            padding: 14px 16px;
-            border-radius: 16px;
-            border: 1px solid rgba(245, 158, 11, 0.24);
-            background: linear-gradient(135deg, rgba(255, 247, 237, 0.98), rgba(255, 251, 235, 0.94));
-            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
-        ">
-            <div style="
-                font-size: 12px;
-                font-weight: 700;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-                color: #c2410c;
-                margin-bottom: 6px;
-            ">{escape(tr("storyboard.guide.quick_title"))}</div>
-            <div style="
-                font-size: 13px;
-                line-height: 1.7;
-                color: #44403c;
-            ">{escape(tr("storyboard.guide.quick_body"))}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    guide_notes_html = "".join(
+        _build_storyboard_guide_note_html(note_spec) for note_spec in STORYBOARD_GUIDE_NOTE_SPECS
     )
+    st.markdown(guide_notes_html, unsafe_allow_html=True)
 
     combo_cards_html = "".join(
         _build_storyboard_guide_combo_html(title_key, body_key, accent_color, background_color)
@@ -324,8 +322,6 @@ def render_storyboard_planning_guide():
     with st.expander(tr("storyboard.guide.title"), expanded=False):
         st.markdown(
             f"""
-            {_build_storyboard_guide_note_html("storyboard.guide.when_to_enable.title", "storyboard.guide.when_to_enable.body")}
-            {_build_storyboard_guide_note_html("storyboard.guide.when_to_skip.title", "storyboard.guide.when_to_skip.body")}
             <div style="margin-top: 12px;">
                 <div style="
                     font-size: 12px;

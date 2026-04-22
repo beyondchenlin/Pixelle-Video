@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from pixelle_video.config.storyboard_preset_library import BUILTIN_SHOT_PRESETS, BUILTIN_WORLD_PRESETS
 import web.components.style_config as style_config
 from web.components.style_config import build_storyboard_control_payload
 import web.pipelines.standard as standard_pipeline
@@ -16,16 +17,30 @@ class _FakeContext:
 
 class _FakeStreamlit:
     def __init__(self):
-        self.markdowns: list[tuple[str, dict]] = []
+        self.top_level_markdowns: list[tuple[str, dict]] = []
+        self.expander_markdowns: list[tuple[str, dict]] = []
         self.expanders: list[tuple[str, bool]] = []
+        self._in_expander = False
 
     def markdown(self, body, **kwargs):
-        self.markdowns.append((body, kwargs))
+        target = self.expander_markdowns if self._in_expander else self.top_level_markdowns
+        target.append((body, kwargs))
         return None
 
     def expander(self, label, expanded=False):
         self.expanders.append((label, expanded))
-        return _FakeContext()
+        fake_st = self
+
+        class _FakeExpander(_FakeContext):
+            def __enter__(self):
+                fake_st._in_expander = True
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                fake_st._in_expander = False
+                return False
+
+        return _FakeExpander()
 
 
 def test_resolve_storyboard_toggle_default_prefers_session_state_then_preview_snapshot_then_default():
@@ -151,7 +166,7 @@ def test_build_storyboard_control_payload_includes_storyboard_fields():
     }
 
 
-def test_render_storyboard_planning_guide_renders_quick_read_and_expander(monkeypatch):
+def test_render_storyboard_planning_guide_renders_default_on_copy_and_expander(monkeypatch):
     fake_st = _FakeStreamlit()
     monkeypatch.setattr(style_config, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
@@ -160,25 +175,38 @@ def test_render_storyboard_planning_guide_renders_quick_read_and_expander(monkey
 
     assert ("storyboard.guide.title", False) in fake_st.expanders
 
-    rendered_html = "\n".join(body for body, _kwargs in fake_st.markdowns)
-    assert "storyboard.guide.quick_title" in rendered_html
-    assert "storyboard.guide.quick_body" in rendered_html
-    assert "storyboard.guide.combo.explainer.title" in rendered_html
-    assert "storyboard.guide.field.world_preset" in rendered_html
-    assert "storyboard.guide.override_title" in rendered_html
-    assert any(kwargs.get("unsafe_allow_html") for _body, kwargs in fake_st.markdowns)
+    top_level_html = "\n".join(body for body, _kwargs in fake_st.top_level_markdowns)
+    expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
+
+    assert "storyboard.guide.default_on_title" in top_level_html
+    assert "storyboard.guide.default_on_body" in top_level_html
+    assert "storyboard.guide.when_to_turn_off.title" in top_level_html
+    assert "storyboard.guide.when_to_turn_off.body" in top_level_html
+    assert "storyboard.guide.quick_title" not in top_level_html
+    assert "storyboard.guide.quick_body" not in top_level_html
+
+    assert "storyboard.guide.combo.explainer.title" in expander_html
+    assert "storyboard.guide.combo.theme_mapping.title" in expander_html
+    assert "storyboard.guide.field.world_preset" in expander_html
+    assert "storyboard.guide.override_title" in expander_html
+    assert "storyboard.guide.default_on_title" not in expander_html
+    assert "storyboard.guide.when_to_turn_off.title" not in expander_html
+    assert any(kwargs.get("unsafe_allow_html") for _body, kwargs in fake_st.top_level_markdowns)
+    assert any(kwargs.get("unsafe_allow_html") for _body, kwargs in fake_st.expander_markdowns)
 
 
 def test_storyboard_planning_guide_translation_keys_exist_in_supported_locales():
     locale_dir = Path(__file__).resolve().parents[1] / "web" / "i18n" / "locales"
+    built_in_preset_keys = [
+        *(key for preset in BUILTIN_WORLD_PRESETS for key in (preset.display_name_key, preset.description_key)),
+        *(key for preset in BUILTIN_SHOT_PRESETS for key in (preset.display_name_key, preset.description_key)),
+    ]
     required_keys = [
         "storyboard.guide.title",
-        "storyboard.guide.quick_title",
-        "storyboard.guide.quick_body",
-        "storyboard.guide.when_to_enable.title",
-        "storyboard.guide.when_to_enable.body",
-        "storyboard.guide.when_to_skip.title",
-        "storyboard.guide.when_to_skip.body",
+        "storyboard.guide.default_on_title",
+        "storyboard.guide.default_on_body",
+        "storyboard.guide.when_to_turn_off.title",
+        "storyboard.guide.when_to_turn_off.body",
         "storyboard.guide.recommended_title",
         "storyboard.guide.combo.explainer.title",
         "storyboard.guide.combo.explainer.body",
@@ -197,6 +225,7 @@ def test_storyboard_planning_guide_translation_keys_exist_in_supported_locales()
         "storyboard.guide.override_title",
         "storyboard.guide.override_body",
     ]
+    required_keys.extend(built_in_preset_keys)
 
     for locale_name in ("zh_CN.json", "en_US.json"):
         translations = json.loads((locale_dir / locale_name).read_text(encoding="utf-8"))["t"]
