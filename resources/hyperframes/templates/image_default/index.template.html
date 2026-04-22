@@ -455,20 +455,6 @@
         const duration = Math.max(Number(root?.dataset?.duration || 0), 0);
         const tl = gsap.timeline({ paused: true });
 
-        tl.fromTo(
-          ".video-title-wrapper",
-          { y: 30, autoAlpha: 0 },
-          { y: 0, autoAlpha: 1, duration: 0.55, ease: "power2.out" },
-          0,
-        );
-
-        tl.fromTo(
-          ".footer",
-          { y: 18, autoAlpha: 0 },
-          { y: 0, autoAlpha: 1, duration: 0.45, ease: "power2.out" },
-          0.18,
-        );
-
         padTimelineToDuration(tl, duration);
         window.__timelines = window.__timelines || {};
         window.__timelines["main-comp"] = tl;

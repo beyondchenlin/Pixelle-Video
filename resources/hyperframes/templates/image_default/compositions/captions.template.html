@@ -155,21 +155,15 @@
         const captions = Array.from(document.querySelectorAll(".caption-group"));
         const tl = gsap.timeline({ paused: true });
 
-        gsap.set(captions, { autoAlpha: 0, y: 14 });
+        gsap.set(captions, { autoAlpha: 0, y: 0 });
         captions.forEach((caption) => {
           const start = Number(caption.dataset.start || 0);
           const clipDuration = Math.max(Number(caption.dataset.duration || 0), 0.1);
-          const fadeOutAt = Math.max(start + 0.12, start + clipDuration - 0.12);
-
-          tl.to(
+          tl.set(caption, { autoAlpha: 1, y: 0, visibility: "visible" }, start);
+          tl.set(
             caption,
-            { autoAlpha: 1, y: 0, duration: 0.16, ease: "power2.out" },
-            start,
-          );
-          tl.to(
-            caption,
-            { autoAlpha: 0, y: -10, duration: 0.12, ease: "power2.in" },
-            fadeOutAt,
+            { autoAlpha: 0, y: 0, visibility: "hidden" },
+            start + clipDuration,
           );
         });
 

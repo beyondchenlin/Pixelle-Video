@@ -1005,7 +1005,7 @@ class StandardPipeline(LinearVideoPipeline):
         storyboard: Storyboard,
         timing_plan,
     ) -> List[VisualClip]:
-        visual_clips: List[VisualClip] = []
+        clip_specs: List[dict] = []
 
         for frame in storyboard.frames:
             sentence_units = [
@@ -1025,14 +1025,50 @@ class StandardPipeline(LinearVideoPipeline):
                 )
                 continue
 
+            clip_specs.append(
+                {
+                    "frame_index": frame.index,
+                    "raw_start": max(float(clip_start), 0.0),
+                    "raw_end": max(float(clip_end), float(clip_start)),
+                    "media_path": raw_media_path,
+                    "media_type": frame.media_type or "image",
+                }
+            )
+
+        if not clip_specs:
+            return []
+
+        duration_candidates = [float(storyboard.total_duration or 0.0)]
+        duration_candidates.extend(
+            float(block.end)
+            for block in getattr(timing_plan, "blocks", [])
+            if getattr(block, "end", None) is not None
+        )
+        duration_candidates.extend(spec["raw_end"] for spec in clip_specs)
+        total_duration = max(duration_candidates, default=0.0)
+
+        visual_clips: List[VisualClip] = []
+        previous_boundary = 0.0
+
+        for index, spec in enumerate(clip_specs):
+            clip_start = previous_boundary if index > 0 else 0.0
+
+            if index + 1 < len(clip_specs):
+                next_raw_start = float(clip_specs[index + 1]["raw_start"])
+                candidate_boundary = next_raw_start if next_raw_start > clip_start else spec["raw_end"]
+                clip_end = max(candidate_boundary, clip_start + 0.001)
+            else:
+                clip_end = max(total_duration, spec["raw_end"], clip_start + 0.001)
+
+            previous_boundary = clip_end
             visual_clips.append(
                 VisualClip(
-                    id=f"clip-{frame.index + 1}",
-                    frame_index=frame.index,
+                    id=f"clip-{spec['frame_index'] + 1}",
+                    frame_index=spec["frame_index"],
                     start=clip_start,
                     end=clip_end,
-                    media_path=raw_media_path,
-                    media_type=frame.media_type or "image",
+                    media_path=spec["media_path"],
+                    media_type=spec["media_type"],
                 )
             )
 

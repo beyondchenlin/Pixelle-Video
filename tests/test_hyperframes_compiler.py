@@ -193,6 +193,38 @@ def test_phase1_main_templates_keep_visual_materials_as_hard_cuts():
         assert 'tl.to(\n            clip,' not in content
 
 
+def test_phase1_main_templates_show_shell_immediately_without_fade_motion():
+    template_paths = [
+        Path("resources/hyperframes/templates/image_default/index.template.html"),
+        Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
+    ]
+
+    for path in template_paths:
+        content = path.read_text(encoding="utf-8")
+        assert 'tl.fromTo(\n          ".video-title-wrapper"' not in content
+        assert 'tl.fromTo(\n          ".footer"' not in content
+        assert 'tl.fromTo(\n          ".header"' not in content
+        assert 'tl.fromTo(\n          ".bottom-section"' not in content
+        assert 'tl.fromTo(\n          ".author"' not in content
+
+
+def test_phase1_caption_templates_use_hard_visibility_switches_without_fades():
+    template_paths = [
+        Path(
+            "resources/hyperframes/templates/image_default/compositions/captions.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
+        ),
+    ]
+
+    for path in template_paths:
+        content = path.read_text(encoding="utf-8")
+        assert "fadeOutAt" not in content
+        assert "tl.to(" not in content
+        assert "tl.set(" in content
+
+
 @pytest.mark.parametrize(
     "template_id",
     ["image_default", "image_life_insights_light"],

@@ -360,6 +360,58 @@ def test_hyperframes_default_template_alias_resolves_to_supported_template(tmp_p
     assert pipeline._get_hyperframes_fallback_reason(ctx) is None
 
 
+def test_build_hyperframes_visual_clips_cover_master_audio_without_gaps(tmp_path):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(
+        tmp_path,
+        frame_template="1080x1920/image_default.html",
+    )
+
+    ctx.storyboard.total_duration = 13.621134
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        Path(frame.image_path).write_text("raw", encoding="utf-8")
+
+    ctx.timing_plan = TimingPlan(
+        sentences=[
+            SentenceUnit(
+                id="sentence-1",
+                text="Sentence 1.",
+                frame_indices=[0],
+                block_id="block-1",
+                source_start=0.24,
+                source_end=3.04,
+            ),
+            SentenceUnit(
+                id="sentence-2",
+                text="Sentence 2.",
+                frame_indices=[1],
+                block_id="block-1",
+                source_start=3.28,
+                source_end=13.2,
+            ),
+        ],
+        blocks=[
+            AudioBlock(
+                id="block-1",
+                text="Sentence 1. Sentence 2.",
+                source_frame_indices=[0, 1],
+                start=0.0,
+                end=13.621134,
+            )
+        ],
+    )
+
+    clips = pipeline._build_hyperframes_visual_clips(ctx.storyboard, ctx.timing_plan)
+
+    assert [(clip.start, clip.end) for clip in clips] == [
+        (pytest.approx(0.0), pytest.approx(3.28)),
+        (pytest.approx(3.28), pytest.approx(13.621134)),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths(monkeypatch, tmp_path):
     monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)

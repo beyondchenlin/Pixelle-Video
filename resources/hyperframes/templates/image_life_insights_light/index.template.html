@@ -246,26 +246,6 @@
         const duration = Math.max(Number(root?.dataset?.duration || 0), 0);
         const tl = gsap.timeline({ paused: true });
 
-        tl.fromTo(
-          ".header",
-          { y: 28, autoAlpha: 0 },
-          { y: 0, autoAlpha: 1, duration: 0.5, ease: "power2.out" },
-          0,
-        );
-
-        tl.fromTo(
-          ".bottom-section",
-          { y: 16, autoAlpha: 0 },
-          { y: 0, autoAlpha: 1, duration: 0.4, ease: "power2.out" },
-          0.16,
-        );
-        tl.fromTo(
-          ".author",
-          { y: 12, autoAlpha: 0 },
-          { y: 0, autoAlpha: 1, duration: 0.35, ease: "power2.out" },
-          0.2,
-        );
-
         padTimelineToDuration(tl, duration);
         window.__timelines = window.__timelines || {};
         window.__timelines["main-comp"] = tl;
