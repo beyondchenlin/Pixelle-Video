@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
+from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, validate_render_backend
+
 
 @dataclass
 class StoryboardConfig:
@@ -53,7 +55,7 @@ class StoryboardConfig:
     subtitle_alignment_engine: str = "qwen_forced_aligner"  # Subtitle alignment engine
     silence_trim_tool: Optional[str] = None    # Silence trim tool name
     silence_trim_margin_ms: int = 120          # Silence trim margin in milliseconds
-    render_backend: str = "hyperframes"       # Render backend
+    render_backend: str = DEFAULT_RENDER_BACKEND  # Render backend
     
     # Media workflow
     media_workflow: Optional[str] = None       # Media workflow filename (image or video, None = use default)
@@ -62,6 +64,9 @@ class StoryboardConfig:
     # Frame template (includes size information in path)
     frame_template: str = "1080x1920/default.html"  # Template path with size (e.g., "1080x1920/default.html")
     template_params: Optional[Dict[str, Any]] = None  # Custom template parameters (e.g., {"accent_color": "#ff0000"})
+
+    def __post_init__(self):
+        self.render_backend = validate_render_backend(self.render_backend)
 
 
 @dataclass

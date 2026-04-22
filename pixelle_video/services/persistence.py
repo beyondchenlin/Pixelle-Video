@@ -23,6 +23,7 @@ from datetime import datetime
 from loguru import logger
 
 from pixelle_video.models.storyboard import Storyboard, StoryboardFrame, StoryboardConfig, ContentMetadata
+from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND
 
 
 class PersistenceService:
@@ -416,7 +417,7 @@ class PersistenceService:
             subtitle_alignment_engine=data.get("subtitle_alignment_engine", "qwen_forced_aligner"),
             silence_trim_tool=data.get("silence_trim_tool"),
             silence_trim_margin_ms=data.get("silence_trim_margin_ms", 120),
-            render_backend=data.get("render_backend", "hyperframes"),
+            render_backend=data.get("render_backend", DEFAULT_RENDER_BACKEND),
             media_width=data.get("media_width", data.get("image_width", 1024)),  # Backward compatibility
             media_height=data.get("media_height", data.get("image_height", 1024)),  # Backward compatibility
             media_workflow=data.get("media_workflow", data.get("image_workflow")),  # Backward compatibility

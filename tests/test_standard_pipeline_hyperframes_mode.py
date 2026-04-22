@@ -205,6 +205,18 @@ class _RecordingVideoService:
         return output
 
 
+class _RecordingPersistence:
+    def __init__(self):
+        self.saved_metadata = None
+        self.saved_storyboard = None
+
+    async def save_task_metadata(self, task_id, metadata):
+        self.saved_metadata = (task_id, metadata)
+
+    async def save_storyboard(self, task_id, storyboard):
+        self.saved_storyboard = (task_id, storyboard)
+
+
 class _DummyCore:
     def __init__(self, tmp_path: Path):
         self.config = {}
@@ -219,12 +231,13 @@ class _DummyCore:
             tmp_path / "task-1" / "hyperframes"
         )
         self.hyperframes_renderer = _FakeHyperFramesRenderer()
+        self.persistence = _RecordingPersistence()
 
 
 def _build_storyboard_context(
     tmp_path: Path,
     *,
-    render_backend: str = "hyperframes",
+    render_backend: str = "hyperframes_compiled",
     silence_trim_tool: str | None = None,
     frame_template: str = "1080x1920/image_life_insights_light.html",
 ) -> PipelineContext:
@@ -588,7 +601,7 @@ async def test_post_production_warns_when_hyperframes_falls_back_to_legacy_rende
 
     core = _DummyCore(tmp_path)
     pipeline = StandardPipeline(core)
-    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes")
+    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes_compiled")
     ctx.config.frame_template = "1080x1920/image_modern.html"
     ctx.final_video_path = str(tmp_path / "legacy-final.mp4")
     ctx.storyboard.frames[0].video_segment_path = "segment-0.mp4"
@@ -612,7 +625,7 @@ async def test_post_production_keeps_legacy_concat_path_when_not_in_hyperframes_
 
     core = _DummyCore(tmp_path)
     pipeline = StandardPipeline(core)
-    ctx = _build_storyboard_context(tmp_path, render_backend="cinematic")
+    ctx = _build_storyboard_context(tmp_path, render_backend="legacy")
     ctx.final_video_path = str(tmp_path / "legacy-final.mp4")
     ctx.storyboard.frames[0].video_segment_path = "segment-0.mp4"
     ctx.storyboard.frames[1].video_segment_path = "segment-1.mp4"
@@ -622,3 +635,26 @@ async def test_post_production_keeps_legacy_concat_path_when_not_in_hyperframes_
     assert calls["videos"] == ["segment-0.mp4", "segment-1.mp4"]
     assert calls["output"] == ctx.final_video_path
     assert calls["kwargs"]["bgm_mode"] == "loop"
+
+
+@pytest.mark.asyncio
+async def test_persist_task_data_records_resolved_render_backend(tmp_path):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, render_backend="legacy")
+    output_path = Path(tmp_path / "task-1" / "final.mp4")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(b"video")
+    ctx.final_video_path = str(output_path)
+    ctx.storyboard.completed_at = ctx.storyboard.created_at
+    ctx.result = SimpleNamespace(
+        video_path=str(output_path),
+        duration=2.0,
+        file_size=output_path.stat().st_size,
+    )
+
+    await pipeline._persist_task_data(ctx)
+
+    assert core.persistence.saved_metadata is not None
+    _, metadata = core.persistence.saved_metadata
+    assert metadata["config"]["render_backend"] == "legacy"

@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, model_validator
 from pixelle_video.config.prompt_prefix_library import (
     build_builtin_prompt_prefix_library_dict,
 )
+from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, RenderBackend
 
 
 class LLMConfig(BaseModel):
@@ -167,7 +168,7 @@ class RenderTimingConfig(BaseModel):
 class RenderConfig(BaseModel):
     """Render configuration."""
 
-    backend: str = Field(default="hyperframes", description="Render backend")
+    backend: RenderBackend = Field(default=DEFAULT_RENDER_BACKEND, description="Render backend")
     timing: RenderTimingConfig = Field(default_factory=RenderTimingConfig)
 
 

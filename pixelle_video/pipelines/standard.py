@@ -54,6 +54,7 @@ from pixelle_video.utils.os_util import (
 )
 from pixelle_video.utils.template_util import get_template_type
 from pixelle_video.services.video import VideoService
+from pixelle_video.render_backend import HYPERFRAMES_COMPILED_RENDER_BACKEND
 
 
 @dataclass(frozen=True)
@@ -381,7 +382,7 @@ class StandardPipeline(LinearVideoPipeline):
 
     def _get_hyperframes_fallback_reason(self, ctx: PipelineContext) -> Optional[str]:
         config = ctx.config
-        if config.render_backend != "hyperframes":
+        if config.render_backend != HYPERFRAMES_COMPILED_RENDER_BACKEND:
             return None
 
         execution_mode = self._resolve_asset_execution_mode(ctx)
@@ -402,7 +403,7 @@ class StandardPipeline(LinearVideoPipeline):
         return None
 
     def _is_hyperframes_render_path(self, ctx: PipelineContext) -> bool:
-        if ctx.config.render_backend != "hyperframes":
+        if ctx.config.render_backend != HYPERFRAMES_COMPILED_RENDER_BACKEND:
             return False
         return self._get_hyperframes_fallback_reason(ctx) is None
 
@@ -1090,6 +1091,7 @@ class StandardPipeline(LinearVideoPipeline):
                     "llm_base_url": self.core.config.get("llm", {}).get("base_url", "unknown"),
                     "comfyui_url": self.core.config.get("comfyui", {}).get("comfyui_url", "unknown"),
                     "runninghub_enabled": bool(self.core.config.get("comfyui", {}).get("runninghub_api_key")),
+                    "render_backend": storyboard.config.render_backend,
                 }
             }
             

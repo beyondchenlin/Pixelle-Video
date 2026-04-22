@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from pixelle_video.config.loader import load_config_dict, save_config_dict
 from pixelle_video.config.schema import PixelleVideoConfig
@@ -23,6 +24,7 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     assert config.tts_batching_mode == "paragraph"
     assert config.subtitle_alignment_engine == "qwen_forced_aligner"
     assert config.silence_trim_tool is None
+    assert config.render_backend == "legacy"
 
     manifest = RenderManifest(
         task_id="task-1",
@@ -109,7 +111,7 @@ def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path
         subtitle_alignment_engine="whisperx",
         silence_trim_tool="ffmpeg",
         silence_trim_margin_ms=80,
-        render_backend="hyperframes",
+        render_backend="hyperframes_compiled",
     )
 
     service = PersistenceService(output_dir=str(tmp_path))
@@ -121,7 +123,16 @@ def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path
     assert restored.subtitle_alignment_engine == "whisperx"
     assert restored.silence_trim_tool == "ffmpeg"
     assert restored.silence_trim_margin_ms == 80
-    assert restored.render_backend == "hyperframes"
+    assert restored.render_backend == "hyperframes_compiled"
+
+
+def test_storyboard_config_rejects_removed_hyperframes_alias():
+    with pytest.raises(ValueError, match="render_backend"):
+        StoryboardConfig(
+            media_width=1080,
+            media_height=1920,
+            render_backend="hyperframes",
+        )
 
 
 def test_render_config_loads_and_saves_through_yaml_round_trip(tmp_path):
@@ -130,7 +141,7 @@ def test_render_config_loads_and_saves_through_yaml_round_trip(tmp_path):
     config_path.write_text(
         """
 render:
-  backend: hyperframes
+  backend: hyperframes_compiled
   timing:
     tts_batching_mode: sentence
     tts_batch_max_sentences: 6
@@ -146,7 +157,7 @@ render:
     loaded = load_config_dict(str(config_path))
 
     parsed = PixelleVideoConfig(**loaded)
-    assert parsed.render.backend == "hyperframes"
+    assert parsed.render.backend == "hyperframes_compiled"
     assert parsed.render.timing.tts_batching_mode == "sentence"
     assert parsed.render.timing.tts_batch_max_sentences == 6
     assert parsed.render.timing.tts_batch_max_chars == 180
@@ -158,15 +169,32 @@ render:
     reloaded = load_config_dict(str(saved_path))
     reparsed = PixelleVideoConfig(**reloaded)
 
-    assert reparsed.render.backend == "hyperframes"
+    assert reparsed.render.backend == "hyperframes_compiled"
     assert reparsed.render.timing.tts_batching_mode == "sentence"
     assert reparsed.render.timing.silence_trim_tool == "ffmpeg"
+
+
+def test_render_config_rejects_removed_hyperframes_alias(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+render:
+  backend: hyperframes
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_config_dict(str(config_path))
+
+    with pytest.raises(ValidationError, match="hyperframes_compiled"):
+        PixelleVideoConfig(**loaded)
 
 
 def test_resolve_storyboard_render_kwargs_honors_explicit_none_over_config_default():
     runtime_config = {
         "render": {
-            "backend": "cinematic",
+            "backend": "legacy",
             "timing": {
                 "tts_batching_mode": "sentence",
                 "tts_batch_max_sentences": 6,
@@ -187,7 +215,23 @@ def test_resolve_storyboard_render_kwargs_honors_explicit_none_over_config_defau
     assert resolved["tts_batching_mode"] == "paragraph"
     assert resolved["silence_trim_tool"] is None
     assert resolved["silence_trim_margin_ms"] == 90
-    assert resolved["render_backend"] == "cinematic"
+    assert resolved["render_backend"] == "legacy"
+
+
+def test_resolve_storyboard_render_kwargs_accepts_explicit_release_backend_override():
+    runtime_config = {
+        "render": {
+            "backend": "legacy",
+            "timing": {},
+        }
+    }
+    request_params = {
+        "render_backend": "hyperframes_compiled",
+    }
+
+    resolved = resolve_storyboard_render_kwargs(runtime_config, request_params)
+
+    assert resolved["render_backend"] == "hyperframes_compiled"
 
 
 @pytest.mark.asyncio
@@ -198,7 +242,7 @@ async def test_standard_pipeline_initialize_storyboard_uses_render_config_defaul
         {
             "config": {
                 "render": {
-                    "backend": "cinematic",
+                    "backend": "legacy",
                     "timing": {
                         "tts_batching_mode": "sentence",
                         "tts_batch_max_sentences": 5,
@@ -237,7 +281,7 @@ async def test_standard_pipeline_initialize_storyboard_uses_render_config_defaul
     assert ctx.config.subtitle_alignment_engine == "whisperx"
     assert ctx.config.silence_trim_tool == "ffmpeg"
     assert ctx.config.silence_trim_margin_ms == 75
-    assert ctx.config.render_backend == "cinematic"
+    assert ctx.config.render_backend == "legacy"
     assert ctx.timing_plan is not None
     assert [sentence.text for sentence in ctx.timing_plan.sentences] == [
         "Sentence 1.",
@@ -255,7 +299,7 @@ async def test_standard_pipeline_initialize_storyboard_builds_sentence_level_tim
         {
             "config": {
                 "render": {
-                    "backend": "cinematic",
+                    "backend": "legacy",
                     "timing": {
                         "tts_batching_mode": "paragraph",
                         "tts_batch_max_sentences": 8,
@@ -347,7 +391,7 @@ async def test_custom_pipeline_uses_render_config_defaults_when_building_storybo
         {
             "config": {
                 "render": {
-                    "backend": "cinematic",
+                    "backend": "legacy",
                     "timing": {
                         "tts_batching_mode": "sentence",
                         "tts_batch_max_sentences": 5,
@@ -384,7 +428,7 @@ async def test_custom_pipeline_uses_render_config_defaults_when_building_storybo
     assert captured["subtitle_alignment_engine"] == "whisperx"
     assert captured["silence_trim_tool"] == "ffmpeg"
     assert captured["silence_trim_margin_ms"] == 75
-    assert captured["render_backend"] == "cinematic"
+    assert captured["render_backend"] == "legacy"
 
 
 @pytest.mark.asyncio
@@ -408,7 +452,7 @@ async def test_asset_based_pipeline_initialize_storyboard_uses_render_config_def
         {
             "config": {
                 "render": {
-                    "backend": "cinematic",
+                    "backend": "legacy",
                     "timing": {
                         "tts_batching_mode": "sentence",
                         "tts_batch_max_sentences": 5,
@@ -450,4 +494,4 @@ async def test_asset_based_pipeline_initialize_storyboard_uses_render_config_def
     assert captured["subtitle_alignment_engine"] == "whisperx"
     assert captured["silence_trim_tool"] == "ffmpeg"
     assert captured["silence_trim_margin_ms"] == 75
-    assert captured["render_backend"] == "cinematic"
+    assert captured["render_backend"] == "legacy"

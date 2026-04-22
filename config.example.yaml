@@ -86,7 +86,10 @@ template:
 # ==================== Render Configuration ====================
 # Render contract defaults used by storyboard and persistence layers
 render:
-  backend: hyperframes
+  # Options:
+  #   - legacy: existing non-HyperFrames rendering path
+  #   - hyperframes_compiled: new compiled HyperFrames rendering path
+  backend: legacy
   timing:
     tts_batching_mode: paragraph
     tts_batch_max_sentences: 8

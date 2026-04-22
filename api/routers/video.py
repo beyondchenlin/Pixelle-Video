@@ -154,6 +154,9 @@ async def generate_video_sync(
         # Add custom template parameters if specified
         if request_body.template_params:
             video_params["template_params"] = request_body.template_params
+
+        if request_body.render_backend is not None:
+            video_params["render_backend"] = request_body.render_backend
         
         # Call video generator service
         result = await pixelle_video.generate_video(**video_params)
@@ -259,6 +262,9 @@ async def generate_video_async(
             # Add custom template parameters if specified
             if request_body.template_params:
                 video_params["template_params"] = request_body.template_params
+
+            if request_body.render_backend is not None:
+                video_params["render_backend"] = request_body.render_backend
             
             result = await pixelle_video.generate_video(**video_params)
             
@@ -287,4 +293,3 @@ async def generate_video_async(
     except Exception as e:
         logger.error(f"Async video generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-

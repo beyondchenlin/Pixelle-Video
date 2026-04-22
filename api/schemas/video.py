@@ -17,6 +17,8 @@ Video generation API schemas
 from typing import Optional, Literal, Dict, Any
 from pydantic import BaseModel, Field
 
+from pixelle_video.render_backend import RenderBackend
+
 
 class VideoGenerateRequest(BaseModel):
     """Video generation request"""
@@ -75,6 +77,12 @@ class VideoGenerateRequest(BaseModel):
         description="Custom template parameters (e.g., {'accent_color': '#ff0000', 'background': 'url'}). "
                     "Available parameters depend on the template. Use GET /api/templates/{template_path}/params to discover them."
     )
+
+    # === Render Backend ===
+    render_backend: Optional[RenderBackend] = Field(
+        None,
+        description="Render backend: 'legacy' or 'hyperframes_compiled'",
+    )
     
     # === Image Style ===
     prompt_prefix: Optional[str] = Field(None, description="Image style prefix")
@@ -90,6 +98,7 @@ class VideoGenerateRequest(BaseModel):
                 "mode": "generate",
                 "n_scenes": 5,
                 "frame_template": "1080x1920/image_default.html",
+                "render_backend": "legacy",
                 "template_params": {
                     "accent_color": "#3498db",
                     "background": "https://example.com/custom-bg.jpg"
@@ -113,4 +122,3 @@ class VideoGenerateAsyncResponse(BaseModel):
     success: bool = True
     message: str = "Task created successfully"
     task_id: str = Field(..., description="Task ID for tracking progress")
-
