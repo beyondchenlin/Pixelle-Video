@@ -298,10 +298,12 @@ V1 schema rule:
 
 - `supported_modes` is the source of truth for mode compatibility
 - `forced_mode` may only be set to one value already listed inside `supported_modes`
+- `conservative_fallback_mode` must always be one of the values listed in `supported_modes`
 - single-mode presets should use `supported_modes` with one entry plus matching `forced_mode`
 - dual-mode presets should omit `forced_mode`
 - single-mode presets may use `cast_slots` as their only cast definition
 - dual-mode presets must define `cast_slots_by_mode`
+- dual-mode presets must provide one `cast_slots_by_mode` entry for every supported mode
 - if both `cast_slots` and `cast_slots_by_mode` exist, `cast_slots` should be treated only as shared defaults and mode-specific definitions win on conflict
 
 This avoids schema ambiguity when one world supports both:
@@ -430,6 +432,21 @@ Recommended V1 values:
 - `strict`: planner should preserve the preset rhythm as much as possible and only repair hard-rule violations
 
 User-selected shot strategy may override the preset default for one task, but the resolved value must be stored in the task snapshot.
+
+### Default shot-preset resolution
+
+If the user does not explicitly choose a shot preset, the system must resolve one deterministically.
+
+V1 rule:
+
+1. use the first preset from `world preset.default_shot_preset_ids` that supports the requested scene count
+2. if none are compatible, fall back to the built-in `balanced_explainer` preset
+
+Additional rules:
+
+- preview must show the resolved shot preset and whether it was user-selected or auto-selected
+- the resolved preset id and selection source must be stored in the task snapshot
+- request entry points must not each invent their own default shot-preset behavior
 
 ### Recommended initial shot presets
 
@@ -720,6 +737,11 @@ Advanced controls should narrow or override only their own dimension.
 V1 rule:
 
 - `consistency strength` defines the default consistency policy for the whole task
+- resolved content mode remains the top-level routing contract for cast behavior
+- `role strategy=auto` follows the resolved content mode
+- `role strategy=theme mapping` is valid only when resolved content mode is `theme_mapping`
+- `role strategy=stable explainer cast` is valid only when resolved content mode is `concept_explainer`
+- if `role strategy` conflicts with the resolved content mode, pre-planning validation must return a configuration conflict rather than silently rewriting the mode
 - `role locking strength`, if set, overrides only the cast-locking sub-policy derived from `consistency strength`
 - `shot strategy`, if set, overrides only the resolved `override_policy`
 - other consistency dimensions continue to follow the selected `consistency strength`
@@ -785,8 +807,12 @@ When a task is submitted, the system should persist a snapshot of:
 
 - selected world preset
 - world-preset selection source (`user_selected` or `auto_defaulted`)
+- resolved world-preset payload version or content hash
 - resolved cast bible
 - selected shot preset
+- shot-preset selection source (`user_selected`, `auto_selected`, or `fallback_substituted`)
+- effective final shot preset
+- resolved shot-preset payload version or content hash
 - resolved shot override policy
 - resolved content mode
 - effective routing confidence threshold
@@ -798,6 +824,11 @@ When a task is submitted, the system should persist a snapshot of:
 History replay and task inspection must use this task snapshot, not the latest mutable preset definitions.
 
 This prevents old tasks from changing behavior after users later edit a shared preset.
+
+Replay rule:
+
+- task replay should use the stored snapshot payloads or their exact content hashes as the source of truth
+- mutable project-level preset records are lookup helpers, not replay authority
 
 ## Backward Compatibility
 
