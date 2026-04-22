@@ -525,7 +525,7 @@ class StandardPipeline(LinearVideoPipeline):
                     f"Unable to resolve master-track timing window for frame {frame.index + 1}."
                 )
 
-            output_path = self._resolve_legacy_master_track_frame_audio_path(ctx, frame.index)
+            output_path = get_task_frame_path(ctx.config.task_id, frame.index, "audio")
             self._extract_audio_clip(
                 master_audio_path,
                 output_path,
@@ -539,23 +539,6 @@ class StandardPipeline(LinearVideoPipeline):
         engine = (ctx.config.subtitle_alignment_engine or "qwen_forced_aligner").strip().lower()
         timing_plan = ctx.timing_plan
 
-        if engine == "qwen_forced_aligner":
-            try:
-                self.core.alignment_service.align_blocks(
-                    timing_plan.blocks,
-                    timing_plan.sentences,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Legacy master-track alignment failed with "
-                    f"{ctx.config.subtitle_alignment_engine!r}: {exc}. Falling back to duration alignment."
-                )
-                self.core.alignment_service.align_blocks_by_duration(
-                    timing_plan.blocks,
-                    timing_plan.sentences,
-                )
-            return
-
         if engine == "direct_duration":
             self.core.alignment_service.align_blocks_by_duration(
                 timing_plan.blocks,
@@ -563,25 +546,20 @@ class StandardPipeline(LinearVideoPipeline):
             )
             return
 
-        if engine in {"hyperframes_transcribe", "transcribe"}:
-            raise NotImplementedError(
-                "subtitle_alignment_engine='hyperframes_transcribe' is not implemented yet."
+        try:
+            self.core.alignment_service.align_blocks(
+                timing_plan.blocks,
+                timing_plan.sentences,
             )
-
-        raise ValueError(f"Unsupported subtitle_alignment_engine: {ctx.config.subtitle_alignment_engine!r}")
-
-    def _resolve_legacy_master_track_frame_audio_path(
-        self,
-        ctx: PipelineContext,
-        frame_index: int,
-    ) -> str:
-        if ctx.task_dir:
-            return str(Path(ctx.task_dir) / "frames" / f"{frame_index + 1:02d}_audio.mp3")
-
-        task_id = ctx.config.task_id or ctx.task_id
-        if not task_id:
-            raise RuntimeError("Legacy master-track audio extraction requires a task_id.")
-        return get_task_frame_path(task_id, frame_index, "audio")
+        except Exception as exc:
+            logger.warning(
+                "Legacy master-track alignment failed with "
+                f"{ctx.config.subtitle_alignment_engine!r}: {exc}. Falling back to duration alignment."
+            )
+            self.core.alignment_service.align_blocks_by_duration(
+                timing_plan.blocks,
+                timing_plan.sentences,
+            )
 
     def _extract_audio_clip(
         self,

@@ -43,7 +43,7 @@ Write-Info "Current ComfyUI Desktop basePath: $currentBasePath"
 Write-Info "Target ComfyUI Desktop basePath:  $TargetBasePath"
 
 Ensure-Directory $TargetBasePath
-foreach ($directoryName in @('input', 'output', 'user', 'custom_nodes')) {
+foreach ($directoryName in @('input', 'output', 'user')) {
     Ensure-Directory (Join-Path $TargetBasePath $directoryName)
 }
 
@@ -77,8 +77,7 @@ if ($Apply) {
         Write-Info "Would update basePath in: $ConfigPath"
     }
     else {
-        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-        [System.IO.File]::WriteAllText($ConfigPath, $updatedJson, $utf8NoBom)
+        Set-Content -LiteralPath $ConfigPath -Value $updatedJson -Encoding UTF8
         Write-Info "Updated ComfyUI Desktop basePath in: $ConfigPath"
     }
 }
