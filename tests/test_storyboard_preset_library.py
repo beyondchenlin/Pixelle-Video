@@ -51,6 +51,17 @@ def test_build_builtin_shot_preset_library_dict_uses_balanced_explainer_default(
     assert detail_focus["max_consecutive_same"] == 1
 
 
+def test_storyboard_shot_preset_schema_preserves_numeric_repair_rule():
+    config = PixelleVideoConfig()
+
+    model_dump = config.storyboard.shot_preset_library.model_dump()
+    balanced = next(item for item in model_dump["items"] if item["preset_id"] == "balanced_explainer")
+    detail_focus = next(item for item in model_dump["items"] if item["preset_id"] == "detail_focus")
+
+    assert balanced["max_consecutive_same"] == 2
+    assert detail_focus["max_consecutive_same"] == 1
+
+
 def test_pixelle_video_config_bootstraps_storyboard_libraries():
     config = PixelleVideoConfig()
 
@@ -228,18 +239,15 @@ def test_config_manager_exposes_storyboard_library_getters():
     assert shot_library["default_shot_preset_id"] == "balanced_explainer"
     assert world_library["items"]
     assert shot_library["items"]
+    balanced = next(item for item in shot_library["items"] if item["preset_id"] == "balanced_explainer")
+    assert balanced["max_consecutive_same"] == 2
 
 
 @pytest.mark.asyncio
 async def test_builtin_shot_preset_path_propagates_numeric_repair_rule(monkeypatch):
-    monkeypatch.setattr(
-        "pixelle_video.services.storyboard_planner.config_manager.get_storyboard_shot_preset_library",
-        lambda: build_builtin_shot_preset_library_dict(),
-    )
-    monkeypatch.setattr(
-        "pixelle_video.services.storyboard_planner.config_manager.get_storyboard_world_preset_library",
-        lambda: build_builtin_world_preset_library_dict(),
-    )
+    from pixelle_video.services.storyboard_planner import config_manager as planner_config_manager
+
+    monkeypatch.setattr(planner_config_manager, "config", PixelleVideoConfig())
 
     class FakeLLM:
         async def __call__(self, *, prompt: str, **kwargs):
