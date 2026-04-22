@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Pixelle HyperFrames - Image Default Captions</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        font-family: "PingFang SC", "Source Han Sans", "Microsoft YaHei", sans-serif;
+      }
+
+      [data-composition-id="captions"] {
+        position: relative;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+      }
+
+      #captions-shell {
+        position: absolute;
+        left: 115px;
+        right: 115px;
+        bottom: 260px;
+      }
+
+      #captions-container {
+        position: relative;
+        min-height: 240px;
+      }
+
+      .caption-group {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .caption-text {
+        padding: 20px 40px;
+        font-size: 42px;
+        line-height: 1.9;
+        font-weight: 500;
+        color: #2c3e50;
+        text-align: center;
+      }
+
+      .quote-minimal {
+        position: absolute;
+        opacity: 0.25;
+      }
+
+      .quote-minimal.left {
+        top: -10px;
+        left: 0;
+        transform: rotate(180deg);
+      }
+
+      .quote-minimal.right {
+        right: 0;
+        bottom: 44px;
+      }
+
+      .divider-set {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      .divider {
+        height: 2px;
+        background: rgba(149, 165, 166, 0.35);
+      }
+
+      .divider.short {
+        width: 40px;
+      }
+
+      .divider.long {
+        width: 80px;
+      }
+
+      .divider-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(149, 165, 166, 0.45);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="captions-root"
+      data-composition-id="captions"
+      data-width="1080"
+      data-height="1920"
+      data-start="0"
+      data-duration="__DURATION__"
+    >
+      <div id="captions-shell">
+        <svg
+          class="quote-minimal left"
+          width="60"
+          height="60"
+          viewBox="0 0 24 24"
+          fill="#95a5a6"
+        >
+          <path d="M6 17h3l2-4V7H5v6h3zm8 0h3l2-4V7h-6v6h3z" />
+        </svg>
+        <svg
+          class="quote-minimal right"
+          width="60"
+          height="60"
+          viewBox="0 0 24 24"
+          fill="#95a5a6"
+        >
+          <path d="M6 17h3l2-4V7H5v6h3zm8 0h3l2-4V7h-6v6h3z" />
+        </svg>
+
+        <div id="captions-container">__CAPTIONS__</div>
+
+        <div class="divider-set">
+          <div class="divider short"></div>
+          <div class="divider-dot"></div>
+          <div class="divider long"></div>
+          <div class="divider-dot"></div>
+          <div class="divider short"></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
