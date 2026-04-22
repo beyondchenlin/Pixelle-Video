@@ -347,3 +347,33 @@ ForEach-Object {
 - `ComfyUI-VideoHelperSuite`：`https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite`
 - `IndexTeam/IndexTTS-2`：`https://modelscope.cn/models/IndexTeam/IndexTTS-2`
 - `iic/speech_campplus_sv_zh-cn_16k-common`：`https://modelscope.cn/models/iic/speech_campplus_sv_zh-cn_16k-common`
+
+### 8.10 DeepSpeed 应装到哪个环境
+
+- Pixelle 项目 `.venv` 和 ComfyUI Desktop 的 `.venv` 是两套隔离的虚拟环境，不要把 `deepspeed` 装到 Pixelle 项目 `.venv` 里。
+- ComfyUI Desktop 的生效运行时以它自己的 `basePath\\.venv` 为准。
+- 为了后续独立折腾 `DeepSpeed`，建议先把 ComfyUI Desktop 运行时迁移到 `E:\comfyui-venv\.venv`。
+- 当前仓库已提供迁移脚本：`scripts/migrate_comfyui_runtime_to_e_drive.ps1`
+
+### 8.11 `E:\comfyui-venv` 运行时迁移建议
+
+- 目标是只迁移 ComfyUI Desktop 运行时，不要动已经在 `E:\comfyui\comfyui\models` 的模型目录。
+- 建议目录分工：
+  - `E:\comfyui`：保留 ComfyUI Desktop 程序、resources、models
+  - `E:\comfyui-venv`：保留 `.venv`、input、output、user
+- 如果本机还没有独立安装的 `Python 3.11`，先不要把旧 `.venv` 删掉。
+- 先做演练：
+  - `powershell -ExecutionPolicy Bypass -File .\scripts\migrate_comfyui_runtime_to_e_drive.ps1 -WhatIf`
+- 再做真正切换：
+  - `powershell -ExecutionPolicy Bypass -File .\scripts\migrate_comfyui_runtime_to_e_drive.ps1 -Apply -PythonExe '<official-python-3.11.exe>'`
+- 只有在 `E:\comfyui-venv\.venv\Scripts\python.exe` 已经存在且能正常启动后，才可以考虑删除旧路径 `C:\Users\ai\Documents\ComfyUI\.venv`。
+
+### 8.12 DeepSpeed 前置条件
+
+- Windows 上的 `deepspeed` 不是单纯 `pip install` 就必然成功的类型，在当前 `IndexTTS-2` 场景中，至少还需要：
+  - Visual Studio 2022 C++ Build Tools
+  - `ninja`
+  - 匹配的 CUDA Toolkit（包含 `nvcc`）
+  - 一个 ComfyUI 运行时独立的 Python 3.10/3.11 环境
+- 如果依然使用旧的 `C:\Users\ai\Documents\ComfyUI\.venv`，或在 `Python 3.12 + cu130` 环境里直接折腾 `deepspeed`，通常会回退到源码编译并失败。
+- 因此本说明建议：先切到新运行时目录，再在新环境里单独安装 `ninja` 和 `deepspeed`。
