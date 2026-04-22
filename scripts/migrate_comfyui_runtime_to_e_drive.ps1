@@ -77,7 +77,8 @@ if ($Apply) {
         Write-Info "Would update basePath in: $ConfigPath"
     }
     else {
-        Set-Content -LiteralPath $ConfigPath -Value $updatedJson -Encoding UTF8
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText($ConfigPath, $updatedJson, $utf8NoBom)
         Write-Info "Updated ComfyUI Desktop basePath in: $ConfigPath"
     }
 }

@@ -41,6 +41,8 @@ def test_migration_script_creates_required_runtime_directories(tmp_path):
     )
 
     assert completed.returncode == 0, completed.stderr or completed.stdout
-    assert json.loads(config_path.read_text(encoding="utf-8-sig"))["basePath"] == str(target_base_path)
+    config_text = config_path.read_text(encoding="utf-8")
+    assert not config_text.startswith("\ufeff")
+    assert json.loads(config_text)["basePath"] == str(target_base_path)
     for directory_name in ("input", "output", "user", "custom_nodes"):
         assert (target_base_path / directory_name).is_dir()
