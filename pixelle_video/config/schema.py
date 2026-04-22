@@ -144,6 +144,21 @@ def _deep_merge_dicts(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str
     return merged
 
 
+def _normalize_storyboard_library_item(incoming_item: Any) -> dict[str, Any]:
+    if isinstance(incoming_item, dict):
+        incoming_payload = incoming_item
+    elif hasattr(incoming_item, "model_dump"):
+        incoming_payload = incoming_item.model_dump()
+    else:
+        raise ValueError("malformed storyboard preset item: expected mapping-like input")
+
+    preset_id = incoming_payload.get("preset_id")
+    if not isinstance(preset_id, str) or not preset_id.strip():
+        raise ValueError("malformed storyboard preset item: missing preset_id")
+
+    return incoming_payload
+
+
 def _merge_storyboard_library_items(default_items: list[dict[str, Any]], incoming_items: list[Any]) -> list[dict[str, Any]]:
     merged_by_id = {
         item["preset_id"]: dict(item)
@@ -153,16 +168,8 @@ def _merge_storyboard_library_items(default_items: list[dict[str, Any]], incomin
     incoming_new_ids: list[str] = []
 
     for incoming_item in incoming_items:
-        if isinstance(incoming_item, dict):
-            incoming_payload = incoming_item
-        elif hasattr(incoming_item, "model_dump"):
-            incoming_payload = incoming_item.model_dump()
-        else:
-            continue
-
-        preset_id = incoming_payload.get("preset_id")
-        if not preset_id:
-            continue
+        incoming_payload = _normalize_storyboard_library_item(incoming_item)
+        preset_id = incoming_payload["preset_id"]
 
         merged_by_id[preset_id] = _deep_merge_dicts(merged_by_id.get(preset_id, {}), incoming_payload)
         if preset_id not in {item["preset_id"] for item in default_items if item.get("preset_id")}:
@@ -300,6 +307,17 @@ class StoryboardSubConfig(BaseModel):
     )
 
 
+def _validate_storyboard_cross_references(world_library: StoryboardWorldPresetLibraryConfig, shot_library: StoryboardShotPresetLibraryConfig) -> None:
+    shot_ids = {item.preset_id for item in shot_library.items}
+    for world_preset in world_library.items:
+        missing_shot_ids = [shot_id for shot_id in world_preset.default_shot_preset_ids if shot_id not in shot_ids]
+        if missing_shot_ids:
+            missing_list = ", ".join(missing_shot_ids)
+            raise ValueError(
+                f"world preset {world_preset.preset_id} references missing shot preset ids: {missing_list}"
+            )
+
+
 class ComfyUIConfig(BaseModel):
     """ComfyUI configuration (includes global settings and service-specific configs)"""
     comfyui_url: str = Field(default="http://127.0.0.1:8188", description="ComfyUI Server URL")
@@ -353,6 +371,14 @@ class PixelleVideoConfig(BaseModel):
     template: TemplateConfig = Field(default_factory=TemplateConfig)
     render: RenderConfig = Field(default_factory=RenderConfig)
     storyboard: StoryboardSubConfig = Field(default_factory=StoryboardSubConfig, description="Storyboard planning configuration")
+
+    @model_validator(mode="after")
+    def validate_storyboard_referential_integrity(self):
+        _validate_storyboard_cross_references(
+            self.storyboard.world_preset_library,
+            self.storyboard.shot_preset_library,
+        )
+        return self
     
     def is_llm_configured(self) -> bool:
         """Check if LLM is properly configured"""

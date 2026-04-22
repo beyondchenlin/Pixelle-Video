@@ -97,6 +97,41 @@ def test_invalid_storyboard_default_shot_preset_id_rejects_validation():
         )
 
 
+def test_world_preset_reference_to_missing_shot_preset_rejects_validation():
+    with pytest.raises(ValueError, match="references missing shot preset ids: missing_shot"):
+        PixelleVideoConfig.model_validate(
+            {
+                "storyboard": {
+                    "world_preset_library": {
+                        "items": [
+                            {
+                                "preset_id": "neutral_knowledge_storyboard",
+                                "default_shot_preset_ids": ["missing_shot"],
+                            }
+                        ]
+                    }
+                }
+            }
+        )
+
+
+def test_malformed_storyboard_library_item_without_preset_id_rejects_validation():
+    with pytest.raises(ValueError, match="malformed storyboard preset item: missing preset_id"):
+        PixelleVideoConfig.model_validate(
+            {
+                "storyboard": {
+                    "world_preset_library": {
+                        "items": [
+                            {
+                                "display_name": "Broken preset",
+                            }
+                        ]
+                    }
+                }
+            }
+        )
+
+
 def test_lookup_world_preset_raises_for_invalid_requested_or_default_ids():
     library = build_builtin_world_preset_library_dict()
 
