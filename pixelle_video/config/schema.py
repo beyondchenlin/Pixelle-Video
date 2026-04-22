@@ -229,6 +229,13 @@ class StoryboardWorldPresetLibraryConfig(BaseModel):
 
         return merged
 
+    @model_validator(mode="after")
+    def validate_default_world_preset_id_exists(self):
+        preset_ids = {item.preset_id for item in self.items}
+        if self.default_world_preset_id not in preset_ids:
+            raise ValueError(f"unknown default_world_preset_id: {self.default_world_preset_id}")
+        return self
+
 
 class StoryboardShotPresetItemConfig(BaseModel):
     """Single storyboard shot preset definition."""
@@ -267,6 +274,13 @@ class StoryboardShotPresetLibraryConfig(BaseModel):
             merged["items"] = _merge_storyboard_library_items(builtins["items"], incoming_items)
 
         return merged
+
+    @model_validator(mode="after")
+    def validate_default_shot_preset_id_exists(self):
+        preset_ids = {item.preset_id for item in self.items}
+        if self.default_shot_preset_id not in preset_ids:
+            raise ValueError(f"unknown default_shot_preset_id: {self.default_shot_preset_id}")
+        return self
 
 
 class StoryboardSubConfig(BaseModel):

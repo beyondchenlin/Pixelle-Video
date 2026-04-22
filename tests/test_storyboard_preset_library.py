@@ -71,6 +71,32 @@ def test_partial_storyboard_library_inputs_merge_builtin_defaults():
     assert len(config.storyboard.shot_preset_library.items) == len(build_builtin_shot_preset_library_dict()["items"])
 
 
+def test_invalid_storyboard_default_world_preset_id_rejects_validation():
+    with pytest.raises(ValueError, match="unknown default_world_preset_id: missing_world"):
+        PixelleVideoConfig.model_validate(
+            {
+                "storyboard": {
+                    "world_preset_library": {
+                        "default_world_preset_id": "missing_world",
+                    }
+                }
+            }
+        )
+
+
+def test_invalid_storyboard_default_shot_preset_id_rejects_validation():
+    with pytest.raises(ValueError, match="unknown default_shot_preset_id: missing_shot"):
+        PixelleVideoConfig.model_validate(
+            {
+                "storyboard": {
+                    "shot_preset_library": {
+                        "default_shot_preset_id": "missing_shot",
+                    }
+                }
+            }
+        )
+
+
 def test_lookup_world_preset_raises_for_invalid_requested_or_default_ids():
     library = build_builtin_world_preset_library_dict()
 
@@ -83,10 +109,9 @@ def test_lookup_world_preset_raises_for_invalid_requested_or_default_ids():
 
 
 def test_config_manager_exposes_storyboard_library_getters():
-    manager = ConfigManager.__new__(ConfigManager)
+    manager = object.__new__(ConfigManager)
     manager.config_path = None
     manager.config = PixelleVideoConfig()
-    manager._initialized = True
 
     world_library = manager.get_storyboard_world_preset_library()
     shot_library = manager.get_storyboard_shot_preset_library()
