@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from pixelle_video.config import prompt_prefix_library
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from web.components import style_config
@@ -32,7 +34,9 @@ def test_create_prompt_prefix_item_trims_fields_and_preserves_category_ids():
         source="manual",
         preview_asset_path=" resources/prompt_prefix_previews/custom/card.svg ",
         workflow_preview_assets={
-            "selfhost/image_z_image_turbo.json": " resources/prompt_prefix_previews/custom/manual-test.webp ",
+            " selfhost/image_z_image_turbo.json ": {
+                "asset_path": " resources/prompt_prefix_previews/custom/manual-test.webp ",
+            },
         },
     )
 
@@ -44,7 +48,53 @@ def test_create_prompt_prefix_item_trims_fields_and_preserves_category_ids():
     assert item["note"] == "soft and healing"
     assert item["preview_asset_path"] == "resources/prompt_prefix_previews/custom/card.svg"
     assert item["workflow_preview_assets"] == {
-        "selfhost/image_z_image_turbo.json": "resources/prompt_prefix_previews/custom/manual-test.webp",
+        "selfhost/image_z_image_turbo.json": {
+            "asset_path": "resources/prompt_prefix_previews/custom/manual-test.webp",
+            "reference_prompt": None,
+            "generated_at": None,
+            "status": "ready",
+        },
+    }
+
+
+def test_create_prompt_prefix_item_rejects_legacy_workflow_preview_strings():
+    with pytest.raises(ValueError):
+        create_prompt_prefix_item(
+            item_id="manual-test",
+            name="Warm Storybook",
+            content="warm storybook illustration",
+            style_category_id="storybook",
+            scene_category_id="childrens_story",
+            workflow_preview_assets={
+                "selfhost/image_z_image_turbo.json": "resources/prompt_prefix_previews/custom/manual-test.webp",
+            },
+        )
+
+
+def test_create_prompt_prefix_item_preserves_workflow_preview_metadata():
+    item = create_prompt_prefix_item(
+        item_id="manual-test",
+        name="Warm Storybook",
+        content="warm storybook illustration",
+        style_category_id="storybook",
+        scene_category_id="childrens_story",
+        workflow_preview_assets={
+            " selfhost/image_z_image_turbo.json ": {
+                "asset_path": " resources/prompt_prefix_previews/custom/manual-test.webp ",
+                "reference_prompt": " gallery cover prompt ",
+                "generated_at": " 2026-04-22T12:34:56Z ",
+                "status": " ready ",
+            }
+        },
+    )
+
+    assert item["workflow_preview_assets"] == {
+        "selfhost/image_z_image_turbo.json": {
+            "asset_path": "resources/prompt_prefix_previews/custom/manual-test.webp",
+            "reference_prompt": "gallery cover prompt",
+            "generated_at": "2026-04-22T12:34:56Z",
+            "status": "ready",
+        }
     }
 
 
@@ -218,10 +268,12 @@ def test_delete_image_prompt_prefix_item_cleans_up_custom_preview_asset(monkeypa
                 "id": "manual-test",
                 "preview_asset_path": "resources/prompt_prefix_previews/custom/manual-test.png",
                 "workflow_preview_assets": {
-                    "selfhost/image_z_image_turbo.json": (
-                        "resources/prompt_prefix_previews/custom/manual-test__"
-                        "selfhost_image_z_image_turbo_json.webp"
-                    )
+                    "selfhost/image_z_image_turbo.json": {
+                        "asset_path": (
+                            "resources/prompt_prefix_previews/custom/manual-test__"
+                            "selfhost_image_z_image_turbo_json.webp"
+                        )
+                    }
                 },
             }
         ],
@@ -295,12 +347,15 @@ def test_prepare_prompt_prefix_item_for_library_save_persists_generated_workflow
         candidate,
         workflow_key="selfhost/image_z_image_turbo.json",
         preview_media_path="http://127.0.0.1:8000/view?filename=llm-test.png",
+        reference_prompt="storybook gallery cover",
     )
 
     assert prepared_item["preview_asset_path"] is None
-    assert prepared_item["workflow_preview_assets"] == {
-        "selfhost/image_z_image_turbo.json": "resources/prompt_prefix_previews/custom/llm-test__workflow.webp"
-    }
+    preview_record = prepared_item["workflow_preview_assets"]["selfhost/image_z_image_turbo.json"]
+    assert preview_record["asset_path"] == "resources/prompt_prefix_previews/custom/llm-test__workflow.webp"
+    assert preview_record["reference_prompt"] == "storybook gallery cover"
+    assert preview_record["status"] == "ready"
+    assert preview_record["generated_at"]
     assert persisted_calls == [
         (
             "http://127.0.0.1:8000/view?filename=llm-test.png",
@@ -328,8 +383,12 @@ def test_resolve_prompt_prefix_gallery_cover_prefers_current_workflow_then_stale
     item = {
         "preview_asset_path": "resources/prompt_prefix_previews/builtin/warm_storybook.svg",
         "workflow_preview_assets": {
-            "selfhost/old.json": "resources/prompt_prefix_previews/custom/item__old.webp",
-            "selfhost/current.json": "resources/prompt_prefix_previews/custom/item__current.webp",
+            "selfhost/old.json": {
+                "asset_path": "resources/prompt_prefix_previews/custom/item__old.webp",
+            },
+            "selfhost/current.json": {
+                "asset_path": "resources/prompt_prefix_previews/custom/item__current.webp",
+            },
         },
     }
 
@@ -351,6 +410,38 @@ def test_resolve_prompt_prefix_gallery_cover_prefers_current_workflow_then_stale
     assert empty["asset_path"] == "resources/prompt_prefix_previews/builtin/warm_storybook.svg"
     assert empty["is_stale"] is False
     assert empty["source"] == "reference"
+
+
+def test_resolve_prompt_prefix_gallery_cover_reads_metadata_records(monkeypatch, tmp_path):
+    monkeypatch.setattr(prompt_prefix_library, "PROJECT_ROOT", tmp_path)
+
+    current_asset = tmp_path / "resources" / "prompt_prefix_previews" / "custom" / "item__current.webp"
+    current_asset.parent.mkdir(parents=True, exist_ok=True)
+    current_asset.write_bytes(b"current")
+
+    item = {
+        "workflow_preview_assets": {
+            "selfhost/current.json": {
+                "asset_path": "resources/prompt_prefix_previews/custom/item__current.webp",
+                "reference_prompt": "storybook gallery cover",
+                "generated_at": "2026-04-22T12:34:56Z",
+                "status": "ready",
+            }
+        },
+    }
+
+    current = prompt_prefix_library.resolve_prompt_prefix_gallery_cover(item, "selfhost/current.json")
+
+    assert current["asset_path"] == "resources/prompt_prefix_previews/custom/item__current.webp"
+    assert current["reference_prompt"] == "storybook gallery cover"
+    assert current["generated_at"] == "2026-04-22T12:34:56Z"
+    assert current["status"] == "ready"
+
+
+def test_format_prompt_prefix_generated_at_uses_compact_timestamp():
+    assert style_config._format_prompt_prefix_generated_at("2026-04-22T12:34:56Z") == "04-22 12:34"
+    assert style_config._format_prompt_prefix_generated_at("  ") is None
+    assert style_config._format_prompt_prefix_generated_at("not-an-iso-string") == "not-an-iso-string"
 
 
 def test_build_prompt_prefix_live_preview_map_ignores_compare_preview_results(monkeypatch):
@@ -420,7 +511,7 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "prompt_prefix_library" in source
     assert "toggle_prompt_prefix_preview_selection" in source
     assert "build_prompt_prefix_generation_prompt" in source
-    assert "get_prompt_prefix_preview_asset" in source
+    assert "resolve_prompt_prefix_gallery_cover" in source
     assert "get_prompt_prefix_form_item_id" in source
     assert "persist_generated_prompt_prefix_workflow_preview" in source
     assert "clone_prompt_prefix_preview_asset" in source
@@ -431,12 +522,19 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "style.prefix_library.compare_count" in source
     assert "style.prefix_library.thumbnail_prompt" in source
     assert "style.prefix_library.generate_thumbnails" in source
+    assert "style.prefix_library.thumbnail_workflow_label" in source
+    assert "style.prefix_library.thumbnail_generated_at_label" in source
+    assert "style.prefix_library.thumbnail_reference_prompt_label" in source
+    assert "_format_prompt_prefix_generated_at" in source
     assert 'st.container(key="prompt_prefix_library_root")' in current_prefix_section
     assert ".st-key-prompt_prefix_library_root div.stButton > button p" in current_prefix_section
     assert "word-break: keep-all !important" in current_prefix_section
     assert "padding-inline: 0.45rem" in current_prefix_section
     assert "style.prefix_library.compare_chip_short" in source
-    assert "num_cols = 5" in source
+    assert "num_cols = 4" in current_prefix_section
+    assert "num_cols = 5" not in current_prefix_section
+    assert "generated_at:" not in current_prefix_section
+    assert "reference_prompt:" not in current_prefix_section
     assert "num_cols = 1" not in source
     assert "cover_asset" not in gallery_section
     assert "compare_prefix_card_new_" not in gallery_section
@@ -461,6 +559,9 @@ def test_prompt_prefix_library_locale_keys_exist():
         assert "style.prefix_library.thumbnail_prompt" in translations
         assert "style.prefix_library.generate_thumbnails" in translations
         assert "style.prefix_library.compare_chip_short" in translations
+        assert "style.prefix_library.thumbnail_workflow_label" in translations
+        assert "style.prefix_library.thumbnail_generated_at_label" in translations
+        assert "style.prefix_library.thumbnail_reference_prompt_label" in translations
 
 
 def test_runtime_asset_dirs_are_gitignored():

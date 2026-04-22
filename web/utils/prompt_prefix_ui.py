@@ -26,6 +26,7 @@ from pixelle_video.config.prompt_prefix_library import (
     SCENE_CATEGORY_LABELS,
     STYLE_CATEGORY_LABELS,
     get_prompt_prefix_category_label,
+    normalize_prompt_prefix_workflow_preview_assets,
 )
 from web.utils.preview_media import load_preview_media
 
@@ -43,8 +44,8 @@ def create_prompt_prefix_item(
     source: str = "manual",
     item_id: str | None = None,
     preview_asset_path: str | None = None,
-    workflow_preview_assets: dict[str, str] | None = None,
-) -> dict[str, str | bool | None]:
+    workflow_preview_assets: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Create a normalized prompt prefix library item payload."""
     return {
         "id": item_id or f"{source}-{uuid4().hex[:12]}",
@@ -56,11 +57,9 @@ def create_prompt_prefix_item(
         "is_builtin": False,
         "note": note.strip(),
         "preview_asset_path": preview_asset_path.strip() if preview_asset_path else None,
-        "workflow_preview_assets": {
-            str(workflow_key).strip(): str(asset_path).strip()
-            for workflow_key, asset_path in (workflow_preview_assets or {}).items()
-            if str(workflow_key).strip() and str(asset_path).strip()
-        },
+        "workflow_preview_assets": normalize_prompt_prefix_workflow_preview_assets(
+            workflow_preview_assets or {}
+        ),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 

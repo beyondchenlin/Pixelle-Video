@@ -172,6 +172,89 @@ def _read_mapping_or_attr(container: Any, key: str, default: Any = None) -> Any:
     return getattr(container, key, default)
 
 
+def normalize_prompt_prefix_workflow_preview_entry(entry: Any) -> dict[str, Any] | None:
+    """Strictly normalize one workflow preview asset metadata record."""
+    if entry is None:
+        return None
+    if hasattr(entry, "model_dump"):
+        entry = entry.model_dump()
+
+    if not isinstance(entry, dict):
+        raise ValueError("workflow preview entry must be a mapping with metadata fields")
+
+    asset_path = str(entry.get("asset_path") or "").strip()
+    if not asset_path:
+        raise ValueError("workflow preview entry asset_path is required")
+
+    reference_prompt = entry.get("reference_prompt")
+    if isinstance(reference_prompt, str):
+        reference_prompt = reference_prompt.strip() or None
+    else:
+        reference_prompt = None
+
+    generated_at = entry.get("generated_at")
+    if isinstance(generated_at, str):
+        generated_at = generated_at.strip() or None
+    else:
+        generated_at = None
+
+    status = str(entry.get("status") or "").strip() or "ready"
+    return {
+        "asset_path": asset_path,
+        "reference_prompt": reference_prompt,
+        "generated_at": generated_at,
+        "status": status,
+    }
+
+
+def normalize_prompt_prefix_workflow_preview_assets(entries: Any) -> dict[str, dict[str, Any]]:
+    """Strictly normalize a workflow-preview mapping."""
+    if entries is None:
+        return {}
+    if not isinstance(entries, dict):
+        raise ValueError("workflow_preview_assets must be a mapping of workflow keys to metadata records")
+
+    normalized_entries: dict[str, dict[str, Any]] = {}
+    for workflow_key, entry in entries.items():
+        normalized_workflow_key = str(workflow_key).strip()
+        if not normalized_workflow_key:
+            raise ValueError("workflow_preview_assets contains an empty workflow key")
+        normalized_entry = normalize_prompt_prefix_workflow_preview_entry(entry)
+        if normalized_entry is None:
+            raise ValueError(f"workflow_preview_assets[{normalized_workflow_key!r}] is missing metadata")
+        normalized_entries[normalized_workflow_key] = normalized_entry
+
+    return normalized_entries
+
+
+def build_prompt_prefix_workflow_preview_record(
+    asset_path: str,
+    reference_prompt: str | None = None,
+    generated_at: str | None = None,
+    status: str = "ready",
+) -> dict[str, Any]:
+    """Build one normalized workflow preview record."""
+    normalized = normalize_prompt_prefix_workflow_preview_entry(
+        {
+            "asset_path": asset_path,
+            "reference_prompt": reference_prompt,
+            "generated_at": generated_at,
+            "status": status,
+        }
+    )
+    if normalized is None:
+        raise ValueError("asset_path is required for workflow preview record")
+    return normalized
+
+
+def get_prompt_prefix_workflow_preview_asset_path(entry: Any) -> str | None:
+    """Return the asset path from one workflow preview entry."""
+    normalized_entry = normalize_prompt_prefix_workflow_preview_entry(entry)
+    if normalized_entry is None:
+        return None
+    return normalized_entry["asset_path"]
+
+
 def get_effective_image_prompt_prefix(image_config: Any) -> str:
     library = _read_mapping_or_attr(image_config, "prompt_prefix_library", None)
     if library is not None:
@@ -211,7 +294,10 @@ def get_prompt_prefix_preview_asset(item: dict[str, Any]) -> str:
     return DEFAULT_PROMPT_PREFIX_PLACEHOLDER
 
 
-def _resolve_prompt_prefix_asset_path(asset_path: str | None) -> str | None:
+def _resolve_prompt_prefix_asset_path(asset_path: Any) -> str | None:
+    if not isinstance(asset_path, str):
+        asset_path = get_prompt_prefix_workflow_preview_asset_path(asset_path)
+
     normalized_asset_path = (asset_path or "").strip()
     if not normalized_asset_path:
         return None
@@ -225,36 +311,43 @@ def _resolve_prompt_prefix_asset_path(asset_path: str | None) -> str | None:
 def resolve_prompt_prefix_gallery_cover(item: dict[str, Any], workflow_key: str | None) -> dict[str, Any]:
     """Resolve the best gallery cover for one prompt-prefix card."""
     normalized_workflow_key = (workflow_key or "").strip()
-    workflow_preview_assets = item.get("workflow_preview_assets") or {}
+    workflow_preview_assets = normalize_prompt_prefix_workflow_preview_assets(
+        item.get("workflow_preview_assets") or {}
+    )
 
     if normalized_workflow_key:
-        current_workflow_asset = _resolve_prompt_prefix_asset_path(
-            workflow_preview_assets.get(normalized_workflow_key)
-        )
+        current_workflow_record = workflow_preview_assets.get(normalized_workflow_key)
+        current_workflow_asset = _resolve_prompt_prefix_asset_path(current_workflow_record)
         if current_workflow_asset:
             return {
                 "asset_path": current_workflow_asset,
                 "source": "workflow",
                 "is_stale": False,
                 "workflow_key": normalized_workflow_key,
+                "reference_prompt": current_workflow_record.get("reference_prompt") if current_workflow_record else None,
+                "generated_at": current_workflow_record.get("generated_at") if current_workflow_record else None,
+                "status": current_workflow_record.get("status") if current_workflow_record else None,
             }
 
-    latest_other_asset: tuple[float, str, str] | None = None
-    for other_workflow_key, other_asset_path in workflow_preview_assets.items():
-        resolved_asset_path = _resolve_prompt_prefix_asset_path(other_asset_path)
+    latest_other_asset: tuple[float, str, str, dict[str, Any]] | None = None
+    for other_workflow_key, other_record in workflow_preview_assets.items():
+        resolved_asset_path = _resolve_prompt_prefix_asset_path(other_record)
         if not resolved_asset_path:
             continue
         asset_mtime = (PROJECT_ROOT / resolved_asset_path).stat().st_mtime
         if latest_other_asset is None or asset_mtime > latest_other_asset[0]:
-            latest_other_asset = (asset_mtime, other_workflow_key, resolved_asset_path)
+            latest_other_asset = (asset_mtime, other_workflow_key, resolved_asset_path, other_record)
 
     if latest_other_asset is not None:
-        _, stale_workflow_key, stale_asset_path = latest_other_asset
+        _, stale_workflow_key, stale_asset_path, stale_record = latest_other_asset
         return {
             "asset_path": stale_asset_path,
             "source": "workflow",
             "is_stale": True,
             "workflow_key": stale_workflow_key,
+            "reference_prompt": stale_record.get("reference_prompt"),
+            "generated_at": stale_record.get("generated_at"),
+            "status": stale_record.get("status"),
         }
 
     return {
@@ -262,6 +355,9 @@ def resolve_prompt_prefix_gallery_cover(item: dict[str, Any], workflow_key: str 
         "source": "reference",
         "is_stale": False,
         "workflow_key": None,
+        "reference_prompt": None,
+        "generated_at": None,
+        "status": None,
     }
 
 

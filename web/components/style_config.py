@@ -15,6 +15,7 @@ Style configuration components for web UI (middle column)
 """
 
 import os
+from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 from uuid import uuid4
@@ -24,9 +25,11 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.prompt_prefix_library import (
+    build_prompt_prefix_workflow_preview_record,
     filter_prompt_prefix_items,
     get_effective_image_prompt_prefix,
     get_prompt_prefix_category_label,
+    get_prompt_prefix_workflow_preview_asset_path,
     resolve_prompt_prefix_gallery_cover,
 )
 from pixelle_video.prompts.prompt_prefix_generation import (
@@ -148,7 +151,9 @@ def _delete_image_prompt_prefix_item(item_id: str):
     if deleted_item:
         delete_prompt_prefix_preview_asset(deleted_item.get("preview_asset_path"))
         for workflow_preview_asset in (deleted_item.get("workflow_preview_assets") or {}).values():
-            delete_prompt_prefix_preview_asset(workflow_preview_asset)
+            delete_prompt_prefix_preview_asset(
+                get_prompt_prefix_workflow_preview_asset_path(workflow_preview_asset)
+            )
     _save_image_prompt_prefix_library(library)
 
 
@@ -176,18 +181,25 @@ def _prepare_prompt_prefix_item_for_library_save(
     item: dict,
     workflow_key: str,
     preview_media_path: str | None = None,
+    reference_prompt: str | None = None,
 ) -> dict:
     """Attach a persisted workflow-scoped preview asset before saving an item to the library."""
     prepared_item = dict(item)
     workflow_preview_assets = dict(prepared_item.get("workflow_preview_assets") or {})
+    existing_preview_record = workflow_preview_assets.get(workflow_key)
     persisted_preview_asset_path = persist_generated_prompt_prefix_workflow_preview(
         preview_media_path,
         item["id"],
         workflow_key,
-        previous_preview_asset_path=workflow_preview_assets.get(workflow_key),
+        previous_preview_asset_path=get_prompt_prefix_workflow_preview_asset_path(existing_preview_record),
     )
     if persisted_preview_asset_path:
-        workflow_preview_assets[workflow_key] = persisted_preview_asset_path
+        workflow_preview_assets[workflow_key] = build_prompt_prefix_workflow_preview_record(
+            asset_path=persisted_preview_asset_path,
+            reference_prompt=reference_prompt,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            status="ready",
+        )
         prepared_item["workflow_preview_assets"] = workflow_preview_assets
     return prepared_item
 
@@ -668,6 +680,7 @@ def _save_prompt_prefix_item_with_workflow_preview(
     item: dict,
     workflow_key: str,
     preview_media_path: str | None = None,
+    reference_prompt: str | None = None,
     set_active: bool = False,
 ):
     """Persist one prompt-prefix item, attaching a workflow-scoped preview when available."""
@@ -676,6 +689,7 @@ def _save_prompt_prefix_item_with_workflow_preview(
             item,
             workflow_key=workflow_key,
             preview_media_path=preview_media_path,
+            reference_prompt=reference_prompt,
         ),
         set_active=set_active,
     )
@@ -690,6 +704,19 @@ def _get_prompt_prefix_cover_status_label(cover_state: dict) -> str:
             else "style.prefix_library.thumbnail_status_current"
         )
     return tr("style.prefix_library.thumbnail_status_reference")
+
+
+def _format_prompt_prefix_generated_at(iso_string: str | None) -> str | None:
+    """Format workflow thumbnail timestamps for compact UI display."""
+    normalized = (iso_string or "").strip()
+    if not normalized:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        return normalized
+    return parsed.strftime("%m-%d %H:%M")
 
 
 def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_width: int, media_height: int) -> str:
@@ -844,6 +871,7 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                         item,
                         workflow_key=workflow_key,
                         preview_media_path=preview_results[0].get("preview_media_path"),
+                        reference_prompt=thumbnail_reference_prompt,
                     )
                     generated_count += 1
                 summary = tr(
@@ -875,7 +903,7 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
         if not filtered_items:
             st.caption(tr("style.prefix_library.no_items"))
         else:
-            num_cols = 5
+            num_cols = 4
             gallery_columns = st.columns(num_cols)
             for idx, item in enumerate(filtered_items):
                 style_label = get_prompt_prefix_category_label(item["style_category_id"], "style", language)
@@ -1000,7 +1028,8 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                     safe_rerun()
 
             if panel_mode == "details" and panel_item:
-                detail_cover_asset = resolve_prompt_prefix_gallery_cover(panel_item, workflow_key)["asset_path"]
+                panel_cover_state = resolve_prompt_prefix_gallery_cover(panel_item, workflow_key)
+                detail_cover_asset = panel_cover_state["asset_path"]
                 st.image(detail_cover_asset, width="stretch")
                 st.caption(
                     f"{get_prompt_prefix_category_label(panel_item['style_category_id'], 'style', language)} · "
@@ -1009,9 +1038,22 @@ def _render_image_prompt_prefix_library(pixelle_video, workflow_key: str, media_
                 )
                 if panel_item.get("note"):
                     st.caption(panel_item["note"])
-                st.caption(
-                    _get_prompt_prefix_cover_status_label(resolve_prompt_prefix_gallery_cover(panel_item, workflow_key))
-                )
+                st.caption(_get_prompt_prefix_cover_status_label(panel_cover_state))
+                if panel_cover_state.get("workflow_key"):
+                    st.caption(
+                        f"{tr('style.prefix_library.thumbnail_workflow_label')}: "
+                        f"{panel_cover_state['workflow_key']}"
+                    )
+                if panel_cover_state.get("generated_at"):
+                    st.caption(
+                        f"{tr('style.prefix_library.thumbnail_generated_at_label')}: "
+                        f"{_format_prompt_prefix_generated_at(panel_cover_state['generated_at'])}"
+                    )
+                if panel_cover_state.get("reference_prompt"):
+                    st.caption(
+                        f"{tr('style.prefix_library.thumbnail_reference_prompt_label')}: "
+                        f"{panel_cover_state['reference_prompt']}"
+                    )
                 st.code(panel_item["content"], language=None)
 
                 detail_action_col, detail_compare_col = st.columns(2, gap="small")

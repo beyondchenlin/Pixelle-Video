@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from pixelle_video.config.manager import ConfigManager
 from pixelle_video.config.prompt_prefix_library import (
     BUILTIN_PROMPT_PREFIXES,
@@ -105,3 +108,72 @@ def test_get_comfyui_config_includes_image_prompt_prefix_library(monkeypatch):
 
     assert "prompt_prefix_library" in comfyui_config["image"]
     assert comfyui_config["video"]["prompt_prefix"]
+
+
+def test_prompt_prefix_library_config_rejects_legacy_workflow_preview_asset_strings():
+    with pytest.raises(ValidationError):
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "image": {
+                        "prompt_prefix_library": {
+                            "active_prefix_id": "manual-test",
+                            "items": [
+                                {
+                                    "id": "manual-test",
+                                    "name": "Manual Test",
+                                    "content": "flat illustration",
+                                    "style_category_id": "flat_illustration",
+                                    "scene_category_id": "knowledge_sharing",
+                                    "workflow_preview_assets": {
+                                        "selfhost/image_z_image_turbo.json": (
+                                            "resources/prompt_prefix_previews/custom/manual-test.webp"
+                                        )
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                }
+            }
+        )
+
+
+def test_prompt_prefix_library_config_preserves_workflow_preview_metadata_fields():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "image": {
+                    "prompt_prefix_library": {
+                        "active_prefix_id": "manual-test",
+                        "items": [
+                            {
+                                "id": "manual-test",
+                                "name": "Manual Test",
+                                "content": "flat illustration",
+                                "style_category_id": "flat_illustration",
+                                "scene_category_id": "knowledge_sharing",
+                                "workflow_preview_assets": {
+                                    " selfhost/image_z_image_turbo.json ": {
+                                        "asset_path": " resources/prompt_prefix_previews/custom/manual-test.webp ",
+                                        "reference_prompt": " storybook cover ",
+                                        "generated_at": " 2026-04-22T12:34:56Z ",
+                                        "status": " ready ",
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+    )
+
+    preview = config.comfyui.image.prompt_prefix_library.items[0].workflow_preview_assets[
+        "selfhost/image_z_image_turbo.json"
+    ]
+
+    assert preview.asset_path == "resources/prompt_prefix_previews/custom/manual-test.webp"
+    assert preview.reference_prompt == "storybook cover"
+    assert preview.generated_at == "2026-04-22T12:34:56Z"
+    assert preview.status == "ready"

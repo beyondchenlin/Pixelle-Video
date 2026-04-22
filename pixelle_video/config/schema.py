@@ -21,6 +21,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from pixelle_video.config.prompt_prefix_library import (
     build_builtin_prompt_prefix_library_dict,
+    normalize_prompt_prefix_workflow_preview_assets,
+    normalize_prompt_prefix_workflow_preview_entry,
 )
 from pixelle_video.config.storyboard_preset_library import (
     build_builtin_shot_preset_library_dict,
@@ -62,6 +64,23 @@ class TTSSubConfig(BaseModel):
         return self.comfyui.default_workflow
 
 
+class PromptPrefixWorkflowPreviewAssetConfig(BaseModel):
+    """Workflow-scoped prompt-prefix preview metadata."""
+
+    asset_path: str
+    reference_prompt: Optional[str] = Field(default=None)
+    generated_at: Optional[str] = Field(default=None)
+    status: str = Field(default="ready")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_preview_record(cls, data: Any):
+        normalized = normalize_prompt_prefix_workflow_preview_entry(data)
+        if normalized is None:
+            raise ValueError("workflow preview entry is required")
+        return normalized
+
+
 class PromptPrefixItemConfig(BaseModel):
     """Single prompt prefix library item."""
 
@@ -74,8 +93,20 @@ class PromptPrefixItemConfig(BaseModel):
     is_builtin: bool = Field(default=False)
     note: str = Field(default="")
     preview_asset_path: Optional[str] = Field(default=None)
-    workflow_preview_assets: dict[str, str] = Field(default_factory=dict)
+    workflow_preview_assets: dict[str, PromptPrefixWorkflowPreviewAssetConfig] = Field(default_factory=dict)
     created_at: Optional[str] = Field(default=None)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_workflow_preview_assets(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+        normalized["workflow_preview_assets"] = normalize_prompt_prefix_workflow_preview_assets(
+            normalized.get("workflow_preview_assets")
+        )
+        return normalized
 
 
 class PromptPrefixLibraryConfig(BaseModel):
