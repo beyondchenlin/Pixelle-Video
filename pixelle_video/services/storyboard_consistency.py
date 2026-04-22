@@ -8,6 +8,16 @@ from typing import Any, Mapping, Sequence
 from pixelle_video.models.storyboard_planning import FramePlan
 
 _FRAME_FIELDS = set(FramePlan.__dataclass_fields__.keys())
+_REPAIR_SHOT_TYPE_PRIORITY = (
+    "close_up",
+    "medium_shot",
+    "wide_shot",
+    "full_shot",
+    "detail_close_up",
+    "extreme_close_up",
+    "long_shot",
+    "establishing_shot",
+)
 
 
 def _to_tuple(value: Any) -> tuple[Any, ...]:
@@ -31,6 +41,21 @@ def _get_max_consecutive_same(shot_rules: Any) -> int:
         return max(1, int(value))
 
     return 2
+
+
+def _select_repair_shot_type(previous_shot_type: str, next_shot_type: str | None) -> str:
+    for candidate in _REPAIR_SHOT_TYPE_PRIORITY:
+        if candidate == previous_shot_type:
+            continue
+        if next_shot_type is not None and candidate == next_shot_type:
+            continue
+        return candidate
+
+    for candidate in _REPAIR_SHOT_TYPE_PRIORITY:
+        if candidate != previous_shot_type:
+            return candidate
+
+    return "medium_shot"
 
 
 def apply_frame_overrides(
@@ -98,9 +123,11 @@ def repair_frame_plan_shots(
         run_length = index - run_start
         if run_length > max_consecutive_same:
             for repair_index in range(run_start + max_consecutive_same, index):
+                previous_shot_type = repaired[repair_index - 1].shot_type
+                next_shot_type = repaired[repair_index + 1].shot_type if repair_index + 1 < len(repaired) else None
                 repaired[repair_index] = replace(
                     repaired[repair_index],
-                    shot_type="close_up",
+                    shot_type=_select_repair_shot_type(previous_shot_type, next_shot_type),
                     frame_source="repair_adjusted",
                 )
 

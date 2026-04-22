@@ -24,6 +24,22 @@ def _neutral_world() -> dict[str, object]:
     }
 
 
+def _max_consecutive_run_length(shot_types: list[str]) -> int:
+    max_run = 0
+    current = None
+    run_length = 0
+
+    for shot_type in shot_types:
+        if shot_type == current:
+            run_length += 1
+        else:
+            current = shot_type
+            run_length = 1
+        max_run = max(max_run, run_length)
+
+    return max_run
+
+
 def test_resolve_content_mode_prefers_forced_mode_over_classifier_result():
     resolved = resolve_content_mode(
         user_mode=None,
@@ -91,14 +107,49 @@ def test_repair_frame_plan_shots_breaks_four_consecutive_identical_medium_shots(
         shot_rules={"max_consecutive_same": 2},
     )
 
-    assert [plan.shot_type for plan in repaired] == [
-        "medium_shot",
-        "medium_shot",
-        "close_up",
-        "close_up",
-    ]
+    assert _max_consecutive_run_length([plan.shot_type for plan in repaired]) <= 2
     assert repaired[2].frame_source == "repair_adjusted"
     assert repaired[3].frame_source == "repair_adjusted"
+
+
+def test_repair_frame_plan_shots_breaks_four_consecutive_close_up_frames():
+    plans = [
+        FramePlan(scene_id="1", shot_type="close_up", shot_purpose="a", prompt_intent="a"),
+        FramePlan(scene_id="2", shot_type="close_up", shot_purpose="b", prompt_intent="b"),
+        FramePlan(scene_id="3", shot_type="close_up", shot_purpose="c", prompt_intent="c"),
+        FramePlan(scene_id="4", shot_type="close_up", shot_purpose="d", prompt_intent="d"),
+    ]
+
+    repaired = repair_frame_plan_shots(
+        frame_plans=plans,
+        shot_rules={"max_consecutive_same": 2},
+    )
+
+    assert _max_consecutive_run_length([plan.shot_type for plan in repaired]) <= 2
+    assert repaired[2].shot_type == "medium_shot"
+    assert repaired[2].frame_source == "repair_adjusted"
+    assert repaired[3].shot_type == "close_up"
+    assert repaired[3].frame_source == "repair_adjusted"
+
+
+def test_repair_frame_plan_shots_avoids_merging_into_adjacent_close_up_frames():
+    plans = [
+        FramePlan(scene_id="1", shot_type="wide_shot", shot_purpose="lead", prompt_intent="a"),
+        FramePlan(scene_id="2", shot_type="close_up", shot_purpose="x", prompt_intent="b"),
+        FramePlan(scene_id="3", shot_type="close_up", shot_purpose="y", prompt_intent="c"),
+        FramePlan(scene_id="4", shot_type="close_up", shot_purpose="z", prompt_intent="d"),
+        FramePlan(scene_id="5", shot_type="close_up", shot_purpose="tail", prompt_intent="e"),
+        FramePlan(scene_id="6", shot_type="wide_shot", shot_purpose="outro", prompt_intent="f"),
+    ]
+
+    repaired = repair_frame_plan_shots(
+        frame_plans=plans,
+        shot_rules={"max_consecutive_same": 2},
+    )
+
+    assert repaired[3].shot_type == "medium_shot"
+    assert repaired[3].frame_source == "repair_adjusted"
+    assert _max_consecutive_run_length([plan.shot_type for plan in repaired]) <= 2
 
 
 def test_apply_frame_overrides_locks_requested_fields_and_keeps_override_source():
