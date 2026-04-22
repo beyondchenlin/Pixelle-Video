@@ -304,11 +304,14 @@ class StandardPipeline(LinearVideoPipeline):
                 created_at=datetime.now()
             )
             ctx.storyboard.frames.append(frame)
-
+        effective_max_sentences, effective_max_chars, normalize_block_text_for_tts = (
+            self._resolve_effective_timing_plan_settings(ctx.config)
+        )
         planner = TimingPlanner(
             mode=ctx.config.tts_batching_mode,
-            max_sentences=ctx.config.tts_batch_max_sentences,
-            max_chars=ctx.config.tts_batch_max_chars,
+            max_sentences=effective_max_sentences,
+            max_chars=effective_max_chars,
+            normalize_block_text_for_tts=normalize_block_text_for_tts,
         )
         ctx.timing_plan = planner.build(ctx.storyboard.frames)
         logger.info(
@@ -427,6 +430,29 @@ class StandardPipeline(LinearVideoPipeline):
         if self._is_hyperframes_render_path(ctx):
             return HYPERFRAMES_COMPILED_RENDER_BACKEND
         return LEGACY_RENDER_BACKEND
+
+    def _resolve_effective_timing_plan_settings(
+        self,
+        config: StoryboardConfig,
+    ) -> tuple[int, int, bool]:
+        max_sentences = max(1, int(config.tts_batch_max_sentences))
+        max_chars = max(1, int(config.tts_batch_max_chars))
+        normalize_block_text_for_tts = False
+
+        if self._uses_index_tts2_workflow(config):
+            normalize_block_text_for_tts = True
+            max_chars = min(max_chars, 60)
+            if config.tts_batching_mode != "sentence":
+                max_sentences = min(max_sentences, 4)
+
+        return max_sentences, max_chars, normalize_block_text_for_tts
+
+    def _uses_index_tts2_workflow(self, config: StoryboardConfig) -> bool:
+        if config.tts_inference_mode != "comfyui":
+            return False
+
+        workflow_stem = Path(str(config.tts_workflow or "")).stem.lower()
+        return workflow_stem in {"tts_index2", "indextts2", "index_tts2"}
 
     def _stage_progress(
         self,

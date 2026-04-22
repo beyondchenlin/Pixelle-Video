@@ -118,3 +118,51 @@ def test_timing_planner_splits_no_space_english_boundary_within_single_frame():
     assert [s.frame_indices for s in plan.sentences] == [[0], [0]]
     assert [b.text for b in plan.blocks] == ["Wait! Another sentence."]
     assert [b.source_frame_indices for b in plan.blocks] == [[0, 0]]
+
+
+def test_timing_planner_can_normalize_block_text_for_tts_without_mutating_sentence_text():
+    frames = [
+        StoryboardFrame(index=0, narration="学游泳先学会呼吸", image_prompt="p1"),
+        StoryboardFrame(index=1, narration="水中漂浮能帮你放松，", image_prompt="p2"),
+    ]
+
+    planner = TimingPlanner(
+        mode="paragraph",
+        max_sentences=4,
+        max_chars=60,
+        normalize_block_text_for_tts=True,
+    )
+    plan = planner.build(frames)
+
+    assert [s.text for s in plan.sentences] == [
+        "学游泳先学会呼吸",
+        "水中漂浮能帮你放松，",
+    ]
+    assert [b.text for b in plan.blocks] == [
+        "学游泳先学会呼吸。水中漂浮能帮你放松。",
+    ]
+
+
+def test_timing_planner_respects_sentence_and_char_caps_for_index_tts_style_blocks():
+    frames = [
+        StoryboardFrame(index=0, narration="先练呼吸控制", image_prompt="p1"),
+        StoryboardFrame(index=1, narration="再练水中漂浮", image_prompt="p2"),
+        StoryboardFrame(index=2, narration="保持身体平直", image_prompt="p3"),
+        StoryboardFrame(index=3, narration="手臂划水流畅", image_prompt="p4"),
+        StoryboardFrame(index=4, narration="坚持练习进步", image_prompt="p5"),
+    ]
+
+    planner = TimingPlanner(
+        mode="paragraph",
+        max_sentences=4,
+        max_chars=18,
+        normalize_block_text_for_tts=True,
+    )
+    plan = planner.build(frames)
+
+    assert [b.text for b in plan.blocks] == [
+        "先练呼吸控制。再练水中漂浮。",
+        "保持身体平直。手臂划水流畅。",
+        "坚持练习进步。",
+    ]
+    assert [b.source_frame_indices for b in plan.blocks] == [[0, 1], [2, 3], [4]]

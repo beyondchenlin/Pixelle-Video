@@ -3,7 +3,11 @@ from typing import List, Sequence
 
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.models.storyboard import StoryboardFrame
-from pixelle_video.utils.text_splitting import join_text_units, split_text_into_sentences
+from pixelle_video.utils.text_splitting import (
+    join_text_units,
+    join_tts_sentence_units,
+    split_text_into_sentences,
+)
 
 
 @dataclass
@@ -13,10 +17,18 @@ class TimingPlan:
 
 
 class TimingPlanner:
-    def __init__(self, mode: str, max_sentences: int, max_chars: int):
+    def __init__(
+        self,
+        mode: str,
+        max_sentences: int,
+        max_chars: int,
+        *,
+        normalize_block_text_for_tts: bool = False,
+    ):
         self.mode = (mode or "paragraph").strip().lower()
         self.max_sentences = max(1, max_sentences)
         self.max_chars = max(1, max_chars)
+        self.normalize_block_text_for_tts = bool(normalize_block_text_for_tts)
 
     def build(self, frames: Sequence[StoryboardFrame]) -> TimingPlan:
         sentences = self._build_sentence_units(frames)
@@ -73,8 +85,14 @@ class TimingPlanner:
         if sentence_count > self.max_sentences:
             return True
 
-        candidate_text = join_text_units(
-            [*(sentence.text for sentence in current_group), next_sentence.text]
+        candidate_text = (
+            join_tts_sentence_units(
+                [*(sentence.text for sentence in current_group), next_sentence.text]
+            )
+            if self.normalize_block_text_for_tts
+            else join_text_units(
+                [*(sentence.text for sentence in current_group), next_sentence.text]
+            )
         )
         return len(candidate_text) > self.max_chars
 
@@ -89,7 +107,11 @@ class TimingPlanner:
 
         return AudioBlock(
             id=block_id,
-            text=join_text_units(sentence.text for sentence in sentence_units),
+            text=(
+                join_tts_sentence_units(sentence.text for sentence in sentence_units)
+                if self.normalize_block_text_for_tts
+                else join_text_units(sentence.text for sentence in sentence_units)
+            ),
             source_frame_indices=[
                 frame_index
                 for sentence in sentence_units

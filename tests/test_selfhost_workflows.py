@@ -57,6 +57,12 @@ def test_tts_index2_keeps_models_cached_between_runs():
     assert workflow["5"]["inputs"]["cache_control"] == [cache_node_id, 0]
 
 
+def test_tts_index2_uses_safer_sentence_token_cap():
+    workflow = json.loads(Path("workflows/selfhost/tts_index2.json").read_text(encoding="utf-8"))
+
+    assert workflow["5"]["inputs"]["max_tokens_per_sentence"] == 90
+
+
 def test_tts_edge_workflow_is_parseable_and_uses_pixelle_nodes():
     metadata = WorkflowParser().parse_workflow_file(
         str(Path("workflows/selfhost/tts_edge.json"))

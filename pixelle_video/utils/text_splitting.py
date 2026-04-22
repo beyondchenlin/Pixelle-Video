@@ -33,6 +33,8 @@ _JOIN_WITHOUT_SPACE_AFTER = {
     "\uff1f",
     "\u2026",
 }
+_TTS_TERMINAL_PUNCTUATION = _SENTENCE_PUNCTUATION | {".", "\u2026"}
+_CJK_CHAR_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
 
 def _is_sentence_boundary(text: str, index: int) -> bool:
@@ -135,6 +137,44 @@ def join_text_units(units: Iterable[str]) -> str:
     joined = " ".join(cleaned_units)
     no_space_after = "".join(sorted(_JOIN_WITHOUT_SPACE_AFTER))
     return re.sub(rf"([{re.escape(no_space_after)}])\s+", r"\1", joined)
+
+
+def normalize_tts_sentence_text(text: str) -> str:
+    """Ensure TTS sentence-like units end with a strong terminal pause marker."""
+    stripped = re.sub(r"\s+", " ", (text or "").strip())
+    if not stripped:
+        return ""
+
+    suffix_chars: list[str] = []
+    while stripped and stripped[-1] in _SENTENCE_CLOSE_CHARS:
+        suffix_chars.append(stripped[-1])
+        stripped = stripped[:-1].rstrip()
+
+    if not stripped:
+        return "".join(reversed(suffix_chars))
+
+    if stripped.endswith("...") or stripped.endswith("\u2026\u2026"):
+        return stripped + "".join(reversed(suffix_chars))
+
+    last_char = stripped[-1]
+    if last_char in _TTS_TERMINAL_PUNCTUATION:
+        return stripped + "".join(reversed(suffix_chars))
+
+    if last_char in _CLAUSE_PUNCTUATION:
+        stripped = stripped[:-1].rstrip()
+
+    punctuation = "\u3002" if _CJK_CHAR_PATTERN.search(stripped) else "."
+    return stripped + punctuation + "".join(reversed(suffix_chars))
+
+
+def join_tts_sentence_units(units: Iterable[str]) -> str:
+    """Join TTS units after normalizing each one to keep natural pauses."""
+    normalized_units = [
+        normalize_tts_sentence_text(unit)
+        for unit in units
+        if unit and unit.strip()
+    ]
+    return join_text_units(normalized_units)
 
 
 def _split_sentence_into_clauses(text: str) -> List[str]:
