@@ -79,3 +79,6 @@ repositories/
 # Local scratch / generated review assets
 .superpowers/
 resources/prompt_prefix_previews/custom/
+
+# Node install artifacts
+tools/hyperframes_bridge/node_modules/
