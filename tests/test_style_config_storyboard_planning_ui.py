@@ -105,6 +105,15 @@ class _FakeStreamlit:
     def text_input(self, _label, value="", **_kwargs):
         return value
 
+    def text_area(self, _label, value="", **_kwargs):
+        return value
+
+    def number_input(self, _label, value=0, **_kwargs):
+        return value
+
+    def color_picker(self, _label, value="#000000", **_kwargs):
+        return value
+
     def audio(self, *_args, **_kwargs):
         return None
 
@@ -294,6 +303,119 @@ def test_render_style_config_disables_storyboard_for_static_templates(monkeypatc
     assert storyboard_checkbox["value"] is False
     assert storyboard_checkbox["key"] == "storyboard_planning_enabled_static"
     assert fake_st.session_state["storyboard_planning_enabled"] is True
+
+
+def test_render_style_config_defaults_middle_sections_to_collapsed(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["template_type_selector"] = "image"
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_comfyui_config",
+        lambda: {
+            "tts": {
+                "inference_mode": "local",
+                "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2},
+                "comfyui": {},
+            },
+            "image": {},
+            "video": {},
+        },
+    )
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "render_backend")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
+    monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_template_type",
+        lambda _template_name: "image",
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
+        lambda _template_type: {
+            "1080x1920": [
+                type(
+                    "TemplateInfo",
+                    (),
+                    {
+                        "template_path": "1080x1920/image_default.html",
+                        "display_info": type(
+                            "DisplayInfo",
+                            (),
+                            {
+                                "name": "image_default",
+                                "orientation": "portrait",
+                                "width": 1080,
+                                "height": 1920,
+                            },
+                        )(),
+                    },
+                )()
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.parse_template_size",
+        lambda _path: (1080, 1920),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda path: path,
+    )
+
+    class _FakeFrameGenerator:
+        def __init__(self, _template_path):
+            self._template_path = _template_path
+
+        def parse_template_parameters(self):
+            return {}
+
+        def get_media_size(self):
+            return (1080, 1920)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+
+    original_radio = fake_st.radio
+
+    def _radio(label, options, index=0, key=None, **kwargs):
+        if key == "template_type_selector":
+            return "image"
+        return original_radio(label, options, index=index, key=key, **kwargs)
+
+    fake_st.radio = _radio
+
+    class _FakeMedia:
+        @staticmethod
+        def list_workflows():
+            return [
+                {
+                    "display_name": "Image Default",
+                    "key": "selfhost/image_z_image_turbo.json",
+                }
+            ]
+
+    class _FakeVideo:
+        config = {"template": {}}
+        media = _FakeMedia()
+
+    style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
+
+    expected_collapsed_sections = {
+        ("section.tts", False),
+        ("section.render_backend", False),
+        ("section.storyboard_planning", False),
+        ("section.template", False),
+        ("section.image", False),
+    }
+
+    assert expected_collapsed_sections.issubset(set(fake_st.expanders))
 
 
 def test_render_storyboard_planning_guide_renders_default_on_copy_and_expander(monkeypatch):
