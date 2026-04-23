@@ -1,0 +1,112 @@
+diff --git a/web/components/style_config.py b/web/components/style_config.py
+index 4d80707..d759a2e 100644
+--- a/web/components/style_config.py
++++ b/web/components/style_config.py
+@@ -100,6 +100,14 @@ def render_middle_column_collapsible_section(
+         yield
+ 
+ 
++@contextmanager
++def render_middle_column_detail_section(label: str):
++    """Render a bordered subsection inside a middle-column config section."""
++    with st.container(border=True):
++        st.markdown(f"**{label}**")
++        yield
++
++
+ def _render_template_gallery_preview_placeholder(template_name: str):
+     """Render a compact placeholder card when a template preview is unavailable."""
+     escaped_name = escape(template_name)
+@@ -433,7 +441,7 @@ def render_storyboard_planning_guide():
+         for section_spec in STORYBOARD_GUIDE_PRESET_PICKER_SPECS
+     )
+ 
+-    with st.expander(tr("storyboard.guide.title"), expanded=False):
++    with render_middle_column_detail_section(tr("storyboard.guide.title")):
+         st.markdown(
+             _normalize_storyboard_guide_html(
+                 f"""
+@@ -1293,10 +1301,7 @@ def _render_image_prompt_prefix_library(
+                 safe_rerun()
+             st.caption(tr("style.prefix_library.reference_cover"))
+ 
+-    with render_middle_column_collapsible_section(
+-        tr("style.prefix_library.filter_panel"),
+-        expanded=False,
+-    ):
++    with render_middle_column_detail_section(tr("style.prefix_library.filter_panel")):
+         filter_style_col, filter_scene_col = st.columns(2, gap="small")
+         with filter_style_col:
+             selected_style = st.selectbox(
+@@ -1865,7 +1870,7 @@ def _render_image_prompt_prefix_library(
+     )
+ 
+     preview_title = tr("style.preview_title")
+-    with st.expander(preview_title, expanded=False):
++    with render_middle_column_detail_section(preview_title):
+         test_prompt = st.text_input(
+             tr("style.test_prompt"),
+             value=st.session_state.get("style_test_prompt", "a dog"),
+@@ -1948,7 +1953,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
+         tr("section.tts"),
+         expanded=False,
+     ):
+-        with st.expander(tr("help.feature_description"), expanded=False):
++        with render_middle_column_detail_section(tr("help.feature_description")):
+             st.markdown(f"**{tr('help.what')}**")
+             st.markdown(tr("tts.what"))
+             st.markdown(f"**{tr('help.how')}**")
+@@ -2097,7 +2102,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
+         # ================================================================
+         # TTS Preview (works for both modes)
+         # ================================================================
+-        with st.expander(tr("tts.preview_title"), expanded=False):
++        with render_middle_column_detail_section(tr("tts.preview_title")):
+             # Preview text input
+             preview_text = st.text_input(
+                 tr("tts.preview_text"),
+@@ -2322,7 +2327,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
+         tr("section.template"),
+         expanded=False,
+     ):
+-        with st.expander(tr("help.feature_description"), expanded=False):
++        with render_middle_column_detail_section(tr("help.feature_description")):
+             st.markdown(f"**{tr('help.what')}**")
+             st.markdown(tr("template.what"))
+             st.markdown(f"**{tr('help.how')}**")
+@@ -2458,7 +2463,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
+             size_groups.append(all_templates)
+         
+         # Create tabs for each size group (wrapped in expander)
+-        with st.expander(tr("template.gallery_view"), expanded=True):
++        with render_middle_column_detail_section(tr("template.gallery_view")):
+             if size_groups:
+                 tabs = st.tabs(size_labels)
+                 
+@@ -2620,7 +2625,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
+                         )
+         
+         # Template preview expander
+-        with st.expander(tr("template.preview_title"), expanded=False):
++        with render_middle_column_detail_section(tr("template.preview_title")):
+             col1, col2 = st.columns(2)
+             
+             with col1:
+@@ -2714,7 +2719,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
+         ):
+         
+             # 1. ComfyUI Workflow selection
+-            with st.expander(tr("help.feature_description"), expanded=False):
++            with render_middle_column_detail_section(tr("help.feature_description")):
+                 st.markdown(f"**{tr('help.what')}**")
+                 if template_media_type == "video":
+                     st.markdown(tr('style.video_workflow_what'))
+@@ -2799,7 +2804,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
+                     help=tr("style.prompt_prefix_help")
+                 )
+ 
+-                with st.expander(tr("style.video_preview_title"), expanded=False):
++                with render_middle_column_detail_section(tr("style.video_preview_title")):
+                     test_prompt = st.text_input(
+                         tr("style.test_video_prompt"),
+                         value="a dog running in the park",
