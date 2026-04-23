@@ -549,7 +549,7 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     gallery_section = current_prefix_section.split("with gallery_col:", 1)[1]
     gallery_section = gallery_section.split("\n    with lower_panel_col:", 1)[0]
     lower_panel_section = current_prefix_section.split("\n    with lower_panel_col:", 1)[1]
-    lower_panel_section = lower_panel_section.split("\n    _render_prompt_prefix_library_action_toolbar(", 1)[0]
+    lower_panel_section = lower_panel_section.split("\n    preview_title = ", 1)[0]
 
     assert "prompt_prefix_library" in source
     assert "toggle_prompt_prefix_preview_selection" in source
@@ -585,6 +585,11 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "_resolve_prompt_prefix_workflow_display_label" in source
     assert "_get_prompt_prefix_source_label" in source
     assert "workflow_display_map=workflow_display_map" in source
+    assert '_open_prompt_prefix_panel("manual")\n            safe_rerun()' not in source
+    assert '_open_prompt_prefix_panel("ai")\n            safe_rerun()' not in source
+    assert '_open_prompt_prefix_panel("details", active_item["id"])\n                safe_rerun()' not in source
+    assert '_open_prompt_prefix_panel("details", item["id"])\n                            safe_rerun()' not in source
+    assert "on_open_panel=lambda mode: _set_prompt_prefix_panel_state(mode)" in source
     assert 'st.container(key="prompt_prefix_library_root")' in current_prefix_section
     filter_panel_section = current_prefix_section.split('tr("style.prefix_library.filter_panel")', 1)[1]
     filter_panel_section = filter_panel_section.split("filtered_items = ", 1)[0]

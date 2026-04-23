@@ -992,30 +992,30 @@ def test_render_storyboard_planning_guide_renders_default_on_copy_and_detail_sec
 
     style_config.render_storyboard_planning_guide()
 
-    assert ("storyboard.guide.title", False) not in fake_st.expanders
+    assert ("storyboard.guide.title", False) in fake_st.expanders
 
     top_level_html = "\n".join(body for body, _kwargs in fake_st.top_level_markdowns)
+    expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
 
-    assert "**storyboard.guide.title**" in top_level_html
+    assert "**storyboard.guide.title**" not in expander_html
     assert "storyboard.guide.default_on_title" in top_level_html
     assert "storyboard.guide.default_on_body" in top_level_html
     assert "storyboard.guide.when_to_turn_off.title" in top_level_html
     assert "storyboard.guide.when_to_turn_off.body" in top_level_html
-    assert "storyboard.guide.quick_title" not in top_level_html
-    assert "storyboard.guide.quick_body" not in top_level_html
+    assert "storyboard.guide.quick_title" not in expander_html
+    assert "storyboard.guide.quick_body" not in expander_html
 
-    assert "storyboard.guide.combo.explainer.title" in top_level_html
-    assert "storyboard.guide.combo.theme_mapping.title" in top_level_html
-    assert "storyboard.guide.field.world_preset" in top_level_html
-    assert "storyboard.guide.preset_picker_title" in top_level_html
-    assert "storyboard.guide.preset_picker.world.title" in top_level_html
-    assert "storyboard.guide.preset_picker.shot.title" in top_level_html
-    assert "storyboard.guide.preset_picker.world.item.angry_birds_three_kingdoms" in top_level_html
-    assert "storyboard.guide.preset_picker.shot.item.character_relationship" in top_level_html
-    assert "storyboard.guide.field.forbid_embedded_text" in top_level_html
-    assert "storyboard.guide.override_title" in top_level_html
-    assert any(kwargs.get("unsafe_allow_html") for _body, kwargs in fake_st.top_level_markdowns)
-    assert fake_st.expander_markdowns == []
+    assert "storyboard.guide.combo.explainer.title" in expander_html
+    assert "storyboard.guide.combo.theme_mapping.title" in expander_html
+    assert "storyboard.guide.field.world_preset" in expander_html
+    assert "storyboard.guide.preset_picker_title" in expander_html
+    assert "storyboard.guide.preset_picker.world.title" in expander_html
+    assert "storyboard.guide.preset_picker.shot.title" in expander_html
+    assert "storyboard.guide.preset_picker.world.item.angry_birds_three_kingdoms" in expander_html
+    assert "storyboard.guide.preset_picker.shot.item.character_relationship" in expander_html
+    assert "storyboard.guide.field.forbid_embedded_text" in expander_html
+    assert "storyboard.guide.override_title" in expander_html
+    assert any(kwargs.get("unsafe_allow_html") for _body, kwargs in fake_st.expander_markdowns)
 
 
 def test_render_storyboard_planning_guide_avoids_indented_html_block_lines(monkeypatch):
@@ -1025,10 +1025,10 @@ def test_render_storyboard_planning_guide_avoids_indented_html_block_lines(monke
 
     style_config.render_storyboard_planning_guide()
 
-    top_level_html = "\n".join(body for body, _kwargs in fake_st.top_level_markdowns)
+    expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
     indented_html_lines = [
         line
-        for line in top_level_html.splitlines()
+        for line in expander_html.splitlines()
         if re.match(r"^\s{2,}</?(div|ul|li|span)\b", line)
     ]
 

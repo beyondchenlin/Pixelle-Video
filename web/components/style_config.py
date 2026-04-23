@@ -445,7 +445,10 @@ def render_storyboard_planning_guide():
         for section_spec in STORYBOARD_GUIDE_PRESET_PICKER_SPECS
     )
 
-    with render_middle_column_detail_section(tr("storyboard.guide.title")):
+    with render_middle_column_collapsible_section(
+        tr("storyboard.guide.title"),
+        expanded=False,
+    ):
         st.markdown(
             _normalize_storyboard_guide_html(
                 f"""
@@ -1644,6 +1647,7 @@ def _render_prompt_prefix_library_action_toolbar(
     media_height: int,
     filtered_items: list[dict],
     thumbnail_reference_prompt: str,
+    on_open_panel=None,
 ) -> None:
     with st.container():
         if st.button(
@@ -1700,12 +1704,18 @@ def _render_prompt_prefix_library_action_toolbar(
                 safe_rerun()
     with st.container():
         if st.button(tr("style.prefix_library.toolbar_add"), key="prompt_prefix_toolbar_add", width="stretch"):
-            _open_prompt_prefix_panel("manual")
-            safe_rerun()
+            if on_open_panel is None:
+                _open_prompt_prefix_panel("manual")
+                safe_rerun()
+            else:
+                on_open_panel("manual")
     with st.container():
         if st.button(tr("style.prefix_library.toolbar_ai"), key="prompt_prefix_toolbar_ai", width="stretch"):
-            _open_prompt_prefix_panel("ai")
-            safe_rerun()
+            if on_open_panel is None:
+                _open_prompt_prefix_panel("ai")
+                safe_rerun()
+            else:
+                on_open_panel("ai")
 
 
 def _render_image_prompt_prefix_library(
@@ -1768,6 +1778,15 @@ def _render_image_prompt_prefix_library(
         unsafe_allow_html=True,
     )
 
+    def _set_prompt_prefix_panel_state(mode: str, item: dict | None = None) -> None:
+        """Keep local panel state in sync so open actions don't need a second rerun."""
+        nonlocal panel_mode, panel_item_id, panel_item
+        item_id = item["id"] if item else None
+        _open_prompt_prefix_panel(mode, item_id)
+        panel_mode = mode
+        panel_item_id = item_id
+        panel_item = item
+
     with st.container(border=True):
         active_info_col, active_action_col = st.columns(2, gap="small")
         with active_info_col:
@@ -1791,8 +1810,7 @@ def _render_image_prompt_prefix_library(
                 key="prompt_prefix_active_details",
                 width="stretch",
             ):
-                _open_prompt_prefix_panel("details", active_item["id"])
-                safe_rerun()
+                _set_prompt_prefix_panel_state("details", active_item)
             st.caption(tr("style.prefix_library.reference_cover"))
 
     with render_middle_column_collapsible_section(
@@ -1838,6 +1856,7 @@ def _render_image_prompt_prefix_library(
 
     gallery_col = st.container(key="prompt_prefix_library_root")
     lower_panel_col = st.container()
+    action_toolbar_col = st.container()
     with gallery_col:
         if not filtered_items:
             st.caption(tr("style.prefix_library.no_items"))
@@ -1909,8 +1928,7 @@ def _render_image_prompt_prefix_library(
                             key=f"open_prefix_details_compact_{item['id']}",
                             width="stretch",
                         ):
-                            _open_prompt_prefix_panel("details", item["id"])
-                            safe_rerun()
+                            _set_prompt_prefix_panel_state("details", item)
 
                         compare_col, select_col = st.columns(2, gap="small")
                         with compare_col:
@@ -1954,6 +1972,17 @@ def _render_image_prompt_prefix_library(
     elif panel_mode == "details":
         _close_prompt_prefix_panel()
 
+    with action_toolbar_col:
+        _render_prompt_prefix_library_action_toolbar(
+            pixelle_video=pixelle_video,
+            workflow_key=workflow_key,
+            media_width=media_width,
+            media_height=media_height,
+            filtered_items=filtered_items,
+            thumbnail_reference_prompt=thumbnail_reference_prompt,
+            on_open_panel=lambda mode: _set_prompt_prefix_panel_state(mode),
+        )
+
     with lower_panel_col:
         if panel_mode in {"manual", "edit", "ai"}:
             with st.container(border=True):
@@ -1996,15 +2025,6 @@ def _render_image_prompt_prefix_library(
                         library_items=library_items,
                         selected_preview_ids=selected_preview_ids,
                     )
-
-    _render_prompt_prefix_library_action_toolbar(
-        pixelle_video=pixelle_video,
-        workflow_key=workflow_key,
-        media_width=media_width,
-        media_height=media_height,
-        filtered_items=filtered_items,
-        thumbnail_reference_prompt=thumbnail_reference_prompt,
-    )
 
     preview_title = tr("style.preview_title")
     with render_middle_column_detail_section(preview_title):
