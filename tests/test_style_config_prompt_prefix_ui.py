@@ -148,6 +148,34 @@ def test_call_with_streamlit_fragment_falls_back_without_script_context(monkeypa
     assert called == {"value": 2}
 
 
+def test_call_with_streamlit_fragment_uses_fragment_with_script_context(monkeypatch):
+    fragment_calls = []
+
+    class _FakeStreamlit:
+        @staticmethod
+        def fragment(func):
+            fragment_calls.append("wrapped")
+
+            def _wrapped(*args, **kwargs):
+                fragment_calls.append(("called", args, kwargs))
+                return func(*args, **kwargs)
+
+            return _wrapped
+
+    monkeypatch.setattr(style_config, "st", _FakeStreamlit())
+    monkeypatch.setattr(style_config, "get_script_run_ctx", lambda: object())
+
+    called = {}
+
+    def _sample(value):
+        called["value"] = value
+        return value + 1
+
+    assert style_config._call_with_streamlit_fragment(_sample, 2) == 3
+    assert called == {"value": 2}
+    assert fragment_calls == ["wrapped", ("called", (2,), {})]
+
+
 class _FakeUpload:
     def __init__(self, name: str, payload: bytes):
         self.name = name
@@ -585,9 +613,12 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "_call_with_streamlit_fragment" in source
     assert "get_script_run_ctx" in source
     assert 'key="prompt_prefix_details_modal_body"' in source
-    assert "zoom: 0.84" in source
+    assert "zoom:" not in source
     assert "@media (max-height: 900px)" in source
     assert "@media (max-height: 760px)" in source
+    assert "--prompt-prefix-scale: 1;" in source
+    assert "prompt_prefix_details_modal_title" in source
+    assert "calc(1.55rem * var(--prompt-prefix-scale))" in source
     assert "height=420" not in source
     assert "min(50vh, 32rem)" not in source
     assert "prompt_prefix_details_modal_content" in source
@@ -694,6 +725,138 @@ def test_prompt_prefix_action_toolbar_uses_callback_without_forcing_rerun(monkey
 
     assert panel_calls == ["manual", "ai"]
     assert rerun_calls == []
+
+
+def test_render_image_prompt_prefix_library_opens_active_details_without_forcing_rerun(monkeypatch):
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeStreamlit:
+        def __init__(self):
+            self.session_state = {}
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, *_args, **_kwargs):
+            return None
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def expander(self, _label, **_kwargs):
+            return _FakeContext()
+
+        def columns(self, spec, **_kwargs):
+            count = spec if isinstance(spec, int) else len(spec)
+            return [_FakeContext() for _ in range(count)]
+
+        def button(self, _label, key=None, **_kwargs):
+            return key == "prompt_prefix_active_details"
+
+        def image(self, *_args, **_kwargs):
+            return None
+
+        def selectbox(self, _label, options, **_kwargs):
+            return options[0]
+
+        def text_input(self, _label, value="", **_kwargs):
+            return value
+
+        def warning(self, *_args, **_kwargs):
+            raise AssertionError("warning should not be called when only opening details")
+
+        def code(self, *_args, **_kwargs):
+            raise AssertionError("legacy code block should not render for active item details")
+
+    library_item = create_prompt_prefix_item(
+        item_id="manual-active",
+        name="Minimal Emotion Line Art",
+        content="minimal line art, elegant contour drawing",
+        style_category_id="minimal_line_art",
+        scene_category_id="emotion_copy",
+        note="Built for reflective topics.",
+        source="manual",
+    )
+
+    class _FakeConfigManager:
+        config = type(
+            "Config",
+            (),
+            {"comfyui": type("ComfyUI", (), {"image": {}})()},
+        )()
+
+        @staticmethod
+        def get_image_prompt_prefix_library():
+            return {
+                "active_prefix_id": "manual-active",
+                "items": [library_item],
+            }
+
+    fake_st = _FakeStreamlit()
+    rerun_calls = []
+    modal_calls = []
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "config_manager", _FakeConfigManager())
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(style_config, "get_effective_image_prompt_prefix", lambda _config: "")
+    monkeypatch.setattr(
+        style_config,
+        "get_localized_prompt_prefix_category_options",
+        lambda language: (
+            [{"id": "minimal_line_art", "label": "Minimal Line Art"}],
+            [{"id": "emotion_copy", "label": "Emotion Copy"}],
+        ),
+    )
+    monkeypatch.setattr(style_config, "filter_prompt_prefix_items", lambda items, **_kwargs: items)
+    monkeypatch.setattr(
+        style_config,
+        "resolve_prompt_prefix_gallery_cover",
+        lambda item, workflow_key: {
+            "asset_path": "resources/prompt_prefix_previews/custom/manual-active.webp",
+            "status": "ready",
+            "source": "workflow",
+            "workflow_key": workflow_key,
+            "generated_at": None,
+            "reference_prompt": None,
+        },
+    )
+    monkeypatch.setattr(
+        style_config,
+        "get_prompt_prefix_category_label",
+        lambda category_id, _kind, _language: {
+            "minimal_line_art": "Minimal Line Art",
+            "emotion_copy": "Emotion Copy",
+        }[category_id],
+    )
+    monkeypatch.setattr(style_config, "_get_prompt_prefix_source_label", lambda _source: "Manual")
+    monkeypatch.setattr(style_config, "_get_prompt_prefix_cover_status_label", lambda _cover: "Ready")
+    monkeypatch.setattr(style_config, "_build_prompt_prefix_live_preview_map", lambda: {})
+    monkeypatch.setattr(style_config, "_render_prompt_prefix_library_action_toolbar", lambda **_kwargs: None)
+    monkeypatch.setattr(style_config, "safe_rerun", lambda: rerun_calls.append("rerun"))
+    monkeypatch.setattr(
+        style_config,
+        "_render_prompt_prefix_details_modal",
+        lambda **kwargs: modal_calls.append(kwargs["panel_item"]["id"]),
+    )
+
+    style_config._render_image_prompt_prefix_library(
+        pixelle_video=object(),
+        workflow_key="selfhost/image_z_image_turbo.json",
+        media_width=1024,
+        media_height=1024,
+        workflow_display_map={"selfhost/image_z_image_turbo.json": "image_z_image_turbo.json - Selfhost"},
+    )
+
+    assert rerun_calls == []
+    assert modal_calls == ["manual-active"]
+    assert fake_st.session_state["prompt_prefix_panel_mode"] == "details"
+    assert fake_st.session_state["prompt_prefix_panel_item_id"] == "manual-active"
 
 
 def test_collapsible_section_helper_does_not_require_key_parameter():

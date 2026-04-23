@@ -1049,26 +1049,32 @@ def _render_prompt_prefix_details_modal(
                 """
             <style>
             .st-key-prompt_prefix_details_modal_body {
-                zoom: 0.84;
+                --prompt-prefix-scale: 1;
+                --prompt-prefix-space-scale: 1;
+                --prompt-prefix-content-min-height: 10.2rem;
             }
             @media (max-height: 900px) {
                 .st-key-prompt_prefix_details_modal_body {
-                    zoom: 0.76;
+                    --prompt-prefix-scale: 0.92;
+                    --prompt-prefix-space-scale: 0.9;
+                    --prompt-prefix-content-min-height: 9.4rem;
                 }
             }
             @media (max-height: 760px) {
                 .st-key-prompt_prefix_details_modal_body {
-                    zoom: 0.68;
+                    --prompt-prefix-scale: 0.84;
+                    --prompt-prefix-space-scale: 0.82;
+                    --prompt-prefix-content-min-height: 8.6rem;
                 }
             }
             .st-key-prompt_prefix_details_modal_body [data-testid="stImage"] img {
                 border-radius: 1rem;
             }
             .st-key-prompt_prefix_details_modal_body .stButton > button {
-                min-height: 2.35rem;
+                min-height: calc(2.35rem * var(--prompt-prefix-space-scale));
             }
             .st-key-prompt_prefix_details_modal_media {
-                padding: 0.42rem;
+                padding: calc(0.42rem * var(--prompt-prefix-space-scale));
                 border-radius: 1.25rem;
                 background: linear-gradient(180deg, rgba(247, 249, 252, 0.96), rgba(255, 255, 255, 0.92));
                 box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
@@ -1082,51 +1088,58 @@ def _render_prompt_prefix_details_modal(
             .st-key-prompt_prefix_details_modal_info {
                 padding-top: 0.1rem;
             }
+            .prompt_prefix_details_modal_title {
+                margin: 0;
+                font-size: calc(1.55rem * var(--prompt-prefix-scale));
+                line-height: 1.16;
+                font-weight: 700;
+                color: rgba(17, 24, 39, 0.96);
+            }
             .prompt_prefix_details_modal_chip_row {
                 display: flex;
                 flex-wrap: wrap;
-                gap: 0.45rem;
-                margin: 0.45rem 0 0.8rem;
+                gap: calc(0.45rem * var(--prompt-prefix-space-scale));
+                margin: calc(0.45rem * var(--prompt-prefix-space-scale)) 0 calc(0.8rem * var(--prompt-prefix-space-scale));
             }
             .prompt_prefix_details_modal_chip {
-                padding: 0.28rem 0.62rem;
+                padding: calc(0.28rem * var(--prompt-prefix-space-scale)) calc(0.62rem * var(--prompt-prefix-space-scale));
                 border-radius: 999px;
                 border: 1px solid rgba(37, 99, 235, 0.14);
                 background: rgba(239, 246, 255, 0.76);
                 color: rgba(30, 64, 175, 0.92);
-                font-size: 0.76rem;
+                font-size: calc(0.76rem * var(--prompt-prefix-scale));
                 line-height: 1.1;
                 font-weight: 600;
             }
             .prompt_prefix_details_modal_detail_list {
                 display: grid;
-                gap: 0.42rem;
-                margin-bottom: 0.85rem;
+                gap: calc(0.42rem * var(--prompt-prefix-space-scale));
+                margin-bottom: calc(0.85rem * var(--prompt-prefix-space-scale));
             }
             .prompt_prefix_details_modal_detail_item {
-                font-size: 0.82rem;
+                font-size: calc(0.82rem * var(--prompt-prefix-scale));
                 line-height: 1.4;
                 color: rgba(49, 51, 63, 0.78);
             }
             .prompt_prefix_details_modal_summary {
-                margin-bottom: 0.72rem;
-                padding: 0.7rem 0.82rem;
+                margin-bottom: calc(0.72rem * var(--prompt-prefix-space-scale));
+                padding: calc(0.7rem * var(--prompt-prefix-space-scale)) calc(0.82rem * var(--prompt-prefix-space-scale));
                 border-radius: 0.9rem;
                 background: rgba(248, 250, 252, 0.9);
                 color: rgba(31, 41, 55, 0.88);
-                font-size: 0.84rem;
+                font-size: calc(0.84rem * var(--prompt-prefix-scale));
                 line-height: 1.48;
             }
             .prompt_prefix_details_modal_content {
-                min-height: 10.2rem;
+                min-height: var(--prompt-prefix-content-min-height);
                 border: 1px solid rgba(49, 51, 63, 0.12);
                 border-radius: 1rem;
-                padding: 0.95rem 1rem;
+                padding: calc(0.95rem * var(--prompt-prefix-space-scale)) calc(1rem * var(--prompt-prefix-space-scale));
                 background: rgba(248, 250, 252, 0.82);
                 white-space: pre-wrap;
                 word-break: break-word;
                 overflow-wrap: anywhere;
-                font-size: 0.9rem;
+                font-size: calc(0.9rem * var(--prompt-prefix-scale));
                 line-height: 1.52;
                 color: rgba(17, 24, 39, 0.92);
             }
@@ -1142,7 +1155,10 @@ def _render_prompt_prefix_details_modal(
                     st.image(panel_cover_state["asset_path"], width="stretch")
             with detail_content_col:
                 with st.container(key="prompt_prefix_details_modal_info"):
-                    st.markdown(f"### {panel_item['name']}")
+                    st.markdown(
+                        f'<div class="prompt_prefix_details_modal_title">{escape(panel_item["name"])}</div>',
+                        unsafe_allow_html=True,
+                    )
                     st.markdown(
                         (
                             '<div class="prompt_prefix_details_modal_chip_row">'
