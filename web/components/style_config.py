@@ -1135,6 +1135,77 @@ def _get_prompt_prefix_source_label(source: str | None) -> str:
     return normalized or "manual"
 
 
+def _render_prompt_prefix_library_action_toolbar(
+    pixelle_video,
+    workflow_key: str,
+    media_width: int,
+    media_height: int,
+    filtered_items: list[dict],
+    thumbnail_reference_prompt: str,
+) -> None:
+    with st.container():
+        if st.button(
+            tr("style.prefix_library.generate_thumbnails"),
+            key="prompt_prefix_generate_thumbnails",
+            width="stretch",
+        ):
+            if not filtered_items:
+                st.warning(tr("style.prefix_library.thumbnail_empty"))
+            elif not workflow_key.strip():
+                st.warning(tr("style.prefix_library.thumbnail_workflow_required"))
+            elif not thumbnail_reference_prompt.strip():
+                st.warning(tr("style.prefix_library.thumbnail_prompt_required"))
+            else:
+                progress_placeholder = st.empty()
+                generated_count = 0
+                failed_count = 0
+                with st.spinner(tr("style.prefix_library.thumbnail_generating")):
+                    for idx, item in enumerate(filtered_items, start=1):
+                        progress_placeholder.caption(
+                            tr(
+                                "style.prefix_library.thumbnail_progress",
+                                completed=idx - 1,
+                                total=len(filtered_items),
+                                name=item["name"],
+                            )
+                        )
+                        preview_results = _generate_prompt_prefix_preview_results(
+                            pixelle_video=pixelle_video,
+                            workflow_key=workflow_key,
+                            media_width=media_width,
+                            media_height=media_height,
+                            test_prompt=thumbnail_reference_prompt,
+                            items=[item],
+                        )
+                        if not preview_results:
+                            failed_count += 1
+                            continue
+                        _save_prompt_prefix_item_with_workflow_preview(
+                            item,
+                            workflow_key=workflow_key,
+                            preview_media_path=preview_results[0].get("preview_media_path"),
+                            reference_prompt=thumbnail_reference_prompt,
+                        )
+                        generated_count += 1
+                    summary = tr(
+                        "style.prefix_library.thumbnail_summary",
+                        generated=generated_count,
+                        failed=failed_count,
+                        total=len(filtered_items),
+                    )
+                    progress_placeholder.caption(summary)
+                    st.session_state["prompt_prefix_thumbnail_status"] = summary
+                safe_rerun()
+    with st.container():
+        if st.button(tr("style.prefix_library.toolbar_add"), key="prompt_prefix_toolbar_add", width="stretch"):
+            _open_prompt_prefix_panel("manual")
+            safe_rerun()
+    with st.container():
+        if st.button(tr("style.prefix_library.toolbar_ai"), key="prompt_prefix_toolbar_ai", width="stretch"):
+            _open_prompt_prefix_panel("ai")
+            safe_rerun()
+
+
 def _render_image_prompt_prefix_library(
     pixelle_video,
     workflow_key: str,
@@ -1784,67 +1855,14 @@ def _render_image_prompt_prefix_library(
             else:
                 st.caption(tr("style.prefix_library.panel_empty_hint"))
 
-    with st.container():
-        if st.button(
-            tr("style.prefix_library.generate_thumbnails"),
-            key="prompt_prefix_generate_thumbnails",
-            width="stretch",
-        ):
-            if not filtered_items:
-                st.warning(tr("style.prefix_library.thumbnail_empty"))
-            elif not workflow_key.strip():
-                st.warning(tr("style.prefix_library.thumbnail_workflow_required"))
-            elif not thumbnail_reference_prompt.strip():
-                st.warning(tr("style.prefix_library.thumbnail_prompt_required"))
-            else:
-                progress_placeholder = st.empty()
-                generated_count = 0
-                failed_count = 0
-                with st.spinner(tr("style.prefix_library.thumbnail_generating")):
-                    for idx, item in enumerate(filtered_items, start=1):
-                        progress_placeholder.caption(
-                            tr(
-                                "style.prefix_library.thumbnail_progress",
-                                completed=idx - 1,
-                                total=len(filtered_items),
-                                name=item["name"],
-                            )
-                        )
-                        preview_results = _generate_prompt_prefix_preview_results(
-                            pixelle_video=pixelle_video,
-                            workflow_key=workflow_key,
-                            media_width=media_width,
-                            media_height=media_height,
-                            test_prompt=thumbnail_reference_prompt,
-                            items=[item],
-                        )
-                        if not preview_results:
-                            failed_count += 1
-                            continue
-                        _save_prompt_prefix_item_with_workflow_preview(
-                            item,
-                            workflow_key=workflow_key,
-                            preview_media_path=preview_results[0].get("preview_media_path"),
-                            reference_prompt=thumbnail_reference_prompt,
-                        )
-                        generated_count += 1
-                    summary = tr(
-                        "style.prefix_library.thumbnail_summary",
-                        generated=generated_count,
-                        failed=failed_count,
-                        total=len(filtered_items),
-                    )
-                    progress_placeholder.caption(summary)
-                    st.session_state["prompt_prefix_thumbnail_status"] = summary
-                safe_rerun()
-    with st.container():
-        if st.button(tr("style.prefix_library.toolbar_add"), key="prompt_prefix_toolbar_add", width="stretch"):
-            _open_prompt_prefix_panel("manual")
-            safe_rerun()
-    with st.container():
-        if st.button(tr("style.prefix_library.toolbar_ai"), key="prompt_prefix_toolbar_ai", width="stretch"):
-            _open_prompt_prefix_panel("ai")
-            safe_rerun()
+    _render_prompt_prefix_library_action_toolbar(
+        pixelle_video=pixelle_video,
+        workflow_key=workflow_key,
+        media_width=media_width,
+        media_height=media_height,
+        filtered_items=filtered_items,
+        thumbnail_reference_prompt=thumbnail_reference_prompt,
+    )
 
     preview_title = tr("style.preview_title")
     with st.expander(preview_title, expanded=False):
