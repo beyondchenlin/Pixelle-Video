@@ -170,6 +170,10 @@ class VideoGenerateRequest(BaseModel):
         None,
         description="Per-frame storyboard overrides collected from preview",
     )
+    forbid_embedded_text_in_image: Optional[bool] = Field(
+        None,
+        description="Whether to suppress embedded text inside generated images",
+    )
     
     # === BGM ===
     bgm_path: Optional[str] = Field(None, description="Background music path")

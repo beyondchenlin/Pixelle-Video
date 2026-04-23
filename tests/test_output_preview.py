@@ -141,6 +141,43 @@ def test_build_single_generation_request_includes_storyboard_controls_and_frame_
     ]
 
 
+def test_build_single_generation_request_includes_no_text_toggle():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "forbid_embedded_text_in_image": False,
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["forbid_embedded_text_in_image"] is False
+
+
+def test_build_single_generation_request_defaults_no_text_toggle_to_true():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["forbid_embedded_text_in_image"] is True
+
+
 def test_build_batch_shared_config_includes_render_backend():
     shared_config = output_preview.build_batch_shared_config(
         {
@@ -203,6 +240,19 @@ def test_build_batch_shared_config_includes_storyboard_controls_and_frame_overri
             "shot_type": "medium_shot",
         }
     ]
+
+
+def test_build_batch_shared_config_includes_no_text_toggle():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "n_scenes": 5,
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "forbid_embedded_text_in_image": False,
+        }
+    )
+
+    assert shared_config["forbid_embedded_text_in_image"] is False
 
 
 def test_build_single_generation_request_includes_tts_speed_for_comfyui():

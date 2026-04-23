@@ -146,6 +146,10 @@ class ImagePromptGenerateRequest(BaseModel):
         None,
         description="Per-frame storyboard overrides collected from preview",
     )
+    forbid_embedded_text_in_image: Optional[bool] = Field(
+        None,
+        description="Whether to suppress embedded text inside generated images",
+    )
 
 
 class ImagePromptGenerateResponse(BaseModel):

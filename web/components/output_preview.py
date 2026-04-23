@@ -96,6 +96,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "role_locking_strength": video_params.get("role_locking_strength"),
         "shot_strategy": video_params.get("shot_strategy"),
         "frame_overrides": video_params.get("frame_overrides"),
+        "forbid_embedded_text_in_image": video_params.get("forbid_embedded_text_in_image", True),
     }
 
     if request["tts_inference_mode"] == "local":
@@ -140,6 +141,7 @@ def build_batch_shared_config(video_params):
         "role_locking_strength": video_params.get("role_locking_strength"),
         "shot_strategy": video_params.get("shot_strategy"),
         "frame_overrides": video_params.get("frame_overrides"),
+        "forbid_embedded_text_in_image": video_params.get("forbid_embedded_text_in_image", True),
     }
 
     tts_speed = video_params.get("tts_speed")

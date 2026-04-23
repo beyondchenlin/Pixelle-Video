@@ -118,6 +118,11 @@ async def generate_image_prompt(
             role_locking_strength=request.role_locking_strength,
             shot_strategy=request.shot_strategy,
             frame_overrides=_serialize_frame_overrides(request.frame_overrides),
+            forbid_embedded_text_in_image=(
+                True
+                if request.forbid_embedded_text_in_image is None
+                else request.forbid_embedded_text_in_image
+            ),
         )
 
         return ImagePromptGenerateResponse(

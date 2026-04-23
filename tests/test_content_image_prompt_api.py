@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from api.routers.content import generate_image_prompt
 from api.schemas.content import ImagePromptGenerateRequest
+from api.schemas.video import VideoGenerateRequest
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 
 
@@ -61,6 +62,24 @@ def test_image_prompt_generate_request_rejects_malformed_frame_overrides(frame_o
         )
 
 
+def test_image_prompt_generate_request_accepts_no_text_toggle():
+    request = ImagePromptGenerateRequest(
+        narrations=["scene one"],
+        forbid_embedded_text_in_image=False,
+    )
+
+    assert request.forbid_embedded_text_in_image is False
+
+
+def test_video_generate_request_accepts_no_text_toggle():
+    request = VideoGenerateRequest(
+        text="demo",
+        forbid_embedded_text_in_image=False,
+    )
+
+    assert request.forbid_embedded_text_in_image is False
+
+
 @pytest.mark.asyncio
 async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypatch):
     async def fake_generate_styled_image_prompt_batch(**kwargs):
@@ -112,6 +131,32 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
                     "shot_type": "medium_shot",
                 }
             ],
+        ),
+        _FakePixelleVideo(),
+    )
+
+    assert response.image_prompts == ["styled prompt"]
+
+
+@pytest.mark.asyncio
+async def test_generate_image_prompt_endpoint_threads_no_text_toggle(monkeypatch):
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        assert kwargs["forbid_embedded_text_in_image"] is False
+        return StyledImagePromptBatch(
+            prompts=["styled prompt"],
+            negative_prompt=None,
+            resolved_style=None,
+        )
+
+    monkeypatch.setattr(
+        "api.routers.content.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    response = await generate_image_prompt(
+        ImagePromptGenerateRequest(
+            narrations=["scene one"],
+            forbid_embedded_text_in_image=False,
         ),
         _FakePixelleVideo(),
     )
