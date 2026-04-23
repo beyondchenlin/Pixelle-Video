@@ -1,8 +1,8 @@
-# image_qwen_edit_2511_gguf 依赖与下载说明
+# image_qwen_edit_2511_gguf_q4_k_m 依赖与下载说明
 
 ## 1. 对应工作流路径
 
-- 工作流文件：`workflows/selfhost/image_qwen_edit_2511_gguf.json`
+- 工作流文件：`workflows/selfhost/image_qwen_edit_2511_gguf_q4_k_m.json`
 - 工作流类型：`selfhost` 本地 ComfyUI 图像编辑工作流
 - 输入参数：
   - `prompt`：编辑指令
@@ -179,7 +179,7 @@ rg -n "TextEncodeQwenImageEditPlus|FluxKontextMultiReferenceLatentMethod|CFGNorm
 ### 8.4 检查仓库中的工作流参数映射
 
 ```powershell
-.venv\Scripts\python.exe -m pytest tests/test_selfhost_workflows.py -k qwen_edit_2511_gguf -v
+.venv\Scripts\python.exe -m pytest tests/test_selfhost_workflows.py -k qwen_edit_2511_gguf_q4_k_m -v
 ```
 
 ## 9. 已验证结果

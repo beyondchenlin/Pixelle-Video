@@ -129,6 +129,25 @@ def test_sanitize_prompt_prefix_preview_selection_prunes_stale_ids_and_preserves
     assert sanitized == ["library-a", "library-b"]
 
 
+def test_call_with_streamlit_fragment_falls_back_without_script_context(monkeypatch):
+    class _FakeStreamlit:
+        @staticmethod
+        def fragment(_func):
+            raise AssertionError("fragment should not be used without a script context")
+
+    monkeypatch.setattr(style_config, "st", _FakeStreamlit())
+    monkeypatch.setattr(style_config, "get_script_run_ctx", lambda: None)
+
+    called = {}
+
+    def _sample(value):
+        called["value"] = value
+        return value + 1
+
+    assert style_config._call_with_streamlit_fragment(_sample, 2) == 3
+    assert called == {"value": 2}
+
+
 class _FakeUpload:
     def __init__(self, name: str, payload: bytes):
         self.name = name
@@ -563,6 +582,8 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "prompt_prefix_panel_mode" in source
     assert '@st.dialog(tr("style.prefix_library.view_details"), width="medium"' in source
     assert "_render_prompt_prefix_details_modal" in source
+    assert "_call_with_streamlit_fragment" in source
+    assert "get_script_run_ctx" in source
     assert 'key="prompt_prefix_details_modal_body"' in source
     assert "zoom: 0.84" in source
     assert "@media (max-height: 900px)" in source
@@ -592,6 +613,8 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "_get_prompt_prefix_source_label" in source
     assert "workflow_display_map=workflow_display_map" in source
     assert "on_open_panel=lambda mode: _set_prompt_prefix_panel_state(mode)" in source
+    assert 'st.session_state["prompt_prefix_effective_value"] = effective_prefix' in source
+    assert "_call_with_streamlit_fragment(" in source
     assert 'st.container(key="prompt_prefix_library_root")' in current_prefix_section
     filter_panel_section = current_prefix_section.split('tr("style.prefix_library.filter_panel")', 1)[1]
     filter_panel_section = filter_panel_section.split("filtered_items = ", 1)[0]

@@ -24,6 +24,7 @@ from uuid import uuid4
 
 import streamlit as st
 from loguru import logger
+from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.prompt_prefix_library import (
@@ -72,6 +73,14 @@ from web.utils.tts_ui import resolve_comfyui_tts_speed
 from web.utils.workflow_defaults import resolve_selectbox_default_index
 
 STORYBOARD_SHOT_PRESET_AUTO_VALUE = "__auto__"
+
+
+def _call_with_streamlit_fragment(func, *args, **kwargs):
+    """Use fragment reruns when a real Streamlit script context is active."""
+    fragment = getattr(st, "fragment", None)
+    if fragment is None or get_script_run_ctx() is None:
+        return func(*args, **kwargs)
+    return fragment(func)(*args, **kwargs)
 
 
 def render_generated_style_preview(preview_media_path: str, template_media_type: str):
@@ -1798,6 +1807,7 @@ def _render_image_prompt_prefix_library(
     active_prefix_id = library.get("active_prefix_id")
     active_item = library_items_by_id.get(active_prefix_id)
     effective_prefix = get_effective_image_prompt_prefix(image_config)
+    st.session_state["prompt_prefix_effective_value"] = effective_prefix
 
     style_options, scene_options = get_localized_prompt_prefix_category_options(language=language)
     style_label_map = {option["id"]: option["label"] for option in style_options}
@@ -2945,7 +2955,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
 
         with render_middle_column_collapsible_section(
             section_title,
-            expanded=False,
+            expanded=True,
         ):
             # 1. ComfyUI Workflow selection
             if template_media_type == "image":
@@ -3069,20 +3079,22 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
                                 st.error(tr("style.preview_failed", error=str(e)))
                                 logger.exception(e)
             else:
-                prompt_prefix = _render_image_prompt_prefix_library(
+                _call_with_streamlit_fragment(
+                    _render_image_prompt_prefix_library,
                     pixelle_video=pixelle_video,
                     workflow_key=workflow_key,
                     media_width=int(media_width),
                     media_height=int(media_height),
                     workflow_display_map=workflow_display_map,
                 )
+                prompt_prefix = st.session_state.get("prompt_prefix_effective_value", "")
         
     
     else:
         # Template doesn't need images - show simplified message
         with render_middle_column_collapsible_section(
             tr("section.image"),
-            expanded=False,
+            expanded=True,
         ):
             st.info("ℹ️ " + tr("image.not_required"))
             st.caption(tr("image.not_required_hint"))
