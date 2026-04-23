@@ -71,6 +71,8 @@ data
 output
 
 plans/
+!docs/superpowers/plans/
+!docs/superpowers/plans/**
 examples/
 repositories/
 

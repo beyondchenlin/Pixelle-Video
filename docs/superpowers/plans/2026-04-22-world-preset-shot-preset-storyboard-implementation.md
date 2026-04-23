@@ -64,8 +64,8 @@ Repository note: this repository's `AGENTS.md` forbids `git worktree`, so execut
   Includes the new control fields and frame overrides in generate-video requests.
 - Modify: `web/pages/2_📚_History.py`
   Shows resolved preset/selection-source/snapshot summary in history detail.
-- Modify: `web/i18n/en_US.json`
-- Modify: `web/i18n/zh_CN.json`
+- Modify: `web/i18n/locales/en_US.json`
+- Modify: `web/i18n/locales/zh_CN.json`
   Adds labels/help text for the new controls and history fields.
 - Create: `tests/test_storyboard_preset_library.py`
   Validates preset-library defaults, schema invariants, and safe-default behavior.
@@ -1374,8 +1374,8 @@ git commit -m "feat: persist storyboard planning snapshots"
 - Create: `web/components/storyboard_preview.py`
 - Modify: `web/components/output_preview.py`
 - Modify: `web/pages/2_📚_History.py`
-- Modify: `web/i18n/en_US.json`
-- Modify: `web/i18n/zh_CN.json`
+- Modify: `web/i18n/locales/en_US.json`
+- Modify: `web/i18n/locales/zh_CN.json`
 - Modify: `tests/test_video_api.py`
 - Modify: `tests/test_content_image_prompt_api.py`
 - Modify: `tests/test_output_preview.py`
@@ -1737,7 +1737,7 @@ st.markdown(f"**World selection:** {snapshot.get('world_preset_selection_source'
 ```
 
 ```json
-// web/i18n/en_US.json
+// web/i18n/locales/en_US.json
 {
   "storyboard.world_preset": "World preset",
   "storyboard.shot_preset": "Shot rhythm template",
@@ -1747,7 +1747,7 @@ st.markdown(f"**World selection:** {snapshot.get('world_preset_selection_source'
 ```
 
 ```json
-// web/i18n/zh_CN.json
+// web/i18n/locales/zh_CN.json
 {
   "storyboard.world_preset": "世界预设",
   "storyboard.shot_preset": "镜头节奏模板",
@@ -1765,7 +1765,7 @@ Expected: PASS with the new storyboard controls present in API requests, web gen
 - [ ] **Step 5: Commit**
 
 ```bash
-git add api/schemas/video.py api/routers/video.py api/schemas/content.py api/routers/content.py web/components/style_config.py web/components/storyboard_preview.py web/components/output_preview.py web/pages/2_📚_History.py web/i18n/en_US.json web/i18n/zh_CN.json tests/test_video_api.py tests/test_content_image_prompt_api.py tests/test_output_preview.py tests/test_style_config_storyboard_planning_ui.py tests/test_storyboard_preview_ui.py
+git add api/schemas/video.py api/routers/video.py api/schemas/content.py api/routers/content.py web/components/style_config.py web/components/storyboard_preview.py web/components/output_preview.py web/pages/2_📚_History.py web/i18n/locales/en_US.json web/i18n/locales/zh_CN.json tests/test_video_api.py tests/test_content_image_prompt_api.py tests/test_output_preview.py tests/test_style_config_storyboard_planning_ui.py tests/test_storyboard_preview_ui.py
 git commit -m "feat: expose storyboard planning controls across api and web"
 ```
 
