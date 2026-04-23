@@ -24,6 +24,7 @@ from web.pipelines.base import PipelineUI, register_pipeline_ui
 
 # Import components
 from web.components.content_input import render_content_input, render_bgm_section, render_version_info
+from web.components.quick_create_flow import render_quick_create_flow_diagram
 from web.components.style_config import render_style_config
 from web.components.output_preview import render_output_preview
 
@@ -67,6 +68,7 @@ class StandardPipelineUI(PipelineUI):
         with middle_col:
             # Style configuration (TTS, template, workflow, etc.)
             style_params = render_style_config(pixelle_video, storyboard_default_enabled=True)
+            render_quick_create_flow_diagram()
         
         # ====================================================================
         # Right Column: Output Preview

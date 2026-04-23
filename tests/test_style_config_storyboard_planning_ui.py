@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 
+import web.components.quick_create_flow as quick_create_flow
 import web.components.style_config as style_config
 import web.pipelines.standard as standard_pipeline
 from pixelle_video.config.storyboard_preset_library import (
@@ -263,17 +264,75 @@ def test_standard_pipeline_ui_passes_storyboard_default_enabled_to_render_style_
         captured["storyboard_default_enabled"] = storyboard_default_enabled
         return {"style": "ok"}
 
+    def fake_render_quick_create_flow_diagram():
+        captured["rendered_quick_create_flow"] = True
+
     monkeypatch.setattr(standard_pipeline.st, "columns", fake_columns)
     monkeypatch.setattr(standard_pipeline, "render_content_input", lambda: {"content": "ok"})
     monkeypatch.setattr(standard_pipeline, "render_bgm_section", lambda: {"bgm": "ok"})
     monkeypatch.setattr(standard_pipeline, "render_version_info", lambda: None)
     monkeypatch.setattr(standard_pipeline, "render_style_config", fake_render_style_config)
+    monkeypatch.setattr(standard_pipeline, "render_quick_create_flow_diagram", fake_render_quick_create_flow_diagram)
     monkeypatch.setattr(standard_pipeline, "render_output_preview", lambda pixelle_video, video_params: None)
 
     pipeline = standard_pipeline.StandardPipelineUI()
     pipeline.render(object())
 
     assert captured["storyboard_default_enabled"] is True
+    assert captured["rendered_quick_create_flow"] is True
+
+
+def test_build_quick_create_flow_diagram_html_includes_arrow_layout_and_final_generate_step(monkeypatch):
+    monkeypatch.setattr(quick_create_flow, "tr", lambda key, **kwargs: key)
+
+    html = quick_create_flow.build_quick_create_flow_diagram_html()
+
+    assert "quick_create_flow.title" in html
+    assert "quick-create-flow-card quick-create-flow-card-input" in html
+    assert "quick-create-flow-arrow-horizontal" in html
+    assert "quick-create-flow-arrow-vertical" in html
+    assert "quick_create_flow.node.script_input.title" in html
+    assert "quick_create_flow.node.voice.title" in html
+    assert "quick_create_flow.node.image.title" in html
+    assert "quick_create_flow.node.generate.title" in html
+    assert "quick_create_flow.note" in html
+    assert "min-height: clamp(" not in html
+    assert "min-height: 440px;" in html
+    assert "margin-top: auto;" not in html
+    assert "padding-bottom: 12px;" in html
+    assert "justify-content: space-between;" in html
+    assert "justify-self: center;" in html
+
+
+def test_render_quick_create_flow_diagram_uses_bordered_container_and_html_markdown(monkeypatch):
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(quick_create_flow, "st", fake_st)
+    monkeypatch.setattr(quick_create_flow, "tr", lambda key, **kwargs: key)
+
+    quick_create_flow.render_quick_create_flow_diagram()
+
+    assert {"border": True} in fake_st.container_calls
+    assert any(kwargs.get("unsafe_allow_html") for _body, kwargs in fake_st.top_level_markdowns)
+    rendered_html = "\n".join(body for body, _kwargs in fake_st.top_level_markdowns)
+    assert "quick_create_flow.title" in rendered_html
+    assert "quick_create_flow.node.generate.title" in rendered_html
+
+
+def test_style_config_source_keeps_expected_ui_glyphs_and_separators():
+    source = inspect.getsource(style_config)
+
+    assert 'f"· {get_prompt_prefix_category_label(active_item[\'style_category_id\'], \'style\', language)} "' in source
+    assert 'f"· {get_prompt_prefix_category_label(active_item[\'scene_category_id\'], \'scene\', language)}"' in source
+    assert 'st.caption(f"📁 {audio_path}")' in source
+    assert 'tab_label = f"{orientation} {width}×{height}"' in source
+    assert 'st.info(f"📋 {tr(\'template.selected_template\')}: **{selected_template_name}**")' in source
+    assert 'st.markdown("📝 " + tr("template.custom_parameters"))' in source
+    assert 'st.info(f"📐 {tr(\'template.size_info\')}: {template_width} × {template_height}")' in source
+    assert 'st.info(f"📐 {size_info_text}")' in source
+    assert 'st.info("ℹ️ " + tr("image.not_required"))' in source
+
+    for broken_token in ("路 ", "脳", "馃", "鈩"):
+        assert broken_token not in source
 
 
 def test_build_storyboard_control_payload_includes_storyboard_fields():
@@ -566,7 +625,7 @@ def test_render_style_config_shows_expanded_image_notice_when_template_does_not_
     assert ("section.image", True) in fake_st.expanders
     assert result["media_workflow"] is None
     assert result["prompt_prefix"] == ""
-    assert "ℹ️ image.not_required" in fake_st.info_calls
+    assert any("image.not_required" in message for message in fake_st.info_calls)
     assert "image.not_required_hint" in fake_st.caption_calls
 
 
@@ -1067,7 +1126,7 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
 
     assert result["media_workflow"] == "selfhost/image_z_image_turbo.json"
-    assert ("section.image", True) in fake_st.expanders
+    assert ("section.image", False) in fake_st.expanders
     assert fake_st.nested_expanders == []
     assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
     expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
@@ -1082,7 +1141,7 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     assert "style.workflow_how" in popover_html
 
 
-def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_image_starts_expanded(monkeypatch):
+def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_image_starts_collapsed(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
     monkeypatch.setattr(style_config, "st", fake_st)
@@ -1192,7 +1251,7 @@ def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_i
     }
 
     assert expected_collapsed_sections.issubset(set(fake_st.expanders))
-    assert ("section.image", True) in fake_st.expanders
+    assert ("section.image", False) in fake_st.expanders
     assert fake_st.nested_expanders == []
     assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
 
@@ -1368,9 +1427,34 @@ def test_image_generation_translation_keys_exist_in_supported_locales():
     locale_dir = Path(__file__).resolve().parents[1] / "web" / "i18n" / "locales"
     required_keys = [
         "style.image_model_selection_title",
+        "quick_create_flow.title",
+        "quick_create_flow.caption",
+        "quick_create_flow.badge",
+        "quick_create_flow.note",
+        "quick_create_flow.node.script_input.title",
+        "quick_create_flow.node.script_input.description",
+        "quick_create_flow.node.mode.title",
+        "quick_create_flow.node.mode.description",
+        "quick_create_flow.node.scene_count.title",
+        "quick_create_flow.node.scene_count.description",
+        "quick_create_flow.node.bgm.title",
+        "quick_create_flow.node.bgm.description",
+        "quick_create_flow.node.voice.title",
+        "quick_create_flow.node.voice.description",
+        "quick_create_flow.node.render.title",
+        "quick_create_flow.node.render.description",
+        "quick_create_flow.node.storyboard.title",
+        "quick_create_flow.node.storyboard.description",
+        "quick_create_flow.node.template.title",
+        "quick_create_flow.node.template.description",
+        "quick_create_flow.node.image.title",
+        "quick_create_flow.node.image.description",
+        "quick_create_flow.node.generate.title",
+        "quick_create_flow.node.generate.description",
     ]
 
     for locale_name in ("zh_CN.json", "en_US.json"):
         translations = json.loads((locale_dir / locale_name).read_text(encoding="utf-8"))["t"]
         missing_keys = [key for key in required_keys if key not in translations]
         assert missing_keys == []
+

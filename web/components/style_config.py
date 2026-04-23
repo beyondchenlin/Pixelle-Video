@@ -118,6 +118,11 @@ def render_middle_column_detail_section(label: str):
         yield
 
 
+def resolve_media_generation_section_expanded(template_media_type: str) -> bool:
+    """Collapse illustration generation by default while keeping video generation open."""
+    return template_media_type == "video"
+
+
 def _render_template_gallery_preview_placeholder(template_name: str):
     """Render a compact placeholder card when a template preview is unavailable."""
     escaped_name = escape(template_name)
@@ -3014,7 +3019,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
 
         with render_middle_column_collapsible_section(
             section_title,
-            expanded=True,
+            expanded=resolve_media_generation_section_expanded(template_media_type),
         ):
             # 1. ComfyUI Workflow selection
             if template_media_type == "image":
