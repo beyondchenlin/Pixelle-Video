@@ -561,8 +561,10 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "delete_prompt_prefix_preview_asset" in source
     assert "_remove_generated_candidate_from_session" in source
     assert "prompt_prefix_panel_mode" in source
-    assert '@st.dialog(tr("style.prefix_library.view_details")' in source
+    assert '@st.dialog(tr("style.prefix_library.view_details"), width="medium"' in source
     assert "_render_prompt_prefix_details_modal" in source
+    assert 'key="prompt_prefix_details_modal_body"' in source
+    assert "min(50vh, 32rem)" in source
     assert "style.prefix_library.toolbar_add" in source
     assert "style.prefix_library.compare_count" in source
     assert "style.prefix_library.thumbnail_prompt" in source

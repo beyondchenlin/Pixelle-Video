@@ -1006,142 +1006,154 @@ def _render_prompt_prefix_details_modal(
     """Render the prompt-prefix details experience in a modal dialog."""
     panel_cover_state = resolve_prompt_prefix_gallery_cover(panel_item, workflow_key)
 
-    @st.dialog(tr("style.prefix_library.view_details"), width="large", on_dismiss=_close_prompt_prefix_panel)
+    @st.dialog(tr("style.prefix_library.view_details"), width="medium", on_dismiss=_close_prompt_prefix_panel)
     def _show_prompt_prefix_details_dialog() -> None:
-        st.markdown(f"### {panel_item['name']}")
-        st.image(panel_cover_state["asset_path"], width="stretch")
-        st.caption(
-            f"{get_prompt_prefix_category_label(panel_item['style_category_id'], 'style', language)} / "
-            f"{get_prompt_prefix_category_label(panel_item['scene_category_id'], 'scene', language)} / "
-            f"{_get_prompt_prefix_source_label(panel_item.get('source', 'manual'))}"
+        st.markdown(
+            """
+            <style>
+            .st-key-prompt_prefix_details_modal_body {
+                height: min(50vh, 32rem) !important;
+                max-height: min(50vh, 32rem) !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
         )
-        if panel_item.get("note"):
-            st.caption(panel_item["note"])
-        st.caption(_get_prompt_prefix_cover_status_label(panel_cover_state))
-        workflow_display_label = _resolve_prompt_prefix_workflow_display_label(
-            panel_cover_state.get("workflow_key"),
-            workflow_display_map,
-        )
-        if workflow_display_label:
+        with st.container(key="prompt_prefix_details_modal_body", height=420):
+            st.markdown(f"### {panel_item['name']}")
+            st.image(panel_cover_state["asset_path"], width="stretch")
             st.caption(
-                f"{tr('style.prefix_library.thumbnail_workflow_label')}: "
-                f"{workflow_display_label}"
+                f"{get_prompt_prefix_category_label(panel_item['style_category_id'], 'style', language)} / "
+                f"{get_prompt_prefix_category_label(panel_item['scene_category_id'], 'scene', language)} / "
+                f"{_get_prompt_prefix_source_label(panel_item.get('source', 'manual'))}"
             )
-        if panel_cover_state.get("generated_at"):
-            st.caption(
-                f"{tr('style.prefix_library.thumbnail_generated_at_label')}: "
-                f"{_format_prompt_prefix_generated_at(panel_cover_state['generated_at'])}"
+            if panel_item.get("note"):
+                st.caption(panel_item["note"])
+            st.caption(_get_prompt_prefix_cover_status_label(panel_cover_state))
+            workflow_display_label = _resolve_prompt_prefix_workflow_display_label(
+                panel_cover_state.get("workflow_key"),
+                workflow_display_map,
             )
-        if panel_cover_state.get("reference_prompt"):
-            st.caption(
-                f"{tr('style.prefix_library.thumbnail_reference_prompt_label')}: "
-                f"{panel_cover_state['reference_prompt']}"
-            )
-        st.code(panel_item["content"], language=None)
+            if workflow_display_label:
+                st.caption(
+                    f"{tr('style.prefix_library.thumbnail_workflow_label')}: "
+                    f"{workflow_display_label}"
+                )
+            if panel_cover_state.get("generated_at"):
+                st.caption(
+                    f"{tr('style.prefix_library.thumbnail_generated_at_label')}: "
+                    f"{_format_prompt_prefix_generated_at(panel_cover_state['generated_at'])}"
+                )
+            if panel_cover_state.get("reference_prompt"):
+                st.caption(
+                    f"{tr('style.prefix_library.thumbnail_reference_prompt_label')}: "
+                    f"{panel_cover_state['reference_prompt']}"
+                )
+            st.code(panel_item["content"], language=None)
 
-        detail_action_col, detail_compare_col = st.columns(2, gap="small")
-        with detail_action_col:
-            if st.button(
-                tr("style.prefix_library.set_active"),
-                key=f"detail_set_active_{panel_item['id']}",
-                width="stretch",
-            ):
-                _set_active_image_prompt_prefix(panel_item["id"])
-                safe_rerun()
-        with detail_compare_col:
-            detail_in_preview = panel_item["id"] in selected_preview_ids
-            preview_label = (
-                tr("style.prefix_library.remove_from_preview")
-                if detail_in_preview
-                else tr("style.prefix_library.add_to_preview")
-            )
-            if st.button(
-                preview_label,
-                key=f"detail_toggle_preview_{panel_item['id']}",
-                width="stretch",
-            ):
-                if not detail_in_preview and len(selected_preview_ids) >= 4:
-                    st.warning(tr("style.prefix_library.preview_limit"))
-                else:
-                    st.session_state["prompt_prefix_preview_ids"] = toggle_prompt_prefix_preview_selection(
-                        selected_preview_ids,
-                        panel_item["id"],
+            detail_action_col, detail_compare_col = st.columns(2, gap="small")
+            with detail_action_col:
+                if st.button(
+                    tr("style.prefix_library.set_active"),
+                    key=f"detail_set_active_{panel_item['id']}",
+                    width="stretch",
+                ):
+                    _set_active_image_prompt_prefix(panel_item["id"])
+                    safe_rerun()
+            with detail_compare_col:
+                detail_in_preview = panel_item["id"] in selected_preview_ids
+                preview_label = (
+                    tr("style.prefix_library.remove_from_preview")
+                    if detail_in_preview
+                    else tr("style.prefix_library.add_to_preview")
+                )
+                if st.button(
+                    preview_label,
+                    key=f"detail_toggle_preview_{panel_item['id']}",
+                    width="stretch",
+                ):
+                    if not detail_in_preview and len(selected_preview_ids) >= 4:
+                        st.warning(tr("style.prefix_library.preview_limit"))
+                    else:
+                        st.session_state["prompt_prefix_preview_ids"] = toggle_prompt_prefix_preview_selection(
+                            selected_preview_ids,
+                            panel_item["id"],
+                        )
+                        st.session_state.pop("prompt_prefix_preview_results", None)
+                        safe_rerun()
+
+            duplicate_col, custom_action_col = st.columns(2, gap="small")
+            with duplicate_col:
+                if st.button(
+                    tr("style.prefix_library.duplicate"),
+                    key=f"detail_duplicate_{panel_item['id']}",
+                    width="stretch",
+                ):
+                    duplicated_item_id = f"manual-{uuid4().hex[:12]}"
+                    duplicated_item = create_prompt_prefix_item(
+                        item_id=duplicated_item_id,
+                        name=f"{panel_item['name']} Copy",
+                        content=panel_item["content"],
+                        style_category_id=panel_item["style_category_id"],
+                        scene_category_id=panel_item["scene_category_id"],
+                        note=panel_item.get("note", ""),
+                        source="manual",
+                        preview_asset_path=clone_prompt_prefix_preview_asset(
+                            panel_item.get("preview_asset_path"),
+                            duplicated_item_id,
+                        ),
                     )
-                    st.session_state.pop("prompt_prefix_preview_results", None)
+                    _upsert_image_prompt_prefix_item(duplicated_item)
+                    safe_rerun()
+            with custom_action_col:
+                if panel_item.get("is_builtin"):
+                    st.button(
+                        tr("style.prefix_library.delete_disabled"),
+                        key=f"detail_builtin_badge_{panel_item['id']}",
+                        disabled=True,
+                        width="stretch",
+                    )
+                elif st.button(
+                    tr("style.prefix_library.edit"),
+                    key=f"detail_edit_{panel_item['id']}",
+                    width="stretch",
+                ):
+                    _open_prompt_prefix_panel("edit", panel_item["id"])
                     safe_rerun()
 
-        duplicate_col, custom_action_col = st.columns(2, gap="small")
-        with duplicate_col:
-            if st.button(
-                tr("style.prefix_library.duplicate"),
-                key=f"detail_duplicate_{panel_item['id']}",
-                width="stretch",
-            ):
-                duplicated_item_id = f"manual-{uuid4().hex[:12]}"
-                duplicated_item = create_prompt_prefix_item(
-                    item_id=duplicated_item_id,
-                    name=f"{panel_item['name']} Copy",
-                    content=panel_item["content"],
-                    style_category_id=panel_item["style_category_id"],
-                    scene_category_id=panel_item["scene_category_id"],
-                    note=panel_item.get("note", ""),
-                    source="manual",
-                    preview_asset_path=clone_prompt_prefix_preview_asset(
-                        panel_item.get("preview_asset_path"),
-                        duplicated_item_id,
-                    ),
-                )
-                _upsert_image_prompt_prefix_item(duplicated_item)
-                safe_rerun()
-        with custom_action_col:
-            if panel_item.get("is_builtin"):
-                st.button(
-                    tr("style.prefix_library.delete_disabled"),
-                    key=f"detail_builtin_badge_{panel_item['id']}",
-                    disabled=True,
+            if not panel_item.get("is_builtin"):
+                if st.session_state.get("prompt_prefix_delete_confirm_id") == panel_item["id"]:
+                    st.warning(tr("style.prefix_library.delete_confirm"))
+                    confirm_col, cancel_col = st.columns(2, gap="small")
+                    with confirm_col:
+                        if st.button(
+                            tr("style.prefix_library.delete"),
+                            key=f"detail_delete_confirm_{panel_item['id']}",
+                            width="stretch",
+                        ):
+                            _delete_image_prompt_prefix_item(panel_item["id"])
+                            st.session_state["prompt_prefix_preview_ids"] = [
+                                selected_id for selected_id in selected_preview_ids if selected_id != panel_item["id"]
+                            ]
+                            st.session_state.pop("prompt_prefix_preview_results", None)
+                            st.session_state.pop("prompt_prefix_generated_preview_results", None)
+                            _close_prompt_prefix_panel()
+                            safe_rerun()
+                    with cancel_col:
+                        if st.button(
+                            tr("style.prefix_library.cancel"),
+                            key=f"detail_delete_cancel_{panel_item['id']}",
+                            width="stretch",
+                        ):
+                            st.session_state.pop("prompt_prefix_delete_confirm_id", None)
+                            safe_rerun()
+                elif st.button(
+                    tr("style.prefix_library.delete"),
+                    key=f"detail_delete_{panel_item['id']}",
                     width="stretch",
-                )
-            elif st.button(
-                tr("style.prefix_library.edit"),
-                key=f"detail_edit_{panel_item['id']}",
-                width="stretch",
-            ):
-                _open_prompt_prefix_panel("edit", panel_item["id"])
-                safe_rerun()
-
-        if not panel_item.get("is_builtin"):
-            if st.session_state.get("prompt_prefix_delete_confirm_id") == panel_item["id"]:
-                st.warning(tr("style.prefix_library.delete_confirm"))
-                confirm_col, cancel_col = st.columns(2, gap="small")
-                with confirm_col:
-                    if st.button(
-                        tr("style.prefix_library.delete"),
-                        key=f"detail_delete_confirm_{panel_item['id']}",
-                        width="stretch",
-                    ):
-                        _delete_image_prompt_prefix_item(panel_item["id"])
-                        st.session_state["prompt_prefix_preview_ids"] = [
-                            selected_id for selected_id in selected_preview_ids if selected_id != panel_item["id"]
-                        ]
-                        st.session_state.pop("prompt_prefix_preview_results", None)
-                        st.session_state.pop("prompt_prefix_generated_preview_results", None)
-                        _close_prompt_prefix_panel()
-                        safe_rerun()
-                with cancel_col:
-                    if st.button(
-                        tr("style.prefix_library.cancel"),
-                        key=f"detail_delete_cancel_{panel_item['id']}",
-                        width="stretch",
-                    ):
-                        st.session_state.pop("prompt_prefix_delete_confirm_id", None)
-                        safe_rerun()
-            elif st.button(
-                tr("style.prefix_library.delete"),
-                key=f"detail_delete_{panel_item['id']}",
-                width="stretch",
-            ):
-                st.session_state["prompt_prefix_delete_confirm_id"] = panel_item["id"]
-                safe_rerun()
+                ):
+                    st.session_state["prompt_prefix_delete_confirm_id"] = panel_item["id"]
+                    safe_rerun()
 
     _show_prompt_prefix_details_dialog()
 
