@@ -2301,7 +2301,10 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
     storyboard_role_strategy = None
     storyboard_role_locking_strength = None
     storyboard_shot_strategy = None
-    storyboard_forbid_embedded_text_in_image = True
+    storyboard_forbid_embedded_text_in_image = st.session_state.get(
+        "storyboard_forbid_embedded_text_in_image",
+        True,
+    )
     storyboard_frame_overrides: list[dict] = []
     selected_template_type_for_storyboard = st.session_state.get("template_type_selector")
     storyboard_controls_disabled = selected_template_type_for_storyboard == "static"
