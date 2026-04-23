@@ -35,7 +35,7 @@ from web.components.faq import render_faq_sidebar
 
 # Page config
 st.set_page_config(
-    page_title="Home - Pixelle-Video",
+    page_title="Home - 懒人同城",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -86,4 +86,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

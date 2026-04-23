@@ -38,7 +38,7 @@ from web.utils.render_backend_ui import get_task_render_backend
 
 # Page config
 st.set_page_config(
-    page_title="History - Pixelle-Video",
+    page_title="History - 懒人同城",
     page_icon="📚",
     layout="wide",
 )
