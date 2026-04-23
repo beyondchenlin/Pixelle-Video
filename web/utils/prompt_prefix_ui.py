@@ -33,9 +33,6 @@ from web.utils.preview_media import load_preview_media
 CUSTOM_PROMPT_PREFIX_PREVIEW_RELATIVE_DIR = Path("resources/prompt_prefix_previews/custom")
 DEFAULT_PROMPT_PREFIX_PREVIEW_SUFFIX = ".png"
 PROMPT_PREFIX_MANUAL_DRAFT_ID_KEY = "prompt_prefix_manual_draft_id"
-PROMPT_PREFIX_WORKSPACE_MODE_KEY = "prompt_prefix_panel_mode"
-PROMPT_PREFIX_WORKSPACE_ITEM_ID_KEY = "prompt_prefix_panel_item_id"
-PROMPT_PREFIX_DELETE_CONFIRM_ID_KEY = "prompt_prefix_delete_confirm_id"
 
 
 def create_prompt_prefix_item(
@@ -188,48 +185,6 @@ def get_prompt_prefix_form_item_id(
 def clear_prompt_prefix_form_item_id(session_state: MutableMapping[str, Any]):
     """Drop the current manual draft id so the next create flow starts fresh."""
     session_state.pop(PROMPT_PREFIX_MANUAL_DRAFT_ID_KEY, None)
-
-
-def set_prompt_prefix_workspace_state(
-    session_state: MutableMapping[str, Any],
-    mode: str,
-    item_id: str | None = None,
-):
-    """Persist one prompt-prefix workspace mode in session state."""
-    if mode != "manual":
-        clear_prompt_prefix_form_item_id(session_state)
-
-    session_state[PROMPT_PREFIX_WORKSPACE_MODE_KEY] = mode
-    session_state[PROMPT_PREFIX_WORKSPACE_ITEM_ID_KEY] = item_id
-    session_state.pop(PROMPT_PREFIX_DELETE_CONFIRM_ID_KEY, None)
-
-
-def clear_prompt_prefix_workspace_state(session_state: MutableMapping[str, Any]):
-    """Clear prompt-prefix workspace state and pending delete confirmations."""
-    clear_prompt_prefix_form_item_id(session_state)
-    session_state.pop(PROMPT_PREFIX_WORKSPACE_MODE_KEY, None)
-    session_state.pop(PROMPT_PREFIX_WORKSPACE_ITEM_ID_KEY, None)
-    session_state.pop(PROMPT_PREFIX_DELETE_CONFIRM_ID_KEY, None)
-
-
-def toggle_prompt_prefix_details_state(
-    session_state: MutableMapping[str, Any],
-    item_id: str,
-) -> bool:
-    """Toggle inline details for one prompt-prefix card.
-
-    Returns True when the target card becomes expanded and False when it
-    collapses because the same card was toggled twice.
-    """
-    current_mode = session_state.get(PROMPT_PREFIX_WORKSPACE_MODE_KEY)
-    current_item_id = session_state.get(PROMPT_PREFIX_WORKSPACE_ITEM_ID_KEY)
-
-    if current_mode == "details" and current_item_id == item_id:
-        clear_prompt_prefix_workspace_state(session_state)
-        return False
-
-    set_prompt_prefix_workspace_state(session_state, "details", item_id=item_id)
-    return True
 
 
 def delete_prompt_prefix_preview_asset(preview_asset_path: str | None) -> bool:
