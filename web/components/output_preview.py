@@ -246,7 +246,7 @@ def render_single_output(pixelle_video, video_params):
                     
                     # Append extra_info if available (e.g., batch progress)
                     if event.extra_info:
-                        message = f"{message} - {event.extra_info}"
+                        message = f"{message} - {tr(event.extra_info)}"
                     
                     status_text.text(message)
                     progress_bar.progress(min(int(event.progress * 100), 99))  # Cap at 99% until complete
@@ -432,6 +432,9 @@ def render_batch_output(pixelle_video, video_params):
                         )
                     else:
                         message = tr(f"progress.{event.event_type}")
+
+                    if event.extra_info:
+                        message = f"{message} - {tr(event.extra_info)}"
                     
                     current_task_progress.progress(event.progress)
                     current_task_status.text(message)

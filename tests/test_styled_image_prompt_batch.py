@@ -621,3 +621,81 @@ async def test_generate_styled_image_prompt_batch_keeps_legacy_prompt_path_when_
 
     assert result.prompts == [apply_no_text_policy("flat illustration, base scene prompt")]
     assert result.planning_snapshot is None
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_reports_substage_progress_messages(monkeypatch):
+    progress_events = []
+
+    async def fake_generate_image_prompts(*args, **kwargs):
+        progress_callback = kwargs["progress_callback"]
+        progress_callback(1, 1, "base_prompt_generation")
+        return ["base scene prompt"]
+
+    async def fake_plan_storyboard_batch(**kwargs):
+        return type(
+            "PlanResult",
+            (),
+            {
+                "frames": (
+                    FramePlan(
+                        scene_id="scene-1",
+                        shot_type="medium_shot",
+                        shot_purpose="context",
+                        world_elements=("strategy board",),
+                        prompt_intent="teach the first relationship",
+                    ),
+                ),
+                "planning_snapshot": {
+                    "world_preset_id": "neutral_knowledge_storyboard",
+                    "world_preset": {
+                        "display_name": "Neutral Knowledge Storyboard",
+                        "style_core": "clean educational illustration",
+                    },
+                },
+            },
+        )()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.plan_storyboard_batch",
+        fake_plan_storyboard_batch,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: StyleSourceSpec(
+            origin="request",
+            raw_content="Angry Birds style",
+            content_hash="hash-123",
+            source_identity="request:hash-123",
+            item_id=None,
+        ),
+    )
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        return _resolved_ip_world()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+
+    await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["scene one"],
+        image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+        world_preset_id="neutral_knowledge_storyboard",
+        progress_callback=lambda completed, total, message: progress_events.append(
+            (completed, total, message)
+        ),
+    )
+
+    assert [message for _, _, message in progress_events] == [
+        "progress.detail.style_resolution",
+        "progress.detail.storyboard_planning",
+        "base_prompt_generation",
+        "progress.detail.prompt_assembly",
+    ]

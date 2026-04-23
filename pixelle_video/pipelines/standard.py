@@ -172,7 +172,7 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.title = title
             logger.info(f"   Title: '{title}' (user-specified)")
         else:
-            self._report_progress(ctx.progress_callback, "generating_title", 0.01)
+            self._report_progress(ctx.progress_callback, "generating_title", 0.10)
             if mode == "generate":
                 ctx.title = await generate_title(self.llm, text, strategy="auto")
                 logger.info(f"   Title: '{ctx.title}' (auto-generated)")

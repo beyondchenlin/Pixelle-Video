@@ -19,6 +19,7 @@ These functions are reusable across different pipelines.
 
 import re
 import unicodedata
+from time import perf_counter
 from typing import Any, List, Literal, Optional
 
 from loguru import logger
@@ -98,13 +99,25 @@ async def generate_title(
     Returns:
         Generated title
     """
+    start_time = perf_counter()
+    stripped_content = content.strip()
+    logger.info(
+        f"Starting title generation (strategy={strategy}, input_length={len(stripped_content)}, max_length={max_length})"
+    )
+
     if strategy == "direct":
-        content = content.strip()
-        return content[:max_length] if len(content) > max_length else content
+        title = stripped_content[:max_length] if len(stripped_content) > max_length else stripped_content
+        logger.info(
+            f"Title generation completed via direct strategy in {perf_counter() - start_time:.2f}s"
+        )
+        return title
     
     if strategy == "auto":
-        if len(content.strip()) <= 15:
-            return content.strip()
+        if len(stripped_content) <= 15:
+            logger.info(
+                f"Title generation completed via auto-direct shortcut in {perf_counter() - start_time:.2f}s"
+            )
+            return stripped_content
         # Fall through to LLM
     
     # Use LLM to generate title
@@ -141,6 +154,8 @@ async def generate_title(
         # Remove any trailing punctuation after truncation
         title = title.rstrip('.,!?;:\'"')
     
+    elapsed = perf_counter() - start_time
+    logger.info(f"Title generation completed in {elapsed:.2f}s")
     logger.debug(f"Generated title: '{title}' (length: {len(title)})")
     return title
 
@@ -167,6 +182,7 @@ async def generate_narrations_from_topic(
     """
     from pixelle_video.prompts import build_topic_narration_prompt
     
+    start_time = perf_counter()
     logger.info(f"Generating {n_scenes} narrations from topic: {topic}")
     
     prompt = build_topic_narration_prompt(
@@ -192,7 +208,9 @@ async def generate_narrations_from_topic(
     elif len(narrations) < n_scenes:
         raise ValueError(f"Expected {n_scenes} narrations, got only {len(narrations)}")
     
-    logger.info(f"Generated {len(narrations)} narrations successfully")
+    logger.info(
+        f"Generated {len(narrations)} narrations successfully in {perf_counter() - start_time:.2f}s"
+    )
     return narrations
 
 
@@ -218,6 +236,7 @@ async def generate_narrations_from_content(
     """
     from pixelle_video.prompts import build_content_narration_prompt
     
+    start_time = perf_counter()
     logger.info(f"Generating {n_scenes} narrations from content ({len(content)} chars)")
     
     prompt = build_content_narration_prompt(
@@ -243,7 +262,9 @@ async def generate_narrations_from_content(
     elif len(narrations) < n_scenes:
         raise ValueError(f"Expected {n_scenes} narrations, got only {len(narrations)}")
     
-    logger.info(f"Generated {len(narrations)} narrations successfully")
+    logger.info(
+        f"Generated {len(narrations)} narrations successfully in {perf_counter() - start_time:.2f}s"
+    )
     return narrations
 
 
@@ -385,6 +406,7 @@ async def generate_image_prompts(
     """
     from pixelle_video.prompts import build_image_prompt_prompt
     
+    start_time = perf_counter()
     logger.info(f"Generating image prompts for {len(narrations)} narrations (batch_size={batch_size})")
     
     # Split narrations into batches
@@ -396,6 +418,7 @@ async def generate_image_prompts(
     # Process each batch
     for batch_idx, batch_narrations in enumerate(batches, 1):
         logger.info(f"Processing batch {batch_idx}/{len(batches)} ({len(batch_narrations)} narrations)")
+        batch_start_time = perf_counter()
         
         # Retry logic for this batch
         for attempt in range(1, max_retries + 1):
@@ -433,7 +456,10 @@ async def generate_image_prompts(
                         raise ValueError(error_msg)
                 
                 # Success!
-                logger.info(f"鉁?Batch {batch_idx} completed successfully ({len(batch_prompts)} prompts)")
+                logger.info(
+                    f"鉁?Batch {batch_idx} completed successfully ({len(batch_prompts)} prompts) in "
+                    f"{perf_counter() - batch_start_time:.2f}s"
+                )
                 all_prompts.extend(batch_prompts)
                 
                 # Report progress
@@ -452,7 +478,9 @@ async def generate_image_prompts(
                     raise
                 logger.info(f"Retrying batch {batch_idx}...")
     
-    logger.info(f"鉁?Generated {len(all_prompts)} image prompts")
+    logger.info(
+        f"鉁?Generated {len(all_prompts)} image prompts in {perf_counter() - start_time:.2f}s"
+    )
     return all_prompts
 
 
@@ -479,6 +507,9 @@ async def generate_styled_image_prompt_batch(
     frame_overrides: Optional[list[dict[str, Any]]] = None,
     forbid_embedded_text_in_image: bool = True,
 ) -> StyledImagePromptBatch:
+    start_time = perf_counter()
+    progress_total = max(len(narrations), 1)
+
     def _storyboard_controls_enabled() -> bool:
         return any(
             [
@@ -502,8 +533,16 @@ async def generate_styled_image_prompt_batch(
 
     if source is not None:
         try:
+            if progress_callback:
+                progress_callback(0, progress_total, "progress.detail.style_resolution")
+            style_resolution_start = perf_counter()
             resolved_style = await resolve_style_spec(llm_service, source)
             style_profile = resolved_style.style_profile
+            logger.info(
+                "Style resolution completed in "
+                f"{perf_counter() - style_resolution_start:.2f}s "
+                f"(source={source.source_identity}, media_type={media_type})"
+            )
         except Exception:
             style_resolution_failed = True
             logger.exception("Style resolution failed, falling back to legacy prefix concatenation")
@@ -513,6 +552,8 @@ async def generate_styled_image_prompt_batch(
     normalized_style = None
     frame_plans: list[Any] = []
     if storyboard_enabled:
+        if progress_callback:
+            progress_callback(0, progress_total, "progress.detail.storyboard_planning")
         storyboard_world_preset = lookup_world_preset(
             config_manager.get_storyboard_world_preset_library(),
             world_preset_id,
@@ -524,6 +565,7 @@ async def generate_styled_image_prompt_batch(
         if normalized_style is not None:
             style_profile = normalized_style["style_profile"]
 
+        planning_start = perf_counter()
         planning = await plan_storyboard_batch(
             llm_service=llm_service,
             narrations=narrations,
@@ -540,6 +582,11 @@ async def generate_styled_image_prompt_batch(
             role_locking_strength=role_locking_strength,
             shot_strategy=shot_strategy,
             frame_overrides=frame_overrides,
+        )
+        logger.info(
+            "Storyboard planning completed in "
+            f"{perf_counter() - planning_start:.2f}s "
+            f"(frames={len(narrations)}, consistency_strength={consistency_strength})"
         )
         frame_plans = list(getattr(planning, "frames", ()) or ())
         planning_snapshot = _snapshot_with_serialized_frame_plans(
@@ -600,10 +647,18 @@ async def generate_styled_image_prompt_batch(
         for prompt in final_prompts
     ]
 
+    if progress_callback:
+        progress_callback(progress_total, progress_total, "progress.detail.prompt_assembly")
+
     negative_prompt = assemble_negative_prompt(
         resolved_style,
         supports_negative_prompt=capabilities.supports_negative_prompt,
         extra_negative_rules=NO_TEXT_NEGATIVE_RULES if forbid_embedded_text_in_image else None,
+    )
+    logger.info(
+        "Styled prompt batch completed in "
+        f"{perf_counter() - start_time:.2f}s "
+        f"(media_type={media_type}, narrations={len(narrations)}, storyboard_enabled={storyboard_enabled})"
     )
     return StyledImagePromptBatch(
         prompts=final_prompts,
@@ -640,6 +695,7 @@ async def generate_video_prompts(
     """
     from pixelle_video.prompts.video_generation import build_video_prompt_prompt
     
+    start_time = perf_counter()
     logger.info(f"Generating video prompts for {len(narrations)} narrations (batch_size={batch_size})")
     
     # Split narrations into batches
@@ -651,6 +707,7 @@ async def generate_video_prompts(
     # Process each batch
     for batch_idx, batch_narrations in enumerate(batches, 1):
         logger.info(f"Processing batch {batch_idx}/{len(batches)} ({len(batch_narrations)} narrations)")
+        batch_start_time = perf_counter()
         
         # Retry logic for this batch
         for attempt in range(1, max_retries + 1):
@@ -680,7 +737,10 @@ async def generate_video_prompts(
                 
                 # Success - add to all_prompts
                 all_prompts.extend(batch_prompts)
-                logger.info(f"鉁?Batch {batch_idx} completed: {len(batch_prompts)} video prompts")
+                logger.info(
+                    f"鉁?Batch {batch_idx} completed: {len(batch_prompts)} video prompts in "
+                    f"{perf_counter() - batch_start_time:.2f}s"
+                )
                 
                 # Report progress
                 if progress_callback:
@@ -696,7 +756,9 @@ async def generate_video_prompts(
                     raise
                 logger.info(f"Retrying batch {batch_idx}...")
     
-    logger.info(f"鉁?Generated {len(all_prompts)} video prompts")
+    logger.info(
+        f"鉁?Generated {len(all_prompts)} video prompts in {perf_counter() - start_time:.2f}s"
+    )
     return all_prompts
 
 

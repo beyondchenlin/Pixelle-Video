@@ -451,6 +451,139 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
     ]
 
 
+def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_path):
+    captured = {"status_messages": []}
+    video_path = tmp_path / "final.mp4"
+    video_path.write_bytes(b"video")
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            return _FakeStatus()
+
+    class _FakeProgressBar:
+        def progress(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+    class _FakeStatus:
+        def text(self, value):
+            captured["status_messages"].append(value)
+
+        def empty(self):
+            return None
+
+        def markdown(self, _value):
+            return None
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "template_media_width": 1080,
+                "template_media_height": 1920,
+            }
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def button(self, *_args, **_kwargs):
+            return True
+
+        def error(self, message):
+            raise AssertionError(message)
+
+        def stop(self):
+            raise AssertionError("st.stop should not be called")
+
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            return _FakeStatus()
+
+        def success(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, *_args, **_kwargs):
+            return None
+
+        def download_button(self, **_kwargs):
+            return None
+
+    class _FakePixelleVideo:
+        async def generate_video(self, **kwargs):
+            kwargs["progress_callback"](
+                output_preview.ProgressEvent(
+                    event_type="generating_image_prompts",
+                    progress=0.15,
+                    extra_info="progress.detail.style_resolution",
+                )
+            )
+            return SimpleNamespace(
+                video_path=str(video_path),
+                file_size=len(video_path.read_bytes()),
+                storyboard=SimpleNamespace(
+                    planning_snapshot=None,
+                    config=SimpleNamespace(frame_template="1080x1920/image_default.html"),
+                    frames=[object()],
+                ),
+            )
+
+    monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+    monkeypatch.setattr(
+        output_preview,
+        "tr",
+        lambda key, **kwargs: {
+            "section.video_generation": "section.video_generation",
+            "btn.generate": "btn.generate",
+            "progress.generating_image_prompts": "Generating image prompts...",
+            "progress.detail.style_resolution": "resolving style profile",
+            "status.success": "success",
+            "status.video_generated": "video generated",
+            "info.generation_time": "time",
+            "info.scenes_unit": " scenes",
+        }.get(key, key),
+    )
+    monkeypatch.setattr(output_preview, "get_language", lambda: "en_US")
+    monkeypatch.setattr(output_preview, "render_scaled_video_preview", lambda _path: None)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+
+    output_preview.render_single_output(
+        _FakePixelleVideo(),
+        {
+            "text": "demo",
+            "mode": "generate",
+            "title": "Demo",
+            "n_scenes": 3,
+            "split_mode": "paragraph",
+            "media_workflow": "runninghub/image_flux.json",
+            "frame_template": "1080x1920/image_default.html",
+            "prompt_prefix": "clean",
+            "tts_inference_mode": "local",
+            "tts_voice": "zh-CN-YunjianNeural",
+        },
+    )
+
+    assert "Generating image prompts... - resolving style profile" in captured["status_messages"]
+
+
 def test_render_batch_output_writes_last_successful_planning_snapshot(monkeypatch):
     class _FakeContext:
         def __enter__(self):

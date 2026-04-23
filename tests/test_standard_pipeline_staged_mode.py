@@ -446,3 +446,38 @@ async def test_post_production_uses_default_concat_for_standard_pipeline(monkeyp
     assert calls["videos"] == ["segment-0.mp4", "segment-1.mp4"]
     assert calls["output"] == ctx.final_video_path
     assert "method" not in calls["kwargs"]
+
+
+@pytest.mark.asyncio
+async def test_determine_title_progress_does_not_regress_after_generate_content(monkeypatch):
+    pipeline = StandardPipeline(_DummyCore())
+    events = []
+    ctx = PipelineContext(
+        input_text="a sufficiently long topic for title generation",
+        params={"mode": "generate", "n_scenes": 3},
+        progress_callback=events.append,
+    )
+
+    async def fake_generate_narrations_from_topic(*args, **kwargs):
+        return ["scene 1", "scene 2", "scene 3"]
+
+    async def fake_generate_title(*args, **kwargs):
+        return "Generated Title"
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.generate_narrations_from_topic",
+        fake_generate_narrations_from_topic,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.generate_title",
+        fake_generate_title,
+    )
+
+    await pipeline.generate_content(ctx)
+    await pipeline.determine_title(ctx)
+
+    assert [event.event_type for event in events] == [
+        "generating_narrations",
+        "generating_title",
+    ]
+    assert events[1].progress >= events[0].progress
