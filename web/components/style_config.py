@@ -14,6 +14,7 @@
 Style configuration components for web UI (middle column)
 """
 
+import base64
 import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -1008,6 +1009,34 @@ def _close_prompt_prefix_panel():
     st.session_state.pop("prompt_prefix_delete_confirm_id", None)
 
 
+def _resolve_prompt_prefix_modal_image_src(asset_path: str) -> str:
+    """Return a stable image src for modal rendering without relying on Streamlit's image DOM."""
+    if not asset_path:
+        return asset_path
+    if asset_path.startswith(("http://", "https://", "data:")):
+        return asset_path
+
+    asset_file = Path(asset_path)
+    if not asset_file.is_absolute():
+        asset_file = Path(__file__).resolve().parents[2] / asset_path
+
+    try:
+        payload = asset_file.read_bytes()
+    except OSError:
+        return asset_path
+
+    mime_type = {
+        ".svg": "image/svg+xml",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(asset_file.suffix.lower(), "application/octet-stream")
+    encoded = base64.b64encode(payload).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
 def _render_prompt_prefix_details_modal(
     panel_item: dict,
     workflow_key: str,
@@ -1017,6 +1046,7 @@ def _render_prompt_prefix_details_modal(
 ) -> None:
     """Render the prompt-prefix details experience in a modal dialog."""
     panel_cover_state = resolve_prompt_prefix_gallery_cover(panel_item, workflow_key)
+    modal_image_src = _resolve_prompt_prefix_modal_image_src(panel_cover_state["asset_path"])
     style_label = get_prompt_prefix_category_label(panel_item["style_category_id"], "style", language)
     scene_label = get_prompt_prefix_category_label(panel_item["scene_category_id"], "scene", language)
     source_label = _get_prompt_prefix_source_label(panel_item.get("source", "manual"))
@@ -1067,9 +1097,6 @@ def _render_prompt_prefix_details_modal(
                     --prompt-prefix-content-min-height: 8.6rem;
                 }
             }
-            .st-key-prompt_prefix_details_modal_body [data-testid="stImage"] img {
-                border-radius: 1rem;
-            }
             .st-key-prompt_prefix_details_modal_body .stButton > button {
                 min-height: calc(2.35rem * var(--prompt-prefix-space-scale));
             }
@@ -1079,9 +1106,17 @@ def _render_prompt_prefix_details_modal(
                 background: linear-gradient(180deg, rgba(247, 249, 252, 0.96), rgba(255, 255, 255, 0.92));
                 box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
             }
-            .st-key-prompt_prefix_details_modal_media [data-testid="stImage"] img {
-                border-radius: 1.05rem;
+            .prompt_prefix_details_modal_media_frame {
                 aspect-ratio: 1 / 1;
+                width: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .prompt_prefix_details_modal_image {
+                width: 100%;
+                height: 100%;
+                border-radius: 1.05rem;
                 object-fit: contain;
                 background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
             }
@@ -1152,7 +1187,15 @@ def _render_prompt_prefix_details_modal(
             detail_media_col, detail_content_col = st.columns([1.38, 0.82], gap="large")
             with detail_media_col:
                 with st.container(key="prompt_prefix_details_modal_media", border=True):
-                    st.image(panel_cover_state["asset_path"], width="stretch")
+                    st.markdown(
+                        (
+                            '<div class="prompt_prefix_details_modal_media_frame">'
+                            f'<img class="prompt_prefix_details_modal_image" src="{escape(modal_image_src, quote=True)}" '
+                            f'alt="{escape(panel_item["name"], quote=True)}" />'
+                            "</div>"
+                        ),
+                        unsafe_allow_html=True,
+                    )
             with detail_content_col:
                 with st.container(key="prompt_prefix_details_modal_info"):
                     st.markdown(
