@@ -210,6 +210,12 @@ def test_resolve_storyboard_toggle_default_disables_static_template_even_when_en
     )
 
 
+def test_resolve_media_generation_section_expanded_collapses_image_and_keeps_video_open():
+    assert style_config.resolve_media_generation_section_expanded("image") is False
+    assert style_config.resolve_media_generation_section_expanded("video") is True
+    assert style_config.resolve_media_generation_section_expanded("static") is False
+
+
 def test_build_storyboard_control_payload_drops_auto_shot_preset_selection():
     payload = build_storyboard_control_payload(
         world_preset_id="neutral_knowledge_storyboard",
@@ -1139,6 +1145,138 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     assert "template.how" in popover_html
     assert "style.workflow_what" in popover_html
     assert "style.workflow_how" in popover_html
+
+
+def test_render_style_config_keeps_video_generation_section_expanded_by_default(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["template_type_selector"] = "video"
+    fake_st.session_state["template_media_type"] = "video"
+    fake_st.session_state["template_requires_media"] = True
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_comfyui_config",
+        lambda: {
+            "tts": {
+                "inference_mode": "local",
+                "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2},
+                "comfyui": {},
+            },
+            "image": {},
+            "video": {"prompt_prefix": "cinematic mood"},
+        },
+    )
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "render_backend")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
+    monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_storyboard_world_preset_library",
+        lambda: {
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [{"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}],
+        },
+    )
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_storyboard_shot_preset_library",
+        lambda: {
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [{"preset_id": "balanced_explainer", "display_name": "Balanced"}],
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_template_type",
+        lambda _template_name: "video",
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
+        lambda _template_type: {
+            "1920x1080": [
+                type(
+                    "TemplateInfo",
+                    (),
+                    {
+                        "template_path": "1920x1080/video_default.html",
+                        "display_info": type(
+                            "DisplayInfo",
+                            (),
+                            {
+                                "name": "video_default",
+                                "orientation": "landscape",
+                                "width": 1920,
+                                "height": 1080,
+                            },
+                        )(),
+                    },
+                )()
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.parse_template_size",
+        lambda _path: (1920, 1080),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda path: path,
+    )
+
+    class _FakeFrameGenerator:
+        def __init__(self, _template_path):
+            self._template_path = _template_path
+
+        def parse_template_parameters(self):
+            return {}
+
+        def get_media_size(self):
+            return (1920, 1080)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+
+    original_radio = fake_st.radio
+
+    def _radio(label, options, index=0, key=None, **kwargs):
+        if key == "template_type_selector":
+            return "video"
+        return original_radio(label, options, index=index, key=key, **kwargs)
+
+    fake_st.radio = _radio
+
+    class _FakeMedia:
+        @staticmethod
+        def list_workflows():
+            return [
+                {
+                    "display_name": "Video Default",
+                    "key": "selfhost/video_default.json",
+                }
+            ]
+
+    class _FakeVideo:
+        config = {"template": {}}
+        media = _FakeMedia()
+
+    result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
+
+    assert result["media_workflow"] == "selfhost/video_default.json"
+    assert result["prompt_prefix"] == "cinematic mood"
+    assert ("section.video", True) in fake_st.expanders
+    assert fake_st.popovers == ["help.feature_description"]
+    expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
+    assert "style.video_workflow_what" in expander_html
+    assert "style.video_workflow_how" in expander_html
+    popover_html = "\n".join(body for body, _kwargs in fake_st.popover_markdowns)
+    assert "style.video_workflow_what" not in popover_html
+    assert "style.video_workflow_how" not in popover_html
 
 
 def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_image_starts_collapsed(monkeypatch):
