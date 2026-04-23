@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+import subprocess
+import tempfile
+from pathlib import Path
+
+from streamlit.testing.v1 import AppTest
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+STYLE_CONFIG_RELATIVE_PATH = Path("web/components/style_config.py")
+
+
+def _read_tracked_style_config_source() -> str:
+    relative_path = STYLE_CONFIG_RELATIVE_PATH.as_posix()
+    result = subprocess.run(
+        ["git", "show", f"HEAD:{relative_path}"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if result.returncode == 0:
+        return result.stdout
+
+    return (PROJECT_ROOT / STYLE_CONFIG_RELATIVE_PATH).read_text(encoding="utf-8")
+
+
+def test_render_style_config_uses_real_streamlit_popovers():
+    style_config_source = _read_tracked_style_config_source()
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        module_path = Path(temp_dir) / "style_config_snapshot.py"
+        module_path.write_text(style_config_source, encoding="utf-8")
+
+        script = """
+import importlib.util
+import sys
+from pathlib import Path
+import streamlit as st
+import pixelle_video.utils.template_util as template_util
+import pixelle_video.services.frame_html as frame_html
+
+module_path = Path(r"__MODULE_PATH__")
+spec = importlib.util.spec_from_file_location("style_config_snapshot", module_path)
+style_config = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = style_config
+spec.loader.exec_module(style_config)
+
+st.session_state['template_type_selector'] = 'image'
+st.session_state['template_media_type'] = 'image'
+st.session_state['template_requires_media'] = True
+
+style_config.tr = lambda key, **kwargs: key
+style_config.get_language = lambda: 'en_US'
+style_config.config_manager.get_comfyui_config = lambda: {
+    'tts': {
+        'inference_mode': 'local',
+        'local': {'voice': 'zh-CN-YunjianNeural', 'speed': 1.2},
+        'comfyui': {},
+    },
+    'image': {},
+    'video': {},
+}
+style_config.render_render_backend_selector = lambda: 'render_backend'
+style_config.render_tts_audio_strategy_selector = lambda: 'auto'
+style_config.render_storyboard_planning_guide = lambda: None
+style_config.render_storyboard_preview = lambda _snapshot: []
+style_config._render_image_prompt_prefix_library = lambda **_kwargs: ''
+style_config.check_and_warn_selfhost_workflow = lambda *_args, **_kwargs: None
+style_config.config_manager.get_storyboard_world_preset_library = lambda: {
+    'default_world_preset_id': 'neutral_knowledge_storyboard',
+    'items': [{'preset_id': 'neutral_knowledge_storyboard', 'display_name': 'Neutral'}],
+}
+style_config.config_manager.get_storyboard_shot_preset_library = lambda: {
+    'default_shot_preset_id': 'balanced_explainer',
+    'items': [{'preset_id': 'balanced_explainer', 'display_name': 'Balanced'}],
+}
+
+template_util.get_template_type = lambda _template_name: 'image'
+template_util.get_templates_grouped_by_size_and_type = lambda _template_type: {
+    '1080x1920': [
+        type('TemplateInfo', (), {
+            'template_path': '1080x1920/image_default.html',
+            'display_info': type('DisplayInfo', (), {
+                'name': 'image_default',
+                'orientation': 'portrait',
+                'width': 1080,
+                'height': 1920,
+            })(),
+        })()
+    ]
+}
+template_util.parse_template_size = lambda _path: (1080, 1920)
+template_util.resolve_template_path = lambda path: path
+
+class _FakeFrameGenerator:
+    def __init__(self, _template_path):
+        self._template_path = _template_path
+    def parse_template_parameters(self):
+        return {}
+    def get_media_size(self):
+        return (1080, 1920)
+
+frame_html.HTMLFrameGenerator = _FakeFrameGenerator
+
+class _FakeMedia:
+    @staticmethod
+    def list_workflows():
+        return [{'display_name': 'Image Default', 'key': 'selfhost/image_z_image_turbo.json'}]
+
+class _FakeVideo:
+    config = {'template': {}}
+    media = _FakeMedia()
+
+style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
+"""
+        script = script.replace("__MODULE_PATH__", str(module_path))
+
+        at = AppTest.from_string(script)
+        at.run()
+
+    assert len(at.exception) == 0
+
+    popovers = [
+        node for node in at.main if type(node).__name__ == "Block" and getattr(node, "type", None) == "popover"
+    ]
+    assert len(popovers) == 2
+    assert [popover.proto.popover.label for popover in popovers] == [
+        "help.feature_description",
+        "help.feature_description",
+    ]
+
+    popover_markdown_groups = [[markdown.value for markdown in popover.markdown] for popover in popovers]
+    assert any("template.what" in group and "template.how" in group for group in popover_markdown_groups)
+    assert any(
+        "style.workflow_what" in group and "style.workflow_how" in group
+        for group in popover_markdown_groups
+    )
