@@ -1005,51 +1005,105 @@ def _render_prompt_prefix_details_modal(
 ) -> None:
     """Render the prompt-prefix details experience in a modal dialog."""
     panel_cover_state = resolve_prompt_prefix_gallery_cover(panel_item, workflow_key)
+    category_caption = (
+        f"{get_prompt_prefix_category_label(panel_item['style_category_id'], 'style', language)} / "
+        f"{get_prompt_prefix_category_label(panel_item['scene_category_id'], 'scene', language)} / "
+        f"{_get_prompt_prefix_source_label(panel_item.get('source', 'manual'))}"
+    )
+    detail_meta_lines = [category_caption, _get_prompt_prefix_cover_status_label(panel_cover_state)]
+    if panel_item.get("note"):
+        detail_meta_lines.append(panel_item["note"])
+    workflow_display_label = _resolve_prompt_prefix_workflow_display_label(
+        panel_cover_state.get("workflow_key"),
+        workflow_display_map,
+    )
+    if workflow_display_label:
+        detail_meta_lines.append(
+            f"{tr('style.prefix_library.thumbnail_workflow_label')}: {workflow_display_label}"
+        )
+    if panel_cover_state.get("generated_at"):
+        detail_meta_lines.append(
+            f"{tr('style.prefix_library.thumbnail_generated_at_label')}: "
+            f"{_format_prompt_prefix_generated_at(panel_cover_state['generated_at'])}"
+        )
+    if panel_cover_state.get("reference_prompt"):
+        detail_meta_lines.append(
+            f"{tr('style.prefix_library.thumbnail_reference_prompt_label')}: "
+            f"{panel_cover_state['reference_prompt']}"
+        )
 
     @st.dialog(tr("style.prefix_library.view_details"), width="medium", on_dismiss=_close_prompt_prefix_panel)
     def _show_prompt_prefix_details_dialog() -> None:
         st.markdown(
-            """
+            dedent(
+                """
             <style>
             .st-key-prompt_prefix_details_modal_body {
-                height: min(50vh, 32rem) !important;
-                max-height: min(50vh, 32rem) !important;
+                zoom: 0.84;
+            }
+            @media (max-height: 900px) {
+                .st-key-prompt_prefix_details_modal_body {
+                    zoom: 0.76;
+                }
+            }
+            @media (max-height: 760px) {
+                .st-key-prompt_prefix_details_modal_body {
+                    zoom: 0.68;
+                }
+            }
+            .st-key-prompt_prefix_details_modal_body [data-testid="stImage"] img {
+                border-radius: 1rem;
+            }
+            .st-key-prompt_prefix_details_modal_body .stButton > button {
+                min-height: 2.35rem;
+            }
+            .prompt_prefix_details_modal_meta {
+                display: grid;
+                gap: 0.38rem;
+                font-size: 0.85rem;
+                line-height: 1.35;
+                color: rgba(49, 51, 63, 0.78);
+            }
+            .prompt_prefix_details_modal_content {
+                min-height: 12rem;
+                border: 1px solid rgba(49, 51, 63, 0.12);
+                border-radius: 1rem;
+                padding: 0.95rem 1rem;
+                background: rgba(248, 250, 252, 0.82);
+                white-space: pre-wrap;
+                word-break: break-word;
+                overflow-wrap: anywhere;
+                font-size: 0.9rem;
+                line-height: 1.52;
+                color: rgba(17, 24, 39, 0.92);
             }
             </style>
-            """,
+            """
+            ),
             unsafe_allow_html=True,
         )
-        with st.container(key="prompt_prefix_details_modal_body", height=420):
-            st.markdown(f"### {panel_item['name']}")
-            st.image(panel_cover_state["asset_path"], width="stretch")
-            st.caption(
-                f"{get_prompt_prefix_category_label(panel_item['style_category_id'], 'style', language)} / "
-                f"{get_prompt_prefix_category_label(panel_item['scene_category_id'], 'scene', language)} / "
-                f"{_get_prompt_prefix_source_label(panel_item.get('source', 'manual'))}"
-            )
-            if panel_item.get("note"):
-                st.caption(panel_item["note"])
-            st.caption(_get_prompt_prefix_cover_status_label(panel_cover_state))
-            workflow_display_label = _resolve_prompt_prefix_workflow_display_label(
-                panel_cover_state.get("workflow_key"),
-                workflow_display_map,
-            )
-            if workflow_display_label:
-                st.caption(
-                    f"{tr('style.prefix_library.thumbnail_workflow_label')}: "
-                    f"{workflow_display_label}"
+        with st.container(key="prompt_prefix_details_modal_body"):
+            detail_media_col, detail_content_col = st.columns([0.88, 1.12], gap="medium")
+            with detail_media_col:
+                st.image(panel_cover_state["asset_path"], width="stretch")
+                st.markdown(
+                    (
+                        '<div class="prompt_prefix_details_modal_meta">'
+                        + "".join(f"<div>{escape(line)}</div>" for line in detail_meta_lines)
+                        + "</div>"
+                    ),
+                    unsafe_allow_html=True,
                 )
-            if panel_cover_state.get("generated_at"):
-                st.caption(
-                    f"{tr('style.prefix_library.thumbnail_generated_at_label')}: "
-                    f"{_format_prompt_prefix_generated_at(panel_cover_state['generated_at'])}"
+            with detail_content_col:
+                st.markdown(f"### {panel_item['name']}")
+                st.markdown(
+                    (
+                        '<div class="prompt_prefix_details_modal_content">'
+                        f"{escape(panel_item['content'])}"
+                        "</div>"
+                    ),
+                    unsafe_allow_html=True,
                 )
-            if panel_cover_state.get("reference_prompt"):
-                st.caption(
-                    f"{tr('style.prefix_library.thumbnail_reference_prompt_label')}: "
-                    f"{panel_cover_state['reference_prompt']}"
-                )
-            st.code(panel_item["content"], language=None)
 
             detail_action_col, detail_compare_col = st.columns(2, gap="small")
             with detail_action_col:

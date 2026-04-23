@@ -564,7 +564,12 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert '@st.dialog(tr("style.prefix_library.view_details"), width="medium"' in source
     assert "_render_prompt_prefix_details_modal" in source
     assert 'key="prompt_prefix_details_modal_body"' in source
-    assert "min(50vh, 32rem)" in source
+    assert "zoom: 0.84" in source
+    assert "@media (max-height: 900px)" in source
+    assert "@media (max-height: 760px)" in source
+    assert "height=420" not in source
+    assert "min(50vh, 32rem)" not in source
+    assert "prompt_prefix_details_modal_content" in source
     assert "style.prefix_library.toolbar_add" in source
     assert "style.prefix_library.compare_count" in source
     assert "style.prefix_library.thumbnail_prompt" in source
