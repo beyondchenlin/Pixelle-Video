@@ -1,3 +1,4 @@
+import inspect
 import json
 import re
 from pathlib import Path
@@ -24,6 +25,8 @@ class _FakeStreamlit:
         self.top_level_markdowns: list[tuple[str, dict]] = []
         self.expander_markdowns: list[tuple[str, dict]] = []
         self.expanders: list[tuple[str, bool]] = []
+        self.container_calls: list[dict] = []
+        self.nested_expanders: list[tuple[str, bool]] = []
         self.checkbox_calls: list[dict] = []
         self.session_state = {
             "template_type_selector": "static",
@@ -36,10 +39,13 @@ class _FakeStreamlit:
         target.append((body, kwargs))
         return None
 
-    def container(self, **_kwargs):
+    def container(self, **kwargs):
+        self.container_calls.append(kwargs)
         return _FakeContext()
 
     def expander(self, label, expanded=False):
+        if self._in_expander:
+            self.nested_expanders.append((label, expanded))
         self.expanders.append((label, expanded))
         fake_st = self
 
@@ -416,9 +422,10 @@ def test_render_style_config_defaults_middle_sections_to_collapsed(monkeypatch):
     }
 
     assert expected_collapsed_sections.issubset(set(fake_st.expanders))
+    assert fake_st.nested_expanders == []
 
 
-def test_render_image_prompt_prefix_library_defaults_filter_panel_to_collapsed(monkeypatch):
+def test_render_image_prompt_prefix_library_renders_filter_panel_without_nested_expander(monkeypatch):
     fake_st = _FakeStreamlit()
     monkeypatch.setattr(style_config, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
@@ -472,21 +479,28 @@ def test_render_image_prompt_prefix_library_defaults_filter_panel_to_collapsed(m
         workflow_display_map={},
     )
 
-    assert ("style.prefix_library.filter_panel", False) in fake_st.expanders
+    assert ("style.prefix_library.filter_panel", False) not in fake_st.expanders
+    assert "**style.prefix_library.filter_panel**" in "\n".join(
+        body for body, _kwargs in fake_st.top_level_markdowns
+    )
 
 
-def test_render_storyboard_planning_guide_renders_default_on_copy_and_expander(monkeypatch):
+def test_collapsible_section_helper_does_not_require_key_parameter():
+    assert "key" not in inspect.signature(style_config.render_middle_column_collapsible_section).parameters
+
+
+def test_render_storyboard_planning_guide_renders_default_on_copy_and_detail_section(monkeypatch):
     fake_st = _FakeStreamlit()
     monkeypatch.setattr(style_config, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
 
     style_config.render_storyboard_planning_guide()
 
-    assert ("storyboard.guide.title", False) in fake_st.expanders
+    assert ("storyboard.guide.title", False) not in fake_st.expanders
 
     top_level_html = "\n".join(body for body, _kwargs in fake_st.top_level_markdowns)
-    expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
 
+    assert "**storyboard.guide.title**" in top_level_html
     assert "storyboard.guide.default_on_title" in top_level_html
     assert "storyboard.guide.default_on_body" in top_level_html
     assert "storyboard.guide.when_to_turn_off.title" in top_level_html
@@ -494,19 +508,17 @@ def test_render_storyboard_planning_guide_renders_default_on_copy_and_expander(m
     assert "storyboard.guide.quick_title" not in top_level_html
     assert "storyboard.guide.quick_body" not in top_level_html
 
-    assert "storyboard.guide.combo.explainer.title" in expander_html
-    assert "storyboard.guide.combo.theme_mapping.title" in expander_html
-    assert "storyboard.guide.field.world_preset" in expander_html
-    assert "storyboard.guide.preset_picker_title" in expander_html
-    assert "storyboard.guide.preset_picker.world.title" in expander_html
-    assert "storyboard.guide.preset_picker.shot.title" in expander_html
-    assert "storyboard.guide.preset_picker.world.item.angry_birds_three_kingdoms" in expander_html
-    assert "storyboard.guide.preset_picker.shot.item.character_relationship" in expander_html
-    assert "storyboard.guide.override_title" in expander_html
-    assert "storyboard.guide.default_on_title" not in expander_html
-    assert "storyboard.guide.when_to_turn_off.title" not in expander_html
+    assert "storyboard.guide.combo.explainer.title" in top_level_html
+    assert "storyboard.guide.combo.theme_mapping.title" in top_level_html
+    assert "storyboard.guide.field.world_preset" in top_level_html
+    assert "storyboard.guide.preset_picker_title" in top_level_html
+    assert "storyboard.guide.preset_picker.world.title" in top_level_html
+    assert "storyboard.guide.preset_picker.shot.title" in top_level_html
+    assert "storyboard.guide.preset_picker.world.item.angry_birds_three_kingdoms" in top_level_html
+    assert "storyboard.guide.preset_picker.shot.item.character_relationship" in top_level_html
+    assert "storyboard.guide.override_title" in top_level_html
     assert any(kwargs.get("unsafe_allow_html") for _body, kwargs in fake_st.top_level_markdowns)
-    assert any(kwargs.get("unsafe_allow_html") for _body, kwargs in fake_st.expander_markdowns)
+    assert fake_st.expander_markdowns == []
 
 
 def test_render_storyboard_planning_guide_avoids_indented_html_block_lines(monkeypatch):
@@ -516,10 +528,10 @@ def test_render_storyboard_planning_guide_avoids_indented_html_block_lines(monke
 
     style_config.render_storyboard_planning_guide()
 
-    expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
+    top_level_html = "\n".join(body for body, _kwargs in fake_st.top_level_markdowns)
     indented_html_lines = [
         line
-        for line in expander_html.splitlines()
+        for line in top_level_html.splitlines()
         if re.match(r"^\s{2,}</?(div|ul|li|span)\b", line)
     ]
 
