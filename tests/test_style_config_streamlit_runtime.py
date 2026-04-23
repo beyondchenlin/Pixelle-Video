@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
+import sys
 
 from streamlit.testing.v1 import AppTest
 
@@ -11,24 +12,50 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STYLE_CONFIG_RELATIVE_PATH = Path("web/components/style_config.py")
 
 
-def _read_tracked_style_config_source() -> str:
-    relative_path = STYLE_CONFIG_RELATIVE_PATH.as_posix()
-    result = subprocess.run(
-        ["git", "show", f"HEAD:{relative_path}"],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=False,
-    )
-    if result.returncode == 0:
-        return result.stdout
-
+def _read_current_style_config_source() -> str:
     return (PROJECT_ROOT / STYLE_CONFIG_RELATIVE_PATH).read_text(encoding="utf-8")
 
 
+def test_read_style_config_source_prefers_current_worktree_file(tmp_path, monkeypatch):
+    repo_root = tmp_path / "repo"
+    style_config_path = repo_root / STYLE_CONFIG_RELATIVE_PATH
+    style_config_path.parent.mkdir(parents=True)
+    style_config_path.write_text("tracked version\n", encoding="utf-8")
+
+    subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Pixelle Test"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "pixelle-test@example.com"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(["git", "add", STYLE_CONFIG_RELATIVE_PATH.as_posix()], cwd=repo_root, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    style_config_path.write_text("current worktree version\n", encoding="utf-8")
+
+    monkeypatch.setattr(sys.modules[__name__], "PROJECT_ROOT", repo_root)
+    monkeypatch.setattr(sys.modules[__name__], "STYLE_CONFIG_RELATIVE_PATH", STYLE_CONFIG_RELATIVE_PATH)
+
+    assert _read_current_style_config_source() == "current worktree version\n"
+
+
 def test_render_style_config_uses_real_streamlit_popovers():
-    style_config_source = _read_tracked_style_config_source()
+    style_config_source = _read_current_style_config_source()
 
     with tempfile.TemporaryDirectory() as temp_dir:
         module_path = Path(temp_dir) / "style_config_snapshot.py"
@@ -132,9 +159,11 @@ style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
         "help.feature_description",
     ]
 
-    popover_markdown_groups = [[markdown.value for markdown in popover.markdown] for popover in popovers]
-    assert any("template.what" in group and "template.how" in group for group in popover_markdown_groups)
-    assert any(
-        "style.workflow_what" in group and "style.workflow_how" in group
-        for group in popover_markdown_groups
-    )
+    popover_markdown_groups = {
+        tuple(markdown.value for markdown in popover.markdown)
+        for popover in popovers
+    }
+    assert popover_markdown_groups == {
+        ("**help.what**", "template.what", "**help.how**", "template.how"),
+        ("**help.what**", "style.workflow_what", "**help.how**", "style.workflow_how"),
+    }
