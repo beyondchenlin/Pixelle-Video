@@ -279,6 +279,7 @@ class CustomPipeline(BasePipeline):
                 role_locking_strength=kwargs.get("role_locking_strength"),
                 shot_strategy=kwargs.get("shot_strategy"),
                 frame_overrides=kwargs.get("frame_overrides"),
+                forbid_embedded_text_in_image=kwargs.get("forbid_embedded_text_in_image", True),
             )
 
             final_image_prompts = styled_batch.prompts

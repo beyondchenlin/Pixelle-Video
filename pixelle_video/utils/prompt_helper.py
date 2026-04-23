@@ -20,6 +20,27 @@ from typing import Any, Optional
 
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
 
+NO_TEXT_POSITIVE_RULE = (
+    "no visible text, no Chinese characters, no English letters, no words, "
+    "no subtitles, no captions, no watermark, no logo text, convey the idea "
+    "through objects, symbols, composition, and scene elements instead of written text"
+)
+NO_TEXT_NEGATIVE_RULES: tuple[str, ...] = (
+    "text",
+    "letters",
+    "words",
+    "typography",
+    "subtitles",
+    "captions",
+    "watermark",
+    "logo",
+    "Chinese characters",
+    "English letters",
+    "handwriting",
+    "calligraphy",
+    "printed text",
+)
+
 
 def _read_value(container: Any, key: str, default: Any = None) -> Any:
     if isinstance(container, dict):
@@ -46,6 +67,32 @@ def _normalize_prompt_list(values: Any) -> list[str]:
             continue
         seen.add(lowered)
         normalized.append(cleaned)
+    return normalized
+
+
+def _normalize_negative_rule_list(values: Any) -> list[str]:
+    if values is None:
+        return []
+    if isinstance(values, (list, tuple)):
+        raw_values = values
+    else:
+        raw_values = [values]
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in raw_values:
+        if value is None:
+            continue
+        segments = str(value).split(",") if isinstance(value, str) else [str(value)]
+        for segment in segments:
+            cleaned = str(segment or "").strip()
+            if not cleaned:
+                continue
+            lowered = cleaned.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            normalized.append(cleaned)
     return normalized
 
 
@@ -86,6 +133,17 @@ def build_image_prompt(prompt: str, prefix: str = "") -> str:
         return prefix
     else:
         return prompt
+
+
+def apply_no_text_policy(prompt: str, enabled: bool = True) -> str:
+    cleaned_prompt = (prompt or "").strip()
+    if not enabled or not cleaned_prompt:
+        return cleaned_prompt
+
+    if NO_TEXT_POSITIVE_RULE.lower() in cleaned_prompt.lower():
+        return cleaned_prompt
+
+    return ", ".join(_normalize_prompt_list([cleaned_prompt, NO_TEXT_POSITIVE_RULE]))
 
 
 def assemble_image_prompt(
@@ -153,9 +211,18 @@ def assemble_storyboard_prompt(
 def assemble_negative_prompt(
     resolved_style: Optional[ResolvedStyleSpec],
     supports_negative_prompt: bool,
+    extra_negative_rules: Any = None,
 ) -> Optional[str]:
-    if not resolved_style or not supports_negative_prompt:
+    if not supports_negative_prompt:
         return None
 
-    negative_prompt = (resolved_style.negative_prompt or "").strip()
-    return negative_prompt or None
+    negative_prompt_parts: list[str] = []
+    if resolved_style is not None:
+        negative_prompt_parts.append(resolved_style.negative_prompt or "")
+    if extra_negative_rules is not None:
+        negative_prompt_parts.extend(_normalize_negative_rule_list(extra_negative_rules))
+
+    normalized = _normalize_negative_rule_list(negative_prompt_parts)
+    if not normalized:
+        return None
+    return ", ".join(normalized)

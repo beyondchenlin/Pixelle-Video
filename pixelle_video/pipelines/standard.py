@@ -240,6 +240,7 @@ class StandardPipeline(LinearVideoPipeline):
                 role_locking_strength=ctx.params.get("role_locking_strength"),
                 shot_strategy=ctx.params.get("shot_strategy"),
                 frame_overrides=ctx.params.get("frame_overrides"),
+                forbid_embedded_text_in_image=ctx.params.get("forbid_embedded_text_in_image", True),
             )
 
             ctx.image_prompts = styled_batch.prompts

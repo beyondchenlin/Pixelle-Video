@@ -5,6 +5,7 @@ from pixelle_video.models.style_resolution import StyledImagePromptBatch, StyleS
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
+from pixelle_video.utils.prompt_helper import apply_no_text_policy
 
 
 class _DummyCore:
@@ -144,9 +145,13 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
     assert captured["role_locking_strength"] == "strong"
     assert captured["shot_strategy"] == "strict"
     assert ctx.image_prompts == [
-        "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, bird-universe dog sprint"
+        apply_no_text_policy(
+            "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, bird-universe dog sprint"
+        )
     ]
-    assert ctx.media_negative_prompt is None
+    assert ctx.media_negative_prompt is not None
+    assert "text" in ctx.media_negative_prompt
+    assert "Chinese characters" in ctx.media_negative_prompt
     assert ctx.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
     assert ctx.planning_snapshot["frames"][0]["shot_type"] == "medium_shot"
     assert ctx.storyboard.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"

@@ -33,6 +33,8 @@ from pixelle_video.models.content_generation import (
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.prompt_helper import (
+    NO_TEXT_NEGATIVE_RULES,
+    apply_no_text_policy,
     assemble_image_prompt,
     assemble_negative_prompt,
     assemble_storyboard_prompt,
@@ -475,6 +477,7 @@ async def generate_styled_image_prompt_batch(
     role_locking_strength: Optional[str] = None,
     shot_strategy: Optional[str] = None,
     frame_overrides: Optional[list[dict[str, Any]]] = None,
+    forbid_embedded_text_in_image: bool = True,
 ) -> StyledImagePromptBatch:
     def _storyboard_controls_enabled() -> bool:
         return any(
@@ -592,9 +595,15 @@ async def generate_styled_image_prompt_batch(
             for base_prompt in base_prompts
         ]
 
+    final_prompts = [
+        apply_no_text_policy(prompt, enabled=forbid_embedded_text_in_image)
+        for prompt in final_prompts
+    ]
+
     negative_prompt = assemble_negative_prompt(
         resolved_style,
         supports_negative_prompt=capabilities.supports_negative_prompt,
+        extra_negative_rules=NO_TEXT_NEGATIVE_RULES if forbid_embedded_text_in_image else None,
     )
     return StyledImagePromptBatch(
         prompts=final_prompts,

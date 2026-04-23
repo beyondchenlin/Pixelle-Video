@@ -3,6 +3,7 @@ import pytest
 from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec, StyleSourceSpec
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
+from pixelle_video.utils.prompt_helper import apply_no_text_policy
 
 
 def _resolved_ip_world() -> ResolvedStyleSpec:
@@ -71,10 +72,16 @@ async def test_generate_styled_image_prompt_batch_blocks_raw_fallback_for_ip_wor
     )
 
     assert result.prompts == [
-        "rounded geometric dog sprinting across playful wooden obstacles, same playful bird-universe silhouette"
+        apply_no_text_policy(
+            "rounded geometric dog sprinting across playful wooden obstacles, same playful bird-universe silhouette"
+        )
     ]
     assert "Angry Birds style" not in result.prompts[0]
-    assert result.negative_prompt == "photo realism, realistic fur"
+    assert result.negative_prompt is not None
+    assert "photo realism" in result.negative_prompt
+    assert "realistic fur" in result.negative_prompt
+    assert "text" in result.negative_prompt
+    assert "Chinese characters" in result.negative_prompt
 
 
 @pytest.mark.asyncio
@@ -103,7 +110,7 @@ async def test_generate_styled_image_prompt_batch_falls_back_to_legacy_prefix_wh
         prompt_prefix=None,
     )
 
-    assert result.prompts == ["flat illustration, base scene prompt"]
+    assert result.prompts == [apply_no_text_policy("flat illustration, base scene prompt")]
     assert result.negative_prompt is None
 
 
@@ -152,7 +159,7 @@ async def test_generate_styled_image_prompt_batch_preserves_raw_ip_world_prefix_
         prompt_prefix="Angry Birds style",
     )
 
-    assert result.prompts == ["Angry Birds style, base scene prompt"]
+    assert result.prompts == [apply_no_text_policy("Angry Birds style, base scene prompt")]
 
 
 @pytest.mark.asyncio
@@ -197,9 +204,86 @@ async def test_generate_styled_image_prompt_batch_ignores_capability_probe_failu
     )
 
     assert result.prompts == [
-        "base scene prompt, same playful bird-universe silhouette"
+        apply_no_text_policy("base scene prompt, same playful bird-universe silhouette")
     ]
     assert result.negative_prompt is None
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_appends_no_text_policy_when_negative_prompt_unsupported(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["base scene prompt"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
+        lambda *args, **kwargs: type("Caps", (), {"supports_negative_prompt": False})(),
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["scene one"],
+        image_config={"prompt_prefix": "flat illustration", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+        media_service=object(),
+        workflow="selfhost/image_z_image_turbo.json",
+    )
+
+    assert result.negative_prompt is None
+    assert "no visible text" in result.prompts[0]
+    assert "no Chinese characters" in result.prompts[0]
+    assert "no English letters" in result.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_merges_no_text_negative_prompt_when_supported(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["rounded geometric dog sprinting across playful wooden obstacles"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: StyleSourceSpec(
+            origin="request",
+            raw_content="Angry Birds style",
+            content_hash="hash-123",
+            source_identity="request:hash-123",
+            item_id=None,
+        ),
+    )
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        return _resolved_ip_world()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
+        lambda *args, **kwargs: type("Caps", (), {"supports_negative_prompt": True})(),
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["scene one"],
+        image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+        media_service=object(),
+        workflow="selfhost/image_flux.json",
+        prompt_prefix="Angry Birds style",
+    )
+
+    assert "no visible text" in result.prompts[0]
+    assert result.negative_prompt is not None
+    assert "photo realism" in result.negative_prompt
+    assert "realistic fur" in result.negative_prompt
+    assert "text" in result.negative_prompt
+    assert "Chinese characters" in result.negative_prompt
 
 
 @pytest.mark.asyncio
@@ -251,7 +335,9 @@ async def test_generate_styled_image_prompt_batch_uses_video_prompt_generator_fo
 
     assert captured["style_profile"]["style_kind"] == "ip_world"
     assert result.prompts == [
-        "dynamic dog sprinting through playful wooden obstacles, same playful bird-universe silhouette"
+        apply_no_text_policy(
+            "dynamic dog sprinting through playful wooden obstacles, same playful bird-universe silhouette"
+        )
     ]
 
 
@@ -356,6 +442,7 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
     ]
     assert "Neutral Knowledge Storyboard" in result.prompts[0]
     assert "medium_shot" in result.prompts[0]
+    assert "no visible text" in result.prompts[0]
 
 
 @pytest.mark.asyncio
@@ -412,7 +499,9 @@ async def test_generate_styled_image_prompt_batch_storyboard_falls_back_to_legac
     )
 
     assert result.prompts == [
-        "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, base scene prompt"
+        apply_no_text_policy(
+            "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, base scene prompt"
+        )
     ]
     assert result.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
 
@@ -501,7 +590,9 @@ async def test_generate_styled_image_prompt_batch_storyboard_keeps_compatible_te
     )
 
     assert result.prompts == [
-        "editorial line art treatment, Neutral Knowledge Storyboard, clean educational illustration, close_up, detail_focus, lab bench, base scene prompt, with etched crosshatching"
+        apply_no_text_policy(
+            "editorial line art treatment, Neutral Knowledge Storyboard, clean educational illustration, close_up, detail_focus, lab bench, base scene prompt, with etched crosshatching"
+        )
     ]
 
 
@@ -528,5 +619,5 @@ async def test_generate_styled_image_prompt_batch_keeps_legacy_prompt_path_when_
         image_config={"prompt_prefix": "flat illustration", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
     )
 
-    assert result.prompts == ["flat illustration, base scene prompt"]
+    assert result.prompts == [apply_no_text_policy("flat illustration, base scene prompt")]
     assert result.planning_snapshot is None

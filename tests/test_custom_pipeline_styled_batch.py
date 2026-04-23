@@ -6,6 +6,7 @@ from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.style_resolution import StyledImagePromptBatch, StyleSourceSpec
 from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
+from pixelle_video.utils.prompt_helper import apply_no_text_policy
 
 
 @pytest.mark.asyncio
@@ -163,7 +164,9 @@ async def test_custom_pipeline_uses_styled_batch_and_threads_negative_prompt(mon
     assert captured["role_strategy"] == "auto"
     assert captured["role_locking_strength"] == "strong"
     assert captured["shot_strategy"] == "strict"
-    assert captured["media_negative_prompt"] is None
+    assert captured["media_negative_prompt"] is not None
+    assert "text" in captured["media_negative_prompt"]
+    assert "Chinese characters" in captured["media_negative_prompt"]
     assert result.storyboard.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
     assert result.storyboard.planning_snapshot["frames"][0]["shot_type"] == "medium_shot"
     assert result.storyboard.config.world_preset_id == "neutral_knowledge_storyboard"
@@ -176,7 +179,7 @@ async def test_custom_pipeline_uses_styled_batch_and_threads_negative_prompt(mon
     assert result.storyboard.frames[0].shot_type == "medium_shot"
     assert result.storyboard.frames[0].shot_purpose == "context"
     assert result.storyboard.frames[0].frame_source == "planner_generated"
-    assert result.storyboard.frames[0].image_prompt == (
+    assert result.storyboard.frames[0].image_prompt == apply_no_text_policy(
         "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, styled prompt"
     )
 
