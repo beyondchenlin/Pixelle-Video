@@ -15,6 +15,7 @@ Style configuration components for web UI (middle column)
 """
 
 import os
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
@@ -86,6 +87,76 @@ def render_generated_style_preview(preview_media_path: str, template_media_type:
         caption=tr("style.preview_caption"),
         width="stretch",
     )
+
+
+def build_middle_column_collapsible_section_css(container_key: str) -> str:
+    """Build scoped CSS that keeps middle-column expanders aligned with the card language."""
+    return dedent(
+        f"""
+        <style>
+        .st-key-{container_key} [data-testid="stExpander"] {{
+            border: 1px solid rgba(248, 113, 113, 0.14);
+            border-radius: 18px;
+            background: linear-gradient(
+                180deg,
+                rgba(255, 255, 255, 0.98),
+                rgba(255, 252, 252, 0.96)
+            );
+            box-shadow:
+                0 12px 28px rgba(15, 23, 42, 0.04),
+                inset 0 1px 0 rgba(255, 255, 255, 0.72);
+            overflow: hidden;
+        }}
+        .st-key-{container_key} [data-testid="stExpander"] details {{
+            border: none !important;
+            background: transparent !important;
+        }}
+        .st-key-{container_key} [data-testid="stExpander"] details summary {{
+            background: linear-gradient(
+                90deg,
+                rgba(255, 245, 245, 0.78),
+                rgba(255, 255, 255, 0.98)
+            );
+            transition: background 160ms ease, border-color 160ms ease;
+        }}
+        .st-key-{container_key} [data-testid="stExpander"] details summary:hover {{
+            background: linear-gradient(
+                90deg,
+                rgba(254, 242, 242, 0.96),
+                rgba(255, 255, 255, 1)
+            );
+        }}
+        .st-key-{container_key} [data-testid="stExpander"] details[open] summary {{
+            border-bottom: 1px solid rgba(248, 113, 113, 0.14);
+        }}
+        .st-key-{container_key} [data-testid="stExpander"] details summary p {{
+            font-weight: 650;
+            letter-spacing: 0.01em;
+            color: #111827;
+        }}
+        .st-key-{container_key} [data-testid="stExpander"] details summary svg {{
+            color: #ef4444;
+        }}
+        .st-key-{container_key} [data-testid="stExpander"] details > div {{
+            padding-top: 0.1rem;
+        }}
+        </style>
+        """
+    ).strip()
+
+
+@contextmanager
+def render_middle_column_collapsible_section(
+    label: str,
+    *,
+    key: str,
+    expanded: bool = False,
+):
+    """Render one middle-column config section as a styled collapsible card."""
+    st.markdown(build_middle_column_collapsible_section_css(key), unsafe_allow_html=True)
+    with st.container(key=key):
+        with st.expander(label, expanded=expanded):
+            yield
 
 
 def _render_template_gallery_preview_placeholder(template_name: str):
@@ -1210,32 +1281,37 @@ def _render_image_prompt_prefix_library(
                 safe_rerun()
             st.caption(tr("style.prefix_library.reference_cover"))
 
-    filter_style_col, filter_scene_col = st.columns(2, gap="small")
-    with filter_style_col:
-        selected_style = st.selectbox(
-            tr("style.prefix_library.style_filter"),
-            options=[""] + [option["id"] for option in style_options],
-            format_func=lambda value: tr("style.prefix_library.all") if not value else style_label_map[value],
-            key="prompt_prefix_style_filter",
+    with render_middle_column_collapsible_section(
+        tr("style.prefix_library.filter_panel"),
+        key="prompt_prefix_library_filters",
+        expanded=False,
+    ):
+        filter_style_col, filter_scene_col = st.columns(2, gap="small")
+        with filter_style_col:
+            selected_style = st.selectbox(
+                tr("style.prefix_library.style_filter"),
+                options=[""] + [option["id"] for option in style_options],
+                format_func=lambda value: tr("style.prefix_library.all") if not value else style_label_map[value],
+                key="prompt_prefix_style_filter",
+            )
+        with filter_scene_col:
+            selected_scene = st.selectbox(
+                tr("style.prefix_library.scene_filter"),
+                options=[""] + [option["id"] for option in scene_options],
+                format_func=lambda value: tr("style.prefix_library.all") if not value else scene_label_map[value],
+                key="prompt_prefix_scene_filter",
+            )
+        keyword = st.text_input(
+            tr("style.prefix_library.keyword"),
+            placeholder=tr("style.prefix_library.keyword_placeholder"),
+            key="prompt_prefix_keyword_filter",
         )
-    with filter_scene_col:
-        selected_scene = st.selectbox(
-            tr("style.prefix_library.scene_filter"),
-            options=[""] + [option["id"] for option in scene_options],
-            format_func=lambda value: tr("style.prefix_library.all") if not value else scene_label_map[value],
-            key="prompt_prefix_scene_filter",
+        thumbnail_reference_prompt = st.text_input(
+            tr("style.prefix_library.thumbnail_prompt"),
+            value=thumbnail_reference_prompt,
+            key="prompt_prefix_thumbnail_reference_prompt",
+            placeholder=tr("style.prefix_library.thumbnail_prompt_placeholder"),
         )
-    keyword = st.text_input(
-        tr("style.prefix_library.keyword"),
-        placeholder=tr("style.prefix_library.keyword_placeholder"),
-        key="prompt_prefix_keyword_filter",
-    )
-    thumbnail_reference_prompt = st.text_input(
-        tr("style.prefix_library.thumbnail_prompt"),
-        value=thumbnail_reference_prompt,
-        key="prompt_prefix_thumbnail_reference_prompt",
-        placeholder=tr("style.prefix_library.thumbnail_prompt_placeholder"),
-    )
     filtered_items = filter_prompt_prefix_items(
         library_items,
         style_category_id=selected_style or None,
@@ -1910,9 +1986,11 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
     """Render style configuration section (middle column)"""
     # TTS Section (moved from left column)
     # ====================================================================
-    with st.container(border=True):
-        st.markdown(f"**{tr('section.tts')}**")
-        
+    with render_middle_column_collapsible_section(
+        tr("section.tts"),
+        key="middle_section_tts",
+        expanded=False,
+    ):
         with st.expander(tr("help.feature_description"), expanded=False):
             st.markdown(f"**{tr('help.what')}**")
             st.markdown(tr("tts.what"))
@@ -2110,8 +2188,11 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
                         st.error(tr("tts.preview_failed", error=str(e)))
                         logger.exception(e)
 
-    with st.container(border=True):
-        st.markdown(f"**{tr('section.render_backend')}**")
+    with render_middle_column_collapsible_section(
+        tr("section.render_backend"),
+        key="middle_section_render_backend",
+        expanded=False,
+    ):
         render_backend = render_render_backend_selector()
         tts_audio_strategy = render_tts_audio_strategy_selector()
 
@@ -2131,9 +2212,11 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         else "storyboard_planning_enabled"
     )
 
-    with st.container(border=True):
-        st.markdown(f"**{tr('section.storyboard_planning')}**")
-
+    with render_middle_column_collapsible_section(
+        tr("section.storyboard_planning"),
+        key="middle_section_storyboard_planning",
+        expanded=False,
+    ):
         storyboard_enabled = st.checkbox(
             tr("storyboard.enabled"),
             value=resolve_storyboard_toggle_default(
@@ -2280,9 +2363,11 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         # If no preview found, return empty string
         return ""
     
-    with st.container(border=True):
-        st.markdown(f"**{tr('section.template')}**")
-        
+    with render_middle_column_collapsible_section(
+        tr("section.template"),
+        key="middle_section_template",
+        expanded=False,
+    ):
         with st.expander(tr("help.feature_description"), expanded=False):
             st.markdown(f"**{tr('help.what')}**")
             st.markdown(tr("template.what"))
@@ -2664,14 +2749,16 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
     
     if template_requires_media:
         # Template requires media - show Media Generation Section
-        with st.container(border=True):
-            # Dynamic section title based on template type
-            if template_media_type == "video":
-                section_title = tr('section.video')
-            else:
-                section_title = tr('section.image')
-            
-            st.markdown(f"**{section_title}**")
+        if template_media_type == "video":
+            section_title = tr('section.video')
+        else:
+            section_title = tr('section.image')
+
+        with render_middle_column_collapsible_section(
+            section_title,
+            key="middle_section_media_generation",
+            expanded=False,
+        ):
         
             # 1. ComfyUI Workflow selection
             with st.expander(tr("help.feature_description"), expanded=False):
@@ -2804,8 +2891,11 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
     
     else:
         # Template doesn't need images - show simplified message
-        with st.container(border=True):
-            st.markdown(f"**{tr('section.image')}**")
+        with render_middle_column_collapsible_section(
+            tr("section.image"),
+            key="middle_section_media_generation",
+            expanded=False,
+        ):
             st.info("ℹ️ " + tr("image.not_required"))
             st.caption(tr("image.not_required_hint"))
             

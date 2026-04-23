@@ -561,6 +561,7 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "style.prefix_library.toolbar_add" in source
     assert "style.prefix_library.compare_count" in source
     assert "style.prefix_library.thumbnail_prompt" in source
+    assert "style.prefix_library.filter_panel" in source
     assert "style.prefix_library.generate_thumbnails" in source
     assert "style.prefix_library.thumbnail_workflow_label" in source
     assert "style.prefix_library.thumbnail_generated_at_label" in source
@@ -573,6 +574,10 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "_get_prompt_prefix_source_label" in source
     assert "workflow_display_map=workflow_display_map" in source
     assert 'st.container(key="prompt_prefix_library_root")' in current_prefix_section
+    filter_panel_section = current_prefix_section.split('tr("style.prefix_library.filter_panel")', 1)[1]
+    filter_panel_section = filter_panel_section.split("filtered_items = ", 1)[0]
+    assert 'key="prompt_prefix_library_filters"' in filter_panel_section
+    assert "expanded=False" in filter_panel_section
     assert ".st-key-prompt_prefix_library_root div.stButton > button p" in current_prefix_section
     assert "word-break: keep-all !important" in current_prefix_section
     assert "padding-inline: 0.45rem" in current_prefix_section
@@ -604,6 +609,7 @@ def test_prompt_prefix_library_locale_keys_exist():
         assert "style.prefix_library.toolbar_add" in translations
         assert "style.prefix_library.compare_count" in translations
         assert "style.prefix_library.thumbnail_prompt" in translations
+        assert "style.prefix_library.filter_panel" in translations
         assert "style.prefix_library.generate_thumbnails" in translations
         assert "style.prefix_library.compare_chip_short" in translations
         assert "style.prefix_library.thumbnail_workflow_label" in translations
