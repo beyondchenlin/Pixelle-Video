@@ -563,6 +563,17 @@ def test_render_style_config_defaults_middle_sections_to_collapsed(monkeypatch):
     assert fake_st.nested_expanders == []
 
 
+def test_image_generation_section_sources_collapsed_help_card_and_model_title():
+    project_root = Path(__file__).resolve().parent.parent
+    source = (project_root / "web" / "components" / "style_config.py").read_text(encoding="utf-8")
+
+    assert 'if template_media_type == "image":' in source
+    assert 'image_workflow_help_expanded' in source
+    assert 'with st.container(border=True, key="image_workflow_help_card"):' in source
+    assert 'key="image_workflow_help_toggle"' in source
+    assert 'style.image_model_selection_title' in source
+
+
 def test_render_image_prompt_prefix_library_renders_filter_panel_without_nested_expander(monkeypatch):
     fake_st = _FakeStreamlit()
     monkeypatch.setattr(style_config, "st", fake_st)
@@ -724,6 +735,18 @@ def test_storyboard_planning_guide_translation_keys_exist_in_supported_locales()
         "storyboard.guide.override_body",
     ]
     required_keys.extend(built_in_preset_keys)
+
+    for locale_name in ("zh_CN.json", "en_US.json"):
+        translations = json.loads((locale_dir / locale_name).read_text(encoding="utf-8"))["t"]
+        missing_keys = [key for key in required_keys if key not in translations]
+        assert missing_keys == []
+
+
+def test_image_generation_translation_keys_exist_in_supported_locales():
+    locale_dir = Path(__file__).resolve().parents[1] / "web" / "i18n" / "locales"
+    required_keys = [
+        "style.image_model_selection_title",
+    ]
 
     for locale_name in ("zh_CN.json", "en_US.json"):
         translations = json.loads((locale_dir / locale_name).read_text(encoding="utf-8"))["t"]

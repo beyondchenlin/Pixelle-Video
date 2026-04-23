@@ -47,6 +47,7 @@
     "voice.previewing": "正在生成语音预览...",
     "voice.preview_failed": "预览失败：{error}",
     "style.workflow": "工作流选择",
+    "style.image_model_selection_title": "插图模型选择",
     "style.workflow_what": "决定视频中每帧插图的生成方式和效果（如使用 FLUX、SD 等模型）",
     "style.workflow_how": "将导出的 image_xxx.json 工作流文件（API格式）放入 workflows/selfhost/（本地 ComfyUI）或 workflows/runninghub/（云端）文件夹",
     "style.video_workflow_what": "决定视频中每帧视频片段的生成方式和效果（如使用不同的视频生成模型）",

@@ -2807,19 +2807,57 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
             section_title,
             expanded=False,
         ):
-        
             # 1. ComfyUI Workflow selection
-            with render_middle_column_detail_section(tr("help.feature_description")):
-                st.markdown(f"**{tr('help.what')}**")
-                if template_media_type == "video":
+            if template_media_type == "image":
+                image_workflow_help_expanded = bool(st.session_state.get("image_workflow_help_expanded", False))
+                st.markdown(
+                    """
+                    <style>
+                    .st-key-image_workflow_help_card div.stButton > button {
+                        justify-content: flex-start;
+                        border: none;
+                        background: transparent;
+                        box-shadow: none;
+                        padding: 0;
+                        min-height: 0;
+                        font-weight: 600;
+                    }
+                    .st-key-image_workflow_help_card div.stButton > button:hover,
+                    .st-key-image_workflow_help_card div.stButton > button:focus,
+                    .st-key-image_workflow_help_card div.stButton > button:active {
+                        border: none;
+                        background: transparent;
+                        box-shadow: none;
+                    }
+                    </style>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                with st.container(border=True, key="image_workflow_help_card"):
+                    help_label = (
+                        f"▼ {tr('help.feature_description')}"
+                        if image_workflow_help_expanded
+                        else f"▶ {tr('help.feature_description')}"
+                    )
+                    if st.button(
+                        help_label,
+                        key="image_workflow_help_toggle",
+                        width="stretch",
+                    ):
+                        st.session_state["image_workflow_help_expanded"] = not image_workflow_help_expanded
+                        safe_rerun()
+                    if image_workflow_help_expanded:
+                        st.markdown(f"**{tr('help.what')}**")
+                        st.markdown(tr("style.workflow_what"))
+                        st.markdown(f"**{tr('help.how')}**")
+                        st.markdown(tr("style.workflow_how"))
+                st.markdown(f"**{tr('style.image_model_selection_title')}**")
+            else:
+                with render_middle_column_detail_section(tr("help.feature_description")):
+                    st.markdown(f"**{tr('help.what')}**")
                     st.markdown(tr('style.video_workflow_what'))
-                else:
-                    st.markdown(tr("style.workflow_what"))
-                st.markdown(f"**{tr('help.how')}**")
-                if template_media_type == "video":
+                    st.markdown(f"**{tr('help.how')}**")
                     st.markdown(tr('style.video_workflow_how'))
-                else:
-                    st.markdown(tr("style.workflow_how"))
         
             # Get available workflows and filter by template type
             all_workflows = pixelle_video.media.list_workflows()
