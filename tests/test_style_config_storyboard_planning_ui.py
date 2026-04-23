@@ -28,7 +28,6 @@ class _FakeStreamlit:
         self.container_calls: list[dict] = []
         self.nested_expanders: list[tuple[str, bool]] = []
         self.checkbox_calls: list[dict] = []
-        self.button_calls: list[dict] = []
         self.session_state = {
             "template_type_selector": "static",
             "storyboard_planning_enabled": True,
@@ -107,7 +106,6 @@ class _FakeStreamlit:
         return None
 
     def button(self, *_args, **_kwargs):
-        self.button_calls.append({"label": _args[0] if _args else None, "args": _args, **_kwargs})
         return False
 
     def text_input(self, _label, value="", **_kwargs):
@@ -547,7 +545,7 @@ def test_render_style_config_defaults_no_text_toggle_to_true(monkeypatch):
     assert all(call["label"] != "storyboard.forbid_embedded_text" for call in fake_st.checkbox_calls)
 
 
-def test_render_style_config_image_workflow_help_card_defaults_collapsed_without_name_error(monkeypatch):
+def test_render_style_config_image_workflow_help_defaults_collapsed_below_model_title(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
     fake_st.session_state["template_media_type"] = "image"
