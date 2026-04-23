@@ -18,6 +18,7 @@ import os
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
+from textwrap import dedent
 from uuid import uuid4
 
 import streamlit as st
@@ -279,8 +280,16 @@ STORYBOARD_GUIDE_NOTE_SPECS: tuple[dict[str, str], ...] = (
 )
 
 
+def _normalize_storyboard_guide_html(html: str) -> str:
+    return "\n".join(
+        line.lstrip() if line.strip() else ""
+        for line in dedent(html).strip().splitlines()
+    )
+
+
 def _build_storyboard_guide_note_html(note_spec: dict[str, str]) -> str:
-    return f"""
+    return _normalize_storyboard_guide_html(
+        f"""
     <div style="
         padding: 12px 14px;
         border-radius: 14px;
@@ -303,6 +312,7 @@ def _build_storyboard_guide_note_html(note_spec: dict[str, str]) -> str:
         ">{escape(tr(note_spec["body_key"]))}</div>
     </div>
     """
+    )
 
 
 def _build_storyboard_guide_combo_html(
@@ -311,7 +321,8 @@ def _build_storyboard_guide_combo_html(
     accent_color: str,
     background_color: str,
 ) -> str:
-    return f"""
+    return _normalize_storyboard_guide_html(
+        f"""
     <div style="
         padding: 12px 14px;
         border-radius: 14px;
@@ -333,19 +344,23 @@ def _build_storyboard_guide_combo_html(
         ">{escape(tr(body_key))}</div>
     </div>
     """
+    )
 
 
 def _build_storyboard_guide_preset_picker_html(section_spec: dict[str, object]) -> str:
-    preset_items_html = "".join(
-        f"""
+    preset_items_html = "\n".join(
+        _normalize_storyboard_guide_html(
+            f"""
         <li style="margin-bottom: 10px;">
             <span style="font-weight: 700; color: #1f2937;">{escape(resolve_storyboard_preset_label(preset))}</span><br/>
             <span style="color: #475569;">{escape(tr(f"{section_spec['item_key_prefix']}.{preset.preset_id}"))}</span>
         </li>
         """
+        )
         for preset in section_spec["presets"]
     )
-    return f"""
+    return _normalize_storyboard_guide_html(
+        f"""
     <div style="
         margin-top: 12px;
         padding: 14px 16px;
@@ -376,6 +391,7 @@ def _build_storyboard_guide_preset_picker_html(section_spec: dict[str, object]) 
         </ul>
     </div>
     """
+    )
 
 
 def render_storyboard_planning_guide():
@@ -389,13 +405,15 @@ def render_storyboard_planning_guide():
         _build_storyboard_guide_combo_html(title_key, body_key, accent_color, background_color)
         for title_key, body_key, accent_color, background_color in STORYBOARD_GUIDE_COMBO_SPECS
     )
-    field_items_html = "".join(
-        f"""
+    field_items_html = "\n".join(
+        _normalize_storyboard_guide_html(
+            f"""
         <li style="margin-bottom: 10px;">
             <span style="font-weight: 700; color: #1f2937;">{escape(tr(label_key))}</span><br/>
             <span style="color: #475569;">{escape(tr(description_key))}</span>
         </li>
         """
+        )
         for label_key, description_key in STORYBOARD_GUIDE_FIELD_SPECS
     )
     preset_picker_html = "".join(
@@ -405,7 +423,8 @@ def render_storyboard_planning_guide():
 
     with st.expander(tr("storyboard.guide.title"), expanded=False):
         st.markdown(
-            f"""
+            _normalize_storyboard_guide_html(
+                f"""
             <div style="margin-top: 12px;">
                 <div style="
                     font-size: 12px;
@@ -472,6 +491,7 @@ def render_storyboard_planning_guide():
                 ">{escape(tr("storyboard.guide.override_body"))}</div>
             </div>
             """,
+            ),
             unsafe_allow_html=True,
         )
 

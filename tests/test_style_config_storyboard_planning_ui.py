@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import web.components.style_config as style_config
@@ -327,6 +328,23 @@ def test_render_storyboard_planning_guide_renders_default_on_copy_and_expander(m
     assert "storyboard.guide.when_to_turn_off.title" not in expander_html
     assert any(kwargs.get("unsafe_allow_html") for _body, kwargs in fake_st.top_level_markdowns)
     assert any(kwargs.get("unsafe_allow_html") for _body, kwargs in fake_st.expander_markdowns)
+
+
+def test_render_storyboard_planning_guide_avoids_indented_html_block_lines(monkeypatch):
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+
+    style_config.render_storyboard_planning_guide()
+
+    expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
+    indented_html_lines = [
+        line
+        for line in expander_html.splitlines()
+        if re.match(r"^\s{2,}</?(div|ul|li|span)\b", line)
+    ]
+
+    assert indented_html_lines == []
 
 
 def test_storyboard_planning_guide_translation_keys_exist_in_supported_locales():
