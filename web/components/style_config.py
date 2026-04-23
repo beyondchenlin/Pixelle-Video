@@ -89,62 +89,6 @@ def render_generated_style_preview(preview_media_path: str, template_media_type:
     )
 
 
-def build_middle_column_collapsible_section_css(container_key: str) -> str:
-    """Build scoped CSS that keeps middle-column expanders aligned with the card language."""
-    return dedent(
-        f"""
-        <style>
-        .st-key-{container_key} [data-testid="stExpander"] {{
-            border: 1px solid rgba(248, 113, 113, 0.14);
-            border-radius: 18px;
-            background: linear-gradient(
-                180deg,
-                rgba(255, 255, 255, 0.98),
-                rgba(255, 252, 252, 0.96)
-            );
-            box-shadow:
-                0 12px 28px rgba(15, 23, 42, 0.04),
-                inset 0 1px 0 rgba(255, 255, 255, 0.72);
-            overflow: hidden;
-        }}
-        .st-key-{container_key} [data-testid="stExpander"] details {{
-            border: none !important;
-            background: transparent !important;
-        }}
-        .st-key-{container_key} [data-testid="stExpander"] details summary {{
-            background: linear-gradient(
-                90deg,
-                rgba(255, 245, 245, 0.78),
-                rgba(255, 255, 255, 0.98)
-            );
-            transition: background 160ms ease, border-color 160ms ease;
-        }}
-        .st-key-{container_key} [data-testid="stExpander"] details summary:hover {{
-            background: linear-gradient(
-                90deg,
-                rgba(254, 242, 242, 0.96),
-                rgba(255, 255, 255, 1)
-            );
-        }}
-        .st-key-{container_key} [data-testid="stExpander"] details[open] summary {{
-            border-bottom: 1px solid rgba(248, 113, 113, 0.14);
-        }}
-        .st-key-{container_key} [data-testid="stExpander"] details summary p {{
-            font-weight: 650;
-            letter-spacing: 0.01em;
-            color: #111827;
-        }}
-        .st-key-{container_key} [data-testid="stExpander"] details summary svg {{
-            color: #ef4444;
-        }}
-        .st-key-{container_key} [data-testid="stExpander"] details > div {{
-            padding-top: 0.1rem;
-        }}
-        </style>
-        """
-    ).strip()
-
-
 @contextmanager
 def render_middle_column_collapsible_section(
     label: str,
@@ -152,11 +96,10 @@ def render_middle_column_collapsible_section(
     key: str,
     expanded: bool = False,
 ):
-    """Render one middle-column config section as a styled collapsible card."""
-    st.markdown(build_middle_column_collapsible_section_css(key), unsafe_allow_html=True)
-    with st.container(key=key):
-        with st.expander(label, expanded=expanded):
-            yield
+    """Render one collapsible config section using Streamlit's default appearance."""
+    _ = key
+    with st.expander(label, expanded=expanded):
+        yield
 
 
 def _render_template_gallery_preview_placeholder(template_name: str):
