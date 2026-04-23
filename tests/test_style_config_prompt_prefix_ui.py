@@ -1,3 +1,4 @@
+import inspect
 import asyncio
 import json
 import os
@@ -576,7 +577,6 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert 'st.container(key="prompt_prefix_library_root")' in current_prefix_section
     filter_panel_section = current_prefix_section.split('tr("style.prefix_library.filter_panel")', 1)[1]
     filter_panel_section = filter_panel_section.split("filtered_items = ", 1)[0]
-    assert 'key="prompt_prefix_library_filters"' in filter_panel_section
     assert "expanded=False" in filter_panel_section
     assert ".st-key-prompt_prefix_library_root div.stButton > button p" in current_prefix_section
     assert "word-break: keep-all !important" in current_prefix_section
@@ -594,6 +594,10 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "st.columns([2.25, 1.05]" not in source
     assert "st.columns([1, 1, 1.2, 0.8, 0.9]" not in source
     assert "st.columns([1, 1, 1])" in standard_source
+
+
+def test_collapsible_section_helper_does_not_require_key_parameter():
+    assert "key" not in inspect.signature(style_config.render_middle_column_collapsible_section).parameters
 
 
 def test_prompt_prefix_library_locale_keys_exist():

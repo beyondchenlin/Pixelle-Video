@@ -93,11 +93,9 @@ def render_generated_style_preview(preview_media_path: str, template_media_type:
 def render_middle_column_collapsible_section(
     label: str,
     *,
-    key: str,
     expanded: bool = False,
 ):
     """Render one collapsible config section using Streamlit's default appearance."""
-    _ = key
     with st.expander(label, expanded=expanded):
         yield
 
@@ -1226,7 +1224,6 @@ def _render_image_prompt_prefix_library(
 
     with render_middle_column_collapsible_section(
         tr("style.prefix_library.filter_panel"),
-        key="prompt_prefix_library_filters",
         expanded=False,
     ):
         filter_style_col, filter_scene_col = st.columns(2, gap="small")
@@ -1931,7 +1928,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
     # ====================================================================
     with render_middle_column_collapsible_section(
         tr("section.tts"),
-        key="middle_section_tts",
         expanded=False,
     ):
         with st.expander(tr("help.feature_description"), expanded=False):
@@ -2133,7 +2129,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
 
     with render_middle_column_collapsible_section(
         tr("section.render_backend"),
-        key="middle_section_render_backend",
         expanded=False,
     ):
         render_backend = render_render_backend_selector()
@@ -2157,7 +2152,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
 
     with render_middle_column_collapsible_section(
         tr("section.storyboard_planning"),
-        key="middle_section_storyboard_planning",
         expanded=False,
     ):
         storyboard_enabled = st.checkbox(
@@ -2308,7 +2302,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
     
     with render_middle_column_collapsible_section(
         tr("section.template"),
-        key="middle_section_template",
         expanded=False,
     ):
         with st.expander(tr("help.feature_description"), expanded=False):
@@ -2699,7 +2692,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
 
         with render_middle_column_collapsible_section(
             section_title,
-            key="middle_section_media_generation",
             expanded=False,
         ):
         
@@ -2836,7 +2828,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         # Template doesn't need images - show simplified message
         with render_middle_column_collapsible_section(
             tr("section.image"),
-            key="middle_section_media_generation",
             expanded=False,
         ):
             st.info("ℹ️ " + tr("image.not_required"))

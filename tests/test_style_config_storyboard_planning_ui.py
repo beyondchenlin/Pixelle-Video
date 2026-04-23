@@ -89,7 +89,7 @@ class _FakeStreamlit:
             return options[index]
         return None
 
-    def columns(self, sizes):
+    def columns(self, sizes, **_kwargs):
         count = len(sizes) if isinstance(sizes, list) else int(sizes)
         return [_FakeContext() for _ in range(count)]
 
@@ -416,6 +416,63 @@ def test_render_style_config_defaults_middle_sections_to_collapsed(monkeypatch):
     }
 
     assert expected_collapsed_sections.issubset(set(fake_st.expanders))
+
+
+def test_render_image_prompt_prefix_library_defaults_filter_panel_to_collapsed(monkeypatch):
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(
+        style_config,
+        "config_manager",
+        type(
+            "FakeConfigManager",
+            (),
+            {
+                "config": type(
+                    "Config",
+                    (),
+                    {
+                        "comfyui": type("ComfyUI", (), {"image": {}})(),
+                    },
+                )(),
+                "get_image_prompt_prefix_library": lambda self: {
+                    "active_prefix_id": None,
+                    "items": [],
+                },
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        style_config,
+        "get_localized_prompt_prefix_category_options",
+        lambda language="en_US": (
+            [{"id": "storybook", "label": "Storybook"}],
+            [{"id": "childrens_story", "label": "Children"}],
+        ),
+    )
+    monkeypatch.setattr(
+        style_config,
+        "sanitize_prompt_prefix_preview_selection",
+        lambda selected_ids, valid_ids: [],
+    )
+    monkeypatch.setattr(style_config, "_build_prompt_prefix_live_preview_map", lambda: {})
+    monkeypatch.setattr(
+        style_config,
+        "filter_prompt_prefix_items",
+        lambda library_items, style_category_id=None, scene_category_id=None, keyword=None: [],
+    )
+
+    style_config._render_image_prompt_prefix_library(
+        pixelle_video=object(),
+        workflow_key="selfhost/image_z_image_turbo.json",
+        media_width=1024,
+        media_height=1024,
+        workflow_display_map={},
+    )
+
+    assert ("style.prefix_library.filter_panel", False) in fake_st.expanders
 
 
 def test_render_storyboard_planning_guide_renders_default_on_copy_and_expander(monkeypatch):
