@@ -317,6 +317,11 @@ def test_render_storyboard_planning_guide_renders_default_on_copy_and_expander(m
     assert "storyboard.guide.combo.explainer.title" in expander_html
     assert "storyboard.guide.combo.theme_mapping.title" in expander_html
     assert "storyboard.guide.field.world_preset" in expander_html
+    assert "storyboard.guide.preset_picker_title" in expander_html
+    assert "storyboard.guide.preset_picker.world.title" in expander_html
+    assert "storyboard.guide.preset_picker.shot.title" in expander_html
+    assert "storyboard.guide.preset_picker.world.item.angry_birds_three_kingdoms" in expander_html
+    assert "storyboard.guide.preset_picker.shot.item.character_relationship" in expander_html
     assert "storyboard.guide.override_title" in expander_html
     assert "storyboard.guide.default_on_title" not in expander_html
     assert "storyboard.guide.when_to_turn_off.title" not in expander_html
@@ -351,6 +356,21 @@ def test_storyboard_planning_guide_translation_keys_exist_in_supported_locales()
         "storyboard.guide.field.role_strategy",
         "storyboard.guide.field.role_locking_strength",
         "storyboard.guide.field.shot_strategy",
+        "storyboard.guide.preset_picker_title",
+        "storyboard.guide.preset_picker.world.title",
+        "storyboard.guide.preset_picker.world.body",
+        "storyboard.guide.preset_picker.world.item.neutral_knowledge_storyboard",
+        "storyboard.guide.preset_picker.world.item.dual_mode_storyboard",
+        "storyboard.guide.preset_picker.world.item.angry_birds_three_kingdoms",
+        "storyboard.guide.preset_picker.world.item.angry_birds_knowledge_classroom",
+        "storyboard.guide.preset_picker.world.item.angry_birds_history_classroom",
+        "storyboard.guide.preset_picker.shot.title",
+        "storyboard.guide.preset_picker.shot.body",
+        "storyboard.guide.preset_picker.shot.item.balanced_explainer",
+        "storyboard.guide.preset_picker.shot.item.detail_focus",
+        "storyboard.guide.preset_picker.shot.item.opening_world_building",
+        "storyboard.guide.preset_picker.shot.item.character_relationship",
+        "storyboard.guide.preset_picker.shot.item.classroom_demo",
         "storyboard.guide.override_title",
         "storyboard.guide.override_body",
     ]

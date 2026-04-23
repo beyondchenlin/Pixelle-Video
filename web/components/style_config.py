@@ -32,6 +32,10 @@ from pixelle_video.config.prompt_prefix_library import (
     get_prompt_prefix_workflow_preview_asset_path,
     resolve_prompt_prefix_gallery_cover,
 )
+from pixelle_video.config.storyboard_preset_library import (
+    BUILTIN_SHOT_PRESETS,
+    BUILTIN_WORLD_PRESETS,
+)
 from pixelle_video.prompts.prompt_prefix_generation import (
     build_prompt_prefix_generation_prompt,
 )
@@ -211,6 +215,27 @@ STORYBOARD_GUIDE_FIELD_SPECS: tuple[tuple[str, str], ...] = (
     ("storyboard.shot_strategy", "storyboard.guide.field.shot_strategy"),
 )
 
+STORYBOARD_GUIDE_PRESET_PICKER_SPECS: tuple[dict[str, object], ...] = (
+    {
+        "title_key": "storyboard.guide.preset_picker.world.title",
+        "body_key": "storyboard.guide.preset_picker.world.body",
+        "item_key_prefix": "storyboard.guide.preset_picker.world.item",
+        "presets": BUILTIN_WORLD_PRESETS,
+        "accent_color": "#6d28d9",
+        "background_color": "rgba(250, 245, 255, 0.96)",
+        "border_color": "rgba(167, 139, 250, 0.22)",
+    },
+    {
+        "title_key": "storyboard.guide.preset_picker.shot.title",
+        "body_key": "storyboard.guide.preset_picker.shot.body",
+        "item_key_prefix": "storyboard.guide.preset_picker.shot.item",
+        "presets": BUILTIN_SHOT_PRESETS,
+        "accent_color": "#0369a1",
+        "background_color": "rgba(240, 249, 255, 0.96)",
+        "border_color": "rgba(56, 189, 248, 0.22)",
+    },
+)
+
 STORYBOARD_GUIDE_COMBO_SPECS: tuple[tuple[str, str, str, str], ...] = (
     (
         "storyboard.guide.combo.explainer.title",
@@ -310,6 +335,49 @@ def _build_storyboard_guide_combo_html(
     """
 
 
+def _build_storyboard_guide_preset_picker_html(section_spec: dict[str, object]) -> str:
+    preset_items_html = "".join(
+        f"""
+        <li style="margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #1f2937;">{escape(resolve_storyboard_preset_label(preset))}</span><br/>
+            <span style="color: #475569;">{escape(tr(f"{section_spec['item_key_prefix']}.{preset.preset_id}"))}</span>
+        </li>
+        """
+        for preset in section_spec["presets"]
+    )
+    return f"""
+    <div style="
+        margin-top: 12px;
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid {section_spec["border_color"]};
+        background: {section_spec["background_color"]};
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    ">
+        <div style="
+            font-size: 13px;
+            font-weight: 700;
+            color: {section_spec["accent_color"]};
+            margin-bottom: 6px;
+        ">{escape(tr(section_spec["title_key"]))}</div>
+        <div style="
+            font-size: 13px;
+            line-height: 1.65;
+            color: #334155;
+            margin-bottom: 10px;
+        ">{escape(tr(section_spec["body_key"]))}</div>
+        <ul style="
+            margin: 0;
+            padding-left: 18px;
+            font-size: 13px;
+            line-height: 1.65;
+        ">
+            {preset_items_html}
+        </ul>
+    </div>
+    """
+
+
 def render_storyboard_planning_guide():
     """Render a mixed quick-start + deep-dive guide for storyboard planning."""
     guide_notes_html = "".join(
@@ -329,6 +397,10 @@ def render_storyboard_planning_guide():
         </li>
         """
         for label_key, description_key in STORYBOARD_GUIDE_FIELD_SPECS
+    )
+    preset_picker_html = "".join(
+        _build_storyboard_guide_preset_picker_html(section_spec)
+        for section_spec in STORYBOARD_GUIDE_PRESET_PICKER_SPECS
     )
 
     with st.expander(tr("storyboard.guide.title"), expanded=False):
@@ -368,6 +440,17 @@ def render_storyboard_planning_guide():
                 ">
                     {field_items_html}
                 </ul>
+            </div>
+            <div style="margin-top: 12px;">
+                <div style="
+                    font-size: 12px;
+                    font-weight: 700;
+                    letter-spacing: 0.08em;
+                    text-transform: uppercase;
+                    color: #475569;
+                    margin-bottom: 8px;
+                ">{escape(tr("storyboard.guide.preset_picker_title"))}</div>
+                {preset_picker_html}
             </div>
             <div style="
                 margin-top: 12px;
