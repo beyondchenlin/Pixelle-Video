@@ -33,6 +33,35 @@ def test_image_z_image_turbo_workflow_is_parseable():
     _assert_prompt_mapping_is_declared_once(metadata)
 
 
+def test_image_qwen_edit_2511_gguf_workflow_is_parseable():
+    metadata = WorkflowParser().parse_workflow_file(
+        str(Path("workflows/selfhost/image_qwen_edit_2511_gguf.json"))
+    )
+
+    assert set(metadata.params.keys()) == {"prompt", "image", "image2", "seed", "steps", "cfg"}
+    assert metadata.params["prompt"].required is True
+    assert metadata.params["image"].required is True
+    assert metadata.params["image"].need_upload is True
+    assert metadata.params["image2"].required is True
+    assert metadata.params["image2"].need_upload is True
+    assert metadata.params["seed"].required is False
+    assert metadata.params["steps"].required is False
+    assert metadata.params["cfg"].required is False
+
+    mappings = {
+        mapping.param_name: (mapping.node_id, mapping.input_field, mapping.need_upload)
+        for mapping in metadata.mapping_info.param_mappings
+    }
+    assert mappings == {
+        "image": ("7", "image", True),
+        "image2": ("9", "image", True),
+        "prompt": ("10", "prompt", False),
+        "seed": ("15", "seed", False),
+        "steps": ("15", "steps", False),
+        "cfg": ("15", "cfg", False),
+    }
+
+
 def test_tts_index2_uses_builtin_multiline_string_input():
     workflow = json.loads(Path("workflows/selfhost/tts_index2.json").read_text(encoding="utf-8"))
 
