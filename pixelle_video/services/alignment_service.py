@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, DefaultDict, List, Mapping, Protocol, Sequence
 
+from loguru import logger
+
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 
 DEFAULT_ALIGNMENT_MODEL_PATH = "Qwen/Qwen3-ForcedAligner-0.6B"
+DEFAULT_ALIGNMENT_MODELSCOPE_ID = "Qwen/Qwen3-ForcedAligner-0.6B"
 DEFAULT_ALIGNMENT_LANGUAGE = "Chinese"
 
 _TOKEN_RE = re.compile(
@@ -55,11 +59,58 @@ class _QwenForcedAlignerClient:
                 "qwen-asr is required for the default alignment client."
             ) from exc
 
+        # Prefer a resolved local path and only force local-only loading when
+        # the resolver actually returned a local cache directory.
+        model_source, local_files_only = self._ensure_model_local()
+
+        load_kwargs = dict(self.model_kwargs)
+        if local_files_only:
+            load_kwargs.setdefault("local_files_only", True)
+
         self._aligner = Qwen3ForcedAligner.from_pretrained(
-            self.model_path,
-            **self.model_kwargs,
+            model_source,
+            **load_kwargs,
         )
         return self._aligner
+
+    def _ensure_model_local(self) -> tuple[str, bool]:
+        """Resolve the model source, preferring local cache paths when available."""
+        # Check HuggingFace cache first (user already has it)
+        hf_cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
+        hf_model_name = f"models--{self.model_path.replace('/', '--')}"
+        hf_model_path = os.path.join(hf_cache_dir, hf_model_name)
+
+        if os.path.exists(hf_model_path) and os.listdir(hf_model_path):
+            # Find the actual snapshot directory
+            snapshots_dir = os.path.join(hf_model_path, "snapshots")
+            if os.path.exists(snapshots_dir):
+                snapshot_dirs = [
+                    entry
+                    for entry in sorted(os.listdir(snapshots_dir))
+                    if os.path.isdir(os.path.join(snapshots_dir, entry))
+                ]
+                if snapshot_dirs:
+                    hf_local_path = os.path.join(snapshots_dir, snapshot_dirs[0])
+                    logger.info(f"Using HuggingFace cached model from {hf_local_path}")
+                    return hf_local_path, True
+
+        # Download from ModelScope (it handles caching automatically)
+        try:
+            from modelscope import snapshot_download
+
+            logger.info(f"Downloading model from ModelScope: {DEFAULT_ALIGNMENT_MODELSCOPE_ID}")
+            cache_dir = os.path.expanduser("~/.cache/modelscope/hub")
+            local_path = snapshot_download(
+                DEFAULT_ALIGNMENT_MODELSCOPE_ID,
+                cache_dir=cache_dir,
+            )
+            logger.info(f"Model downloaded to {local_path}")
+            return local_path, True
+        except Exception as exc:
+            logger.warning(
+                f"Failed to download from ModelScope: {exc}, falling back to HuggingFace hub"
+            )
+            return self.model_path, False
 
     def align(self, audio: Any, text: str, language: str = DEFAULT_ALIGNMENT_LANGUAGE) -> Any:
         aligner = self._load_aligner()

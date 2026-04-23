@@ -4,7 +4,10 @@ import types
 import pytest
 
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
-from pixelle_video.services.alignment_service import AlignmentService
+from pixelle_video.services.alignment_service import (
+    AlignmentService,
+    _QwenForcedAlignerClient,
+)
 
 
 class FakeAligner:
@@ -189,7 +192,26 @@ def test_alignment_service_can_estimate_sentence_spans_from_block_duration_metad
     assert aligned[1].source_end == pytest.approx(4.0)
 
 
-def test_alignment_service_forwards_load_kwargs_to_default_qwen_client(monkeypatch):
+def _install_fake_qwen_forced_aligner(monkeypatch, fake_aligner_cls):
+    fake_qwen_module = types.ModuleType("qwen_asr")
+    fake_inference_module = types.ModuleType("qwen_asr.inference")
+    fake_aligner_module = types.ModuleType("qwen_asr.inference.qwen3_forced_aligner")
+    fake_qwen_module.__path__ = []
+    fake_inference_module.__path__ = []
+    fake_aligner_module.Qwen3ForcedAligner = fake_aligner_cls
+    fake_inference_module.qwen3_forced_aligner = fake_aligner_module
+    fake_qwen_module.inference = fake_inference_module
+
+    monkeypatch.setitem(sys.modules, "qwen_asr", fake_qwen_module)
+    monkeypatch.setitem(sys.modules, "qwen_asr.inference", fake_inference_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "qwen_asr.inference.qwen3_forced_aligner",
+        fake_aligner_module,
+    )
+
+
+def test_alignment_service_uses_local_model_path_with_local_files_only(monkeypatch):
     captured = {}
 
     class FakeAligner:
@@ -202,49 +224,62 @@ def test_alignment_service_forwards_load_kwargs_to_default_qwen_client(monkeypat
         def align(self, audio, text, language="Chinese"):
             return {"words": [{"text": "Hello", "start": 1.0, "end": 2.0}]}
 
-    fake_qwen_module = types.ModuleType("qwen_asr")
-    fake_inference_module = types.ModuleType("qwen_asr.inference")
-    fake_aligner_module = types.ModuleType("qwen_asr.inference.qwen3_forced_aligner")
-    fake_qwen_module.__path__ = []
-    fake_inference_module.__path__ = []
-    fake_aligner_module.Qwen3ForcedAligner = FakeAligner
-    fake_inference_module.qwen3_forced_aligner = fake_aligner_module
-    fake_qwen_module.inference = fake_inference_module
+    _install_fake_qwen_forced_aligner(monkeypatch, FakeAligner)
 
-    monkeypatch.setitem(sys.modules, "qwen_asr", fake_qwen_module)
-    monkeypatch.setitem(sys.modules, "qwen_asr.inference", fake_inference_module)
-    monkeypatch.setitem(
-        sys.modules,
-        "qwen_asr.inference.qwen3_forced_aligner",
-        fake_aligner_module,
-    )
-
-    service = AlignmentService(
+    client = _QwenForcedAlignerClient(
         model_path="Qwen/Qwen3-ForcedAligner-0.6B",
         model_kwargs={"device_map": "auto", "dtype": "bfloat16"},
     )
-    block = AudioBlock(
-        id="block-0",
-        text="Hello",
-        audio_path="block.wav",
-        start=0.0,
-        end=1.0,
-        source_frame_indices=[0],
+    monkeypatch.setattr(
+        client,
+        "_ensure_model_local",
+        lambda: (r"C:\models\Qwen3-ForcedAligner-0.6B", True),
     )
-    sentences = [
-        SentenceUnit(
-            id="s1",
-            text="Hello",
-            frame_indices=[0],
-            block_id="block-0",
-        )
-    ]
 
-    aligned = service.align_block(block, sentences)
+    result = client.align(audio="block.wav", text="Hello")
 
+    assert result["words"][0]["text"] == "Hello"
+    assert captured == {
+        "model_path": r"C:\models\Qwen3-ForcedAligner-0.6B",
+        "load_kwargs": {
+            "device_map": "auto",
+            "dtype": "bfloat16",
+            "local_files_only": True,
+        },
+    }
+
+
+def test_alignment_service_allows_hf_hub_fallback_when_no_local_model_is_available(
+    monkeypatch,
+):
+    captured = {}
+
+    class FakeAligner:
+        @classmethod
+        def from_pretrained(cls, model_path, **load_kwargs):
+            captured["model_path"] = model_path
+            captured["load_kwargs"] = load_kwargs
+            return cls()
+
+        def align(self, audio, text, language="Chinese"):
+            return {"words": [{"text": "Hello", "start": 1.0, "end": 2.0}]}
+
+    _install_fake_qwen_forced_aligner(monkeypatch, FakeAligner)
+
+    client = _QwenForcedAlignerClient(
+        model_path="Qwen/Qwen3-ForcedAligner-0.6B",
+        model_kwargs={"device_map": "auto", "dtype": "bfloat16"},
+    )
+    monkeypatch.setattr(
+        client,
+        "_ensure_model_local",
+        lambda: ("Qwen/Qwen3-ForcedAligner-0.6B", False),
+    )
+
+    result = client.align(audio="block.wav", text="Hello")
+
+    assert result["words"][0]["text"] == "Hello"
     assert captured == {
         "model_path": "Qwen/Qwen3-ForcedAligner-0.6B",
         "load_kwargs": {"device_map": "auto", "dtype": "bfloat16"},
     }
-    assert aligned[0].source_start == 1.0
-    assert aligned[0].source_end == 2.0

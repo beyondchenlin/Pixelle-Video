@@ -10,6 +10,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
+# Use ModelScope mirror for HuggingFace downloads in China
+if not os.environ.get("HF_ENDPOINT"):
+    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
 """
 Pixelle-Video - AI-powered video generator
 
