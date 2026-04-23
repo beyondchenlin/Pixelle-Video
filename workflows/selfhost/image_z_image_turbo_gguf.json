@@ -156,7 +156,7 @@
   },
   "90": {
     "inputs": {
-      "value": 960
+      "value": 768
     },
     "class_type": "easy int",
     "_meta": {
@@ -165,7 +165,7 @@
   },
   "91": {
     "inputs": {
-      "value": 1280
+      "value": 768
     },
     "class_type": "easy int",
     "_meta": {
