@@ -570,6 +570,12 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "height=420" not in source
     assert "min(50vh, 32rem)" not in source
     assert "prompt_prefix_details_modal_content" in source
+    assert "prompt_prefix_details_modal_media" in source
+    assert "prompt_prefix_details_modal_info" in source
+    assert "prompt_prefix_details_modal_chip_row" in source
+    assert "prompt_prefix_details_modal_detail_list" in source
+    assert 'st.columns([1.38, 0.82], gap="large")' in source
+    assert 'st.columns([0.88, 1.12], gap="medium")' not in source
     assert "style.prefix_library.toolbar_add" in source
     assert "style.prefix_library.compare_count" in source
     assert "style.prefix_library.thumbnail_prompt" in source

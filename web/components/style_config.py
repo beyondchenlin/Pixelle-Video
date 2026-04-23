@@ -1008,14 +1008,12 @@ def _render_prompt_prefix_details_modal(
 ) -> None:
     """Render the prompt-prefix details experience in a modal dialog."""
     panel_cover_state = resolve_prompt_prefix_gallery_cover(panel_item, workflow_key)
-    category_caption = (
-        f"{get_prompt_prefix_category_label(panel_item['style_category_id'], 'style', language)} / "
-        f"{get_prompt_prefix_category_label(panel_item['scene_category_id'], 'scene', language)} / "
-        f"{_get_prompt_prefix_source_label(panel_item.get('source', 'manual'))}"
-    )
-    detail_meta_lines = [category_caption, _get_prompt_prefix_cover_status_label(panel_cover_state)]
-    if panel_item.get("note"):
-        detail_meta_lines.append(panel_item["note"])
+    style_label = get_prompt_prefix_category_label(panel_item["style_category_id"], "style", language)
+    scene_label = get_prompt_prefix_category_label(panel_item["scene_category_id"], "scene", language)
+    source_label = _get_prompt_prefix_source_label(panel_item.get("source", "manual"))
+    detail_chip_labels = [style_label, scene_label, source_label]
+    detail_summary_line = (panel_item.get("note") or "").strip() or None
+    detail_meta_lines = [_get_prompt_prefix_cover_status_label(panel_cover_state)]
     workflow_display_label = _resolve_prompt_prefix_workflow_display_label(
         panel_cover_state.get("workflow_key"),
         workflow_display_map,
@@ -1060,15 +1058,58 @@ def _render_prompt_prefix_details_modal(
             .st-key-prompt_prefix_details_modal_body .stButton > button {
                 min-height: 2.35rem;
             }
-            .prompt_prefix_details_modal_meta {
+            .st-key-prompt_prefix_details_modal_media {
+                padding: 0.42rem;
+                border-radius: 1.25rem;
+                background: linear-gradient(180deg, rgba(247, 249, 252, 0.96), rgba(255, 255, 255, 0.92));
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+            }
+            .st-key-prompt_prefix_details_modal_media [data-testid="stImage"] img {
+                border-radius: 1.05rem;
+                aspect-ratio: 1 / 1;
+                object-fit: contain;
+                background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+            }
+            .st-key-prompt_prefix_details_modal_info {
+                padding-top: 0.1rem;
+            }
+            .prompt_prefix_details_modal_chip_row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.45rem;
+                margin: 0.45rem 0 0.8rem;
+            }
+            .prompt_prefix_details_modal_chip {
+                padding: 0.28rem 0.62rem;
+                border-radius: 999px;
+                border: 1px solid rgba(37, 99, 235, 0.14);
+                background: rgba(239, 246, 255, 0.76);
+                color: rgba(30, 64, 175, 0.92);
+                font-size: 0.76rem;
+                line-height: 1.1;
+                font-weight: 600;
+            }
+            .prompt_prefix_details_modal_detail_list {
                 display: grid;
-                gap: 0.38rem;
-                font-size: 0.85rem;
-                line-height: 1.35;
+                gap: 0.42rem;
+                margin-bottom: 0.85rem;
+            }
+            .prompt_prefix_details_modal_detail_item {
+                font-size: 0.82rem;
+                line-height: 1.4;
                 color: rgba(49, 51, 63, 0.78);
             }
+            .prompt_prefix_details_modal_summary {
+                margin-bottom: 0.72rem;
+                padding: 0.7rem 0.82rem;
+                border-radius: 0.9rem;
+                background: rgba(248, 250, 252, 0.9);
+                color: rgba(31, 41, 55, 0.88);
+                font-size: 0.84rem;
+                line-height: 1.48;
+            }
             .prompt_prefix_details_modal_content {
-                min-height: 12rem;
+                min-height: 10.2rem;
                 border: 1px solid rgba(49, 51, 63, 0.12);
                 border-radius: 1rem;
                 padding: 0.95rem 1rem;
@@ -1086,27 +1127,49 @@ def _render_prompt_prefix_details_modal(
             unsafe_allow_html=True,
         )
         with st.container(key="prompt_prefix_details_modal_body"):
-            detail_media_col, detail_content_col = st.columns([0.88, 1.12], gap="medium")
+            detail_media_col, detail_content_col = st.columns([1.38, 0.82], gap="large")
             with detail_media_col:
-                st.image(panel_cover_state["asset_path"], width="stretch")
-                st.markdown(
-                    (
-                        '<div class="prompt_prefix_details_modal_meta">'
-                        + "".join(f"<div>{escape(line)}</div>" for line in detail_meta_lines)
-                        + "</div>"
-                    ),
-                    unsafe_allow_html=True,
-                )
+                with st.container(key="prompt_prefix_details_modal_media", border=True):
+                    st.image(panel_cover_state["asset_path"], width="stretch")
             with detail_content_col:
-                st.markdown(f"### {panel_item['name']}")
-                st.markdown(
-                    (
-                        '<div class="prompt_prefix_details_modal_content">'
-                        f"{escape(panel_item['content'])}"
-                        "</div>"
-                    ),
-                    unsafe_allow_html=True,
-                )
+                with st.container(key="prompt_prefix_details_modal_info"):
+                    st.markdown(f"### {panel_item['name']}")
+                    st.markdown(
+                        (
+                            '<div class="prompt_prefix_details_modal_chip_row">'
+                            + "".join(
+                                f'<span class="prompt_prefix_details_modal_chip">{escape(label)}</span>'
+                                for label in detail_chip_labels
+                            )
+                            + "</div>"
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                    if detail_summary_line:
+                        st.markdown(
+                            f'<div class="prompt_prefix_details_modal_summary">{escape(detail_summary_line)}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    if detail_meta_lines:
+                        st.markdown(
+                            (
+                                '<div class="prompt_prefix_details_modal_detail_list">'
+                                + "".join(
+                                    f'<div class="prompt_prefix_details_modal_detail_item">{escape(line)}</div>'
+                                    for line in detail_meta_lines
+                                )
+                                + "</div>"
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                    st.markdown(
+                        (
+                            '<div class="prompt_prefix_details_modal_content">'
+                            f"{escape(panel_item['content'])}"
+                            "</div>"
+                        ),
+                        unsafe_allow_html=True,
+                    )
 
             detail_action_col, detail_compare_col = st.columns(2, gap="small")
             with detail_action_col:
