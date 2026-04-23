@@ -28,6 +28,7 @@ class _FakeStreamlit:
         self.container_calls: list[dict] = []
         self.nested_expanders: list[tuple[str, bool]] = []
         self.checkbox_calls: list[dict] = []
+        self.button_calls: list[dict] = []
         self.session_state = {
             "template_type_selector": "static",
             "storyboard_planning_enabled": True,
@@ -106,6 +107,7 @@ class _FakeStreamlit:
         return None
 
     def button(self, *_args, **_kwargs):
+        self.button_calls.append({"label": _args[0] if _args else None, "args": _args, **_kwargs})
         return False
 
     def text_input(self, _label, value="", **_kwargs):
@@ -545,6 +547,131 @@ def test_render_style_config_defaults_no_text_toggle_to_true(monkeypatch):
     assert all(call["label"] != "storyboard.forbid_embedded_text" for call in fake_st.checkbox_calls)
 
 
+def test_render_style_config_image_workflow_help_card_defaults_collapsed_without_name_error(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["template_type_selector"] = "image"
+    fake_st.session_state["template_media_type"] = "image"
+    fake_st.session_state["template_requires_media"] = True
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_comfyui_config",
+        lambda: {
+            "tts": {
+                "inference_mode": "local",
+                "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2},
+                "comfyui": {},
+            },
+            "image": {},
+            "video": {},
+        },
+    )
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "render_backend")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
+    monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_storyboard_world_preset_library",
+        lambda: {
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [{"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}],
+        },
+    )
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_storyboard_shot_preset_library",
+        lambda: {
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [{"preset_id": "balanced_explainer", "display_name": "Balanced"}],
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_template_type",
+        lambda _template_name: "image",
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
+        lambda _template_type: {
+            "1080x1920": [
+                type(
+                    "TemplateInfo",
+                    (),
+                    {
+                        "template_path": "1080x1920/image_default.html",
+                        "display_info": type(
+                            "DisplayInfo",
+                            (),
+                            {
+                                "name": "image_default",
+                                "orientation": "portrait",
+                                "width": 1080,
+                                "height": 1920,
+                            },
+                        )(),
+                    },
+                )()
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.parse_template_size",
+        lambda _path: (1080, 1920),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda path: path,
+    )
+
+    class _FakeFrameGenerator:
+        def __init__(self, _template_path):
+            self._template_path = _template_path
+
+        def parse_template_parameters(self):
+            return {}
+
+        def get_media_size(self):
+            return (1080, 1920)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+
+    original_radio = fake_st.radio
+
+    def _radio(label, options, index=0, key=None, **kwargs):
+        if key == "template_type_selector":
+            return "image"
+        return original_radio(label, options, index=index, key=key, **kwargs)
+
+    fake_st.radio = _radio
+
+    class _FakeMedia:
+        @staticmethod
+        def list_workflows():
+            return [
+                {
+                    "display_name": "Image Default",
+                    "key": "selfhost/image_z_image_turbo.json",
+                }
+            ]
+
+    class _FakeVideo:
+        config = {"template": {}}
+        media = _FakeMedia()
+
+    result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
+
+    assert result["media_workflow"] == "selfhost/image_z_image_turbo.json"
+    assert ("section.image", False) in fake_st.expanders
+    assert ("help.feature_description", False) in fake_st.expanders
+
+
 def test_render_style_config_defaults_middle_sections_to_collapsed(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
@@ -656,7 +783,7 @@ def test_render_style_config_defaults_middle_sections_to_collapsed(monkeypatch):
     }
 
     assert expected_collapsed_sections.issubset(set(fake_st.expanders))
-    assert fake_st.nested_expanders == []
+    assert fake_st.nested_expanders == [("help.feature_description", False)]
 
 
 def test_image_generation_section_sources_model_title_before_default_collapsed_help_expander():
