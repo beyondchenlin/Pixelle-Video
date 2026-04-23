@@ -946,7 +946,7 @@ def test_render_style_config_restores_session_no_text_choice_when_storyboard_ree
     assert no_text_checkbox["value"] is False
 
 
-def test_render_style_config_image_workflow_help_uses_default_expanded_section_without_nested_expander(monkeypatch):
+def test_render_style_config_template_and_image_workflow_help_use_popovers_without_nested_expander(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
     fake_st.session_state["template_media_type"] = "image"
@@ -1069,11 +1069,15 @@ def test_render_style_config_image_workflow_help_uses_default_expanded_section_w
     assert result["media_workflow"] == "selfhost/image_z_image_turbo.json"
     assert ("section.image", True) in fake_st.expanders
     assert fake_st.nested_expanders == []
-    assert fake_st.popovers == ["help.feature_description"]
+    assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
     expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
     assert "**style.image_model_selection_title**" in expander_html
+    assert "template.what" not in expander_html
+    assert "template.how" not in expander_html
     popover_html = "\n".join(body for body, _kwargs in fake_st.popover_markdowns)
     assert "style.image_model_selection_title" not in popover_html
+    assert "template.what" in popover_html
+    assert "template.how" in popover_html
     assert "style.workflow_what" in popover_html
     assert "style.workflow_how" in popover_html
 
@@ -1190,7 +1194,7 @@ def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_i
     assert expected_collapsed_sections.issubset(set(fake_st.expanders))
     assert ("section.image", True) in fake_st.expanders
     assert fake_st.nested_expanders == []
-    assert fake_st.popovers == ["help.feature_description"]
+    assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
 
 def test_render_image_prompt_prefix_library_renders_filter_panel_without_nested_expander(monkeypatch):
     fake_st = _FakeStreamlit()

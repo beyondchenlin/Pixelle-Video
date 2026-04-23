@@ -2583,7 +2583,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         tr("section.template"),
         expanded=False,
     ):
-        with render_middle_column_detail_section(tr("help.feature_description")):
+        with st.popover(tr("help.feature_description")):
             st.markdown(f"**{tr('help.what')}**")
             st.markdown(tr("template.what"))
             st.markdown(f"**{tr('help.how')}**")
