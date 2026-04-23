@@ -820,7 +820,7 @@ def test_render_style_config_restores_session_no_text_choice_when_storyboard_ree
     assert no_text_checkbox["value"] is False
 
 
-def test_render_style_config_image_workflow_help_uses_default_collapsed_popover_without_nested_expander(monkeypatch):
+def test_render_style_config_image_workflow_help_uses_default_expanded_section_without_nested_expander(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
     fake_st.session_state["template_media_type"] = "image"
@@ -941,7 +941,7 @@ def test_render_style_config_image_workflow_help_uses_default_collapsed_popover_
     result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
 
     assert result["media_workflow"] == "selfhost/image_z_image_turbo.json"
-    assert ("section.image", False) in fake_st.expanders
+    assert ("section.image", True) in fake_st.expanders
     assert fake_st.nested_expanders == []
     assert fake_st.popovers == ["help.feature_description"]
     popover_html = "\n".join(body for body, _kwargs in fake_st.popover_markdowns)
@@ -949,7 +949,7 @@ def test_render_style_config_image_workflow_help_uses_default_collapsed_popover_
     assert "style.workflow_how" in popover_html
 
 
-def test_render_style_config_defaults_middle_sections_to_collapsed(monkeypatch):
+def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_image_starts_expanded(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
     monkeypatch.setattr(style_config, "st", fake_st)
@@ -1056,22 +1056,22 @@ def test_render_style_config_defaults_middle_sections_to_collapsed(monkeypatch):
         ("section.render_backend", False),
         ("section.storyboard_planning", False),
         ("section.template", False),
-        ("section.image", False),
     }
 
     assert expected_collapsed_sections.issubset(set(fake_st.expanders))
+    assert ("section.image", True) in fake_st.expanders
     assert fake_st.nested_expanders == []
     assert fake_st.popovers == ["help.feature_description"]
 
 
-def test_image_generation_section_sources_model_title_before_default_collapsed_help_expander():
+def test_image_generation_section_sources_model_title_before_default_expanded_help_popover():
     project_root = Path(__file__).resolve().parent.parent
     source = (project_root / "web" / "components" / "style_config.py").read_text(encoding="utf-8")
 
     assert 'if template_media_type == "image":' in source
     assert 'style.image_model_selection_title' in source
     assert 'with render_middle_column_collapsible_section(' in source
-    assert 'expanded=False' in source
+    assert "section_title,\n            expanded=True," in source
     image_section = source.split('if template_media_type == "image":', 1)[1]
     model_title_index = image_section.index("style.image_model_selection_title")
     help_section_index = image_section.index('tr("help.feature_description")')
