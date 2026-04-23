@@ -2887,10 +2887,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
             # 1. ComfyUI Workflow selection
             if template_media_type == "image":
                 st.markdown(f"**{tr('style.image_model_selection_title')}**")
-                with render_middle_column_collapsible_section(
-                    tr("help.feature_description"),
-                    expanded=False,
-                ):
+                with st.popover(tr("help.feature_description")):
                     st.markdown(f"**{tr('help.what')}**")
                     st.markdown(tr("style.workflow_what"))
                     st.markdown(f"**{tr('help.how')}**")

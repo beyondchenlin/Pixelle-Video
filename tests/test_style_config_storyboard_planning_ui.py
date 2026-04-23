@@ -24,7 +24,9 @@ class _FakeStreamlit:
     def __init__(self):
         self.top_level_markdowns: list[tuple[str, dict]] = []
         self.expander_markdowns: list[tuple[str, dict]] = []
+        self.popover_markdowns: list[tuple[str, dict]] = []
         self.expanders: list[tuple[str, bool]] = []
+        self.popovers: list[str] = []
         self.container_calls: list[dict] = []
         self.nested_expanders: list[tuple[str, bool]] = []
         self.checkbox_calls: list[dict] = []
@@ -33,9 +35,15 @@ class _FakeStreamlit:
             "storyboard_planning_enabled": True,
         }
         self._in_expander = False
+        self._in_popover = False
 
     def markdown(self, body, **kwargs):
-        target = self.expander_markdowns if self._in_expander else self.top_level_markdowns
+        if self._in_popover:
+            target = self.popover_markdowns
+        elif self._in_expander:
+            target = self.expander_markdowns
+        else:
+            target = self.top_level_markdowns
         target.append((body, kwargs))
         return None
 
@@ -59,6 +67,21 @@ class _FakeStreamlit:
                 return False
 
         return _FakeExpander()
+
+    def popover(self, label, **_kwargs):
+        self.popovers.append(label)
+        fake_st = self
+
+        class _FakePopover(_FakeContext):
+            def __enter__(self):
+                fake_st._in_popover = True
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                fake_st._in_popover = False
+                return False
+
+        return _FakePopover()
 
     def checkbox(self, label, value=False, **kwargs):
         self.checkbox_calls.append({"label": label, "value": value, **kwargs})
@@ -670,7 +693,7 @@ def test_render_style_config_preserves_no_text_toggle_when_storyboard_disabled(m
     assert all(call["label"] != "storyboard.forbid_embedded_text" for call in fake_st.checkbox_calls)
 
 
-def test_render_style_config_image_workflow_help_defaults_collapsed_below_model_title(monkeypatch):
+def test_render_style_config_image_workflow_help_uses_default_collapsed_popover_without_nested_expander(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
     fake_st.session_state["template_media_type"] = "image"
@@ -792,7 +815,11 @@ def test_render_style_config_image_workflow_help_defaults_collapsed_below_model_
 
     assert result["media_workflow"] == "selfhost/image_z_image_turbo.json"
     assert ("section.image", False) in fake_st.expanders
-    assert ("help.feature_description", False) in fake_st.expanders
+    assert fake_st.nested_expanders == []
+    assert fake_st.popovers == ["help.feature_description"]
+    popover_html = "\n".join(body for body, _kwargs in fake_st.popover_markdowns)
+    assert "style.workflow_what" in popover_html
+    assert "style.workflow_how" in popover_html
 
 
 def test_render_style_config_defaults_middle_sections_to_collapsed(monkeypatch):
@@ -906,7 +933,8 @@ def test_render_style_config_defaults_middle_sections_to_collapsed(monkeypatch):
     }
 
     assert expected_collapsed_sections.issubset(set(fake_st.expanders))
-    assert fake_st.nested_expanders == [("help.feature_description", False)]
+    assert fake_st.nested_expanders == []
+    assert fake_st.popovers == ["help.feature_description"]
 
 
 def test_image_generation_section_sources_model_title_before_default_collapsed_help_expander():
