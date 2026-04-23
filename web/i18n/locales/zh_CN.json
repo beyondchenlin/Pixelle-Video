@@ -130,6 +130,7 @@
     "style.prefix_library.reference_cover": "图库封面图仅用于浏览参考。",
     "style.prefix_library.workflow_preview_hint": "下方生成的预览结果会反映当前工作流的真实效果。",
     "style.prefix_library.view_details": "查看详情",
+    "style.prefix_library.collapse_details": "收起详情",
     "style.prefix_library.close_panel": "关闭",
     "style.prefix_library.panel_empty": "风格面板",
     "style.prefix_library.panel_empty_hint": "选择一张风格卡片、手动新增，或打开 AI 生成功能后，会在这里进行查看和操作。",

@@ -11,7 +11,9 @@ from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from web.components import style_config
 from web.utils.preview_media import PreviewMediaData
 from web.utils.prompt_prefix_ui import (
+    PROMPT_PREFIX_MANUAL_DRAFT_ID_KEY,
     clone_prompt_prefix_preview_asset,
+    clear_prompt_prefix_workspace_state,
     create_prompt_prefix_item,
     delete_prompt_prefix_preview_asset,
     get_localized_prompt_prefix_category_options,
@@ -20,7 +22,9 @@ from web.utils.prompt_prefix_ui import (
     persist_generated_prompt_prefix_workflow_preview,
     persist_uploaded_prompt_prefix_preview,
     sanitize_prompt_prefix_preview_selection,
+    set_prompt_prefix_workspace_state,
     toggle_prompt_prefix_preview_selection,
+    toggle_prompt_prefix_details_state,
 )
 
 
@@ -127,6 +131,49 @@ def test_sanitize_prompt_prefix_preview_selection_prunes_stale_ids_and_preserves
     )
 
     assert sanitized == ["library-a", "library-b"]
+
+
+def test_toggle_prompt_prefix_details_state_opens_switches_and_collapses_cards():
+    session_state = {}
+
+    assert toggle_prompt_prefix_details_state(session_state, "prefix-a") is True
+    assert session_state["prompt_prefix_panel_mode"] == "details"
+    assert session_state["prompt_prefix_panel_item_id"] == "prefix-a"
+
+    assert toggle_prompt_prefix_details_state(session_state, "prefix-b") is True
+    assert session_state["prompt_prefix_panel_mode"] == "details"
+    assert session_state["prompt_prefix_panel_item_id"] == "prefix-b"
+
+    assert toggle_prompt_prefix_details_state(session_state, "prefix-b") is False
+    assert "prompt_prefix_panel_mode" not in session_state
+    assert "prompt_prefix_panel_item_id" not in session_state
+
+
+def test_set_prompt_prefix_workspace_state_clears_delete_confirmation_for_non_manual_modes():
+    session_state = {
+        PROMPT_PREFIX_MANUAL_DRAFT_ID_KEY: "manual-draft",
+        "prompt_prefix_delete_confirm_id": "prefix-a",
+    }
+
+    set_prompt_prefix_workspace_state(session_state, "edit", item_id="prefix-a")
+
+    assert session_state["prompt_prefix_panel_mode"] == "edit"
+    assert session_state["prompt_prefix_panel_item_id"] == "prefix-a"
+    assert PROMPT_PREFIX_MANUAL_DRAFT_ID_KEY not in session_state
+    assert "prompt_prefix_delete_confirm_id" not in session_state
+
+
+def test_clear_prompt_prefix_workspace_state_resets_inline_workspace_keys():
+    session_state = {
+        PROMPT_PREFIX_MANUAL_DRAFT_ID_KEY: "manual-draft",
+        "prompt_prefix_panel_mode": "details",
+        "prompt_prefix_panel_item_id": "prefix-a",
+        "prompt_prefix_delete_confirm_id": "prefix-a",
+    }
+
+    clear_prompt_prefix_workspace_state(session_state)
+
+    assert session_state == {}
 
 
 class _FakeUpload:
@@ -547,10 +594,10 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     current_prefix_section = source.split("def _render_image_prompt_prefix_library(", 1)[1]
     current_prefix_section = current_prefix_section.split("\ndef render_style_config(", 1)[0]
     gallery_section = current_prefix_section.split("with gallery_col:", 1)[1]
-    gallery_section = gallery_section.split("\n    with panel_col:", 1)[0]
 
     assert "prompt_prefix_library" in source
     assert "toggle_prompt_prefix_preview_selection" in source
+    assert "toggle_prompt_prefix_details_state" in source
     assert "build_prompt_prefix_generation_prompt" in source
     assert "resolve_prompt_prefix_gallery_cover" in source
     assert "get_prompt_prefix_form_item_id" in source
@@ -558,6 +605,7 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "clone_prompt_prefix_preview_asset" in source
     assert "delete_prompt_prefix_preview_asset" in source
     assert "_remove_generated_candidate_from_session" in source
+    assert "_render_prompt_prefix_library_item_details" in source
     assert "prompt_prefix_panel_mode" in source
     assert "style.prefix_library.toolbar_add" in source
     assert "style.prefix_library.compare_count" in source
@@ -570,6 +618,7 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "style.prefix_library.source_builtin" in source
     assert "style.prefix_library.source_manual" in source
     assert "style.prefix_library.source_llm" in source
+    assert "style.prefix_library.collapse_details" in source
     assert "_format_prompt_prefix_generated_at" in source
     assert "_resolve_prompt_prefix_workflow_display_label" in source
     assert "_get_prompt_prefix_source_label" in source
@@ -577,6 +626,7 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert 'st.container(key="prompt_prefix_library_root")' in current_prefix_section
     filter_panel_section = current_prefix_section.split('tr("style.prefix_library.filter_panel")', 1)[1]
     filter_panel_section = filter_panel_section.split("filtered_items = ", 1)[0]
+    assert "render_middle_column_collapsible_section" in current_prefix_section
     assert "expanded=False" in filter_panel_section
     assert ".st-key-prompt_prefix_library_root div.stButton > button p" in current_prefix_section
     assert "word-break: keep-all !important" in current_prefix_section
@@ -591,6 +641,9 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "cover_asset" not in gallery_section
     assert "compare_prefix_card_new_" not in gallery_section
     assert 'continue\n' not in gallery_section
+    assert "panel_col = st.container()" not in current_prefix_section
+    assert "with panel_col:" not in current_prefix_section
+    assert "style.prefix_library.panel_empty" not in current_prefix_section
     assert "st.columns([2.25, 1.05]" not in source
     assert "st.columns([1, 1, 1.2, 0.8, 0.9]" not in source
     assert "st.columns([1, 1, 1])" in standard_source
@@ -616,6 +669,7 @@ def test_prompt_prefix_library_locale_keys_exist():
         assert "style.prefix_library.filter_panel" in translations
         assert "style.prefix_library.generate_thumbnails" in translations
         assert "style.prefix_library.compare_chip_short" in translations
+        assert "style.prefix_library.collapse_details" in translations
         assert "style.prefix_library.thumbnail_workflow_label" in translations
         assert "style.prefix_library.thumbnail_generated_at_label" in translations
         assert "style.prefix_library.thumbnail_reference_prompt_label" in translations

@@ -130,6 +130,7 @@
     "style.prefix_library.reference_cover": "Gallery covers are reference images for browsing.",
     "style.prefix_library.workflow_preview_hint": "Generated previews below reflect the current workflow selection.",
     "style.prefix_library.view_details": "View Details",
+    "style.prefix_library.collapse_details": "Collapse Details",
     "style.prefix_library.close_panel": "Close",
     "style.prefix_library.panel_empty": "Style Panel",
     "style.prefix_library.panel_empty_hint": "Select a style card, add a new style, or open AI generation to work here.",

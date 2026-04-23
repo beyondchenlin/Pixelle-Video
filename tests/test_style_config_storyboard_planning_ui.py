@@ -425,7 +425,7 @@ def test_render_style_config_defaults_middle_sections_to_collapsed(monkeypatch):
     assert fake_st.nested_expanders == []
 
 
-def test_render_image_prompt_prefix_library_renders_filter_panel_without_nested_expander(monkeypatch):
+def test_render_image_prompt_prefix_library_defaults_filter_panel_to_collapsed(monkeypatch):
     fake_st = _FakeStreamlit()
     monkeypatch.setattr(style_config, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
@@ -479,10 +479,7 @@ def test_render_image_prompt_prefix_library_renders_filter_panel_without_nested_
         workflow_display_map={},
     )
 
-    assert ("style.prefix_library.filter_panel", False) not in fake_st.expanders
-    assert "**style.prefix_library.filter_panel**" in "\n".join(
-        body for body, _kwargs in fake_st.top_level_markdowns
-    )
+    assert ("style.prefix_library.filter_panel", False) in fake_st.expanders
 
 
 def test_collapsible_section_helper_does_not_require_key_parameter():
