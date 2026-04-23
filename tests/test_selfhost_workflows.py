@@ -33,6 +33,15 @@ def test_image_z_image_turbo_workflow_is_parseable():
     _assert_prompt_mapping_is_declared_once(metadata)
 
 
+def test_image_z_image_turbo_gguf_workflow_is_parseable():
+    metadata = WorkflowParser().parse_workflow_file(
+        str(Path("workflows/selfhost/image_z_image_turbo_gguf.json"))
+    )
+
+    assert set(metadata.params.keys()) == {"prompt", "width", "height"}
+    _assert_prompt_mapping_is_declared_once(metadata)
+
+
 def test_image_qwen_edit_2511_gguf_q4_k_m_workflow_is_parseable():
     metadata = WorkflowParser().parse_workflow_file(
         str(Path("workflows/selfhost/image_qwen_edit_2511_gguf_q4_k_m.json"))
