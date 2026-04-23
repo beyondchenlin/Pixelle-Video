@@ -1301,7 +1301,10 @@ def _render_image_prompt_prefix_library(
                 safe_rerun()
             st.caption(tr("style.prefix_library.reference_cover"))
 
-    with render_middle_column_detail_section(tr("style.prefix_library.filter_panel")):
+    with render_middle_column_collapsible_section(
+        tr("style.prefix_library.filter_panel"),
+        expanded=False,
+    ):
         filter_style_col, filter_scene_col = st.columns(2, gap="small")
         with filter_style_col:
             selected_style = st.selectbox(
