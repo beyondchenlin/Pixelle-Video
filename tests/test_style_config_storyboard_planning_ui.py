@@ -288,13 +288,17 @@ def test_standard_pipeline_ui_passes_storyboard_default_enabled_to_render_style_
     assert captured["rendered_quick_create_flow"] is True
 
 
-def test_build_quick_create_flow_diagram_html_includes_arrow_layout_and_final_generate_step(monkeypatch):
+def test_build_quick_create_flow_diagram_html_uses_responsive_layout_contract(monkeypatch):
     monkeypatch.setattr(quick_create_flow, "tr", lambda key, **kwargs: key)
 
     html = quick_create_flow.build_quick_create_flow_diagram_html()
 
     assert "quick_create_flow.title" in html
-    assert "quick-create-flow-card quick-create-flow-card-input" in html
+    assert 'data-node="script_input"' in html
+    assert 'data-node="generate"' in html
+    assert "quick-create-flow-desktop" in html
+    assert "quick-create-flow-tablet" in html
+    assert "quick-create-flow-stepper" in html
     assert "quick-create-flow-arrow-horizontal" in html
     assert "quick-create-flow-arrow-vertical" in html
     assert "quick_create_flow.node.script_input.title" in html
@@ -302,12 +306,16 @@ def test_build_quick_create_flow_diagram_html_includes_arrow_layout_and_final_ge
     assert "quick_create_flow.node.image.title" in html
     assert "quick_create_flow.node.generate.title" in html
     assert "quick_create_flow.note" in html
-    assert "min-height: clamp(" not in html
-    assert "min-height: 440px;" in html
-    assert "margin-top: auto;" not in html
+    assert "min-height: clamp(" in html
+    assert "@media (max-width: 980px)" in html
+    assert "@media (max-width: 680px)" in html
+    assert "min-height: 440px;" not in html
     assert "padding-bottom: 12px;" in html
-    assert "justify-content: space-between;" in html
-    assert "justify-self: center;" in html
+    assert (
+        "grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr);"
+        not in html
+    )
+    assert "grid-column: 7;" not in html
 
 
 def test_render_quick_create_flow_diagram_uses_bordered_container_and_html_markdown(monkeypatch):

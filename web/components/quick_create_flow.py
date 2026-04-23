@@ -39,23 +39,95 @@ _BOTTOM_ROW = (
     ("generate", "output"),
 )
 
+_TABLET_ROWS = (
+    (
+        (
+            ("script_input", "input"),
+            ("mode", "input"),
+        ),
+        "right",
+        "right",
+    ),
+    (
+        (
+            ("bgm", "input"),
+            ("scene_count", "input"),
+        ),
+        "left",
+        "left",
+    ),
+    (
+        (
+            ("voice", "config"),
+            ("render", "config"),
+        ),
+        "right",
+        "right",
+    ),
+    (
+        (
+            ("template", "config"),
+            ("storyboard", "config"),
+        ),
+        "left",
+        "left",
+    ),
+    (
+        (
+            ("image", "config"),
+            ("generate", "output"),
+        ),
+        "right",
+        None,
+    ),
+)
 
-def _build_card_html(node_key: str, tone: str) -> str:
+_STEPPER_SEQUENCE = (
+    ("script_input", "input"),
+    ("mode", "input"),
+    ("scene_count", "input"),
+    ("bgm", "input"),
+    ("voice", "config"),
+    ("render", "config"),
+    ("storyboard", "config"),
+    ("template", "config"),
+    ("image", "config"),
+    ("generate", "output"),
+)
+
+
+def _join_classes(*classes: str) -> str:
+    return " ".join(class_name for class_name in classes if class_name)
+
+
+def _build_card_html(node_key: str, tone: str, *, extra_class: str = "") -> str:
     title = escape(tr(f"quick_create_flow.node.{node_key}.title"))
     description = escape(tr(f"quick_create_flow.node.{node_key}.description"))
+    classes = _join_classes(
+        "quick-create-flow-card",
+        f"quick-create-flow-card-{tone}",
+        extra_class,
+    )
     return (
-        f'<div class="quick-create-flow-card quick-create-flow-card-{tone}">'
+        f'<article class="{classes}" data-node="{node_key}">'
         f"<strong>{title}</strong>"
         f"<span>{description}</span>"
-        "</div>"
+        "</article>"
     )
 
 
-def _build_horizontal_arrow_html(direction: str) -> str:
-    return (
-        '<div class="quick-create-flow-arrow-horizontal '
-        f'quick-create-flow-arrow-horizontal-{direction}" aria-hidden="true"></div>'
+def _build_horizontal_arrow_html(direction: str, *, extra_class: str = "") -> str:
+    classes = _join_classes(
+        "quick-create-flow-arrow-horizontal",
+        f"quick-create-flow-arrow-horizontal-{direction}",
+        extra_class,
     )
+    return f'<div class="{classes}" aria-hidden="true"></div>'
+
+
+def _build_vertical_arrow_html(*, extra_class: str = "") -> str:
+    classes = _join_classes("quick-create-flow-arrow-vertical", extra_class)
+    return f'<div class="{classes}" aria-hidden="true"></div>'
 
 
 def _build_row_html(items: tuple[tuple[str, str], ...], *, direction: str, row_class: str) -> str:
@@ -64,7 +136,80 @@ def _build_row_html(items: tuple[tuple[str, str], ...], *, direction: str, row_c
         row_items.append(_build_card_html(node_key, tone))
         if index < len(items) - 1:
             row_items.append(_build_horizontal_arrow_html(direction))
-    return f'<div class="quick-create-flow-row {row_class}">{"".join(row_items)}</div>'
+    return (
+        f'<div class="{_join_classes("quick-create-flow-row", f"quick-create-flow-row-{len(items)}", row_class)}">'
+        f'{"".join(row_items)}'
+        "</div>"
+    )
+
+
+def _build_drop_html(*, slot_count: int, active_side: str, extra_class: str = "") -> str:
+    active_index = 0 if active_side == "left" else slot_count - 1
+    slots: list[str] = []
+    for index in range(slot_count):
+        slot_classes = _join_classes(
+            "quick-create-flow-drop-slot",
+            "quick-create-flow-drop-slot-active" if index == active_index else "",
+        )
+        slot_content = _build_vertical_arrow_html() if index == active_index else ""
+        slots.append(f'<div class="{slot_classes}">{slot_content}</div>')
+    return (
+        f'<div class="{_join_classes("quick-create-flow-drop", f"quick-create-flow-drop-{slot_count}", extra_class)}">'
+        f'{"".join(slots)}'
+        "</div>"
+    )
+
+
+def _build_desktop_board_html() -> str:
+    return (
+        f'<div class="{_join_classes("quick-create-flow-board", "quick-create-flow-desktop")}">'
+        f'{_build_row_html(_TOP_ROW, direction="right", row_class="quick-create-flow-row-top")}'
+        f'{_build_drop_html(slot_count=4, active_side="right", extra_class="quick-create-flow-drop-desktop")}'
+        f'{_build_row_html(_MIDDLE_ROW, direction="left", row_class="quick-create-flow-row-middle")}'
+        f'{_build_drop_html(slot_count=4, active_side="left", extra_class="quick-create-flow-drop-desktop")}'
+        f'{_build_row_html(_BOTTOM_ROW, direction="right", row_class="quick-create-flow-row-desktop-bottom")}'
+        "</div>"
+    )
+
+
+def _build_tablet_board_html() -> str:
+    parts: list[str] = []
+    for items, direction, active_side in _TABLET_ROWS:
+        parts.append(
+            _build_row_html(
+                items,
+                direction=direction,
+                row_class="quick-create-flow-row-tablet",
+            )
+        )
+        if active_side:
+            parts.append(
+                _build_drop_html(
+                    slot_count=2,
+                    active_side=active_side,
+                    extra_class="quick-create-flow-drop-tablet",
+                )
+            )
+    return (
+        f'<div class="{_join_classes("quick-create-flow-board", "quick-create-flow-tablet")}">'
+        f'{"".join(parts)}'
+        "</div>"
+    )
+
+
+def _build_stepper_html() -> str:
+    items: list[str] = []
+    for index, (node_key, tone) in enumerate(_STEPPER_SEQUENCE):
+        items.append(
+            f'<div class="quick-create-flow-stepper-item">{_build_card_html(node_key, tone)}</div>'
+        )
+        if index < len(_STEPPER_SEQUENCE) - 1:
+            items.append(
+                '<div class="quick-create-flow-stepper-arrow">'
+                f"{_build_vertical_arrow_html()}"
+                "</div>"
+            )
+    return f'<div class="quick-create-flow-stepper">{"".join(items)}</div>'
 
 
 def build_quick_create_flow_diagram_html() -> str:
@@ -76,6 +221,12 @@ def build_quick_create_flow_diagram_html() -> str:
     return f"""
 <style>
 .quick-create-flow {{
+    --flow-gap: clamp(10px, 1.5vw, 16px);
+    --flow-arrow-span: clamp(18px, 2.4vw, 28px);
+    --flow-drop-gap: calc((var(--flow-gap) * 2) + var(--flow-arrow-span));
+    --flow-card-pad-x: clamp(12px, 1.7vw, 16px);
+    --flow-card-pad-y: clamp(12px, 1.5vw, 15px);
+    --flow-radius: 12px;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -91,7 +242,7 @@ def build_quick_create_flow_diagram_html() -> str:
 
 .quick-create-flow-title {{
     margin: 0;
-    font-size: 1.02rem;
+    font-size: clamp(1rem, 1vw, 1.08rem);
     font-weight: 700;
     color: #0f172a;
     line-height: 1.3;
@@ -99,6 +250,7 @@ def build_quick_create_flow_diagram_html() -> str:
 
 .quick-create-flow-caption {{
     margin-top: 6px;
+    max-width: 44ch;
     font-size: 0.83rem;
     line-height: 1.55;
     color: #64748b;
@@ -114,49 +266,93 @@ def build_quick_create_flow_diagram_html() -> str:
     font-weight: 700;
 }}
 
+.quick-create-flow-boards {{
+    display: flex;
+    flex-direction: column;
+    gap: var(--flow-gap);
+}}
+
 .quick-create-flow-board {{
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--flow-gap);
     padding-top: 4px;
-    min-height: 440px;
-    justify-content: space-between;
+}}
+
+.quick-create-flow-tablet,
+.quick-create-flow-stepper {{
+    display: none;
 }}
 
 .quick-create-flow-row {{
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr);
-    gap: 10px;
+    gap: var(--flow-gap);
     align-items: center;
 }}
 
-.quick-create-flow-row-bottom {{
-    grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr) 1fr 1fr 1fr 1fr;
+.quick-create-flow-row-4 {{
+    grid-template-columns:
+        minmax(0, 1fr)
+        var(--flow-arrow-span)
+        minmax(0, 1fr)
+        var(--flow-arrow-span)
+        minmax(0, 1fr)
+        var(--flow-arrow-span)
+        minmax(0, 1fr);
+}}
+
+.quick-create-flow-row-2 {{
+    grid-template-columns: minmax(0, 1fr) var(--flow-arrow-span) minmax(0, 1fr);
+}}
+
+.quick-create-flow-row-desktop-bottom {{
+    width: min(100%, calc(50% - (var(--flow-gap) / 2)));
+}}
+
+.quick-create-flow-drop {{
+    display: grid;
+    align-items: center;
+    min-height: clamp(24px, 4vw, 34px);
+}}
+
+.quick-create-flow-drop-4 {{
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--flow-drop-gap);
+}}
+
+.quick-create-flow-drop-2 {{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--flow-drop-gap);
+}}
+
+.quick-create-flow-drop-slot {{
+    display: flex;
+    justify-content: center;
 }}
 
 .quick-create-flow-card {{
-    min-height: 84px;
-    border-radius: 8px;
-    padding: 12px 12px 11px;
+    min-height: clamp(78px, 12vw, 94px);
+    border-radius: var(--flow-radius);
+    padding: var(--flow-card-pad-y) var(--flow-card-pad-x);
     border: 1px solid rgba(226, 232, 240, 0.96);
     background: linear-gradient(180deg, #ffffff, #fbfcfe);
     box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
     display: flex;
     flex-direction: column;
     justify-content: center;
+    gap: 6px;
 }}
 
 .quick-create-flow-card strong {{
     display: block;
-    margin-bottom: 6px;
-    font-size: 0.96rem;
+    font-size: clamp(0.93rem, 0.95vw, 1rem);
     line-height: 1.2;
     color: #0f172a;
 }}
 
 .quick-create-flow-card span {{
     display: block;
-    font-size: 0.77rem;
+    font-size: clamp(0.76rem, 0.82vw, 0.8rem);
     line-height: 1.45;
     color: #64748b;
 }}
@@ -180,6 +376,7 @@ def build_quick_create_flow_diagram_html() -> str:
 .quick-create-flow-arrow-horizontal {{
     position: relative;
     height: 2px;
+    width: 100%;
     border-radius: 999px;
     background: linear-gradient(90deg, rgba(248, 113, 113, 0.22), #ef4444 70%, #ef4444);
 }}
@@ -195,33 +392,18 @@ def build_quick_create_flow_diagram_html() -> str:
 }}
 
 .quick-create-flow-arrow-horizontal-right::after {{
-    right: -1px;
-    transform: translateY(-50%) rotate(45deg);
+    right: 0;
+    transform: translate(18%, -50%) rotate(45deg);
 }}
 
 .quick-create-flow-arrow-horizontal-left::after {{
-    left: -1px;
-    transform: translateY(-50%) rotate(-135deg);
-}}
-
-.quick-create-flow-drop {{
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr);
-    align-items: center;
-    min-height: 28px;
-}}
-
-.quick-create-flow-drop-left {{
-    justify-items: stretch;
-}}
-
-.quick-create-flow-drop-right {{
-    justify-items: stretch;
+    left: 0;
+    transform: translate(-18%, -50%) rotate(-135deg);
 }}
 
 .quick-create-flow-arrow-vertical {{
     width: 2px;
-    height: 28px;
+    height: clamp(26px, 5vw, 34px);
     background: linear-gradient(180deg, rgba(248, 113, 113, 0.18), #ef4444 68%, #ef4444);
     border-radius: 999px;
     position: relative;
@@ -239,19 +421,19 @@ def build_quick_create_flow_diagram_html() -> str:
     transform: translateX(-50%) rotate(45deg);
 }}
 
-.quick-create-flow-drop-right .quick-create-flow-arrow-vertical {{
-    grid-column: 7;
-    justify-self: center;
+.quick-create-flow-stepper {{
+    padding-top: 4px;
 }}
 
-.quick-create-flow-drop-left .quick-create-flow-arrow-vertical {{
-    grid-column: 1;
-    justify-self: center;
+.quick-create-flow-stepper-arrow {{
+    display: flex;
+    justify-content: center;
+    padding: 8px 0 10px;
 }}
 
 .quick-create-flow-note {{
     padding: 12px 13px;
-    border-radius: 8px;
+    border-radius: var(--flow-radius);
     border: 1px solid rgba(226, 232, 240, 0.94);
     background: rgba(248, 250, 252, 0.94);
     color: #475569;
@@ -259,28 +441,36 @@ def build_quick_create_flow_diagram_html() -> str:
     line-height: 1.6;
 }}
 
-@media (max-width: 560px) {{
-    .quick-create-flow {{
-        min-height: auto;
-    }}
-
+@media (max-width: 980px) {{
     .quick-create-flow-head {{
         flex-direction: column;
     }}
 
-    .quick-create-flow-board {{
-        min-height: auto;
-        justify-content: flex-start;
+    .quick-create-flow-caption {{
+        max-width: none;
     }}
 
-    .quick-create-flow-row,
-    .quick-create-flow-row-bottom {{
-        grid-template-columns: 1fr;
-    }}
-
-    .quick-create-flow-drop,
-    .quick-create-flow-arrow-horizontal {{
+    .quick-create-flow-desktop {{
         display: none;
+    }}
+
+    .quick-create-flow-tablet {{
+        display: flex;
+    }}
+}}
+
+@media (max-width: 680px) {{
+    .quick-create-flow-tablet {{
+        display: none;
+    }}
+
+    .quick-create-flow-stepper {{
+        display: flex;
+        flex-direction: column;
+    }}
+
+    .quick-create-flow-card {{
+        min-height: clamp(72px, 20vw, 90px);
     }}
 }}
 </style>
@@ -292,16 +482,10 @@ def build_quick_create_flow_diagram_html() -> str:
     </div>
     <div class="quick-create-flow-badge">{badge}</div>
   </div>
-  <div class="quick-create-flow-board">
-    {_build_row_html(_TOP_ROW, direction="right", row_class="quick-create-flow-row-top")}
-    <div class="quick-create-flow-drop quick-create-flow-drop-right">
-      <div class="quick-create-flow-arrow-vertical" aria-hidden="true"></div>
-    </div>
-    {_build_row_html(_MIDDLE_ROW, direction="left", row_class="quick-create-flow-row-middle")}
-    <div class="quick-create-flow-drop quick-create-flow-drop-left">
-      <div class="quick-create-flow-arrow-vertical" aria-hidden="true"></div>
-    </div>
-    {_build_row_html(_BOTTOM_ROW, direction="right", row_class="quick-create-flow-row-bottom")}
+  <div class="quick-create-flow-boards">
+    {_build_desktop_board_html()}
+    {_build_tablet_board_html()}
+    {_build_stepper_html()}
   </div>
   <div class="quick-create-flow-note">{note}</div>
 </div>
