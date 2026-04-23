@@ -23,12 +23,20 @@ class _FakeStreamlit:
         self.top_level_markdowns: list[tuple[str, dict]] = []
         self.expander_markdowns: list[tuple[str, dict]] = []
         self.expanders: list[tuple[str, bool]] = []
+        self.checkbox_calls: list[dict] = []
+        self.session_state = {
+            "template_type_selector": "static",
+            "storyboard_planning_enabled": True,
+        }
         self._in_expander = False
 
     def markdown(self, body, **kwargs):
         target = self.expander_markdowns if self._in_expander else self.top_level_markdowns
         target.append((body, kwargs))
         return None
+
+    def container(self, **_kwargs):
+        return _FakeContext()
 
     def expander(self, label, expanded=False):
         self.expanders.append((label, expanded))
@@ -44,6 +52,75 @@ class _FakeStreamlit:
                 return False
 
         return _FakeExpander()
+
+    def checkbox(self, label, value=False, **kwargs):
+        self.checkbox_calls.append({"label": label, "value": value, **kwargs})
+        return value
+
+    def caption(self, *_args, **_kwargs):
+        return None
+
+    def info(self, *_args, **_kwargs):
+        return None
+
+    def warning(self, *_args, **_kwargs):
+        return None
+
+    def success(self, *_args, **_kwargs):
+        return None
+
+    def error(self, *_args, **_kwargs):
+        return None
+
+    def radio(self, _label, options, index=0, key=None, **_kwargs):
+        if key == "tts_inference_mode":
+            return "local"
+        if key == "template_type_selector":
+            return "static"
+        if key in {"storyboard_consistency_strength", "storyboard_role_locking_strength"}:
+            return options[index]
+        if key == "storyboard_shot_strategy":
+            return options[index]
+        return options[index]
+
+    def selectbox(self, _label, options, index=0, key=None, **_kwargs):
+        if options:
+            return options[index]
+        return None
+
+    def columns(self, sizes):
+        count = len(sizes) if isinstance(sizes, list) else int(sizes)
+        return [_FakeContext() for _ in range(count)]
+
+    def slider(self, _label, value=None, **_kwargs):
+        return value
+
+    def file_uploader(self, *_args, **_kwargs):
+        return None
+
+    def button(self, *_args, **_kwargs):
+        return False
+
+    def text_input(self, _label, value="", **_kwargs):
+        return value
+
+    def audio(self, *_args, **_kwargs):
+        return None
+
+    def spinner(self, *_args, **_kwargs):
+        return _FakeContext()
+
+    def tabs(self, labels):
+        return [_FakeContext() for _ in labels]
+
+    def stop(self):
+        raise RuntimeError("st.stop called")
+
+    def write(self, *_args, **_kwargs):
+        return None
+
+    def image(self, *_args, **_kwargs):
+        return None
 
 
 def test_resolve_storyboard_toggle_default_prefers_session_state_then_preview_snapshot_then_default():
@@ -73,6 +150,27 @@ def test_resolve_storyboard_toggle_default_prefers_session_state_then_preview_sn
         )
         is False
     )
+
+
+def test_resolve_storyboard_toggle_default_disables_static_template_even_when_enabled_elsewhere():
+    assert (
+        style_config.resolve_storyboard_toggle_default(
+            {"storyboard_planning_enabled": True},
+            storyboard_default_enabled=True,
+            preview_snapshot={"frame_overrides": []},
+            template_type="static",
+        )
+        is False
+    )
+
+
+def test_build_storyboard_control_payload_drops_auto_shot_preset_selection():
+    payload = build_storyboard_control_payload(
+        world_preset_id="neutral_knowledge_storyboard",
+        shot_preset_id="__auto__",
+    )
+
+    assert payload == {"world_preset_id": "neutral_knowledge_storyboard"}
 
 
 def test_resolve_storyboard_preset_label_uses_translation_key_or_display_name_fallback(monkeypatch):
@@ -167,6 +265,34 @@ def test_build_storyboard_control_payload_includes_storyboard_fields():
             }
         ],
     }
+
+
+def test_render_style_config_disables_storyboard_for_static_templates(monkeypatch):
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(style_config.config_manager, "get_comfyui_config", lambda: {"tts": {"inference_mode": "local", "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2}, "comfyui": {}}})
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "render_backend")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: (_ for _ in ()).throw(AssertionError("guide should not render for static templates")))
+    monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type", lambda _template_type: {})
+
+    class _FakeVideo:
+        config = {"template": {}}
+
+    try:
+        style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
+    except RuntimeError as exc:
+        assert str(exc) == "st.stop called"
+
+    assert fake_st.checkbox_calls
+    storyboard_checkbox = next(call for call in fake_st.checkbox_calls if call["label"] == "storyboard.enabled")
+    assert storyboard_checkbox["disabled"] is True
+    assert storyboard_checkbox["value"] is False
+    assert storyboard_checkbox["key"] == "storyboard_planning_enabled_static"
+    assert fake_st.session_state["storyboard_planning_enabled"] is True
 
 
 def test_render_storyboard_planning_guide_renders_default_on_copy_and_expander(monkeypatch):

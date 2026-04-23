@@ -65,6 +65,8 @@ from web.utils.tts_audio_strategy_ui import get_tts_audio_strategy_default
 from web.utils.tts_ui import resolve_comfyui_tts_speed
 from web.utils.workflow_defaults import resolve_selectbox_default_index
 
+STORYBOARD_SHOT_PRESET_AUTO_VALUE = "__auto__"
+
 
 def render_generated_style_preview(preview_media_path: str, template_media_type: str):
     """Render generated preview media using a shared normalization path."""
@@ -135,6 +137,9 @@ def build_storyboard_control_payload(
     frame_overrides: list[dict] | None = None,
 ) -> dict:
     """Build a normalized storyboard control payload from UI selections."""
+    if shot_preset_id == STORYBOARD_SHOT_PRESET_AUTO_VALUE:
+        shot_preset_id = None
+
     payload = {
         "world_preset_id": world_preset_id,
         "shot_preset_id": shot_preset_id,
@@ -160,8 +165,15 @@ def build_storyboard_control_payload(
     return normalized_payload
 
 
-def resolve_storyboard_toggle_default(session_state, storyboard_default_enabled: bool, preview_snapshot):
+def resolve_storyboard_toggle_default(
+    session_state,
+    storyboard_default_enabled: bool,
+    preview_snapshot,
+    template_type: str | None = None,
+):
     """Resolve the storyboard checkbox default from session state, preview state, then caller default."""
+    if template_type == "static":
+        return False
     if session_state is not None and "storyboard_planning_enabled" in session_state:
         return bool(session_state.get("storyboard_planning_enabled"))
     if preview_snapshot is not None:
@@ -2007,6 +2019,13 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
     storyboard_role_locking_strength = None
     storyboard_shot_strategy = None
     storyboard_frame_overrides: list[dict] = []
+    selected_template_type_for_storyboard = st.session_state.get("template_type_selector")
+    storyboard_controls_disabled = selected_template_type_for_storyboard == "static"
+    storyboard_checkbox_key = (
+        "storyboard_planning_enabled_static"
+        if storyboard_controls_disabled
+        else "storyboard_planning_enabled"
+    )
 
     with st.container(border=True):
         st.markdown(f"**{tr('section.storyboard_planning')}**")
@@ -2017,14 +2036,17 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
                 st.session_state,
                 storyboard_default_enabled=storyboard_default_enabled,
                 preview_snapshot=st.session_state.get("storyboard_preview_snapshot"),
+                template_type=selected_template_type_for_storyboard,
             ),
-            key="storyboard_planning_enabled",
+            key=storyboard_checkbox_key,
             help=tr("storyboard.enabled_help"),
+            disabled=storyboard_controls_disabled,
         )
 
-        render_storyboard_planning_guide()
-
-        if storyboard_enabled:
+        if storyboard_controls_disabled:
+            st.caption(tr("template.type.static_hint"))
+        elif storyboard_enabled:
+            render_storyboard_planning_guide()
             world_library = config_manager.get_storyboard_world_preset_library()
             shot_library = config_manager.get_storyboard_shot_preset_library()
             world_items = world_library.get("items", [])
@@ -2037,10 +2059,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
             default_world_id = world_library.get("default_world_preset_id")
             if default_world_id not in world_ids and world_ids:
                 default_world_id = world_ids[0]
-            default_shot_id = shot_library.get("default_shot_preset_id")
-            if default_shot_id not in shot_ids and shot_ids:
-                default_shot_id = shot_ids[0]
-
             storyboard_col1, storyboard_col2 = st.columns(2)
             with storyboard_col1:
                 if world_ids:
@@ -2074,11 +2092,17 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
                 if shot_ids:
                     storyboard_shot_preset_id = st.selectbox(
                         tr("storyboard.shot_preset"),
-                        options=shot_ids,
-                        index=shot_ids.index(default_shot_id),
-                        format_func=lambda value: shot_label_map.get(value, value),
+                        options=[STORYBOARD_SHOT_PRESET_AUTO_VALUE, *shot_ids],
+                        index=0,
+                        format_func=lambda value: (
+                            tr("storyboard.option.content_mode.auto")
+                            if value == STORYBOARD_SHOT_PRESET_AUTO_VALUE
+                            else shot_label_map.get(value, value)
+                        ),
                         key="storyboard_shot_preset_id",
                     )
+                    if storyboard_shot_preset_id == STORYBOARD_SHOT_PRESET_AUTO_VALUE:
+                        storyboard_shot_preset_id = None
                 storyboard_role_strategy = st.selectbox(
                     tr("storyboard.role_strategy"),
                     options=["auto", "stable_explainer_cast", "theme_mapping"],

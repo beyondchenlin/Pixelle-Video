@@ -108,24 +108,17 @@ def extract_storyboard_planning_snapshot(detail: dict) -> dict:
 def summarize_storyboard_planning_snapshot(snapshot: dict) -> list[tuple[str, str]]:
     """Summarize the key storyboard planning fields for History UI."""
 
-    def _resolve_world_preset_label(
-        preset_id: str | None,
-        library: dict,
-    ) -> str | None:
-        if preset_id in (None, ""):
-            return None
-
-        for item in library.get("items", []):
-            if item.get("preset_id") == preset_id:
-                return resolve_storyboard_preset_label(item)
-        return str(preset_id)
-
-    def _resolve_shot_preset_label(
+    def _resolve_preset_label_from_snapshot(
+        snapshot_preset: object | None,
         candidate_ids: list[str | None],
         library: dict,
     ) -> str | None:
-        first_non_empty_candidate = None
+        if snapshot_preset not in (None, ""):
+            snapshot_label = resolve_storyboard_preset_label(snapshot_preset)
+            if snapshot_label:
+                return snapshot_label
 
+        first_non_empty_candidate = None
         for preset_id in candidate_ids:
             if preset_id in (None, ""):
                 continue
@@ -137,11 +130,23 @@ def summarize_storyboard_planning_snapshot(snapshot: dict) -> list[tuple[str, st
 
         return first_non_empty_candidate
 
-    world_preset_label = _resolve_world_preset_label(
-        snapshot.get("world_preset_id"),
+    def _translate_storyboard_option(category: str, value: str | None) -> str | None:
+        if value in (None, ""):
+            return None
+
+        translation_key = f"storyboard.option.{category}.{value}"
+        localized_value = tr(translation_key)
+        if localized_value != translation_key:
+            return localized_value
+        return str(value)
+
+    world_preset_label = _resolve_preset_label_from_snapshot(
+        snapshot.get("world_preset"),
+        [snapshot.get("world_preset_id")],
         config_manager.get_storyboard_world_preset_library(),
     )
-    shot_preset_label = _resolve_shot_preset_label(
+    shot_preset_label = _resolve_preset_label_from_snapshot(
+        snapshot.get("shot_preset"),
         [
             snapshot.get("requested_shot_preset_id"),
             snapshot.get("effective_final_shot_preset"),
@@ -155,16 +160,25 @@ def summarize_storyboard_planning_snapshot(snapshot: dict) -> list[tuple[str, st
         ("history.detail.storyboard_shot_preset", shot_preset_label),
         (
             "history.detail.storyboard_content_mode",
-            snapshot.get("resolved_content_mode") or snapshot.get("content_mode"),
+            _translate_storyboard_option(
+                "content_mode",
+                snapshot.get("resolved_content_mode") or snapshot.get("content_mode"),
+            ),
         ),
         (
             "history.detail.storyboard_consistency",
-            snapshot.get("selected_consistency_strength")
-            or snapshot.get("consistency_strength"),
+            _translate_storyboard_option(
+                "consistency",
+                snapshot.get("selected_consistency_strength")
+                or snapshot.get("consistency_strength"),
+            ),
         ),
         (
             "history.detail.storyboard_role_strategy",
-            snapshot.get("resolved_role_strategy") or snapshot.get("role_strategy"),
+            _translate_storyboard_option(
+                "role_strategy",
+                snapshot.get("resolved_role_strategy") or snapshot.get("role_strategy"),
+            ),
         ),
         (
             "history.detail.storyboard_role_locking",
@@ -173,7 +187,10 @@ def summarize_storyboard_planning_snapshot(snapshot: dict) -> list[tuple[str, st
         ),
         (
             "history.detail.storyboard_shot_strategy",
-            snapshot.get("selected_shot_strategy") or snapshot.get("shot_strategy"),
+            _translate_storyboard_option(
+                "shot_strategy",
+                snapshot.get("selected_shot_strategy") or snapshot.get("shot_strategy"),
+            ),
         ),
     ]
 
