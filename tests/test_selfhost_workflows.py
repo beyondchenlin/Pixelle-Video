@@ -42,6 +42,15 @@ def test_image_z_image_turbo_gguf_workflow_is_parseable():
     _assert_prompt_mapping_is_declared_once(metadata)
 
 
+def test_image_z_image_turbo_gguf_doc_declares_easy_use_dependency():
+    doc = Path(
+        "workflows/down/image_z_image_turbo_gguf_依赖与下载说明.md"
+    ).read_text(encoding="utf-8")
+
+    assert "ComfyUI-Easy-Use" in doc
+    assert "easy int" in doc
+
+
 def test_image_qwen_edit_2511_gguf_q4_k_m_workflow_is_parseable():
     metadata = WorkflowParser().parse_workflow_file(
         str(Path("workflows/selfhost/image_qwen_edit_2511_gguf_q4_k_m.json"))

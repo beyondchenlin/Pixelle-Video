@@ -15,6 +15,7 @@
 
 - `UnetLoaderGGUF`
 - `CLIPLoaderGGUF`
+- `easy int`
 - `VAELoader`
 - `PrimitiveStringMultiline`
 - `CLIPTextEncode`
@@ -30,6 +31,7 @@
 | 分类 | 依赖 | 作用 |
 |---|---|---|
 | 自定义节点插件 | `ComfyUI-GGUF` | 提供 `UnetLoaderGGUF`、`CLIPLoaderGGUF` |
+| 自定义节点插件 | `ComfyUI-Easy-Use` | 提供 `easy int`，用于 `width` / `height` 输入 |
 | Python 包 | `gguf`、`sentencepiece`、`protobuf` | GGUF 模型读取与分词依赖 |
 | 主模型 | `z-image-turbo-Q8_0.gguf` | `Z-Image-Turbo` GGUF 主扩散模型 |
 | 文本编码器 | `Qwen3-4B-Q8_0.gguf` | `Z-Image-Turbo` GGUF 版文本编码器 |
@@ -43,6 +45,7 @@
 | `Qwen3-4B-Q8_0.gguf` | `ComfyUI/models/text_encoders/` |
 | `ae.safetensors` | `ComfyUI/models/vae/` |
 | `ComfyUI-GGUF` 插件 | `ComfyUI/custom_nodes/ComfyUI-GGUF/` |
+| `ComfyUI-Easy-Use` 插件 | `ComfyUI/custom_nodes/ComfyUI-Easy-Use/` |
 
 ## 4. 下载优先级
 
@@ -74,6 +77,7 @@
 ### 5.5 插件
 
 - 页面：`https://github.com/city96/ComfyUI-GGUF`
+- 页面：`https://github.com/yolain/ComfyUI-Easy-Use`
 
 ## 6. 备用地址
 
@@ -89,6 +93,11 @@
 
 - `https://huggingface.co/Comfy-Org/z_image/tree/main/split_files/vae`
 
+### 6.4 插件备用地址
+
+- `https://github.com/city96/ComfyUI-GGUF`
+- `https://github.com/yolain/ComfyUI-Easy-Use`
+
 ## 7. 安装命令
 
 ### 7.1 安装 GGUF 插件
@@ -97,13 +106,24 @@
 git clone https://github.com/city96/ComfyUI-GGUF.git ComfyUI\custom_nodes\ComfyUI-GGUF
 ```
 
-### 7.2 安装 GGUF Python 依赖
+### 7.2 安装 Easy-Use 插件
+
+```powershell
+git clone https://github.com/yolain/ComfyUI-Easy-Use.git ComfyUI\custom_nodes\ComfyUI-Easy-Use
+```
+
+说明：
+
+- 这份工作流里的 `width` / `height` 输入节点是 `easy int`
+- 如果缺少 `ComfyUI-Easy-Use`，工作流虽然能被仓库 parser 识别，但在 ComfyUI 里会报缺节点
+
+### 7.3 安装 GGUF Python 依赖
 
 ```powershell
 python -m pip install -U gguf sentencepiece protobuf
 ```
 
-### 7.3 使用 ModelScope 下载模型
+### 7.4 使用 ModelScope 下载模型
 
 ```powershell
 modelscope download --model unsloth/Z-Image-Turbo-GGUF --local_dir "ComfyUI\models\unet" "z-image-turbo-Q8_0.gguf"
@@ -141,7 +161,7 @@ Get-Item `
 ### 8.3 检查本机节点是否支持该工作流
 
 ```powershell
-rg -n "UnetLoaderGGUF|CLIPLoaderGGUF" "ComfyUI"
+rg -n "UnetLoaderGGUF|CLIPLoaderGGUF|easy int" "ComfyUI"
 ```
 
 ### 8.4 检查仓库中的工作流参数映射
@@ -165,8 +185,11 @@ rg -n "UnetLoaderGGUF|CLIPLoaderGGUF" "ComfyUI"
   - `https://huggingface.co/Comfy-Org/z_image/tree/main/split_files/vae`
 - 插件源可访问：
   - `https://github.com/city96/ComfyUI-GGUF`
+  - `https://github.com/yolain/ComfyUI-Easy-Use`
 - 本机 `ComfyUI-GGUF` 插件目录已存在：
   - `E:\comfyui\comfyui\custom_nodes\ComfyUI-GGUF`
+ - 本机 `easy int` 节点来源已存在：
+   - `E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-Easy-Use`
 
 ## 10. 常见问题
 
@@ -205,3 +228,12 @@ rg -n "UnetLoaderGGUF|CLIPLoaderGGUF" "ComfyUI"
 - 不需要上传参考图
 
 所以它可以像现有 `image_z_image_turbo.json` 一样走项目当前的 prompt-only 图片生成链路。
+
+### 10.5 为什么说明里还要单独写 `ComfyUI-Easy-Use`？
+
+因为这份工作流沿用了仓库现有 `z-image` / `flux` 工作流的参数输入形式，`width` 和 `height` 用的是 `easy int` 节点。
+
+也就是说它不是“只依赖 GGUF 插件”的纯核心节点图，而是：
+
+- `ComfyUI-GGUF` 负责加载 `.gguf`
+- `ComfyUI-Easy-Use` 负责 `easy int` 参数输入
