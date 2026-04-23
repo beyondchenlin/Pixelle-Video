@@ -423,6 +423,7 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
             "role_strategy": "auto",
             "role_locking_strength": "strong",
             "shot_strategy": "strict",
+            "forbid_embedded_text_in_image": False,
             "frame_overrides": [
                 {
                     "scene_id": "scene-1",
@@ -440,6 +441,7 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
     assert captured["request"]["role_strategy"] == "auto"
     assert captured["request"]["role_locking_strength"] == "strong"
     assert captured["request"]["shot_strategy"] == "strict"
+    assert captured["request"]["forbid_embedded_text_in_image"] is False
     assert captured["request"]["frame_overrides"] == [
         {
             "scene_id": "scene-1",

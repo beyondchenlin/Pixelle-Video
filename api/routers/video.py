@@ -148,6 +148,11 @@ async def generate_video_sync(
             "role_strategy": request_body.role_strategy,
             "role_locking_strength": request_body.role_locking_strength,
             "shot_strategy": request_body.shot_strategy,
+            "forbid_embedded_text_in_image": (
+                True
+                if request_body.forbid_embedded_text_in_image is None
+                else request_body.forbid_embedded_text_in_image
+            ),
             "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
             "bgm_path": request_body.bgm_path,
             "bgm_volume": request_body.bgm_volume,
@@ -262,6 +267,11 @@ async def generate_video_async(
                 "role_strategy": request_body.role_strategy,
                 "role_locking_strength": request_body.role_locking_strength,
                 "shot_strategy": request_body.shot_strategy,
+                "forbid_embedded_text_in_image": (
+                    True
+                    if request_body.forbid_embedded_text_in_image is None
+                    else request_body.forbid_embedded_text_in_image
+                ),
                 "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
                 "bgm_path": request_body.bgm_path,
                 "bgm_volume": request_body.bgm_volume,

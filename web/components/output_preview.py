@@ -278,6 +278,7 @@ def render_single_output(pixelle_video, video_params):
                         "role_strategy": video_params.get("role_strategy"),
                         "role_locking_strength": video_params.get("role_locking_strength"),
                         "shot_strategy": video_params.get("shot_strategy"),
+                        "forbid_embedded_text_in_image": video_params.get("forbid_embedded_text_in_image", True),
                         "frame_overrides": video_params.get("frame_overrides"),
                     },
                     progress_callback=update_progress,

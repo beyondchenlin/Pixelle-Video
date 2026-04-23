@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from api.routers.video import generate_video_sync
+from api.routers.video import generate_video_async, generate_video_sync
 from api.schemas.video import VideoGenerateRequest
 
 
@@ -108,6 +108,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             role_strategy="auto",
             role_locking_strength="strong",
             shot_strategy="strict",
+            forbid_embedded_text_in_image=False,
             frame_overrides=[
                 {
                     "scene_id": "scene-1",
@@ -147,6 +148,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "role_strategy": "auto",
             "role_locking_strength": "strong",
             "shot_strategy": "strict",
+            "forbid_embedded_text_in_image": False,
             "frame_overrides": [
                 {
                     "scene_id": "scene-1",
@@ -157,3 +159,57 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             ],
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_generate_video_async_passes_no_text_toggle_to_video_core(monkeypatch, tmp_path):
+    class _FakeFrameGenerator:
+        def __init__(self, template_path):
+            self.template_path = template_path
+
+        def get_media_size(self):
+            return 1080, 1920
+
+    output_path = tmp_path / "task-async" / "final.mp4"
+    fake_pixelle_video = _FakePixelleVideo(output_path)
+    captured = {}
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda template_path: template_path,
+    )
+
+    class _FakeTask:
+        task_id = "task-1"
+
+    monkeypatch.setattr(
+        "api.routers.video.task_manager.create_task",
+        lambda **kwargs: _FakeTask(),
+    )
+
+    async def fake_execute_task(*, task_id, coro_func):
+        captured["task_id"] = task_id
+        captured["result"] = await coro_func()
+
+    monkeypatch.setattr(
+        "api.routers.video.task_manager.execute_task",
+        fake_execute_task,
+    )
+
+    response = await generate_video_async(
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            forbid_embedded_text_in_image=False,
+        ),
+        fake_pixelle_video,
+        SimpleNamespace(base_url="http://testserver/"),
+    )
+
+    assert response.task_id == "task-1"
+    assert captured["task_id"] == "task-1"
+    assert fake_pixelle_video.calls[0]["forbid_embedded_text_in_image"] is False
