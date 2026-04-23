@@ -25,6 +25,8 @@ class _FakeStreamlit:
         self.top_level_markdowns: list[tuple[str, dict]] = []
         self.expander_markdowns: list[tuple[str, dict]] = []
         self.popover_markdowns: list[tuple[str, dict]] = []
+        self.caption_calls: list[str] = []
+        self.info_calls: list[str] = []
         self.expanders: list[tuple[str, bool]] = []
         self.popovers: list[str] = []
         self.container_calls: list[dict] = []
@@ -87,10 +89,14 @@ class _FakeStreamlit:
         self.checkbox_calls.append({"label": label, "value": value, **kwargs})
         return value
 
-    def caption(self, *_args, **_kwargs):
+    def caption(self, *args, **_kwargs):
+        if args:
+            self.caption_calls.append(args[0])
         return None
 
-    def info(self, *_args, **_kwargs):
+    def info(self, *args, **_kwargs):
+        if args:
+            self.info_calls.append(args[0])
         return None
 
     def warning(self, *_args, **_kwargs):
@@ -442,6 +448,126 @@ def test_render_style_config_disables_storyboard_for_static_templates(monkeypatc
     assert storyboard_checkbox["value"] is False
     assert fake_st.session_state["storyboard_planning_enabled"] is True
     assert "forbid_embedded_text_in_image" not in result
+
+
+def test_render_style_config_shows_expanded_image_notice_when_template_does_not_require_media(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["template_type_selector"] = "static"
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_comfyui_config",
+        lambda: {
+            "tts": {
+                "inference_mode": "local",
+                "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2},
+                "comfyui": {},
+            },
+            "image": {},
+            "video": {},
+        },
+    )
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "render_backend")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
+    monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_storyboard_world_preset_library",
+        lambda: {
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [{"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}],
+        },
+    )
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_storyboard_shot_preset_library",
+        lambda: {
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [{"preset_id": "balanced_explainer", "display_name": "Balanced"}],
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_template_type",
+        lambda _template_name: "static",
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
+        lambda _template_type: {
+            "1080x1920": [
+                type(
+                    "TemplateInfo",
+                    (),
+                    {
+                        "template_path": "1080x1920/static_default.html",
+                        "display_info": type(
+                            "DisplayInfo",
+                            (),
+                            {
+                                "name": "static_default",
+                                "orientation": "portrait",
+                                "width": 1080,
+                                "height": 1920,
+                            },
+                        )(),
+                    },
+                )()
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.parse_template_size",
+        lambda _path: (1080, 1920),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda path: path,
+    )
+
+    class _FakeFrameGenerator:
+        def __init__(self, _template_path):
+            self._template_path = _template_path
+
+        def parse_template_parameters(self):
+            return {}
+
+        def get_media_size(self):
+            return (1080, 1920)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+
+    original_radio = fake_st.radio
+
+    def _radio(label, options, index=0, key=None, **kwargs):
+        if key == "template_type_selector":
+            return "static"
+        return original_radio(label, options, index=index, key=key, **kwargs)
+
+    fake_st.radio = _radio
+
+    class _FakeMedia:
+        @staticmethod
+        def list_workflows():
+            raise AssertionError("media workflows should not be loaded for static templates")
+
+    class _FakeVideo:
+        config = {"template": {}}
+        media = _FakeMedia()
+
+    result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
+
+    assert ("section.image", True) in fake_st.expanders
+    assert result["media_workflow"] is None
+    assert result["prompt_prefix"] == ""
+    assert "ℹ️ image.not_required" in fake_st.info_calls
+    assert "image.not_required_hint" in fake_st.caption_calls
 
 
 def test_render_style_config_defaults_no_text_toggle_to_true(monkeypatch):
@@ -944,7 +1070,10 @@ def test_render_style_config_image_workflow_help_uses_default_expanded_section_w
     assert ("section.image", True) in fake_st.expanders
     assert fake_st.nested_expanders == []
     assert fake_st.popovers == ["help.feature_description"]
+    expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
+    assert "**style.image_model_selection_title**" in expander_html
     popover_html = "\n".join(body for body, _kwargs in fake_st.popover_markdowns)
+    assert "style.image_model_selection_title" not in popover_html
     assert "style.workflow_what" in popover_html
     assert "style.workflow_how" in popover_html
 
@@ -1062,21 +1191,6 @@ def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_i
     assert ("section.image", True) in fake_st.expanders
     assert fake_st.nested_expanders == []
     assert fake_st.popovers == ["help.feature_description"]
-
-
-def test_image_generation_section_sources_model_title_before_default_expanded_help_popover():
-    project_root = Path(__file__).resolve().parent.parent
-    source = (project_root / "web" / "components" / "style_config.py").read_text(encoding="utf-8")
-
-    assert 'if template_media_type == "image":' in source
-    assert 'style.image_model_selection_title' in source
-    assert 'with render_middle_column_collapsible_section(' in source
-    assert "section_title,\n            expanded=True," in source
-    image_section = source.split('if template_media_type == "image":', 1)[1]
-    model_title_index = image_section.index("style.image_model_selection_title")
-    help_section_index = image_section.index('tr("help.feature_description")')
-    assert model_title_index < help_section_index
-
 
 def test_render_image_prompt_prefix_library_renders_filter_panel_without_nested_expander(monkeypatch):
     fake_st = _FakeStreamlit()
