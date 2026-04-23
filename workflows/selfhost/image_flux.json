@@ -101,7 +101,7 @@
   },
   "41": {
     "inputs": {
-      "value": 1024
+      "value": 768
     },
     "class_type": "easy int",
     "_meta": {
@@ -110,7 +110,7 @@
   },
   "42": {
     "inputs": {
-      "value": 1024
+      "value": 768
     },
     "class_type": "easy int",
     "_meta": {

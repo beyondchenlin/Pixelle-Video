@@ -15,6 +15,22 @@ def _assert_prompt_mapping_is_declared_once(metadata):
     assert prompt_mappings == [("46", "value")]
 
 
+def _assert_default_image_size_is_768(workflow_path: str):
+    workflow = json.loads(Path(workflow_path).read_text(encoding="utf-8"))
+
+    width_nodes = [
+        node for node in workflow.values() if node["_meta"]["title"] == "$width.value"
+    ]
+    height_nodes = [
+        node for node in workflow.values() if node["_meta"]["title"] == "$height.value"
+    ]
+
+    assert len(width_nodes) == 1
+    assert len(height_nodes) == 1
+    assert width_nodes[0]["inputs"]["value"] == 768
+    assert height_nodes[0]["inputs"]["value"] == 768
+
+
 def test_image_z_image_workflow_is_parseable():
     metadata = WorkflowParser().parse_workflow_file(
         str(Path("workflows/selfhost/image_z_image.json"))
@@ -49,6 +65,19 @@ def test_image_z_image_turbo_gguf_doc_declares_easy_use_dependency():
 
     assert "ComfyUI-Easy-Use" in doc
     assert "easy int" in doc
+
+
+def test_standard_image_workflows_default_to_768_square():
+    workflow_paths = [
+        "workflows/selfhost/image_z_image.json",
+        "workflows/selfhost/image_z_image_turbo.json",
+        "workflows/selfhost/image_z_image_turbo_gguf.json",
+        "workflows/selfhost/image_qwen.json",
+        "workflows/selfhost/image_flux.json",
+    ]
+
+    for workflow_path in workflow_paths:
+        _assert_default_image_size_is_768(workflow_path)
 
 
 def test_image_qwen_edit_2511_gguf_q4_k_m_workflow_is_parseable():
