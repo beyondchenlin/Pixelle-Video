@@ -3095,6 +3095,12 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
             workflow_key = None
             prompt_prefix = ""
     
+    storyboard_no_text_override = (
+        storyboard_forbid_embedded_text_in_image
+        if storyboard_enabled and not storyboard_controls_disabled
+        else None
+    )
+
     storyboard_payload = build_storyboard_control_payload(
         world_preset_id=storyboard_world_preset_id,
         shot_preset_id=storyboard_shot_preset_id,
@@ -3104,7 +3110,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         role_locking_strength=storyboard_role_locking_strength,
         shot_strategy=storyboard_shot_strategy,
         frame_overrides=storyboard_frame_overrides,
-        forbid_embedded_text_in_image=storyboard_forbid_embedded_text_in_image,
+        forbid_embedded_text_in_image=storyboard_no_text_override,
     )
 
     # Return all style configuration parameters

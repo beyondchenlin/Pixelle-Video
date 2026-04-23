@@ -1,5 +1,5 @@
-import inspect
 import asyncio
+import inspect
 import json
 import os
 from pathlib import Path
@@ -591,10 +591,6 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "_resolve_prompt_prefix_workflow_display_label" in source
     assert "_get_prompt_prefix_source_label" in source
     assert "workflow_display_map=workflow_display_map" in source
-    assert '_open_prompt_prefix_panel("manual")\n            safe_rerun()' not in source
-    assert '_open_prompt_prefix_panel("ai")\n            safe_rerun()' not in source
-    assert '_open_prompt_prefix_panel("details", active_item["id"])\n                safe_rerun()' not in source
-    assert '_open_prompt_prefix_panel("details", item["id"])\n                            safe_rerun()' not in source
     assert "on_open_panel=lambda mode: _set_prompt_prefix_panel_state(mode)" in source
     assert 'st.container(key="prompt_prefix_library_root")' in current_prefix_section
     filter_panel_section = current_prefix_section.split('tr("style.prefix_library.filter_panel")', 1)[1]
@@ -622,6 +618,59 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "st.columns([2.25, 1.05]" not in source
     assert "st.columns([1, 1, 1.2, 0.8, 0.9]" not in source
     assert "st.columns([1, 1, 1])" in standard_source
+
+
+def test_prompt_prefix_action_toolbar_uses_callback_without_forcing_rerun(monkeypatch):
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeStreamlit:
+        def __init__(self):
+            self.session_state = {}
+            self._clicked_keys = {
+                "prompt_prefix_toolbar_add",
+                "prompt_prefix_toolbar_ai",
+            }
+
+        def container(self):
+            return _FakeContext()
+
+        def button(self, _label, key=None, **_kwargs):
+            return key in self._clicked_keys
+
+        def warning(self, *_args, **_kwargs):
+            raise AssertionError("warning should not be called for toolbar open actions")
+
+        def empty(self):
+            raise AssertionError("empty should not be called for toolbar open actions")
+
+        def spinner(self, *_args, **_kwargs):
+            raise AssertionError("spinner should not be called for toolbar open actions")
+
+    fake_st = _FakeStreamlit()
+    panel_calls = []
+    rerun_calls = []
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(style_config, "safe_rerun", lambda: rerun_calls.append("rerun"))
+
+    style_config._render_prompt_prefix_library_action_toolbar(
+        pixelle_video=object(),
+        workflow_key="selfhost/image_z_image_turbo.json",
+        media_width=1024,
+        media_height=1024,
+        filtered_items=[],
+        thumbnail_reference_prompt="storybook gallery cover",
+        on_open_panel=lambda mode: panel_calls.append(mode),
+    )
+
+    assert panel_calls == ["manual", "ai"]
+    assert rerun_calls == []
 
 
 def test_collapsible_section_helper_does_not_require_key_parameter():
