@@ -497,6 +497,30 @@ def build_quick_create_flow_diagram_html() -> str:
     .quick-create-flow-tablet {{
         display: flex;
     }}
+
+    .quick-create-flow-tablet .quick-create-flow-row-tablet > .quick-create-flow-card {{
+        inline-size: min(100%, 11.75rem);
+    }}
+
+    .quick-create-flow-tablet .quick-create-flow-row-tablet > .quick-create-flow-card:nth-child(1) {{
+        justify-self: end;
+    }}
+
+    .quick-create-flow-tablet .quick-create-flow-row-tablet > .quick-create-flow-card:nth-child(3) {{
+        justify-self: start;
+    }}
+
+    .quick-create-flow-tablet .quick-create-flow-drop-2 {{
+        gap: var(--flow-arrow-span);
+    }}
+
+    .quick-create-flow-tablet .quick-create-flow-drop-slot:first-child {{
+        justify-content: end;
+    }}
+
+    .quick-create-flow-tablet .quick-create-flow-drop-slot:last-child {{
+        justify-content: start;
+    }}
 }}
 
 @container quick-create-flow (max-width: 430px) {{

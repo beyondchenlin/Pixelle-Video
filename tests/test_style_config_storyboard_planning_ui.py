@@ -311,6 +311,7 @@ def test_build_quick_create_flow_diagram_html_uses_responsive_layout_contract(mo
     assert "@container quick-create-flow (max-width: 760px)" in html
     assert "@container quick-create-flow (max-width: 430px)" in html
     assert "overflow-wrap: anywhere;" in html
+    assert "inline-size: min(100%, 11.75rem);" in html
     assert "@media (max-width: 980px)" not in html
     assert "padding-bottom: 12px;" in html
     assert (
