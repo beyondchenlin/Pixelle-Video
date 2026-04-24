@@ -28,6 +28,7 @@ from api.schemas.video import (
     VideoGenerateResponse,
 )
 from api.tasks import TaskType, task_manager
+from pixelle_video.services.generation_coordinator import build_generation_fingerprint
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 
 router = APIRouter(prefix="/video", tags=["Video Generation"])
@@ -259,11 +260,31 @@ async def generate_video_async(
             request_id=request_id,
             content=build_content_observability(request_body.text),
         ).info("async video generation request received")
+
+        generation_fingerprint = build_generation_fingerprint(
+            text=request_body.text,
+            pipeline="standard",
+            params=request_body.model_dump(exclude_none=True),
+        )
+        existing_task = task_manager.find_active_task_by_request_fingerprint(
+            request_fingerprint=generation_fingerprint,
+            task_type=TaskType.VIDEO_GENERATION,
+        )
+        if existing_task is not None:
+            logger.info(f"Reusing active async video generation task: {existing_task.task_id}")
+            return VideoGenerateAsyncResponse(
+                task_id=existing_task.task_id,
+                message="Task already running",
+            )
         
         # Create task
         task = task_manager.create_task(
             task_type=TaskType.VIDEO_GENERATION,
-            request_params={**request_body.model_dump(), "request_id": request_id}
+            request_params={
+                **request_body.model_dump(),
+                "request_id": request_id,
+                "generation_fingerprint": generation_fingerprint,
+            },
         )
         
         # Define async execution function

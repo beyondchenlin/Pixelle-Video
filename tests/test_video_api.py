@@ -270,6 +270,43 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
 
 
 @pytest.mark.asyncio
+async def test_generate_video_async_reuses_active_duplicate_task(monkeypatch, tmp_path):
+    output_path = tmp_path / "task-async" / "final.mp4"
+    fake_pixelle_video = _FakePixelleVideo(output_path)
+
+    class _ExistingTask:
+        task_id = "existing-task"
+
+    class _FakeTaskManager:
+        def find_active_task_by_request_fingerprint(self, **kwargs):
+            assert kwargs["task_type"].value == "video_generation"
+            assert kwargs["request_fingerprint"]
+            return _ExistingTask()
+
+        def create_task(self, **_kwargs):
+            raise AssertionError("duplicate async request should not create a new task")
+
+        async def execute_task(self, **_kwargs):
+            raise AssertionError("duplicate async request should not start execution")
+
+    monkeypatch.setattr("api.routers.video.task_manager", _FakeTaskManager())
+    monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
+
+    response = await generate_video_async(
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+        ),
+        fake_pixelle_video,
+        SimpleNamespace(base_url="http://testserver/"),
+    )
+
+    assert response.task_id == "existing-task"
+    assert response.message == "Task already running"
+    assert fake_pixelle_video.calls == []
+
+
+@pytest.mark.asyncio
 async def test_generate_video_async_passes_no_text_toggle_to_video_core(monkeypatch, tmp_path):
     class _FakeFrameGenerator:
         def __init__(self, template_path):

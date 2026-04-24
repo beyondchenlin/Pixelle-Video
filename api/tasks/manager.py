@@ -27,6 +27,8 @@ from api.config import api_config
 from api.tasks.models import Task, TaskProgress, TaskStatus, TaskType
 from pixelle_video.utils.logging_util import bind_log_context
 
+ACTIVE_TASK_STATUSES = {TaskStatus.PENDING, TaskStatus.RUNNING}
+
 
 class TaskManager:
     """
@@ -103,6 +105,22 @@ class TaskManager:
         self._tasks[task_id] = task
         logger.info(f"Created task {task_id} ({task_type})")
         return task
+
+    def find_active_task_by_request_fingerprint(
+        self,
+        *,
+        request_fingerprint: str,
+        task_type: Optional[TaskType] = None,
+    ) -> Optional[Task]:
+        """Return an active task that already represents this request."""
+        for task in self._tasks.values():
+            if task_type is not None and task.task_type != task_type:
+                continue
+            if task.status not in ACTIVE_TASK_STATUSES:
+                continue
+            if (task.request_params or {}).get("generation_fingerprint") == request_fingerprint:
+                return task
+        return None
     
     async def execute_task(
         self,

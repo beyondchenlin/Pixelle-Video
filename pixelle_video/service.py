@@ -30,6 +30,10 @@ from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.alignment_service import AlignmentService
 from pixelle_video.services.audio_edit_service import AudioEditService
 from pixelle_video.services.frame_processor import FrameProcessor
+from pixelle_video.services.generation_coordinator import (
+    GenerationCoordinator,
+    build_generation_fingerprint,
+)
 from pixelle_video.services.history_manager import HistoryManager
 from pixelle_video.services.hyperframes_project_service import HyperFramesProjectService
 from pixelle_video.services.hyperframes_renderer import HyperFramesRenderer
@@ -106,6 +110,7 @@ class PixelleVideoCore:
         
         # Video generation pipelines (dictionary of pipeline_name -> pipeline_instance)
         self.pipelines = {}
+        self.generation_coordinator = GenerationCoordinator()
         
         # Default pipeline callable (for backward compatibility)
         self.generate_video = None
@@ -313,7 +318,16 @@ class PixelleVideoCore:
                 )
             
             pipeline_instance = self.pipelines[pipeline]
-            return await pipeline_instance(text=text, **kwargs)
+            fingerprint = build_generation_fingerprint(
+                text=text,
+                pipeline=pipeline,
+                params=kwargs,
+            )
+
+            async def execute_generation():
+                return await pipeline_instance(text=text, **kwargs)
+
+            return await self.generation_coordinator.run(fingerprint, execute_generation)
         
         return generate_video_wrapper
     
