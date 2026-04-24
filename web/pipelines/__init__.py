@@ -17,6 +17,10 @@ Exports registry functions and automatically registers available pipelines.
 """
 
 # Import all pipeline UI modules to ensure they register themselves.
+# The import order defines the tab order on Home; keep quick_create first.
+from web.pipelines import (
+    standard as standard,
+)
 from web.pipelines import (
     action_transfer as action_transfer,
 )
@@ -28,9 +32,6 @@ from web.pipelines import (
 )
 from web.pipelines import (
     i2v as i2v,
-)
-from web.pipelines import (
-    standard as standard,
 )
 from web.pipelines.base import (
     PipelineUI,
