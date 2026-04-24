@@ -457,6 +457,7 @@ def build_quick_create_flow_diagram_html() -> str:
     .quick-create-flow-boards {{
         --flow-gap: 10px;
         --flow-arrow-span: 18px;
+        --flow-tablet-card-width: 11.75rem;
         --flow-card-pad-x: 12px;
         --flow-card-pad-y: 12px;
     }}
@@ -498,28 +499,38 @@ def build_quick_create_flow_diagram_html() -> str:
         display: flex;
     }}
 
+    .quick-create-flow-tablet .quick-create-flow-row-tablet,
+    .quick-create-flow-tablet .quick-create-flow-drop-2 {{
+        grid-template-columns: var(--flow-tablet-card-width) var(--flow-arrow-span) var(--flow-tablet-card-width);
+        justify-content: center;
+    }}
+
     .quick-create-flow-tablet .quick-create-flow-row-tablet > .quick-create-flow-card {{
-        inline-size: min(100%, 11.75rem);
+        inline-size: 100%;
     }}
 
     .quick-create-flow-tablet .quick-create-flow-row-tablet > .quick-create-flow-card:nth-child(1) {{
-        justify-self: end;
+        grid-column: 1;
+    }}
+
+    .quick-create-flow-tablet .quick-create-flow-row-tablet > .quick-create-flow-arrow-horizontal {{
+        grid-column: 2;
     }}
 
     .quick-create-flow-tablet .quick-create-flow-row-tablet > .quick-create-flow-card:nth-child(3) {{
-        justify-self: start;
+        grid-column: 3;
     }}
 
     .quick-create-flow-tablet .quick-create-flow-drop-2 {{
-        gap: var(--flow-arrow-span);
+        gap: 0;
     }}
 
-    .quick-create-flow-tablet .quick-create-flow-drop-slot:first-child {{
-        justify-content: end;
+    .quick-create-flow-tablet .quick-create-flow-drop-2 > .quick-create-flow-drop-slot:first-child {{
+        grid-column: 1;
     }}
 
-    .quick-create-flow-tablet .quick-create-flow-drop-slot:last-child {{
-        justify-content: start;
+    .quick-create-flow-tablet .quick-create-flow-drop-2 > .quick-create-flow-drop-slot:last-child {{
+        grid-column: 3;
     }}
 }}
 
