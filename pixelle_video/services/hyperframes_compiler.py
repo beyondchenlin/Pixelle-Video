@@ -30,6 +30,12 @@ class HyperFramesCompiler:
         captions_template = (
             template_dir / "compositions" / "captions.template.html"
         ).read_text(encoding="utf-8")
+        text_layer_template_path = template_dir / "compositions" / "text_layer.template.html"
+        text_layer_template = (
+            text_layer_template_path.read_text(encoding="utf-8")
+            if text_layer_template_path.exists()
+            else '<div id="text-layer">__TEXT_CUES__</div><script>__TEXT_TIMELINE__</script>'
+        )
 
         replacements = {
             "__CANVAS_WIDTH__": str(context.canvas_width),
@@ -44,16 +50,23 @@ class HyperFramesCompiler:
             "__VISUALS__": self._render_visuals(context),
             "__AUDIO__": self._render_audio(context),
             "__CAPTIONS__": self._render_captions(context),
+            "__TEXT_CUES__": self._render_text_cues(context),
+            "__TEXT_TIMELINE__": self._render_text_timeline(context),
         }
 
         compiled_index = self._replace_placeholders(index_template, replacements)
         compiled_captions = self._replace_placeholders(captions_template, replacements)
+        compiled_text_layer = self._replace_placeholders(text_layer_template, replacements)
 
         (project_dir / "compositions").mkdir(parents=True, exist_ok=True)
         self._copy_runtime_assets(project_dir)
         (project_dir / "index.html").write_text(compiled_index, encoding="utf-8")
         (project_dir / "compositions" / "captions.html").write_text(
             compiled_captions,
+            encoding="utf-8",
+        )
+        (project_dir / "compositions" / "text_layer.html").write_text(
+            compiled_text_layer,
             encoding="utf-8",
         )
 
@@ -128,6 +141,46 @@ class HyperFramesCompiler:
                 )
             )
         return "".join(rendered)
+
+    def _render_text_cues(self, context: TemplateRenderContext) -> str:
+        tracks = {track.id: track for track in context.text_tracks if track.enabled}
+        rendered: list[str] = []
+        for cue in context.text_cues:
+            track = tracks.get(cue.track_id)
+            if track is None or "hyperframes" not in track.renderer_targets:
+                continue
+
+            duration = max(float(cue.end) - float(cue.start), 0.1)
+            rendered.append(
+                (
+                    f'<div id="{escape(cue.id, quote=True)}" '
+                    f'class="clip text-cue text-cue--{escape(cue.role, quote=True)}" '
+                    f'data-start="{cue.start}" data-duration="{duration}" '
+                    f'data-track-id="{escape(cue.track_id, quote=True)}" '
+                    f'data-role="{escape(cue.role, quote=True)}" '
+                    f'data-slot="{escape(cue.slot or "center", quote=True)}" '
+                    f'data-layer="{cue.layer}">'
+                    f'<span class="text-cue__content">{escape(cue.text)}</span>'
+                    "</div>"
+                )
+            )
+        return "".join(rendered)
+
+    def _render_text_timeline(self, context: TemplateRenderContext) -> str:
+        return (
+            'const textCues = Array.from(document.querySelectorAll(".text-cue"));\n'
+            'const tl = gsap.timeline({ paused: true });\n'
+            "gsap.set(textCues, { autoAlpha: 0, visibility: \"hidden\" });\n"
+            "textCues.forEach((cue) => {\n"
+            "  const start = Number(cue.dataset.start || 0);\n"
+            "  const duration = Math.max(Number(cue.dataset.duration || 0), 0.1);\n"
+            "  tl.set(cue, { autoAlpha: 1, visibility: \"visible\" }, start);\n"
+            "  tl.set(cue, { autoAlpha: 0, visibility: \"hidden\" }, start + duration);\n"
+            "});\n"
+            f"padTimelineToDuration(tl, {float(context.duration)});\n"
+            "window.__timelines = window.__timelines || {};\n"
+            'window.__timelines["text-layer"] = tl;'
+        )
 
     def _copy_runtime_assets(self, project_dir: Path) -> None:
         if not self.runtime_root.exists():

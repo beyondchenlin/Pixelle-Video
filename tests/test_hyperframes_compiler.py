@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from pixelle_video.models.render_package import CaptionCue, VisualClip
+from pixelle_video.models.render_package import CaptionCue, TextCue, TextTrack, VisualClip
 from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 
@@ -105,6 +105,81 @@ def test_compiler_emits_static_index_without_manifest_fetch_or_remote_urls(tmp_p
     assert (project_dir / "runtime" / "fonts" / "phase1_fonts.css").exists()
 
 
+def test_compiler_emits_static_text_layer_without_manifest_fetch(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    (template_root / "image_default" / "compositions").mkdir(parents=True)
+    (runtime_root / "vendor").mkdir(parents=True)
+    (template_root / "image_default" / "index.template.html").write_text(
+        (
+            '<div id="main" data-duration="__DURATION__">'
+            '<div data-composition-src="compositions/text_layer.html"></div>'
+            "__VISUALS____AUDIO__</div>"
+        ),
+        encoding="utf-8",
+    )
+    (template_root / "image_default" / "compositions" / "captions.template.html").write_text(
+        '<div id="captions">__CAPTIONS__</div>',
+        encoding="utf-8",
+    )
+    (
+        template_root / "image_default" / "compositions" / "text_layer.template.html"
+    ).write_text(
+        '<div id="text-layer">__TEXT_CUES__</div><script>__TEXT_TIMELINE__</script>',
+        encoding="utf-8",
+    )
+    (runtime_root / "vendor" / "gsap.min.js").write_text("", encoding="utf-8")
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=3.0,
+        fps=30,
+        title="demo",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        text_tracks=[
+            TextTrack(
+                id="track-1",
+                kind="keyword",
+                name="keyword",
+                renderer_targets=("hyperframes",),
+            )
+        ],
+        text_cues=[
+            TextCue(
+                id="cue-1",
+                track_id="track-1",
+                text="<Pixelle & 字>",
+                start=0.5,
+                end=1.5,
+                role="keyword",
+                slot="center",
+                layer=4,
+            )
+        ],
+    )
+
+    project_dir = tmp_path / "project"
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=project_dir,
+        context=context,
+    )
+
+    text_layer = (project_dir / "compositions" / "text_layer.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "&lt;Pixelle &amp; 字&gt;" in text_layer
+    assert 'data-start="0.5"' in text_layer
+    assert 'data-duration="1.0"' in text_layer
+    assert 'data-slot="center"' in text_layer
+    assert 'data-layer="4"' in text_layer
+    assert "text_tracks.json" not in text_layer
+
+
 def test_phase1_templates_do_not_depend_on_remote_fonts_or_cdn_scripts():
     template_paths = [
         Path("resources/hyperframes/templates/image_default/index.template.html"),
@@ -138,6 +213,22 @@ def test_phase1_templates_reference_local_font_entrypoint():
     for path in template_paths:
         content = path.read_text(encoding="utf-8")
         assert "phase1_fonts.css" in content
+
+
+def test_phase1_templates_mount_static_text_layer_composition():
+    template_ids = ["image_default", "image_life_insights_light"]
+
+    for template_id in template_ids:
+        template_dir = Path("resources/hyperframes/templates") / template_id
+        index_content = (template_dir / "index.template.html").read_text(
+            encoding="utf-8"
+        )
+        text_layer_template = template_dir / "compositions" / "text_layer.template.html"
+
+        assert 'data-composition-id="text-layer"' in index_content
+        assert 'data-composition-src="compositions/text_layer.html"' in index_content
+        assert text_layer_template.exists()
+        assert "__TEXT_CUES__" in text_layer_template.read_text(encoding="utf-8")
 
 
 def test_life_insights_caption_template_does_not_embed_hardcoded_english_label():

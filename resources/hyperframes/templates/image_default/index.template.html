@@ -37,6 +37,7 @@
 
       .bg-decoration,
       .page-container,
+      #text-layer,
       #captions-layer {
         position: absolute;
         inset: 0;
@@ -371,6 +372,11 @@
         z-index: 30;
         pointer-events: none;
       }
+
+      #text-layer {
+        z-index: 28;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
@@ -428,6 +434,15 @@
           </div>
         </div>
       </div>
+
+      <div
+        id="text-layer"
+        data-composition-id="text-layer"
+        data-composition-src="compositions/text_layer.html"
+        data-start="0"
+        data-track-index="2"
+        data-duration="__DURATION__"
+      ></div>
 
       <div
         id="captions-layer"

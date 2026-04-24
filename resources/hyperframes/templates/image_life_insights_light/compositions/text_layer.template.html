@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Pixelle HyperFrames - Life Insights Text Layer</title>
+    <link rel="stylesheet" href="../runtime/fonts/phase1_fonts.css" />
+    <script src="../runtime/vendor/gsap.min.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: __CANVAS_WIDTH__px;
+        height: __CANVAS_HEIGHT__px;
+        overflow: hidden;
+        font-family: var(--hf-font-display);
+      }
+
+      #text-layer-root {
+        position: relative;
+        width: __CANVAS_WIDTH__px;
+        height: __CANVAS_HEIGHT__px;
+        overflow: hidden;
+      }
+
+      .text-cue {
+        position: absolute;
+        left: 50%;
+        top: 48%;
+        transform: translate(-50%, -50%);
+        opacity: 0;
+        visibility: hidden;
+        max-width: 760px;
+        text-align: center;
+      }
+
+      .text-cue[data-slot="lower_third"] {
+        top: 74%;
+      }
+
+      .text-cue__content {
+        display: inline-block;
+        padding: 16px 32px;
+        border-radius: 6px;
+        background: rgba(26, 22, 17, 0.76);
+        color: #fffaf0;
+        font-size: 58px;
+        line-height: 1.32;
+        font-weight: 900;
+        box-shadow: 0 14px 40px rgba(35, 24, 12, 0.2);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="text-layer-root"
+      data-composition-id="text-layer"
+      data-width="__CANVAS_WIDTH__"
+      data-height="__CANVAS_HEIGHT__"
+      data-start="0"
+      data-duration="__DURATION__"
+    >
+      __TEXT_CUES__
+    </div>
+    <script>
+      function padTimelineToDuration(timeline, duration) {
+        const resolvedDuration = Math.max(Number(duration) || 0, 0);
+        const currentDuration = Math.max(Number(timeline.duration()) || 0, 0);
+        if (resolvedDuration > currentDuration) {
+          timeline.to({}, { duration: resolvedDuration - currentDuration });
+        }
+        return timeline;
+      }
+
+      (function bootstrapTextLayerTimeline() {
+        __TEXT_TIMELINE__
+      })();
+    </script>
+  </body>
+</html>
