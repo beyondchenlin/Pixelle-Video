@@ -15,6 +15,54 @@ from pixelle_video.models.element_animation import (
 )
 
 
+def _element_dict(selected: object) -> dict[str, object]:
+    return {
+        "id": "element_001",
+        "label": "subject",
+        "image_path": "element_001.png",
+        "mask_path": "mask_001.png",
+        "bbox": [10, 12, 140, 180],
+        "score": 0.92,
+        "selected": selected,
+        "z_index": 1,
+        "animation": {
+            "preset": "float",
+            "intensity": "medium",
+            "seed": 7,
+            "motion_bounds": {
+                "translate_px": 18,
+                "rotate_deg": 2.0,
+                "scale_delta": 0.04,
+            },
+        },
+    }
+
+
+def _manifest_with_elements(
+    *,
+    selected_count: int,
+    elements: list[SegmentedElement],
+) -> ElementAnimationManifest:
+    return ElementAnimationManifest(
+        source_image_path="source.png",
+        canvas=ElementAnimationCanvas(width=1024, height=576),
+        timeline=ElementAnimationTimeline(duration=3.0, fps=24),
+        background=ElementAnimationBackground(
+            mode="source_image_low_motion",
+            image_path="source.png",
+        ),
+        segmentation=ElementAnimationSegmentation(
+            provider="comfyui_sam31",
+            workflow="image_sam31_segment.json",
+            prompt="main foreground elements",
+            candidate_limit=5,
+            selected_count=selected_count,
+        ),
+        elements=elements,
+        render=ElementAnimationRender(backend="hyperframes_canvas"),
+    )
+
+
 def test_manifest_round_trip_preserves_canvas_timeline_and_selection(tmp_path: Path) -> None:
     source = tmp_path / "source.png"
     source.write_bytes(b"png")
@@ -113,3 +161,37 @@ def test_manifest_rejects_selected_count_above_candidate_limit(tmp_path: Path) -
             candidate_limit=2,
             selected_count=3,
         )
+
+
+def test_manifest_allows_fewer_realized_selected_elements_than_requested() -> None:
+    manifest = _manifest_with_elements(
+        selected_count=3,
+        elements=[SegmentedElement.from_dict(_element_dict(selected=True))],
+    )
+
+    assert manifest.segmentation.selected_count == 3
+    assert [element.id for element in manifest.selected_elements()] == ["element_001"]
+
+
+def test_manifest_can_have_no_realized_selected_elements_with_positive_requested_count() -> None:
+    manifest = _manifest_with_elements(
+        selected_count=1,
+        elements=[SegmentedElement.from_dict(_element_dict(selected=False))],
+    )
+
+    assert manifest.segmentation.selected_count == 1
+    assert manifest.selected_elements() == []
+
+
+@pytest.mark.parametrize("selected", ["false", "0"])
+def test_segmented_element_from_dict_parses_false_like_selected_strings(
+    selected: str,
+) -> None:
+    element = SegmentedElement.from_dict(_element_dict(selected=selected))
+
+    assert element.selected is False
+
+
+def test_segmented_element_from_dict_rejects_unsupported_selected_strings() -> None:
+    with pytest.raises(ValueError, match="selected"):
+        SegmentedElement.from_dict(_element_dict(selected="disabled"))

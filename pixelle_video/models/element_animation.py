@@ -26,6 +26,21 @@ BackgroundMode = Literal["inpainted", "source_image_low_motion"]
 ElementRenderBackend = Literal["hyperframes_canvas", "python_ffmpeg"]
 
 
+def _parse_bool(value: Any, *, field_name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1"}:
+            return True
+        if normalized in {"false", "0"}:
+            return False
+        raise ValueError(f"{field_name} must be a boolean value")
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    raise ValueError(f"{field_name} must be a boolean value")
+
+
 @dataclass
 class ElementMotionBounds:
     translate_px: float = 12.0
@@ -111,6 +126,12 @@ class ElementAnimationBackground:
 
 @dataclass
 class ElementAnimationSegmentation:
+    """Segmentation request metadata.
+
+    selected_count is the requested target from UI/workflow settings. It does
+    not have to match the number of realized selected elements in a manifest.
+    """
+
     provider: str
     workflow: str
     prompt: str | None
@@ -204,7 +225,7 @@ class SegmentedElement:
             mask_path=str(data["mask_path"]),
             bbox=[int(value) for value in data["bbox"]],
             score=float(data["score"]),
-            selected=bool(data["selected"]),
+            selected=_parse_bool(data["selected"], field_name="selected"),
             z_index=int(data["z_index"]),
             animation=ElementAnimation.from_dict(data["animation"]),
         )
@@ -228,6 +249,13 @@ class ElementAnimationRender:
 
 @dataclass
 class ElementAnimationManifest:
+    """Complete element animation contract.
+
+    segmentation.selected_count records the requested selection target, while
+    selected_elements() returns the realized elements available for rendering.
+    Segmentation can yield fewer or zero realized selected elements.
+    """
+
     source_image_path: str
     canvas: ElementAnimationCanvas
     timeline: ElementAnimationTimeline
@@ -238,6 +266,7 @@ class ElementAnimationManifest:
     audio_path: str | None = None
 
     def selected_elements(self) -> list[SegmentedElement]:
+        """Return realized selected elements sorted in render layer order."""
         return sorted(
             [element for element in self.elements if element.selected],
             key=lambda element: element.z_index,
