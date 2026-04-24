@@ -183,24 +183,19 @@ def build_recent_video_gallery_css() -> str:
     .st-key-{RECENT_VIDEO_GALLERY_KEY} {{
         container-type: inline-size;
     }}
-    .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stVerticalBlock"],
-    .st-key-{RECENT_VIDEO_GRID_KEY} > div > div[data-testid="stVerticalBlock"] {{
+    .st-key-{RECENT_VIDEO_GRID_KEY} {{
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
         gap: 0.75rem;
         align-items: start;
     }}
-    .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stVerticalBlock"] > div,
-    .st-key-{RECENT_VIDEO_GRID_KEY} > div > div[data-testid="stVerticalBlock"] > div {{
+    .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] {{
         min-width: 0;
     }}
-    .st-key-{RECENT_VIDEO_GALLERY_KEY} [data-testid="stVideo"] {{
+    .st-key-{RECENT_VIDEO_GALLERY_KEY} video[data-testid="stVideo"] {{
         width: 100% !important;
         max-width: 100% !important;
         margin: 0 !important;
-    }}
-    .st-key-{RECENT_VIDEO_GALLERY_KEY} [data-testid="stVideo"] video {{
-        width: 100% !important;
         height: clamp(96px, 22cqw, 140px) !important;
         max-height: 140px !important;
         object-fit: contain !important;
