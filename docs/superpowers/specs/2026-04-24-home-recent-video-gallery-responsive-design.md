@@ -35,6 +35,15 @@
 7. `查看` 动作需要明确跳转到 History 详情，而不是在首页展开复杂详情。
 8. 批量生成路径保持现状，不在本次改动中强行改成最近视频网格。
 
+追加复审发现 6 个剩余风险点，并已继续收敛：
+
+1. `st.stop()` 可能阻断最近视频网格渲染。
+2. 开始新一次有效生成时需要清空旧的“本次生成结果”。
+3. 固定 `page_size=12` 不能保证在失效文件较多时补足 4 张卡片。
+4. “最近成功视频”应优先按 `completed_at` 而不是 `created_at` 排序。
+5. `460px` 双列断点偏窄，容易压缩视频控件、标题和按钮。
+6. `st.video` 的 DOM 包装需要更明确的高度、比例和 `object-fit` 作用域。
+
 ## 推荐结构
 
 首页右侧仍然保留现有外层容器：
@@ -65,14 +74,14 @@
 适配依据使用组件容器宽度，而不是浏览器宽度。首页右栏会受到三列布局、页面 padding、左侧 sidebar 展开状态影响，浏览器宽度无法准确代表右侧可用空间。
 
 ```text
-容器宽度 >= 460px
+容器宽度 >= 520px
 ┌──────────┬──────────┐
 │ 视频 1   │ 视频 2   │
 ├──────────┼──────────┤
 │ 视频 3   │ 视频 4   │
 └──────────┴──────────┘
 
-容器宽度 < 460px
+容器宽度 < 520px
 ┌────────────────┐
 │ 视频 1          │
 ├────────────────┤
@@ -93,7 +102,7 @@
   gap: 12px;
 }
 
-@container (min-width: 460px) {
+@container (min-width: 520px) {
   .recent-video-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -114,6 +123,27 @@
 - 元信息保持 1 行，包括创建时间、时长、分镜数。
 - `st.video` 的播放器宽度应由卡片容器控制，CSS 只在 keyed container 内作用，避免影响 History 页和其他视频预览。
 
+建议补充 scoped CSS 约束，避免 Streamlit 的 video wrapper 按原始视频比例撑高卡片：
+
+```css
+.st-key-recent_video_gallery [data-testid="stVideo"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+}
+
+.st-key-recent_video_gallery [data-testid="stVideo"] video {
+  width: 100% !important;
+  height: clamp(180px, 46cqw, 260px) !important;
+  max-height: 260px !important;
+  object-fit: contain !important;
+  background: #0f172a;
+  border-radius: 8px;
+}
+```
+
+其中 `cqw` 基于 `.recent-video-gallery` 的 container width。若目标浏览器不支持 container units，应退回固定 `height: 220px` 或通过 Streamlit card 宽度测试后选择更保守的固定高度。
+
 卡片结构：
 
 ```text
@@ -133,10 +163,20 @@
 - `status` 过滤为 `completed`。
 - 只展示 `video_path` 存在且本地文件存在的视频。
 - 默认最多展示 4 个。
-- 建议调用时使用 `page=1`、`page_size=12`、`status="completed"`、`sort_by="created_at"`、`sort_order="desc"`。
-- 先过量拉取，再过滤缺失文件和去重，最后截断为 4 个卡片，避免前几条任务文件缺失时首页出现空洞。
+- 建议调用时使用 `page_size=12`、`status="completed"`、`sort_by="completed_at"`、`sort_order="desc"`。
+- 分页拉取最近任务，过滤缺失文件和去重，直到凑满 4 个可用卡片、没有更多页，或达到扫描上限。
+- 建议扫描上限为最多 4 页或 48 条任务，避免首页渲染时遍历过多历史记录。
+- 若个别历史记录缺失 `completed_at` 或排序失败，降级使用 `created_at` 维持稳定展示。
 
 本次生成完成后，将结果写入 `st.session_state`，例如保存 `video_path`、标题、时长、分镜数等必要展示字段。渲染时先读取本次结果，再读取 History 结果，并按 `video_path` 或可用的 `task_id` 去重。
+
+开始一次新的有效生成前，应先清空旧的本次结果：
+
+```python
+st.session_state.pop("recent_generated_video", None)
+```
+
+“有效生成”指已经通过系统配置和输入校验、即将调用 `pixelle_video.generate_video(...)`。如果只是配置未完成或输入为空，不应清空已有最近视频列表。
 
 建议 session state 结构：
 
@@ -184,6 +224,12 @@ flowchart TD
 
 最近视频网格应放在生成按钮分支之外，每次页面渲染都出现。生成成功后只更新 `st.session_state["recent_generated_video"]`，不再额外渲染旧的单个 `render_scaled_video_preview(...)`，下载入口由第一张视频卡片承担。
 
+为保证最近视频网格不被中断，单视频路径中不应在按钮处理分支里调用 `st.stop()`。推荐改为：
+
+- 配置或输入校验失败：显示错误，跳过生成调用，继续向下渲染最近视频网格。
+- 生成异常：清理进度条、显示错误，继续向下渲染最近视频网格。
+- 生成结果路径不存在：显示错误，不写入 `recent_generated_video`，继续渲染最近视频网格。
+
 ## 视觉一致性
 
 - 外层继续使用 `st.container(border=True)`。
@@ -227,16 +273,20 @@ web/components/recent_video_gallery.py
 - 本次生成结果路径不存在时显示当前已有的错误提示，并不插入最近视频列表。
 - History 返回空列表但 session state 中有有效本次结果时，仍显示本次结果卡片。
 - 下载按钮应避免一次性为超过 4 个视频预读大文件；本设计通过最多 4 个卡片控制内存和渲染成本。
+- 新生成开始后若最终失败，旧的 `recent_generated_video` 不应继续占据第一槽位；此时第一槽位应回退到最新 History 视频。
 
 ## 验收标准
 
 - 首页未生成视频时，右侧区域显示最近成功视频或空状态，不出现大片空白。
 - 本次生成完成后，新视频出现在最近视频网格左上角第一个槽位。
-- 开启左侧 sidebar 后，右侧视频网格能从 2 列自动降为 1 列或保持不溢出。
+- 开启左侧 sidebar 后，右侧视频网格能在容器宽度低于 520px 时自动降为 1 列或保持不溢出。
 - 常见宽屏下最多显示 4 个紧凑视频卡片，页面高度可控。
 - 容器查询失效时默认显示 1 列，不产生横向溢出。
 - 生成成功后页面不重复出现旧单视频预览和新网格预览。
 - History 前若干条存在失效视频文件时，首页会跳过失效项并继续补足可用视频。
+- 新一次有效生成失败后，旧的本次生成结果不会继续显示为第一卡片。
+- 最近视频排序优先使用完成时间，后完成的视频排在前面。
+- 视频播放器不会按原始 9:16 高度撑破卡片，卡片视频区域高度受控。
 - 首页视频卡片不提供删除按钮。
 - History 页现有列表和详情能力不回退。
 - 中英文界面均有对应文案。
@@ -245,7 +295,9 @@ web/components/recent_video_gallery.py
 
 - 单元测试：最近视频合并、去重、数量限制、缺失文件过滤。
 - 单元测试：History 过量拉取后过滤，确保失效文件不会占用 4 个展示名额。
+- 单元测试：多页 History 中前 12 条均失效时，组件继续扫描后续页直到补足或达到上限。
 - 单元测试：本次生成结果与 History 第一条相同路径时只出现一次。
+- 单元测试：开始新一次有效生成会清空旧 `recent_generated_video`。
 - 组件级手动验证：无历史视频、有历史视频、生成成功、生成失败四种状态。
 - 浏览器验证：至少检查宽屏、普通笔记本、左侧 sidebar 展开、窄窗口四类视口。
-- 浏览器验证：确认 460px 左右容器宽度附近不会出现横向滚动、文本重叠或按钮挤压。
+- 浏览器验证：确认 520px 左右容器宽度附近不会出现横向滚动、文本重叠或按钮挤压。
