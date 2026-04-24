@@ -370,3 +370,49 @@ async def test_segment_image_does_not_select_empty_mask_candidate(
 
     assert manifest.elements[0].bbox == [0, 0, 32, 32]
     assert manifest.elements[0].selected is False
+
+
+async def test_segment_image_selects_first_usable_elements_after_empty_mask(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.png"
+    element_a = tmp_path / "element_a.png"
+    empty_mask = tmp_path / "empty_mask.png"
+    element_b = tmp_path / "element_b.png"
+    mask_b = tmp_path / "mask_b.png"
+    _png(source, (255, 255, 255, 255))
+    _png(element_a, (255, 0, 0, 255))
+    _mask(empty_mask, None)
+    _png(element_b, (0, 0, 255, 255))
+    _mask(mask_b, (4, 5, 12, 15))
+
+    kit = FakeKit(
+        FakeComfyResult(
+            images=[
+                FakeComfyImage(str(element_a)),
+                FakeComfyImage(str(empty_mask)),
+                FakeComfyImage(str(element_b)),
+                FakeComfyImage(str(mask_b)),
+            ],
+        ),
+    )
+    service = ElementSegmentationService(FakeCore(kit))
+
+    manifest = await service.segment_image(
+        image_path=str(source),
+        task_id="task-1",
+        frame_index=0,
+        output_dir=str(tmp_path / "out"),
+        width=32,
+        height=32,
+        duration=1.0,
+        fps=12,
+        selected_count=1,
+        candidate_limit=2,
+        prompt=None,
+        workflow="image_sam31_segment.json",
+        backend="python_ffmpeg",
+        intensity="medium",
+    )
+
+    assert [element.selected for element in manifest.elements] == [False, True]

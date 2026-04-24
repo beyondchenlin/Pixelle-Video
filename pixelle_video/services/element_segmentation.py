@@ -139,6 +139,7 @@ class ElementSegmentationService:
     ) -> list[SegmentedElement]:
         elements: list[SegmentedElement] = []
         motion_bounds = resolve_element_bounds(intensity)
+        selected_usable_count = 0
 
         for pair_index in range(0, len(pair_images) - 1, 2):
             element_number = pair_index // 2 + 1
@@ -157,6 +158,10 @@ class ElementSegmentationService:
                 width=width,
                 height=height,
             )
+            selected = False
+            if not is_empty_mask and selected_usable_count < selected_count:
+                selected = True
+                selected_usable_count += 1
 
             elements.append(
                 SegmentedElement(
@@ -166,7 +171,7 @@ class ElementSegmentationService:
                     mask_path=str(mask_path),
                     bbox=bbox,
                     score=1.0,
-                    selected=element_number <= selected_count and not is_empty_mask,
+                    selected=selected,
                     z_index=element_number,
                     animation=ElementAnimation(
                         preset=PRESET_CYCLE[(element_number - 1) % len(PRESET_CYCLE)],
