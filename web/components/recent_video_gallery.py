@@ -182,22 +182,29 @@ def build_recent_video_gallery_css() -> str:
     <style>
     .st-key-{RECENT_VIDEO_GALLERY_KEY} {{
         container-type: inline-size;
+        margin-top: -0.35rem;
     }}
     .st-key-{RECENT_VIDEO_GRID_KEY} {{
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
-        gap: 0.75rem;
+        gap: 0.65rem;
         align-items: start;
     }}
     .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] {{
         min-width: 0;
     }}
+    .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stVerticalBlockBorderWrapper"] {{
+        padding: 0.5rem !important;
+    }}
+    .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stVerticalBlock"] {{
+        gap: 0.35rem;
+    }}
     .st-key-{RECENT_VIDEO_GALLERY_KEY} video[data-testid="stVideo"] {{
-        width: auto !important;
+        width: 100% !important;
         max-width: 100% !important;
         height: auto !important;
-        max-height: clamp(150px, 36cqw, 220px) !important;
-        margin: 0 auto !important;
+        max-height: none !important;
+        margin: 0 !important;
         display: block;
         object-fit: initial !important;
         background: transparent;
@@ -221,12 +228,12 @@ def build_recent_video_gallery_css() -> str:
         text-overflow: ellipsis;
     }}
     .st-key-{RECENT_VIDEO_GALLERY_KEY} .stColumn button {{
-        width: 2.35rem !important;
-        min-height: 1.65rem;
-        padding: 0.08rem 0.25rem;
+        width: 2.15rem !important;
+        min-height: 1.45rem;
+        padding: 0;
         margin-inline: auto;
         border-radius: 6px;
-        font-size: 0.78rem;
+        font-size: 0.72rem;
         line-height: 1;
     }}
     </style>

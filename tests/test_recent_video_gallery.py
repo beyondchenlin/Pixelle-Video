@@ -166,11 +166,14 @@ def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     assert ".st-key-recent_video_grid" in css
     assert f".st-key-{gallery.RECENT_VIDEO_GRID_KEY} {{" in css
     assert "repeat(auto-fit, minmax(min(150px, 100%), 1fr))" in css
+    assert "gap: 0.65rem" in css
     assert 'video[data-testid="stVideo"]' in css
+    assert "width: 100% !important" in css
     assert "height: auto !important" in css
-    assert "max-height: clamp(150px, 36cqw, 220px)" in css
+    assert "max-height: none !important" in css
+    assert "margin: 0 !important" in css
     assert "object-fit: initial" in css
     assert ".st-key-recent_video_gallery .stColumn button" in css
-    assert "min-height: 1.65rem" in css
-    assert "padding: 0.08rem 0.25rem" in css
+    assert "min-height: 1.45rem" in css
+    assert "padding: 0" in css
     assert f".st-key-{gallery.RECENT_VIDEO_GRID_KEY} > div[data-testid=\"stVerticalBlock\"]" not in css
