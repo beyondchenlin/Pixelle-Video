@@ -46,6 +46,7 @@ ELEMENT_ANIMATION_OPTION_KEYS = (
 SINGLE_VIDEO_GENERATING_KEY = "single_video_is_generating"
 SINGLE_VIDEO_REQUESTED_KEY = "single_video_generation_requested"
 SINGLE_VIDEO_DUPLICATE_CLICK_KEY = "single_video_duplicate_click"
+SINGLE_VIDEO_BUTTON_KEY = "single_video_generate_button"
 
 
 def _get_or_create_log_session_id(session_state) -> str:
@@ -269,14 +270,29 @@ def render_single_output(pixelle_video, video_params):
             st.warning(tr("settings.not_configured"))
 
         # Generate Button
+        button_slot = st.empty()
+        button_render_count = 0
         was_generating = bool(st.session_state.get(SINGLE_VIDEO_GENERATING_KEY, False))
-        button_clicked = st.button(
-            tr("btn.generate"),
-            type="primary",
-            width="stretch",
-            disabled=was_generating,
-            on_click=_request_single_video_generation,
-        )
+
+        def render_generate_button(*, disabled: bool, refresh: bool = False) -> bool:
+            nonlocal button_render_count
+
+            if refresh:
+                button_slot.empty()
+
+            button_render_count += 1
+            key_suffix = "" if button_render_count == 1 else f"_refresh_{button_render_count}"
+            with button_slot.container():
+                return st.button(
+                    tr("btn.generate"),
+                    key=f"{SINGLE_VIDEO_BUTTON_KEY}{key_suffix}",
+                    type="primary",
+                    width="stretch",
+                    disabled=disabled,
+                    on_click=_request_single_video_generation,
+                )
+
+        button_clicked = render_generate_button(disabled=was_generating)
         generation_requested = bool(st.session_state.pop(SINGLE_VIDEO_REQUESTED_KEY, False))
         st.session_state[SINGLE_VIDEO_REQUESTED_KEY] = False
         if button_clicked and not generation_requested:
@@ -475,8 +491,10 @@ def render_single_output(pixelle_video, video_params):
                     logger.exception(e)
                 finally:
                     _reset_single_video_generation_state()
+                    render_generate_button(disabled=False, refresh=True)
             else:
                 _reset_single_video_generation_state()
+                render_generate_button(disabled=False, refresh=True)
 
         if not gallery_rendered:
             render_gallery()
