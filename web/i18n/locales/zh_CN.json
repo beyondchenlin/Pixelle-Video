@@ -245,6 +245,7 @@
     "status.error": "❌ 生成失败：{error}",
     "status.video_generated": "✅ 视频已生成：{path}",
     "status.video_not_found": "视频文件未找到：{path}",
+    "status.generation_in_progress": "视频正在生成，请等待当前任务完成。",
     "status.config_saved": "✅ 配置已保存",
     "status.config_reset": "✅ 配置已重置为默认值",
     "status.llm_config_incomplete": "⚠️ LLM 配置不完整，请填写 API Key、Base URL 和 Model",

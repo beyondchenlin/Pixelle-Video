@@ -244,6 +244,7 @@
     "status.error": "❌ Generation failed: {error}",
     "status.video_generated": "✅ Video generated: {path}",
     "status.video_not_found": "Video file not found: {path}",
+    "status.generation_in_progress": "Video generation is already running. Please wait for it to finish.",
     "status.config_saved": "✅ Configuration saved",
     "status.config_reset": "✅ Configuration reset to defaults",
     "status.llm_config_incomplete": "⚠️ LLM configuration incomplete, please fill in API Key, Base URL and Model",

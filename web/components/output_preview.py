@@ -44,6 +44,9 @@ ELEMENT_ANIMATION_OPTION_KEYS = (
     "element_animation_intensity",
     "element_animation_workflow",
 )
+SINGLE_VIDEO_GENERATING_KEY = "single_video_is_generating"
+SINGLE_VIDEO_REQUESTED_KEY = "single_video_generation_requested"
+SINGLE_VIDEO_DUPLICATE_CLICK_KEY = "single_video_duplicate_click"
 
 
 def _get_or_create_log_session_id(session_state) -> str:
@@ -52,6 +55,21 @@ def _get_or_create_log_session_id(session_state) -> str:
         session_id = new_correlation_id("sess")
         session_state["log_session_id"] = session_id
     return session_id
+
+
+def _request_single_video_generation() -> None:
+    """Mark a single-video generation request unless one is already running."""
+    if st.session_state.get(SINGLE_VIDEO_GENERATING_KEY):
+        st.session_state[SINGLE_VIDEO_DUPLICATE_CLICK_KEY] = True
+        return
+
+    st.session_state[SINGLE_VIDEO_GENERATING_KEY] = True
+    st.session_state[SINGLE_VIDEO_REQUESTED_KEY] = True
+
+
+def _reset_single_video_generation_state() -> None:
+    st.session_state[SINGLE_VIDEO_GENERATING_KEY] = False
+    st.session_state[SINGLE_VIDEO_REQUESTED_KEY] = False
 
 
 def build_video_preview_css(
@@ -251,12 +269,31 @@ def render_single_output(pixelle_video, video_params):
         if not config_manager.validate():
             st.warning(tr("settings.not_configured"))
 
-        def render_gallery_slot(slot) -> None:
-            with slot.container():
-                render_recent_video_gallery(pixelle_video)
-
         # Generate Button
-        if st.button(tr("btn.generate"), type="primary", width="stretch"):
+        was_generating = bool(st.session_state.get(SINGLE_VIDEO_GENERATING_KEY, False))
+        button_clicked = st.button(
+            tr("btn.generate"),
+            type="primary",
+            width="stretch",
+            disabled=was_generating,
+            on_click=_request_single_video_generation,
+        )
+        generation_requested = bool(st.session_state.pop(SINGLE_VIDEO_REQUESTED_KEY, False))
+        st.session_state[SINGLE_VIDEO_REQUESTED_KEY] = False
+        if button_clicked and not generation_requested:
+            if was_generating:
+                st.session_state[SINGLE_VIDEO_DUPLICATE_CLICK_KEY] = True
+            else:
+                st.session_state[SINGLE_VIDEO_GENERATING_KEY] = True
+                generation_requested = True
+
+        if (
+            st.session_state.pop(SINGLE_VIDEO_DUPLICATE_CLICK_KEY, False)
+            and not generation_requested
+        ):
+            st.info(tr("status.generation_in_progress"))
+
+        if generation_requested:
             can_generate = True
             # Validate system configuration
             if not config_manager.validate():
@@ -273,8 +310,6 @@ def render_single_output(pixelle_video, video_params):
                 # Show progress
                 progress_bar = st.progress(0)
                 status_text = st.empty()
-                gallery_slot = st.empty()
-                render_gallery_slot(gallery_slot)
 
                 # Record start time for generation
                 import time
@@ -408,7 +443,6 @@ def render_single_output(pixelle_video, video_params):
 
                     if os.path.exists(result.video_path):
                         store_recent_generated_video(result, st.session_state)
-                        render_gallery_slot(gallery_slot)
                     else:
                         st.error(tr("status.video_not_found", path=result.video_path))
 
@@ -417,10 +451,12 @@ def render_single_output(pixelle_video, video_params):
                     progress_bar.empty()
                     st.error(tr("status.error", error=str(e)))
                     logger.exception(e)
+                finally:
+                    _reset_single_video_generation_state()
             else:
-                render_gallery_slot(st.empty())
-        else:
-            render_gallery_slot(st.empty())
+                _reset_single_video_generation_state()
+
+        render_recent_video_gallery(pixelle_video)
 
 
 def render_batch_output(pixelle_video, video_params):
