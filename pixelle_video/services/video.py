@@ -24,8 +24,8 @@ Features:
 Note: Requires FFmpeg to be installed on the system.
 """
 
-import os
 import math
+import os
 import shutil
 import tempfile
 import uuid
@@ -38,7 +38,7 @@ from loguru import logger
 from pixelle_video.utils.os_util import (
     get_resource_path,
     list_resource_files,
-    resource_exists
+    resource_exists,
 )
 
 
@@ -183,6 +183,47 @@ class VideoService:
                 return self._concat_demuxer(videos, output)
             else:
                 return self._concat_filter(videos, output)
+
+    def burn_ass_subtitles(self, input_video: str, ass_file: str, output: str) -> str:
+        """
+        Burn an ASS subtitle file into a video.
+
+        The output must be separate from input_video because FFmpeg cannot safely
+        read and overwrite the same file in one pass.
+        """
+        input_path = Path(input_video).resolve()
+        output_path = Path(output).resolve()
+        if input_path == output_path:
+            raise ValueError("input_video and output cannot be the same path")
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        escaped_ass = self._escape_ffmpeg_filter_path(ass_file)
+
+        try:
+            (
+                ffmpeg
+                .input(str(input_path))
+                .output(str(output_path), vf=f"subtitles='{escaped_ass}'", c_a="copy")
+                .overwrite_output()
+                .run(capture_stdout=True, capture_stderr=True)
+            )
+            logger.success(f"ASS subtitles burned into video: {output_path}")
+            return str(output_path)
+        except ffmpeg.Error as e:
+            error_msg = e.stderr.decode("utf-8", errors="replace") if e.stderr else str(e)
+            logger.error(f"FFmpeg ASS burn-in error: {error_msg}")
+            raise RuntimeError(f"Failed to burn ASS subtitles: {error_msg}")
+
+    def _escape_ffmpeg_filter_path(self, value: str) -> str:
+        path = Path(value).resolve().as_posix()
+        return (
+            path.replace("\\", r"\\")
+            .replace(":", r"\\:")
+            .replace("'", r"\\'")
+            .replace(",", r"\\,")
+            .replace("[", r"\\[")
+            .replace("]", r"\\]")
+        )
     
     def _concat_demuxer(self, videos: List[str], output: str) -> str:
         """
@@ -253,7 +294,7 @@ class VideoService:
             
             # Run command
             import subprocess
-            result = subprocess.run(
+            subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
@@ -433,7 +474,6 @@ class VideoService:
                 fps = fps_num / fps_den if fps_den != 0 else 30
                 
                 # Create black video for padding
-                black_video_path = self._get_unique_temp_path("black_pad", os.path.basename(output))
                 black_input = ffmpeg.input(
                     f'color=c=black:s={width}x{height}:r={fps}',
                     f='lavfi',
@@ -455,7 +495,7 @@ class VideoService:
             audio_stream = audio_stream.filter('apad', whole_dur=_ffmpeg_duration(target_duration))
         
         if not video_has_audio:
-            logger.info(f"Video has no audio stream, adding audio track")
+            logger.info("Video has no audio stream, adding audio track")
             # Video is silent, just add the audio
             try:
                 (

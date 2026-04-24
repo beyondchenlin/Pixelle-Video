@@ -1,6 +1,6 @@
-from pathlib import Path
 import subprocess
 import wave
+from pathlib import Path
 
 import ffmpeg
 import pytest
@@ -127,3 +127,23 @@ def test_create_video_from_image_handles_tiny_positive_pad_duration(tmp_path):
     assert output_duration >= raw_audio_duration
     assert output_duration - raw_audio_duration < (1 / fps) + 0.005
     assert abs(durations["video"] - durations["audio"]) <= 0.005
+
+
+def test_burn_ass_subtitles_rejects_same_input_and_output(tmp_path):
+    video = tmp_path / "final.mp4"
+    ass = tmp_path / "master.ass"
+    video.write_bytes(b"video")
+    ass.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="same path"):
+        VideoService().burn_ass_subtitles(str(video), str(ass), str(video))
+
+
+def test_escape_ffmpeg_filter_path_handles_windows_drive_and_spaces():
+    escaped = VideoService()._escape_ffmpeg_filter_path(
+        r"C:\测试 路径\master.ass"
+    )
+
+    assert r"C\\:" in escaped
+    assert "测试 路径" in escaped
+    assert "master.ass" in escaped
