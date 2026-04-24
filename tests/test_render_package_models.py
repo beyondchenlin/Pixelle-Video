@@ -183,6 +183,25 @@ def test_render_manifest_round_trips_text_tracks_and_text_cues_while_preserving_
     assert restored.caption_cues[0].text == "字幕"
 
 
+def test_render_manifest_round_trip_preserves_element_animation_manifest_path():
+    manifest = RenderManifest(
+        task_id="task-1",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        element_animation_manifest_path="data/element_animation_manifest.json",
+    )
+
+    restored = RenderManifest.from_dict(manifest.to_dict())
+
+    assert (
+        restored.element_animation_manifest_path
+        == "data/element_animation_manifest.json"
+    )
+
+
 def test_render_manifest_from_old_payload_defaults_text_layer_to_empty_lists():
     payload = {
         "task_id": "task-old",

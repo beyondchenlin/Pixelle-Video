@@ -277,6 +277,7 @@ class RenderManifest:
     caption_cues: List[CaptionCue] = field(default_factory=list)
     text_tracks: List[TextTrack] = field(default_factory=list)
     text_cues: List[TextCue] = field(default_factory=list)
+    element_animation_manifest_path: Optional[str] = None
     canonical_timeline: str = "source"
 
     def __init__(
@@ -298,6 +299,7 @@ class RenderManifest:
         caption_cues: Optional[List[CaptionCue]] = None,
         text_tracks: Optional[List[TextTrack]] = None,
         text_cues: Optional[List[TextCue]] = None,
+        element_animation_manifest_path: Optional[str] = None,
         canonical_timeline: str = "source",
         width: Optional[int] = None,
         height: Optional[int] = None,
@@ -329,6 +331,7 @@ class RenderManifest:
         self.caption_cues = list(caption_cues or [])
         self.text_tracks = list(text_tracks or [])
         self.text_cues = list(text_cues or [])
+        self.element_animation_manifest_path = element_animation_manifest_path
         self.canonical_timeline = canonical_timeline
 
     @property
@@ -340,7 +343,7 @@ class RenderManifest:
         return self.canvas_height
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        data = {
             "task_id": self.task_id,
             "title": self.title,
             "canvas_width": self.canvas_width,
@@ -362,6 +365,9 @@ class RenderManifest:
             "text_cues": [cue.to_dict() for cue in self.text_cues],
             "canonical_timeline": self.canonical_timeline,
         }
+        if self.element_animation_manifest_path:
+            data["element_animation_manifest_path"] = self.element_animation_manifest_path
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RenderManifest":
@@ -382,5 +388,6 @@ class RenderManifest:
             caption_cues=[CaptionCue.from_dict(item) for item in data.get("caption_cues", [])],
             text_tracks=[TextTrack.from_dict(item) for item in data.get("text_tracks", [])],
             text_cues=[TextCue.from_dict(item) for item in data.get("text_cues", [])],
+            element_animation_manifest_path=data.get("element_animation_manifest_path"),
             canonical_timeline=data.get("canonical_timeline", "source"),
         )
