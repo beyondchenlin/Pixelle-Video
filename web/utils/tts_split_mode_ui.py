@@ -2,7 +2,6 @@ from typing import Any, Mapping, MutableMapping
 
 from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, SUPPORTED_TTS_SPLIT_MODES
 
-
 TTS_SPLIT_SETTING_KEYS = (
     "tts_split_mode",
     "max_chars_per_tts_segment",

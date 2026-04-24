@@ -14,9 +14,9 @@
 Pure UI helpers for prompt prefix library interactions.
 """
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
-import re
 from typing import Any, MutableMapping
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4

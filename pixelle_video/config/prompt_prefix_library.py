@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_PROMPT_PREFIX_PLACEHOLDER = "resources/prompt_prefix_previews/placeholder.svg"
 

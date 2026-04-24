@@ -34,6 +34,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
+
 from loguru import logger
 
 from pixelle_video.utils.template_util import parse_template_size
@@ -297,7 +298,6 @@ class HTMLFrameGenerator:
         
         def replacer(match):
             param_name = match.group(1)
-            param_type = match.group(2) or 'text'
             default_value_str = match.group(3)
             
             if param_name in values:

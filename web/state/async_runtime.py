@@ -8,10 +8,12 @@ from typing import Awaitable, Callable, Optional
 from loguru import logger
 
 try:
-    from streamlit.runtime.scriptrunner_utils.script_run_context import add_script_run_ctx
     from streamlit.runtime import exists as streamlit_runtime_exists
     from streamlit.runtime import get_instance as get_streamlit_runtime
-    from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+    from streamlit.runtime.scriptrunner_utils.script_run_context import (
+        add_script_run_ctx,
+        get_script_run_ctx,
+    )
 except Exception:  # pragma: no cover - raw mode or API changes
     add_script_run_ctx = None
     streamlit_runtime_exists = None

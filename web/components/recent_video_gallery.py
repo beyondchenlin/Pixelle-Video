@@ -31,7 +31,7 @@ RECENT_VIDEO_GALLERY_KEY = "recent_video_gallery"
 RECENT_VIDEO_GRID_KEY = "recent_video_grid"
 RECENT_HISTORY_PAGE_SIZE = 12
 RECENT_HISTORY_MAX_PAGES = 4
-RECENT_VIDEO_LIMIT = 8
+RECENT_VIDEO_LIMIT = 9
 
 
 def _coerce_text(value: Any, fallback: str) -> str:
@@ -188,7 +188,7 @@ def build_recent_video_gallery_css() -> str:
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 220px));
         gap: 0.65rem;
-        justify-content: start;
+        justify-content: center;
         align-items: start;
     }}
     .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] {{

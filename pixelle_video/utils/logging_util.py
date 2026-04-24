@@ -12,7 +12,6 @@ from typing import Any, Callable, Iterator
 
 from loguru import logger
 
-
 _SENSITIVE_TOKENS = ("api_key", "authorization", "bearer", "token", "secret", "password")
 _REQUIRED_FIELDS = (
     "timestamp",
@@ -101,9 +100,9 @@ def build_log_payload(record: dict[str, Any], *, service_name: str) -> dict[str,
             "extra": extra,
         }
     )
-    for field in _REQUIRED_FIELDS:
-        if field not in {"timestamp", "level", "service", "channel", "message"}:
-            payload[field] = extra.get(field)
+    for field_name in _REQUIRED_FIELDS:
+        if field_name not in {"timestamp", "level", "service", "channel", "message"}:
+            payload[field_name] = extra.get(field_name)
     return payload
 
 

@@ -14,7 +14,8 @@
 Frame/Template rendering API schemas
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, Optional
+
 from pydantic import BaseModel, ConfigDict, Field
 
 

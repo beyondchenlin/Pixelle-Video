@@ -27,7 +27,6 @@ from aiohttp import ClientConnectorError, ClientResponseError, WSServerHandshake
 from edge_tts.exceptions import NoAudioReceived
 from loguru import logger
 
-
 # Use certifi bundle for SSL verification instead of disabling it
 _USE_CERTIFI_SSL = True
 

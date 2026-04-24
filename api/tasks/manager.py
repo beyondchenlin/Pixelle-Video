@@ -19,11 +19,12 @@ In-memory task management for video generation jobs.
 import asyncio
 import uuid
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Callable
+from typing import Callable, Dict, List, Optional
+
 from loguru import logger
 
-from api.tasks.models import Task, TaskStatus, TaskType, TaskProgress
 from api.config import api_config
+from api.tasks.models import Task, TaskProgress, TaskStatus, TaskType
 from pixelle_video.utils.logging_util import bind_log_context
 
 

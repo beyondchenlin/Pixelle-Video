@@ -10,7 +10,6 @@ from pixelle_video.models.element_animation import (
     ElementMotionBounds,
 )
 
-
 _UINT32_MASK = 0xFFFFFFFF
 _UINT32_RANGE = 2**32
 

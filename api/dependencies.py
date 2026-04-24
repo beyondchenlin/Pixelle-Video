@@ -17,11 +17,11 @@ Provides dependency injection for PixelleVideoCore and other services.
 """
 
 from typing import Annotated
+
 from fastapi import Depends
 from loguru import logger
 
 from pixelle_video.service import PixelleVideoCore
-
 
 # Global Pixelle-Video instance
 _pixelle_video_instance: PixelleVideoCore = None

@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 # Copyright (C) 2025 AIDC-AI
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -49,10 +50,9 @@ Usage:
     print(pixelle_video.pipelines.keys())  # dict_keys(['standard', 'custom'])
 """
 
-from pixelle_video.service import PixelleVideoCore, pixelle_video
 from pixelle_video.config import config_manager
+from pixelle_video.service import PixelleVideoCore, pixelle_video
 
 __version__ = "0.1.0"
 
 __all__ = ["PixelleVideoCore", "pixelle_video", "config_manager"]
-

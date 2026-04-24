@@ -25,7 +25,6 @@ from pixelle_video.services.element_animation_presets import (
     resolve_element_bounds,
 )
 
-
 DEFAULT_SEGMENTATION_PROMPT = (
     "main foreground subjects, separated simple drawing elements"
 )

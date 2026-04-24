@@ -25,7 +25,6 @@ from pixelle_video.tts_audio_strategy import (
 )
 from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, validate_tts_split_mode
 
-
 VALID_ELEMENT_ANIMATION_BACKENDS = {"hyperframes_canvas", "python_ffmpeg"}
 VALID_ELEMENT_ANIMATION_INTENSITIES = {"low", "medium", "high"}
 

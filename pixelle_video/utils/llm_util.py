@@ -17,6 +17,7 @@ Uses the standard OpenAI-compatible /v1/models endpoint.
 """
 
 from typing import List, Tuple
+
 import httpx
 from loguru import logger
 

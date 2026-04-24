@@ -15,6 +15,7 @@ Image generation API schemas
 """
 
 from typing import Optional
+
 from pydantic import BaseModel, ConfigDict, Field
 
 

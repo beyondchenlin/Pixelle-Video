@@ -14,9 +14,9 @@
 Helpers for turning raw style prefixes into runtime structured style specs.
 """
 
-from collections import OrderedDict
 import hashlib
 import re
+from collections import OrderedDict
 from typing import Any, Mapping, Optional
 
 from loguru import logger

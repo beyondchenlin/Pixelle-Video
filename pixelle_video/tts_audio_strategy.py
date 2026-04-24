@@ -1,6 +1,5 @@
 from typing import Final, Literal, cast
 
-
 TTSAudioStrategy = Literal["auto", "per_frame", "master_track"]
 
 AUTO_TTS_AUDIO_STRATEGY: Final[TTSAudioStrategy] = "auto"

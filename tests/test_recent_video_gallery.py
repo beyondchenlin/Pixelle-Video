@@ -161,12 +161,12 @@ def test_get_current_recent_video_item_clears_missing_session_video(tmp_path):
 def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     css = gallery.build_recent_video_gallery_css()
 
-    assert gallery.RECENT_VIDEO_LIMIT == 8
+    assert gallery.RECENT_VIDEO_LIMIT == 9
     assert ".st-key-recent_video_gallery" in css
     assert ".st-key-recent_video_grid" in css
     assert f".st-key-{gallery.RECENT_VIDEO_GRID_KEY} {{" in css
     assert "repeat(auto-fill, minmax(min(180px, 100%), 220px))" in css
-    assert "justify-content: start" in css
+    assert "justify-content: center" in css
     assert "gap: 0.65rem" in css
     assert f'.st-key-{gallery.RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"]' in css
     assert "padding: 0.5rem !important" in css

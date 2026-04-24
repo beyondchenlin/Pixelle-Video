@@ -19,7 +19,6 @@ For generating image prompts from narrations.
 import json
 from typing import Any, List, Optional
 
-
 # ==================== PRESET IMAGE STYLES ====================
 # Predefined visual styles for different use cases
 

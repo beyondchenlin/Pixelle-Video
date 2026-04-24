@@ -32,20 +32,17 @@ Example:
     )
 """
 
-from typing import List, Dict, Any, Optional, Callable
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
 from loguru import logger
 
 from pixelle_video.models.asset_script import AssetCatalogEntry, AssetScriptResponse
+from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
-from pixelle_video.models.progress import ProgressEvent
-from pixelle_video.utils.os_util import (
-    create_task_output_dir,
-    get_task_final_video_path
-)
 from pixelle_video.utils.logging_util import attach_task_log_sinks
+from pixelle_video.utils.os_util import create_task_output_dir, get_task_final_video_path
 
 # Type alias for progress callback
 ProgressCallback = Optional[Callable[[ProgressEvent], None]]
@@ -330,7 +327,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
             logger.info(f"📝 Video title: {title} (user-specified)")
         else:
             context.title = ""
-            logger.info(f"📝 No video title specified (will be hidden in template)")
+            logger.info("📝 No video title specified (will be hidden in template)")
         
         return context
     
@@ -442,7 +439,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
             asset_id = scene["matched_asset_id"]
             asset_usage[asset_id] = asset_usage.get(asset_id, 0) + 1
         
-        logger.info(f"📊 Asset usage summary:")
+        logger.info("📊 Asset usage summary:")
         for asset_id, count in asset_usage.items():
             asset_metadata = self.asset_index.get(asset_id, {})
             logger.info(f"   {asset_metadata.get('name', asset_id)}: {count} scene(s)")
@@ -459,12 +456,9 @@ class AssetBasedPipeline(LinearVideoPipeline):
         Returns:
             Updated context with storyboard
         """
-        from pixelle_video.models.storyboard import (
-            Storyboard,
-            StoryboardFrame, 
-            StoryboardConfig
-        )
         from datetime import datetime
+
+        from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
         
         # Extract all narrations in order for compatibility
         all_narrations = []
@@ -485,7 +479,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
             dims = template_name.split("/")[0].split("x")
             media_width = int(dims[0])
             media_height = int(dims[1])
-        except:
+        except (IndexError, ValueError):
             # Default to 1080x1920
             media_width = 1080
             media_height = 1920
@@ -619,7 +613,6 @@ class AssetBasedPipeline(LinearVideoPipeline):
             
             # Concatenate all narration audios for this scene
             if len(narration_audios) > 1:
-                from pixelle_video.utils.os_util import get_task_frame_path
                 
                 # Emit progress for combining audio
                 frame_progress = base_progress + ((i - 1) + 0.25) / total_frames * progress_range
@@ -707,7 +700,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
             ))
             
             # Use FrameProcessor for proper composition
-            processed_frame = await self.core.frame_processor(
+            await self.core.frame_processor(
                 frame=frame,
                 storyboard=storyboard,
                 config=config,
@@ -795,7 +788,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
         Returns:
             Final context
         """
-        logger.success(f"🎉 Asset-based video generation complete!")
+        logger.success("🎉 Asset-based video generation complete!")
         logger.info(f"Video: {context.final_video_path}")
         
         # Emit completion

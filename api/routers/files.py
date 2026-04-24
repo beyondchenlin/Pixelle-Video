@@ -17,6 +17,7 @@ Provides access to generated files (videos, images, audio) and resource files.
 """
 
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from loguru import logger

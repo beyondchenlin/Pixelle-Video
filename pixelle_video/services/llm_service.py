@@ -26,7 +26,6 @@ from pydantic import BaseModel
 
 from pixelle_video.utils.json_parsing import parse_llm_json_response
 
-
 T = TypeVar("T", bound=BaseModel)
 
 

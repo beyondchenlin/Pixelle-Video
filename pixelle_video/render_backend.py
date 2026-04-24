@@ -1,6 +1,5 @@
 from typing import Final, Literal, cast
 
-
 RenderBackend = Literal["legacy", "hyperframes_compiled"]
 
 LEGACY_RENDER_BACKEND: Final[RenderBackend] = "legacy"
