@@ -28,9 +28,10 @@ from web.utils.async_helpers import run_async
 
 RECENT_GENERATED_VIDEO_KEY = "recent_generated_video"
 RECENT_VIDEO_GALLERY_KEY = "recent_video_gallery"
+RECENT_VIDEO_GRID_KEY = "recent_video_grid"
 RECENT_HISTORY_PAGE_SIZE = 12
 RECENT_HISTORY_MAX_PAGES = 4
-RECENT_VIDEO_LIMIT = 4
+RECENT_VIDEO_LIMIT = 8
 
 
 def _coerce_text(value: Any, fallback: str) -> str:
@@ -182,6 +183,17 @@ def build_recent_video_gallery_css() -> str:
     .st-key-{RECENT_VIDEO_GALLERY_KEY} {{
         container-type: inline-size;
     }}
+    .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stVerticalBlock"],
+    .st-key-{RECENT_VIDEO_GRID_KEY} > div > div[data-testid="stVerticalBlock"] {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+        gap: 0.75rem;
+        align-items: start;
+    }}
+    .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stVerticalBlock"] > div,
+    .st-key-{RECENT_VIDEO_GRID_KEY} > div > div[data-testid="stVerticalBlock"] > div {{
+        min-width: 0;
+    }}
     .st-key-{RECENT_VIDEO_GALLERY_KEY} [data-testid="stVideo"] {{
         width: 100% !important;
         max-width: 100% !important;
@@ -189,33 +201,32 @@ def build_recent_video_gallery_css() -> str:
     }}
     .st-key-{RECENT_VIDEO_GALLERY_KEY} [data-testid="stVideo"] video {{
         width: 100% !important;
-        height: clamp(180px, 46cqw, 260px) !important;
-        max-height: 260px !important;
+        height: clamp(96px, 22cqw, 140px) !important;
+        max-height: 140px !important;
         object-fit: contain !important;
         background: #0f172a;
         border-radius: 8px;
     }}
-    @container (min-width: 520px) {{
-        .st-key-{RECENT_VIDEO_GALLERY_KEY} [data-testid="stVideo"] video {{
-            height: clamp(190px, 40cqw, 260px) !important;
-        }}
-    }}
     .recent-video-title {{
-        min-height: 2.6rem;
+        min-height: 1.25rem;
         overflow: hidden;
         display: -webkit-box;
-        -webkit-line-clamp: 2;
+        -webkit-line-clamp: 1;
         -webkit-box-orient: vertical;
         font-weight: 600;
-        font-size: 0.9rem;
+        font-size: 0.82rem;
         line-height: 1.35;
     }}
     .recent-video-meta {{
         color: rgba(49, 51, 63, 0.62);
-        font-size: 0.76rem;
+        font-size: 0.68rem;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }}
+    .st-key-{RECENT_VIDEO_GALLERY_KEY} button {{
+        min-height: 2rem;
+        padding-block: 0.2rem;
     }}
     </style>
     """
@@ -244,11 +255,9 @@ def render_recent_video_gallery(pixelle_video: Any) -> None:
             st.info(tr("recent_videos.empty"))
             return
 
-        for row_start in range(0, len(items), 2):
-            columns = st.columns(2, gap="small")
-            for offset, item in enumerate(items[row_start:row_start + 2]):
-                with columns[offset]:
-                    render_recent_video_card(item)
+        with st.container(key=RECENT_VIDEO_GRID_KEY):
+            for item in items:
+                render_recent_video_card(item)
 
 
 def render_recent_video_card(item: dict[str, Any]) -> None:

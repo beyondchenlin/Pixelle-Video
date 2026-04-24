@@ -161,7 +161,9 @@ def test_get_current_recent_video_item_clears_missing_session_video(tmp_path):
 def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     css = gallery.build_recent_video_gallery_css()
 
+    assert gallery.RECENT_VIDEO_LIMIT == 8
     assert ".st-key-recent_video_gallery" in css
-    assert "@container (min-width: 520px)" in css
-    assert "height: clamp(180px, 46cqw, 260px)" in css
+    assert ".st-key-recent_video_grid" in css
+    assert "repeat(auto-fit, minmax(min(150px, 100%), 1fr))" in css
+    assert "height: clamp(96px, 22cqw, 140px)" in css
     assert "object-fit: contain" in css
