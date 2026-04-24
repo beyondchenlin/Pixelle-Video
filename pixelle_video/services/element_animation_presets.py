@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import random
 from dataclasses import dataclass
 
 from pixelle_video.models.element_animation import (
@@ -10,6 +9,10 @@ from pixelle_video.models.element_animation import (
     BackgroundMode,
     ElementMotionBounds,
 )
+
+
+_UINT32_MASK = 0xFFFFFFFF
+_UINT32_RANGE = 2**32
 
 
 @dataclass(frozen=True)
@@ -34,11 +37,13 @@ def resolve_element_bounds(intensity: AnimationIntensity) -> ElementMotionBounds
             rotate_deg=3.0,
             scale_delta=0.06,
         )
-    return ElementMotionBounds(
-        translate_px=16,
-        rotate_deg=1.8,
-        scale_delta=0.035,
-    )
+    if intensity == "medium":
+        return ElementMotionBounds(
+            translate_px=16,
+            rotate_deg=1.8,
+            scale_delta=0.035,
+        )
+    raise ValueError(f"Unsupported animation intensity: {intensity}")
 
 
 def resolve_background_bounds(
@@ -46,17 +51,31 @@ def resolve_background_bounds(
     intensity: AnimationIntensity,
 ) -> ElementMotionBounds:
     if mode == "source_image_low_motion":
+        resolve_element_bounds(intensity)
         return ElementMotionBounds(
             translate_px=6 if intensity == "high" else 4,
             rotate_deg=0.4,
             scale_delta=0.012,
         )
-    return resolve_element_bounds("low")
+    if mode == "inpainted":
+        return resolve_element_bounds(intensity)
+    raise ValueError(f"Unsupported background mode: {mode}")
 
 
 def _phase(seed: int, channel: int) -> float:
-    rng = random.Random(seed * 1009 + channel * 9176)
-    return rng.random() * math.tau
+    """Return a deterministic phase using JS-portable 32-bit integer math.
+
+    The mix uses only XOR, unsigned shifts, and 32-bit multiplication. A
+    HyperFrames renderer can port the same operations with `Math.imul` and
+    `>>> 0`, then divide the unsigned result by 2**32.
+    """
+    value = (seed & _UINT32_MASK) ^ (
+        ((channel + 1) * 0x9E3779B9) & _UINT32_MASK
+    )
+    value = ((value ^ (value >> 16)) * 0x85EBCA6B) & _UINT32_MASK
+    value = ((value ^ (value >> 13)) * 0xC2B2AE35) & _UINT32_MASK
+    value = (value ^ (value >> 16)) & _UINT32_MASK
+    return (value / _UINT32_RANGE) * math.tau
 
 
 def sample_transform(

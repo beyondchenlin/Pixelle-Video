@@ -1,3 +1,5 @@
+import pytest
+
 from pixelle_video.models.element_animation import ElementMotionBounds
 from pixelle_video.services.element_animation_presets import (
     ElementTransform,
@@ -41,6 +43,24 @@ def test_sample_transform_is_deterministic_and_within_bounds() -> None:
         assert 0.95 <= first.scale <= 1.05
 
 
+def test_sample_transform_matches_portable_golden_output() -> None:
+    bounds = ElementMotionBounds(translate_px=20, rotate_deg=2, scale_delta=0.05)
+
+    transform = sample_transform(
+        "float",
+        time=0.75,
+        duration=3.0,
+        seed=11,
+        bounds=bounds,
+    )
+
+    assert transform.x == pytest.approx(-11.43763011334786)
+    assert transform.y == pytest.approx(-19.896284153211866)
+    assert transform.rotate == pytest.approx(-1.9062716855579767)
+    assert transform.scale == pytest.approx(0.9502592896169704)
+    assert transform.opacity == 1.0
+
+
 def test_element_bounds_scale_by_intensity() -> None:
     low = resolve_element_bounds("low")
     medium = resolve_element_bounds("medium")
@@ -49,3 +69,36 @@ def test_element_bounds_scale_by_intensity() -> None:
     assert low.translate_px < medium.translate_px < high.translate_px
     assert low.rotate_deg < medium.rotate_deg < high.rotate_deg
     assert low.scale_delta < medium.scale_delta < high.scale_delta
+
+
+def test_resolve_element_bounds_rejects_unknown_intensity() -> None:
+    with pytest.raises(ValueError, match="Unsupported animation intensity"):
+        resolve_element_bounds("extreme")
+
+
+def test_resolve_background_bounds_rejects_unknown_mode() -> None:
+    with pytest.raises(ValueError, match="Unsupported background mode"):
+        resolve_background_bounds("moving_source", "medium")
+
+
+def test_resolve_background_bounds_rejects_unknown_intensity() -> None:
+    with pytest.raises(ValueError, match="Unsupported animation intensity"):
+        resolve_background_bounds("source_image_low_motion", "extreme")
+
+
+def test_inpainted_background_bounds_reject_unknown_intensity() -> None:
+    with pytest.raises(ValueError, match="Unsupported animation intensity"):
+        resolve_background_bounds("inpainted", "extreme")
+
+
+def test_sample_transform_rejects_unknown_preset() -> None:
+    bounds = ElementMotionBounds(translate_px=20, rotate_deg=2, scale_delta=0.05)
+
+    with pytest.raises(ValueError, match="Unsupported animation preset"):
+        sample_transform(
+            "wiggle",
+            time=0.75,
+            duration=3.0,
+            seed=11,
+            bounds=bounds,
+        )
