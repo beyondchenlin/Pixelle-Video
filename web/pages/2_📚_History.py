@@ -47,6 +47,34 @@ st.set_page_config(
 )
 
 
+def build_history_page_css() -> str:
+    """Build scoped CSS for History task card actions."""
+    return """
+    <style>
+    div[class*="st-key-history_card_actions_"] div[data-testid="stHorizontalBlock"] {
+        width: min(12rem, 82%);
+        margin-inline: auto;
+        gap: 0.6rem !important;
+        justify-content: space-between;
+    }
+    div[class*="st-key-history_card_actions_"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: 0 !important;
+    }
+    div[class*="st-key-history_card_actions_"] .stColumn button {
+        width: 2.2rem !important;
+        min-height: 1.45rem;
+        padding: 0;
+        margin-inline: 0;
+        border-radius: 6px;
+        font-size: 0.72rem;
+        line-height: 1;
+    }
+    </style>
+    """
+
+
 def format_duration(seconds: float) -> str:
     """Format duration in seconds to readable string"""
     if seconds < 60:
@@ -331,33 +359,34 @@ def render_grid_task_card(task: dict, pixelle_video):
         # Meta info (one line)
         st.caption(f"🕒 {format_datetime(created_at)} | ⏱️ {format_duration(duration)} | 🎬 {n_frames}")
         
-        # Action buttons (compact, 3 columns)
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("👁️", key=f"view_{task_id}", help=tr("history.task_card.view_detail"), width="stretch"):
-                st.session_state[f"detail_{task_id}"] = True
-                st.rerun()
-        
-        with col2:
-            if video_path and os.path.exists(video_path):
-                with open(video_path, "rb") as f:
-                    st.download_button(
-                        "⬇️",
-                        data=f,
-                        file_name=f"{title}.mp4",
-                        mime="video/mp4",
-                        key=f"download_{task_id}",
-                        help=tr("history.task_card.download"),
-                        width="stretch"
-                    )
-            else:
-                st.button("⬇️", key=f"download_disabled_{task_id}", disabled=True, width="stretch")
-        
-        with col3:
-            if st.button("🗑️", key=f"delete_{task_id}", help=tr("history.task_card.delete"), width="stretch"):
-                st.session_state[f"confirm_delete_{task_id}"] = True
-                st.rerun()
+        # Action buttons (compact, centered, 3 actions)
+        with st.container(key=f"history_card_actions_{task_id}"):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("👁️", key=f"view_{task_id}", help=tr("history.task_card.view_detail"), width="stretch"):
+                    st.session_state[f"detail_{task_id}"] = True
+                    st.rerun()
+            
+            with col2:
+                if video_path and os.path.exists(video_path):
+                    with open(video_path, "rb") as f:
+                        st.download_button(
+                            "⬇️",
+                            data=f,
+                            file_name=f"{title}.mp4",
+                            mime="video/mp4",
+                            key=f"download_{task_id}",
+                            help=tr("history.task_card.download"),
+                            width="stretch"
+                        )
+                else:
+                    st.button("⬇️", key=f"download_disabled_{task_id}", disabled=True, width="stretch")
+            
+            with col3:
+                if st.button("🗑️", key=f"delete_{task_id}", help=tr("history.task_card.delete"), width="stretch"):
+                    st.session_state[f"confirm_delete_{task_id}"] = True
+                    st.rerun()
         
         # Delete confirmation (show in modal-like way)
         if st.session_state.get(f"confirm_delete_{task_id}", False):
@@ -523,6 +552,7 @@ def main():
     # Initialize
     init_session_state()
     init_i18n()
+    st.markdown(build_history_page_css(), unsafe_allow_html=True)
     
     # Render header
     render_header()
