@@ -434,7 +434,7 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
         Path(frame.image_path).write_text("raw", encoding="utf-8")
         Path(frame.composed_image_path).write_text("shell", encoding="utf-8")
 
-    def fake_concat_audio_files(audio_paths, output_path):
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
         Path(output_path).write_bytes(b"master-audio")
 
     def fake_normalize_audio(input_path, output_path):
@@ -582,7 +582,7 @@ async def test_post_production_uses_template_canvas_size_instead_of_square_media
         Path(output_path).write_bytes(b"wav")
         return output_path
 
-    def fake_concat_audio_files(audio_paths, output_path):
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
         Path(output_path).write_bytes(b"master-audio")
 
     def fake_get_audio_duration(audio_path):
@@ -653,7 +653,7 @@ async def test_post_production_respects_direct_duration_alignment_engine(monkeyp
         Path(output_path).write_bytes(b"wav")
         return output_path
 
-    def fake_concat_audio_files(audio_paths, output_path):
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
         Path(output_path).write_bytes(b"master-audio")
 
     def fake_get_audio_duration(audio_path):
@@ -694,7 +694,7 @@ async def test_post_production_uses_stable_master_audio_duration_for_storyboard_
         Path(output_path).write_bytes(b"wav")
         return output_path
 
-    def fake_concat_audio_files(audio_paths, output_path):
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
         Path(output_path).write_bytes(b"master-wav")
 
     def fake_get_audio_duration(audio_path):
@@ -738,7 +738,7 @@ async def test_post_production_skips_shell_image_fallback_for_missing_raw_media(
         Path(output_path).write_bytes(b"wav")
         return output_path
 
-    def fake_concat_audio_files(audio_paths, output_path):
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
         Path(output_path).write_bytes(b"master-wav")
 
     monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
@@ -779,7 +779,7 @@ async def test_post_production_warns_and_keeps_clips_for_mixed_raw_media_availab
         Path(output_path).write_bytes(b"wav")
         return output_path
 
-    def fake_concat_audio_files(audio_paths, output_path):
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
         Path(output_path).write_bytes(b"master-wav")
 
     def fake_get_audio_duration(audio_path):

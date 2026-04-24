@@ -1389,7 +1389,11 @@ class StandardPipeline(LinearVideoPipeline):
             block_paths.append(block.audio_path)
 
         master_audio_path = task_audio_dir / "master_audio.wav"
-        self._concat_audio_files(block_paths, str(master_audio_path))
+        self._concat_audio_files(
+            block_paths,
+            str(master_audio_path),
+            fade_ms=ctx.config.tts_audio_boundary_fade_ms,
+        )
         master_audio_duration = self._get_audio_duration(str(master_audio_path))
         return str(master_audio_path), master_audio_duration
 
@@ -1416,6 +1420,7 @@ class StandardPipeline(LinearVideoPipeline):
                 source_unit_id=block_id,
                 overflow_policy=ctx.config.tts_split_overflow_policy,
             )
+            self._record_tts_segmentation_plan(ctx, plan)
             segments = [segment.text for segment in plan.segments] or [block_text]
 
         if len(segments) == 1:
@@ -1485,9 +1490,19 @@ class StandardPipeline(LinearVideoPipeline):
             if config.ref_audio:
                 tts_params["ref_audio"] = config.ref_audio
             if config.ref_audio_text:
-                tts_params["prompt_text"] = config.ref_audio_text
+                tts_params["ref_audio_text"] = config.ref_audio_text
 
         return tts_params
+
+    def _record_tts_segmentation_plan(self, ctx: PipelineContext, plan) -> None:
+        segmentation = ctx.observability.setdefault(
+            "tts_segmentation",
+            {
+                "version": "v1",
+                "plans": [],
+            },
+        )
+        segmentation.setdefault("plans", []).append(plan.to_dict())
 
     def _concat_audio_files(self, audio_paths: List[str], output_path: str, *, fade_ms: int = 0) -> None:
         if not audio_paths:

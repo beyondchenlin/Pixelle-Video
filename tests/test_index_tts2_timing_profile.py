@@ -1,7 +1,7 @@
 import pytest
 
-from pixelle_video.models.storyboard import StoryboardConfig
 from pixelle_video.models.render_package import AudioBlock
+from pixelle_video.models.storyboard import StoryboardConfig
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.timing_planner import TimingPlan
@@ -87,7 +87,7 @@ def test_standard_pipeline_does_not_require_index_tts2_internal_split_control_pa
     assert "overflow_policy" not in params
 
 
-def test_standard_pipeline_passes_ref_audio_text_as_prompt_text():
+def test_standard_pipeline_passes_ref_audio_text_as_semantic_param():
     config = StoryboardConfig(
         media_width=1080,
         media_height=1920,
@@ -105,7 +105,8 @@ def test_standard_pipeline_passes_ref_audio_text_as_prompt_text():
     )
 
     assert params["ref_audio"] == "temp/ref.wav"
-    assert params["prompt_text"] == "hello from the reference clip"
+    assert params["ref_audio_text"] == "hello from the reference clip"
+    assert "prompt_text" not in params
 
 
 @pytest.mark.asyncio
@@ -161,3 +162,50 @@ async def test_standard_pipeline_external_only_synthesizes_deterministic_segment
     assert len(synthesized_texts) > 1
     assert all("。" not in text for text in synthesized_texts)
     assert all("split_strategy" not in call for call in core.tts.calls)
+    plans = ctx.observability["tts_segmentation"]["plans"]
+    assert plans[0]["source_unit_id"] == "block-1"
+    assert len(plans[0]["segments"]) == len(synthesized_texts)
+    assert plans[0]["segments"][0]["synthesis_mode"] == "external_pre_split"
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_master_concat_uses_boundary_fade(monkeypatch, tmp_path):
+    class RecordingTts:
+        async def __call__(self, **params):
+            return params["output_path"]
+
+    core = _FakeCore()
+    core.tts = RecordingTts()
+    pipeline = StandardPipeline(core)
+    config = StoryboardConfig(
+        media_width=1080,
+        media_height=1920,
+        task_id="task-master-fade",
+        tts_inference_mode="comfyui",
+        tts_workflow="selfhost/tts_edge.json",
+        tts_audio_boundary_fade_ms=12,
+    )
+    ctx = PipelineContext(input_text="demo", params={})
+    ctx.task_id = config.task_id
+    ctx.task_dir = str(tmp_path)
+    ctx.config = config
+    ctx.timing_plan = TimingPlan(
+        blocks=[
+            AudioBlock(id="block-1", text="第一段。", source_frame_indices=[0]),
+            AudioBlock(id="block-2", text="第二段。", source_frame_indices=[1]),
+        ]
+    )
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", lambda source, output: output)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", lambda path: 1.0)
+    concat_calls = []
+    monkeypatch.setattr(
+        pipeline,
+        "_concat_audio_files",
+        lambda paths, output, **kwargs: concat_calls.append((paths, output, kwargs)),
+    )
+
+    await pipeline._synthesize_hyperframes_audio(ctx)
+
+    assert concat_calls[-1][1].endswith("master_audio.wav")
+    assert concat_calls[-1][2]["fade_ms"] == 12
