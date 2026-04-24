@@ -84,6 +84,7 @@ class PythonElementAnimationRenderer:
             command.extend(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
             if manifest.audio_path and Path(manifest.audio_path).exists():
                 command.extend(["-c:a", "aac"])
+            command.extend(["-t", str(manifest.timeline.duration)])
             command.append(str(output))
 
             subprocess.run(command, check=True)
