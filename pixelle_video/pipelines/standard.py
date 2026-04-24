@@ -19,6 +19,7 @@ Refactored to use LinearVideoPipeline (Template Method Pattern).
 """
 
 import asyncio
+import json
 import os
 import shutil
 import subprocess
@@ -30,6 +31,7 @@ from typing import Any, Callable, List, Literal, Optional
 from loguru import logger
 
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
+from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.render_package import RenderManifest, VisualClip
 from pixelle_video.models.storyboard import (
@@ -40,13 +42,17 @@ from pixelle_video.models.storyboard import (
     build_storyboard_config_planning_kwargs,
     build_storyboard_frame_planning_kwargs,
 )
+from pixelle_video.models.text_overlay import build_text_rendering_policy
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.render_backend import (
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
     LEGACY_RENDER_BACKEND,
 )
+from pixelle_video.services.native_prompt_projection import NativePromptProjection
+from pixelle_video.services.text_overlay_planner import TextOverlayPlanner
 from pixelle_video.services.timing_planner import TimingPlanner
+from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.services.video import VideoService
 from pixelle_video.tts_audio_strategy import (
     AUTO_TTS_AUDIO_STRATEGY,
@@ -54,7 +60,6 @@ from pixelle_video.tts_audio_strategy import (
     PER_FRAME_TTS_AUDIO_STRATEGY,
 )
 from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
-from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
 from pixelle_video.utils.content_generators import (
     generate_narrations_from_topic,
@@ -62,16 +67,16 @@ from pixelle_video.utils.content_generators import (
     generate_title,
     split_narration_script,
 )
+from pixelle_video.utils.logging_util import (
+    attach_task_log_sinks,
+    build_content_observability,
+    emit_stage_event,
+)
 from pixelle_video.utils.os_util import (
     create_task_output_dir,
     get_task_final_video_path,
     get_task_frame_path,
     get_task_path,
-)
-from pixelle_video.utils.logging_util import (
-    attach_task_log_sinks,
-    build_content_observability,
-    emit_stage_event,
 )
 from pixelle_video.utils.template_util import get_template_type, parse_template_size
 
@@ -302,6 +307,26 @@ class StandardPipeline(LinearVideoPipeline):
                 )
             
             image_config = self.core.config.get("comfyui", {}).get(media_type, {})
+            text_policy = build_text_rendering_policy(
+                ctx.params.get("text_layer"),
+                forbid_embedded_text_in_image=ctx.params.get(
+                    "forbid_embedded_text_in_image",
+                    True,
+                ),
+            )
+            text_plan = TextOverlayPlanner().plan(
+                narrations=ctx.narrations,
+                policy=text_policy,
+            )
+            ctx.creation_package = CreationPackage(
+                task_id=ctx.task_id or "",
+                text_overlay_plan=text_plan,
+                prompt_plan={"text_rendering_policy": text_policy.to_dict()},
+            )
+            native_hints = NativePromptProjection().project(
+                plan=text_plan,
+                policy=text_policy,
+            )
             styled_batch = await generate_styled_image_prompt_batch(
                 llm_service=self.llm,
                 narrations=ctx.narrations,
@@ -322,6 +347,8 @@ class StandardPipeline(LinearVideoPipeline):
                 shot_strategy=ctx.params.get("shot_strategy"),
                 frame_overrides=ctx.params.get("frame_overrides"),
                 forbid_embedded_text_in_image=ctx.params.get("forbid_embedded_text_in_image", True),
+                native_prompt_hints_by_frame=native_hints,
+                text_rendering_policy=text_policy,
                 stage_callback=stage_callback,
             )
 
@@ -440,6 +467,20 @@ class StandardPipeline(LinearVideoPipeline):
             "Timing plan prepared: "
             f"{len(ctx.timing_plan.sentences)} sentence units -> {len(ctx.timing_plan.blocks)} audio blocks"
         )
+        if (
+            ctx.creation_package is not None
+            and ctx.creation_package.text_overlay_plan is not None
+            and ctx.task_dir
+        ):
+            text_plan_path = Path(ctx.task_dir) / "text_overlay_plan.json"
+            text_plan_path.write_text(
+                json.dumps(
+                    ctx.creation_package.text_overlay_plan.to_dict(),
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
 
     def _ai_stage_callback(self, ctx: PipelineContext):
         return lambda payload: self._record_ai_creation_stage(ctx, payload)

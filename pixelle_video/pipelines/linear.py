@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from loguru import logger
 
+from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, VideoGenerationResult
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
@@ -61,6 +62,7 @@ class PipelineContext:
     resolved_style: Optional[ResolvedStyleSpec] = None
     media_negative_prompt: Optional[str] = None
     planning_snapshot: Optional[Dict[str, Any]] = None
+    creation_package: Optional[CreationPackage] = None
     timing_plan: Optional[TimingPlan] = None
     
     # === Configuration & Storyboard ===

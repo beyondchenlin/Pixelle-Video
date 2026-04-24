@@ -240,6 +240,63 @@ async def test_standard_pipeline_plan_visuals_uses_video_config_and_media_type(m
 
 
 @pytest.mark.asyncio
+async def test_standard_pipeline_plan_visuals_builds_text_package_and_native_hints(
+    monkeypatch,
+    tmp_path,
+):
+    captured = {}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured["native_prompt_hints_by_frame"] = kwargs.get(
+            "native_prompt_hints_by_frame"
+        )
+        captured["text_rendering_policy"] = kwargs.get("text_rendering_policy")
+        return StyledImagePromptBatch(
+            prompts=["native prompt"],
+            negative_prompt=None,
+            resolved_style=None,
+            planning_snapshot={"prompt": "summary"},
+        )
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    pipeline = StandardPipeline(_DummyCore({"comfyui": {"image": {}}}))
+    ctx = PipelineContext(
+        input_text="topic",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "media_width": 1024,
+            "media_height": 1024,
+            "text_layer": {
+                "enabled": True,
+                "mode": "native_hint",
+                "renderer_targets": ["native_prompt"],
+                "max_items_per_frame": 1,
+            },
+        },
+    )
+    ctx.title = "Text Layer"
+    ctx.task_id = "task-1"
+    ctx.task_dir = str(tmp_path)
+    ctx.narrations = ["把品牌名 Pixelle 放在画面中心。"]
+
+    await pipeline.plan_visuals(ctx)
+    await pipeline.initialize_storyboard(ctx)
+
+    assert ctx.creation_package is not None
+    assert ctx.creation_package.text_overlay_plan is not None
+    assert ctx.creation_package.text_overlay_plan.candidates[0].role == "model_native_hint"
+    assert captured["text_rendering_policy"].image_text_mode == "native_hint"
+    assert captured["native_prompt_hints_by_frame"][0][0].source_candidate_ids == (
+        "text-1-1",
+    )
+    assert (tmp_path / "text_overlay_plan.json").exists()
+
+
+@pytest.mark.asyncio
 async def test_standard_pipeline_static_path_does_not_persist_pseudo_resolved_planning_fields(monkeypatch):
     monkeypatch.setattr("pixelle_video.pipelines.standard.get_template_type", lambda template_name: "static")
 

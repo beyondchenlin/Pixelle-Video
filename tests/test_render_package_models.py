@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from pixelle_video.config.loader import load_config_dict, save_config_dict
 from pixelle_video.config.schema import PixelleVideoConfig
+from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.render_package import (
     AudioBlock,
     CaptionCue,
@@ -14,6 +15,7 @@ from pixelle_video.models.render_package import (
     resolve_render_window,
 )
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig
+from pixelle_video.models.text_overlay import TextOverlayPlan
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.pipelines.linear import PipelineContext
@@ -115,6 +117,22 @@ def test_text_track_and_text_cue_round_trip_with_immutable_layout_and_source():
     assert restored.layout["tokens"] == ("重点词",)
     assert restored.to_dict()["layout"]["tokens"] == ["重点词"]
     assert restored.source["candidate_id"] == "candidate-1"
+
+
+def test_pipeline_context_can_hold_creation_package_contract():
+    package = CreationPackage(
+        task_id="task-1",
+        text_overlay_plan=TextOverlayPlan(source_summary={"candidate_count": 0}),
+    )
+
+    ctx = PipelineContext(
+        input_text="demo",
+        params={},
+        creation_package=package,
+    )
+
+    assert ctx.creation_package is package
+    assert ctx.creation_package.text_overlay_plan.source_summary["candidate_count"] == 0
 
 
 def test_render_manifest_round_trips_text_tracks_and_text_cues_while_preserving_captions():
