@@ -144,6 +144,63 @@ def test_standard_ai_creation_observability_summary_records_terminal_skip_and_fa
     assert [item["status"] for item in summary["stages"]] == ["skipped", "failed"]
 
 
+def test_extract_audio_clip_outputs_pcm_wav_with_boundary_fade(monkeypatch, tmp_path):
+    pipeline = StandardPipeline(_DummyCore())
+    commands = []
+
+    def fake_run(command, capture_output=None, text=None, check=None):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr("pixelle_video.pipelines.standard.subprocess.run", fake_run)
+
+    output_path = tmp_path / "frame.wav"
+    result = pipeline._extract_audio_clip(
+        "master.wav",
+        str(output_path),
+        start_time=1.25,
+        end_time=3.25,
+        fade_ms=8,
+    )
+
+    assert result == str(output_path)
+    assert commands
+    command = commands[0]
+    assert "-af" in command
+    audio_filter = command[command.index("-af") + 1]
+    assert "afade=t=in:st=0:d=0.008" in audio_filter
+    assert "afade=t=out:st=1.992:d=0.008" in audio_filter
+    assert command[command.index("-c:a") + 1] == "pcm_s16le"
+
+
+def test_concat_audio_files_applies_pcm_boundary_fade(monkeypatch, tmp_path):
+    pipeline = StandardPipeline(_DummyCore())
+    commands = []
+
+    def fake_run(command, capture_output=None, text=None, check=None):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr("pixelle_video.pipelines.standard.subprocess.run", fake_run)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", lambda path: 1.0)
+
+    output_path = tmp_path / "joined.wav"
+    pipeline._concat_audio_files(
+        ["segment-1.wav", "segment-2.wav"],
+        str(output_path),
+        fade_ms=8,
+    )
+
+    assert commands
+    command = commands[0]
+    assert "-filter_complex" in command
+    audio_filter = command[command.index("-filter_complex") + 1]
+    assert "afade=t=out:st=0.992:d=0.008" in audio_filter
+    assert "afade=t=in:st=0:d=0.008" in audio_filter
+    assert "concat=n=2:v=0:a=1[out]" in audio_filter
+    assert command[command.index("-c:a") + 1] == "pcm_s16le"
+
+
 class _RecordingFrameProcessor:
     def __init__(self, *, fail_on=None):
         self.calls = []

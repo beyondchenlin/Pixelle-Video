@@ -117,6 +117,45 @@ def test_tts_index2_uses_builtin_multiline_string_input():
     assert workflow["3"]["_meta"]["title"] == "$text.value!"
 
 
+def test_tts_index2_exposes_only_current_workflow_inputs():
+    metadata = WorkflowParser().parse_workflow_file(
+        str(Path("workflows/selfhost/tts_index2.json"))
+    )
+
+    assert set(metadata.params.keys()) == {"text", "ref_audio"}
+
+
+def test_tts_longcat_clone_workflow_is_parseable_and_modelscope_first():
+    metadata = WorkflowParser().parse_workflow_file(
+        str(Path("workflows/selfhost/tts_longcat_clone.json"))
+    )
+    workflow = json.loads(
+        Path("workflows/selfhost/tts_longcat_clone.json").read_text(encoding="utf-8")
+    )
+
+    assert set(metadata.params.keys()) == {"text", "ref_audio", "prompt_text"}
+    assert metadata.params["text"].required is True
+    assert metadata.params["ref_audio"].required is True
+    assert metadata.params["ref_audio"].need_upload is True
+    assert metadata.params["prompt_text"].required is False
+
+    mappings = {
+        mapping.param_name: (mapping.node_id, mapping.input_field, mapping.need_upload)
+        for mapping in metadata.mapping_info.param_mappings
+    }
+    assert mappings == {
+        "text": ("3", "value", False),
+        "ref_audio": ("4", "audio", True),
+        "prompt_text": ("5", "value", False),
+    }
+
+    assert workflow["2"]["class_type"] == "LongCatVoiceCloneTTS"
+    assert workflow["2"]["inputs"]["model_path"] == "LongCat-AudioDiT-1B"
+    assert "auto download" not in workflow["2"]["inputs"]["model_path"].lower()
+    assert workflow["2"]["inputs"]["prompt_audio"] == ["4", 0]
+    assert workflow["2"]["inputs"]["prompt_text"] == ["5", 0]
+
+
 def test_tts_index2_keeps_models_cached_between_runs():
     workflow = json.loads(Path("workflows/selfhost/tts_index2.json").read_text(encoding="utf-8"))
 

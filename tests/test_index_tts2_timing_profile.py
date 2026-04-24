@@ -1,7 +1,10 @@
 import pytest
 
+from pixelle_video.models.storyboard import StoryboardConfig
+from pixelle_video.models.render_package import AudioBlock
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
+from pixelle_video.services.timing_planner import TimingPlan
 
 
 class _FakeCore:
@@ -26,7 +29,7 @@ class _FakeCore:
 
 
 @pytest.mark.asyncio
-async def test_standard_pipeline_tightens_index_tts2_batches_by_budget_and_adds_terminal_pauses():
+async def test_standard_pipeline_uses_internal_only_index_tts2_default_without_phrase_regroup():
     pipeline = StandardPipeline(_FakeCore())
     ctx = PipelineContext(
         input_text="demo",
@@ -52,8 +55,109 @@ async def test_standard_pipeline_tightens_index_tts2_batches_by_budget_and_adds_
 
     assert ctx.timing_plan is not None
     assert [block.text for block in ctx.timing_plan.blocks] == [
-        "先练呼吸控制。再练水中漂浮。保持身体平直。手臂划水流畅。坚持练习进步。",
+        "先练呼吸控制 再练水中漂浮 保持身体平直 手臂划水流畅 坚持练习进步",
     ]
     assert [block.source_frame_indices for block in ctx.timing_plan.blocks] == [
         [0, 1, 2, 3, 4],
     ]
+
+
+def test_standard_pipeline_does_not_require_index_tts2_internal_split_control_params():
+    config = StoryboardConfig(
+        media_width=1080,
+        media_height=1920,
+        tts_inference_mode="comfyui",
+        tts_workflow="selfhost/tts_index2.json",
+        tts_split_mode="external_only",
+        max_chars_per_tts_segment=120,
+        tts_split_overflow_policy="error",
+    )
+    pipeline = StandardPipeline(_FakeCore())
+
+    params = pipeline._build_tts_params(
+        config=config,
+        text="第一句。第二句。",
+        output_path="audio.wav",
+    )
+
+    assert params["text"] == "第一句。第二句。"
+    assert "split_strategy" not in params
+    assert "max_text_tokens_per_segment" not in params
+    assert "interval_silence_ms" not in params
+    assert "overflow_policy" not in params
+
+
+def test_standard_pipeline_passes_ref_audio_text_as_prompt_text():
+    config = StoryboardConfig(
+        media_width=1080,
+        media_height=1920,
+        tts_inference_mode="comfyui",
+        tts_workflow="selfhost/tts_longcat_clone.json",
+        ref_audio="temp/ref.wav",
+        ref_audio_text="hello from the reference clip",
+    )
+    pipeline = StandardPipeline(_FakeCore())
+
+    params = pipeline._build_tts_params(
+        config=config,
+        text="hello from the generated clip",
+        output_path="audio.wav",
+    )
+
+    assert params["ref_audio"] == "temp/ref.wav"
+    assert params["prompt_text"] == "hello from the reference clip"
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_external_only_synthesizes_deterministic_segments(monkeypatch, tmp_path):
+    class RecordingTts:
+        def __init__(self):
+            self.calls = []
+
+        async def __call__(self, **params):
+            self.calls.append(params)
+            return params["output_path"]
+
+    core = _FakeCore()
+    core.tts = RecordingTts()
+    pipeline = StandardPipeline(core)
+    config = StoryboardConfig(
+        media_width=1080,
+        media_height=1920,
+        task_id="task-index-tts2",
+        tts_inference_mode="comfyui",
+        tts_workflow="selfhost/tts_index2.json",
+        tts_split_mode="external_only",
+        max_chars_per_tts_segment=24,
+        tts_boundary_search_radius=12,
+    )
+    ctx = PipelineContext(input_text="demo", params={})
+    ctx.task_id = config.task_id
+    ctx.task_dir = str(tmp_path)
+    ctx.config = config
+    ctx.timing_plan = TimingPlan(
+        blocks=[
+            AudioBlock(
+                id="block-1",
+                text="她停下来，把围巾重新系紧，然后抬头看了一眼泛白的天空，像是在等什么",
+                source_frame_indices=[0],
+            )
+        ]
+    )
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", lambda source, output: output)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", lambda path: 1.0)
+    concat_calls = []
+    monkeypatch.setattr(
+        pipeline,
+        "_concat_audio_files",
+        lambda paths, output, **kwargs: concat_calls.append((paths, output, kwargs)),
+    )
+
+    await pipeline._synthesize_hyperframes_audio(ctx)
+
+    synthesized_texts = [call["text"] for call in core.tts.calls]
+    assert "".join(synthesized_texts) == ctx.timing_plan.blocks[0].text
+    assert len(synthesized_texts) > 1
+    assert all("。" not in text for text in synthesized_texts)
+    assert all("split_strategy" not in call for call in core.tts.calls)

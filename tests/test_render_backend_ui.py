@@ -2,6 +2,7 @@ from web.components import style_config
 from web.utils import render_backend_ui
 from web.utils import tts_ui
 from web.utils import tts_audio_strategy_ui
+from web.utils import tts_split_mode_ui
 
 
 def test_get_task_render_backend_prefers_effective_backend_then_requested_backend():
@@ -139,6 +140,23 @@ def test_copy_tts_audio_strategy_transfers_supported_value():
     )
 
     assert target["tts_audio_strategy"] == "master_track"
+
+
+def test_copy_tts_split_settings_transfers_supported_values():
+    target = {}
+
+    tts_split_mode_ui.copy_tts_split_settings(
+        {
+            "tts_split_mode": "external_only",
+            "max_chars_per_tts_segment": 120,
+        },
+        target,
+    )
+
+    assert target == {
+        "tts_split_mode": "external_only",
+        "max_chars_per_tts_segment": 120,
+    }
 
 
 def test_resolve_comfyui_tts_speed_prefers_comfyui_then_local_then_default():

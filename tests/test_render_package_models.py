@@ -26,6 +26,9 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     config = StoryboardConfig(media_width=1080, media_height=1920)
     assert config.tts_batching_mode == "paragraph"
     assert config.tts_audio_strategy == "auto"
+    assert config.tts_split_mode == "internal_only"
+    assert config.max_chars_per_tts_segment == 90
+    assert config.tts_audio_boundary_fade_ms == 8
     assert config.subtitle_alignment_engine == "qwen_forced_aligner"
     assert config.silence_trim_tool is None
     assert config.render_backend == "legacy"
@@ -352,6 +355,8 @@ def test_resolve_storyboard_render_kwargs_includes_tts_audio_strategy():
                 "timing": {
                     "tts_batching_mode": "sentence",
                     "tts_audio_strategy": "master_track",
+                    "tts_split_mode": "external_only",
+                    "max_chars_per_tts_segment": 120,
                 },
             }
         }
@@ -359,6 +364,8 @@ def test_resolve_storyboard_render_kwargs_includes_tts_audio_strategy():
 
     assert resolved["tts_batching_mode"] == "sentence"
     assert resolved["tts_audio_strategy"] == "master_track"
+    assert resolved["tts_split_mode"] == "external_only"
+    assert resolved["max_chars_per_tts_segment"] == 120
 
 
 def test_render_config_rejects_removed_hyperframes_alias(tmp_path):

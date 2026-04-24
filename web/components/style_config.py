@@ -45,6 +45,7 @@ from pixelle_video.prompts.prompt_prefix_generation import (
 )
 from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
 from pixelle_video.tts_audio_strategy import SUPPORTED_TTS_AUDIO_STRATEGIES
+from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_prefix_generation import (
     PromptPrefixGenerationResult,
@@ -70,6 +71,7 @@ from web.utils.prompt_prefix_ui import (
 from web.utils.render_backend_ui import get_render_backend_default
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow, safe_rerun
 from web.utils.tts_audio_strategy_ui import get_tts_audio_strategy_default
+from web.utils.tts_split_mode_ui import get_tts_split_mode_default
 from web.utils.tts_ui import resolve_comfyui_tts_speed
 from web.utils.workflow_defaults import resolve_selectbox_default_index
 
@@ -2332,6 +2334,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
             # Variables for video generation
             tts_workflow_key = None
             ref_audio_path = None
+            ref_audio_text = None
         
         # ================================================================
         # ComfyUI Mode UI
@@ -2388,6 +2391,15 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
                 ref_audio_path = temp_dir / f"ref_audio_{ref_audio_file.name}"
                 with open(ref_audio_path, "wb") as f:
                     f.write(ref_audio_file.getbuffer())
+
+            ref_audio_text = st.text_area(
+                tr("tts.ref_audio_text"),
+                value="",
+                placeholder=tr("tts.ref_audio_text_placeholder"),
+                help=tr("tts.ref_audio_text_help"),
+                key="ref_audio_text",
+                height=90,
+            )
             
             # Variables for video generation
             selected_voice = None
@@ -2423,6 +2435,8 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
                             tts_params["speed"] = tts_speed
                             if ref_audio_path:
                                 tts_params["ref_audio"] = str(ref_audio_path)
+                            if ref_audio_text:
+                                tts_params["prompt_text"] = ref_audio_text
                         
                         audio_path = run_async(pixelle_video.tts(**tts_params))
                         
@@ -2450,6 +2464,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
     ):
         render_backend = render_render_backend_selector()
         tts_audio_strategy = render_tts_audio_strategy_selector()
+        tts_split_settings = render_tts_split_settings()
 
     storyboard_world_preset_id = None
     storyboard_shot_preset_id = None
@@ -3196,8 +3211,10 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         "tts_speed": tts_speed,
         "tts_workflow": tts_workflow_key if tts_mode == "comfyui" else None,
         "ref_audio": str(ref_audio_path) if ref_audio_path else None,
+        "ref_audio_text": ref_audio_text if tts_mode == "comfyui" and ref_audio_text else None,
         "render_backend": render_backend,
         "tts_audio_strategy": tts_audio_strategy,
+        **tts_split_settings,
         "frame_template": frame_template,
         "template_params": custom_values_for_video if custom_values_for_video else None,
         "media_workflow": workflow_key,
@@ -3244,3 +3261,52 @@ def render_tts_audio_strategy_selector() -> str:
     )
     st.caption(tr(f"tts_audio_strategy.caption.{selected_strategy}"))
     return selected_strategy
+
+
+def render_tts_split_settings() -> dict:
+    """Render advanced TTS text segmentation settings for Web UI."""
+    timing_config = config_manager.config.render.timing
+    options = list(SUPPORTED_TTS_SPLIT_MODES)
+    configured_mode = get_tts_split_mode_default(timing_config.tts_split_mode)
+
+    selected_mode = st.radio(
+        tr("tts_split_mode.label"),
+        options,
+        index=options.index(configured_mode),
+        horizontal=False,
+        format_func=lambda value: tr(f"tts_split_mode.option.{value}"),
+        key="tts_split_mode_select",
+        help=tr("tts_split_mode.help"),
+    )
+    st.caption(tr(f"tts_split_mode.caption.{selected_mode}"))
+
+    settings = {
+        "tts_split_mode": selected_mode,
+        "max_chars_per_tts_segment": timing_config.max_chars_per_tts_segment,
+        "tts_split_overflow_policy": timing_config.tts_split_overflow_policy,
+        "tts_boundary_search_radius": timing_config.tts_boundary_search_radius,
+        "tts_soft_overflow_chars": timing_config.tts_soft_overflow_chars,
+        "tts_audio_boundary_fade_ms": timing_config.tts_audio_boundary_fade_ms,
+    }
+
+    if selected_mode != "internal_only":
+        settings["max_chars_per_tts_segment"] = int(
+            st.number_input(
+                tr("tts_split_mode.max_chars"),
+                min_value=1,
+                value=int(timing_config.max_chars_per_tts_segment),
+                step=1,
+                key="max_chars_per_tts_segment",
+            )
+        )
+
+    settings["tts_audio_boundary_fade_ms"] = int(
+        st.number_input(
+            tr("tts_split_mode.boundary_fade_ms"),
+            min_value=0,
+            value=int(timing_config.tts_audio_boundary_fade_ms),
+            step=1,
+            key="tts_audio_boundary_fade_ms",
+        )
+    )
+    return settings

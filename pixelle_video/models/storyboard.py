@@ -23,6 +23,7 @@ from pixelle_video.tts_audio_strategy import (
     DEFAULT_TTS_AUDIO_STRATEGY,
     validate_tts_audio_strategy,
 )
+from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, validate_tts_split_mode
 
 
 @dataclass
@@ -51,12 +52,19 @@ class StoryboardConfig:
     tts_workflow: Optional[str] = None         # TTS workflow filename (for ComfyUI mode, None = use default)
     tts_speed: Optional[float] = None          # TTS speed multiplier (0.5-2.0, 1.0 = normal)
     ref_audio: Optional[str] = None            # Reference audio for voice cloning (ComfyUI mode only)
+    ref_audio_text: Optional[str] = None       # Transcript for the reference audio (ComfyUI voice cloning)
 
     # Render contract
     tts_batching_mode: str = "paragraph"       # TTS batching mode
     tts_audio_strategy: str = DEFAULT_TTS_AUDIO_STRATEGY  # TTS audio organization strategy
+    tts_split_mode: str = DEFAULT_TTS_SPLIT_MODE  # TTS text segmentation strategy
     tts_batch_max_sentences: int = 8           # Maximum sentences per TTS batch
     tts_batch_max_chars: int = 220             # Maximum characters per TTS batch
+    max_chars_per_tts_segment: int = 90        # Maximum characters per external TTS segment
+    tts_split_overflow_policy: str = "hard_limit"  # TTS split overflow policy
+    tts_boundary_search_radius: int = 20       # External TTS splitter search radius
+    tts_soft_overflow_chars: int = 0           # External TTS splitter soft overflow
+    tts_audio_boundary_fade_ms: int = 8        # Boundary fade for assembled TTS audio
     subtitle_alignment_engine: str = "qwen_forced_aligner"  # Subtitle alignment engine
     silence_trim_tool: Optional[str] = None    # Silence trim tool name
     silence_trim_margin_ms: int = 120          # Silence trim margin in milliseconds
@@ -80,6 +88,11 @@ class StoryboardConfig:
     def __post_init__(self):
         self.render_backend = validate_render_backend(self.render_backend)
         self.tts_audio_strategy = validate_tts_audio_strategy(self.tts_audio_strategy)
+        self.tts_split_mode = validate_tts_split_mode(self.tts_split_mode)
+        self.max_chars_per_tts_segment = max(1, int(self.max_chars_per_tts_segment))
+        self.tts_boundary_search_radius = max(0, int(self.tts_boundary_search_radius))
+        self.tts_soft_overflow_chars = max(0, int(self.tts_soft_overflow_chars))
+        self.tts_audio_boundary_fade_ms = max(0, int(self.tts_audio_boundary_fade_ms))
 
 
 @dataclass

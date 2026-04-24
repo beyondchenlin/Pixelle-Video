@@ -113,6 +113,7 @@ class CustomPipeline(BasePipeline):
         tts_workflow: Optional[str] = None,
         tts_speed: float = 1.2,
         ref_audio: Optional[str] = None,
+        ref_audio_text: Optional[str] = None,
         
         media_workflow: Optional[str] = None,
         # Note: media_width and media_height are auto-determined from template
@@ -317,6 +318,7 @@ class CustomPipeline(BasePipeline):
             tts_workflow=final_tts_workflow,  # Use processed workflow
             tts_speed=tts_speed,
             ref_audio=ref_audio,
+            ref_audio_text=ref_audio_text or kwargs.get("prompt_text"),
             **render_kwargs,
             media_width=media_width,
             media_height=media_height,
@@ -439,6 +441,7 @@ class CustomPipeline(BasePipeline):
                     "tts_workflow": tts_workflow,
                     "tts_speed": tts_speed,
                     "ref_audio": ref_audio,
+                    "ref_audio_text": ref_audio_text or kwargs.get("prompt_text"),
                     "media_workflow": media_workflow,
                     "frame_template": frame_template,
                     "bgm_path": bgm_path,

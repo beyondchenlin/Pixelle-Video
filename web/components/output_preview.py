@@ -26,6 +26,7 @@ from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
 from web.utils.render_backend_ui import copy_render_backend
 from web.utils.tts_audio_strategy_ui import copy_tts_audio_strategy
+from web.utils.tts_split_mode_ui import copy_tts_split_settings
 
 VIDEO_PREVIEW_CONTAINER_KEY = "output_video_preview"
 VIDEO_PREVIEW_WIDTH = "50%"
@@ -115,6 +116,9 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         ref_audio_path = video_params.get("ref_audio")
         if ref_audio_path:
             request["ref_audio"] = str(ref_audio_path)
+        ref_audio_text = video_params.get("ref_audio_text")
+        if ref_audio_text:
+            request["ref_audio_text"] = ref_audio_text
 
     tts_speed = video_params.get("tts_speed")
     if tts_speed is not None:
@@ -126,6 +130,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
 
     copy_render_backend(video_params, request)
     copy_tts_audio_strategy(video_params, request)
+    copy_tts_split_settings(video_params, request)
 
     if video_params.get("request_id"):
         request["request_id"] = video_params["request_id"]
@@ -173,6 +178,9 @@ def build_batch_shared_config(video_params):
         ref_audio = video_params.get("ref_audio")
         if ref_audio:
             shared_config["ref_audio"] = str(ref_audio)
+        ref_audio_text = video_params.get("ref_audio_text")
+        if ref_audio_text:
+            shared_config["ref_audio_text"] = ref_audio_text
 
     if video_params.get("template_params"):
         shared_config["template_params"] = video_params["template_params"]
@@ -182,6 +190,7 @@ def build_batch_shared_config(video_params):
 
     copy_render_backend(video_params, shared_config)
     copy_tts_audio_strategy(video_params, shared_config)
+    copy_tts_split_settings(video_params, shared_config)
     return shared_config
 
 
@@ -201,6 +210,7 @@ def render_single_output(pixelle_video, video_params):
     tts_speed = video_params.get("tts_speed")
     tts_workflow_key = video_params.get("tts_workflow")
     ref_audio_path = video_params.get("ref_audio")
+    ref_audio_text = video_params.get("ref_audio_text")
     
     frame_template = video_params.get("frame_template")
     custom_values_for_video = video_params.get("template_params", {})
@@ -294,6 +304,7 @@ def render_single_output(pixelle_video, video_params):
                         "tts_speed": tts_speed,
                         "tts_workflow": tts_workflow_key,
                         "ref_audio": ref_audio_path,
+                        "ref_audio_text": ref_audio_text,
                         "template_params": custom_values_for_video,
                         "request_id": request_id,
                         "session_id": session_id,

@@ -53,6 +53,9 @@ from pixelle_video.tts_audio_strategy import (
     MASTER_TRACK_TTS_AUDIO_STRATEGY,
     PER_FRAME_TTS_AUDIO_STRATEGY,
 )
+from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
+from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
+from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
 from pixelle_video.utils.content_generators import (
     generate_narrations_from_topic,
     generate_styled_image_prompt_batch,
@@ -391,6 +394,7 @@ class StandardPipeline(LinearVideoPipeline):
             tts_workflow=final_tts_workflow,
             tts_speed=ctx.params.get("tts_speed", 1.2),
             ref_audio=ctx.params.get("ref_audio"),
+            ref_audio_text=ctx.params.get("ref_audio_text") or ctx.params.get("prompt_text"),
             **resolve_storyboard_render_kwargs(self.core.config, ctx.params),
             media_width=ctx.params.get("media_width"),
             media_height=ctx.params.get("media_height"),
@@ -421,7 +425,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
             ctx.storyboard.frames.append(frame)
 
-        effective_max_sentences, effective_max_chars, normalize_block_text_for_tts = (
+        effective_max_sentences, effective_max_chars, normalize_block_text_for_tts, single_audio_block = (
             self._resolve_effective_timing_plan_settings(ctx.config)
         )
         planner = TimingPlanner(
@@ -429,6 +433,7 @@ class StandardPipeline(LinearVideoPipeline):
             max_sentences=effective_max_sentences,
             max_chars=effective_max_chars,
             normalize_block_text_for_tts=normalize_block_text_for_tts,
+            single_audio_block=single_audio_block,
         )
         ctx.timing_plan = planner.build(ctx.storyboard.frames)
         logger.info(
@@ -617,16 +622,18 @@ class StandardPipeline(LinearVideoPipeline):
     def _resolve_effective_timing_plan_settings(
         self,
         config: StoryboardConfig,
-    ) -> tuple[int, int, bool]:
+    ) -> tuple[int, int, bool, bool]:
         max_sentences = max(1, int(config.tts_batch_max_sentences))
         max_chars = max(1, int(config.tts_batch_max_chars))
         normalize_block_text_for_tts = False
+        single_audio_block = False
 
         if self._uses_index_tts2_workflow(config):
-            normalize_block_text_for_tts = True
-            max_chars = min(max_chars, 90)
+            single_audio_block = True
+            if config.tts_split_mode != INTERNAL_ONLY_TTS_SPLIT_MODE:
+                max_chars = max(1, int(config.max_chars_per_tts_segment))
 
-        return max_sentences, max_chars, normalize_block_text_for_tts
+        return max_sentences, max_chars, normalize_block_text_for_tts, single_audio_block
 
     def _uses_index_tts2_workflow(self, config: StoryboardConfig) -> bool:
         if config.tts_inference_mode != "comfyui":
@@ -640,8 +647,7 @@ class StandardPipeline(LinearVideoPipeline):
             except Exception:
                 workflow_key = config.tts_workflow or workflow_key
 
-        workflow_stem = Path(str(workflow_key or "")).stem.lower()
-        return workflow_stem in {"tts_index2", "indextts2", "index_tts2"}
+        return is_index_tts2_workflow_key(workflow_key)
 
     async def _prepare_legacy_master_track_audio(self, ctx: PipelineContext) -> None:
         storyboard = ctx.storyboard
@@ -676,11 +682,13 @@ class StandardPipeline(LinearVideoPipeline):
                 )
 
             output_path = get_task_frame_path(ctx.config.task_id, frame.index, "audio")
+            output_path = str(Path(output_path).with_suffix(".wav"))
             self._extract_audio_clip(
                 master_audio_path,
                 output_path,
                 start_time=clip_start,
                 end_time=clip_end,
+                fade_ms=ctx.config.tts_audio_boundary_fade_ms,
             )
             frame.audio_path = output_path
             frame.duration = self._get_audio_duration(output_path)
@@ -718,8 +726,16 @@ class StandardPipeline(LinearVideoPipeline):
         *,
         start_time: float,
         end_time: float,
+        fade_ms: int = 8,
     ) -> str:
         duration = max(float(end_time) - float(start_time), 0.01)
+        fade_duration = min(max(float(fade_ms), 0.0) / 1000.0, duration / 4)
+        fade_out_start = max(duration - fade_duration, 0.0)
+        audio_filter = (
+            f"afade=t=in:st=0:d={self._format_ffmpeg_time(fade_duration)},"
+            f"afade=t=out:st={self._format_ffmpeg_time(fade_out_start)}:"
+            f"d={self._format_ffmpeg_time(fade_duration)}"
+        )
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         completed = subprocess.run(
             [
@@ -731,8 +747,10 @@ class StandardPipeline(LinearVideoPipeline):
                 "-t",
                 self._format_ffmpeg_time(duration),
                 "-vn",
+                "-af",
+                audio_filter,
                 "-c:a",
-                "libmp3lame",
+                "pcm_s16le",
                 "-y",
                 output_path,
             ],
@@ -1186,18 +1204,13 @@ class StandardPipeline(LinearVideoPipeline):
         cursor = 0.0
 
         for block in ctx.timing_plan.blocks:
-            block_source_path = task_audio_dir / f"{block.id}_source.mp3"
             block_output_path = task_audio_dir / f"{block.id}.wav"
-            await self.core.tts(
-                **self._build_tts_params(
-                    config=ctx.config,
-                    text=block.text,
-                    output_path=str(block_source_path),
-                )
-            )
-            normalized_audio_path = self._normalize_audio_for_hyperframes(
-                str(block_source_path),
-                str(block_output_path),
+            normalized_audio_path = await self._synthesize_audio_block(
+                ctx,
+                block_id=block.id,
+                block_text=block.text,
+                task_audio_dir=task_audio_dir,
+                block_output_path=block_output_path,
             )
             block.audio_path = normalized_audio_path
             duration = self._get_audio_duration(block.audio_path)
@@ -1210,6 +1223,70 @@ class StandardPipeline(LinearVideoPipeline):
         self._concat_audio_files(block_paths, str(master_audio_path))
         master_audio_duration = self._get_audio_duration(str(master_audio_path))
         return str(master_audio_path), master_audio_duration
+
+    async def _synthesize_audio_block(
+        self,
+        ctx: PipelineContext,
+        *,
+        block_id: str,
+        block_text: str,
+        task_audio_dir: Path,
+        block_output_path: Path,
+    ) -> str:
+        segments = [block_text]
+        if (
+            self._uses_index_tts2_workflow(ctx.config)
+            and ctx.config.tts_split_mode != INTERNAL_ONLY_TTS_SPLIT_MODE
+        ):
+            plan = build_external_tts_segmentation_plan(
+                block_text,
+                max_chars_per_segment=ctx.config.max_chars_per_tts_segment,
+                boundary_search_radius=ctx.config.tts_boundary_search_radius,
+                soft_overflow_chars=ctx.config.tts_soft_overflow_chars,
+                source_unit_type="audio_block",
+                source_unit_id=block_id,
+                overflow_policy=ctx.config.tts_split_overflow_policy,
+            )
+            segments = [segment.text for segment in plan.segments] or [block_text]
+
+        if len(segments) == 1:
+            block_source_path = task_audio_dir / f"{block_id}_source.mp3"
+            await self.core.tts(
+                **self._build_tts_params(
+                    config=ctx.config,
+                    text=segments[0],
+                    output_path=str(block_source_path),
+                )
+            )
+            return self._normalize_audio_for_hyperframes(
+                str(block_source_path),
+                str(block_output_path),
+            )
+
+        segment_paths: List[str] = []
+        for index, segment_text in enumerate(segments, start=1):
+            segment_source_path = task_audio_dir / f"{block_id}_segment_{index}_source.mp3"
+            segment_output_path = task_audio_dir / f"{block_id}_segment_{index}.wav"
+            await self.core.tts(
+                **self._build_tts_params(
+                    config=ctx.config,
+                    text=segment_text,
+                    output_path=str(segment_source_path),
+                )
+            )
+            segment_paths.append(
+                self._normalize_audio_for_hyperframes(
+                    str(segment_source_path),
+                    str(segment_output_path),
+                )
+            )
+
+        self._concat_audio_files(
+            segment_paths,
+            str(block_output_path),
+            fade_ms=ctx.config.tts_audio_boundary_fade_ms,
+        )
+        return str(block_output_path)
 
     def _build_tts_params(
         self,
@@ -1238,10 +1315,12 @@ class StandardPipeline(LinearVideoPipeline):
                 tts_params["speed"] = config.tts_speed
             if config.ref_audio:
                 tts_params["ref_audio"] = config.ref_audio
+            if config.ref_audio_text:
+                tts_params["prompt_text"] = config.ref_audio_text
 
         return tts_params
 
-    def _concat_audio_files(self, audio_paths: List[str], output_path: str) -> None:
+    def _concat_audio_files(self, audio_paths: List[str], output_path: str, *, fade_ms: int = 0) -> None:
         if not audio_paths:
             raise ValueError("HyperFrames audio synthesis requires at least one block.")
 
@@ -1249,6 +1328,11 @@ class StandardPipeline(LinearVideoPipeline):
 
         if len(audio_paths) == 1:
             shutil.copy2(audio_paths[0], output_path)
+            return
+
+        fade_duration = max(float(fade_ms), 0.0) / 1000.0
+        if fade_duration > 0:
+            self._concat_audio_files_with_boundary_fade(audio_paths, output_path, fade_duration)
             return
 
         from tempfile import NamedTemporaryFile
@@ -1285,6 +1369,63 @@ class StandardPipeline(LinearVideoPipeline):
         finally:
             if filelist_path and os.path.exists(filelist_path):
                 os.remove(filelist_path)
+
+    def _concat_audio_files_with_boundary_fade(
+        self,
+        audio_paths: List[str],
+        output_path: str,
+        fade_duration: float,
+    ) -> None:
+        command = ["ffmpeg"]
+        filter_parts: List[str] = []
+        labels: List[str] = []
+
+        for index, audio_path in enumerate(audio_paths):
+            command.extend(["-i", audio_path])
+            duration = max(self._get_audio_duration(audio_path), 0.01)
+            boundary_fade = min(fade_duration, duration / 4)
+            filters = ["aresample=async=1:first_pts=0"]
+
+            if index > 0:
+                filters.append(f"afade=t=in:st=0:d={self._format_ffmpeg_time(boundary_fade)}")
+            if index < len(audio_paths) - 1:
+                fade_out_start = max(duration - boundary_fade, 0.0)
+                filters.append(
+                    "afade=t=out:"
+                    f"st={self._format_ffmpeg_time(fade_out_start)}:"
+                    f"d={self._format_ffmpeg_time(boundary_fade)}"
+                )
+
+            label = f"a{index}"
+            filter_parts.append(f"[{index}:a]{','.join(filters)}[{label}]")
+            labels.append(f"[{label}]")
+
+        filter_complex = (
+            ";".join(filter_parts)
+            + f";{''.join(labels)}concat=n={len(audio_paths)}:v=0:a=1[out]"
+        )
+        command.extend(
+            [
+                "-filter_complex",
+                filter_complex,
+                "-map",
+                "[out]",
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+                output_path,
+            ]
+        )
+
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+            raise RuntimeError(f"Failed to concatenate HyperFrames audio with boundary fade: {detail}")
 
     def _normalize_audio_for_hyperframes(self, input_path: str, output_path: str) -> str:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)

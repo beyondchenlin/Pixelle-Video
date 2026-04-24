@@ -391,6 +391,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                             tts_speed = video_params.get("tts_speed")
                             tts_workflow = video_params.get("tts_workflow")
                             ref_audio = video_params.get("ref_audio")
+                            ref_audio_text = video_params.get("ref_audio_text")
 
                             tts_kwargs = {
                                 "text": generated_text,
@@ -405,6 +406,8 @@ class DigitalHumanPipelineUI(PipelineUI):
                                     tts_kwargs["workflow"] = tts_workflow
                                 if ref_audio:
                                     tts_kwargs["ref_audio"] = ref_audio
+                                if ref_audio_text:
+                                    tts_kwargs["prompt_text"] = ref_audio_text
 
                             await pixelle_video.tts(**tts_kwargs)
                             progress_bar.progress(65)
@@ -485,6 +488,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 tts_speed = video_params.get("tts_speed")
                                 tts_workflow = video_params.get("tts_workflow")
                                 ref_audio = video_params.get("ref_audio")
+                                ref_audio_text = video_params.get("ref_audio_text")
 
                                 tts_kwargs = {
                                     "text": generated_text,
@@ -499,6 +503,8 @@ class DigitalHumanPipelineUI(PipelineUI):
                                         tts_kwargs["workflow"] = tts_workflow
                                     if ref_audio:
                                         tts_kwargs["ref_audio"] = ref_audio
+                                    if ref_audio_text:
+                                        tts_kwargs["prompt_text"] = ref_audio_text
 
                                 await pixelle_video.tts(**tts_kwargs)
                                 progress_bar.progress(65)
@@ -566,6 +572,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 tts_speed = video_params.get("tts_speed")
                                 tts_workflow = video_params.get("tts_workflow")
                                 ref_audio = video_params.get("ref_audio")
+                                ref_audio_text = video_params.get("ref_audio_text")
 
                                 tts_kwargs = {
                                     "text": generated_text,
@@ -580,6 +587,8 @@ class DigitalHumanPipelineUI(PipelineUI):
                                         tts_kwargs["workflow"] = tts_workflow
                                     if ref_audio:
                                         tts_kwargs["ref_audio"] = ref_audio
+                                    if ref_audio_text:
+                                        tts_kwargs["prompt_text"] = ref_audio_text
 
                                 await pixelle_video.tts(**tts_kwargs)
                                 progress_bar.progress(65)

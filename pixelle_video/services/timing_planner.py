@@ -26,11 +26,13 @@ class TimingPlanner:
         max_chars: int,
         *,
         normalize_block_text_for_tts: bool = False,
+        single_audio_block: bool = False,
     ):
         self.mode = (mode or "paragraph").strip().lower()
         self.max_sentences = max(1, max_sentences)
         self.max_chars = max(1, max_chars)
         self.normalize_block_text_for_tts = bool(normalize_block_text_for_tts)
+        self.single_audio_block = bool(single_audio_block)
 
     def build(self, frames: Sequence[StoryboardFrame]) -> TimingPlan:
         sentences = self._build_sentence_units(frames)
@@ -61,6 +63,9 @@ class TimingPlanner:
     def _build_audio_blocks(self, sentences: Sequence[SentenceUnit]) -> List[AudioBlock]:
         if not sentences:
             return []
+
+        if self.single_audio_block:
+            return [self._create_block(sentences, 1)]
 
         if self.mode == "sentence":
             return [

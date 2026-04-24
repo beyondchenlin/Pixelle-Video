@@ -19,12 +19,19 @@ from typing import Any, Dict, Optional
 
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND
 from pixelle_video.tts_audio_strategy import DEFAULT_TTS_AUDIO_STRATEGY
+from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE
 
 STORYBOARD_RENDER_DEFAULTS: Dict[str, Any] = {
     "tts_batching_mode": "paragraph",
     "tts_audio_strategy": DEFAULT_TTS_AUDIO_STRATEGY,
+    "tts_split_mode": DEFAULT_TTS_SPLIT_MODE,
     "tts_batch_max_sentences": 8,
     "tts_batch_max_chars": 220,
+    "max_chars_per_tts_segment": 90,
+    "tts_split_overflow_policy": "hard_limit",
+    "tts_boundary_search_radius": 20,
+    "tts_soft_overflow_chars": 0,
+    "tts_audio_boundary_fade_ms": 8,
     "subtitle_alignment_engine": "qwen_forced_aligner",
     "silence_trim_tool": None,
     "silence_trim_margin_ms": 120,

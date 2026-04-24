@@ -31,6 +31,7 @@ from pixelle_video.config.storyboard_preset_library import (
 from pixelle_video.models.storyboard_planning import ContentMode, ShotOverridePolicy
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, RenderBackend
 from pixelle_video.tts_audio_strategy import DEFAULT_TTS_AUDIO_STRATEGY, TTSAudioStrategy
+from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, TtsSplitMode
 
 
 class LLMConfig(BaseModel):
@@ -415,8 +416,17 @@ class RenderTimingConfig(BaseModel):
         default=DEFAULT_TTS_AUDIO_STRATEGY,
         description="TTS audio organization strategy",
     )
+    tts_split_mode: TtsSplitMode = Field(
+        default=DEFAULT_TTS_SPLIT_MODE,
+        description="TTS text segmentation strategy",
+    )
     tts_batch_max_sentences: int = Field(default=8, ge=1, description="Maximum sentences per TTS batch")
     tts_batch_max_chars: int = Field(default=220, ge=1, description="Maximum characters per TTS batch")
+    max_chars_per_tts_segment: int = Field(default=90, ge=1, description="Maximum characters per external TTS segment")
+    tts_split_overflow_policy: str = Field(default="hard_limit", description="TTS split overflow policy")
+    tts_boundary_search_radius: int = Field(default=20, ge=0, description="TTS external splitter boundary search radius")
+    tts_soft_overflow_chars: int = Field(default=0, ge=0, description="Allowed soft overflow characters for TTS splitting")
+    tts_audio_boundary_fade_ms: int = Field(default=8, ge=0, description="Audio fade duration at TTS boundaries")
     subtitle_alignment_engine: str = Field(
         default="qwen_forced_aligner",
         description="Subtitle alignment engine",
