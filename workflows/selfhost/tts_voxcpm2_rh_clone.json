@@ -1,0 +1,65 @@
+{
+  "1": {
+    "inputs": {
+      "model_name": "VoxCPM2",
+      "optimize": false,
+      "lora_name": "None"
+    },
+    "class_type": "RunningHub_VoxCPM_LoadModel",
+    "_meta": {
+      "title": "RunningHub VoxCPM Load Model"
+    }
+  },
+  "2": {
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "reference_audio": [
+        "4",
+        0
+      ],
+      "control_instruction": "稍快一点，欢快的语气",
+      "text": "这是 VoxCPM2 生成的克隆语音。",
+      "cfg_value": 2.0,
+      "inference_steps": 10,
+      "seed": 42,
+      "ultimate_clone": false,
+      "reference_audio_text": "",
+      "normalize_text": false,
+      "denoise_reference": false,
+      "max_len": 4096,
+      "retry_badcase": true
+    },
+    "class_type": "RunningHub_VoxCPM_Generate",
+    "_meta": {
+      "title": "RunningHub VoxCPM Clone, $voice_description.control_instruction, $text.text!, $cfg_value.cfg_value, $inference_steps.inference_steps, $seed.seed, $ultimate_clone.ultimate_clone, $reference_audio_text.reference_audio_text, $normalize_text.normalize_text, $denoise_reference.denoise_reference, $max_len.max_len, $retry_badcase.retry_badcase"
+    }
+  },
+  "3": {
+    "inputs": {
+      "filename_prefix": "audio/ComfyUI",
+      "audioUI": "",
+      "audio": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "SaveAudioMP3",
+    "_meta": {
+      "title": "Save Audio (MP3)"
+    }
+  },
+  "4": {
+    "inputs": {
+      "audio": "ref_audio.wav",
+      "start_time": 0,
+      "duration": 0
+    },
+    "class_type": "VHS_LoadAudioUpload",
+    "_meta": {
+      "title": "$ref_audio.~audio!"
+    }
+  }
+}

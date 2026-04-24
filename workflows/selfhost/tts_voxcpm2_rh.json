@@ -1,0 +1,50 @@
+{
+  "1": {
+    "inputs": {
+      "model_name": "VoxCPM2",
+      "optimize": false,
+      "lora_name": "None"
+    },
+    "class_type": "RunningHub_VoxCPM_LoadModel",
+    "_meta": {
+      "title": "RunningHub VoxCPM Load Model"
+    }
+  },
+  "2": {
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "control_instruction": "年轻女性，温柔自然",
+      "text": "你好，欢迎使用 VoxCPM2。",
+      "cfg_value": 2.0,
+      "inference_steps": 10,
+      "seed": 42,
+      "ultimate_clone": false,
+      "reference_audio_text": "",
+      "normalize_text": false,
+      "denoise_reference": false,
+      "max_len": 4096,
+      "retry_badcase": true
+    },
+    "class_type": "RunningHub_VoxCPM_Generate",
+    "_meta": {
+      "title": "RunningHub VoxCPM Generate, $voice_description.control_instruction, $text.text!, $cfg_value.cfg_value, $inference_steps.inference_steps, $seed.seed, $max_len.max_len, $normalize_text.normalize_text"
+    }
+  },
+  "3": {
+    "inputs": {
+      "filename_prefix": "audio/ComfyUI",
+      "audioUI": "",
+      "audio": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "SaveAudioMP3",
+    "_meta": {
+      "title": "Save Audio (MP3)"
+    }
+  }
+}
