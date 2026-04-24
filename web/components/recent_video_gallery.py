@@ -245,11 +245,20 @@ def build_recent_video_gallery_css() -> str:
         overflow: hidden;
         text-overflow: ellipsis;
     }}
+    .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stHorizontalBlock"] {{
+        gap: 0.55rem !important;
+        justify-content: center;
+    }}
+    .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: 0 !important;
+    }}
     .st-key-{RECENT_VIDEO_GALLERY_KEY} .stColumn button {{
         width: 2.15rem !important;
         min-height: 1.45rem;
         padding: 0;
-        margin-inline: auto;
+        margin-inline: 0;
         border-radius: 6px;
         font-size: 0.72rem;
         line-height: 1;
