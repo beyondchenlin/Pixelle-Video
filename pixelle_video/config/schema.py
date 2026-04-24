@@ -432,6 +432,19 @@ class RenderConfig(BaseModel):
     timing: RenderTimingConfig = Field(default_factory=RenderTimingConfig)
 
 
+class LoggingConfig(BaseModel):
+    """Application-owned file logging configuration."""
+
+    enabled: bool = Field(default=True)
+    level: str = Field(default="INFO")
+    log_dir: str = Field(default="logs")
+    rotation_mb: int = Field(default=50, ge=1)
+    retention_days: int = Field(default=14, ge=1)
+    task_logs_enabled: bool = Field(default=True)
+    ai_creation_logs_enabled: bool = Field(default=True)
+    preview_chars: int = Field(default=120, ge=20)
+
+
 class PixelleVideoConfig(BaseModel):
     """Pixelle-Video main configuration"""
     project_name: str = Field(default="Pixelle-Video", description="Project name")
@@ -439,6 +452,7 @@ class PixelleVideoConfig(BaseModel):
     comfyui: ComfyUIConfig = Field(default_factory=ComfyUIConfig)
     template: TemplateConfig = Field(default_factory=TemplateConfig)
     render: RenderConfig = Field(default_factory=RenderConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
     storyboard: StoryboardSubConfig = Field(default_factory=StoryboardSubConfig, description="Storyboard planning configuration")
 
     @model_validator(mode="after")

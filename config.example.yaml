@@ -4,6 +4,17 @@
 
 project_name: Pixelle-Video
 
+# ==================== Logging Configuration ====================
+logging:
+  enabled: true
+  level: INFO
+  log_dir: logs
+  rotation_mb: 50
+  retention_days: 14
+  task_logs_enabled: true
+  ai_creation_logs_enabled: true
+  preview_chars: 120
+
 # ==================== LLM Configuration ====================
 # Supports any OpenAI SDK compatible API
 llm:
