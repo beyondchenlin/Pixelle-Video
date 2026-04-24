@@ -27,6 +27,8 @@ Pixelle 当前已经具备本地 ComfyUI 图片生成、HTML 帧合成、HyperFr
 
 渲染阶段不直接耦合 SAM3.1 结果，而是读取统一的 `element_animation_manifest.json`。HyperFrames/Canvas 后端负责更丰富的模板化动效；Python/FFmpeg 后端负责本地批处理和无浏览器环境下的稳定逐帧合成。
 
+背景层必须显式记录生成方式。优先生成“去主体背景”，避免元素移动后露出原位置的静态主体；如果第一版暂不做 inpaint，则必须把背景标记为 `source_image_low_motion` 并限制元素移动幅度，只允许呼吸、轻微漂浮等不会明显露底的动画。
+
 ## 数据流
 
 ```text
@@ -73,7 +75,21 @@ SAM3.1 可能输出多个 masks 和 bboxes。候选元素需要经过统一排�
 {
   "version": 1,
   "source_image": "image.png",
-  "background": "background.png",
+  "canvas": {
+    "width": 1080,
+    "height": 1920
+  },
+  "timeline": {
+    "duration": 4.2,
+    "fps": 30,
+    "audio_path": "audio/frame_001.mp3",
+    "duration_source": "audio"
+  },
+  "background": {
+    "asset": "background.png",
+    "mode": "inpainted",
+    "fallback_mode": "source_image_low_motion"
+  },
   "segmentation": {
     "model": "sam3.1",
     "workflow": "selfhost/image_sam31_segment.json",
@@ -93,6 +109,11 @@ SAM3.1 可能输出多个 masks 和 bboxes。候选元素需要经过统一排�
       "z_index": 2,
       "anchor": [0.5, 0.85],
       "selected": true,
+      "motion_bounds": {
+        "max_translate_px": 24,
+        "max_scale_delta": 0.03,
+        "max_rotate_deg": 2
+      },
       "animation": {
         "preset": "float_breathe",
         "intensity": "medium"
@@ -100,8 +121,7 @@ SAM3.1 可能输出多个 masks 和 bboxes。候选元素需要经过统一排�
     }
   ],
   "render": {
-    "backend": "hyperframes_canvas",
-    "fps": 30
+    "backend": "hyperframes_canvas"
   }
 }
 ```
@@ -135,6 +155,8 @@ SAM3.1 可能输出多个 masks 和 bboxes。候选元素需要经过统一排�
 
 所有预设都应以确定性参数生成。相同 task、element id、preset 和 intensity 应得到稳定结果，便于复现和测试。
 
+动画参数必须受背景模式约束。如果 `background.mode` 是 `inpainted`，允许轻微位移、缩放和旋转；如果使用 `source_image_low_motion`，默认禁用明显位移，只保留缩放、透明度和 3-6px 以内的漂浮，以降低重影风险。
+
 ## 渲染后端
 
 HyperFrames/Canvas 后端：
@@ -152,12 +174,15 @@ Python/FFmpeg 后端：
 
 两个后端必须共享动画 preset 名称、强度映射、时间曲线和 manifest schema。允许视觉表现有轻微差异，但同一 manifest 的主体选择、起止时间和整体运动方向应一致。
 
+两个后端都必须从 manifest 的 `canvas` 和 `timeline` 字段读取画布尺寸、fps 和总时长。图片帧场景下，`timeline.duration` 默认来自该帧 narration 音频；无音频时使用 storyboard frame duration 或配置默认值。
+
 ## 错误处理
 
 - SAM3.1 不可用：跳过元素增强，继续原有静态图片视频流程，并在任务日志中标记原因。
 - 无候选元素：使用背景慢缩放作为退化动画。
 - 候选少于 3 个：选中所有有效候选，其余不补假元素。
 - mask 质量过差：丢弃该候选，保留原图背景。
+- 去主体背景生成失败：将 `background.mode` 降级为 `source_image_low_motion`，并自动把元素动画限制为低幅度 preset。
 - HyperFrames 渲染失败：若用户选择 Python/FFmpeg，可直接使用该后端；若用户选择 HyperFrames，则返回明确错误并保留可重试任务状态。
 - Python/FFmpeg 渲染失败：返回 ffmpeg stderr 摘要，保留 manifest 和中间元素产物用于复现。
 
@@ -166,6 +191,7 @@ Python/FFmpeg 后端：
 - Manifest schema 单元测试：默认 3 个主体、候选上限、选中状态、动画字段。
 - 候选筛选测试：面积过滤、重叠去重、候选不足、用户修改选中集合。
 - 渲染参数测试：不同 preset/intensity 输出稳定 transform。
+- 背景模式测试：inpainted 背景允许轻位移；source_image_low_motion 背景限制移动幅度。
 - HyperFrames 项目导出测试：manifest、元素 PNG、背景 PNG 能正确 materialize。
 - Python/FFmpeg 合成测试：用小尺寸 fixture 验证视频时长、分辨率、帧数、透明元素合成。
 - API/UI 测试：高级选项默认折叠，展开后能修改主体数量、元素勾选和后端。
