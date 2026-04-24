@@ -430,8 +430,8 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
-    monkeypatch.setattr(output_preview, "get_language", lambda: "en_US")
     monkeypatch.setattr(output_preview, "render_scaled_video_preview", lambda _path: None)
+    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video: None)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
 
     output_preview.render_single_output(
@@ -594,8 +594,8 @@ def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_pa
             "info.scenes_unit": " scenes",
         }.get(key, key),
     )
-    monkeypatch.setattr(output_preview, "get_language", lambda: "en_US")
     monkeypatch.setattr(output_preview, "render_scaled_video_preview", lambda _path: None)
+    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video: None)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
 
     output_preview.render_single_output(
@@ -615,6 +615,188 @@ def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_pa
     )
 
     assert "Generating image prompts... - resolving style profile" in captured["status_messages"]
+
+
+def test_render_single_output_stores_recent_generated_video_and_renders_gallery(monkeypatch, tmp_path):
+    captured = {"stored": False, "gallery": False}
+    video_path = tmp_path / "final.mp4"
+    video_path.write_bytes(b"video")
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeProgressBar:
+        def progress(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+    class _FakeStatus:
+        def text(self, _value):
+            return None
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "template_media_width": 1080,
+                "template_media_height": 1920,
+            }
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def button(self, *_args, **_kwargs):
+            return True
+
+        def error(self, message):
+            raise AssertionError(message)
+
+        def stop(self):
+            raise AssertionError("st.stop should not be called")
+
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            return _FakeStatus()
+
+        def success(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, *_args, **_kwargs):
+            return None
+
+        def download_button(self, **_kwargs):
+            raise AssertionError("single download button should be replaced by gallery card")
+
+    class _FakePixelleVideo:
+        async def generate_video(self, **_kwargs):
+            return SimpleNamespace(
+                video_path=str(video_path),
+                duration=8.5,
+                file_size=len(video_path.read_bytes()),
+                storyboard=SimpleNamespace(
+                    title="Generated",
+                    planning_snapshot=None,
+                    config=SimpleNamespace(
+                        task_id="task-generated",
+                        frame_template="1080x1920/image_default.html",
+                    ),
+                    frames=[object(), object()],
+                ),
+            )
+
+    monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+    monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(
+        output_preview,
+        "render_scaled_video_preview",
+        lambda _path: (_ for _ in ()).throw(AssertionError("old preview should not render")),
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "store_recent_generated_video",
+        lambda result, session_state: captured.update(stored=True),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "render_recent_video_gallery",
+        lambda pixelle_video: captured.update(gallery=True),
+        raising=False,
+    )
+
+    output_preview.render_single_output(
+        _FakePixelleVideo(),
+        {
+            "text": "demo",
+            "mode": "generate",
+            "title": "Demo",
+            "n_scenes": 3,
+            "split_mode": "paragraph",
+            "media_workflow": "runninghub/image_flux.json",
+            "frame_template": "1080x1920/image_default.html",
+            "prompt_prefix": "clean",
+            "tts_inference_mode": "local",
+            "tts_voice": "zh-CN-YunjianNeural",
+        },
+    )
+
+    assert captured == {"stored": True, "gallery": True}
+
+
+def test_render_single_output_does_not_stop_before_gallery_on_input_error(monkeypatch):
+    captured = {"gallery": False, "generated": False}
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {}
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def button(self, *_args, **_kwargs):
+            return True
+
+        def error(self, _message):
+            return None
+
+        def stop(self):
+            raise AssertionError("st.stop should not be called")
+
+    class _FakePixelleVideo:
+        async def generate_video(self, **_kwargs):
+            captured["generated"] = True
+
+    monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+    monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(
+        output_preview,
+        "render_recent_video_gallery",
+        lambda pixelle_video: captured.update(gallery=True),
+        raising=False,
+    )
+
+    output_preview.render_single_output(
+        _FakePixelleVideo(),
+        {
+            "text": "",
+            "mode": "generate",
+            "title": "Demo",
+            "n_scenes": 3,
+            "split_mode": "paragraph",
+            "tts_inference_mode": "local",
+        },
+    )
+
+    assert captured == {"gallery": True, "generated": False}
 
 
 def test_render_batch_output_writes_last_successful_planning_snapshot(monkeypatch):
