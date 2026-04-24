@@ -251,10 +251,8 @@ def render_single_output(pixelle_video, video_params):
         if not config_manager.validate():
             st.warning(tr("settings.not_configured"))
 
-        gallery_slot = st.empty()
-
-        def render_gallery_slot() -> None:
-            with gallery_slot.container():
+        def render_gallery_slot(slot) -> None:
+            with slot.container():
                 render_recent_video_gallery(pixelle_video)
 
         # Generate Button
@@ -275,7 +273,8 @@ def render_single_output(pixelle_video, video_params):
                 # Show progress
                 progress_bar = st.progress(0)
                 status_text = st.empty()
-                render_gallery_slot()
+                gallery_slot = st.empty()
+                render_gallery_slot(gallery_slot)
 
                 # Record start time for generation
                 import time
@@ -400,7 +399,7 @@ def render_single_output(pixelle_video, video_params):
 
                     if os.path.exists(result.video_path):
                         store_recent_generated_video(result, st.session_state)
-                        render_gallery_slot()
+                        render_gallery_slot(gallery_slot)
                     else:
                         st.error(tr("status.video_not_found", path=result.video_path))
 
@@ -410,9 +409,9 @@ def render_single_output(pixelle_video, video_params):
                     st.error(tr("status.error", error=str(e)))
                     logger.exception(e)
             else:
-                render_gallery_slot()
+                render_gallery_slot(st.empty())
         else:
-            render_gallery_slot()
+            render_gallery_slot(st.empty())
 
 
 def render_batch_output(pixelle_video, video_params):

@@ -714,6 +714,7 @@ def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
             return None
 
         def button(self, *_args, **_kwargs):
+            captured["events"].append("button")
             return True
 
         def error(self, message):
@@ -723,9 +724,11 @@ def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
             raise AssertionError("st.stop should not be called")
 
         def progress(self, _value):
+            captured["events"].append("progress")
             return _FakeProgressBar()
 
         def empty(self):
+            captured["events"].append("empty")
             return _FakeStatus()
 
         def success(self, *_args, **_kwargs):
@@ -793,7 +796,16 @@ def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
         },
     )
 
-    assert captured["events"] == ["gallery", "generate", "store", "gallery"]
+    assert captured["events"] == [
+        "button",
+        "progress",
+        "empty",
+        "empty",
+        "gallery",
+        "generate",
+        "store",
+        "gallery",
+    ]
 
 
 def test_render_single_output_does_not_stop_before_gallery_on_input_error(monkeypatch):
