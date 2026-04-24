@@ -83,7 +83,7 @@ def render_scaled_video_preview(video_path: str) -> None:
 def copy_element_animation_options(source, target):
     """Copy element animation UI params into a generation request dict."""
     for key in ELEMENT_ANIMATION_OPTION_KEYS:
-        if key in source:
+        if key in source and source[key] is not None:
             target[key] = source[key]
 
 

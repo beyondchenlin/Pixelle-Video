@@ -36,6 +36,23 @@ STORYBOARD_RENDER_DEFAULTS: Dict[str, Any] = {
     "silence_trim_tool": None,
     "silence_trim_margin_ms": 120,
     "render_backend": DEFAULT_RENDER_BACKEND,
+    "element_animation_enabled": False,
+    "element_animation_backend": "hyperframes_canvas",
+    "element_animation_subject_count": 3,
+    "element_animation_candidate_limit": 3,
+    "element_animation_prompt": None,
+    "element_animation_intensity": "medium",
+    "element_animation_workflow": "image_sam31_segment.json",
+}
+
+ELEMENT_ANIMATION_CONFIG_KEY_MAP = {
+    "element_animation_enabled": "enabled",
+    "element_animation_backend": "backend",
+    "element_animation_subject_count": "subject_count",
+    "element_animation_candidate_limit": "candidate_limit",
+    "element_animation_prompt": "prompt",
+    "element_animation_intensity": "intensity",
+    "element_animation_workflow": "workflow",
 }
 
 
@@ -52,11 +69,17 @@ def resolve_storyboard_render_kwargs(
     config = runtime_config or {}
     render_config = config.get("render", {}) or {}
     timing_config = render_config.get("timing", {}) or {}
+    element_animation_config = render_config.get("element_animation", {}) or {}
     request_params = request_params or {}
 
     def pick(name: str, default: Any):
         if name in request_params:
             return request_params[name]
+        element_animation_key = ELEMENT_ANIMATION_CONFIG_KEY_MAP.get(name)
+        if element_animation_key and element_animation_key in element_animation_config:
+            value = element_animation_config[element_animation_key]
+            if value is not None:
+                return value
         if name in timing_config:
             value = timing_config[name]
             if value is not None:

@@ -400,6 +400,13 @@ class PersistenceService:
             "silence_trim_tool": config.silence_trim_tool,
             "silence_trim_margin_ms": config.silence_trim_margin_ms,
             "render_backend": config.render_backend,
+            "element_animation_enabled": config.element_animation_enabled,
+            "element_animation_backend": config.element_animation_backend,
+            "element_animation_subject_count": config.element_animation_subject_count,
+            "element_animation_candidate_limit": config.element_animation_candidate_limit,
+            "element_animation_prompt": config.element_animation_prompt,
+            "element_animation_intensity": config.element_animation_intensity,
+            "element_animation_workflow": config.element_animation_workflow,
             "media_width": config.media_width,
             "media_height": config.media_height,
             "media_workflow": config.media_workflow,
@@ -447,6 +454,13 @@ class PersistenceService:
             render_backend=self._normalize_persisted_render_backend(
                 data.get("render_backend", DEFAULT_RENDER_BACKEND)
             ),
+            element_animation_enabled=data.get("element_animation_enabled", False),
+            element_animation_backend=data.get("element_animation_backend", "hyperframes_canvas"),
+            element_animation_subject_count=data.get("element_animation_subject_count", 3),
+            element_animation_candidate_limit=data.get("element_animation_candidate_limit", 3),
+            element_animation_prompt=data.get("element_animation_prompt"),
+            element_animation_intensity=data.get("element_animation_intensity", "medium"),
+            element_animation_workflow=data.get("element_animation_workflow", "image_sam31_segment.json"),
             media_width=data.get("media_width", data.get("image_width", 1024)),  # Backward compatibility
             media_height=data.get("media_height", data.get("image_height", 1024)),  # Backward compatibility
             media_workflow=data.get("media_workflow", data.get("image_workflow")),  # Backward compatibility
