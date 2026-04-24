@@ -435,11 +435,39 @@ class RenderTimingConfig(BaseModel):
     silence_trim_margin_ms: int = Field(default=120, ge=0, description="Silence trim margin in milliseconds")
 
 
+class ElementAnimationConfig(BaseModel):
+    """Element animation configuration."""
+
+    enabled: bool = Field(default=False, description="Enable element animation")
+    backend: Literal["hyperframes_canvas", "python_ffmpeg"] = Field(
+        default="hyperframes_canvas",
+        description="Element animation backend",
+    )
+    subject_count: int = Field(default=3, ge=1, description="Number of subjects to animate")
+    candidate_limit: int = Field(default=3, ge=1, description="Maximum segmentation candidates")
+    prompt: Optional[str] = Field(default=None, description="Optional element animation prompt")
+    intensity: Literal["low", "medium", "high"] = Field(
+        default="medium",
+        description="Element animation intensity",
+    )
+    workflow: str = Field(
+        default="image_sam31_segment.json",
+        description="Element animation segmentation workflow",
+    )
+
+    @model_validator(mode="after")
+    def validate_candidate_limit(self):
+        if self.candidate_limit < self.subject_count:
+            raise ValueError("candidate_limit must be >= subject_count")
+        return self
+
+
 class RenderConfig(BaseModel):
     """Render configuration."""
 
     backend: RenderBackend = Field(default=DEFAULT_RENDER_BACKEND, description="Render backend")
     timing: RenderTimingConfig = Field(default_factory=RenderTimingConfig)
+    element_animation: ElementAnimationConfig = Field(default_factory=ElementAnimationConfig)
 
 
 class LoggingConfig(BaseModel):

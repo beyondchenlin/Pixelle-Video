@@ -26,6 +26,10 @@ from pixelle_video.tts_audio_strategy import (
 from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, validate_tts_split_mode
 
 
+VALID_ELEMENT_ANIMATION_BACKENDS = {"hyperframes_canvas", "python_ffmpeg"}
+VALID_ELEMENT_ANIMATION_INTENSITIES = {"low", "medium", "high"}
+
+
 @dataclass
 class StoryboardConfig:
     """Storyboard configuration parameters"""
@@ -69,6 +73,13 @@ class StoryboardConfig:
     silence_trim_tool: Optional[str] = None    # Silence trim tool name
     silence_trim_margin_ms: int = 120          # Silence trim margin in milliseconds
     render_backend: str = DEFAULT_RENDER_BACKEND  # Render backend
+    element_animation_enabled: bool = False
+    element_animation_backend: str = "hyperframes_canvas"
+    element_animation_subject_count: int = 3
+    element_animation_candidate_limit: int = 3
+    element_animation_prompt: Optional[str] = None
+    element_animation_intensity: str = "medium"
+    element_animation_workflow: str = "image_sam31_segment.json"
     
     # Media workflow
     media_workflow: Optional[str] = None       # Media workflow filename (image or video, None = use default)
@@ -93,6 +104,22 @@ class StoryboardConfig:
         self.tts_boundary_search_radius = max(0, int(self.tts_boundary_search_radius))
         self.tts_soft_overflow_chars = max(0, int(self.tts_soft_overflow_chars))
         self.tts_audio_boundary_fade_ms = max(0, int(self.tts_audio_boundary_fade_ms))
+        self.element_animation_subject_count = int(self.element_animation_subject_count)
+        self.element_animation_candidate_limit = int(self.element_animation_candidate_limit)
+        if self.element_animation_subject_count < 1:
+            raise ValueError("element_animation_subject_count must be >= 1")
+        if self.element_animation_candidate_limit < self.element_animation_subject_count:
+            raise ValueError("element_animation_candidate_limit must be >= element_animation_subject_count")
+        if self.element_animation_backend not in VALID_ELEMENT_ANIMATION_BACKENDS:
+            raise ValueError(
+                "element_animation_backend must be one of "
+                f"{sorted(VALID_ELEMENT_ANIMATION_BACKENDS)}"
+            )
+        if self.element_animation_intensity not in VALID_ELEMENT_ANIMATION_INTENSITIES:
+            raise ValueError(
+                "element_animation_intensity must be one of "
+                f"{sorted(VALID_ELEMENT_ANIMATION_INTENSITIES)}"
+            )
 
 
 @dataclass

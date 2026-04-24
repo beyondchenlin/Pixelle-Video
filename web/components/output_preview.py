@@ -35,6 +35,15 @@ from web.utils.tts_split_mode_ui import copy_tts_split_settings
 
 VIDEO_PREVIEW_CONTAINER_KEY = "output_video_preview"
 VIDEO_PREVIEW_WIDTH = "50%"
+ELEMENT_ANIMATION_OPTION_KEYS = (
+    "element_animation_enabled",
+    "element_animation_backend",
+    "element_animation_subject_count",
+    "element_animation_candidate_limit",
+    "element_animation_prompt",
+    "element_animation_intensity",
+    "element_animation_workflow",
+)
 
 
 def _get_or_create_log_session_id(session_state) -> str:
@@ -69,6 +78,13 @@ def render_scaled_video_preview(video_path: str) -> None:
     st.markdown(build_video_preview_css(), unsafe_allow_html=True)
     with st.container(key=VIDEO_PREVIEW_CONTAINER_KEY):
         st.video(video_path, width="stretch")
+
+
+def copy_element_animation_options(source, target):
+    """Copy element animation UI params into a generation request dict."""
+    for key in ELEMENT_ANIMATION_OPTION_KEYS:
+        if key in source:
+            target[key] = source[key]
 
 
 def render_output_preview(pixelle_video, video_params):
@@ -136,6 +152,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     copy_render_backend(video_params, request)
     copy_tts_audio_strategy(video_params, request)
     copy_tts_split_settings(video_params, request)
+    copy_element_animation_options(video_params, request)
 
     if video_params.get("request_id"):
         request["request_id"] = video_params["request_id"]
@@ -196,6 +213,7 @@ def build_batch_shared_config(video_params):
     copy_render_backend(video_params, shared_config)
     copy_tts_audio_strategy(video_params, shared_config)
     copy_tts_split_settings(video_params, shared_config)
+    copy_element_animation_options(video_params, shared_config)
     return shared_config
 
 
