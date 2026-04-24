@@ -2466,6 +2466,8 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         tts_audio_strategy = render_tts_audio_strategy_selector()
         tts_split_settings = render_tts_split_settings()
 
+    element_animation_settings = render_element_animation_controls()
+
     storyboard_world_preset_id = None
     storyboard_shot_preset_id = None
     storyboard_consistency_strength = None
@@ -3221,7 +3223,92 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         "prompt_prefix": prompt_prefix if prompt_prefix else "",
         "media_width": media_width,
         "media_height": media_height,
+        **element_animation_settings,
         **storyboard_payload,
+    }
+
+
+def render_element_animation_controls() -> dict:
+    """Render optional SAM3.1 element micro-motion controls."""
+    configured = config_manager.config.render.element_animation
+    backend_options = ["hyperframes_canvas", "python_ffmpeg"]
+    intensity_options = ["low", "medium", "high"]
+    configured_backend = (
+        configured.backend
+        if configured.backend in backend_options
+        else "hyperframes_canvas"
+    )
+    configured_intensity = (
+        configured.intensity
+        if configured.intensity in intensity_options
+        else "medium"
+    )
+
+    with render_middle_column_collapsible_section(
+        tr("section.element_animation"),
+        expanded=False,
+    ):
+        enabled = st.toggle(
+            tr("element_animation.enabled"),
+            value=bool(configured.enabled),
+            help=tr("element_animation.enabled_help"),
+            key="element_animation_enabled",
+        )
+        subject_count = st.slider(
+            tr("element_animation.subject_count"),
+            min_value=1,
+            max_value=8,
+            value=max(1, int(configured.subject_count)),
+            disabled=not enabled,
+            key="element_animation_subject_count",
+        )
+
+        with st.expander(tr("element_animation.advanced"), expanded=False):
+            candidate_limit = st.slider(
+                tr("element_animation.candidate_limit"),
+                min_value=subject_count,
+                max_value=12,
+                value=max(subject_count, int(configured.candidate_limit)),
+                disabled=not enabled,
+                key="element_animation_candidate_limit",
+            )
+            backend = st.selectbox(
+                tr("element_animation.backend"),
+                options=backend_options,
+                index=backend_options.index(configured_backend),
+                format_func=lambda value: tr(f"element_animation.backend.{value}"),
+                disabled=not enabled,
+                key="element_animation_backend",
+            )
+            intensity = st.selectbox(
+                tr("element_animation.intensity"),
+                options=intensity_options,
+                index=intensity_options.index(configured_intensity),
+                format_func=lambda value: tr(f"element_animation.intensity.{value}"),
+                disabled=not enabled,
+                key="element_animation_intensity",
+            )
+            prompt = st.text_input(
+                tr("element_animation.prompt"),
+                value=configured.prompt or "",
+                disabled=not enabled,
+                key="element_animation_prompt",
+            )
+            workflow = st.text_input(
+                tr("element_animation.workflow"),
+                value=configured.workflow or "image_sam31_segment.json",
+                disabled=not enabled,
+                key="element_animation_workflow",
+            )
+
+    return {
+        "element_animation_enabled": enabled,
+        "element_animation_backend": backend,
+        "element_animation_subject_count": subject_count,
+        "element_animation_candidate_limit": candidate_limit,
+        "element_animation_prompt": prompt.strip() or None,
+        "element_animation_intensity": intensity,
+        "element_animation_workflow": workflow.strip() or "image_sam31_segment.json",
     }
 
 
