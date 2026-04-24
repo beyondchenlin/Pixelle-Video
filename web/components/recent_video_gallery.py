@@ -199,6 +199,12 @@ def build_recent_video_gallery_css() -> str:
     .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stVerticalBlock"] {{
         gap: 0.35rem;
     }}
+    .recent-video-section-title {{
+        margin: 0 0 0.55rem;
+        font-size: 0.98rem;
+        font-weight: 700;
+        line-height: 1.25;
+    }}
     .st-key-{RECENT_VIDEO_GALLERY_KEY} video[data-testid="stVideo"] {{
         width: 100% !important;
         max-width: 100% !important;
@@ -258,7 +264,10 @@ def render_recent_video_gallery(pixelle_video: Any) -> None:
     items = merge_recent_video_items(current, history_items)
 
     with st.container(key=RECENT_VIDEO_GALLERY_KEY):
-        st.markdown(f"**{tr('recent_videos.title')}**")
+        st.markdown(
+            f'<div class="recent-video-section-title">{escape(tr("recent_videos.title"))}</div>',
+            unsafe_allow_html=True,
+        )
         if not items:
             st.info(tr("recent_videos.empty"))
             return

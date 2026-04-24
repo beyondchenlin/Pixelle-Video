@@ -173,6 +173,8 @@ def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     assert "max-height: none !important" in css
     assert "margin: 0 !important" in css
     assert "object-fit: initial" in css
+    assert ".recent-video-section-title" in css
+    assert "margin: 0 0 0.55rem" in css
     assert ".st-key-recent_video_gallery .stColumn button" in css
     assert "min-height: 1.45rem" in css
     assert "padding: 0" in css

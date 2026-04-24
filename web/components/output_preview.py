@@ -402,7 +402,6 @@ def render_single_output(pixelle_video, video_params):
                     st.error(tr("status.error", error=str(e)))
                     logger.exception(e)
 
-        st.markdown("---")
         render_recent_video_gallery(pixelle_video)
 
 
