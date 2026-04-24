@@ -20,6 +20,20 @@
 - 不在首页提供删除历史视频能力。
 - 不改动生成视频接口、任务持久化结构或 History 页分页逻辑。
 - 不引入新的前端框架。
+- 不同时保留“旧的单视频预览”和“新的最近视频网格”，避免生成成功后重复展示同一个视频。
+
+## 两轮复审结论
+
+两轮复审共发现 8 个需要在设计中明确的风险点，并已在下文修正：
+
+1. 生成成功后如果继续调用旧的 `render_scaled_video_preview(...)`，会和最近视频网格重复展示。
+2. 最近视频区需要在未点击生成按钮时也渲染，不能只放在生成成功分支内。
+3. 生成失败时不能清空最近视频区，应保留历史视频并只显示失败提示。
+4. History 前 4 条任务里可能存在缺失 `video_path` 或本地文件不存在的记录，需要过量拉取后过滤。
+5. CSS 容器查询应以 1 列作为默认回退，再在容器足够宽时增强为 2 列。
+6. 首页不能用纯 HTML `<video>` 直接替代 `st.video`，否则本地视频文件服务、下载和 Streamlit 状态会变复杂。
+7. `查看` 动作需要明确跳转到 History 详情，而不是在首页展开复杂详情。
+8. 批量生成路径保持现状，不在本次改动中强行改成最近视频网格。
 
 ## 推荐结构
 
@@ -75,16 +89,18 @@
 
 .recent-video-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
-@container (max-width: 460px) {
+@container (min-width: 460px) {
   .recent-video-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 ```
+
+这样即使某些浏览器或 Streamlit DOM 结构导致容器查询没有生效，默认也会退回到 1 列，不会在窄容器中挤出溢出布局。
 
 ## 视频卡片尺寸
 
@@ -96,6 +112,7 @@
 - 视频内容使用 `object-fit: contain`，避免裁切竖屏内容。
 - 标题最多 2 行，超出截断。
 - 元信息保持 1 行，包括创建时间、时长、分镜数。
+- `st.video` 的播放器宽度应由卡片容器控制，CSS 只在 keyed container 内作用，避免影响 History 页和其他视频预览。
 
 卡片结构：
 
@@ -116,9 +133,26 @@
 - `status` 过滤为 `completed`。
 - 只展示 `video_path` 存在且本地文件存在的视频。
 - 默认最多展示 4 个。
-- 按创建时间或完成时间倒序，沿用 History 当前排序语义中最接近“最近”的字段。
+- 建议调用时使用 `page=1`、`page_size=12`、`status="completed"`、`sort_by="created_at"`、`sort_order="desc"`。
+- 先过量拉取，再过滤缺失文件和去重，最后截断为 4 个卡片，避免前几条任务文件缺失时首页出现空洞。
 
 本次生成完成后，将结果写入 `st.session_state`，例如保存 `video_path`、标题、时长、分镜数等必要展示字段。渲染时先读取本次结果，再读取 History 结果，并按 `video_path` 或可用的 `task_id` 去重。
+
+建议 session state 结构：
+
+```python
+st.session_state["recent_generated_video"] = {
+    "task_id": task_id_or_none,
+    "title": result.storyboard.title,
+    "video_path": result.video_path,
+    "duration": result.duration,
+    "n_frames": len(result.storyboard.frames),
+    "created_at": completed_time_iso,
+    "source": "current",
+}
+```
+
+如果结果对象没有直接暴露 `task_id` 或 `duration`，实现时应使用可用字段降级，例如从 `result.storyboard.config.task_id`、`result.storyboard.total_duration` 或生成耗时信息中选择最接近展示语义的字段。
 
 ## 页面状态
 
@@ -138,6 +172,18 @@ flowchart TD
 
 生成失败时不清空最近视频区域，只显示失败提示并保留原有最近视频列表。
 
+单视频生成区域的渲染顺序应为：
+
+```text
+生成视频标题
+生成按钮
+生成中：进度条与状态文本
+生成成功/失败：结果提示
+最近视频网格
+```
+
+最近视频网格应放在生成按钮分支之外，每次页面渲染都出现。生成成功后只更新 `st.session_state["recent_generated_video"]`，不再额外渲染旧的单个 `render_scaled_video_preview(...)`，下载入口由第一张视频卡片承担。
+
 ## 视觉一致性
 
 - 外层继续使用 `st.container(border=True)`。
@@ -146,6 +192,8 @@ flowchart TD
 - 空状态使用浅灰背景和简短提示，不使用强装饰图形。
 - 首页只保留“查看”和“下载”动作，不放删除动作。
 - 文案加入中英文 i18n，不写死在组件中。
+- 视频卡片不自动播放，默认 `autoplay=False`，避免首页多个视频同时加载播放。
+- `查看` 按钮优先使用 `st.switch_page("pages/2_📚_History.py")` 跳转到 History，并设置对应 `detail_{task_id}` 状态；如果当前任务缺少 `task_id`，则只保留下载和播放。
 
 ## 组件边界
 
@@ -164,12 +212,21 @@ web/components/recent_video_gallery.py
 
 `web/components/output_preview.py` 只负责生成按钮、进度和生成结果写入 session state，然后调用最近视频组件。这样可以避免让 output preview 文件继续承担过多展示逻辑。
 
+实施约束：
+
+- 最近视频组件内部继续使用 `st.video` 渲染本地视频，不使用自定义 HTML `<video>` 直接引用本地路径。
+- CSS 通过 `st.container(key="recent_video_gallery")` 生成的 `.st-key-recent_video_gallery` 作用域注入，避免污染 History 页。
+- 如果需要控制播放器内部尺寸，优先定位 `.st-key-recent_video_gallery [data-testid="stVideo"]` 以及其内部 `video` 元素。
+- 批量生成 `render_batch_output(...)` 保持现有完成摘要和 History 跳转行为，本次设计只落地到单视频生成路径。
+
 ## 错误处理
 
 - History 获取失败时，页面不应崩溃，显示轻量提示并保留生成按钮。
 - 某条任务的 `video_path` 缺失或文件不存在时跳过该卡片。
 - 下载按钮只在文件存在时启用。
 - 本次生成结果路径不存在时显示当前已有的错误提示，并不插入最近视频列表。
+- History 返回空列表但 session state 中有有效本次结果时，仍显示本次结果卡片。
+- 下载按钮应避免一次性为超过 4 个视频预读大文件；本设计通过最多 4 个卡片控制内存和渲染成本。
 
 ## 验收标准
 
@@ -177,6 +234,9 @@ web/components/recent_video_gallery.py
 - 本次生成完成后，新视频出现在最近视频网格左上角第一个槽位。
 - 开启左侧 sidebar 后，右侧视频网格能从 2 列自动降为 1 列或保持不溢出。
 - 常见宽屏下最多显示 4 个紧凑视频卡片，页面高度可控。
+- 容器查询失效时默认显示 1 列，不产生横向溢出。
+- 生成成功后页面不重复出现旧单视频预览和新网格预览。
+- History 前若干条存在失效视频文件时，首页会跳过失效项并继续补足可用视频。
 - 首页视频卡片不提供删除按钮。
 - History 页现有列表和详情能力不回退。
 - 中英文界面均有对应文案。
@@ -184,5 +244,8 @@ web/components/recent_video_gallery.py
 ## 测试建议
 
 - 单元测试：最近视频合并、去重、数量限制、缺失文件过滤。
+- 单元测试：History 过量拉取后过滤，确保失效文件不会占用 4 个展示名额。
+- 单元测试：本次生成结果与 History 第一条相同路径时只出现一次。
 - 组件级手动验证：无历史视频、有历史视频、生成成功、生成失败四种状态。
 - 浏览器验证：至少检查宽屏、普通笔记本、左侧 sidebar 展开、窄窗口四类视口。
+- 浏览器验证：确认 460px 左右容器宽度附近不会出现横向滚动、文本重叠或按钮挤压。
