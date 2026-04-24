@@ -109,6 +109,41 @@ def test_resolve_effective_tts_audio_strategy_uses_master_track_for_legacy_comfy
     assert pipeline._resolve_effective_tts_audio_strategy(ctx) == "master_track"
 
 
+def test_standard_ai_creation_observability_summary_records_terminal_skip_and_fail_events():
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = PipelineContext(input_text="demo", params={})
+
+    pipeline._record_ai_creation_stage(
+        ctx,
+        {
+            "channel": "ai_creation",
+            "stage": "storyboard_planning",
+            "event": "skip",
+            "status": "skipped",
+            "latency_ms": 0,
+            "llm_call_count": 0,
+            "retry_count": 0,
+        },
+    )
+    pipeline._record_ai_creation_stage(
+        ctx,
+        {
+            "channel": "ai_creation",
+            "stage": "image_prompt_batch",
+            "event": "fail",
+            "status": "failed",
+            "latency_ms": 42,
+            "llm_call_count": 2,
+            "retry_count": 1,
+        },
+    )
+
+    summary = ctx.observability["ai_creation"]
+    assert summary["llm_call_count"] == 2
+    assert summary["slowest_stage"] == "image_prompt_batch"
+    assert [item["status"] for item in summary["stages"]] == ["skipped", "failed"]
+
+
 class _RecordingFrameProcessor:
     def __init__(self, *, fail_on=None):
         self.calls = []

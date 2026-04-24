@@ -25,7 +25,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Literal, Optional
+from typing import Any, Callable, List, Literal, Optional
 
 from loguru import logger
 
@@ -65,7 +65,11 @@ from pixelle_video.utils.os_util import (
     get_task_frame_path,
     get_task_path,
 )
-from pixelle_video.utils.logging_util import attach_task_log_sinks
+from pixelle_video.utils.logging_util import (
+    attach_task_log_sinks,
+    build_content_observability,
+    emit_stage_event,
+)
 from pixelle_video.utils.template_util import get_template_type, parse_template_size
 
 
@@ -161,6 +165,26 @@ class StandardPipeline(LinearVideoPipeline):
         n_scenes = ctx.params.get("n_scenes", 5)
         min_words = ctx.params.get("min_narration_words", 5)
         max_words = ctx.params.get("max_narration_words", 20)
+        stage_callback = self._ai_stage_callback(ctx)
+
+        summary = ctx.observability.setdefault("ai_creation", {})
+        if not summary.get("request_received"):
+            summary["request_received"] = True
+            emit_stage_event(
+                channel="ai_creation",
+                stage="request_received",
+                event="end",
+                message="ai creation request received",
+                callback=stage_callback,
+                status="success",
+                latency_ms=0,
+                llm_call_count=0,
+                retry_count=0,
+                narration_count=n_scenes,
+                pipeline="standard",
+                workflow=ctx.params.get("media_workflow"),
+                template=ctx.params.get("frame_template"),
+            )
         
         if mode == "generate":
             self._report_progress(ctx.progress_callback, "generating_narrations", 0.05)
@@ -169,13 +193,18 @@ class StandardPipeline(LinearVideoPipeline):
                 topic=text,
                 n_scenes=n_scenes,
                 min_words=min_words,
-                max_words=max_words
+                max_words=max_words,
+                stage_callback=stage_callback,
             )
             logger.info(f"✅ Generated {len(ctx.narrations)} narrations")
         else:  # fixed
             self._report_progress(ctx.progress_callback, "splitting_script", 0.05)
             split_mode = ctx.params.get("split_mode", "paragraph")
-            ctx.narrations = await split_narration_script(text, split_mode=split_mode)
+            ctx.narrations = await split_narration_script(
+                text,
+                split_mode=split_mode,
+                stage_callback=stage_callback,
+            )
             logger.info(f"✅ Split script into {len(ctx.narrations)} segments (mode={split_mode})")
             logger.info(f"   Note: n_scenes={n_scenes} is ignored in fixed mode")
 
@@ -189,17 +218,40 @@ class StandardPipeline(LinearVideoPipeline):
         title = ctx.params.get("title")
         mode = ctx.params.get("mode", "generate")
         text = ctx.input_text
+        stage_callback = self._ai_stage_callback(ctx)
         
         if title:
             ctx.title = title
+            emit_stage_event(
+                channel="ai_creation",
+                stage="title_generation",
+                event="skip",
+                message="title generation skipped",
+                callback=stage_callback,
+                status="skipped",
+                latency_ms=0,
+                llm_call_count=0,
+                retry_count=0,
+                reason="user supplied title",
+            )
             logger.info(f"   Title: '{title}' (user-specified)")
         else:
             self._report_progress(ctx.progress_callback, "generating_title", 0.10)
             if mode == "generate":
-                ctx.title = await generate_title(self.llm, text, strategy="auto")
+                ctx.title = await generate_title(
+                    self.llm,
+                    text,
+                    strategy="auto",
+                    stage_callback=stage_callback,
+                )
                 logger.info(f"   Title: '{ctx.title}' (auto-generated)")
             else:  # fixed
-                ctx.title = await generate_title(self.llm, text, strategy="llm")
+                ctx.title = await generate_title(
+                    self.llm,
+                    text,
+                    strategy="llm",
+                    stage_callback=stage_callback,
+                )
                 logger.info(f"   Title: '{ctx.title}' (LLM-generated)")
 
     async def plan_visuals(self, ctx: PipelineContext):
@@ -210,6 +262,7 @@ class StandardPipeline(LinearVideoPipeline):
         template_name = Path(frame_template).name
         template_type = get_template_type(template_name)
         template_requires_media = (template_type in ["image", "video"])
+        stage_callback = self._ai_stage_callback(ctx)
         
         if template_type == "image":
             logger.info("📸 Template requires image generation")
@@ -229,7 +282,10 @@ class StandardPipeline(LinearVideoPipeline):
             media_type = "video" if template_type == "video" else "image"
             
             if prompt_prefix is not None:
-                logger.info(f"Using custom prompt_prefix: '{prompt_prefix}'")
+                logger.bind(
+                    channel="runtime",
+                    prompt_prefix=build_content_observability(prompt_prefix),
+                ).info("custom prompt prefix received")
 
             # Create progress callback wrapper for image prompt generation
             def image_prompt_progress(completed: int, total: int, message: str):
@@ -263,6 +319,7 @@ class StandardPipeline(LinearVideoPipeline):
                 shot_strategy=ctx.params.get("shot_strategy"),
                 frame_overrides=ctx.params.get("frame_overrides"),
                 forbid_embedded_text_in_image=ctx.params.get("forbid_embedded_text_in_image", True),
+                stage_callback=stage_callback,
             )
 
             ctx.image_prompts = styled_batch.prompts
@@ -277,8 +334,23 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.resolved_style = None
             ctx.media_negative_prompt = None
             ctx.planning_snapshot = None
+            emit_stage_event(
+                channel="ai_creation",
+                stage="image_prompt_batch",
+                event="skip",
+                message="image prompt batch skipped",
+                callback=stage_callback,
+                status="skipped",
+                latency_ms=0,
+                llm_call_count=0,
+                retry_count=0,
+                narration_count=len(ctx.narrations),
+                reason="static template",
+            )
             logger.info("⚡ Skipped image prompt generation (static template)")
             logger.info(f"   💡 Savings: {len(ctx.narrations)} LLM calls + {len(ctx.narrations)} media generations")
+
+        self._emit_ai_creation_total(ctx, status="success")
 
     async def initialize_storyboard(self, ctx: PipelineContext):
         """Step 5: Create Storyboard object and frames."""
@@ -362,6 +434,61 @@ class StandardPipeline(LinearVideoPipeline):
         logger.info(
             "Timing plan prepared: "
             f"{len(ctx.timing_plan.sentences)} sentence units -> {len(ctx.timing_plan.blocks)} audio blocks"
+        )
+
+    def _ai_stage_callback(self, ctx: PipelineContext):
+        return lambda payload: self._record_ai_creation_stage(ctx, payload)
+
+    def _record_ai_creation_stage(self, ctx: PipelineContext, event: dict[str, Any]) -> None:
+        if event.get("channel") != "ai_creation" or event.get("event") not in {"end", "skip", "fail"}:
+            return
+
+        summary = ctx.observability.setdefault("ai_creation", {})
+        summary.setdefault("total_latency_ms", 0)
+        summary.setdefault("llm_call_count", 0)
+        summary.setdefault("slowest_stage", None)
+        summary.setdefault("stages", [])
+
+        if event.get("stage") == "ai_creation_total":
+            summary["status"] = event.get("status", "success")
+            summary["total_elapsed_ms"] = event.get("latency_ms", summary["total_latency_ms"])
+            return
+
+        stage_entry = {
+            "stage": event["stage"],
+            "status": event.get("status", "success"),
+            "latency_ms": event.get("latency_ms", 0),
+            "llm_call_count": event.get("llm_call_count", 0),
+            "retry_count": event.get("retry_count", 0),
+        }
+        for optional_key in ("batch_total", "narration_count", "reason"):
+            if event.get(optional_key) is not None:
+                stage_entry[optional_key] = event[optional_key]
+
+        summary["stages"].append(stage_entry)
+        summary["total_latency_ms"] = sum(item.get("latency_ms", 0) for item in summary["stages"])
+        summary["llm_call_count"] = sum(item.get("llm_call_count", 0) for item in summary["stages"])
+        summary["slowest_stage"] = max(
+            summary["stages"],
+            key=lambda item: item.get("latency_ms", 0),
+        )["stage"]
+        if event.get("status") == "failed":
+            summary["status"] = "failed"
+        else:
+            summary.setdefault("status", "success")
+
+    def _emit_ai_creation_total(self, ctx: PipelineContext, *, status: str) -> None:
+        summary = ctx.observability.get("ai_creation", {})
+        emit_stage_event(
+            channel="ai_creation",
+            stage="ai_creation_total",
+            event="end" if status != "failed" else "fail",
+            message="ai creation total recorded",
+            callback=self._ai_stage_callback(ctx),
+            status=status,
+            latency_ms=summary.get("total_latency_ms", 0),
+            llm_call_count=summary.get("llm_call_count", 0),
+            retry_count=sum(item.get("retry_count", 0) for item in summary.get("stages", [])),
         )
 
     def _resolve_media_domain(

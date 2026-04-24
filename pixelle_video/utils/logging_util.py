@@ -8,7 +8,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from loguru import logger
 
@@ -219,6 +219,21 @@ def attach_task_log_sinks(
             )
         )
     return TaskLogSession(sink_ids=sink_ids, context_manager=context_manager)
+
+
+def emit_stage_event(
+    *,
+    channel: str,
+    stage: str,
+    event: str,
+    message: str,
+    callback: Callable[[dict[str, Any]], None] | None = None,
+    **fields: Any,
+) -> None:
+    payload = {"channel": channel, "stage": stage, "event": event, **fields}
+    logger.bind(**payload).info(message)
+    if callback is not None:
+        callback(payload)
 
 
 @contextmanager

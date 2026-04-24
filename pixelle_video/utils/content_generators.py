@@ -20,7 +20,7 @@ These functions are reusable across different pipelines.
 import re
 import unicodedata
 from time import perf_counter
-from typing import Any, List, Literal, Optional
+from typing import Any, Callable, List, Literal, Optional
 
 from loguru import logger
 
@@ -41,6 +41,7 @@ from pixelle_video.utils.prompt_helper import (
     assemble_storyboard_prompt,
     build_image_prompt,
 )
+from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
 from pixelle_video.utils.style_resolution import (
     normalize_storyboard_style,
     resolve_style_source,
@@ -82,7 +83,8 @@ async def generate_title(
     llm_service,
     content: str,
     strategy: Literal["auto", "direct", "llm"] = "auto",
-    max_length: int = 15
+    max_length: int = 15,
+    stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> str:
     """
     Generate title from content
@@ -104,9 +106,31 @@ async def generate_title(
     logger.info(
         f"Starting title generation (strategy={strategy}, input_length={len(stripped_content)}, max_length={max_length})"
     )
+    emit_stage_event(
+        channel="ai_creation",
+        stage="title_generation",
+        event="start",
+        message="title generation started",
+        callback=stage_callback,
+        strategy=strategy,
+        content=build_content_observability(stripped_content),
+    )
 
     if strategy == "direct":
         title = stripped_content[:max_length] if len(stripped_content) > max_length else stripped_content
+        elapsed_ms = round((perf_counter() - start_time) * 1000)
+        emit_stage_event(
+            channel="ai_creation",
+            stage="title_generation",
+            event="end",
+            message="title generation completed",
+            callback=stage_callback,
+            status="success",
+            latency_ms=elapsed_ms,
+            llm_call_count=0,
+            retry_count=0,
+            strategy=strategy,
+        )
         logger.info(
             f"Title generation completed via direct strategy in {perf_counter() - start_time:.2f}s"
         )
@@ -114,6 +138,19 @@ async def generate_title(
     
     if strategy == "auto":
         if len(stripped_content) <= 15:
+            elapsed_ms = round((perf_counter() - start_time) * 1000)
+            emit_stage_event(
+                channel="ai_creation",
+                stage="title_generation",
+                event="end",
+                message="title generation completed",
+                callback=stage_callback,
+                status="success",
+                latency_ms=elapsed_ms,
+                llm_call_count=0,
+                retry_count=0,
+                strategy="auto_direct",
+            )
             logger.info(
                 f"Title generation completed via auto-direct shortcut in {perf_counter() - start_time:.2f}s"
             )
@@ -125,7 +162,22 @@ async def generate_title(
     
     # Pass max_length to prompt so LLM knows the character limit
     prompt = build_title_generation_prompt(content, max_length=max_length)
-    response = await llm_service(prompt, temperature=0.7, max_tokens=50)
+    try:
+        response = await llm_service(prompt, temperature=0.7, max_tokens=50)
+    except Exception:
+        emit_stage_event(
+            channel="ai_creation",
+            stage="title_generation",
+            event="fail",
+            message="title generation failed",
+            callback=stage_callback,
+            status="failed",
+            latency_ms=round((perf_counter() - start_time) * 1000),
+            llm_call_count=1,
+            retry_count=0,
+            strategy=strategy,
+        )
+        raise
     
     # Clean up response
     title = response.strip()
@@ -155,6 +207,18 @@ async def generate_title(
         title = title.rstrip('.,!?;:\'"')
     
     elapsed = perf_counter() - start_time
+    emit_stage_event(
+        channel="ai_creation",
+        stage="title_generation",
+        event="end",
+        message="title generation completed",
+        callback=stage_callback,
+        status="success",
+        latency_ms=round(elapsed * 1000),
+        llm_call_count=1,
+        retry_count=0,
+        strategy=strategy,
+    )
     logger.info(f"Title generation completed in {elapsed:.2f}s")
     logger.debug(f"Generated title: '{title}' (length: {len(title)})")
     return title
@@ -165,7 +229,8 @@ async def generate_narrations_from_topic(
     topic: str,
     n_scenes: int = 5,
     min_words: int = 5,
-    max_words: int = 20
+    max_words: int = 20,
+    stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> List[str]:
     """
     Generate narrations from topic using LLM
@@ -183,7 +248,20 @@ async def generate_narrations_from_topic(
     from pixelle_video.prompts import build_topic_narration_prompt
     
     start_time = perf_counter()
-    logger.info(f"Generating {n_scenes} narrations from topic: {topic}")
+    logger.bind(
+        channel="runtime",
+        content=build_content_observability(topic),
+        narration_count=n_scenes,
+    ).info("generating narrations from topic")
+    emit_stage_event(
+        channel="ai_creation",
+        stage="narration_generation",
+        event="start",
+        message="narration generation started",
+        callback=stage_callback,
+        narration_count=n_scenes,
+        content=build_content_observability(topic),
+    )
     
     prompt = build_topic_narration_prompt(
         topic=topic,
@@ -192,22 +270,49 @@ async def generate_narrations_from_topic(
         max_words=max_words
     )
     
-    response: NarrationBatchResponse = await llm_service(
-        prompt=prompt,
-        response_type=NarrationBatchResponse,
-        temperature=0.8,
-        max_tokens=2000
-    )
+    try:
+        response: NarrationBatchResponse = await llm_service(
+            prompt=prompt,
+            response_type=NarrationBatchResponse,
+            temperature=0.8,
+            max_tokens=2000
+        )
 
-    narrations = list(response.narrations)
+        narrations = list(response.narrations)
+
+        # Validate count
+        if len(narrations) > n_scenes:
+            logger.warning(f"Got {len(narrations)} narrations, taking first {n_scenes}")
+            narrations = narrations[:n_scenes]
+        elif len(narrations) < n_scenes:
+            raise ValueError(f"Expected {n_scenes} narrations, got only {len(narrations)}")
+    except Exception:
+        emit_stage_event(
+            channel="ai_creation",
+            stage="narration_generation",
+            event="fail",
+            message="narration generation failed",
+            callback=stage_callback,
+            status="failed",
+            latency_ms=round((perf_counter() - start_time) * 1000),
+            llm_call_count=1,
+            retry_count=0,
+            narration_count=n_scenes,
+        )
+        raise
     
-    # Validate count
-    if len(narrations) > n_scenes:
-        logger.warning(f"Got {len(narrations)} narrations, taking first {n_scenes}")
-        narrations = narrations[:n_scenes]
-    elif len(narrations) < n_scenes:
-        raise ValueError(f"Expected {n_scenes} narrations, got only {len(narrations)}")
-    
+    emit_stage_event(
+        channel="ai_creation",
+        stage="narration_generation",
+        event="end",
+        message="narration generation completed",
+        callback=stage_callback,
+        status="success",
+        latency_ms=round((perf_counter() - start_time) * 1000),
+        llm_call_count=1,
+        retry_count=0,
+        narration_count=len(narrations),
+    )
     logger.info(
         f"Generated {len(narrations)} narrations successfully in {perf_counter() - start_time:.2f}s"
     )
@@ -219,7 +324,8 @@ async def generate_narrations_from_content(
     content: str,
     n_scenes: int = 5,
     min_words: int = 5,
-    max_words: int = 20
+    max_words: int = 20,
+    stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> List[str]:
     """
     Generate narrations from user-provided content using LLM
@@ -238,6 +344,15 @@ async def generate_narrations_from_content(
     
     start_time = perf_counter()
     logger.info(f"Generating {n_scenes} narrations from content ({len(content)} chars)")
+    emit_stage_event(
+        channel="ai_creation",
+        stage="narration_generation",
+        event="start",
+        message="narration generation started",
+        callback=stage_callback,
+        narration_count=n_scenes,
+        content=build_content_observability(content),
+    )
     
     prompt = build_content_narration_prompt(
         content=content,
@@ -246,22 +361,49 @@ async def generate_narrations_from_content(
         max_words=max_words
     )
     
-    response: NarrationBatchResponse = await llm_service(
-        prompt=prompt,
-        response_type=NarrationBatchResponse,
-        temperature=0.8,
-        max_tokens=2000
-    )
+    try:
+        response: NarrationBatchResponse = await llm_service(
+            prompt=prompt,
+            response_type=NarrationBatchResponse,
+            temperature=0.8,
+            max_tokens=2000
+        )
 
-    narrations = list(response.narrations)
+        narrations = list(response.narrations)
+
+        # Validate count
+        if len(narrations) > n_scenes:
+            logger.warning(f"Got {len(narrations)} narrations, taking first {n_scenes}")
+            narrations = narrations[:n_scenes]
+        elif len(narrations) < n_scenes:
+            raise ValueError(f"Expected {n_scenes} narrations, got only {len(narrations)}")
+    except Exception:
+        emit_stage_event(
+            channel="ai_creation",
+            stage="narration_generation",
+            event="fail",
+            message="narration generation failed",
+            callback=stage_callback,
+            status="failed",
+            latency_ms=round((perf_counter() - start_time) * 1000),
+            llm_call_count=1,
+            retry_count=0,
+            narration_count=n_scenes,
+        )
+        raise
     
-    # Validate count
-    if len(narrations) > n_scenes:
-        logger.warning(f"Got {len(narrations)} narrations, taking first {n_scenes}")
-        narrations = narrations[:n_scenes]
-    elif len(narrations) < n_scenes:
-        raise ValueError(f"Expected {n_scenes} narrations, got only {len(narrations)}")
-    
+    emit_stage_event(
+        channel="ai_creation",
+        stage="narration_generation",
+        event="end",
+        message="narration generation completed",
+        callback=stage_callback,
+        status="success",
+        latency_ms=round((perf_counter() - start_time) * 1000),
+        llm_call_count=1,
+        retry_count=0,
+        narration_count=len(narrations),
+    )
     logger.info(
         f"Generated {len(narrations)} narrations successfully in {perf_counter() - start_time:.2f}s"
     )
@@ -322,6 +464,7 @@ def _split_text_by_unicode_punctuation(script: str) -> List[str]:
 async def split_narration_script(
     script: str,
     split_mode: Literal["paragraph", "line", "sentence", "punctuation"] = "paragraph",
+    stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> List[str]:
     """
     Split user-provided narration script into segments
@@ -337,7 +480,17 @@ async def split_narration_script(
     Returns:
         List of narration segments
     """
+    start_time = perf_counter()
     logger.info(f"Splitting script (mode={split_mode}, length={len(script)} chars)")
+    emit_stage_event(
+        channel="ai_creation",
+        stage="narration_split",
+        event="start",
+        message="narration split started",
+        callback=stage_callback,
+        split_mode=split_mode,
+        content=build_content_observability(script),
+    )
     
     narrations = []
     
@@ -376,6 +529,18 @@ async def split_narration_script(
         lengths = [len(s) for s in narrations]
         logger.info(f"   Min: {min(lengths)} chars, Max: {max(lengths)} chars, Avg: {sum(lengths)//len(lengths)} chars")
     
+    emit_stage_event(
+        channel="ai_creation",
+        stage="narration_split",
+        event="end",
+        message="narration split completed",
+        callback=stage_callback,
+        status="success",
+        latency_ms=round((perf_counter() - start_time) * 1000),
+        llm_call_count=0,
+        retry_count=0,
+        narration_count=len(narrations),
+    )
     return narrations
 
 
@@ -388,6 +553,7 @@ async def generate_image_prompts(
     max_retries: int = 3,
     progress_callback: Optional[callable] = None,
     style_profile: Optional[dict] = None,
+    stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> List[str]:
     """
     Generate image prompts from narrations (with batching and retry)
@@ -408,12 +574,21 @@ async def generate_image_prompts(
     
     start_time = perf_counter()
     logger.info(f"Generating image prompts for {len(narrations)} narrations (batch_size={batch_size})")
+    emit_stage_event(
+        channel="ai_creation",
+        stage="image_prompt_batch",
+        event="start",
+        message="image prompt batch started",
+        callback=stage_callback,
+        narration_count=len(narrations),
+    )
     
     # Split narrations into batches
     batches = [narrations[i:i + batch_size] for i in range(0, len(narrations), batch_size)]
     logger.info(f"Split into {len(batches)} batches")
     
     all_prompts = []
+    stage_llm_calls = 0
     
     # Process each batch
     for batch_idx, batch_narrations in enumerate(batches, 1):
@@ -431,6 +606,7 @@ async def generate_image_prompts(
                     style_profile=style_profile,
                 )
                 
+                stage_llm_calls += 1
                 response: ImagePromptBatchResponse = await llm_service(
                     prompt=prompt,
                     response_type=ImagePromptBatchResponse,
@@ -475,9 +651,36 @@ async def generate_image_prompts(
             except Exception as e:
                 logger.error(f"Batch {batch_idx} generation error (attempt {attempt}/{max_retries}): {e}")
                 if attempt >= max_retries:
+                    emit_stage_event(
+                        channel="ai_creation",
+                        stage="image_prompt_batch",
+                        event="fail",
+                        message="image prompt batch failed",
+                        callback=stage_callback,
+                        status="failed",
+                        latency_ms=round((perf_counter() - start_time) * 1000),
+                        llm_call_count=stage_llm_calls,
+                        retry_count=max(stage_llm_calls - batch_idx, 0),
+                        batch_index=batch_idx,
+                        batch_total=len(batches),
+                        narration_count=len(narrations),
+                    )
                     raise
                 logger.info(f"Retrying batch {batch_idx}...")
     
+    emit_stage_event(
+        channel="ai_creation",
+        stage="image_prompt_batch",
+        event="end",
+        message="image prompt batch completed",
+        callback=stage_callback,
+        status="success",
+        latency_ms=round((perf_counter() - start_time) * 1000),
+        llm_call_count=stage_llm_calls,
+        retry_count=max(stage_llm_calls - len(batches), 0),
+        batch_total=len(batches),
+        narration_count=len(narrations),
+    )
     logger.info(
         f"鉁?Generated {len(all_prompts)} image prompts in {perf_counter() - start_time:.2f}s"
     )
@@ -506,6 +709,7 @@ async def generate_styled_image_prompt_batch(
     shot_strategy: Optional[str] = None,
     frame_overrides: Optional[list[dict[str, Any]]] = None,
     forbid_embedded_text_in_image: bool = True,
+    stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
@@ -536,8 +740,27 @@ async def generate_styled_image_prompt_batch(
             if progress_callback:
                 progress_callback(0, progress_total, "progress.detail.style_resolution")
             style_resolution_start = perf_counter()
+            emit_stage_event(
+                channel="ai_creation",
+                stage="style_resolution",
+                event="start",
+                message="style resolution started",
+                callback=stage_callback,
+                provider=getattr(source, "provider", None),
+            )
             resolved_style = await resolve_style_spec(llm_service, source)
             style_profile = resolved_style.style_profile
+            emit_stage_event(
+                channel="ai_creation",
+                stage="style_resolution",
+                event="end",
+                message="style resolution completed",
+                callback=stage_callback,
+                status="success",
+                latency_ms=round((perf_counter() - style_resolution_start) * 1000),
+                llm_call_count=1,
+                retry_count=0,
+            )
             logger.info(
                 "Style resolution completed in "
                 f"{perf_counter() - style_resolution_start:.2f}s "
@@ -545,7 +768,31 @@ async def generate_styled_image_prompt_batch(
             )
         except Exception:
             style_resolution_failed = True
+            emit_stage_event(
+                channel="ai_creation",
+                stage="style_resolution",
+                event="fail",
+                message="style resolution failed",
+                callback=stage_callback,
+                status="failed",
+                latency_ms=round((perf_counter() - style_resolution_start) * 1000),
+                llm_call_count=1,
+                retry_count=0,
+            )
             logger.exception("Style resolution failed, falling back to legacy prefix concatenation")
+    else:
+        emit_stage_event(
+            channel="ai_creation",
+            stage="style_resolution",
+            event="skip",
+            message="style resolution skipped",
+            callback=stage_callback,
+            status="skipped",
+            latency_ms=0,
+            llm_call_count=0,
+            retry_count=0,
+            reason="no style source",
+        )
 
     storyboard_enabled = _storyboard_controls_enabled()
     planning = None
@@ -566,22 +813,57 @@ async def generate_styled_image_prompt_batch(
             style_profile = normalized_style["style_profile"]
 
         planning_start = perf_counter()
-        planning = await plan_storyboard_batch(
-            llm_service=llm_service,
-            narrations=narrations,
-            image_config=image_config,
-            prompt_prefix=prompt_prefix,
-            world_preset_id=world_preset_id,
-            shot_preset_id=shot_preset_id,
-            workflow=workflow,
-            media_service=media_service,
-            media_type=media_type,
-            consistency_strength=consistency_strength,
-            content_mode=content_mode,
-            role_strategy=role_strategy,
-            role_locking_strength=role_locking_strength,
-            shot_strategy=shot_strategy,
-            frame_overrides=frame_overrides,
+        emit_stage_event(
+            channel="ai_creation",
+            stage="storyboard_planning",
+            event="start",
+            message="storyboard planning started",
+            callback=stage_callback,
+            narration_count=len(narrations),
+        )
+        try:
+            planning = await plan_storyboard_batch(
+                llm_service=llm_service,
+                narrations=narrations,
+                image_config=image_config,
+                prompt_prefix=prompt_prefix,
+                world_preset_id=world_preset_id,
+                shot_preset_id=shot_preset_id,
+                workflow=workflow,
+                media_service=media_service,
+                media_type=media_type,
+                consistency_strength=consistency_strength,
+                content_mode=content_mode,
+                role_strategy=role_strategy,
+                role_locking_strength=role_locking_strength,
+                shot_strategy=shot_strategy,
+                frame_overrides=frame_overrides,
+            )
+        except Exception:
+            emit_stage_event(
+                channel="ai_creation",
+                stage="storyboard_planning",
+                event="fail",
+                message="storyboard planning failed",
+                callback=stage_callback,
+                status="failed",
+                latency_ms=round((perf_counter() - planning_start) * 1000),
+                llm_call_count=1,
+                retry_count=0,
+                narration_count=len(narrations),
+            )
+            raise
+        emit_stage_event(
+            channel="ai_creation",
+            stage="storyboard_planning",
+            event="end",
+            message="storyboard planning completed",
+            callback=stage_callback,
+            status="success",
+            latency_ms=round((perf_counter() - planning_start) * 1000),
+            llm_call_count=1,
+            retry_count=0,
+            narration_count=len(narrations),
         )
         logger.info(
             "Storyboard planning completed in "
@@ -592,6 +874,20 @@ async def generate_styled_image_prompt_batch(
         planning_snapshot = _snapshot_with_serialized_frame_plans(
             getattr(planning, "planning_snapshot", None),
             frame_plans,
+        )
+    else:
+        emit_stage_event(
+            channel="ai_creation",
+            stage="storyboard_planning",
+            event="skip",
+            message="storyboard planning skipped",
+            callback=stage_callback,
+            status="skipped",
+            latency_ms=0,
+            llm_call_count=0,
+            retry_count=0,
+            narration_count=len(narrations),
+            reason="storyboard controls disabled",
         )
 
     prompt_generator = generate_video_prompts if media_type == "video" else generate_image_prompts
@@ -604,6 +900,7 @@ async def generate_styled_image_prompt_batch(
         max_retries=max_retries,
         progress_callback=progress_callback,
         style_profile=style_profile,
+        stage_callback=stage_callback,
     )
 
     capabilities = WorkflowCapabilities()
@@ -618,6 +915,16 @@ async def generate_styled_image_prompt_batch(
             logger.warning(
                 f"Workflow capability probe failed, falling back to default workflow capabilities: {exc}"
             )
+
+    prompt_assembly_start = perf_counter()
+    emit_stage_event(
+        channel="ai_creation",
+        stage="prompt_assembly",
+        event="start",
+        message="prompt assembly started",
+        callback=stage_callback,
+        narration_count=len(narrations),
+    )
 
     if planning is not None:
         if len(frame_plans) != len(base_prompts):
@@ -655,6 +962,18 @@ async def generate_styled_image_prompt_batch(
         supports_negative_prompt=capabilities.supports_negative_prompt,
         extra_negative_rules=NO_TEXT_NEGATIVE_RULES if forbid_embedded_text_in_image else None,
     )
+    emit_stage_event(
+        channel="ai_creation",
+        stage="prompt_assembly",
+        event="end",
+        message="prompt assembly completed",
+        callback=stage_callback,
+        status="success",
+        latency_ms=round((perf_counter() - prompt_assembly_start) * 1000),
+        llm_call_count=0,
+        retry_count=0,
+        narration_count=len(narrations),
+    )
     logger.info(
         "Styled prompt batch completed in "
         f"{perf_counter() - start_time:.2f}s "
@@ -677,6 +996,7 @@ async def generate_video_prompts(
     max_retries: int = 3,
     progress_callback: Optional[callable] = None,
     style_profile: Optional[dict] = None,
+    stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> List[str]:
     """
     Generate video prompts from narrations (with batching and retry)
@@ -697,12 +1017,21 @@ async def generate_video_prompts(
     
     start_time = perf_counter()
     logger.info(f"Generating video prompts for {len(narrations)} narrations (batch_size={batch_size})")
+    emit_stage_event(
+        channel="ai_creation",
+        stage="video_prompt_batch",
+        event="start",
+        message="video prompt batch started",
+        callback=stage_callback,
+        narration_count=len(narrations),
+    )
     
     # Split narrations into batches
     batches = [narrations[i:i + batch_size] for i in range(0, len(narrations), batch_size)]
     logger.info(f"Split into {len(batches)} batches")
     
     all_prompts = []
+    stage_llm_calls = 0
     
     # Process each batch
     for batch_idx, batch_narrations in enumerate(batches, 1):
@@ -720,6 +1049,7 @@ async def generate_video_prompts(
                     style_profile=style_profile,
                 )
                 
+                stage_llm_calls += 1
                 response: VideoPromptBatchResponse = await llm_service(
                     prompt=prompt,
                     response_type=VideoPromptBatchResponse,
@@ -753,9 +1083,36 @@ async def generate_video_prompts(
             except Exception as e:
                 logger.warning(f"鉁?Batch {batch_idx} attempt {attempt} failed: {e}")
                 if attempt >= max_retries:
+                    emit_stage_event(
+                        channel="ai_creation",
+                        stage="video_prompt_batch",
+                        event="fail",
+                        message="video prompt batch failed",
+                        callback=stage_callback,
+                        status="failed",
+                        latency_ms=round((perf_counter() - start_time) * 1000),
+                        llm_call_count=stage_llm_calls,
+                        retry_count=max(stage_llm_calls - batch_idx, 0),
+                        batch_index=batch_idx,
+                        batch_total=len(batches),
+                        narration_count=len(narrations),
+                    )
                     raise
                 logger.info(f"Retrying batch {batch_idx}...")
     
+    emit_stage_event(
+        channel="ai_creation",
+        stage="video_prompt_batch",
+        event="end",
+        message="video prompt batch completed",
+        callback=stage_callback,
+        status="success",
+        latency_ms=round((perf_counter() - start_time) * 1000),
+        llm_call_count=stage_llm_calls,
+        retry_count=max(stage_llm_calls - len(batches), 0),
+        batch_total=len(batches),
+        narration_count=len(narrations),
+    )
     logger.info(
         f"鉁?Generated {len(all_prompts)} video prompts in {perf_counter() - start_time:.2f}s"
     )
