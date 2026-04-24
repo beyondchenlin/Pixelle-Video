@@ -453,7 +453,41 @@ def build_quick_create_flow_diagram_html() -> str:
     line-height: 1.6;
 }}
 
-@container quick-create-flow (max-width: 760px) {{
+@container quick-create-flow (max-width: 860px) {{
+    .quick-create-flow-boards {{
+        --flow-gap: 12px;
+        --flow-arrow-span: 20px;
+        --flow-card-pad-x: 13px;
+        --flow-card-pad-y: 12px;
+    }}
+
+    .quick-create-flow-caption {{
+        max-width: none;
+    }}
+
+    .quick-create-flow-title {{
+        font-size: 1rem;
+    }}
+
+    .quick-create-flow-card {{
+        min-height: 78px;
+    }}
+
+    .quick-create-flow-card strong {{
+        font-size: 0.93rem;
+    }}
+
+    .quick-create-flow-card span {{
+        font-size: 0.76rem;
+        line-height: 1.4;
+    }}
+
+    .quick-create-flow-note {{
+        font-size: 0.76rem;
+    }}
+}}
+
+@container quick-create-flow (max-width: 620px) {{
     .quick-create-flow-boards {{
         --flow-gap: 10px;
         --flow-arrow-span: 18px;
@@ -464,10 +498,6 @@ def build_quick_create_flow_diagram_html() -> str:
 
     .quick-create-flow-head {{
         flex-direction: column;
-    }}
-
-    .quick-create-flow-caption {{
-        max-width: none;
     }}
 
     .quick-create-flow-title {{

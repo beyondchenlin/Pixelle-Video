@@ -308,7 +308,8 @@ def test_build_quick_create_flow_diagram_html_uses_responsive_layout_contract(mo
     assert "quick_create_flow.note" in html
     assert "container-type: inline-size;" in html
     assert "container-name: quick-create-flow;" in html
-    assert "@container quick-create-flow (max-width: 760px)" in html
+    assert "@container quick-create-flow (max-width: 860px)" in html
+    assert "@container quick-create-flow (max-width: 620px)" in html
     assert "@container quick-create-flow (max-width: 430px)" in html
     assert "overflow-wrap: anywhere;" in html
     assert "--flow-tablet-card-width: 11.75rem;" in html
