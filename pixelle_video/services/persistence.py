@@ -92,6 +92,18 @@ class PersistenceService:
     def get_storyboard_path(self, task_id: str) -> Path:
         """Get storyboard.json path"""
         return self.get_task_dir(task_id) / "storyboard.json"
+
+    def get_task_logs_dir(self, task_id: str) -> Path:
+        """Get task logs directory path"""
+        return self.get_task_dir(task_id) / "logs"
+
+    def get_task_runtime_log_path(self, task_id: str) -> Path:
+        """Get task runtime log path"""
+        return self.get_task_logs_dir(task_id) / "runtime.jsonl"
+
+    def get_task_ai_creation_log_path(self, task_id: str) -> Path:
+        """Get task AI creation log path"""
+        return self.get_task_logs_dir(task_id) / "ai_creation.jsonl"
     
     # ========================================================================
     # Metadata Operations

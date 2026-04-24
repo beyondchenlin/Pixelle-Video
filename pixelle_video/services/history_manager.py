@@ -104,6 +104,7 @@ class HistoryManager:
             "metadata": metadata,
             "storyboard": storyboard,
             "planning_snapshot": storyboard.planning_snapshot if storyboard else None,
+            "observability": metadata.get("observability"),
         }
     
     async def get_statistics(self) -> Dict[str, Any]:

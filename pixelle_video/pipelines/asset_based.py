@@ -45,6 +45,7 @@ from pixelle_video.utils.os_util import (
     create_task_output_dir,
     get_task_final_video_path
 )
+from pixelle_video.utils.logging_util import attach_task_log_sinks
 
 # Type alias for progress callback
 ProgressCallback = Optional[Callable[[ProgressEvent], None]]
@@ -133,7 +134,11 @@ class AssetBasedPipeline(LinearVideoPipeline):
                 "bgm_volume": bgm_volume,
                 "bgm_mode": bgm_mode,
                 **kwargs
-            }
+            },
+            progress_callback=progress_callback,
+            request_id=kwargs.get("request_id"),
+            session_id=kwargs.get("session_id"),
+            api_task_id=kwargs.get("api_task_id"),
         )
         
         # Store request parameters in context for easy access
@@ -155,6 +160,9 @@ class AssetBasedPipeline(LinearVideoPipeline):
         except Exception as e:
             await self.handle_exception(ctx, e)
             raise
+        finally:
+            if getattr(ctx, "task_log_session", None) is not None:
+                ctx.task_log_session.close()
     
     def _emit_progress(self, event: ProgressEvent):
         """Emit progress event to callback if available"""
@@ -175,6 +183,24 @@ class AssetBasedPipeline(LinearVideoPipeline):
         task_dir, task_id = create_task_output_dir()
         context.task_id = task_id
         context.task_dir = Path(task_dir)  # Convert to Path for easier usage
+        context.observability.update(
+            {
+                "version": "v1",
+                "request_id": context.request_id,
+                "session_id": context.session_id,
+                "api_task_id": context.api_task_id,
+                "task_id": task_id,
+                "runtime_log_path": str(self.core.persistence.get_task_runtime_log_path(task_id)),
+                "ai_creation_log_path": None,
+            }
+        )
+        context.task_log_session = attach_task_log_sinks(
+            task_id=task_id,
+            task_dir=Path(task_dir),
+            service_name="pipeline",
+            ai_creation_enabled=False,
+        )
+        logger.bind(channel="runtime", pipeline="asset_based").info("asset task log context bound")
         
         # Determine final video path
         context.final_video_path = get_task_final_video_path(task_id)
@@ -836,7 +862,8 @@ class AssetBasedPipeline(LinearVideoPipeline):
                     "llm_base_url": self.core.config.get("llm", {}).get("base_url", "unknown"),
                     "source": ctx.request.get("source", "runninghub"),
                     "render_backend": storyboard.config.render_backend if storyboard else None,
-                }
+                },
+                "observability": ctx.observability,
             }
             
             # Save metadata

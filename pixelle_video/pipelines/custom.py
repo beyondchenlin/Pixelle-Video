@@ -40,6 +40,7 @@ from pixelle_video.pipelines.storyboard_config import (
     STORYBOARD_RENDER_DEFAULTS,
     resolve_storyboard_render_kwargs,
 )
+from pixelle_video.utils.logging_util import attach_task_log_sinks
 
 
 class CustomPipeline(BasePipeline):
@@ -187,6 +188,13 @@ class CustomPipeline(BasePipeline):
         from pixelle_video.utils.os_util import create_task_output_dir, get_task_final_video_path
         
         task_dir, task_id = create_task_output_dir()
+        task_log_session = attach_task_log_sinks(
+            task_id=task_id,
+            task_dir=Path(task_dir),
+            service_name="pipeline",
+            ai_creation_enabled=False,
+        )
+        logger.bind(channel="runtime", pipeline="custom").info("custom task log context bound")
         logger.info(f"Task directory: {task_dir}")
         
         user_specified_output = None
@@ -438,11 +446,12 @@ class CustomPipeline(BasePipeline):
                     "render_backend": storyboard.config.render_backend,
                 }
             )
-            
+            task_log_session.close()
             return result
             
         except Exception as e:
             logger.error(f"Custom pipeline failed: {e}")
+            task_log_session.close()
             raise
     
     # ==================== Persistence ====================
@@ -495,7 +504,13 @@ class CustomPipeline(BasePipeline):
                     "comfyui_url": self.core.config.get("comfyui", {}).get("comfyui_url", "unknown"),
                     "runninghub_enabled": bool(self.core.config.get("comfyui", {}).get("runninghub_api_key")),
                     "render_backend": storyboard.config.render_backend,
-                }
+                },
+                "observability": {
+                    "version": "v1",
+                    "task_id": task_id,
+                    "runtime_log_path": str(self.core.persistence.get_task_runtime_log_path(task_id)),
+                    "ai_creation_log_path": None,
+                },
             }
             
             # Save metadata

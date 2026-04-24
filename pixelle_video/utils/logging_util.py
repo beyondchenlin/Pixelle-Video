@@ -6,6 +6,8 @@ import re
 import sys
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Iterator
 
 from loguru import logger
@@ -127,12 +129,22 @@ def _patch_record(service_name: str) -> Any:
     return _patch
 
 
+def _serialize_record(record: dict[str, Any], *, service_name: str) -> str:
+    return json.dumps(build_log_payload(record, service_name=service_name), ensure_ascii=False, default=str) + "\n"
+
+
+def _jsonl_sink(path: Path, *, service_name: str) -> Any:
+    def _write(message) -> None:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(_serialize_record(message.record, service_name=service_name))
+
+    return _write
+
+
 def setup_logging(service_name: str, config: dict[str, Any] | None = None) -> list[int]:
     resolved = _resolve_logging_config(config)
     if not resolved["enabled"]:
         return []
-
-    from pathlib import Path
 
     log_dir = Path(resolved["log_dir"])
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -156,6 +168,57 @@ def teardown_logging(sink_ids: list[int]) -> None:
             logger.remove(sink_id)
         except ValueError:
             pass
+
+
+@dataclass
+class TaskLogSession:
+    sink_ids: list[int]
+    context_manager: Any
+    _closed: bool = field(default=False, init=False)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        for sink_id in self.sink_ids:
+            try:
+                logger.remove(sink_id)
+            except ValueError:
+                pass
+        self.context_manager.__exit__(None, None, None)
+        self._closed = True
+
+
+def attach_task_log_sinks(
+    *,
+    task_id: str,
+    task_dir: Path,
+    service_name: str = "pipeline",
+    ai_creation_enabled: bool = True,
+) -> TaskLogSession:
+    logs_dir = Path(task_dir) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    def _task_filter(record: dict[str, Any]) -> bool:
+        return record["extra"].get("task_id") == task_id
+
+    def _ai_creation_filter(record: dict[str, Any]) -> bool:
+        return _task_filter(record) and record["extra"].get("channel") == "ai_creation"
+
+    context_manager = logger.contextualize(task_id=task_id, service=service_name)
+    context_manager.__enter__()
+    runtime_sink = logger.add(
+        _jsonl_sink(logs_dir / "runtime.jsonl", service_name=service_name),
+        filter=_task_filter,
+    )
+    sink_ids = [runtime_sink]
+    if ai_creation_enabled:
+        sink_ids.append(
+            logger.add(
+                _jsonl_sink(logs_dir / "ai_creation.jsonl", service_name=service_name),
+                filter=_ai_creation_filter,
+            )
+        )
+    return TaskLogSession(sink_ids=sink_ids, context_manager=context_manager)
 
 
 @contextmanager

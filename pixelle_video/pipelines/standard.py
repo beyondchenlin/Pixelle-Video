@@ -65,6 +65,7 @@ from pixelle_video.utils.os_util import (
     get_task_frame_path,
     get_task_path,
 )
+from pixelle_video.utils.logging_util import attach_task_log_sinks
 from pixelle_video.utils.template_util import get_template_type, parse_template_size
 
 
@@ -116,6 +117,27 @@ class StandardPipeline(LinearVideoPipeline):
         task_dir, task_id = create_task_output_dir()
         ctx.task_id = task_id
         ctx.task_dir = task_dir
+        ctx.observability.update(
+            {
+                "version": "v1",
+                "request_id": ctx.request_id,
+                "session_id": ctx.session_id,
+                "api_task_id": ctx.api_task_id,
+                "task_id": task_id,
+                "runtime_log_path": str(self.core.persistence.get_task_runtime_log_path(task_id)),
+                "ai_creation_log_path": str(self.core.persistence.get_task_ai_creation_log_path(task_id)),
+            }
+        )
+        ctx.task_log_session = attach_task_log_sinks(task_id=task_id, task_dir=Path(task_dir))
+        logger.bind(
+            channel="runtime",
+            event="bind_task_context",
+            request_id=ctx.request_id,
+            session_id=ctx.session_id,
+            api_task_id=ctx.api_task_id,
+            task_id=task_id,
+            pipeline="standard",
+        ).info("task log context bound")
         
         logger.info(f"📁 Task directory created: {task_dir}")
         logger.info(f"   Task ID: {task_id}")
@@ -1355,7 +1377,8 @@ class StandardPipeline(LinearVideoPipeline):
                     "render_backend": effective_backend,
                     "render_backend_requested": requested_backend,
                     "render_backend_effective": effective_backend,
-                }
+                },
+                "observability": ctx.observability,
             }
             
             # Save metadata
@@ -1369,3 +1392,19 @@ class StandardPipeline(LinearVideoPipeline):
         except Exception as e:
             logger.error(f"Failed to persist task data: {e}")
             # Don't raise - persistence failure shouldn't break video generation
+
+    async def _persist_failed_task_data(self, ctx: PipelineContext, error: Exception) -> None:
+        if not ctx.task_id:
+            return
+
+        metadata = {
+            "task_id": ctx.task_id,
+            "created_at": datetime.now().isoformat(),
+            "completed_at": datetime.now().isoformat(),
+            "status": "failed",
+            "error": str(error),
+            "input": {"text": ctx.input_text, **ctx.params},
+            "config": {},
+            "observability": ctx.observability,
+        }
+        await self.core.persistence.save_task_metadata(ctx.task_id, metadata)

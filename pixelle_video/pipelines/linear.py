@@ -28,6 +28,7 @@ from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, VideoG
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
 from pixelle_video.pipelines.base import BasePipeline
 from pixelle_video.services.timing_planner import TimingPlan
+from pixelle_video.utils.logging_util import bind_log_context
 
 
 @dataclass
@@ -41,10 +42,15 @@ class PipelineContext:
     input_text: str
     params: Dict[str, Any]
     progress_callback: Optional[Callable[[ProgressEvent], None]] = None
+    request_id: Optional[str] = None
+    session_id: Optional[str] = None
+    api_task_id: Optional[str] = None
     
     # === Task State ===
     task_id: Optional[str] = None
     task_dir: Optional[str] = None
+    task_log_session: Any = None
+    observability: Dict[str, Any] = field(default_factory=dict)
     
     # === Content ===
     title: Optional[str] = None
@@ -97,33 +103,47 @@ class LinearVideoPipeline(BasePipeline):
         ctx = PipelineContext(
             input_text=text,
             params=kwargs,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            request_id=kwargs.get("request_id"),
+            session_id=kwargs.get("session_id"),
+            api_task_id=kwargs.get("api_task_id"),
         )
         
-        try:
-            # === Phase 1: Preparation ===
-            await self.setup_environment(ctx)
-            
-            # === Phase 2: Content Creation ===
-            await self.generate_content(ctx)
-            await self.determine_title(ctx)
-            
-            # === Phase 3: Visual Planning ===
-            await self.plan_visuals(ctx)
-            await self.initialize_storyboard(ctx)
-            
-            # === Phase 4: Asset Production ===
-            await self.produce_assets(ctx)
-            
-            # === Phase 5: Post Production ===
-            await self.post_production(ctx)
-            
-            # === Phase 6: Finalization ===
-            return await self.finalize(ctx)
-            
-        except Exception as e:
-            await self.handle_exception(ctx, e)
-            raise
+        with bind_log_context(
+            request_id=ctx.request_id,
+            session_id=ctx.session_id,
+            api_task_id=ctx.api_task_id,
+        ):
+            try:
+                # === Phase 1: Preparation ===
+                await self.setup_environment(ctx)
+
+                # === Phase 2: Content Creation ===
+                await self.generate_content(ctx)
+                await self.determine_title(ctx)
+
+                # === Phase 3: Visual Planning ===
+                await self.plan_visuals(ctx)
+                await self.initialize_storyboard(ctx)
+
+                # === Phase 4: Asset Production ===
+                await self.produce_assets(ctx)
+
+                # === Phase 5: Post Production ===
+                await self.post_production(ctx)
+
+                # === Phase 6: Finalization ===
+                return await self.finalize(ctx)
+
+            except Exception as e:
+                persist_failed_task_data = getattr(self, "_persist_failed_task_data", None)
+                if persist_failed_task_data is not None:
+                    await persist_failed_task_data(ctx, e)
+                await self.handle_exception(ctx, e)
+                raise
+            finally:
+                if ctx.task_log_session is not None:
+                    ctx.task_log_session.close()
 
     # ==================== Lifecycle Methods ====================
     
