@@ -3,7 +3,9 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
+import httpx
 from PIL import Image
 
 from pixelle_video.models.element_animation import (
@@ -34,7 +36,7 @@ class ElementSegmentationService:
     def __init__(self, core: Any) -> None:
         self.core = core
 
-    def segment_image(
+    async def segment_image(
         self,
         *,
         image_path: str,
@@ -63,8 +65,8 @@ class ElementSegmentationService:
             "height": height,
         }
 
-        kit = self.core._get_or_create_comfykit()
-        result = kit.execute(workflow, workflow_params)
+        kit = await self.core._get_or_create_comfykit()
+        result = await kit.execute(workflow, workflow_params)
 
         stable_dir = Path(output_dir) / "element_animation" / f"frame_{frame_index:03d}"
         stable_dir.mkdir(parents=True, exist_ok=True)
@@ -78,14 +80,22 @@ class ElementSegmentationService:
             self._image_path(result_images[0]) if has_background else image_path
         )
         background_path = stable_dir / "background.png"
-        shutil.copy2(background_source, background_path)
+        await self._copy_media_output(background_source, background_path)
 
         pair_images = (
-            result_images[1:expected_with_background]
+            result_images[1:]
             if has_background
             else result_images[: candidate_limit * 2]
         )
-        elements = self._build_elements(
+        if len(pair_images) % 2 != 0:
+            expected_count = candidate_limit * 2
+            actual_count = len(pair_images)
+            raise ValueError(
+                "Malformed SAM3.1 segmentation output: "
+                f"expected element/mask image count to be even up to "
+                f"{expected_count}, actual {actual_count}"
+            )
+        elements = await self._build_elements(
             pair_images=pair_images,
             stable_dir=stable_dir,
             width=width,
@@ -116,7 +126,7 @@ class ElementSegmentationService:
             audio_path=audio_path,
         )
 
-    def _build_elements(
+    async def _build_elements(
         self,
         *,
         pair_images: list[Any],
@@ -134,8 +144,19 @@ class ElementSegmentationService:
             element_number = pair_index // 2 + 1
             element_path = stable_dir / f"element_{element_number:03d}.png"
             mask_path = stable_dir / f"mask_{element_number:03d}.png"
-            shutil.copy2(self._image_path(pair_images[pair_index]), element_path)
-            shutil.copy2(self._image_path(pair_images[pair_index + 1]), mask_path)
+            await self._copy_media_output(
+                self._image_path(pair_images[pair_index]),
+                element_path,
+            )
+            await self._copy_media_output(
+                self._image_path(pair_images[pair_index + 1]),
+                mask_path,
+            )
+            bbox, is_empty_mask = self._mask_bbox(
+                mask_path,
+                width=width,
+                height=height,
+            )
 
             elements.append(
                 SegmentedElement(
@@ -143,9 +164,9 @@ class ElementSegmentationService:
                     label=f"subject {element_number}",
                     image_path=str(element_path),
                     mask_path=str(mask_path),
-                    bbox=self._mask_bbox(mask_path, width=width, height=height),
+                    bbox=bbox,
                     score=1.0,
-                    selected=element_number <= selected_count,
+                    selected=element_number <= selected_count and not is_empty_mask,
                     z_index=element_number,
                     animation=ElementAnimation(
                         preset=PRESET_CYCLE[(element_number - 1) % len(PRESET_CYCLE)],
@@ -162,11 +183,36 @@ class ElementSegmentationService:
     def _image_path(image: Any) -> str:
         return str(getattr(image, "path", image))
 
+    async def _copy_media_output(self, source: str, target: Path) -> None:
+        resolved_url = self._resolve_download_url(source)
+        if resolved_url is not None:
+            await self._download_url(resolved_url, target)
+            return
+        shutil.copy2(source, target)
+
+    def _resolve_download_url(self, source: str) -> str | None:
+        parsed = urlparse(source)
+        if parsed.scheme in {"http", "https"}:
+            return source
+        if source.startswith("/view?"):
+            config_getter = getattr(self.core, "_get_comfykit_config", None)
+            config = config_getter() if config_getter is not None else {}
+            base_url = (config or {}).get("comfyui_url")
+            if base_url:
+                return urljoin(base_url.rstrip("/") + "/", source.lstrip("/"))
+        return None
+
+    async def _download_url(self, url: str, target: Path) -> None:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            target.write_bytes(response.content)
+
     @staticmethod
-    def _mask_bbox(mask_path: Path, *, width: int, height: int) -> list[int]:
+    def _mask_bbox(mask_path: Path, *, width: int, height: int) -> tuple[list[int], bool]:
         with Image.open(mask_path) as image:
             alpha = image.convert("RGBA").getchannel("A")
             bbox = alpha.getbbox()
         if bbox is None:
-            return [0, 0, width, height]
-        return [int(value) for value in bbox]
+            return [0, 0, width, height], True
+        return [int(value) for value in bbox], False
