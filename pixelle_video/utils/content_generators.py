@@ -20,7 +20,7 @@ These functions are reusable across different pipelines.
 import re
 import unicodedata
 from time import perf_counter
-from typing import Any, Callable, List, Literal, Optional
+from typing import Any, Callable, List, Literal, Mapping, Optional, Sequence
 
 from loguru import logger
 
@@ -31,17 +31,24 @@ from pixelle_video.models.content_generation import (
     NarrationBatchResponse,
     VideoPromptBatchResponse,
 )
+from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
+from pixelle_video.models.text_overlay import (
+    TextRenderingPolicy,
+    build_text_rendering_policy,
+)
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
+from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
 from pixelle_video.utils.prompt_helper import (
     NO_TEXT_NEGATIVE_RULES,
     apply_no_text_policy,
+    apply_text_rendering_policy,
     assemble_image_prompt,
     assemble_negative_prompt,
     assemble_storyboard_prompt,
     build_image_prompt,
+    select_negative_text_rules,
 )
-from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
 from pixelle_video.utils.style_resolution import (
     normalize_storyboard_style,
     resolve_style_source,
@@ -77,6 +84,39 @@ def _snapshot_with_serialized_frame_plans(
     if frame_plans:
         snapshot["frames"] = [_serialize_storyboard_frame_plan(frame_plan) for frame_plan in frame_plans]
     return snapshot
+
+
+def _normalize_prompt_fragments(values: Sequence[Any]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            continue
+        lowered = cleaned.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        normalized.append(cleaned)
+    return normalized
+
+
+def _native_prompt_fragment(hint: NativePromptHint | str) -> str:
+    if isinstance(hint, NativePromptHint):
+        return hint.prompt_fragment
+    return str(hint)
+
+
+def _native_prompt_source_candidate_ids(
+    hints_by_frame: Mapping[int, Sequence[NativePromptHint | str]],
+) -> list[str]:
+    candidate_ids: list[str] = []
+    for hints in hints_by_frame.values():
+        for hint in hints:
+            if not isinstance(hint, NativePromptHint):
+                continue
+            candidate_ids.extend(hint.source_candidate_ids)
+    return candidate_ids
 
 
 async def generate_title(
@@ -709,10 +749,26 @@ async def generate_styled_image_prompt_batch(
     shot_strategy: Optional[str] = None,
     frame_overrides: Optional[list[dict[str, Any]]] = None,
     forbid_embedded_text_in_image: bool = True,
+    native_prompt_hints_by_frame: Optional[
+        Mapping[int, Sequence[NativePromptHint | str]]
+    ] = None,
+    text_rendering_policy: Optional[TextRenderingPolicy | Mapping[str, Any]] = None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
+    has_explicit_text_policy = (
+        native_prompt_hints_by_frame is not None or text_rendering_policy is not None
+    )
+    native_hints = dict(native_prompt_hints_by_frame or {})
+    resolved_text_policy = (
+        text_rendering_policy
+        if isinstance(text_rendering_policy, TextRenderingPolicy)
+        else build_text_rendering_policy(
+            text_rendering_policy,
+            forbid_embedded_text_in_image=forbid_embedded_text_in_image,
+        )
+    )
 
     def _storyboard_controls_enabled() -> bool:
         return any(
@@ -949,19 +1005,61 @@ async def generate_styled_image_prompt_batch(
             for base_prompt in base_prompts
         ]
 
-    final_prompts = [
-        apply_no_text_policy(prompt, enabled=forbid_embedded_text_in_image)
-        for prompt in final_prompts
-    ]
+    if has_explicit_text_policy:
+        final_prompts = [
+            ", ".join(
+                _normalize_prompt_fragments(
+                    [
+                        prompt,
+                        *[
+                            _native_prompt_fragment(hint)
+                            for hint in native_hints.get(index, ())
+                        ],
+                    ]
+                )
+            )
+            for index, prompt in enumerate(final_prompts)
+        ]
+        final_prompts = [
+            apply_text_rendering_policy(
+                prompt,
+                policy=resolved_text_policy,
+                has_native_hints=bool(native_hints.get(index)),
+            )
+            for index, prompt in enumerate(final_prompts)
+        ]
+    else:
+        final_prompts = [
+            apply_no_text_policy(prompt, enabled=forbid_embedded_text_in_image)
+            for prompt in final_prompts
+        ]
 
     if progress_callback:
         progress_callback(progress_total, progress_total, "progress.detail.prompt_assembly")
 
+    has_any_native_hints = any(native_hints.values())
     negative_prompt = assemble_negative_prompt(
         resolved_style,
         supports_negative_prompt=capabilities.supports_negative_prompt,
-        extra_negative_rules=NO_TEXT_NEGATIVE_RULES if forbid_embedded_text_in_image else None,
+        extra_negative_rules=(
+            select_negative_text_rules(
+                policy=resolved_text_policy,
+                has_native_hints=has_any_native_hints,
+            )
+            if has_explicit_text_policy
+            else NO_TEXT_NEGATIVE_RULES if forbid_embedded_text_in_image else None
+        ),
     )
+    if has_explicit_text_policy:
+        planning_snapshot = dict(planning_snapshot or {})
+        planning_snapshot["text_rendering_policy"] = resolved_text_policy.to_dict()
+        planning_snapshot["native_prompt_hint_count"] = sum(
+            len(items) for items in native_hints.values()
+        )
+        planning_snapshot["frames_with_native_hints"] = sorted(native_hints)
+        planning_snapshot["native_prompt_source_candidate_ids"] = (
+            _native_prompt_source_candidate_ids(native_hints)
+        )
     emit_stage_event(
         channel="ai_creation",
         stage="prompt_assembly",

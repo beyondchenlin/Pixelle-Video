@@ -40,6 +40,18 @@ NO_TEXT_NEGATIVE_RULES: tuple[str, ...] = (
     "calligraphy",
     "printed text",
 )
+PLANNED_TEXT_POSITIVE_GUARD = (
+    "only render the explicitly requested planned text, no extra captions, "
+    "no extra subtitles, no watermark, no logo text, no random letters"
+)
+PLANNED_TEXT_NEGATIVE_RULES: tuple[str, ...] = (
+    "unplanned text",
+    "random letters",
+    "watermark",
+    "logo text",
+    "extra captions",
+    "extra subtitles",
+)
 
 
 def _read_value(container: Any, key: str, default: Any = None) -> Any:
@@ -144,6 +156,33 @@ def apply_no_text_policy(prompt: str, enabled: bool = True) -> str:
         return cleaned_prompt
 
     return ", ".join(_normalize_prompt_list([cleaned_prompt, NO_TEXT_POSITIVE_RULE]))
+
+
+def apply_text_rendering_policy(
+    prompt: str,
+    *,
+    policy: Any,
+    has_native_hints: bool,
+) -> str:
+    if has_native_hints and _read_value(policy, "allow_native_text_in_image", False):
+        return ", ".join(_normalize_prompt_list([prompt, PLANNED_TEXT_POSITIVE_GUARD]))
+
+    return apply_no_text_policy(
+        prompt,
+        enabled=_read_value(policy, "suppress_unplanned_embedded_text", True),
+    )
+
+
+def select_negative_text_rules(
+    *,
+    policy: Any,
+    has_native_hints: bool,
+) -> tuple[str, ...] | None:
+    if has_native_hints and _read_value(policy, "allow_native_text_in_image", False):
+        return PLANNED_TEXT_NEGATIVE_RULES
+    if _read_value(policy, "suppress_unplanned_embedded_text", True):
+        return NO_TEXT_NEGATIVE_RULES
+    return None
 
 
 def assemble_image_prompt(
