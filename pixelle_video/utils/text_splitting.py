@@ -37,6 +37,39 @@ _JOIN_WITHOUT_SPACE_AFTER = {
 }
 _TTS_TERMINAL_PUNCTUATION = _SENTENCE_PUNCTUATION | {".", "\u2026"}
 _TTS_JOIN_DIRECT_AFTER = _TTS_TERMINAL_PUNCTUATION | {"!", "?", "\uff01", "\uff1f"}
+_CAPTION_TERMINAL_CLOSING_CHARS = _SENTENCE_CLOSE_CHARS | {
+    "\u3009",
+    "\u300b",
+    "\u300d",
+    "\u300f",
+    "\u3011",
+    "\u3015",
+    "\u3017",
+    "\u3019",
+    "\u301b",
+    "\uff09",
+    "\uff3d",
+    "\uff5d",
+}
+_CAPTION_TERMINAL_WRAPPER_CHARS = _CAPTION_TERMINAL_CLOSING_CHARS | {
+    "\u2018",
+    "\u201c",
+    "\u3008",
+    "\u300a",
+    "\u300c",
+    "\u300e",
+    "\u3010",
+    "\u3014",
+    "\u3016",
+    "\u3018",
+    "\u301a",
+    "\uff08",
+    "\uff3b",
+    "\uff5b",
+    "(",
+    "[",
+    "{",
+}
 _CJK_CHAR_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _ASCII_WORD_PATTERN = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?")
 SUPPORTED_TTS_SENTENCE_JOINER_MODES = ("direct", "space")
@@ -294,9 +327,19 @@ def format_caption_text(
 
 def _strip_terminal_punctuation(text: str) -> str:
     stripped = text.rstrip()
-    while stripped and _is_unicode_punctuation(stripped[-1]):
+    suffix_chars: list[str] = []
+    while stripped and stripped[-1] in _CAPTION_TERMINAL_CLOSING_CHARS:
+        suffix_chars.append(stripped[-1])
         stripped = stripped[:-1].rstrip()
-    return stripped
+
+    while (
+        stripped
+        and _is_unicode_punctuation(stripped[-1])
+        and stripped[-1] not in _CAPTION_TERMINAL_WRAPPER_CHARS
+    ):
+        stripped = stripped[:-1].rstrip()
+
+    return stripped + "".join(reversed(suffix_chars))
 
 
 def _is_unicode_punctuation(char: str) -> bool:
