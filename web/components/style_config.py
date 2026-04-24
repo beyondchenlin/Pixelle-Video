@@ -2109,17 +2109,6 @@ def _render_image_prompt_prefix_library(
     elif panel_mode == "details":
         _close_prompt_prefix_panel()
 
-    with action_toolbar_col:
-        _render_prompt_prefix_library_action_toolbar(
-            pixelle_video=pixelle_video,
-            workflow_key=workflow_key,
-            media_width=media_width,
-            media_height=media_height,
-            filtered_items=filtered_items,
-            thumbnail_reference_prompt=thumbnail_reference_prompt,
-            on_open_panel=lambda mode: _set_prompt_prefix_panel_state(mode),
-        )
-
     with lower_panel_col:
         if panel_mode in {"manual", "edit", "ai"}:
             with st.container(border=True):
@@ -2152,7 +2141,7 @@ def _render_image_prompt_prefix_library(
                         style_label_map=style_label_map,
                         scene_label_map=scene_label_map,
                     )
-                elif panel_mode == "ai":
+                if panel_mode == "ai":
                     _render_prompt_prefix_ai_panel(
                         pixelle_video=pixelle_video,
                         workflow_key=workflow_key,
@@ -2162,6 +2151,17 @@ def _render_image_prompt_prefix_library(
                         library_items=library_items,
                         selected_preview_ids=selected_preview_ids,
                     )
+
+    with action_toolbar_col:
+        _render_prompt_prefix_library_action_toolbar(
+            pixelle_video=pixelle_video,
+            workflow_key=workflow_key,
+            media_width=media_width,
+            media_height=media_height,
+            filtered_items=filtered_items,
+            thumbnail_reference_prompt=thumbnail_reference_prompt,
+            on_open_panel=lambda mode: _set_prompt_prefix_panel_state(mode),
+        )
 
     preview_title = tr("style.preview_title")
     with render_middle_column_detail_section(preview_title):
