@@ -44,6 +44,40 @@ def test_compiler_prefers_remapped_sentence_timing():
     assert cues[0].source["candidate_id"] == "candidate-1"
 
 
+def test_compiler_uses_source_sentence_timing_when_no_remap_exists():
+    package = CreationPackage(
+        task_id="task-1",
+        text_overlay_plan=TextOverlayPlan(
+            candidates=(
+                TextOverlayCandidate(
+                    id="candidate-1",
+                    text="Source timing",
+                    role="keyword",
+                    renderer_targets=("ass",),
+                    source={"frame_index": 0, "sentence_id": "s1"},
+                ),
+            )
+        ),
+    )
+    sentences = [
+        SentenceUnit(
+            id="s1",
+            text="Source timing sentence.",
+            frame_indices=[0],
+            source_start=1.25,
+            source_end=2.75,
+        )
+    ]
+
+    _, cues = TextCueCompiler().compile(
+        package=package,
+        sentence_units=sentences,
+    )
+
+    assert cues[0].start == 1.25
+    assert cues[0].end == 2.75
+
+
 def test_compiler_uses_frame_fallback_when_sentence_timing_missing():
     package = CreationPackage(
         task_id="task-1",
@@ -69,6 +103,33 @@ def test_compiler_uses_frame_fallback_when_sentence_timing_missing():
     assert tracks[0].renderer_targets == ("ass",)
     assert cues[0].start == 3.0
     assert cues[0].end == 4.5
+
+
+def test_compiler_uses_frame_windows_before_uniform_duration_fallback():
+    package = CreationPackage(
+        task_id="task-1",
+        text_overlay_plan=TextOverlayPlan(
+            candidates=(
+                TextOverlayCandidate(
+                    id="candidate-1",
+                    text="Frame window",
+                    role="keyword",
+                    renderer_targets=("ass",),
+                    source={"frame_index": 1},
+                ),
+            )
+        ),
+    )
+
+    _, cues = TextCueCompiler().compile(
+        package=package,
+        sentence_units=[],
+        frame_windows={0: (0.0, 2.0), 1: (2.0, 5.5)},
+        frame_duration=1.5,
+    )
+
+    assert cues[0].start == 2.0
+    assert cues[0].end == 5.5
 
 
 def test_compiler_maps_native_hint_role_to_native_track_kind():

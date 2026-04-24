@@ -174,6 +174,10 @@ class VideoGenerateRequest(BaseModel):
         None,
         description="Whether to suppress embedded text inside generated images",
     )
+    text_layer: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional text overlay policy for programmatic subtitles, native text hints, or hybrid mode",
+    )
     
     # === BGM ===
     bgm_path: Optional[str] = Field(None, description="Background music path")

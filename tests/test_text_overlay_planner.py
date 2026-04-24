@@ -1,4 +1,7 @@
-from pixelle_video.models.text_overlay import TextRenderingPolicy
+from pixelle_video.models.text_overlay import (
+    TextRenderingPolicy,
+    build_text_rendering_policy,
+)
 from pixelle_video.services.text_overlay_planner import TextOverlayPlanner
 
 
@@ -37,5 +40,29 @@ def test_planner_emits_native_candidates_only_when_policy_allows_native_prompt()
     )
 
     assert [item.role for item in plan.candidates] == ["model_native_hint"]
+    assert plan.candidates[0].id == "text-1-1"
     assert plan.candidates[0].renderer_targets == ("native_prompt",)
     assert plan.candidates[0].source["kind"] == "narration"
+
+
+def test_planner_splits_hybrid_programmatic_and_native_targets():
+    policy = build_text_rendering_policy(
+        {
+            "mode": "hybrid",
+            "renderer_targets": ["hyperframes", "ass"],
+            "max_items_per_frame": 1,
+        },
+        forbid_embedded_text_in_image=True,
+    )
+
+    plan = TextOverlayPlanner().plan(
+        narrations=["Keep Pixelle visible"],
+        policy=policy,
+    )
+
+    assert [(item.role, item.renderer_targets) for item in plan.candidates] == [
+        ("keyword", ("hyperframes", "ass")),
+        ("model_native_hint", ("native_prompt",)),
+    ]
+    assert plan.candidates[0].suggested_slot == "center"
+    assert plan.candidates[1].suggested_slot == "native_prompt"

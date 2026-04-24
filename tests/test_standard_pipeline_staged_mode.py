@@ -609,6 +609,34 @@ async def test_legacy_post_production_burns_ass_before_user_output_copy(monkeypa
     assert ctx.observability["text_layer_summary"]["cue_count"] == 1
 
 
+def test_compile_text_layer_for_render_uses_storyboard_frame_durations():
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = _build_storyboard_ctx()
+    ctx.storyboard.frames[0].duration = 2.0
+    ctx.storyboard.frames[1].duration = 3.5
+    ctx.timing_plan = SimpleNamespace(sentences=[])
+    ctx.creation_package = CreationPackage(
+        task_id="task-1",
+        text_overlay_plan=TextOverlayPlan(
+            candidates=(
+                TextOverlayCandidate(
+                    id="candidate-1",
+                    text="Frame duration cue",
+                    role="keyword",
+                    suggested_slot="center",
+                    renderer_targets=("ass",),
+                    source={"frame_index": 1},
+                ),
+            )
+        ),
+    )
+
+    _, cues = pipeline._compile_text_layer_for_render(ctx)
+
+    assert cues[0].start == 2.0
+    assert cues[0].end == 5.5
+
+
 @pytest.mark.asyncio
 async def test_determine_title_progress_does_not_regress_after_generate_content(monkeypatch):
     pipeline = StandardPipeline(_DummyCore())

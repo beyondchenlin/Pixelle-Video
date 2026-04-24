@@ -402,6 +402,43 @@ def test_build_storyboard_control_payload_includes_no_text_toggle():
     }
 
 
+def test_render_text_layer_controls_returns_policy_when_enabled(monkeypatch):
+    fake_st = _FakeStreamlit()
+
+    def _checkbox(label, value=False, key=None, **kwargs):
+        fake_st.checkbox_calls.append({"label": label, "value": value, "key": key, **kwargs})
+        return key == "text_layer_enabled"
+
+    def _radio(label, options, index=0, key=None, **kwargs):
+        if key == "text_layer_mode":
+            return "hybrid"
+        if key == "text_layer_target_preset":
+            return "both"
+        return options[index]
+
+    def _selectbox(label, options, index=0, key=None, **kwargs):
+        if key == "text_layer_density":
+            return "low"
+        return options[index]
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    fake_st.checkbox = _checkbox
+    fake_st.radio = _radio
+    fake_st.selectbox = _selectbox
+    fake_st.number_input = lambda *args, **kwargs: 1
+
+    policy = style_config.render_text_layer_controls("hyperframes_compiled")
+
+    assert policy == {
+        "enabled": True,
+        "mode": "hybrid",
+        "renderer_targets": ["hyperframes", "ass"],
+        "density": "low",
+        "max_items_per_frame": 1,
+    }
+
+
 def test_render_style_config_disables_storyboard_for_static_templates(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["storyboard_forbid_embedded_text_in_image"] = False

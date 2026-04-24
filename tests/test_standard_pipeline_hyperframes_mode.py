@@ -872,6 +872,44 @@ async def test_persist_task_data_records_resolved_render_backend(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_persist_task_data_records_text_layer_summary(tmp_path):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes_compiled")
+    output_path = Path(tmp_path / "task-1" / "final.mp4")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(b"video")
+    ctx.final_video_path = str(output_path)
+    ctx.storyboard.completed_at = ctx.storyboard.created_at
+    ctx.observability["text_layer_summary"] = {
+        "enabled": True,
+        "renderer": "hyperframes",
+        "cue_count": 2,
+        "track_count": 1,
+        "native_prompt_hint_count": 1,
+        "targets": ["hyperframes", "native_prompt"],
+    }
+    ctx.result = SimpleNamespace(
+        video_path=str(output_path),
+        duration=2.0,
+        file_size=output_path.stat().st_size,
+    )
+
+    await pipeline._persist_task_data(ctx)
+
+    assert core.persistence.saved_metadata is not None
+    _, metadata = core.persistence.saved_metadata
+    assert metadata["result"]["text_layer_summary"] == {
+        "enabled": True,
+        "renderer": "hyperframes",
+        "cue_count": 2,
+        "track_count": 1,
+        "native_prompt_hint_count": 1,
+        "targets": ["hyperframes", "native_prompt"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_persist_task_data_records_requested_and_effective_backend_when_hyperframes_falls_back(
     tmp_path,
 ):

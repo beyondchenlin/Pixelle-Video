@@ -32,6 +32,28 @@ def test_video_generate_request_rejects_removed_hyperframes_alias():
         )
 
 
+def test_video_generate_request_accepts_text_layer_policy():
+    request = VideoGenerateRequest(
+        text="demo",
+        frame_template="1080x1920/image_default.html",
+        text_layer={
+            "enabled": True,
+            "mode": "hybrid",
+            "renderer_targets": ["hyperframes", "ass"],
+            "density": "low",
+            "max_items_per_frame": 1,
+        },
+    )
+
+    assert request.text_layer == {
+        "enabled": True,
+        "mode": "hybrid",
+        "renderer_targets": ["hyperframes", "ass"],
+        "density": "low",
+        "max_items_per_frame": 1,
+    }
+
+
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [
@@ -110,6 +132,11 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             role_locking_strength="strong",
             shot_strategy="strict",
             forbid_embedded_text_in_image=False,
+            text_layer={
+                "enabled": True,
+                "mode": "programmatic_only",
+                "renderer_targets": ["ass"],
+            },
             frame_overrides=[
                 {
                     "scene_id": "scene-1",
@@ -151,6 +178,11 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "role_locking_strength": "strong",
             "shot_strategy": "strict",
             "forbid_embedded_text_in_image": False,
+            "text_layer": {
+                "enabled": True,
+                "mode": "programmatic_only",
+                "renderer_targets": ["ass"],
+            },
             "frame_overrides": [
                 {
                     "scene_id": "scene-1",
@@ -208,6 +240,11 @@ async def test_generate_video_async_passes_no_text_toggle_to_video_core(monkeypa
             text="demo",
             frame_template="1080x1920/image_default.html",
             forbid_embedded_text_in_image=False,
+            text_layer={
+                "enabled": True,
+                "mode": "hybrid",
+                "renderer_targets": ["hyperframes"],
+            },
         ),
         fake_pixelle_video,
         SimpleNamespace(base_url="http://testserver/"),
@@ -218,3 +255,8 @@ async def test_generate_video_async_passes_no_text_toggle_to_video_core(monkeypa
     assert fake_pixelle_video.calls[0]["request_id"] == "req_test"
     assert fake_pixelle_video.calls[0]["api_task_id"] == "task-1"
     assert fake_pixelle_video.calls[0]["forbid_embedded_text_in_image"] is False
+    assert fake_pixelle_video.calls[0]["text_layer"] == {
+        "enabled": True,
+        "mode": "hybrid",
+        "renderer_targets": ["hyperframes"],
+    }

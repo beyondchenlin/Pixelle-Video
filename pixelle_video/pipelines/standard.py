@@ -1272,7 +1272,28 @@ class StandardPipeline(LinearVideoPipeline):
         return TextCueCompiler().compile(
             package=package,
             sentence_units=list(getattr(timing_plan, "sentences", []) or []),
+            frame_windows=self._build_text_layer_frame_windows(ctx),
         )
+
+    def _build_text_layer_frame_windows(self, ctx: PipelineContext) -> dict[int, tuple[float, float]]:
+        storyboard = getattr(ctx, "storyboard", None)
+        frames = list(getattr(storyboard, "frames", []) or [])
+        if not frames:
+            return {}
+
+        windows: dict[int, tuple[float, float]] = {}
+        cursor = 0.0
+        for frame in frames:
+            try:
+                duration = float(getattr(frame, "duration", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                duration = 0.0
+            if duration <= 0:
+                continue
+            frame_index = int(getattr(frame, "index", len(windows)))
+            windows[frame_index] = (cursor, cursor + duration)
+            cursor += duration
+        return windows
 
     def _filter_text_layer_for_renderer(self, text_tracks, text_cues, *, renderer: str):
         filtered_tracks = [

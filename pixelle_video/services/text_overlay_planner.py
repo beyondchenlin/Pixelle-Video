@@ -36,30 +36,37 @@ class TextOverlayPlanner:
         native_prompt_enabled = (
             "native_prompt" in targets and policy.allow_native_text_in_image
         )
-        role = "model_native_hint" if native_prompt_enabled else "keyword"
-        suggested_slot = "native_prompt" if native_prompt_enabled else "center"
+        programmatic_targets = tuple(target for target in targets if target != "native_prompt")
 
         for frame_index, narration in enumerate(narrations):
-            phrases = (
-                self._select_native_phrases(narration)
-                if native_prompt_enabled
-                else self._select_keyword_phrases(narration, self._candidate_limit(policy))
-            )
-            for phrase_index, phrase in enumerate(phrases):
-                candidates.append(
-                    TextOverlayCandidate(
-                        id=f"text-{frame_index + 1}-{phrase_index + 1}",
-                        text=phrase,
-                        role=role,
-                        suggested_slot=suggested_slot,
-                        renderer_targets=targets,
-                        importance=max(0.1, 1.0 - phrase_index * 0.1),
-                        confidence=0.75,
-                        source={
-                            "kind": "narration",
-                            "frame_index": frame_index,
-                            "phrase_index": phrase_index,
-                        },
+            if programmatic_targets and policy.image_text_mode != "native_hint":
+                candidates.extend(
+                    self._build_candidates(
+                        frame_index=frame_index,
+                        phrases=self._select_keyword_phrases(
+                            narration,
+                            self._candidate_limit(policy),
+                        ),
+                        role="keyword",
+                        suggested_slot="center",
+                        renderer_targets=programmatic_targets,
+                        id_prefix="text",
+                    )
+                )
+            if native_prompt_enabled:
+                native_id_prefix = (
+                    "native-text"
+                    if policy.image_text_mode == "hybrid" and programmatic_targets
+                    else "text"
+                )
+                candidates.extend(
+                    self._build_candidates(
+                        frame_index=frame_index,
+                        phrases=self._select_native_phrases(narration),
+                        role="model_native_hint",
+                        suggested_slot="native_prompt",
+                        renderer_targets=("native_prompt",),
+                        id_prefix=native_id_prefix,
                     )
                 )
 
@@ -71,6 +78,36 @@ class TextOverlayPlanner:
                 "candidate_count": len(candidates),
             },
         )
+
+    def _build_candidates(
+        self,
+        *,
+        frame_index: int,
+        phrases: Sequence[str],
+        role: str,
+        suggested_slot: str,
+        renderer_targets: tuple[str, ...],
+        id_prefix: str,
+    ) -> list[TextOverlayCandidate]:
+        candidates: list[TextOverlayCandidate] = []
+        for phrase_index, phrase in enumerate(phrases):
+            candidates.append(
+                TextOverlayCandidate(
+                    id=f"{id_prefix}-{frame_index + 1}-{phrase_index + 1}",
+                    text=phrase,
+                    role=role,
+                    suggested_slot=suggested_slot,
+                    renderer_targets=renderer_targets,
+                    importance=max(0.1, 1.0 - phrase_index * 0.1),
+                    confidence=0.75,
+                    source={
+                        "kind": "narration",
+                        "frame_index": frame_index,
+                        "phrase_index": phrase_index,
+                    },
+                )
+            )
+        return candidates
 
     def _empty_plan(
         self,

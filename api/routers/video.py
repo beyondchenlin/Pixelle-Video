@@ -184,6 +184,9 @@ async def generate_video_sync(
 
         if request_body.render_backend is not None:
             video_params["render_backend"] = request_body.render_backend
+
+        if request_body.text_layer is not None:
+            video_params["text_layer"] = request_body.text_layer
         
         # Call video generator service
         result = await pixelle_video.generate_video(**video_params)
@@ -312,6 +315,9 @@ async def generate_video_async(
 
             if request_body.render_backend is not None:
                 video_params["render_backend"] = request_body.render_backend
+
+            if request_body.text_layer is not None:
+                video_params["text_layer"] = request_body.text_layer
             
             result = await pixelle_video.generate_video(**video_params)
             

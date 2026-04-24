@@ -43,7 +43,7 @@ from pixelle_video.config.storyboard_preset_library import (
 from pixelle_video.prompts.prompt_prefix_generation import (
     build_prompt_prefix_generation_prompt,
 )
-from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
+from pixelle_video.render_backend import LEGACY_RENDER_BACKEND, SUPPORTED_RENDER_BACKENDS
 from pixelle_video.tts_audio_strategy import SUPPORTED_TTS_AUDIO_STRATEGIES
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
@@ -2465,6 +2465,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         render_backend = render_render_backend_selector()
         tts_audio_strategy = render_tts_audio_strategy_selector()
         tts_split_settings = render_tts_split_settings()
+        text_layer_policy = render_text_layer_controls(render_backend)
 
     element_animation_settings = render_element_animation_controls()
 
@@ -3207,7 +3208,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
     )
 
     # Return all style configuration parameters
-    return {
+    result = {
         "tts_inference_mode": tts_mode,
         "tts_voice": selected_voice if tts_mode == "local" else None,
         "tts_speed": tts_speed,
@@ -3225,6 +3226,73 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         "media_height": media_height,
         **element_animation_settings,
         **storyboard_payload,
+    }
+    if text_layer_policy is not None:
+        result["text_layer"] = text_layer_policy
+    return result
+
+
+def render_text_layer_controls(render_backend: str) -> dict | None:
+    """Render optional post-image text layer controls."""
+    enabled = st.checkbox(
+        tr("text_layer.enabled"),
+        value=st.session_state.get("text_layer_enabled", False),
+        key="text_layer_enabled",
+        help=tr("text_layer.enabled_help"),
+    )
+    if not enabled:
+        return None
+
+    mode_options = ["programmatic_only", "native_hint", "hybrid"]
+    mode = st.radio(
+        tr("text_layer.mode"),
+        mode_options,
+        index=0,
+        horizontal=True,
+        format_func=lambda value: tr(f"text_layer.mode.{value}"),
+        key="text_layer_mode",
+    )
+
+    default_target = "ass" if render_backend == LEGACY_RENDER_BACKEND else "hyperframes"
+    target_options = ["hyperframes", "ass", "both"]
+    target_preset = st.radio(
+        tr("text_layer.targets"),
+        target_options,
+        index=target_options.index(default_target),
+        horizontal=True,
+        format_func=lambda value: tr(f"text_layer.target.{value}"),
+        key="text_layer_target_preset",
+    )
+
+    density_options = ["low", "medium", "high"]
+    density = st.selectbox(
+        tr("text_layer.density"),
+        density_options,
+        index=1,
+        format_func=lambda value: tr(f"text_layer.density.{value}"),
+        key="text_layer_density",
+    )
+
+    max_items_per_frame = st.number_input(
+        tr("text_layer.max_items_per_frame"),
+        min_value=1,
+        max_value=5,
+        value=2,
+        step=1,
+        key="text_layer_max_items_per_frame",
+    )
+
+    target_map = {
+        "hyperframes": ["hyperframes"],
+        "ass": ["ass"],
+        "both": ["hyperframes", "ass"],
+    }
+    return {
+        "enabled": True,
+        "mode": mode,
+        "renderer_targets": target_map[target_preset],
+        "density": density,
+        "max_items_per_frame": int(max_items_per_frame),
     }
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.render_package import (
@@ -23,6 +23,7 @@ class TextCueCompiler:
         package: CreationPackage,
         sentence_units: Sequence[SentenceUnit],
         frame_duration: float | None = None,
+        frame_windows: Mapping[int, tuple[float, float]] | None = None,
     ) -> tuple[list[TextTrack], list[TextCue]]:
         plan = package.text_overlay_plan
         if plan is None:
@@ -32,6 +33,7 @@ class TextCueCompiler:
         tracks: OrderedDict[str, TextTrack] = OrderedDict()
         cues: list[TextCue] = []
         fallback_duration = float(frame_duration or self.default_duration)
+        fallback_frame_windows = dict(frame_windows or {})
 
         for index, candidate in enumerate(plan.candidates, start=1):
             targets = tuple(candidate.renderer_targets or ("hyperframes",))
@@ -54,6 +56,7 @@ class TextCueCompiler:
             start, end = self._resolve_candidate_window(
                 candidate_source=candidate.source,
                 sentences_by_id=sentences_by_id,
+                frame_windows=fallback_frame_windows,
                 frame_duration=fallback_duration,
             )
             cues.append(
@@ -82,6 +85,7 @@ class TextCueCompiler:
         *,
         candidate_source,
         sentences_by_id: dict[str, SentenceUnit],
+        frame_windows: Mapping[int, tuple[float, float]],
         frame_duration: float,
     ) -> tuple[float, float]:
         sentence_id = candidate_source.get("sentence_id")
@@ -93,5 +97,9 @@ class TextCueCompiler:
                 pass
 
         frame_index = int(candidate_source.get("frame_index", 0))
+        if frame_index in frame_windows:
+            start, end = frame_windows[frame_index]
+            return float(start), max(float(end), float(start) + 0.1)
+
         start = frame_index * frame_duration
         return start, start + frame_duration

@@ -46,6 +46,34 @@ def test_projection_only_uses_native_prompt_candidates_and_limits_per_frame():
     assert projected[0][0].source_candidate_ids == ("native-1",)
 
 
+def test_projection_requires_native_role_and_native_target():
+    plan = TextOverlayPlan(
+        candidates=(
+            TextOverlayCandidate(
+                id="wrong-target",
+                text="Pixelle",
+                role="model_native_hint",
+                renderer_targets=("hyperframes",),
+                source={"frame_index": 0},
+            ),
+            TextOverlayCandidate(
+                id="wrong-role",
+                text="Pixelle",
+                role="keyword",
+                renderer_targets=("native_prompt",),
+                source={"frame_index": 0},
+            ),
+        )
+    )
+    policy = TextRenderingPolicy(
+        image_text_mode="native_hint",
+        enabled_targets=("native_prompt",),
+        allow_native_text_in_image=True,
+    )
+
+    assert NativePromptProjection().project(plan=plan, policy=policy) == {}
+
+
 def test_projection_returns_empty_when_policy_disallows_native_prompt():
     plan = TextOverlayPlan(
         candidates=(

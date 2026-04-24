@@ -22,7 +22,7 @@ class NativePromptProjection:
         for candidate in plan.candidates:
             if (
                 candidate.role != "model_native_hint"
-                and "native_prompt" not in candidate.renderer_targets
+                or "native_prompt" not in candidate.renderer_targets
             ):
                 continue
 

@@ -181,6 +181,33 @@ def test_build_single_generation_request_includes_no_text_toggle():
     assert request["forbid_embedded_text_in_image"] is False
 
 
+def test_build_single_generation_request_includes_text_layer_policy():
+    def _progress(_event):
+        return None
+
+    text_layer = {
+        "enabled": True,
+        "mode": "hybrid",
+        "renderer_targets": ["hyperframes", "ass"],
+        "density": "low",
+        "max_items_per_frame": 1,
+    }
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "text_layer": text_layer,
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["text_layer"] == text_layer
+
+
 def test_build_single_generation_request_defaults_no_text_toggle_to_true():
     def _progress(_event):
         return None
@@ -286,6 +313,27 @@ def test_build_batch_shared_config_includes_no_text_toggle():
     )
 
     assert shared_config["forbid_embedded_text_in_image"] is False
+
+
+def test_build_batch_shared_config_includes_text_layer_policy():
+    text_layer = {
+        "enabled": True,
+        "mode": "programmatic_only",
+        "renderer_targets": ["ass"],
+        "density": "medium",
+        "max_items_per_frame": 2,
+    }
+
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "n_scenes": 5,
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "text_layer": text_layer,
+        }
+    )
+
+    assert shared_config["text_layer"] == text_layer
 
 
 def test_build_single_generation_request_includes_tts_speed_for_comfyui():
