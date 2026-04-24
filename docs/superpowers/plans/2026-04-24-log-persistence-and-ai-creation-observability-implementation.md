@@ -4,7 +4,7 @@
 
 **Goal:** Add global and task-scoped log persistence, correlation IDs, and structured AI creation stage logs so `Quick Create -> AI Creation` slowness can be diagnosed from saved artifacts instead of console output alone.
 
-**Architecture:** Introduce one centralized logging utility that bootstraps `loguru`, redacts sensitive fields, binds request and task context, and writes JSONL records for both process-wide logs and task-local logs. Extend the standard pipeline and persistence layer so AI creation stages emit structured events, `metadata.json` keeps an `observability` summary, and history detail loaders can return that summary without parsing raw log files.
+**Architecture:** Introduce one centralized logging utility that bootstraps `loguru`, redacts sensitive fields before serialization, binds request and task context, and writes flat project-owned JSONL records for both process-wide logs and task-local logs. Add a task-log session lifecycle so task sinks are attached when `task_id` becomes known and detached in `finally`, then extend the standard pipeline and persistence layer so AI creation stages emit structured events, `metadata.json` keeps an `observability` summary for both success and failure, and history detail loaders can return that summary without parsing raw log files.
 
 **Tech Stack:** Python 3.12, Loguru, FastAPI, Streamlit, Pydantic, pytest, JSONL
 
@@ -15,7 +15,7 @@ Repository note: `AGENTS.md` forbids `git worktree`, so execute this plan on the
 ## File Structure
 
 - Create: `pixelle_video/utils/logging_util.py`
-  Central logging bootstrap, redaction, correlation helpers, task sink attachment, and stage-event helpers.
+  Central logging bootstrap, redaction, flat JSONL serialization, correlation helpers, task sink attachment and detachment, and stage-event helpers.
 - Modify: `pixelle_video/config/schema.py`
   Add the `logging` config schema.
 - Modify: `config.yaml`
@@ -53,6 +53,8 @@ Repository note: `AGENTS.md` forbids `git worktree`, so execute this plan on the
 - Modify: `tests/test_content_generators_structured_output.py`
   Lock AI creation stage callback emission from content generators.
 
+Initial implementation scope note: global and task-scoped runtime log persistence applies to all generation entrypoints, but the detailed `ai_creation` stage summary in this plan is intentionally limited to the `standard` pipeline that powers the current quick-create flow.
+
 ### Task 1: Add logging bootstrap, redaction, and config defaults
 
 **Files:**
@@ -68,11 +70,7 @@ import json
 
 from loguru import logger
 
-from pixelle_video.utils.logging_util import (
-    redact_mapping,
-    setup_logging,
-    teardown_logging,
-)
+from pixelle_video.utils.logging_util import redact_mapping, setup_logging, teardown_logging
 
 
 def test_redact_mapping_masks_sensitive_keys():
@@ -89,7 +87,7 @@ def test_redact_mapping_masks_sensitive_keys():
     assert redacted["model"] == "qwen-max"
 
 
-def test_setup_logging_writes_jsonl_record(tmp_path):
+def test_setup_logging_writes_flat_jsonl_record(tmp_path):
     sink_ids = setup_logging(
         service_name="web",
         config={
@@ -114,6 +112,31 @@ def test_setup_logging_writes_jsonl_record(tmp_path):
     assert payload["service"] == "web"
     assert payload["channel"] == "runtime"
     assert payload["message"] == "hello logging"
+
+
+def test_setup_logging_redacts_bound_extra_before_disk_write(tmp_path):
+    sink_ids = setup_logging(
+        service_name="api",
+        config={
+            "enabled": True,
+            "level": "INFO",
+            "log_dir": str(tmp_path),
+            "rotation_mb": 50,
+            "retention_days": 14,
+            "task_logs_enabled": True,
+            "ai_creation_logs_enabled": True,
+            "preview_chars": 120,
+        },
+    )
+    try:
+        logger.bind(config={"api_key": "sk-secret", "model": "qwen-max"}).info("config snapshot")
+    finally:
+        teardown_logging(sink_ids)
+
+    payload = json.loads((tmp_path / "api.jsonl").read_text(encoding="utf-8").splitlines()[0])
+
+    assert payload["extra"]["config"]["api_key"] == "***"
+    assert payload["extra"]["config"]["model"] == "qwen-max"
 ```
 
 - [ ] **Step 2: Run the logging utility tests to verify they fail**
@@ -151,19 +174,47 @@ def redact_mapping(payload: Any) -> Any:
     return payload
 
 
+def build_log_payload(record: dict[str, Any], *, service_name: str) -> dict[str, Any]:
+    extra = redact_mapping(dict(record["extra"]))
+    return {
+        "timestamp": record["time"].isoformat(),
+        "level": record["level"].name,
+        "service": extra.get("service") or service_name,
+        "channel": extra.get("channel", "runtime"),
+        "message": record["message"],
+        "request_id": extra.get("request_id"),
+        "session_id": extra.get("session_id"),
+        "api_task_id": extra.get("api_task_id"),
+        "task_id": extra.get("task_id"),
+        "pipeline": extra.get("pipeline"),
+        "stage": extra.get("stage"),
+        "event": extra.get("event"),
+        "status": extra.get("status"),
+        "latency_ms": extra.get("latency_ms"),
+        "extra": extra,
+    }
+
+
 def setup_logging(service_name: str, config: dict[str, Any] | None = None) -> list[int]:
     resolved = _resolve_logging_config(config)
     log_dir = Path(resolved["log_dir"])
     log_dir.mkdir(parents=True, exist_ok=True)
 
     logger.remove()
+    logger.configure(
+        extra={"service": service_name},
+        patcher=lambda record: record["extra"].__setitem__(
+            "jsonl_payload",
+            json.dumps(build_log_payload(record, service_name=service_name), ensure_ascii=False),
+        ),
+    )
     console_sink = logger.add(sys.stderr, level=resolved["level"])
     file_sink = logger.add(
         log_dir / f"{service_name}.jsonl",
         level=resolved["level"],
+        format="{extra[jsonl_payload]}\n",
         rotation=f"{resolved['rotation_mb']} MB",
         retention=f"{resolved['retention_days']} days",
-        serialize=True,
     )
     return [console_sink, file_sink]
 
@@ -330,6 +381,7 @@ git push origin dev
 ### Task 3: Add task log paths, attach task sinks, and persist observability summaries
 
 **Files:**
+- Modify: `pixelle_video/utils/logging_util.py`
 - Modify: `pixelle_video/pipelines/linear.py`
 - Modify: `pixelle_video/pipelines/standard.py`
 - Modify: `pixelle_video/services/persistence.py`
@@ -344,8 +396,11 @@ from datetime import datetime
 
 import pytest
 
+from loguru import logger
+
 from pixelle_video.services.history_manager import HistoryManager
 from pixelle_video.services.persistence import PersistenceService
+from pixelle_video.utils.logging_util import attach_task_log_sinks
 
 
 def test_persistence_service_exposes_task_log_paths(tmp_path):
@@ -354,6 +409,23 @@ def test_persistence_service_exposes_task_log_paths(tmp_path):
     assert persistence.get_task_logs_dir("task-1") == tmp_path / "task-1" / "logs"
     assert persistence.get_task_runtime_log_path("task-1") == tmp_path / "task-1" / "logs" / "runtime.jsonl"
     assert persistence.get_task_ai_creation_log_path("task-1") == tmp_path / "task-1" / "logs" / "ai_creation.jsonl"
+
+
+def test_attach_task_log_sinks_stops_writing_after_close(tmp_path):
+    task_dir = tmp_path / "task-1"
+    task_dir.mkdir(parents=True, exist_ok=True)
+
+    session = attach_task_log_sinks(task_id="task-1", task_dir=task_dir)
+    try:
+        logger.bind(task_id="task-1", channel="runtime").info("first task line")
+    finally:
+        session.close()
+
+    logger.bind(task_id="task-2", channel="runtime").info("later task line")
+
+    contents = (task_dir / "logs" / "runtime.jsonl").read_text(encoding="utf-8")
+    assert "first task line" in contents
+    assert "later task line" not in contents
 
 
 @pytest.mark.asyncio
@@ -398,6 +470,7 @@ class PipelineContext:
     request_id: Optional[str] = None
     session_id: Optional[str] = None
     api_task_id: Optional[str] = None
+    task_log_session: Any = None
     observability: Dict[str, Any] = field(default_factory=dict)
 ```
 
@@ -437,11 +510,46 @@ ctx.observability.update(
         "ai_creation_log_path": str(self.core.persistence.get_task_ai_creation_log_path(task_id)),
     }
 )
-attach_task_log_sinks(task_id=task_id, task_dir=task_dir)
+ctx.task_log_session = attach_task_log_sinks(task_id=task_id, task_dir=Path(task_dir))
+```
+
+```python
+try:
+    await self.setup_environment(ctx)
+    await self.generate_content(ctx)
+    await self.determine_title(ctx)
+    await self.plan_visuals(ctx)
+    await self.initialize_storyboard(ctx)
+    await self.produce_assets(ctx)
+    await self.post_production(ctx)
+    return await self.finalize(ctx)
+except Exception as error:
+    await self._persist_failed_task_data(ctx, error)
+    await self.handle_exception(ctx, error)
+    raise
+finally:
+    if ctx.task_log_session is not None:
+        ctx.task_log_session.close()
 ```
 
 ```python
 metadata["observability"] = ctx.observability
+```
+
+```python
+async def _persist_failed_task_data(self, ctx: PipelineContext, error: Exception) -> None:
+    if not ctx.task_id:
+        return
+
+    metadata = {
+        "task_id": ctx.task_id,
+        "status": "failed",
+        "error": str(error),
+        "input": {"text": ctx.input_text, **ctx.params},
+        "config": {},
+        "observability": ctx.observability,
+    }
+    await self.core.persistence.save_task_metadata(ctx.task_id, metadata)
 ```
 
 ```python
@@ -462,7 +570,7 @@ Expected: PASS with path helpers and `observability` visible in history detail p
 - [ ] **Step 5: Commit and push the task-log persistence change**
 
 ```bash
-git add pixelle_video/pipelines/linear.py pixelle_video/pipelines/standard.py pixelle_video/services/persistence.py pixelle_video/services/history_manager.py tests/test_task_log_persistence.py tests/test_storyboard_snapshot_persistence.py
+git add pixelle_video/utils/logging_util.py pixelle_video/pipelines/linear.py pixelle_video/pipelines/standard.py pixelle_video/services/persistence.py pixelle_video/services/history_manager.py tests/test_task_log_persistence.py tests/test_storyboard_snapshot_persistence.py
 git commit -m "feat: persist task scoped observability metadata"
 git push origin dev
 ```
@@ -502,28 +610,30 @@ async def test_generate_title_reports_stage_callback():
 
 ```python
 @pytest.mark.asyncio
-async def test_generate_styled_image_prompt_batch_reports_storyboard_stage(monkeypatch):
+async def test_generate_image_prompts_reports_actual_llm_call_count_for_batched_stage():
     observed = []
 
-    async def fake_generate_image_prompts(*args, **kwargs):
-        return ["base scene prompt"]
+    class FakeLLM:
+        def __init__(self):
+            self.calls = 0
 
-    monkeypatch.setattr(
-        "pixelle_video.utils.content_generators.generate_image_prompts",
-        fake_generate_image_prompts,
-    )
+        async def __call__(self, prompt, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return content_generators.ImagePromptBatchResponse(image_prompts=["prompt"] * 10)
+            return content_generators.ImagePromptBatchResponse(image_prompts=["prompt"])
 
-    await content_generators.generate_styled_image_prompt_batch(
-        llm_service=object(),
-        narrations=["scene one"],
-        image_config={"prompt_prefix": ""},
-        media_service=None,
+    prompts = await content_generators.generate_image_prompts(
+        FakeLLM(),
+        narrations=["scene"] * 11,
+        batch_size=10,
         stage_callback=observed.append,
     )
 
-    stage_pairs = {(item["stage"], item["event"]) for item in observed}
-    assert ("image_prompt_batch", "start") in stage_pairs
-    assert ("image_prompt_batch", "end") in stage_pairs
+    assert len(prompts) == 11
+    end_event = next(item for item in observed if item["stage"] == "image_prompt_batch" and item["event"] == "end")
+    assert end_event["llm_call_count"] == 2
+    assert end_event["batch_total"] == 2
 ```
 
 - [ ] **Step 2: Run the AI creation tests to verify they fail**
@@ -567,6 +677,40 @@ emit_stage_event(
     message="title generation completed",
     callback=stage_callback,
     latency_ms=round((perf_counter() - stage_start) * 1000),
+    llm_call_count=1,
+    status="success",
+)
+```
+
+```python
+stage_llm_calls = 0
+for batch_idx, batch_narrations in enumerate(batches, 1):
+    for attempt in range(1, max_retries + 1):
+        stage_llm_calls += 1
+        prompt = build_image_prompt_prompt(
+            narrations=batch_narrations,
+            min_words=min_words,
+            max_words=max_words,
+            style_profile=style_profile,
+        )
+        response: ImagePromptBatchResponse = await llm_service(
+            prompt=prompt,
+            response_type=ImagePromptBatchResponse,
+            temperature=0.7,
+            max_tokens=8192,
+        )
+        batch_prompts = list(response.image_prompts)
+
+emit_stage_event(
+    channel="ai_creation",
+    stage="image_prompt_batch",
+    event="end",
+    message="image prompt batch completed",
+    callback=stage_callback,
+    latency_ms=round((perf_counter() - stage_start) * 1000),
+    llm_call_count=stage_llm_calls,
+    retry_count=max(stage_llm_calls - len(batches), 0),
+    batch_total=len(batches),
     status="success",
 )
 ```
@@ -584,18 +728,12 @@ def _record_ai_creation_stage(self, ctx: PipelineContext, event: dict[str, Any])
         "stage": event["stage"],
         "status": event.get("status", "success"),
         "latency_ms": event.get("latency_ms", 0),
+        "llm_call_count": event.get("llm_call_count", 0),
     }
     summary["stages"].append(stage_entry)
     summary["total_latency_ms"] = sum(item["latency_ms"] for item in summary["stages"])
     summary["slowest_stage"] = max(summary["stages"], key=lambda item: item["latency_ms"])["stage"]
-    if event["stage"] in {
-        "narration_generation",
-        "title_generation",
-        "style_resolution",
-        "storyboard_planning",
-        "image_prompt_batch",
-    }:
-        summary["llm_call_count"] += 1
+    summary["llm_call_count"] += event.get("llm_call_count", 0)
 ```
 
 ```python

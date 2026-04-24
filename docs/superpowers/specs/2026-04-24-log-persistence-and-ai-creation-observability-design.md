@@ -4,7 +4,7 @@
 
 Add a stable, project-owned logging system that persists runtime logs to disk and makes the `Quick Create -> AI Creation` path explainable after the fact.
 
-This design must let an engineer answer, for any completed run:
+This design must let an engineer answer, for any completed run, and for any failed run that already created a task directory:
 
 - how long the full request took
 - how many Qwen calls happened before media generation
@@ -48,10 +48,11 @@ This design does not include:
 ### Functional Requirements
 
 1. The application must persist runtime logs to local files in both direct local runs and Docker runs.
-2. Every generated task under `output/<task_id>/` must keep its own task-scoped runtime logs.
+2. Every generated task that reaches `task_id` creation under `output/<task_id>/` must keep its own task-scoped runtime logs.
 3. The `Quick Create -> AI Creation` chain must emit structured stage logs for start, end, skip, retry, and failure.
 4. Web, API, and pipeline logs must share correlation identifiers so one request can be traced across layers.
 5. History-facing task detail data must expose a compact observability summary without reading the entire raw log stream.
+6. Failed runs must persist the latest available observability summary once `task_id` exists.
 
 ### Safety Requirements
 
@@ -88,6 +89,8 @@ Create project-owned files under `logs/`:
 
 Each process writes its own JSONL file. The `service` field inside each record distinguishes `web`, `api`, and `pipeline` activity inside the same process.
 
+Global logs rotate and retain bounded history. Task logs do not need cross-task rotation because each task owns its own files under its own directory.
+
 ### Task Logs
 
 For every completed or in-flight generated task, create:
@@ -98,6 +101,8 @@ For every completed or in-flight generated task, create:
 `runtime.jsonl` keeps task-scoped logs for the whole generation lifecycle.
 
 `ai_creation.jsonl` keeps only the `Quick Create -> AI Creation` stage events so slow prompt-generation runs can be inspected without scanning frame-rendering noise.
+
+Task log sinks are not process-global forever. They are attached when `task_id` becomes known and must be removed in a `finally` block or equivalent task-session teardown path once the pipeline finishes or fails. A task log file must never receive records from a later unrelated task.
 
 ### Metadata Summary
 
@@ -117,13 +122,21 @@ Approved shape:
     "ai_creation_log_path": "output/20260424_102233_ab12/logs/ai_creation.jsonl",
     "ai_creation": {
       "total_latency_ms": 8123,
-      "llm_call_count": 5,
+      "llm_call_count": 7,
       "slowest_stage": "storyboard_planning",
       "stages": [
         {
           "stage": "narration_generation",
           "status": "success",
-          "latency_ms": 1432
+          "latency_ms": 1432,
+          "llm_call_count": 1
+        },
+        {
+          "stage": "image_prompt_batch",
+          "status": "success",
+          "latency_ms": 3148,
+          "llm_call_count": 3,
+          "retry_count": 1
         }
       ]
     }
@@ -135,7 +148,9 @@ The summary belongs in `metadata.json` rather than a separate third file so exis
 
 ## Record Format
 
-Persisted file logs use one JSON object per line.
+Persisted file logs use one project-owned flat JSON object per line.
+
+The approved contract is a flat JSONL schema defined by this document. Do not rely on raw Loguru `serialize=True` output for persisted application logs, because that shape does not match this contract and makes downstream readers depend on Loguru internals.
 
 Required fields:
 
@@ -162,7 +177,7 @@ Required fields:
 - `workflow`
 - `template`
 
-Optional fields may live under an `extra` object when they do not deserve top-level status.
+Unknown values may be written as `null`. Optional fields may live under an `extra` object when they do not deserve top-level status.
 
 Example task-stage record:
 
@@ -209,6 +224,7 @@ Example task-stage record:
 3. `StandardPipeline.setup_environment(...)` creates `task_id` and then attaches task-scoped log sinks.
 4. Once `task_id` exists, all nested logs inherit it automatically through bound context rather than passing IDs manually to every function.
 5. The pipeline emits one binding event when `request_id`, `api_task_id`, and `task_id` become known together.
+6. Task log sinks are detached when the pipeline exits, regardless of success or failure.
 
 This design keeps correlation stable without changing the public pipeline call signatures everywhere.
 
@@ -239,6 +255,13 @@ Batch-aware stages must also populate:
 - `batch_total`
 - `narration_count`
 
+Stage end and stage fail events that wrap one or more outbound LLM calls must also populate:
+
+- `llm_call_count`
+- `retry_count`
+
+`llm_call_count` means actual outbound LLM request attempts made during that stage, including batch splits and retries. It is not a count of logical stages.
+
 The approved intent is that a single quick-create run can be reconstructed from `ai_creation.jsonl` alone without reading `runtime.jsonl`.
 
 ## Redaction and Content Policy
@@ -252,7 +275,7 @@ The approved intent is that a single quick-create run can be reconstructed from 
 - `secret`
 - `password`
 
-The redaction layer must inspect both structured `extra` fields and any config payloads deliberately logged by code. This is necessary because the current codebase contains at least one risky debug log of ComfyUI config in `pixelle_video/service.py`.
+The redaction layer must inspect both structured `extra` fields and any config payloads deliberately logged by code before records are serialized to disk. This is necessary because the current codebase contains at least one risky debug log of ComfyUI config in `pixelle_video/service.py`.
 
 ### Prompt and Script Logging Policy
 
@@ -287,6 +310,15 @@ logging:
 ```
 
 This configuration is intentionally small. The system should not start with a wide matrix of knobs before the storage and correlation model are proven.
+
+## Initial Scope
+
+The first implementation pass should separate two concerns:
+
+1. global and task-scoped runtime log persistence for all video-generation entrypoints
+2. structured AI creation stage summaries for the `standard` pipeline, which powers the current quick-create path
+
+`custom` and `asset_based` should still benefit from global/task log persistence in this phase, but they do not need the full `ai_creation` stage summary contract until a later pass.
 
 ## Code Ownership and Impact
 
@@ -336,12 +368,14 @@ Expected existing tests to extend:
 
 - create request and session correlation helpers
 - attach task log sinks after task directory creation
+- detach task log sinks when the task exits
 - persist observability summary into `metadata.json`
+- persist failure metadata with observability when `task_id` already exists
 
 ### Phase 3: AI Creation Structured Events
 
 - convert the quick-create path to explicit stage events
-- record stage durations, retries, skips, and failure reasons
+- record stage durations, retries, skips, failure reasons, and actual outbound LLM call counts
 - keep progress UI behavior unchanged
 
 ### Phase 4: History Detail Consumption
@@ -370,6 +404,7 @@ Guardrail:
 Guardrail:
 
 - central redaction helper
+- serializer-level redaction before disk writes
 - explicit tests for redaction behavior
 - remove or rewrite risky config debug logs
 
@@ -378,7 +413,8 @@ Guardrail:
 Guardrail:
 
 - create task `logs/` as soon as `task_id` exists
-- emit failure records in `finally` or exception paths before re-raising
+- detach task sinks in `finally`
+- emit failure records and persist failure metadata before re-raising
 
 ## Acceptance Criteria
 
@@ -389,6 +425,8 @@ This design is satisfied when:
 3. running one quick-create generation creates `output/<task_id>/logs/runtime.jsonl`
 4. that same run creates `output/<task_id>/logs/ai_creation.jsonl`
 5. `metadata.json` contains an `observability` summary with total AI creation latency and per-stage timings
-6. persisted logs contain `request_id` and `task_id` correlation fields where applicable
-7. no API keys or bearer tokens appear in persisted logs
-8. an engineer can identify the slowest AI creation stage from the task files alone
+6. the `observability.ai_creation.llm_call_count` field reflects actual outbound LLM request attempts, including batch splits and retries
+7. persisted logs contain `request_id` and `task_id` correlation fields where applicable
+8. no API keys or bearer tokens appear in persisted logs
+9. a failed `standard` pipeline run that already created `task_id` still persists task logs and a failure-shaped `observability` summary
+10. an engineer can identify the slowest AI creation stage from the task files alone
