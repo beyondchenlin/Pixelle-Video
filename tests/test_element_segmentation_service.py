@@ -286,19 +286,69 @@ async def test_segment_image_rejects_odd_element_mask_output_count(
         )
 
 
-async def test_segment_image_rejects_odd_remaining_outputs_after_background(
+async def test_segment_image_ignores_extra_pairs_after_background_candidate_limit(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.png"
+    background = tmp_path / "background.png"
+    element_a = tmp_path / "element_a.png"
+    mask_a = tmp_path / "mask_a.png"
+    element_b = tmp_path / "element_b.png"
+    mask_b = tmp_path / "mask_b.png"
+    _png(source, (255, 255, 255, 255))
+    _png(background, (250, 250, 250, 255))
+    _png(element_a, (255, 0, 0, 255))
+    _mask(mask_a, (1, 2, 20, 21))
+    _png(element_b, (0, 0, 255, 255))
+    _mask(mask_b, (4, 5, 12, 15))
+
+    kit = FakeKit(
+        FakeComfyResult(
+            images=[
+                FakeComfyImage(str(background)),
+                FakeComfyImage(str(element_a)),
+                FakeComfyImage(str(mask_a)),
+                FakeComfyImage(str(element_b)),
+                FakeComfyImage(str(mask_b)),
+            ],
+        ),
+    )
+    service = ElementSegmentationService(FakeCore(kit))
+
+    manifest = await service.segment_image(
+        image_path=str(source),
+        task_id="task-1",
+        frame_index=0,
+        output_dir=str(tmp_path / "out"),
+        width=32,
+        height=32,
+        duration=1.0,
+        fps=12,
+        selected_count=1,
+        candidate_limit=1,
+        prompt=None,
+        workflow="image_sam31_segment.json",
+        backend="python_ffmpeg",
+        intensity="medium",
+    )
+
+    assert len(manifest.elements) == 1
+    assert manifest.elements[0].image_path.endswith("element_001.png")
+
+
+async def test_segment_image_ignores_odd_trailing_output_after_background_candidate_limit(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "source.png"
     background = tmp_path / "background.png"
     element = tmp_path / "element.png"
     mask = tmp_path / "mask.png"
-    dangling = tmp_path / "dangling.png"
+    diagnostic = tmp_path / "diagnostic.png"
     _png(source, (255, 255, 255, 255))
     _png(background, (250, 250, 250, 255))
     _png(element, (255, 0, 0, 255))
     _mask(mask, (1, 2, 20, 21))
-    _png(dangling, (0, 0, 255, 255))
+    _png(diagnostic, (0, 0, 255, 255))
 
     kit = FakeKit(
         FakeComfyResult(
@@ -306,29 +356,31 @@ async def test_segment_image_rejects_odd_remaining_outputs_after_background(
                 FakeComfyImage(str(background)),
                 FakeComfyImage(str(element)),
                 FakeComfyImage(str(mask)),
-                FakeComfyImage(str(dangling)),
+                FakeComfyImage(str(diagnostic)),
             ],
         ),
     )
     service = ElementSegmentationService(FakeCore(kit))
 
-    with pytest.raises(ValueError, match="expected .*actual 3"):
-        await service.segment_image(
-            image_path=str(source),
-            task_id="task-1",
-            frame_index=0,
-            output_dir=str(tmp_path / "out"),
-            width=32,
-            height=32,
-            duration=1.0,
-            fps=12,
-            selected_count=1,
-            candidate_limit=1,
-            prompt=None,
-            workflow="image_sam31_segment.json",
-            backend="python_ffmpeg",
-            intensity="medium",
-        )
+    manifest = await service.segment_image(
+        image_path=str(source),
+        task_id="task-1",
+        frame_index=0,
+        output_dir=str(tmp_path / "out"),
+        width=32,
+        height=32,
+        duration=1.0,
+        fps=12,
+        selected_count=1,
+        candidate_limit=1,
+        prompt=None,
+        workflow="image_sam31_segment.json",
+        backend="python_ffmpeg",
+        intensity="medium",
+    )
+
+    assert len(manifest.elements) == 1
+    assert manifest.elements[0].selected is True
 
 
 async def test_segment_image_does_not_select_empty_mask_candidate(

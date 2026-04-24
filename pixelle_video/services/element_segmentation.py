@@ -83,7 +83,7 @@ class ElementSegmentationService:
         await self._copy_media_output(background_source, background_path)
 
         pair_images = (
-            result_images[1:]
+            result_images[1 : 1 + candidate_limit * 2]
             if has_background
             else result_images[: candidate_limit * 2]
         )
