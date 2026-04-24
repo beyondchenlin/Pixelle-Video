@@ -364,6 +364,7 @@ def test_write_project_materializes_element_animation_manifest_and_assets(tmp_pa
             {
                 "source_image_path": str(source_image),
                 "background": {"image_path": str(background_image)},
+                "audio_path": "remote/audio/not-localized.wav",
                 "elements": [
                     {
                         "id": "element-1",
@@ -390,22 +391,62 @@ def test_write_project_materializes_element_animation_manifest_and_assets(tmp_pa
     project_paths = service.write_project(manifest, template_params={})
 
     localized_manifest_path = project_paths.data_dir / "element_animation_manifest.json"
-    localized_background_path = (
-        project_paths.project_dir / "assets" / "element_animation" / "background.png"
-    )
+    localized_asset_dir = project_paths.project_dir / "assets" / "element_animation"
     localized_element_manifest = json.loads(
         localized_manifest_path.read_text(encoding="utf-8")
     )
     render_manifest = json.loads(project_paths.manifest_path.read_text(encoding="utf-8"))
 
     assert localized_manifest_path.exists()
-    assert localized_background_path.exists()
-    assert localized_element_manifest["background"]["image_path"].startswith(
-        "assets/element_animation/"
+    assert (localized_asset_dir / "source.png").exists()
+    assert (localized_asset_dir / "background.png").exists()
+    assert (localized_asset_dir / "element.png").exists()
+    assert (localized_asset_dir / "mask.png").exists()
+    assert (
+        localized_element_manifest["source_image_path"]
+        == "assets/element_animation/source.png"
     )
+    assert (
+        localized_element_manifest["background"]["image_path"]
+        == "assets/element_animation/background.png"
+    )
+    assert (
+        localized_element_manifest["elements"][0]["image_path"]
+        == "assets/element_animation/element.png"
+    )
+    assert (
+        localized_element_manifest["elements"][0]["mask_path"]
+        == "assets/element_animation/mask.png"
+    )
+    assert localized_element_manifest["audio_path"] == "remote/audio/not-localized.wav"
     assert (
         render_manifest["element_animation_manifest_path"]
         == "data/element_animation_manifest.json"
+    )
+
+
+def test_write_project_preserves_missing_element_animation_manifest_path(tmp_path):
+    missing_element_manifest_path = tmp_path / "missing_element_manifest.json"
+    manifest = RenderManifest(
+        task_id="task-missing-element-animation",
+        title="demo",
+        canvas_width=1080,
+        canvas_height=1920,
+        fps=30,
+        template_id="image_default",
+        element_animation_manifest_path=str(missing_element_manifest_path),
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    project_paths = service.write_project(manifest, template_params={})
+    render_manifest = json.loads(project_paths.manifest_path.read_text(encoding="utf-8"))
+    element_asset_dir = project_paths.project_dir / "assets" / "element_animation"
+
+    assert not (project_paths.data_dir / "element_animation_manifest.json").exists()
+    assert not element_asset_dir.exists() or not any(element_asset_dir.iterdir())
+    assert (
+        render_manifest["element_animation_manifest_path"]
+        == str(missing_element_manifest_path)
     )
 
 
