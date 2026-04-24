@@ -193,3 +193,47 @@ def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     assert "min-height: 1.45rem" in css
     assert "padding: 0" in css
     assert f".st-key-{gallery.RECENT_VIDEO_GRID_KEY} > div[data-testid=\"stVerticalBlock\"]" not in css
+
+
+def test_render_recent_video_gallery_applies_refresh_key_suffix(monkeypatch):
+    captured = {"containers": [], "card_suffixes": [], "css": []}
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeStreamlit:
+        session_state = {}
+
+        def markdown(self, body, **_kwargs):
+            captured["css"].append(body)
+
+        def container(self, **kwargs):
+            captured["containers"].append(kwargs.get("key"))
+            return _FakeContext()
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(gallery, "st", _FakeStreamlit())
+    monkeypatch.setattr(gallery, "get_current_recent_video_item", lambda _state: None)
+    monkeypatch.setattr(
+        gallery,
+        "fetch_recent_history_video_items",
+        lambda _pixelle_video: [{"task_id": "task-1", "video_path": "final.mp4"}],
+    )
+    monkeypatch.setattr(
+        gallery,
+        "render_recent_video_card",
+        lambda _item, *, key_suffix="": captured["card_suffixes"].append(key_suffix),
+    )
+
+    gallery.render_recent_video_gallery(object(), key_suffix="_refresh_2")
+
+    assert gallery.RECENT_VIDEO_GALLERY_KEY + "_refresh_2" in captured["containers"]
+    assert gallery.RECENT_VIDEO_GRID_KEY + "_refresh_2" in captured["containers"]
+    assert captured["card_suffixes"] == ["_refresh_2"]
+    assert f".st-key-{gallery.RECENT_VIDEO_GALLERY_KEY}_refresh_2" in captured["css"][0]

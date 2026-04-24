@@ -23,7 +23,6 @@ from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from web.components.recent_video_gallery import (
-    clear_recent_generated_video,
     render_recent_video_gallery,
     store_recent_generated_video,
 )
@@ -293,6 +292,27 @@ def render_single_output(pixelle_video, video_params):
         ):
             st.info(tr("status.generation_in_progress"))
 
+        gallery_slot = None
+        gallery_rendered = False
+        gallery_render_count = 0
+
+        def render_gallery(*, refresh: bool = False) -> None:
+            nonlocal gallery_render_count, gallery_rendered
+
+            if gallery_slot is None:
+                render_recent_video_gallery(pixelle_video)
+                gallery_rendered = True
+                return
+
+            if refresh:
+                gallery_slot.empty()
+
+            gallery_render_count += 1
+            key_suffix = "" if gallery_render_count == 1 else f"_refresh_{gallery_render_count}"
+            with gallery_slot.container():
+                render_recent_video_gallery(pixelle_video, key_suffix=key_suffix)
+            gallery_rendered = True
+
         if generation_requested:
             can_generate = True
             # Validate system configuration
@@ -306,10 +326,11 @@ def render_single_output(pixelle_video, video_params):
                 can_generate = False
 
             if can_generate:
-                clear_recent_generated_video(st.session_state)
                 # Show progress
                 progress_bar = st.progress(0)
                 status_text = st.empty()
+                gallery_slot = st.empty()
+                render_gallery()
 
                 # Record start time for generation
                 import time
@@ -443,6 +464,7 @@ def render_single_output(pixelle_video, video_params):
 
                     if os.path.exists(result.video_path):
                         store_recent_generated_video(result, st.session_state)
+                        render_gallery(refresh=True)
                     else:
                         st.error(tr("status.video_not_found", path=result.video_path))
 
@@ -456,7 +478,8 @@ def render_single_output(pixelle_video, video_params):
             else:
                 _reset_single_video_generation_state()
 
-        render_recent_video_gallery(pixelle_video)
+        if not gallery_rendered:
+            render_gallery()
 
 
 def render_batch_output(pixelle_video, video_params):

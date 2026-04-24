@@ -176,28 +176,31 @@ def store_recent_generated_video(result: Any, session_state: dict[str, Any]) -> 
     }
 
 
-def build_recent_video_gallery_css() -> str:
+def build_recent_video_gallery_css(
+    gallery_key: str = RECENT_VIDEO_GALLERY_KEY,
+    grid_key: str = RECENT_VIDEO_GRID_KEY,
+) -> str:
     """Build scoped CSS for the Home recent-video gallery."""
     return f"""
     <style>
-    .st-key-{RECENT_VIDEO_GALLERY_KEY} {{
+    .st-key-{gallery_key} {{
         container-type: inline-size;
         margin-top: -0.35rem;
     }}
-    .st-key-{RECENT_VIDEO_GRID_KEY} {{
+    .st-key-{grid_key} {{
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 220px));
         gap: 0.65rem;
         justify-content: center;
         align-items: start;
     }}
-    .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] {{
+    .st-key-{grid_key} > div[data-testid="stLayoutWrapper"] {{
         min-width: 0;
     }}
-    .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"] {{
+    .st-key-{grid_key} > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"] {{
         padding: 0.5rem !important;
     }}
-    .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stVerticalBlock"] {{
+    .st-key-{grid_key} div[data-testid="stVerticalBlock"] {{
         gap: 0.35rem;
     }}
     .recent-video-section-title {{
@@ -206,10 +209,10 @@ def build_recent_video_gallery_css() -> str:
         font-weight: 700;
         line-height: 1.25;
     }}
-    .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stMarkdownContainer"]:has(.recent-video-info) {{
+    .st-key-{grid_key} div[data-testid="stMarkdownContainer"]:has(.recent-video-info) {{
         margin-bottom: 0 !important;
     }}
-    .st-key-{RECENT_VIDEO_GALLERY_KEY} video[data-testid="stVideo"] {{
+    .st-key-{gallery_key} video[data-testid="stVideo"] {{
         width: 100% !important;
         max-width: 100% !important;
         height: auto !important;
@@ -245,18 +248,18 @@ def build_recent_video_gallery_css() -> str:
         overflow: hidden;
         text-overflow: ellipsis;
     }}
-    .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stHorizontalBlock"] {{
+    .st-key-{grid_key} div[data-testid="stHorizontalBlock"] {{
         width: min(8.5rem, 72%);
         margin-inline: auto;
         gap: 0.55rem !important;
         justify-content: space-between;
     }}
-    .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
+    .st-key-{grid_key} div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
         flex: 0 0 auto !important;
         width: auto !important;
         min-width: 0 !important;
     }}
-    .st-key-{RECENT_VIDEO_GALLERY_KEY} .stColumn button {{
+    .st-key-{gallery_key} .stColumn button {{
         width: 2.15rem !important;
         min-height: 1.45rem;
         padding: 0;
@@ -279,14 +282,16 @@ def format_recent_video_datetime(value: Any) -> str:
         return str(value)
 
 
-def render_recent_video_gallery(pixelle_video: Any) -> None:
+def render_recent_video_gallery(pixelle_video: Any, *, key_suffix: str = "") -> None:
     """Render the compact recent-video gallery inside the Home output card."""
-    st.markdown(build_recent_video_gallery_css(), unsafe_allow_html=True)
+    gallery_key = f"{RECENT_VIDEO_GALLERY_KEY}{key_suffix}"
+    grid_key = f"{RECENT_VIDEO_GRID_KEY}{key_suffix}"
+    st.markdown(build_recent_video_gallery_css(gallery_key, grid_key), unsafe_allow_html=True)
     current = get_current_recent_video_item(st.session_state)
     history_items = fetch_recent_history_video_items(pixelle_video)
     items = merge_recent_video_items(current, history_items)
 
-    with st.container(key=RECENT_VIDEO_GALLERY_KEY):
+    with st.container(key=gallery_key):
         st.markdown(
             f'<div class="recent-video-section-title">{escape(tr("recent_videos.title"))}</div>',
             unsafe_allow_html=True,
@@ -295,14 +300,14 @@ def render_recent_video_gallery(pixelle_video: Any) -> None:
             st.info(tr("recent_videos.empty"))
             return
 
-        with st.container(key=RECENT_VIDEO_GRID_KEY):
+        with st.container(key=grid_key):
             for item in items:
-                render_recent_video_card(item)
+                render_recent_video_card(item, key_suffix=key_suffix)
 
 
-def render_recent_video_card(item: dict[str, Any]) -> None:
+def render_recent_video_card(item: dict[str, Any], *, key_suffix: str = "") -> None:
     """Render one recent video card."""
-    item_key = _stable_key(item.get("task_id") or item.get("video_path"))
+    item_key = f"{_stable_key(item.get('task_id') or item.get('video_path'))}{key_suffix}"
     with st.container(border=True):
         st.video(item["video_path"], autoplay=False, loop=False, muted=False)
         title = escape(str(item.get("title") or tr("recent_videos.untitled")))
