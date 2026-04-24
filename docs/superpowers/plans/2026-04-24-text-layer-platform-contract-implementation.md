@@ -109,6 +109,24 @@ def test_build_text_rendering_policy_uses_nested_request_and_adds_native_target(
     assert policy.allow_native_text_in_image is True
 
 
+def test_build_text_rendering_policy_respects_disabled_nested_request():
+    policy = build_text_rendering_policy(
+        {
+            "enabled": False,
+            "mode": "hybrid",
+            "renderer_targets": ["hyperframes", "native_prompt"],
+            "density": "high",
+            "max_items_per_frame": 3,
+        },
+        forbid_embedded_text_in_image=False,
+    )
+
+    assert policy.image_text_mode == "programmatic_only"
+    assert policy.enabled_targets == ()
+    assert policy.allow_native_text_in_image is False
+    assert policy.suppress_unplanned_embedded_text is True
+
+
 def test_freeze_json_value_blocks_nested_mutation_and_thaws_to_plain_json():
     frozen = freeze_json_value({"layout": {"x": 10}, "items": ["a", {"b": True}]})
 
@@ -266,6 +284,9 @@ def build_text_rendering_policy(
             )
         return TextRenderingPolicy()
 
+    if request.get("enabled") is False:
+        return TextRenderingPolicy()
+
     mode = str(request.get("mode", "programmatic_only"))
     targets = tuple(str(target) for target in request.get("renderer_targets", ()))
     if mode in {"native_hint", "hybrid"} and "native_prompt" not in targets:
@@ -354,7 +375,7 @@ class TextOverlayPlan:
 
 Run: `uv run pytest tests/test_text_overlay_models.py -v`
 
-Expected: PASS with 6 tests.
+Expected: PASS with 7 tests.
 
 - [ ] **Step 5: Commit and push the text overlay contract**
 
@@ -765,6 +786,13 @@ class TextCue:
         )
 ```
 
+Add `RenderManifest` dataclass fields after `caption_cues`. This is required because `HyperFramesProjectService` uses `dataclasses.replace(...)`; fields that are only assigned in `__init__` are dropped by `replace(...)`.
+
+```python
+    text_tracks: List[TextTrack] = field(default_factory=list)
+    text_cues: List[TextCue] = field(default_factory=list)
+```
+
 Extend `RenderManifest.__init__` with `text_tracks` and `text_cues`:
 
 ```python
@@ -940,6 +968,7 @@ def test_build_template_render_context_carries_text_layer_from_manifest():
 
     assert context.text_tracks[0].id == "track-overlay"
     assert context.text_cues[0].slot == "center"
+    assert context.duration == 1.4
 ```
 
 - [ ] **Step 2: Run the context/project tests and verify they fail**
@@ -978,6 +1007,12 @@ Update `_build_project_paths(...)`:
 ```
 
 Update `build_template_render_context(...)` return:
+
+```python
+    duration_candidates.extend(float(cue.end) for cue in manifest.text_cues)
+```
+
+Add the extension before `duration = max(...)`, then update the return:
 
 ```python
         text_tracks=list(manifest.text_tracks),
