@@ -20,10 +20,10 @@ from pathlib import Path
 import streamlit as st
 from loguru import logger
 
-from web.i18n import tr, get_language
+from pixelle_video.config import config_manager
+from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
 from web.utils.tts_ui import resolve_comfyui_tts_speed
-from pixelle_video.config import config_manager
 
 
 def render_style_config(pixelle_video):
@@ -212,7 +212,7 @@ def render_style_config(pixelle_video):
                             if ref_audio_path:
                                 tts_params["ref_audio"] = str(ref_audio_path)
                             if ref_audio_text:
-                                tts_params["prompt_text"] = ref_audio_text
+                                tts_params["ref_audio_text"] = ref_audio_text
                         
                         audio_path = run_async(pixelle_video.tts(**tts_params))
                         

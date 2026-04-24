@@ -407,7 +407,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 if ref_audio:
                                     tts_kwargs["ref_audio"] = ref_audio
                                 if ref_audio_text:
-                                    tts_kwargs["prompt_text"] = ref_audio_text
+                                    tts_kwargs["ref_audio_text"] = ref_audio_text
 
                             await pixelle_video.tts(**tts_kwargs)
                             progress_bar.progress(65)
@@ -504,7 +504,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                                     if ref_audio:
                                         tts_kwargs["ref_audio"] = ref_audio
                                     if ref_audio_text:
-                                        tts_kwargs["prompt_text"] = ref_audio_text
+                                        tts_kwargs["ref_audio_text"] = ref_audio_text
 
                                 await pixelle_video.tts(**tts_kwargs)
                                 progress_bar.progress(65)
@@ -588,7 +588,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                                     if ref_audio:
                                         tts_kwargs["ref_audio"] = ref_audio
                                     if ref_audio_text:
-                                        tts_kwargs["prompt_text"] = ref_audio_text
+                                        tts_kwargs["ref_audio_text"] = ref_audio_text
 
                                 await pixelle_video.tts(**tts_kwargs)
                                 progress_bar.progress(65)

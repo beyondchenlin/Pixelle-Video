@@ -14,17 +14,17 @@
 TTS (Text-to-Speech) Service - Supports both local and ComfyUI inference
 """
 
-import os
 import uuid
 from pathlib import Path
 from typing import Optional
 
-from comfykit import ComfyKit
+from comfykit.comfyui.workflow_parser import WorkflowParser
 from loguru import logger
 
 from pixelle_video.services.comfy_base_service import ComfyBaseService
-from pixelle_video.utils.tts_util import edge_tts
 from pixelle_video.tts_voices import speed_to_rate
+from pixelle_video.tts_workflow_contract import build_ref_audio_text_params
+from pixelle_video.utils.tts_util import edge_tts
 
 
 class TTSService(ComfyBaseService):
@@ -180,7 +180,7 @@ class TTSService(ComfyBaseService):
         
         # Call Edge TTS
         try:
-            audio_bytes = await edge_tts(
+            await edge_tts(
                 text=text,
                 voice=final_voice,
                 rate=rate,
@@ -225,6 +225,11 @@ class TTSService(ComfyBaseService):
         
         # 1. Build workflow parameters (ComfyKit config is now managed by core)
         workflow_params = {"text": text}
+        ref_audio_text = params.pop("ref_audio_text", None)
+        if ref_audio_text is None:
+            ref_audio_text = params.pop("prompt_text", None)
+        else:
+            params.pop("prompt_text", None)
         
         # Add optional TTS parameters (only if explicitly provided and not None)
         if voice is not None:
@@ -234,6 +239,11 @@ class TTSService(ComfyBaseService):
         
         # Add any additional parameters
         workflow_params.update(params)
+        for key, value in build_ref_audio_text_params(
+            ref_audio_text,
+            self._get_workflow_param_names(workflow_info),
+        ).items():
+            workflow_params.setdefault(key, value)
         
         logger.debug(f"Workflow parameters: {workflow_params}")
         
@@ -284,7 +294,7 @@ class TTSService(ComfyBaseService):
             
             if not audio_path:
                 logger.error("No audio file generated")
-                logger.error(f"❌ Result analysis:")
+                logger.error("❌ Result analysis:")
                 logger.error(f"   - result.audios: {getattr(result, 'audios', 'NOT_FOUND')}")
                 logger.error(f"   - result.files: {getattr(result, 'files', 'NOT_FOUND')}")
                 logger.error(f"   - result.outputs: {getattr(result, 'outputs', 'NOT_FOUND')}")
@@ -293,8 +303,9 @@ class TTSService(ComfyBaseService):
             
             # If output_path provided and audio_path is URL, download to local
             if output_path and audio_path.startswith(('http://', 'https://')):
-                import httpx
                 import os
+
+                import httpx
                 
                 # Ensure parent directory exists
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -316,3 +327,16 @@ class TTSService(ComfyBaseService):
         except Exception as e:
             logger.error(f"TTS generation error: {e}")
             raise
+
+    def _get_workflow_param_names(self, workflow_info: dict) -> set[str]:
+        workflow_path = workflow_info.get("path")
+        if not workflow_path or not Path(str(workflow_path)).exists():
+            return set()
+
+        try:
+            metadata = WorkflowParser().parse_workflow_file(str(workflow_path))
+        except Exception as exc:
+            logger.warning(f"Failed to parse TTS workflow params for {workflow_path}: {exc}")
+            return set()
+
+        return set(metadata.params.keys())

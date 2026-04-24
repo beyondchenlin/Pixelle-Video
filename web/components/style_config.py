@@ -2436,7 +2436,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
                             if ref_audio_path:
                                 tts_params["ref_audio"] = str(ref_audio_path)
                             if ref_audio_text:
-                                tts_params["prompt_text"] = ref_audio_text
+                                tts_params["ref_audio_text"] = ref_audio_text
                         
                         audio_path = run_async(pixelle_video.tts(**tts_params))
                         
