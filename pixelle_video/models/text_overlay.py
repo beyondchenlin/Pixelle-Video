@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
-
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
 FrozenJSONValue = (

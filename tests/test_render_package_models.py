@@ -696,6 +696,9 @@ async def test_custom_pipeline_persist_task_data_records_render_backend(tmp_path
         async def save_storyboard(self, task_id, storyboard):
             return None
 
+        def get_task_runtime_log_path(self, task_id):
+            return tmp_path / task_id / "logs" / "runtime.jsonl"
+
     fake_core = type(
         "FakeCore",
         (),
@@ -742,6 +745,9 @@ async def test_custom_pipeline_persist_task_data_records_render_backend(tmp_path
     _, metadata = fake_core.persistence.saved_metadata
     assert metadata["config"]["render_backend"] == "legacy"
     assert metadata["input"]["render_backend"] == "legacy"
+    assert metadata["observability"]["runtime_log_path"] == str(
+        tmp_path / "task-1" / "logs" / "runtime.jsonl"
+    )
 
 
 @pytest.mark.asyncio
