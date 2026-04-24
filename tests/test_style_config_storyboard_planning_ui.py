@@ -90,6 +90,9 @@ class _FakeStreamlit:
         self.checkbox_calls.append({"label": label, "value": value, **kwargs})
         return value
 
+    def toggle(self, label, value=False, **kwargs):
+        return self.checkbox(label, value=value, **kwargs)
+
     def caption(self, *args, **_kwargs):
         if args:
             self.caption_calls.append(args[0])

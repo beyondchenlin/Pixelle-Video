@@ -3331,7 +3331,7 @@ def render_element_animation_controls() -> dict:
             key="element_animation_subject_count",
         )
 
-        with st.expander(tr("element_animation.advanced"), expanded=False):
+        with render_middle_column_detail_section(tr("element_animation.advanced")):
             candidate_limit = st.slider(
                 tr("element_animation.candidate_limit"),
                 min_value=subject_count,
