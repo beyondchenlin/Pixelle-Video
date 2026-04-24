@@ -96,6 +96,27 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["progress_callback"] is _progress
 
 
+def test_build_single_generation_request_passes_request_and_session_ids():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "frame_template": "1080x1920/default.html",
+            "tts_inference_mode": "local",
+            "request_id": "req_1234",
+            "session_id": "sess_5678",
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["request_id"] == "req_1234"
+    assert request["session_id"] == "sess_5678"
+
+
 def test_build_single_generation_request_includes_storyboard_controls_and_frame_overrides():
     def _progress(_event):
         return None
@@ -201,6 +222,18 @@ def test_build_batch_shared_config_includes_render_backend():
 
     assert shared_config["render_backend"] == "hyperframes_compiled"
     assert shared_config["tts_audio_strategy"] == "master_track"
+
+
+def test_build_batch_shared_config_passes_session_id():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "frame_template": "1080x1920/default.html",
+            "tts_inference_mode": "local",
+            "session_id": "sess_5678",
+        }
+    )
+
+    assert shared_config["session_id"] == "sess_5678"
 
 
 def test_build_batch_shared_config_includes_storyboard_controls_and_frame_overrides():

@@ -24,6 +24,7 @@ from loguru import logger
 
 from api.tasks.models import Task, TaskStatus, TaskType, TaskProgress
 from api.config import api_config
+from pixelle_video.utils.logging_util import bind_log_context
 
 
 class TaskManager:
@@ -125,25 +126,26 @@ class TaskManager:
         
         # Create async task
         async def _execute():
-            try:
-                task.status = TaskStatus.RUNNING
-                task.started_at = datetime.now()
-                logger.info(f"Task {task_id} started")
-                
-                # Execute the actual work
-                result = await coro_func(*args, **kwargs)
-                
-                # Update task with result
-                task.status = TaskStatus.COMPLETED
-                task.result = result
-                task.completed_at = datetime.now()
-                logger.info(f"Task {task_id} completed")
-                
-            except Exception as e:
-                task.status = TaskStatus.FAILED
-                task.error = str(e)
-                task.completed_at = datetime.now()
-                logger.error(f"Task {task_id} failed: {e}")
+            with bind_log_context(api_task_id=task_id, channel="runtime"):
+                try:
+                    task.status = TaskStatus.RUNNING
+                    task.started_at = datetime.now()
+                    logger.info("task started")
+
+                    # Execute the actual work
+                    result = await coro_func(*args, **kwargs)
+
+                    # Update task with result
+                    task.status = TaskStatus.COMPLETED
+                    task.result = result
+                    task.completed_at = datetime.now()
+                    logger.info("task completed")
+
+                except Exception as e:
+                    task.status = TaskStatus.FAILED
+                    task.error = str(e)
+                    task.completed_at = datetime.now()
+                    logger.error(f"task failed: {e}")
         
         # Start execution
         future = asyncio.create_task(_execute())
@@ -263,4 +265,3 @@ class TaskManager:
 
 # Global task manager instance
 task_manager = TaskManager()
-

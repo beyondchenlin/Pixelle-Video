@@ -21,6 +21,7 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
 from web.utils.render_backend_ui import copy_render_backend
@@ -28,6 +29,14 @@ from web.utils.tts_audio_strategy_ui import copy_tts_audio_strategy
 
 VIDEO_PREVIEW_CONTAINER_KEY = "output_video_preview"
 VIDEO_PREVIEW_WIDTH = "50%"
+
+
+def _get_or_create_log_session_id(session_state) -> str:
+    session_id = session_state.get("log_session_id")
+    if not session_id:
+        session_id = new_correlation_id("sess")
+        session_state["log_session_id"] = session_id
+    return session_id
 
 
 def build_video_preview_css(
@@ -117,6 +126,11 @@ def build_single_generation_request(video_params, *, progress_callback, session_
 
     copy_render_backend(video_params, request)
     copy_tts_audio_strategy(video_params, request)
+
+    if video_params.get("request_id"):
+        request["request_id"] = video_params["request_id"]
+    if video_params.get("session_id"):
+        request["session_id"] = video_params["session_id"]
     return request
 
 
@@ -162,6 +176,9 @@ def build_batch_shared_config(video_params):
 
     if video_params.get("template_params"):
         shared_config["template_params"] = video_params["template_params"]
+
+    if video_params.get("session_id"):
+        shared_config["session_id"] = video_params["session_id"]
 
     copy_render_backend(video_params, shared_config)
     copy_tts_audio_strategy(video_params, shared_config)
@@ -218,6 +235,15 @@ def render_single_output(pixelle_video, video_params):
             start_time = time.time()
             
             try:
+                request_id = new_correlation_id("req")
+                session_id = _get_or_create_log_session_id(st.session_state)
+                logger.bind(
+                    channel="runtime",
+                    request_id=request_id,
+                    session_id=session_id,
+                    content=build_content_observability(text),
+                ).info("web single generation request received")
+
                 # Progress callback to update UI
                 def update_progress(event: ProgressEvent):
                     """Update progress bar and status text from ProgressEvent"""
@@ -269,6 +295,8 @@ def render_single_output(pixelle_video, video_params):
                         "tts_workflow": tts_workflow_key,
                         "ref_audio": ref_audio_path,
                         "template_params": custom_values_for_video,
+                        "request_id": request_id,
+                        "session_id": session_id,
                         "render_backend": video_params.get("render_backend"),
                         "tts_audio_strategy": video_params.get("tts_audio_strategy"),
                         "world_preset_id": video_params.get("world_preset_id"),
@@ -383,6 +411,8 @@ def render_batch_output(pixelle_video, video_params):
             width="stretch",
             help=tr("batch.generate_help")
         ):
+            session_id = _get_or_create_log_session_id(st.session_state)
+            video_params = {**video_params, "session_id": session_id}
             # Prepare shared config
             shared_config = build_batch_shared_config(video_params)
             

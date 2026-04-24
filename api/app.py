@@ -32,6 +32,11 @@ _project_root = _script_dir.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+from pixelle_video.config import config_manager
+from pixelle_video.utils.logging_util import setup_logging
+
+setup_logging("api", config_manager.config.logging.model_dump())
+
 import argparse
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -188,4 +193,3 @@ Press Ctrl+C to stop the server
         port=args.port,
         reload=args.reload,
     )
-

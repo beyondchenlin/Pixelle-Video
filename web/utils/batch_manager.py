@@ -19,6 +19,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from loguru import logger
 
+from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
+
 
 class SimpleBatchManager:
     """
@@ -81,7 +83,15 @@ class SimpleBatchManager:
                 )
             
             try:
-                logger.info(f"Task {idx}/{self.total_count} started: {topic}")
+                request_id = new_correlation_id("req")
+                logger.bind(
+                    channel="runtime",
+                    request_id=request_id,
+                    session_id=shared_config.get("session_id"),
+                    batch_index=idx,
+                    batch_total=self.total_count,
+                    content=build_content_observability(topic),
+                ).info("batch generation task started")
                 
                 # Extract title_prefix from shared_config (not a valid parameter for generate_video)
                 title_prefix = shared_config.get("title_prefix")
@@ -90,6 +100,8 @@ class SimpleBatchManager:
                 task_params = {
                     "text": topic,  # Topic as input
                     "mode": "generate",  # Fixed mode
+                    "request_id": request_id,
+                    "session_id": shared_config.get("session_id"),
                 }
                 
                 # Merge shared config, excluding title_prefix and None values

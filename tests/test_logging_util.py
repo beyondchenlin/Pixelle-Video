@@ -4,6 +4,7 @@ from loguru import logger
 
 from pixelle_video.utils.logging_util import (
     build_content_observability,
+    new_correlation_id,
     redact_mapping,
     redact_text,
     setup_logging,
@@ -121,3 +122,12 @@ def test_content_observability_uses_hash_length_and_bounded_preview():
     assert summary["input_length"] == 26
     assert summary["preview"] == "abcdefgh..."
     assert len(summary["content_hash"]) == 16
+
+
+def test_new_correlation_id_uses_prefix():
+    request_id = new_correlation_id("req")
+    session_id = new_correlation_id("sess")
+
+    assert request_id.startswith("req_")
+    assert session_id.startswith("sess_")
+    assert request_id != session_id

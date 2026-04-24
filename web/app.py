@@ -26,6 +26,11 @@ _project_root = _script_dir.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+from pixelle_video.config import config_manager
+from pixelle_video.utils.logging_util import setup_logging
+
+setup_logging("web", config_manager.config.logging.model_dump())
+
 import streamlit as st
 
 # Setup page config (must be first Streamlit command)

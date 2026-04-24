@@ -28,6 +28,7 @@ from api.schemas.video import (
     VideoGenerateResponse,
 )
 from api.tasks import TaskType, task_manager
+from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 
 router = APIRouter(prefix="/video", tags=["Video Generation"])
 
@@ -112,7 +113,12 @@ async def generate_video_sync(
     Returns path to generated video, duration, and file size.
     """
     try:
-        logger.info(f"Sync video generation: {request_body.text[:50]}...")
+        request_id = new_correlation_id("req")
+        logger.bind(
+            channel="runtime",
+            request_id=request_id,
+            content=build_content_observability(request_body.text),
+        ).info("sync video generation request received")
         
         # Auto-determine media_width and media_height from template meta tags (required)
         if not request_body.frame_template:
@@ -156,6 +162,7 @@ async def generate_video_sync(
             "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
             "bgm_path": request_body.bgm_path,
             "bgm_volume": request_body.bgm_volume,
+            "request_id": request_id,
         }
         
         # Add TTS workflow if specified
@@ -222,12 +229,17 @@ async def generate_video_async(
     Returns task_id for tracking progress.
     """
     try:
-        logger.info(f"Async video generation: {request_body.text[:50]}...")
+        request_id = new_correlation_id("req")
+        logger.bind(
+            channel="runtime",
+            request_id=request_id,
+            content=build_content_observability(request_body.text),
+        ).info("async video generation request received")
         
         # Create task
         task = task_manager.create_task(
             task_type=TaskType.VIDEO_GENERATION,
-            request_params=request_body.model_dump()
+            request_params={**request_body.model_dump(), "request_id": request_id}
         )
         
         # Define async execution function
@@ -275,6 +287,8 @@ async def generate_video_async(
                 "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
                 "bgm_path": request_body.bgm_path,
                 "bgm_volume": request_body.bgm_volume,
+                "request_id": request_id,
+                "api_task_id": task.task_id,
                 # Progress callback can be added here if needed
                 # "progress_callback": lambda event: task_manager.update_progress(...)
             }

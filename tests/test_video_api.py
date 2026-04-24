@@ -95,6 +95,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
         "pixelle_video.utils.template_util.resolve_template_path",
         lambda template_path: template_path,
     )
+    monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
 
     await generate_video_sync(
         VideoGenerateRequest(
@@ -140,6 +141,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "prompt_prefix": None,
             "bgm_path": None,
             "bgm_volume": 0.3,
+            "request_id": "req_test",
             "render_backend": "hyperframes_compiled",
             "world_preset_id": "neutral_knowledge_storyboard",
             "shot_preset_id": "balanced_explainer",
@@ -182,6 +184,7 @@ async def test_generate_video_async_passes_no_text_toggle_to_video_core(monkeypa
         "pixelle_video.utils.template_util.resolve_template_path",
         lambda template_path: template_path,
     )
+    monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
 
     class _FakeTask:
         task_id = "task-1"
@@ -212,4 +215,6 @@ async def test_generate_video_async_passes_no_text_toggle_to_video_core(monkeypa
 
     assert response.task_id == "task-1"
     assert captured["task_id"] == "task-1"
+    assert fake_pixelle_video.calls[0]["request_id"] == "req_test"
+    assert fake_pixelle_video.calls[0]["api_task_id"] == "task-1"
     assert fake_pixelle_video.calls[0]["forbid_embedded_text_in_image"] is False
