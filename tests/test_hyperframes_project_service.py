@@ -425,29 +425,121 @@ def test_write_project_materializes_element_animation_manifest_and_assets(tmp_pa
     )
 
 
-def test_write_project_preserves_missing_element_animation_manifest_path(tmp_path):
+def test_write_project_uses_unique_element_animation_asset_names_for_basename_collisions(tmp_path):
+    source_image = tmp_path / "source.png"
+    background_image = tmp_path / "background.png"
+    element_image = tmp_path / "element.png"
+    first_mask_dir = tmp_path / "first"
+    second_mask_dir = tmp_path / "second"
+    first_mask_dir.mkdir()
+    second_mask_dir.mkdir()
+    first_mask = first_mask_dir / "mask.png"
+    second_mask = second_mask_dir / "mask.png"
+    for path in (source_image, background_image, element_image, first_mask, second_mask):
+        path.write_bytes(path.parent.name.encode("utf-8"))
+
+    element_manifest_path = tmp_path / "element_manifest.json"
+    element_manifest_path.write_text(
+        json.dumps(
+            {
+                "source_image_path": str(source_image),
+                "background": {"image_path": str(background_image)},
+                "elements": [
+                    {
+                        "id": "element-1",
+                        "image_path": str(element_image),
+                        "mask_path": str(first_mask),
+                    },
+                    {
+                        "id": "element-2",
+                        "image_path": str(element_image),
+                        "mask_path": str(second_mask),
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = RenderManifest(
+        task_id="task-element-animation-collision",
+        title="demo",
+        canvas_width=1080,
+        canvas_height=1920,
+        fps=30,
+        template_id="image_default",
+        element_animation_manifest_path=str(element_manifest_path),
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    project_paths = service.write_project(manifest, template_params={})
+    localized_element_manifest = json.loads(
+        (project_paths.data_dir / "element_animation_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    first_localized_mask = localized_element_manifest["elements"][0]["mask_path"]
+    second_localized_mask = localized_element_manifest["elements"][1]["mask_path"]
+    repeated_element_image = localized_element_manifest["elements"][1]["image_path"]
+
+    assert first_localized_mask == "assets/element_animation/mask.png"
+    assert second_localized_mask.startswith("assets/element_animation/mask_")
+    assert second_localized_mask.endswith(".png")
+    assert first_localized_mask != second_localized_mask
+    assert (
+        repeated_element_image
+        == localized_element_manifest["elements"][0]["image_path"]
+    )
+    assert (project_paths.project_dir / first_localized_mask).exists()
+    assert (project_paths.project_dir / second_localized_mask).exists()
+
+
+def test_write_project_clears_missing_element_animation_manifest_path(tmp_path):
+    from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
+
     missing_element_manifest_path = tmp_path / "missing_element_manifest.json"
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "element_template"
+    compositions_dir = template_dir / "compositions"
+    compositions_dir.mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<script src="__ELEMENT_ANIMATION_MANIFEST__"></script>',
+        encoding="utf-8",
+    )
+    (compositions_dir / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+
     manifest = RenderManifest(
         task_id="task-missing-element-animation",
         title="demo",
         canvas_width=1080,
         canvas_height=1920,
         fps=30,
-        template_id="image_default",
+        template_id="element_template",
         element_animation_manifest_path=str(missing_element_manifest_path),
     )
 
-    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    service = HyperFramesProjectService(
+        output_dir=str(tmp_path),
+        compiler=HyperFramesCompiler(
+            template_root=template_root,
+            runtime_root=runtime_root,
+        ),
+    )
     project_paths = service.write_project(manifest, template_params={})
     render_manifest = json.loads(project_paths.manifest_path.read_text(encoding="utf-8"))
     element_asset_dir = project_paths.project_dir / "assets" / "element_animation"
+    index_html = (project_paths.project_dir / "index.html").read_text(encoding="utf-8")
 
     assert not (project_paths.data_dir / "element_animation_manifest.json").exists()
     assert not element_asset_dir.exists() or not any(element_asset_dir.iterdir())
-    assert (
-        render_manifest["element_animation_manifest_path"]
-        == str(missing_element_manifest_path)
-    )
+    assert "element_animation_manifest_path" not in render_manifest
+    assert str(missing_element_manifest_path) not in index_html
+    assert 'src=""' in index_html
 
 
 def test_build_template_render_context_carries_element_animation_manifest_path():

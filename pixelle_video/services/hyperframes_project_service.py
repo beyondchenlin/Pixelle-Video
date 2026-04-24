@@ -4,6 +4,7 @@ HyperFrames project data export helpers.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -370,18 +371,22 @@ class HyperFramesProjectService:
 
         source_manifest_path = Path(manifest_path)
         if not source_manifest_path.exists():
-            return manifest_path
+            return None
 
         payload = json.loads(source_manifest_path.read_text(encoding="utf-8"))
         asset_dir = project_dir / "assets" / "element_animation"
         data_dir = project_dir / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
+        localized_assets: dict[str, str] = {}
+        localized_filenames: dict[str, str] = {}
 
         self._localize_element_animation_asset(
             payload,
             "source_image_path",
             source_manifest_path=source_manifest_path,
             asset_dir=asset_dir,
+            localized_assets=localized_assets,
+            localized_filenames=localized_filenames,
         )
 
         background = payload.get("background")
@@ -391,6 +396,8 @@ class HyperFramesProjectService:
                 "image_path",
                 source_manifest_path=source_manifest_path,
                 asset_dir=asset_dir,
+                localized_assets=localized_assets,
+                localized_filenames=localized_filenames,
             )
 
         elements = payload.get("elements")
@@ -404,6 +411,8 @@ class HyperFramesProjectService:
                         key,
                         source_manifest_path=source_manifest_path,
                         asset_dir=asset_dir,
+                        localized_assets=localized_assets,
+                        localized_filenames=localized_filenames,
                     )
 
         target_manifest_path = data_dir / "element_animation_manifest.json"
@@ -417,6 +426,8 @@ class HyperFramesProjectService:
         *,
         source_manifest_path: Path,
         asset_dir: Path,
+        localized_assets: dict[str, str],
+        localized_filenames: dict[str, str],
     ) -> None:
         value = payload.get(key)
         if not value:
@@ -428,10 +439,46 @@ class HyperFramesProjectService:
         if not source_path.exists():
             return
 
+        source_key = str(source_path.resolve())
+        localized_path = localized_assets.get(source_key)
+        if localized_path is not None:
+            payload[key] = localized_path
+            return
+
         asset_dir.mkdir(parents=True, exist_ok=True)
-        target_path = asset_dir / source_path.name
+        target_filename = self._resolve_element_animation_asset_filename(
+            source_path,
+            source_key=source_key,
+            localized_filenames=localized_filenames,
+        )
+        target_path = asset_dir / target_filename
         copy2(source_path, target_path)
-        payload[key] = f"assets/element_animation/{source_path.name}"
+        localized_path = f"assets/element_animation/{target_filename}"
+        localized_assets[source_key] = localized_path
+        payload[key] = localized_path
+
+    def _resolve_element_animation_asset_filename(
+        self,
+        source_path: Path,
+        *,
+        source_key: str,
+        localized_filenames: dict[str, str],
+    ) -> str:
+        source_name = source_path.name
+        existing_source_key = localized_filenames.get(source_name)
+        if existing_source_key is None or existing_source_key == source_key:
+            localized_filenames[source_name] = source_key
+            return source_name
+
+        path_hash = hashlib.sha256(source_key.encode("utf-8")).hexdigest()
+        for length in (10, 16, 32, 64):
+            candidate = f"{source_path.stem}_{path_hash[:length]}{source_path.suffix}"
+            existing_source_key = localized_filenames.get(candidate)
+            if existing_source_key is None or existing_source_key == source_key:
+                localized_filenames[candidate] = source_key
+                return candidate
+
+        raise ValueError(f"could not create unique filename for {source_path}")
 
     def _normalize_manifest_timeline(
         self,
