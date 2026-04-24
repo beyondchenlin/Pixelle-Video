@@ -422,6 +422,9 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
         def markdown(self, _value):
             return None
 
+        def container(self):
+            return _FakeContext()
+
     class FakeStreamlit:
         def __init__(self):
             self.session_state = {
@@ -567,6 +570,9 @@ def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_pa
         def markdown(self, _value):
             return None
 
+        def container(self):
+            return _FakeContext()
+
     class FakeStreamlit:
         def __init__(self):
             self.session_state = {
@@ -666,7 +672,7 @@ def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_pa
 
 
 def test_render_single_output_stores_recent_generated_video_and_renders_gallery(monkeypatch, tmp_path):
-    captured = {"stored": False, "gallery": False}
+    captured = {"events": []}
     video_path = tmp_path / "final.mp4"
     video_path.write_bytes(b"video")
 
@@ -687,6 +693,9 @@ def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
     class _FakeStatus:
         def text(self, _value):
             return None
+
+        def container(self):
+            return _FakeContext()
 
     class FakeStreamlit:
         def __init__(self):
@@ -730,6 +739,7 @@ def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
 
     class _FakePixelleVideo:
         async def generate_video(self, **_kwargs):
+            captured["events"].append("generate")
             return SimpleNamespace(
                 video_path=str(video_path),
                 duration=8.5,
@@ -757,13 +767,13 @@ def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
     monkeypatch.setattr(
         output_preview,
         "store_recent_generated_video",
-        lambda result, session_state: captured.update(stored=True),
+        lambda result, session_state: captured["events"].append("store"),
         raising=False,
     )
     monkeypatch.setattr(
         output_preview,
         "render_recent_video_gallery",
-        lambda pixelle_video: captured.update(gallery=True),
+        lambda pixelle_video: captured["events"].append("gallery"),
         raising=False,
     )
 
@@ -783,7 +793,7 @@ def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
         },
     )
 
-    assert captured == {"stored": True, "gallery": True}
+    assert captured["events"] == ["gallery", "generate", "store", "gallery"]
 
 
 def test_render_single_output_does_not_stop_before_gallery_on_input_error(monkeypatch):
@@ -795,6 +805,10 @@ def test_render_single_output_does_not_stop_before_gallery_on_input_error(monkey
 
         def __exit__(self, exc_type, exc, tb):
             return False
+
+    class _FakeSlot:
+        def container(self):
+            return _FakeContext()
 
     class FakeStreamlit:
         def __init__(self):
@@ -817,6 +831,9 @@ def test_render_single_output_does_not_stop_before_gallery_on_input_error(monkey
 
         def stop(self):
             raise AssertionError("st.stop should not be called")
+
+        def empty(self):
+            return _FakeSlot()
 
     class _FakePixelleVideo:
         async def generate_video(self, **_kwargs):
