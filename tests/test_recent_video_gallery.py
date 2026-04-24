@@ -165,7 +165,8 @@ def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     assert ".st-key-recent_video_gallery" in css
     assert ".st-key-recent_video_grid" in css
     assert f".st-key-{gallery.RECENT_VIDEO_GRID_KEY} {{" in css
-    assert "repeat(auto-fit, minmax(min(150px, 100%), 1fr))" in css
+    assert "repeat(auto-fill, minmax(min(180px, 100%), 220px))" in css
+    assert "justify-content: start" in css
     assert "gap: 0.65rem" in css
     assert f'.st-key-{gallery.RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"]' in css
     assert "padding: 0.5rem !important" in css
@@ -177,6 +178,12 @@ def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     assert "object-fit: initial" in css
     assert ".recent-video-section-title" in css
     assert "margin: 0 0 0.55rem" in css
+    assert ":has(.recent-video-info)" in css
+    assert "margin-bottom: 0 !important" in css
+    assert ".recent-video-info" in css
+    assert "gap: 0.2rem" in css
+    assert ".recent-video-title" in css
+    assert "margin: 0" in css
     assert ".st-key-recent_video_gallery .stColumn button" in css
     assert "min-height: 1.45rem" in css
     assert "padding: 0" in css

@@ -186,8 +186,9 @@ def build_recent_video_gallery_css() -> str:
     }}
     .st-key-{RECENT_VIDEO_GRID_KEY} {{
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 220px));
         gap: 0.65rem;
+        justify-content: start;
         align-items: start;
     }}
     .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] {{
@@ -205,6 +206,9 @@ def build_recent_video_gallery_css() -> str:
         font-weight: 700;
         line-height: 1.25;
     }}
+    .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stMarkdownContainer"]:has(.recent-video-info) {{
+        margin-bottom: 0 !important;
+    }}
     .st-key-{RECENT_VIDEO_GALLERY_KEY} video[data-testid="stVideo"] {{
         width: 100% !important;
         max-width: 100% !important;
@@ -216,7 +220,13 @@ def build_recent_video_gallery_css() -> str:
         background: transparent;
         border-radius: 8px;
     }}
+    .recent-video-info {{
+        display: grid;
+        gap: 0.2rem;
+        margin: 0.15rem 0 0;
+    }}
     .recent-video-title {{
+        margin: 0;
         min-height: 1.25rem;
         overflow: hidden;
         display: -webkit-box;
@@ -227,8 +237,10 @@ def build_recent_video_gallery_css() -> str:
         line-height: 1.35;
     }}
     .recent-video-meta {{
+        margin: 0;
         color: rgba(49, 51, 63, 0.62);
         font-size: 0.68rem;
+        line-height: 1.25;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -283,7 +295,6 @@ def render_recent_video_card(item: dict[str, Any]) -> None:
     with st.container(border=True):
         st.video(item["video_path"], autoplay=False, loop=False, muted=False)
         title = escape(str(item.get("title") or tr("recent_videos.untitled")))
-        st.markdown(f'<div class="recent-video-title">✅ {title}</div>', unsafe_allow_html=True)
         meta = " · ".join(
             part
             for part in [
@@ -293,7 +304,15 @@ def render_recent_video_card(item: dict[str, Any]) -> None:
             ]
             if part
         )
-        st.markdown(f'<div class="recent-video-meta">{escape(meta)}</div>', unsafe_allow_html=True)
+        st.markdown(
+            (
+                '<div class="recent-video-info">'
+                f'<div class="recent-video-title">✅ {title}</div>'
+                f'<div class="recent-video-meta">{escape(meta)}</div>'
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
 
         action_columns = st.columns(2, gap="small")
         task_id = item.get("task_id")
