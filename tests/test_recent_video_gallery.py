@@ -167,6 +167,8 @@ def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     assert f".st-key-{gallery.RECENT_VIDEO_GRID_KEY} {{" in css
     assert "repeat(auto-fit, minmax(min(150px, 100%), 1fr))" in css
     assert "gap: 0.65rem" in css
+    assert f'.st-key-{gallery.RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"]' in css
+    assert "padding: 0.5rem !important" in css
     assert 'video[data-testid="stVideo"]' in css
     assert "width: 100% !important" in css
     assert "height: auto !important" in css

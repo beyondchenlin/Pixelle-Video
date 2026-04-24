@@ -193,7 +193,7 @@ def build_recent_video_gallery_css() -> str:
     .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] {{
         min-width: 0;
     }}
-    .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stVerticalBlockBorderWrapper"] {{
+    .st-key-{RECENT_VIDEO_GRID_KEY} > div[data-testid="stLayoutWrapper"] > div[data-testid="stVerticalBlock"] {{
         padding: 0.5rem !important;
     }}
     .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stVerticalBlock"] {{
