@@ -185,7 +185,9 @@ def test_build_recent_video_gallery_css_is_scoped_and_responsive():
     assert ".recent-video-title" in css
     assert "margin: 0" in css
     assert '.st-key-recent_video_grid div[data-testid="stHorizontalBlock"]' in css
-    assert "justify-content: center" in css
+    assert "width: min(8.5rem, 72%)" in css
+    assert "margin-inline: auto" in css
+    assert "justify-content: space-between" in css
     assert "flex: 0 0 auto !important" in css
     assert ".st-key-recent_video_gallery .stColumn button" in css
     assert "min-height: 1.45rem" in css

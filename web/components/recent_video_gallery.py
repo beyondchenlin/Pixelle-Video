@@ -246,8 +246,10 @@ def build_recent_video_gallery_css() -> str:
         text-overflow: ellipsis;
     }}
     .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stHorizontalBlock"] {{
+        width: min(8.5rem, 72%);
+        margin-inline: auto;
         gap: 0.55rem !important;
-        justify-content: center;
+        justify-content: space-between;
     }}
     .st-key-{RECENT_VIDEO_GRID_KEY} div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
         flex: 0 0 auto !important;
