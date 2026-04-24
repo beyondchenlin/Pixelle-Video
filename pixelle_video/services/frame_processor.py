@@ -20,16 +20,22 @@ Key Feature:
   to ensure perfect sync between audio and video (no padding, no trimming needed)
 """
 
+import os
+import shutil
+import subprocess
 import unicodedata
+from pathlib import Path
 from typing import Callable, Optional
 
 import httpx
 from loguru import logger
 
 from pixelle_video.models.progress import ProgressEvent
-from pixelle_video.models.storyboard import Storyboard, StoryboardFrame, StoryboardConfig
+from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
+from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
+from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
+from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
 from pixelle_video.utils.template_util import get_template_type
-
 
 IMAGE_SEGMENT_MIN_FPS = 90
 
@@ -140,7 +146,7 @@ class FrameProcessor:
             else:
                 frame.image_path = None
                 frame.media_type = None
-                logger.debug(f"  2/4: Skipped media generation (not required by template)")
+                logger.debug("  2/4: Skipped media generation (not required by template)")
         
             # Step 3: Compose frame (add subtitle)
             if progress_callback:
@@ -190,13 +196,77 @@ class FrameProcessor:
         # Generate output path using task_id
         from pixelle_video.utils.os_util import get_task_frame_path
         output_path = get_task_frame_path(config.task_id, frame.index, "audio")
-        
-        # Build TTS params based on inference mode
+        segment_texts = [frame.narration]
+
+        if (
+            self._uses_index_tts2_workflow(config)
+            and config.tts_split_mode != INTERNAL_ONLY_TTS_SPLIT_MODE
+        ):
+            plan = build_external_tts_segmentation_plan(
+                frame.narration,
+                max_chars_per_segment=config.max_chars_per_tts_segment,
+                boundary_search_radius=config.tts_boundary_search_radius,
+                soft_overflow_chars=config.tts_soft_overflow_chars,
+                source_unit_type="frame",
+                source_unit_id=f"frame-{frame.index + 1}",
+                overflow_policy=config.tts_split_overflow_policy,
+            )
+            segment_texts = [segment.text for segment in plan.segments] or [frame.narration]
+
+        if len(segment_texts) > 1:
+            final_output_path = str(Path(output_path).with_suffix(".wav"))
+            segment_paths = []
+            output_base = Path(final_output_path)
+            for index, segment_text in enumerate(segment_texts, start=1):
+                segment_output_path = str(
+                    output_base.with_name(f"{output_base.stem}_segment_{index}.mp3")
+                )
+                await self.core.tts(
+                    **self._build_tts_params(
+                        text=segment_text,
+                        output_path=segment_output_path,
+                        config=config,
+                        index=frame.index + 1,
+                    )
+                )
+                segment_paths.append(segment_output_path)
+
+            self._concat_audio_files(
+                segment_paths,
+                final_output_path,
+                fade_ms=config.tts_audio_boundary_fade_ms,
+            )
+            audio_path = final_output_path
+        else:
+            audio_path = await self.core.tts(
+                **self._build_tts_params(
+                    text=segment_texts[0],
+                    output_path=output_path,
+                    config=config,
+                    index=frame.index + 1,
+                )
+            )
+
+        frame.audio_path = audio_path
+
+        # Get audio duration
+        frame.duration = await self._get_audio_duration(audio_path)
+
+        logger.debug(f"  ✓ Audio generated: {audio_path} ({frame.duration:.2f}s)")
+
+    def _build_tts_params(
+        self,
+        *,
+        text: str,
+        output_path: str,
+        config: StoryboardConfig,
+        index: int,
+    ) -> dict:
         tts_params = {
-            "text": frame.narration,
+            "text": text,
             "inference_mode": config.tts_inference_mode,
             "output_path": output_path,
-            "index": frame.index + 1,  # 1-based index for workflow
+            "index": index,  # 1-based index for workflow
         }
         
         if config.tts_inference_mode == "local":
@@ -216,16 +286,93 @@ class FrameProcessor:
             if config.ref_audio:
                 tts_params["ref_audio"] = config.ref_audio
             if config.ref_audio_text:
-                tts_params["prompt_text"] = config.ref_audio_text
-        
-        audio_path = await self.core.tts(**tts_params)
-        
-        frame.audio_path = audio_path
-        
-        # Get audio duration
-        frame.duration = await self._get_audio_duration(audio_path)
-        
-        logger.debug(f"  ✓ Audio generated: {audio_path} ({frame.duration:.2f}s)")
+                tts_params["ref_audio_text"] = config.ref_audio_text
+
+        return tts_params
+
+    def _uses_index_tts2_workflow(self, config: StoryboardConfig) -> bool:
+        if config.tts_inference_mode != "comfyui":
+            return False
+
+        workflow_key = config.tts_workflow or ""
+        tts_service = getattr(self.core, "tts", None)
+        if tts_service is not None and hasattr(tts_service, "_resolve_workflow"):
+            try:
+                workflow_key = tts_service._resolve_workflow(workflow=config.tts_workflow)["key"]
+            except Exception:
+                workflow_key = config.tts_workflow or workflow_key
+
+        return is_index_tts2_workflow_key(workflow_key)
+
+    def _concat_audio_files(self, audio_paths: list[str], output_path: str, *, fade_ms: int = 0) -> None:
+        if not audio_paths:
+            raise ValueError("Frame TTS audio synthesis requires at least one segment.")
+
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        if len(audio_paths) == 1:
+            shutil.copy2(audio_paths[0], output_path)
+            return
+
+        fade_duration = max(float(fade_ms), 0.0) / 1000.0
+        command = ["ffmpeg"]
+        filter_parts: list[str] = []
+        labels: list[str] = []
+
+        for index, audio_path in enumerate(audio_paths):
+            command.extend(["-i", audio_path])
+            duration = max(self._get_audio_duration_sync(audio_path), 0.01)
+            boundary_fade = min(fade_duration, duration / 4)
+            filters = ["aresample=async=1:first_pts=0"]
+
+            if boundary_fade > 0 and index > 0:
+                filters.append(f"afade=t=in:st=0:d={self._format_ffmpeg_time(boundary_fade)}")
+            if boundary_fade > 0 and index < len(audio_paths) - 1:
+                fade_out_start = max(duration - boundary_fade, 0.0)
+                filters.append(
+                    "afade=t=out:"
+                    f"st={self._format_ffmpeg_time(fade_out_start)}:"
+                    f"d={self._format_ffmpeg_time(boundary_fade)}"
+                )
+
+            label = f"a{index}"
+            filter_parts.append(f"[{index}:a]{','.join(filters)}[{label}]")
+            labels.append(f"[{label}]")
+
+        filter_complex = (
+            ";".join(filter_parts)
+            + f";{''.join(labels)}concat=n={len(audio_paths)}:v=0:a=1[out]"
+        )
+        command.extend(
+            [
+                "-filter_complex",
+                filter_complex,
+                "-map",
+                "[out]",
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+                output_path,
+            ]
+        )
+
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+            raise RuntimeError(f"Failed to concatenate frame TTS audio: {detail}")
+
+    def _get_audio_duration_sync(self, audio_path: str) -> float:
+        try:
+            import ffmpeg
+
+            probe = ffmpeg.probe(audio_path)
+            return float(probe["format"]["duration"])
+        except Exception:
+            file_size = os.path.getsize(audio_path)
+            return max(1.0, file_size / 2000)
+
+    @staticmethod
+    def _format_ffmpeg_time(value: float) -> str:
+        return f"{max(float(value), 0.0):.3f}".rstrip("0").rstrip(".") or "0"
     
     async def _step_generate_media(
         self,
@@ -346,9 +493,6 @@ class FrameProcessor:
         # Resolve template path (handles various input formats)
         template_path = resolve_template_path(config.frame_template)
         
-        # Get content metadata from storyboard
-        content_metadata = storyboard.content_metadata if storyboard else None
-        
         # Build ext data
         ext = {
             "index": frame.index + 1,
@@ -393,7 +537,7 @@ class FrameProcessor:
         # Branch based on media type
         if frame.media_type == "video":
             # Video workflow: overlay HTML template on video, then add audio
-            logger.debug(f"  → Using video-based composition with HTML overlay")
+            logger.debug("  → Using video-based composition with HTML overlay")
             
             # Step 1: Overlay transparent HTML image on video
             # The composed_image_path contains the rendered HTML with transparent background
@@ -424,7 +568,7 @@ class FrameProcessor:
         elif frame.media_type == "image" or frame.media_type is None:
             # Image workflow: Use composed image directly
             # The asset_default.html template includes the image in the composition
-            logger.debug(f"  → Using image-based composition")
+            logger.debug("  → Using image-based composition")
             
             segment_path = video_service.create_video_from_image(
                 image=frame.composed_image_path,

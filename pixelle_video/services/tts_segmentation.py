@@ -78,7 +78,7 @@ def build_external_tts_segmentation_plan(
     soft_overflow_chars: int = 0,
     source_unit_type: str = "narration",
     source_unit_id: str = "narration",
-    overflow_policy: str = "error",
+    overflow_policy: str = "hard_limit",
 ) -> TtsSegmentationPlan:
     source_text = text or ""
     segments = split_text_by_external_boundaries(
@@ -114,7 +114,7 @@ def split_text_by_external_boundaries(
     boundary_search_radius: int = 20,
     soft_overflow_chars: int = 0,
     synthesis_mode: str = "external_pre_split",
-    overflow_policy: str = "error",
+    overflow_policy: str = "hard_limit",
 ) -> list[TtsSegment]:
     if max_chars_per_segment < 1:
         raise ValueError("max_chars_per_segment must be at least 1")
@@ -148,6 +148,15 @@ def split_text_by_external_boundaries(
             split_end = min(cursor + max_chars_per_segment, len(source_text))
             boundary_type = BoundaryType.HARD_LIMIT
             split_reason = "hard_limit_guard"
+
+        if (
+            overflow_policy == "error"
+            and boundary_type == BoundaryType.HARD_LIMIT
+            and split_end < len(source_text)
+        ):
+            raise ValueError(
+                "TTS external splitter required a hard limit before the source text ended"
+            )
 
         segments.append(
             _create_segment(

@@ -74,3 +74,13 @@ def test_external_splitter_hard_limits_when_no_punctuation_exists():
         BoundaryType.HARD_LIMIT,
         BoundaryType.HARD_LIMIT,
     ]
+
+
+def test_external_splitter_error_policy_rejects_hard_limit_overflow():
+    with pytest.raises(ValueError, match="hard limit"):
+        build_external_tts_segmentation_plan(
+            "abcdefghijklmnop",
+            max_chars_per_segment=5,
+            boundary_search_radius=2,
+            overflow_policy="error",
+        )
