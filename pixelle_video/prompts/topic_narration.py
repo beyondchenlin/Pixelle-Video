@@ -34,7 +34,7 @@ The user will input a topic or theme. You need to create {n_storyboard} video st
 - Output language requirement: Strictly output according to the language of the user's input topic or theme. For example: if the user's input is in English, the output copy must be in English, same for Chinese.
 - Purpose: For TTS to generate short video audio, explaining topics in an accessible way
 - Word count limit: Strictly control to {min_words}~{max_words} words (minimum not less than {min_words} words)
-- Ending format: Do not use punctuation at the end of each narration. If there are sentence breaks in the narration, Chinese punctuation (,。?!……:"") must be used to express tone and pauses. Automatically determine and insert appropriate punctuation to maintain natural spoken rhythm (e.g., "Right? Wrong." should have pauses and tonal shifts)
+{punctuation_instruction}
 - Content requirement: Expand around the topic, each storyboard conveys a valuable viewpoint or insight
 - Style requirement: Like chatting with a friend, accessible, sincere, inspiring, avoid academic and stiff expressions, reject formulaic and template expressions
 - Emotion and tone: Gentle, sincere, enthusiastic, like a friend with insights sharing thoughts
@@ -135,7 +135,8 @@ def build_topic_narration_prompt(
     topic: str,
     n_storyboard: int,
     min_words: int,
-    max_words: int
+    max_words: int,
+    preserve_natural_punctuation: bool = True,
 ) -> str:
     """
     Build topic narration prompt
@@ -149,10 +150,15 @@ def build_topic_narration_prompt(
     Returns:
         Formatted prompt
     """
+    punctuation_instruction = (
+        "- 生成文稿时保留自然标点。"
+        if preserve_natural_punctuation
+        else ""
+    )
     return TOPIC_NARRATION_PROMPT.format(
         topic=topic,
         n_storyboard=n_storyboard,
         min_words=min_words,
-        max_words=max_words
+        max_words=max_words,
+        punctuation_instruction=punctuation_instruction,
     )
-

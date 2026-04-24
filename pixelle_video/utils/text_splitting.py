@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from typing import Iterable, List
 
 _SENTENCE_CLOSE_CHARS = {'"', "'", "\u201d", "\u2019", ")", "]", "}"}
@@ -35,8 +36,29 @@ _JOIN_WITHOUT_SPACE_AFTER = {
     "\u2026",
 }
 _TTS_TERMINAL_PUNCTUATION = _SENTENCE_PUNCTUATION | {".", "\u2026"}
+_TTS_JOIN_DIRECT_AFTER = _TTS_TERMINAL_PUNCTUATION | {"!", "?", "\uff01", "\uff1f"}
 _CJK_CHAR_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _ASCII_WORD_PATTERN = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?")
+SUPPORTED_TTS_SENTENCE_JOINER_MODES = ("direct", "space")
+DEFAULT_TTS_SENTENCE_JOINER_MODE = "direct"
+SUPPORTED_CAPTION_PUNCTUATION_MODES = ("strip_all", "strip_terminal", "preserve")
+DEFAULT_CAPTION_PUNCTUATION_MODE = "strip_all"
+
+
+def validate_tts_sentence_joiner_mode(value: str | None) -> str:
+    normalized = (value or DEFAULT_TTS_SENTENCE_JOINER_MODE).strip().lower()
+    if normalized in SUPPORTED_TTS_SENTENCE_JOINER_MODES:
+        return normalized
+    supported = ", ".join(SUPPORTED_TTS_SENTENCE_JOINER_MODES)
+    raise ValueError(f"tts_sentence_joiner_mode must be one of: {supported}")
+
+
+def validate_caption_punctuation_mode(value: str | None) -> str:
+    normalized = (value or DEFAULT_CAPTION_PUNCTUATION_MODE).strip().lower()
+    if normalized in SUPPORTED_CAPTION_PUNCTUATION_MODES:
+        return normalized
+    supported = ", ".join(SUPPORTED_CAPTION_PUNCTUATION_MODES)
+    raise ValueError(f"caption_punctuation_mode must be one of: {supported}")
 
 
 def _is_sentence_boundary(text: str, index: int) -> bool:
@@ -221,8 +243,13 @@ def normalize_tts_sentence_text(text: str, *, final_in_block: bool = True) -> st
     return stripped + punctuation + "".join(reversed(suffix_chars))
 
 
-def join_tts_sentence_units(units: Iterable[str]) -> str:
+def join_tts_sentence_units(
+    units: Iterable[str],
+    *,
+    joiner_mode: str = DEFAULT_TTS_SENTENCE_JOINER_MODE,
+) -> str:
     """Join TTS units after normalizing each one to keep natural pauses."""
+    joiner_mode = validate_tts_sentence_joiner_mode(joiner_mode)
     cleaned_units = [unit.strip() for unit in units if unit and unit.strip()]
     normalized_units = [
         normalize_tts_sentence_text(
@@ -231,7 +258,49 @@ def join_tts_sentence_units(units: Iterable[str]) -> str:
         )
         for index, unit in enumerate(cleaned_units)
     ]
-    return join_text_units(normalized_units)
+    joined = join_text_units(normalized_units)
+    if joiner_mode == "space":
+        return joined
+
+    direct_after = "".join(sorted(_TTS_JOIN_DIRECT_AFTER))
+    closing_chars = "".join(sorted(_SENTENCE_CLOSE_CHARS))
+    return re.sub(
+        rf"([{re.escape(direct_after)}]([{re.escape(closing_chars)}]*)\s+)",
+        lambda match: match.group(1).rstrip(),
+        joined,
+    )
+
+
+def format_caption_text(
+    text: str,
+    *,
+    punctuation_mode: str = DEFAULT_CAPTION_PUNCTUATION_MODE,
+) -> str:
+    """Format caption display text without mutating the source speech text."""
+    punctuation_mode = validate_caption_punctuation_mode(punctuation_mode)
+    normalized = re.sub(r"\s+", " ", (text or "").strip())
+    if not normalized or punctuation_mode == "preserve":
+        return normalized
+
+    if punctuation_mode == "strip_terminal":
+        return _strip_terminal_punctuation(normalized)
+
+    stripped = "".join(
+        "" if _is_unicode_punctuation(char) else char
+        for char in normalized
+    )
+    return re.sub(r"\s+", " ", stripped).strip()
+
+
+def _strip_terminal_punctuation(text: str) -> str:
+    stripped = text.rstrip()
+    while stripped and _is_unicode_punctuation(stripped[-1]):
+        stripped = stripped[:-1].rstrip()
+    return stripped
+
+
+def _is_unicode_punctuation(char: str) -> bool:
+    return unicodedata.category(char).startswith("P")
 
 
 def _split_sentence_into_clauses(text: str) -> List[str]:

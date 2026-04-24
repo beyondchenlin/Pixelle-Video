@@ -697,7 +697,7 @@ def test_write_project_data_derives_captions_from_sentence_units_when_manifest_c
     expected_captions = [
         {
             "id": "sentence-1",
-            "text": "Sentence 1.",
+            "text": "Sentence 1",
             "start": 0.2,
             "end": 1.4,
             "frame_indices": [0],
@@ -709,6 +709,34 @@ def test_write_project_data_derives_captions_from_sentence_units_when_manifest_c
     assert captions_data["captions"] == [
         *expected_captions
     ]
+
+
+def test_write_project_data_can_preserve_caption_punctuation_when_configured(tmp_path):
+    manifest = RenderManifest(
+        task_id="task-2-preserve",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_life_insights_light",
+        caption_punctuation_mode="preserve",
+        sentence_units=[
+            SentenceUnit(
+                id="sentence-1",
+                text="Sentence 1.",
+                frame_indices=[0],
+                remapped_start=0.2,
+                remapped_end=1.4,
+            )
+        ],
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+
+    project_paths = service.write_project_data(manifest)
+    captions_data = json.loads((project_paths.data_dir / "captions.json").read_text(encoding="utf-8"))
+
+    assert captions_data["captions"][0]["text"] == "Sentence 1."
 
 
 def test_write_project_data_splits_long_sentence_captions_into_expression_level_cues(tmp_path):
@@ -738,7 +766,7 @@ def test_write_project_data_splits_long_sentence_captions_into_expression_level_
     assert captions_data["captions"] == [
         {
             "id": "sentence-1-cue-1",
-            "text": "Alpha,",
+            "text": "Alpha",
             "start": 0.0,
             "end": 1.2,
             "frame_indices": [0],
@@ -746,7 +774,7 @@ def test_write_project_data_splits_long_sentence_captions_into_expression_level_
         },
         {
             "id": "sentence-1-cue-2",
-            "text": "beta.",
+            "text": "beta",
             "start": 1.2,
             "end": 2.2,
             "frame_indices": [0],

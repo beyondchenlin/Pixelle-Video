@@ -23,7 +23,6 @@ Key Feature:
 import os
 import shutil
 import subprocess
-import unicodedata
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -35,23 +34,21 @@ from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, Storyb
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
 from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
+from pixelle_video.utils.text_splitting import format_caption_text
 from pixelle_video.utils.template_util import get_template_type
 
 IMAGE_SEGMENT_MIN_FPS = 90
 
 
-def _strip_trailing_subtitle_punctuation(text: str) -> str:
-    """Remove trailing punctuation from subtitle display text only."""
-    stripped = (text or "").rstrip()
-    while stripped and unicodedata.category(stripped[-1]).startswith("P"):
-        stripped = stripped[:-1].rstrip()
-    return stripped
-
-
-def _resolve_body_text(narration: str, body_text_override: Optional[str] = None) -> str:
+def _resolve_body_text(
+    narration: str,
+    body_text_override: Optional[str] = None,
+    *,
+    punctuation_mode: str = "strip_all",
+) -> str:
     """Resolve the burned-in body text, allowing shell-only renders to omit subtitles."""
     source_text = narration if body_text_override is None else body_text_override
-    return _strip_trailing_subtitle_punctuation(source_text)
+    return format_caption_text(source_text, punctuation_mode=punctuation_mode)
 
 
 def _get_image_segment_fps(configured_fps: int) -> int:
@@ -511,7 +508,11 @@ class FrameProcessor:
         
         composed_path = await generator.generate_frame(
             title=storyboard.title,
-            text=_resolve_body_text(frame.narration, body_text_override),
+            text=_resolve_body_text(
+                frame.narration,
+                body_text_override,
+                punctuation_mode=config.caption_punctuation_mode,
+            ),
             image=media_path,  # HTMLFrameGenerator handles both image and video paths
             ext=ext,
             output_path=output_path

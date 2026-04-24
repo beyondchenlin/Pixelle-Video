@@ -24,7 +24,7 @@ from pixelle_video.models.template_text_capabilities import TemplateTextCapabili
 from pixelle_video.services.hyperframes_asset_materializer import HyperFramesAssetMaterializer
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 from pixelle_video.utils.os_util import get_output_path
-from pixelle_video.utils.text_splitting import split_text_into_subtitle_phrases
+from pixelle_video.utils.text_splitting import format_caption_text, split_text_into_subtitle_phrases
 
 
 @dataclass(frozen=True)
@@ -51,6 +51,7 @@ def _build_caption_cues_from_sentences(manifest: RenderManifest) -> list[Caption
                 start=float(start),
                 end=float(end),
                 style_profile=manifest.template_id,
+                punctuation_mode=manifest.caption_punctuation_mode,
             )
         )
     return captions
@@ -62,6 +63,7 @@ def _build_sentence_caption_cues(
     start: float,
     end: float,
     style_profile: str,
+    punctuation_mode: str,
 ) -> list[CaptionCue]:
     phrases = split_text_into_subtitle_phrases(sentence.text)
     if not phrases:
@@ -71,7 +73,7 @@ def _build_sentence_caption_cues(
         return [
             CaptionCue(
                 id=sentence.id,
-                text=sentence.text,
+                text=format_caption_text(sentence.text, punctuation_mode=punctuation_mode),
                 start=float(start),
                 end=float(end),
                 frame_indices=list(sentence.frame_indices),
@@ -99,7 +101,7 @@ def _build_sentence_caption_cues(
         captions.append(
             CaptionCue(
                 id=f"{sentence.id}-cue-{index}",
-                text=phrase,
+                text=format_caption_text(phrase, punctuation_mode=punctuation_mode),
                 start=cue_start,
                 end=cue_end,
                 frame_indices=list(sentence.frame_indices),

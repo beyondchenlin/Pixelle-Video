@@ -279,6 +279,7 @@ class RenderManifest:
     text_cues: List[TextCue] = field(default_factory=list)
     element_animation_manifest_path: Optional[str] = None
     canonical_timeline: str = "source"
+    caption_punctuation_mode: str = "strip_all"
 
     def __init__(
         self,
@@ -301,6 +302,7 @@ class RenderManifest:
         text_cues: Optional[List[TextCue]] = None,
         element_animation_manifest_path: Optional[str] = None,
         canonical_timeline: str = "source",
+        caption_punctuation_mode: str = "strip_all",
         width: Optional[int] = None,
         height: Optional[int] = None,
     ) -> None:
@@ -333,6 +335,7 @@ class RenderManifest:
         self.text_cues = list(text_cues or [])
         self.element_animation_manifest_path = element_animation_manifest_path
         self.canonical_timeline = canonical_timeline
+        self.caption_punctuation_mode = caption_punctuation_mode
 
     @property
     def width(self) -> int:
@@ -364,6 +367,7 @@ class RenderManifest:
             "text_tracks": [track.to_dict() for track in self.text_tracks],
             "text_cues": [cue.to_dict() for cue in self.text_cues],
             "canonical_timeline": self.canonical_timeline,
+            "caption_punctuation_mode": self.caption_punctuation_mode,
         }
         if self.element_animation_manifest_path:
             data["element_animation_manifest_path"] = self.element_animation_manifest_path
@@ -390,4 +394,5 @@ class RenderManifest:
             text_cues=[TextCue.from_dict(item) for item in data.get("text_cues", [])],
             element_animation_manifest_path=data.get("element_animation_manifest_path"),
             canonical_timeline=data.get("canonical_timeline", "source"),
+            caption_punctuation_mode=data.get("caption_punctuation_mode", "strip_all"),
         )

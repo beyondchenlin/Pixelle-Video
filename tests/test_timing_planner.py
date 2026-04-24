@@ -143,6 +143,51 @@ def test_timing_planner_can_normalize_block_text_for_tts_without_mutating_senten
     ]
 
 
+def test_timing_planner_directly_joins_tts_sentence_boundaries_by_default():
+    frames = [
+        StoryboardFrame(index=0, narration="学习法语可以从听歌开始", image_prompt="p1"),
+        StoryboardFrame(index=1, narration="看法国电影能提高口语吗？", image_prompt="p2"),
+        StoryboardFrame(index=2, narration="每天坚持练习词汇", image_prompt="p3"),
+    ]
+
+    planner = TimingPlanner(
+        mode="paragraph",
+        max_sentences=8,
+        max_chars=120,
+        normalize_block_text_for_tts=True,
+        single_audio_block=True,
+    )
+    plan = planner.build(frames)
+
+    assert [s.text for s in plan.sentences] == [
+        "学习法语可以从听歌开始",
+        "看法国电影能提高口语吗？",
+        "每天坚持练习词汇",
+    ]
+    assert [b.text for b in plan.blocks] == [
+        "学习法语可以从听歌开始。看法国电影能提高口语吗？每天坚持练习词汇。",
+    ]
+
+
+def test_timing_planner_can_join_tts_sentences_with_spaces_when_configured():
+    frames = [
+        StoryboardFrame(index=0, narration="First sentence.", image_prompt="p1"),
+        StoryboardFrame(index=1, narration="Second sentence?", image_prompt="p2"),
+    ]
+
+    planner = TimingPlanner(
+        mode="paragraph",
+        max_sentences=8,
+        max_chars=120,
+        normalize_block_text_for_tts=True,
+        single_audio_block=True,
+        tts_sentence_joiner_mode="space",
+    )
+    plan = planner.build(frames)
+
+    assert [b.text for b in plan.blocks] == ["First sentence. Second sentence?"]
+
+
 def test_timing_planner_respects_sentence_and_char_caps_for_index_tts_style_blocks():
     frames = [
         StoryboardFrame(index=0, narration="先练呼吸控制", image_prompt="p1"),

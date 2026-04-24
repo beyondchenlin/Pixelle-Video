@@ -54,6 +54,80 @@ def test_video_generate_request_accepts_text_layer_policy():
     }
 
 
+def test_video_generate_request_accepts_tts_text_policy_controls():
+    request = VideoGenerateRequest(
+        text="demo",
+        frame_template="1080x1920/image_default.html",
+        tts_split_mode="external_only",
+        max_chars_per_tts_segment=88,
+        tts_split_overflow_policy="hard_limit",
+        tts_boundary_search_radius=7,
+        tts_soft_overflow_chars=2,
+        tts_audio_boundary_fade_ms=12,
+        tts_sentence_joiner_mode="space",
+        caption_punctuation_mode="preserve",
+        preserve_natural_punctuation=False,
+    )
+
+    assert request.tts_split_mode == "external_only"
+    assert request.max_chars_per_tts_segment == 88
+    assert request.tts_sentence_joiner_mode == "space"
+    assert request.caption_punctuation_mode == "preserve"
+    assert request.preserve_natural_punctuation is False
+
+
+@pytest.mark.asyncio
+async def test_generate_video_sync_passes_tts_text_policy_controls_to_video_core(monkeypatch, tmp_path):
+    class _FakeFrameGenerator:
+        def __init__(self, template_path):
+            self.template_path = template_path
+
+        def get_media_size(self):
+            return 1080, 1920
+
+    output_path = tmp_path / "task-tts-policy" / "final.mp4"
+    fake_pixelle_video = _FakePixelleVideo(output_path)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda template_path: template_path,
+    )
+    monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
+
+    await generate_video_sync(
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            tts_split_mode="external_only",
+            max_chars_per_tts_segment=88,
+            tts_split_overflow_policy="hard_limit",
+            tts_boundary_search_radius=7,
+            tts_soft_overflow_chars=2,
+            tts_audio_boundary_fade_ms=12,
+            tts_sentence_joiner_mode="space",
+            caption_punctuation_mode="preserve",
+            preserve_natural_punctuation=False,
+        ),
+        fake_pixelle_video,
+        SimpleNamespace(base_url="http://testserver/"),
+    )
+
+    call = fake_pixelle_video.calls[0]
+    assert call["tts_split_mode"] == "external_only"
+    assert call["max_chars_per_tts_segment"] == 88
+    assert call["tts_split_overflow_policy"] == "hard_limit"
+    assert call["tts_boundary_search_radius"] == 7
+    assert call["tts_soft_overflow_chars"] == 2
+    assert call["tts_audio_boundary_fade_ms"] == 12
+    assert call["tts_sentence_joiner_mode"] == "space"
+    assert call["caption_punctuation_mode"] == "preserve"
+    assert call["preserve_natural_punctuation"] is False
+
+
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [

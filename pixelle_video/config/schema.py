@@ -422,6 +422,18 @@ class RenderTimingConfig(BaseModel):
     )
     tts_batch_max_sentences: int = Field(default=8, ge=1, description="Maximum sentences per TTS batch")
     tts_batch_max_chars: int = Field(default=220, ge=1, description="Maximum characters per TTS batch")
+    tts_sentence_joiner_mode: Literal["direct", "space"] = Field(
+        default="direct",
+        description="How TTS sentence units are joined inside an audio block",
+    )
+    caption_punctuation_mode: Literal["strip_all", "strip_terminal", "preserve"] = Field(
+        default="strip_all",
+        description="How punctuation is formatted for displayed captions",
+    )
+    preserve_natural_punctuation: bool = Field(
+        default=True,
+        description="Ask narration generation to preserve natural punctuation",
+    )
     max_chars_per_tts_segment: int = Field(default=90, ge=1, description="Maximum characters per external TTS segment")
     tts_split_overflow_policy: str = Field(default="hard_limit", description="TTS split overflow policy")
     tts_boundary_search_radius: int = Field(default=20, ge=0, description="TTS external splitter boundary search radius")

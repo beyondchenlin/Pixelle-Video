@@ -26,6 +26,7 @@ from pixelle_video.models.storyboard_planning import (
     ShotOverridePolicy,
 )
 from pixelle_video.render_backend import RenderBackend
+from pixelle_video.tts_split_strategy import TtsSplitMode
 
 StoryboardOverrideField = Literal[
     "narration_fragment",
@@ -115,6 +116,46 @@ class VideoGenerateRequest(BaseModel):
     voice_id: Optional[str] = Field(
         None, 
         description="(Deprecated) TTS voice ID for legacy compatibility"
+    )
+    tts_split_mode: Optional[TtsSplitMode] = Field(
+        None,
+        description="IndexTTS2 text split mode: internal_only or external_only",
+    )
+    max_chars_per_tts_segment: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Maximum characters per external TTS segment",
+    )
+    tts_split_overflow_policy: Optional[str] = Field(
+        None,
+        description="External TTS split overflow policy",
+    )
+    tts_boundary_search_radius: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Search radius for external TTS punctuation boundaries",
+    )
+    tts_soft_overflow_chars: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Allowed soft overflow characters for external TTS splitting",
+    )
+    tts_audio_boundary_fade_ms: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Fade duration in milliseconds when joining external TTS audio segments",
+    )
+    tts_sentence_joiner_mode: Optional[Literal["direct", "space"]] = Field(
+        None,
+        description="How normalized TTS sentence units are joined inside an audio block",
+    )
+    caption_punctuation_mode: Optional[Literal["strip_all", "strip_terminal", "preserve"]] = Field(
+        None,
+        description="How punctuation is formatted for displayed captions",
+    )
+    preserve_natural_punctuation: Optional[bool] = Field(
+        None,
+        description="Ask LLM narration generation to preserve natural punctuation",
     )
     
     # === LLM Parameters ===

@@ -55,10 +55,39 @@ async def test_standard_pipeline_uses_internal_only_index_tts2_default_without_p
 
     assert ctx.timing_plan is not None
     assert [block.text for block in ctx.timing_plan.blocks] == [
-        "先练呼吸控制 再练水中漂浮 保持身体平直 手臂划水流畅 坚持练习进步",
+        "先练呼吸控制。再练水中漂浮。保持身体平直。手臂划水流畅。坚持练习进步。",
     ]
     assert [block.source_frame_indices for block in ctx.timing_plan.blocks] == [
         [0, 1, 2, 3, 4],
+    ]
+    assert ctx.observability["tts_text_flow"]["audio_blocks"][0]["speech_text"] == (
+        "先练呼吸控制。再练水中漂浮。保持身体平直。手臂划水流畅。坚持练习进步。"
+    )
+    assert ctx.observability["tts_text_flow"]["caption_punctuation_mode"] == "strip_all"
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_index_tts2_respects_space_joiner_option():
+    pipeline = StandardPipeline(_FakeCore())
+    ctx = PipelineContext(
+        input_text="demo",
+        params={
+            "media_width": 1080,
+            "media_height": 1920,
+            "tts_inference_mode": "comfyui",
+            "tts_workflow": "selfhost/tts_index2.json",
+            "tts_sentence_joiner_mode": "space",
+        },
+    )
+    ctx.task_id = "task-index-tts2-space"
+    ctx.title = "demo"
+    ctx.narrations = ["First sentence.", "Second sentence?"]
+    ctx.image_prompts = ["p1", "p2"]
+
+    await pipeline.initialize_storyboard(ctx)
+
+    assert [block.text for block in ctx.timing_plan.blocks] == [
+        "First sentence. Second sentence?",
     ]
 
 
@@ -162,6 +191,7 @@ async def test_standard_pipeline_external_only_synthesizes_deterministic_segment
     assert len(synthesized_texts) > 1
     assert all("。" not in text for text in synthesized_texts)
     assert all("split_strategy" not in call for call in core.tts.calls)
+    assert [call["workflow_params_text"] for call in ctx.observability["tts_synthesis"]["calls"]] == synthesized_texts
     plans = ctx.observability["tts_segmentation"]["plans"]
     assert plans[0]["source_unit_id"] == "block-1"
     assert len(plans[0]["segments"]) == len(synthesized_texts)

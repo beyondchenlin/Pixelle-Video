@@ -271,6 +271,7 @@ async def generate_narrations_from_topic(
     min_words: int = 5,
     max_words: int = 20,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
+    preserve_natural_punctuation: bool = True,
 ) -> List[str]:
     """
     Generate narrations from topic using LLM
@@ -307,7 +308,8 @@ async def generate_narrations_from_topic(
         topic=topic,
         n_storyboard=n_scenes,
         min_words=min_words,
-        max_words=max_words
+        max_words=max_words,
+        preserve_natural_punctuation=preserve_natural_punctuation,
     )
     
     try:
@@ -366,6 +368,7 @@ async def generate_narrations_from_content(
     min_words: int = 5,
     max_words: int = 20,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
+    preserve_natural_punctuation: bool = True,
 ) -> List[str]:
     """
     Generate narrations from user-provided content using LLM
@@ -398,7 +401,8 @@ async def generate_narrations_from_content(
         content=content,
         n_storyboard=n_scenes,
         min_words=min_words,
-        max_words=max_words
+        max_words=max_words,
+        preserve_natural_punctuation=preserve_natural_punctuation,
     )
     
     try:

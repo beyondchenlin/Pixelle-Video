@@ -32,11 +32,30 @@ from pixelle_video.utils.logging_util import build_content_observability, new_co
 
 router = APIRouter(prefix="/video", tags=["Video Generation"])
 
+TTS_TEXT_POLICY_PARAM_NAMES = (
+    "tts_split_mode",
+    "max_chars_per_tts_segment",
+    "tts_split_overflow_policy",
+    "tts_boundary_search_radius",
+    "tts_soft_overflow_chars",
+    "tts_audio_boundary_fade_ms",
+    "tts_sentence_joiner_mode",
+    "caption_punctuation_mode",
+    "preserve_natural_punctuation",
+)
+
 
 def _serialize_frame_overrides(frame_overrides):
     if frame_overrides is None:
         return None
     return [override.model_dump(exclude_none=True) for override in frame_overrides]
+
+
+def _copy_tts_text_policy_params(request_body: VideoGenerateRequest, video_params: dict) -> None:
+    for name in TTS_TEXT_POLICY_PARAM_NAMES:
+        value = getattr(request_body, name)
+        if value is not None:
+            video_params[name] = value
 
 
 def path_to_url(request: Request, file_path: str) -> str:
@@ -187,6 +206,8 @@ async def generate_video_sync(
 
         if request_body.text_layer is not None:
             video_params["text_layer"] = request_body.text_layer
+
+        _copy_tts_text_policy_params(request_body, video_params)
         
         # Call video generator service
         result = await pixelle_video.generate_video(**video_params)
@@ -318,6 +339,8 @@ async def generate_video_async(
 
             if request_body.text_layer is not None:
                 video_params["text_layer"] = request_body.text_layer
+
+            _copy_tts_text_policy_params(request_body, video_params)
             
             result = await pixelle_video.generate_video(**video_params)
             

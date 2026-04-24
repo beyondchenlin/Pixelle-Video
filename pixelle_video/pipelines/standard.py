@@ -198,6 +198,7 @@ class StandardPipeline(LinearVideoPipeline):
         
         if mode == "generate":
             self._report_progress(ctx.progress_callback, "generating_narrations", 0.05)
+            render_kwargs = resolve_storyboard_render_kwargs(self.core.config, ctx.params)
             ctx.narrations = await generate_narrations_from_topic(
                 self.llm,
                 topic=text,
@@ -205,6 +206,7 @@ class StandardPipeline(LinearVideoPipeline):
                 min_words=min_words,
                 max_words=max_words,
                 stage_callback=stage_callback,
+                preserve_natural_punctuation=render_kwargs["preserve_natural_punctuation"],
             )
             logger.info(f"✅ Generated {len(ctx.narrations)} narrations")
         else:  # fixed
@@ -463,12 +465,14 @@ class StandardPipeline(LinearVideoPipeline):
             max_chars=effective_max_chars,
             normalize_block_text_for_tts=normalize_block_text_for_tts,
             single_audio_block=single_audio_block,
+            tts_sentence_joiner_mode=ctx.config.tts_sentence_joiner_mode,
         )
         ctx.timing_plan = planner.build(ctx.storyboard.frames)
         logger.info(
             "Timing plan prepared: "
             f"{len(ctx.timing_plan.sentences)} sentence units -> {len(ctx.timing_plan.blocks)} audio blocks"
         )
+        self._record_tts_text_flow(ctx)
         if (
             ctx.creation_package is not None
             and ctx.creation_package.text_overlay_plan is not None
@@ -486,6 +490,44 @@ class StandardPipeline(LinearVideoPipeline):
 
     def _ai_stage_callback(self, ctx: PipelineContext):
         return lambda payload: self._record_ai_creation_stage(ctx, payload)
+
+    def _record_tts_text_flow(self, ctx: PipelineContext) -> None:
+        timing_plan = ctx.timing_plan
+        config = ctx.config
+        if timing_plan is None or config is None:
+            return
+
+        ctx.observability["tts_text_flow"] = {
+            "version": "v1",
+            "preserve_natural_punctuation": bool(config.preserve_natural_punctuation),
+            "tts_sentence_joiner_mode": config.tts_sentence_joiner_mode,
+            "caption_punctuation_mode": config.caption_punctuation_mode,
+            "split_mode": config.tts_split_mode,
+            "narrations": [
+                {
+                    "frame_index": frame.index,
+                    "raw_narration": frame.narration,
+                }
+                for frame in ctx.storyboard.frames
+            ],
+            "sentence_units": [
+                {
+                    "id": sentence.id,
+                    "speech_text": sentence.text,
+                    "frame_indices": list(sentence.frame_indices),
+                    "block_id": sentence.block_id,
+                }
+                for sentence in timing_plan.sentences
+            ],
+            "audio_blocks": [
+                {
+                    "id": block.id,
+                    "speech_text": block.text,
+                    "source_frame_indices": list(block.source_frame_indices),
+                }
+                for block in timing_plan.blocks
+            ],
+        }
 
     def _record_ai_creation_stage(self, ctx: PipelineContext, event: dict[str, Any]) -> None:
         if event.get("channel") != "ai_creation" or event.get("event") not in {"end", "skip", "fail"}:
@@ -672,6 +714,7 @@ class StandardPipeline(LinearVideoPipeline):
         single_audio_block = False
 
         if self._uses_index_tts2_workflow(config):
+            normalize_block_text_for_tts = True
             single_audio_block = True
             if config.tts_split_mode != INTERNAL_ONLY_TTS_SPLIT_MODE:
                 max_chars = max(1, int(config.max_chars_per_tts_segment))
@@ -1216,6 +1259,7 @@ class StandardPipeline(LinearVideoPipeline):
             visual_clips=self._build_hyperframes_visual_clips(storyboard, timing_plan),
             text_tracks=text_tracks,
             text_cues=text_cues,
+            caption_punctuation_mode=config.caption_punctuation_mode,
             canonical_timeline=(
                 "remapped"
                 if any(
@@ -1425,13 +1469,13 @@ class StandardPipeline(LinearVideoPipeline):
 
         if len(segments) == 1:
             block_source_path = task_audio_dir / f"{block_id}_source.mp3"
-            await self.core.tts(
-                **self._build_tts_params(
-                    config=ctx.config,
-                    text=segments[0],
-                    output_path=str(block_source_path),
-                )
+            tts_params = self._build_tts_params(
+                config=ctx.config,
+                text=segments[0],
+                output_path=str(block_source_path),
             )
+            self._record_tts_workflow_text(ctx, block_id, 1, tts_params)
+            await self.core.tts(**tts_params)
             return self._normalize_audio_for_hyperframes(
                 str(block_source_path),
                 str(block_output_path),
@@ -1441,13 +1485,13 @@ class StandardPipeline(LinearVideoPipeline):
         for index, segment_text in enumerate(segments, start=1):
             segment_source_path = task_audio_dir / f"{block_id}_segment_{index}_source.mp3"
             segment_output_path = task_audio_dir / f"{block_id}_segment_{index}.wav"
-            await self.core.tts(
-                **self._build_tts_params(
-                    config=ctx.config,
-                    text=segment_text,
-                    output_path=str(segment_source_path),
-                )
+            tts_params = self._build_tts_params(
+                config=ctx.config,
+                text=segment_text,
+                output_path=str(segment_source_path),
             )
+            self._record_tts_workflow_text(ctx, block_id, index, tts_params)
+            await self.core.tts(**tts_params)
             segment_paths.append(
                 self._normalize_audio_for_hyperframes(
                     str(segment_source_path),
@@ -1503,6 +1547,30 @@ class StandardPipeline(LinearVideoPipeline):
             },
         )
         segmentation.setdefault("plans", []).append(plan.to_dict())
+
+    def _record_tts_workflow_text(
+        self,
+        ctx: PipelineContext,
+        block_id: str,
+        segment_index: int,
+        tts_params: dict,
+    ) -> None:
+        synthesis = ctx.observability.setdefault(
+            "tts_synthesis",
+            {
+                "version": "v1",
+                "calls": [],
+            },
+        )
+        synthesis.setdefault("calls", []).append(
+            {
+                "block_id": block_id,
+                "segment_index": segment_index,
+                "workflow": tts_params.get("workflow"),
+                "workflow_params_text": tts_params.get("text", ""),
+                "output_path": tts_params.get("output_path"),
+            }
+        )
 
     def _concat_audio_files(self, audio_paths: List[str], output_path: str, *, fade_ms: int = 0) -> None:
         if not audio_paths:

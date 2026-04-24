@@ -33,7 +33,7 @@ The user will provide content (which may be long or short), and you need to extr
 - Language consistency requirement: Strictly output copy according to the user's input language type - if input is English, output must be English, and so on
 - Purpose: For TTS to generate short video audio
 - Word count limit: Strictly control to {min_words}~{max_words} words (minimum not less than {min_words} words)
-- Ending format: Do not use punctuation at the end
+{punctuation_instruction}
 - Refinement strategy:
   * If user content is long: Extract {n_storyboard} core points, remove redundant information
   * If user content is short: Appropriately expand while retaining core viewpoints, add examples or explanations
@@ -81,7 +81,8 @@ def build_content_narration_prompt(
     content: str,
     n_storyboard: int,
     min_words: int,
-    max_words: int
+    max_words: int,
+    preserve_natural_punctuation: bool = True,
 ) -> str:
     """
     Build content refinement narration prompt
@@ -95,10 +96,15 @@ def build_content_narration_prompt(
     Returns:
         Formatted prompt
     """
+    punctuation_instruction = (
+        "- 生成文稿时保留自然标点。"
+        if preserve_natural_punctuation
+        else ""
+    )
     return CONTENT_NARRATION_PROMPT.format(
         content=content,
         n_storyboard=n_storyboard,
         min_words=min_words,
-        max_words=max_words
+        max_words=max_words,
+        punctuation_instruction=punctuation_instruction,
     )
-

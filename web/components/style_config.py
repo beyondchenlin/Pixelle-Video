@@ -46,6 +46,10 @@ from pixelle_video.prompts.prompt_prefix_generation import (
 from pixelle_video.render_backend import LEGACY_RENDER_BACKEND, SUPPORTED_RENDER_BACKENDS
 from pixelle_video.tts_audio_strategy import SUPPORTED_TTS_AUDIO_STRATEGIES
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
+from pixelle_video.utils.text_splitting import (
+    SUPPORTED_CAPTION_PUNCTUATION_MODES,
+    SUPPORTED_TTS_SENTENCE_JOINER_MODES,
+)
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_prefix_generation import (
     PromptPrefixGenerationResult,
@@ -3442,7 +3446,49 @@ def render_tts_split_settings() -> dict:
         "tts_boundary_search_radius": timing_config.tts_boundary_search_radius,
         "tts_soft_overflow_chars": timing_config.tts_soft_overflow_chars,
         "tts_audio_boundary_fade_ms": timing_config.tts_audio_boundary_fade_ms,
+        "tts_sentence_joiner_mode": timing_config.tts_sentence_joiner_mode,
+        "caption_punctuation_mode": timing_config.caption_punctuation_mode,
+        "preserve_natural_punctuation": timing_config.preserve_natural_punctuation,
     }
+
+    settings["preserve_natural_punctuation"] = bool(
+        st.checkbox(
+            tr("tts_text_policy.preserve_natural_punctuation"),
+            value=bool(timing_config.preserve_natural_punctuation),
+            key="preserve_natural_punctuation",
+            help=tr("tts_text_policy.preserve_natural_punctuation_help"),
+        )
+    )
+
+    joiner_options = list(SUPPORTED_TTS_SENTENCE_JOINER_MODES)
+    joiner_default = (
+        timing_config.tts_sentence_joiner_mode
+        if timing_config.tts_sentence_joiner_mode in joiner_options
+        else "direct"
+    )
+    settings["tts_sentence_joiner_mode"] = st.selectbox(
+        tr("tts_text_policy.joiner_mode"),
+        joiner_options,
+        index=joiner_options.index(joiner_default),
+        format_func=lambda value: tr(f"tts_text_policy.joiner_mode.{value}"),
+        key="tts_sentence_joiner_mode",
+        help=tr("tts_text_policy.joiner_mode_help"),
+    )
+
+    caption_options = list(SUPPORTED_CAPTION_PUNCTUATION_MODES)
+    caption_default = (
+        timing_config.caption_punctuation_mode
+        if timing_config.caption_punctuation_mode in caption_options
+        else "strip_all"
+    )
+    settings["caption_punctuation_mode"] = st.selectbox(
+        tr("tts_text_policy.caption_punctuation_mode"),
+        caption_options,
+        index=caption_options.index(caption_default),
+        format_func=lambda value: tr(f"tts_text_policy.caption_punctuation_mode.{value}"),
+        key="caption_punctuation_mode",
+        help=tr("tts_text_policy.caption_punctuation_mode_help"),
+    )
 
     if selected_mode != "internal_only":
         settings["max_chars_per_tts_segment"] = int(

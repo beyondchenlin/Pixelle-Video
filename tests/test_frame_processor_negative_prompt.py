@@ -66,7 +66,7 @@ async def test_step_generate_media_uses_video_template_when_workflow_missing(mon
 
 
 @pytest.mark.asyncio
-async def test_compose_frame_html_strips_trailing_punctuation_from_subtitle_text(monkeypatch, tmp_path):
+async def test_compose_frame_html_uses_caption_punctuation_mode_for_subtitle_text(monkeypatch, tmp_path):
     captured = {}
 
     class _FakeHTMLFrameGenerator:
@@ -89,7 +89,7 @@ async def test_compose_frame_html_strips_trailing_punctuation_from_subtitle_text
     )
     frame = StoryboardFrame(
         index=0,
-        narration="你好，世界！",
+        narration="\u4f60\u597d\uff0c\u4e16\u754c\uff01",
         image_prompt="prompt",
         image_path=str(tmp_path / "frame.png"),
         media_type="image",
@@ -104,7 +104,7 @@ async def test_compose_frame_html_strips_trailing_punctuation_from_subtitle_text
     )
 
     assert result == str(tmp_path / "composed.png")
-    assert captured["text"] == "你好，世界"
+    assert captured["text"] == "\u4f60\u597d\u4e16\u754c"
 
 
 @pytest.mark.asyncio

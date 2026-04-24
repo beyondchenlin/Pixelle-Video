@@ -9,6 +9,9 @@ TTS_SPLIT_SETTING_KEYS = (
     "tts_boundary_search_radius",
     "tts_soft_overflow_chars",
     "tts_audio_boundary_fade_ms",
+    "tts_sentence_joiner_mode",
+    "caption_punctuation_mode",
+    "preserve_natural_punctuation",
 )
 
 

@@ -167,6 +167,9 @@ def test_copy_tts_split_settings_transfers_supported_values():
         {
             "tts_split_mode": "external_only",
             "max_chars_per_tts_segment": 120,
+            "tts_sentence_joiner_mode": "space",
+            "caption_punctuation_mode": "preserve",
+            "preserve_natural_punctuation": False,
         },
         target,
     )
@@ -174,6 +177,9 @@ def test_copy_tts_split_settings_transfers_supported_values():
     assert target == {
         "tts_split_mode": "external_only",
         "max_chars_per_tts_segment": 120,
+        "tts_sentence_joiner_mode": "space",
+        "caption_punctuation_mode": "preserve",
+        "preserve_natural_punctuation": False,
     }
 
 

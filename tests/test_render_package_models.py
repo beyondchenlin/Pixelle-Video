@@ -29,6 +29,9 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     assert config.tts_batching_mode == "paragraph"
     assert config.tts_audio_strategy == "auto"
     assert config.tts_split_mode == "internal_only"
+    assert config.tts_sentence_joiner_mode == "direct"
+    assert config.caption_punctuation_mode == "strip_all"
+    assert config.preserve_natural_punctuation is True
     assert config.max_chars_per_tts_segment == 90
     assert config.tts_audio_boundary_fade_ms == 8
     assert config.subtitle_alignment_engine == "qwen_forced_aligner"
@@ -90,6 +93,7 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
 
     assert restored.caption_cues[0].text == "Sentence 1"
     assert restored.audio_blocks[0].end == 4.2
+    assert restored.caption_punctuation_mode == "strip_all"
 
 
 def test_text_track_and_text_cue_round_trip_with_immutable_layout_and_source():
@@ -354,6 +358,9 @@ render:
     tts_audio_strategy: master_track
     tts_batch_max_sentences: 6
     tts_batch_max_chars: 180
+    tts_sentence_joiner_mode: space
+    caption_punctuation_mode: preserve
+    preserve_natural_punctuation: false
     subtitle_alignment_engine: whisperx
     silence_trim_tool: ffmpeg
     silence_trim_margin_ms: 90
@@ -370,6 +377,9 @@ render:
     assert parsed.render.timing.tts_audio_strategy == "master_track"
     assert parsed.render.timing.tts_batch_max_sentences == 6
     assert parsed.render.timing.tts_batch_max_chars == 180
+    assert parsed.render.timing.tts_sentence_joiner_mode == "space"
+    assert parsed.render.timing.caption_punctuation_mode == "preserve"
+    assert parsed.render.timing.preserve_natural_punctuation is False
     assert parsed.render.timing.subtitle_alignment_engine == "whisperx"
     assert parsed.render.timing.silence_trim_tool == "ffmpeg"
     assert parsed.render.timing.silence_trim_margin_ms == 90
@@ -381,6 +391,9 @@ render:
     assert reparsed.render.backend == "hyperframes_compiled"
     assert reparsed.render.timing.tts_batching_mode == "sentence"
     assert reparsed.render.timing.tts_audio_strategy == "master_track"
+    assert reparsed.render.timing.tts_sentence_joiner_mode == "space"
+    assert reparsed.render.timing.caption_punctuation_mode == "preserve"
+    assert reparsed.render.timing.preserve_natural_punctuation is False
     assert reparsed.render.timing.silence_trim_tool == "ffmpeg"
 
 
@@ -394,6 +407,9 @@ def test_resolve_storyboard_render_kwargs_includes_tts_audio_strategy():
                     "tts_audio_strategy": "master_track",
                     "tts_split_mode": "external_only",
                     "max_chars_per_tts_segment": 120,
+                    "tts_sentence_joiner_mode": "space",
+                    "caption_punctuation_mode": "preserve",
+                    "preserve_natural_punctuation": False,
                 },
             }
         }
@@ -403,6 +419,9 @@ def test_resolve_storyboard_render_kwargs_includes_tts_audio_strategy():
     assert resolved["tts_audio_strategy"] == "master_track"
     assert resolved["tts_split_mode"] == "external_only"
     assert resolved["max_chars_per_tts_segment"] == 120
+    assert resolved["tts_sentence_joiner_mode"] == "space"
+    assert resolved["caption_punctuation_mode"] == "preserve"
+    assert resolved["preserve_natural_punctuation"] is False
 
 
 def test_render_config_rejects_removed_hyperframes_alias(tmp_path):

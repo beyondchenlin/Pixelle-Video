@@ -24,6 +24,12 @@ from pixelle_video.tts_audio_strategy import (
     validate_tts_audio_strategy,
 )
 from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, validate_tts_split_mode
+from pixelle_video.utils.text_splitting import (
+    DEFAULT_CAPTION_PUNCTUATION_MODE,
+    DEFAULT_TTS_SENTENCE_JOINER_MODE,
+    validate_caption_punctuation_mode,
+    validate_tts_sentence_joiner_mode,
+)
 
 VALID_ELEMENT_ANIMATION_BACKENDS = {"hyperframes_canvas", "python_ffmpeg"}
 VALID_ELEMENT_ANIMATION_INTENSITIES = {"low", "medium", "high"}
@@ -61,6 +67,9 @@ class StoryboardConfig:
     tts_batching_mode: str = "paragraph"       # TTS batching mode
     tts_audio_strategy: str = DEFAULT_TTS_AUDIO_STRATEGY  # TTS audio organization strategy
     tts_split_mode: str = DEFAULT_TTS_SPLIT_MODE  # TTS text segmentation strategy
+    tts_sentence_joiner_mode: str = DEFAULT_TTS_SENTENCE_JOINER_MODE  # TTS sentence joiner strategy
+    caption_punctuation_mode: str = DEFAULT_CAPTION_PUNCTUATION_MODE  # Caption punctuation display mode
+    preserve_natural_punctuation: bool = True     # Ask LLM narration generation to keep natural punctuation
     tts_batch_max_sentences: int = 8           # Maximum sentences per TTS batch
     tts_batch_max_chars: int = 220             # Maximum characters per TTS batch
     max_chars_per_tts_segment: int = 90        # Maximum characters per external TTS segment
@@ -99,6 +108,13 @@ class StoryboardConfig:
         self.render_backend = validate_render_backend(self.render_backend)
         self.tts_audio_strategy = validate_tts_audio_strategy(self.tts_audio_strategy)
         self.tts_split_mode = validate_tts_split_mode(self.tts_split_mode)
+        self.tts_sentence_joiner_mode = validate_tts_sentence_joiner_mode(
+            self.tts_sentence_joiner_mode
+        )
+        self.caption_punctuation_mode = validate_caption_punctuation_mode(
+            self.caption_punctuation_mode
+        )
+        self.preserve_natural_punctuation = bool(self.preserve_natural_punctuation)
         self.max_chars_per_tts_segment = max(1, int(self.max_chars_per_tts_segment))
         self.tts_boundary_search_radius = max(0, int(self.tts_boundary_search_radius))
         self.tts_soft_overflow_chars = max(0, int(self.tts_soft_overflow_chars))

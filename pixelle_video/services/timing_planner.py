@@ -5,6 +5,7 @@ from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.models.storyboard import StoryboardFrame
 from pixelle_video.utils.text_splitting import (
     estimate_tts_text_budget_length,
+    DEFAULT_TTS_SENTENCE_JOINER_MODE,
     join_text_units,
     join_tts_sentence_units,
     split_text_into_sentences,
@@ -27,12 +28,14 @@ class TimingPlanner:
         *,
         normalize_block_text_for_tts: bool = False,
         single_audio_block: bool = False,
+        tts_sentence_joiner_mode: str = DEFAULT_TTS_SENTENCE_JOINER_MODE,
     ):
         self.mode = (mode or "paragraph").strip().lower()
         self.max_sentences = max(1, max_sentences)
         self.max_chars = max(1, max_chars)
         self.normalize_block_text_for_tts = bool(normalize_block_text_for_tts)
         self.single_audio_block = bool(single_audio_block)
+        self.tts_sentence_joiner_mode = tts_sentence_joiner_mode
 
     def build(self, frames: Sequence[StoryboardFrame]) -> TimingPlan:
         sentences = self._build_sentence_units(frames)
@@ -100,7 +103,8 @@ class TimingPlanner:
 
         candidate_text = (
             join_tts_sentence_units(
-                [*(sentence.text for sentence in current_group), next_sentence.text]
+                [*(sentence.text for sentence in current_group), next_sentence.text],
+                joiner_mode=self.tts_sentence_joiner_mode,
             )
             if self.normalize_block_text_for_tts
             else join_text_units(
@@ -127,7 +131,10 @@ class TimingPlanner:
         return AudioBlock(
             id=block_id,
             text=(
-                join_tts_sentence_units(sentence.text for sentence in sentence_units)
+                join_tts_sentence_units(
+                    (sentence.text for sentence in sentence_units),
+                    joiner_mode=self.tts_sentence_joiner_mode,
+                )
                 if self.normalize_block_text_for_tts
                 else join_text_units(sentence.text for sentence in sentence_units)
             ),
