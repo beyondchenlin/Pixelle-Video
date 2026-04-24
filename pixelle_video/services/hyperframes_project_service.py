@@ -13,10 +13,12 @@ from pixelle_video.models.render_package import (
     CaptionCue,
     RenderManifest,
     SentenceUnit,
+    TextCue,
     VisualClip,
     resolve_render_window,
 )
 from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
+from pixelle_video.models.template_text_capabilities import TemplateTextCapabilities
 from pixelle_video.services.hyperframes_asset_materializer import HyperFramesAssetMaterializer
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 from pixelle_video.utils.os_util import get_output_path
@@ -263,6 +265,7 @@ class HyperFramesProjectService:
         master_audio_duration: float | None,
     ) -> tuple[RenderManifest, list[CaptionCue]]:
         normalized_manifest = self._normalize_manifest_timeline(manifest, master_audio_duration)
+        self._validate_text_capabilities(normalized_manifest)
         effective_caption_cues = self._resolve_caption_cues(normalized_manifest)
         normalized_manifest = replace(
             normalized_manifest,
@@ -367,6 +370,7 @@ class HyperFramesProjectService:
             ),
             visual_clips=self._normalize_visual_clips(manifest.visual_clips, duration),
             caption_cues=self._normalize_caption_cues(manifest.caption_cues, duration),
+            text_cues=self._normalize_text_cues(manifest.text_cues, duration),
         )
 
     def _resolve_master_audio_duration(
@@ -387,6 +391,8 @@ class HyperFramesProjectService:
                 if value is not None:
                     candidates.append(float(value))
         for cue in manifest.caption_cues:
+            candidates.append(float(cue.end))
+        for cue in manifest.text_cues:
             candidates.append(float(cue.end))
         for clip in manifest.visual_clips:
             candidates.append(float(clip.end))
@@ -446,6 +452,15 @@ class HyperFramesProjectService:
             normalized_cues.append(replace(cue, start=span[0], end=span[1]))
         return normalized_cues
 
+    def _normalize_text_cues(self, text_cues: list[TextCue], duration: float) -> list[TextCue]:
+        normalized_cues: list[TextCue] = []
+        for cue in text_cues:
+            span = self._normalize_time_span(cue.start, cue.end, duration)
+            if span is None:
+                continue
+            normalized_cues.append(replace(cue, start=span[0], end=span[1]))
+        return normalized_cues
+
     def _normalize_visual_clips(self, visual_clips: list[VisualClip], duration: float) -> list[VisualClip]:
         normalized_clips: list[VisualClip] = []
         for clip in visual_clips:
@@ -475,6 +490,43 @@ class HyperFramesProjectService:
     @staticmethod
     def _clamp_time(value: float, duration: float) -> float:
         return max(0.0, min(float(value), max(0.0, float(duration))))
+
+    def _load_text_capabilities(
+        self,
+        template_id: str,
+    ) -> TemplateTextCapabilities | None:
+        path = self.compiler.template_root / template_id / "text_capabilities.json"
+        if not path.exists():
+            return None
+        return TemplateTextCapabilities.from_dict(
+            json.loads(path.read_text(encoding="utf-8"))
+        )
+
+    def _validate_text_capabilities(self, manifest: RenderManifest) -> None:
+        tracks = {track.id: track for track in manifest.text_tracks if track.enabled}
+        hyperframes_cues = [
+            cue
+            for cue in manifest.text_cues
+            if tracks.get(cue.track_id) is not None
+            and "hyperframes" in tracks[cue.track_id].renderer_targets
+        ]
+        if not hyperframes_cues:
+            return
+
+        capabilities = self._load_text_capabilities(manifest.template_id)
+        if capabilities is None:
+            raise ValueError(
+                f"template {manifest.template_id} has no text capabilities"
+            )
+
+        for cue in hyperframes_cues:
+            track = tracks[cue.track_id]
+            capabilities.validate(
+                slot=cue.slot,
+                role=cue.role,
+                style_profile=cue.style_profile or track.style_profile,
+                layer=cue.layer,
+            )
 
     def _write_json(self, path: Path, payload: dict) -> None:
         with open(path, "w", encoding="utf-8") as handle:

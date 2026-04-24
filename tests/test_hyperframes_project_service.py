@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from pixelle_video.models.render_package import (
     AudioBlock,
     CaptionCue,
@@ -128,6 +130,82 @@ def test_write_project_data_writes_text_tracks_diagnostic_payload(tmp_path):
     assert text_tracks_data["text_tracks"][0]["kind"] == "overlay"
     assert text_tracks_data["text_cues"][0]["role"] == "keyword"
     assert manifest_data["text_tracks"][0]["id"] == "track-overlay"
+
+
+def test_write_project_data_clamps_text_cues_to_manifest_duration(tmp_path):
+    manifest = RenderManifest(
+        task_id="task-text-clamp",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        master_audio_duration=2.0,
+        text_tracks=[
+            TextTrack(
+                id="track-keyword",
+                kind="keyword",
+                name="keyword",
+                renderer_targets=("hyperframes",),
+            )
+        ],
+        text_cues=[
+            TextCue(
+                id="cue-1",
+                track_id="track-keyword",
+                text="重点",
+                start=1.0,
+                end=4.0,
+                role="keyword",
+                slot="center",
+            )
+        ],
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    project_paths = service.write_project_data(manifest, master_audio_duration=2.0)
+    text_tracks_data = json.loads(
+        project_paths.text_tracks_path.read_text(encoding="utf-8")
+    )
+
+    assert text_tracks_data["text_cues"][0]["start"] == 1.0
+    assert text_tracks_data["text_cues"][0]["end"] == 2.0
+
+
+def test_write_project_data_rejects_unknown_text_slot(tmp_path):
+    manifest = RenderManifest(
+        task_id="task-text-slot",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        master_audio_duration=2.0,
+        text_tracks=[
+            TextTrack(
+                id="track-keyword",
+                kind="keyword",
+                name="keyword",
+                renderer_targets=("hyperframes",),
+            )
+        ],
+        text_cues=[
+            TextCue(
+                id="cue-1",
+                track_id="track-keyword",
+                text="重点",
+                start=0.0,
+                end=1.0,
+                role="keyword",
+                slot="unknown",
+            )
+        ],
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+
+    with pytest.raises(ValueError, match="unsupported text slot"):
+        service.write_project_data(manifest, master_audio_duration=2.0)
 
 
 def test_build_template_render_context_prefers_remapped_timing_when_present():
