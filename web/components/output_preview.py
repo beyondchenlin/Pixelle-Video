@@ -31,7 +31,7 @@ from web.i18n import tr
 from web.utils.async_helpers import run_async
 from web.utils.render_backend_ui import copy_render_backend
 from web.utils.tts_audio_strategy_ui import copy_tts_audio_strategy
-from web.utils.tts_split_mode_ui import copy_tts_split_settings
+from web.utils.tts_split_mode_ui import TTS_SPLIT_SETTING_KEYS, copy_tts_split_settings
 
 VIDEO_PREVIEW_CONTAINER_KEY = "output_video_preview"
 VIDEO_PREVIEW_WIDTH = "50%"
@@ -355,6 +355,15 @@ def render_single_output(pixelle_video, video_params):
                             "shot_strategy": video_params.get("shot_strategy"),
                             "forbid_embedded_text_in_image": video_params.get("forbid_embedded_text_in_image", True),
                             "frame_overrides": video_params.get("frame_overrides"),
+                            "text_layer": video_params.get("text_layer"),
+                            **{
+                                key: video_params.get(key)
+                                for key in TTS_SPLIT_SETTING_KEYS
+                            },
+                            **{
+                                key: video_params.get(key)
+                                for key in ELEMENT_ANIMATION_OPTION_KEYS
+                            },
                         },
                         progress_callback=update_progress,
                         session_state=st.session_state,

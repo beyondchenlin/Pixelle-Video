@@ -500,6 +500,24 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
             "tts_voice": "zh-CN-YunjianNeural",
             "render_backend": "hyperframes_compiled",
             "tts_audio_strategy": "master_track",
+            "tts_split_mode": "external_only",
+            "max_chars_per_tts_segment": 64,
+            "tts_split_overflow_policy": "error",
+            "tts_boundary_search_radius": 12,
+            "tts_soft_overflow_chars": 4,
+            "tts_audio_boundary_fade_ms": 16,
+            "text_layer": {
+                "enabled": True,
+                "mode": "hybrid",
+                "renderer_targets": ["hyperframes", "ass"],
+            },
+            "element_animation_enabled": True,
+            "element_animation_backend": "python_ffmpeg",
+            "element_animation_subject_count": 4,
+            "element_animation_candidate_limit": 6,
+            "element_animation_prompt": "animate the main product",
+            "element_animation_intensity": "high",
+            "element_animation_workflow": "custom_segment.json",
             "world_preset_id": "neutral_knowledge_storyboard",
             "shot_preset_id": "balanced_explainer",
             "consistency_strength": "strong",
@@ -525,6 +543,24 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
     assert captured["request"]["role_strategy"] == "auto"
     assert captured["request"]["role_locking_strength"] == "strong"
     assert captured["request"]["shot_strategy"] == "strict"
+    assert captured["request"]["tts_split_mode"] == "external_only"
+    assert captured["request"]["max_chars_per_tts_segment"] == 64
+    assert captured["request"]["tts_split_overflow_policy"] == "error"
+    assert captured["request"]["tts_boundary_search_radius"] == 12
+    assert captured["request"]["tts_soft_overflow_chars"] == 4
+    assert captured["request"]["tts_audio_boundary_fade_ms"] == 16
+    assert captured["request"]["text_layer"] == {
+        "enabled": True,
+        "mode": "hybrid",
+        "renderer_targets": ["hyperframes", "ass"],
+    }
+    assert captured["request"]["element_animation_enabled"] is True
+    assert captured["request"]["element_animation_backend"] == "python_ffmpeg"
+    assert captured["request"]["element_animation_subject_count"] == 4
+    assert captured["request"]["element_animation_candidate_limit"] == 6
+    assert captured["request"]["element_animation_prompt"] == "animate the main product"
+    assert captured["request"]["element_animation_intensity"] == "high"
+    assert captured["request"]["element_animation_workflow"] == "custom_segment.json"
     assert captured["request"]["forbid_embedded_text_in_image"] is False
     assert captured["request"]["frame_overrides"] == [
         {

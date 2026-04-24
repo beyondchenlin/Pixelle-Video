@@ -9,7 +9,6 @@ from web.components.output_preview import (
     build_single_generation_request,
 )
 
-
 ELEMENT_ANIMATION_PARAMS = {
     "element_animation_enabled": True,
     "element_animation_backend": "python_ffmpeg",
