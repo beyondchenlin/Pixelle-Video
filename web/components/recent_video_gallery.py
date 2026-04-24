@@ -193,13 +193,14 @@ def build_recent_video_gallery_css() -> str:
         min-width: 0;
     }}
     .st-key-{RECENT_VIDEO_GALLERY_KEY} video[data-testid="stVideo"] {{
-        width: 100% !important;
+        width: auto !important;
         max-width: 100% !important;
-        margin: 0 !important;
-        height: clamp(96px, 22cqw, 140px) !important;
-        max-height: 140px !important;
-        object-fit: contain !important;
-        background: #0f172a;
+        height: auto !important;
+        max-height: clamp(150px, 36cqw, 220px) !important;
+        margin: 0 auto !important;
+        display: block;
+        object-fit: initial !important;
+        background: transparent;
         border-radius: 8px;
     }}
     .recent-video-title {{
@@ -219,9 +220,14 @@ def build_recent_video_gallery_css() -> str:
         overflow: hidden;
         text-overflow: ellipsis;
     }}
-    .st-key-{RECENT_VIDEO_GALLERY_KEY} button {{
-        min-height: 2rem;
-        padding-block: 0.2rem;
+    .st-key-{RECENT_VIDEO_GALLERY_KEY} .stColumn button {{
+        width: 2.35rem !important;
+        min-height: 1.65rem;
+        padding: 0.08rem 0.25rem;
+        margin-inline: auto;
+        border-radius: 6px;
+        font-size: 0.78rem;
+        line-height: 1;
     }}
     </style>
     """
