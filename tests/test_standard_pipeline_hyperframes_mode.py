@@ -5,8 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
+from pixelle_video.models.text_overlay import TextOverlayCandidate, TextOverlayPlan
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.audio_edit_service import AutoEditorTimeline
@@ -498,6 +500,60 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
     assert requested_output.exists()
     assert ctx.final_video_path == str(requested_output)
     assert ctx.storyboard.final_video_path == str(requested_output)
+
+
+@pytest.mark.asyncio
+async def test_hyperframes_manifest_receives_compiled_text_cues(monkeypatch, tmp_path):
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
+
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+    ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
+    ctx.creation_package = CreationPackage(
+        task_id="task-1",
+        text_overlay_plan=TextOverlayPlan(
+            candidates=(
+                TextOverlayCandidate(
+                    id="candidate-1",
+                    text="重点词",
+                    role="keyword",
+                    suggested_slot="center",
+                    renderer_targets=("hyperframes",),
+                    source={"frame_index": 0, "sentence_id": "sentence-1"},
+                ),
+            )
+        ),
+    )
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        frame.composed_image_path = str(tmp_path / f"{frame.index:02d}_shell.png")
+        Path(frame.image_path).write_text("raw", encoding="utf-8")
+        Path(frame.composed_image_path).write_text("shell", encoding="utf-8")
+
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
+        Path(output_path).write_bytes(b"master-audio")
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", lambda audio_path: 2.0)
+
+    await pipeline.post_production(ctx)
+
+    manifest = core.hyperframes_project_service.manifest
+
+    assert manifest.text_tracks
+    assert manifest.text_cues[0].text == "重点词"
+    assert manifest.text_cues[0].source["candidate_id"] == "candidate-1"
+    assert manifest.text_cues[0].start == pytest.approx(0.1)
+    assert ctx.observability["text_layer_summary"]["renderer"] == "hyperframes"
+    assert ctx.observability["text_layer_summary"]["cue_count"] == 1
 
 
 @pytest.mark.asyncio

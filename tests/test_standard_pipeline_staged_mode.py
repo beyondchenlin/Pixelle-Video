@@ -1,11 +1,15 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from pixelle_video.config import config_manager
+from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.render_package import SentenceUnit
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
+from pixelle_video.models.text_overlay import TextOverlayCandidate, TextOverlayPlan
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 
@@ -538,6 +542,71 @@ async def test_post_production_uses_default_concat_for_standard_pipeline(monkeyp
     assert calls["videos"] == ["segment-0.mp4", "segment-1.mp4"]
     assert calls["output"] == ctx.final_video_path
     assert "method" not in calls["kwargs"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_post_production_burns_ass_before_user_output_copy(monkeypatch, tmp_path):
+    calls = []
+
+    class _FakeVideoService:
+        def concat_videos(self, videos, output, **kwargs):
+            calls.append(("concat", output))
+            Path(output).parent.mkdir(parents=True, exist_ok=True)
+            Path(output).write_bytes(b"concat")
+            return output
+
+        def burn_ass_subtitles(self, input_video, ass_file, output):
+            calls.append(("burn", input_video, ass_file, output))
+            Path(output).parent.mkdir(parents=True, exist_ok=True)
+            Path(output).write_bytes(b"burned")
+            return output
+
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _FakeVideoService)
+
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = _build_storyboard_ctx()
+    ctx.task_id = "task-1"
+    ctx.task_dir = str(tmp_path / "task-1")
+    Path(ctx.task_dir).mkdir(parents=True, exist_ok=True)
+    ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
+    ctx.params["output_path"] = str(tmp_path / "deliverables" / "final.mp4")
+    ctx.storyboard.frames[0].video_segment_path = "segment-0.mp4"
+    ctx.storyboard.frames[1].video_segment_path = "segment-1.mp4"
+    ctx.timing_plan = SimpleNamespace(
+        sentences=[
+            SentenceUnit(
+                id="sentence-1",
+                text="scene 1",
+                frame_indices=[0],
+                source_start=0.0,
+                source_end=1.0,
+            )
+        ]
+    )
+    ctx.creation_package = CreationPackage(
+        task_id="task-1",
+        text_overlay_plan=TextOverlayPlan(
+            candidates=(
+                TextOverlayCandidate(
+                    id="candidate-1",
+                    text="重点词",
+                    role="keyword",
+                    suggested_slot="center",
+                    renderer_targets=("ass",),
+                    source={"frame_index": 0, "sentence_id": "sentence-1"},
+                ),
+            )
+        ),
+    )
+
+    await pipeline.post_production(ctx)
+
+    assert [item[0] for item in calls] == ["concat", "burn"]
+    assert Path(calls[1][2]).name == "master.ass"
+    assert Path(ctx.params["output_path"]).read_bytes() == b"burned"
+    assert ctx.final_video_path == ctx.params["output_path"]
+    assert ctx.observability["text_layer_summary"]["renderer"] == "ass"
+    assert ctx.observability["text_layer_summary"]["cue_count"] == 1
 
 
 @pytest.mark.asyncio

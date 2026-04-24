@@ -49,7 +49,9 @@ from pixelle_video.render_backend import (
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
     LEGACY_RENDER_BACKEND,
 )
+from pixelle_video.services.ass_text_adapter import AssTextAdapter
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
+from pixelle_video.services.text_cue_compiler import TextCueCompiler
 from pixelle_video.services.text_overlay_planner import TextOverlayPlanner
 from pixelle_video.services.timing_planner import TimingPlanner
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
@@ -1102,6 +1104,42 @@ class StandardPipeline(LinearVideoPipeline):
             bgm_volume=ctx.params.get("bgm_volume", 0.2),
             bgm_mode=ctx.params.get("bgm_mode", "loop")
         )
+
+        text_tracks, text_cues = self._compile_text_layer_for_render(ctx)
+        ass_tracks, ass_cues = self._filter_text_layer_for_renderer(
+            text_tracks,
+            text_cues,
+            renderer="ass",
+        )
+        if ass_cues:
+            ass_dir = Path(ctx.task_dir or Path(final_video_path).parent) / "text_layer"
+            manifest = RenderManifest(
+                task_id=ctx.task_id or storyboard.config.task_id or "",
+                title=storyboard.title,
+                width=storyboard.config.media_width,
+                height=storyboard.config.media_height,
+                fps=storyboard.config.video_fps,
+                template_id="legacy",
+                text_tracks=ass_tracks,
+                text_cues=ass_cues,
+            )
+            ass_outputs = AssTextAdapter().export(
+                manifest=manifest,
+                output_dir=ass_dir,
+            )
+            burned_path = str(Path(final_video_path).with_name("final_text_burned.mp4"))
+            final_video_path = video_service.burn_ass_subtitles(
+                final_video_path,
+                str(ass_outputs.master),
+                burned_path,
+            )
+        self._record_text_layer_summary(
+            ctx,
+            renderer="ass" if ass_cues else "disabled",
+            text_tracks=ass_tracks,
+            text_cues=ass_cues,
+            native_hint_count=self._count_native_prompt_hints(ctx),
+        )
         
         storyboard.final_video_path = final_video_path
         storyboard.completed_at = datetime.now()
@@ -1155,6 +1193,12 @@ class StandardPipeline(LinearVideoPipeline):
             timing_plan.blocks[-1].end = master_audio_duration
         storyboard.total_duration = master_audio_duration
         canvas_width, canvas_height = self._resolve_hyperframes_canvas_size(config)
+        text_tracks, text_cues = self._compile_text_layer_for_render(ctx)
+        text_tracks, text_cues = self._filter_text_layer_for_renderer(
+            text_tracks,
+            text_cues,
+            renderer="hyperframes",
+        )
 
         manifest = RenderManifest(
             task_id=ctx.task_id,
@@ -1170,6 +1214,8 @@ class StandardPipeline(LinearVideoPipeline):
             audio_blocks=list(timing_plan.blocks),
             sentence_units=list(timing_plan.sentences),
             visual_clips=self._build_hyperframes_visual_clips(storyboard, timing_plan),
+            text_tracks=text_tracks,
+            text_cues=text_cues,
             canonical_timeline=(
                 "remapped"
                 if any(
@@ -1178,6 +1224,13 @@ class StandardPipeline(LinearVideoPipeline):
                 )
                 else "source"
             ),
+        )
+        self._record_text_layer_summary(
+            ctx,
+            renderer="hyperframes",
+            text_tracks=text_tracks,
+            text_cues=text_cues,
+            native_hint_count=self._count_native_prompt_hints(ctx),
         )
         project_paths = self.core.hyperframes_project_service.write_project(
             manifest,
@@ -1210,6 +1263,60 @@ class StandardPipeline(LinearVideoPipeline):
             storyboard.final_video_path = final_video_path
 
         logger.success(f"HyperFrames video generation completed: {ctx.final_video_path}")
+
+    def _compile_text_layer_for_render(self, ctx: PipelineContext):
+        package = getattr(ctx, "creation_package", None)
+        timing_plan = getattr(ctx, "timing_plan", None)
+        if package is None or package.text_overlay_plan is None or timing_plan is None:
+            return [], []
+        return TextCueCompiler().compile(
+            package=package,
+            sentence_units=list(getattr(timing_plan, "sentences", []) or []),
+        )
+
+    def _filter_text_layer_for_renderer(self, text_tracks, text_cues, *, renderer: str):
+        filtered_tracks = [
+            track for track in text_tracks if renderer in track.renderer_targets
+        ]
+        track_ids = {track.id for track in filtered_tracks}
+        filtered_cues = [cue for cue in text_cues if cue.track_id in track_ids]
+        return filtered_tracks, filtered_cues
+
+    def _count_native_prompt_hints(self, ctx: PipelineContext) -> int:
+        package = getattr(ctx, "creation_package", None)
+        plan = getattr(package, "text_overlay_plan", None)
+        if plan is None:
+            return 0
+        return sum(
+            1
+            for candidate in plan.candidates
+            if candidate.role == "model_native_hint"
+            and "native_prompt" in candidate.renderer_targets
+        )
+
+    def _record_text_layer_summary(
+        self,
+        ctx: PipelineContext,
+        *,
+        renderer: str,
+        text_tracks,
+        text_cues,
+        native_hint_count: int = 0,
+    ) -> None:
+        ctx.observability["text_layer_summary"] = {
+            "enabled": bool(text_tracks or text_cues or native_hint_count),
+            "renderer": renderer,
+            "track_count": len(text_tracks),
+            "cue_count": len(text_cues),
+            "native_prompt_hint_count": native_hint_count,
+            "targets": sorted(
+                {
+                    target
+                    for track in text_tracks
+                    for target in track.renderer_targets
+                }
+            ),
+        }
 
     def _align_hyperframes_timing_plan(self, ctx: PipelineContext) -> None:
         engine = (ctx.config.subtitle_alignment_engine or "qwen_forced_aligner").strip().lower()
@@ -1675,7 +1782,8 @@ class StandardPipeline(LinearVideoPipeline):
                     "video_path": result.video_path,
                     "duration": result.duration,
                     "file_size": result.file_size,
-                    "n_frames": len(storyboard.frames)
+                    "n_frames": len(storyboard.frames),
+                    "text_layer_summary": ctx.observability.get("text_layer_summary"),
                 },
                 
                 "config": {
