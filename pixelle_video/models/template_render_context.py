@@ -52,4 +52,5 @@ class TemplateRenderContext:
     captions: List[CaptionCue] = field(default_factory=list)
     text_tracks: List[TextTrack] = field(default_factory=list)
     text_cues: List[TextCue] = field(default_factory=list)
+    element_animation_manifest_path: Optional[str] = None
     audio: Optional[TemplateAudioRef] = None

@@ -52,6 +52,7 @@ class HyperFramesCompiler:
             "__CAPTIONS__": self._render_captions(context),
             "__TEXT_CUES__": self._render_text_cues(context),
             "__TEXT_TIMELINE__": self._render_text_timeline(context),
+            "__ELEMENT_ANIMATION_MANIFEST__": context.element_animation_manifest_path or "",
         }
 
         compiled_index = self._replace_placeholders(index_template, replacements)

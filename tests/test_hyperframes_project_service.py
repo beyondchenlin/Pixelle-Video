@@ -350,6 +350,122 @@ def test_write_project_materializes_local_assets_and_compiles_static_html(tmp_pa
     assert manifest_data["visual_clips"][0]["media_path"] == "assets/images/01_image.png"
 
 
+def test_write_project_materializes_element_animation_manifest_and_assets(tmp_path):
+    source_image = tmp_path / "source.png"
+    background_image = tmp_path / "background.png"
+    element_image = tmp_path / "element.png"
+    mask_image = tmp_path / "mask.png"
+    for path in (source_image, background_image, element_image, mask_image):
+        path.write_bytes(b"png")
+
+    element_manifest_path = tmp_path / "element_manifest.json"
+    element_manifest_path.write_text(
+        json.dumps(
+            {
+                "source_image_path": str(source_image),
+                "background": {"image_path": str(background_image)},
+                "elements": [
+                    {
+                        "id": "element-1",
+                        "image_path": str(element_image),
+                        "mask_path": str(mask_image),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = RenderManifest(
+        task_id="task-element-animation",
+        title="demo",
+        canvas_width=1080,
+        canvas_height=1920,
+        fps=30,
+        template_id="image_default",
+        element_animation_manifest_path=str(element_manifest_path),
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    project_paths = service.write_project(manifest, template_params={})
+
+    localized_manifest_path = project_paths.data_dir / "element_animation_manifest.json"
+    localized_background_path = (
+        project_paths.project_dir / "assets" / "element_animation" / "background.png"
+    )
+    localized_element_manifest = json.loads(
+        localized_manifest_path.read_text(encoding="utf-8")
+    )
+    render_manifest = json.loads(project_paths.manifest_path.read_text(encoding="utf-8"))
+
+    assert localized_manifest_path.exists()
+    assert localized_background_path.exists()
+    assert localized_element_manifest["background"]["image_path"].startswith(
+        "assets/element_animation/"
+    )
+    assert (
+        render_manifest["element_animation_manifest_path"]
+        == "data/element_animation_manifest.json"
+    )
+
+
+def test_build_template_render_context_carries_element_animation_manifest_path():
+    manifest = RenderManifest(
+        task_id="task-element-context",
+        title="demo",
+        canvas_width=1080,
+        canvas_height=1920,
+        fps=30,
+        template_id="image_default",
+        element_animation_manifest_path="data/element_animation_manifest.json",
+    )
+
+    context = build_template_render_context(manifest, template_params={})
+
+    assert (
+        context.element_animation_manifest_path
+        == "data/element_animation_manifest.json"
+    )
+
+
+def test_hyperframes_compiler_replaces_element_animation_manifest_placeholder(tmp_path):
+    from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
+
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "element_template"
+    compositions_dir = template_dir / "compositions"
+    compositions_dir.mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<script src="__ELEMENT_ANIMATION_MANIFEST__"></script>',
+        encoding="utf-8",
+    )
+    (compositions_dir / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+
+    manifest = RenderManifest(
+        task_id="task-element-compile",
+        title="demo",
+        canvas_width=1080,
+        canvas_height=1920,
+        fps=30,
+        template_id="element_template",
+        element_animation_manifest_path="data/element_animation_manifest.json",
+    )
+    context = build_template_render_context(manifest, template_params={})
+
+    compiler = HyperFramesCompiler(
+        template_root=template_root,
+        runtime_root=runtime_root,
+    )
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert 'src="data/element_animation_manifest.json"' in index_html
+
+
 def test_write_project_data_derives_captions_from_sentence_units_when_manifest_cues_missing(tmp_path):
     manifest = RenderManifest(
         task_id="task-2",

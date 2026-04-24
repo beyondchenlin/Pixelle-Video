@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
+from shutil import copy2
 
 from pixelle_video.models.render_package import (
     AudioBlock,
@@ -154,6 +155,7 @@ def build_template_render_context(
         captions=caption_cues,
         text_tracks=list(manifest.text_tracks),
         text_cues=list(manifest.text_cues),
+        element_animation_manifest_path=manifest.element_animation_manifest_path,
         audio=audio,
     )
 
@@ -346,11 +348,90 @@ class HyperFramesProjectService:
                 Path(manifest.master_audio_path).name
             ]
 
+        localized_element_animation_manifest_path = self._materialize_element_animation_manifest(
+            manifest.element_animation_manifest_path,
+            project_dir,
+        )
+
         return replace(
             manifest,
             master_audio_path=localized_master_audio_path,
             visual_clips=localized_visuals,
+            element_animation_manifest_path=localized_element_animation_manifest_path,
         )
+
+    def _materialize_element_animation_manifest(
+        self,
+        manifest_path: str | None,
+        project_dir: Path,
+    ) -> str | None:
+        if not manifest_path:
+            return None
+
+        source_manifest_path = Path(manifest_path)
+        if not source_manifest_path.exists():
+            return manifest_path
+
+        payload = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+        asset_dir = project_dir / "assets" / "element_animation"
+        data_dir = project_dir / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        self._localize_element_animation_asset(
+            payload,
+            "source_image_path",
+            source_manifest_path=source_manifest_path,
+            asset_dir=asset_dir,
+        )
+
+        background = payload.get("background")
+        if isinstance(background, dict):
+            self._localize_element_animation_asset(
+                background,
+                "image_path",
+                source_manifest_path=source_manifest_path,
+                asset_dir=asset_dir,
+            )
+
+        elements = payload.get("elements")
+        if isinstance(elements, list):
+            for element in elements:
+                if not isinstance(element, dict):
+                    continue
+                for key in ("image_path", "mask_path"):
+                    self._localize_element_animation_asset(
+                        element,
+                        key,
+                        source_manifest_path=source_manifest_path,
+                        asset_dir=asset_dir,
+                    )
+
+        target_manifest_path = data_dir / "element_animation_manifest.json"
+        self._write_json(target_manifest_path, payload)
+        return "data/element_animation_manifest.json"
+
+    def _localize_element_animation_asset(
+        self,
+        payload: dict,
+        key: str,
+        *,
+        source_manifest_path: Path,
+        asset_dir: Path,
+    ) -> None:
+        value = payload.get(key)
+        if not value:
+            return
+
+        source_path = Path(str(value))
+        if not source_path.is_absolute():
+            source_path = source_manifest_path.parent / source_path
+        if not source_path.exists():
+            return
+
+        asset_dir.mkdir(parents=True, exist_ok=True)
+        target_path = asset_dir / source_path.name
+        copy2(source_path, target_path)
+        payload[key] = f"assets/element_animation/{source_path.name}"
 
     def _normalize_manifest_timeline(
         self,
