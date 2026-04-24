@@ -1,6 +1,14 @@
 import json
 
-from pixelle_video.models.render_package import AudioBlock, CaptionCue, RenderManifest, SentenceUnit, VisualClip
+from pixelle_video.models.render_package import (
+    AudioBlock,
+    CaptionCue,
+    RenderManifest,
+    SentenceUnit,
+    TextCue,
+    TextTrack,
+    VisualClip,
+)
 from pixelle_video.services.hyperframes_project_service import (
     HyperFramesProjectService,
     build_template_render_context,
@@ -79,6 +87,49 @@ def test_write_project_data_writes_manifest_and_captions_files(tmp_path):
     assert not (project_paths.data_dir / "render-manifest.json").exists()
 
 
+def test_write_project_data_writes_text_tracks_diagnostic_payload(tmp_path):
+    manifest = RenderManifest(
+        task_id="task-text",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        text_tracks=[
+            TextTrack(
+                id="track-overlay",
+                kind="overlay",
+                name="重点词轨",
+                renderer_targets=("hyperframes",),
+            )
+        ],
+        text_cues=[
+            TextCue(
+                id="cue-1",
+                track_id="track-overlay",
+                text="重点词",
+                start=0.2,
+                end=1.4,
+                role="keyword",
+                slot="center",
+            )
+        ],
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    project_paths = service.write_project_data(manifest)
+
+    text_tracks_path = project_paths.data_dir / "text_tracks.json"
+    text_tracks_data = json.loads(text_tracks_path.read_text(encoding="utf-8"))
+    manifest_data = json.loads(project_paths.manifest_path.read_text(encoding="utf-8"))
+
+    assert text_tracks_path.exists()
+    assert text_tracks_data["task_id"] == "task-text"
+    assert text_tracks_data["text_tracks"][0]["kind"] == "overlay"
+    assert text_tracks_data["text_cues"][0]["role"] == "keyword"
+    assert manifest_data["text_tracks"][0]["id"] == "track-overlay"
+
+
 def test_build_template_render_context_prefers_remapped_timing_when_present():
     sentences = [
         SentenceUnit(
@@ -125,6 +176,42 @@ def test_build_template_render_context_prefers_remapped_timing_when_present():
     assert context.audio.path == "assets/audio/master_audio.wav"
     assert context.captions[0].start == 0.1
     assert context.captions[0].end == 2.2
+
+
+def test_build_template_render_context_carries_text_layer_from_manifest():
+    manifest = RenderManifest(
+        task_id="task-context",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        text_tracks=[
+            TextTrack(
+                id="track-overlay",
+                kind="overlay",
+                name="重点词轨",
+                renderer_targets=("hyperframes",),
+            )
+        ],
+        text_cues=[
+            TextCue(
+                id="cue-1",
+                track_id="track-overlay",
+                text="重点词",
+                start=0.2,
+                end=1.4,
+                role="keyword",
+                slot="center",
+            )
+        ],
+    )
+
+    context = build_template_render_context(manifest, template_params={})
+
+    assert context.text_tracks[0].id == "track-overlay"
+    assert context.text_cues[0].slot == "center"
+    assert context.duration == 1.4
 
 
 def test_write_project_materializes_local_assets_and_compiles_static_html(tmp_path):

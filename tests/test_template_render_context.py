@@ -1,4 +1,4 @@
-from pixelle_video.models.render_package import CaptionCue, VisualClip
+from pixelle_video.models.render_package import CaptionCue, TextCue, TextTrack, VisualClip
 from pixelle_video.models.template_render_context import (
     PHASE1_TEMPLATE_FIELD_INVENTORY,
     TemplateAudioRef,
@@ -43,6 +43,41 @@ def test_template_render_context_uses_render_timeline_values():
 
     assert context.visuals[0].start == 0.1
     assert context.captions[0].end == 1.5
+
+
+def test_template_render_context_exposes_text_layer_fields():
+    track = TextTrack(
+        id="track-overlay",
+        kind="overlay",
+        name="重点词轨",
+        renderer_targets=("hyperframes",),
+    )
+    cue = TextCue(
+        id="cue-1",
+        track_id="track-overlay",
+        text="重点词",
+        start=0.2,
+        end=1.4,
+        role="keyword",
+        slot="center",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=2.0,
+        fps=30,
+        title="demo",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        text_tracks=[track],
+        text_cues=[cue],
+    )
+
+    assert context.text_tracks[0].kind == "overlay"
+    assert context.text_cues[0].text == "重点词"
 
 
 def test_template_render_context_exposes_phase1_shell_fields():

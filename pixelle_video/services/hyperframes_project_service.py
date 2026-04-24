@@ -30,6 +30,7 @@ class HyperFramesProjectPaths:
     data_dir: Path
     manifest_path: Path
     captions_path: Path
+    text_tracks_path: Path
 
 
 def _build_caption_cues_from_sentences(manifest: RenderManifest) -> list[CaptionCue]:
@@ -124,6 +125,7 @@ def build_template_render_context(
 
     duration_candidates = [float(manifest.master_audio_duration or 0.0)]
     duration_candidates.extend(float(cue.end) for cue in caption_cues)
+    duration_candidates.extend(float(cue.end) for cue in manifest.text_cues)
     duration_candidates.extend(float(clip.end) for clip in manifest.visual_clips)
     duration = max(duration_candidates, default=0.0)
 
@@ -148,6 +150,8 @@ def build_template_render_context(
         template_params=params,
         visuals=list(manifest.visual_clips),
         captions=caption_cues,
+        text_tracks=list(manifest.text_tracks),
+        text_cues=list(manifest.text_cues),
         audio=audio,
     )
 
@@ -243,6 +247,13 @@ class HyperFramesProjectService:
             "captions": [cue.to_dict() for cue in caption_cues],
         }
 
+    def _build_text_tracks_payload(self, manifest: RenderManifest) -> dict:
+        return {
+            "task_id": manifest.task_id,
+            "text_tracks": [track.to_dict() for track in manifest.text_tracks],
+            "text_cues": [cue.to_dict() for cue in manifest.text_cues],
+        }
+
     def _resolve_caption_cues(self, manifest: RenderManifest) -> list[CaptionCue]:
         return list(manifest.caption_cues or _build_caption_cues_from_sentences(manifest))
 
@@ -268,6 +279,7 @@ class HyperFramesProjectService:
             data_dir=data_dir,
             manifest_path=data_dir / "render_manifest.json",
             captions_path=data_dir / "captions.json",
+            text_tracks_path=data_dir / "text_tracks.json",
         )
 
     def _write_diagnostic_payloads(
@@ -283,6 +295,10 @@ class HyperFramesProjectService:
         self._write_json(
             project_paths.captions_path,
             self._build_captions_payload(manifest, caption_cues),
+        )
+        self._write_json(
+            project_paths.text_tracks_path,
+            self._build_text_tracks_payload(manifest),
         )
 
     def _materialize_project_assets(
