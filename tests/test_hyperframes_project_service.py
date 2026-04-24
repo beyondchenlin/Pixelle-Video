@@ -495,6 +495,74 @@ def test_write_project_uses_unique_element_animation_asset_names_for_basename_co
     assert (project_paths.project_dir / second_localized_mask).exists()
 
 
+def test_write_project_uses_unique_element_animation_asset_names_for_case_collisions(tmp_path):
+    source_image = tmp_path / "source.png"
+    background_image = tmp_path / "background.png"
+    element_image = tmp_path / "element.png"
+    first_mask_dir = tmp_path / "first"
+    second_mask_dir = tmp_path / "second"
+    first_mask_dir.mkdir()
+    second_mask_dir.mkdir()
+    first_mask = first_mask_dir / "Mask.png"
+    second_mask = second_mask_dir / "mask.png"
+    source_image.write_bytes(b"source")
+    background_image.write_bytes(b"background")
+    element_image.write_bytes(b"element")
+    first_mask.write_bytes(b"first-mask")
+    second_mask.write_bytes(b"second-mask")
+
+    element_manifest_path = tmp_path / "element_manifest.json"
+    element_manifest_path.write_text(
+        json.dumps(
+            {
+                "source_image_path": str(source_image),
+                "background": {"image_path": str(background_image)},
+                "elements": [
+                    {
+                        "id": "element-1",
+                        "image_path": str(element_image),
+                        "mask_path": str(first_mask),
+                    },
+                    {
+                        "id": "element-2",
+                        "image_path": str(element_image),
+                        "mask_path": str(second_mask),
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = RenderManifest(
+        task_id="task-element-animation-case-collision",
+        title="demo",
+        canvas_width=1080,
+        canvas_height=1920,
+        fps=30,
+        template_id="image_default",
+        element_animation_manifest_path=str(element_manifest_path),
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    project_paths = service.write_project(manifest, template_params={})
+    localized_element_manifest = json.loads(
+        (project_paths.data_dir / "element_animation_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    first_localized_mask = localized_element_manifest["elements"][0]["mask_path"]
+    second_localized_mask = localized_element_manifest["elements"][1]["mask_path"]
+
+    assert first_localized_mask == "assets/element_animation/Mask.png"
+    assert second_localized_mask.startswith("assets/element_animation/mask_")
+    assert second_localized_mask.endswith(".png")
+    assert first_localized_mask != second_localized_mask
+    assert (project_paths.project_dir / first_localized_mask).read_bytes() == b"first-mask"
+    assert (project_paths.project_dir / second_localized_mask).read_bytes() == b"second-mask"
+
+
 def test_write_project_clears_missing_element_animation_manifest_path(tmp_path):
     from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 

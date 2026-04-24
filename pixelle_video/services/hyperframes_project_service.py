@@ -465,17 +465,19 @@ class HyperFramesProjectService:
         localized_filenames: dict[str, str],
     ) -> str:
         source_name = source_path.name
-        existing_source_key = localized_filenames.get(source_name)
+        source_name_key = source_name.casefold()
+        existing_source_key = localized_filenames.get(source_name_key)
         if existing_source_key is None or existing_source_key == source_key:
-            localized_filenames[source_name] = source_key
+            localized_filenames[source_name_key] = source_key
             return source_name
 
         path_hash = hashlib.sha256(source_key.encode("utf-8")).hexdigest()
         for length in (10, 16, 32, 64):
             candidate = f"{source_path.stem}_{path_hash[:length]}{source_path.suffix}"
-            existing_source_key = localized_filenames.get(candidate)
+            candidate_key = candidate.casefold()
+            existing_source_key = localized_filenames.get(candidate_key)
             if existing_source_key is None or existing_source_key == source_key:
-                localized_filenames[candidate] = source_key
+                localized_filenames[candidate_key] = source_key
                 return candidate
 
         raise ValueError(f"could not create unique filename for {source_path}")
