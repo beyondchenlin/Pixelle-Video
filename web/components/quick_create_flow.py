@@ -221,12 +221,9 @@ def build_quick_create_flow_diagram_html() -> str:
     return f"""
 <style>
 .quick-create-flow {{
-    --flow-gap: clamp(10px, 1.5vw, 16px);
-    --flow-arrow-span: clamp(18px, 2.4vw, 28px);
-    --flow-drop-gap: calc((var(--flow-gap) * 2) + var(--flow-arrow-span));
-    --flow-card-pad-x: clamp(12px, 1.7vw, 16px);
-    --flow-card-pad-y: clamp(12px, 1.5vw, 15px);
     --flow-radius: 12px;
+    container-type: inline-size;
+    container-name: quick-create-flow;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -242,10 +239,11 @@ def build_quick_create_flow_diagram_html() -> str:
 
 .quick-create-flow-title {{
     margin: 0;
-    font-size: clamp(1rem, 1vw, 1.08rem);
+    font-size: 1.02rem;
     font-weight: 700;
     color: #0f172a;
     line-height: 1.3;
+    overflow-wrap: anywhere;
 }}
 
 .quick-create-flow-caption {{
@@ -254,6 +252,7 @@ def build_quick_create_flow_diagram_html() -> str:
     font-size: 0.83rem;
     line-height: 1.55;
     color: #64748b;
+    overflow-wrap: anywhere;
 }}
 
 .quick-create-flow-badge {{
@@ -267,6 +266,11 @@ def build_quick_create_flow_diagram_html() -> str:
 }}
 
 .quick-create-flow-boards {{
+    --flow-gap: 14px;
+    --flow-arrow-span: 24px;
+    --flow-drop-gap: calc((var(--flow-gap) * 2) + var(--flow-arrow-span));
+    --flow-card-pad-x: 14px;
+    --flow-card-pad-y: 13px;
     display: flex;
     flex-direction: column;
     gap: var(--flow-gap);
@@ -288,6 +292,7 @@ def build_quick_create_flow_diagram_html() -> str:
     display: grid;
     gap: var(--flow-gap);
     align-items: center;
+    min-width: 0;
 }}
 
 .quick-create-flow-row-4 {{
@@ -306,7 +311,8 @@ def build_quick_create_flow_diagram_html() -> str:
 }}
 
 .quick-create-flow-row-desktop-bottom {{
-    width: min(100%, calc(50% - (var(--flow-gap) / 2)));
+    width: min(100%, calc(50% - (var(--flow-arrow-span) / 2) - var(--flow-gap)));
+    align-self: flex-start;
 }}
 
 .quick-create-flow-drop {{
@@ -331,7 +337,7 @@ def build_quick_create_flow_diagram_html() -> str:
 }}
 
 .quick-create-flow-card {{
-    min-height: clamp(78px, 12vw, 94px);
+    min-height: 84px;
     border-radius: var(--flow-radius);
     padding: var(--flow-card-pad-y) var(--flow-card-pad-x);
     border: 1px solid rgba(226, 232, 240, 0.96);
@@ -341,20 +347,26 @@ def build_quick_create_flow_diagram_html() -> str:
     flex-direction: column;
     justify-content: center;
     gap: 6px;
+    min-width: 0;
 }}
 
 .quick-create-flow-card strong {{
     display: block;
-    font-size: clamp(0.93rem, 0.95vw, 1rem);
+    font-size: 0.96rem;
     line-height: 1.2;
     color: #0f172a;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    text-wrap: balance;
 }}
 
 .quick-create-flow-card span {{
     display: block;
-    font-size: clamp(0.76rem, 0.82vw, 0.8rem);
+    font-size: 0.78rem;
     line-height: 1.45;
     color: #64748b;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }}
 
 .quick-create-flow-card-input {{
@@ -403,7 +415,7 @@ def build_quick_create_flow_diagram_html() -> str:
 
 .quick-create-flow-arrow-vertical {{
     width: 2px;
-    height: clamp(26px, 5vw, 34px);
+    height: 28px;
     background: linear-gradient(180deg, rgba(248, 113, 113, 0.18), #ef4444 68%, #ef4444);
     border-radius: 999px;
     position: relative;
@@ -441,13 +453,41 @@ def build_quick_create_flow_diagram_html() -> str:
     line-height: 1.6;
 }}
 
-@media (max-width: 980px) {{
+@container quick-create-flow (max-width: 760px) {{
+    .quick-create-flow-boards {{
+        --flow-gap: 10px;
+        --flow-arrow-span: 18px;
+        --flow-card-pad-x: 12px;
+        --flow-card-pad-y: 12px;
+    }}
+
     .quick-create-flow-head {{
         flex-direction: column;
     }}
 
     .quick-create-flow-caption {{
         max-width: none;
+    }}
+
+    .quick-create-flow-title {{
+        font-size: 0.98rem;
+    }}
+
+    .quick-create-flow-card {{
+        min-height: 76px;
+    }}
+
+    .quick-create-flow-card strong {{
+        font-size: 0.92rem;
+    }}
+
+    .quick-create-flow-card span {{
+        font-size: 0.76rem;
+        line-height: 1.4;
+    }}
+
+    .quick-create-flow-note {{
+        font-size: 0.76rem;
     }}
 
     .quick-create-flow-desktop {{
@@ -459,7 +499,14 @@ def build_quick_create_flow_diagram_html() -> str:
     }}
 }}
 
-@media (max-width: 680px) {{
+@container quick-create-flow (max-width: 430px) {{
+    .quick-create-flow-boards {{
+        --flow-gap: 9px;
+        --flow-arrow-span: 16px;
+        --flow-card-pad-x: 11px;
+        --flow-card-pad-y: 11px;
+    }}
+
     .quick-create-flow-tablet {{
         display: none;
     }}
@@ -469,8 +516,24 @@ def build_quick_create_flow_diagram_html() -> str:
         flex-direction: column;
     }}
 
+    .quick-create-flow-title {{
+        font-size: 0.96rem;
+    }}
+
     .quick-create-flow-card {{
-        min-height: clamp(72px, 20vw, 90px);
+        min-height: 0;
+    }}
+
+    .quick-create-flow-card strong {{
+        font-size: 0.9rem;
+    }}
+
+    .quick-create-flow-card span {{
+        font-size: 0.75rem;
+    }}
+
+    .quick-create-flow-stepper-arrow {{
+        padding: 7px 0 9px;
     }}
 }}
 </style>

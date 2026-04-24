@@ -306,10 +306,12 @@ def test_build_quick_create_flow_diagram_html_uses_responsive_layout_contract(mo
     assert "quick_create_flow.node.image.title" in html
     assert "quick_create_flow.node.generate.title" in html
     assert "quick_create_flow.note" in html
-    assert "min-height: clamp(" in html
-    assert "@media (max-width: 980px)" in html
-    assert "@media (max-width: 680px)" in html
-    assert "min-height: 440px;" not in html
+    assert "container-type: inline-size;" in html
+    assert "container-name: quick-create-flow;" in html
+    assert "@container quick-create-flow (max-width: 760px)" in html
+    assert "@container quick-create-flow (max-width: 430px)" in html
+    assert "overflow-wrap: anywhere;" in html
+    assert "@media (max-width: 980px)" not in html
     assert "padding-bottom: 12px;" in html
     assert (
         "grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr);"
