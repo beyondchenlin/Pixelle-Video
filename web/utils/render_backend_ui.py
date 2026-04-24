@@ -31,3 +31,26 @@ def get_task_render_backend(metadata: Mapping[str, Any]) -> Optional[str]:
         if candidate:
             return str(candidate)
     return None
+
+
+def get_task_text_layer_summary(metadata: Mapping[str, Any]) -> Optional[dict[str, Any]]:
+    """Read the text layer summary from completed task metadata."""
+    result_params = metadata.get("result") or {}
+    summary = result_params.get("text_layer_summary")
+    if not isinstance(summary, Mapping):
+        return None
+
+    try:
+        cue_count = int(summary.get("cue_count") or 0)
+    except (TypeError, ValueError):
+        cue_count = 0
+    try:
+        native_hint_count = int(summary.get("native_prompt_hint_count") or 0)
+    except (TypeError, ValueError):
+        native_hint_count = 0
+
+    return {
+        "renderer": str(summary.get("renderer") or "N/A"),
+        "cue_count": cue_count,
+        "native_prompt_hint_count": native_hint_count,
+    }

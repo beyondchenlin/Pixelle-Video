@@ -744,6 +744,8 @@
     "history.detail.storyboard_role_strategy": "角色策略",
     "history.detail.storyboard_role_locking": "角色锁定",
     "history.detail.storyboard_shot_strategy": "镜头策略",
-    "history.detail.storyboard_override_count": "覆盖帧数"
+    "history.detail.storyboard_override_count": "覆盖帧数",
+    "history.detail.text_layer": "文字层",
+    "history.detail.text_layer_summary": "渲染器：{renderer}；Cue 数量：{cue_count}；原生提示：{native_count}"
   }
 }

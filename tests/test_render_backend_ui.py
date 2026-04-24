@@ -1,8 +1,5 @@
 from web.components import style_config
-from web.utils import render_backend_ui
-from web.utils import tts_ui
-from web.utils import tts_audio_strategy_ui
-from web.utils import tts_split_mode_ui
+from web.utils import render_backend_ui, tts_audio_strategy_ui, tts_split_mode_ui, tts_ui
 
 
 def test_get_task_render_backend_prefers_effective_backend_then_requested_backend():
@@ -39,6 +36,27 @@ def test_get_task_render_backend_prefers_effective_backend_then_requested_backen
         == "hyperframes_compiled"
     )
     assert render_backend_ui.get_task_render_backend({}) is None
+
+
+def test_get_task_text_layer_summary_reads_result_payload():
+    summary = render_backend_ui.get_task_text_layer_summary(
+        {
+            "result": {
+                "text_layer_summary": {
+                    "renderer": "ass",
+                    "cue_count": 3,
+                    "native_prompt_hint_count": 1,
+                }
+            }
+        }
+    )
+
+    assert summary == {
+        "renderer": "ass",
+        "cue_count": 3,
+        "native_prompt_hint_count": 1,
+    }
+    assert render_backend_ui.get_task_text_layer_summary({}) is None
 
 
 def test_render_render_backend_selector_uses_runtime_default(monkeypatch):

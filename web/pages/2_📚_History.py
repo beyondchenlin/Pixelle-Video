@@ -34,7 +34,10 @@ from web.components.style_config import resolve_storyboard_preset_label
 from web.i18n import tr
 from web.state.session import get_pixelle_video, init_i18n, init_session_state
 from web.utils.async_helpers import run_async
-from web.utils.render_backend_ui import get_task_render_backend
+from web.utils.render_backend_ui import (
+    get_task_render_backend,
+    get_task_text_layer_summary,
+)
 
 # Page config
 st.set_page_config(
@@ -415,6 +418,17 @@ def render_task_detail_modal(task_id: str, pixelle_video):
         st.markdown(
             f"**{tr('history.detail.render_backend')}:** {get_task_render_backend(metadata) or 'N/A'}"
         )
+        text_layer_summary = get_task_text_layer_summary(metadata)
+        if text_layer_summary:
+            st.markdown(f"**{tr('history.detail.text_layer')}**")
+            st.markdown(
+                tr(
+                    "history.detail.text_layer_summary",
+                    renderer=text_layer_summary["renderer"],
+                    cue_count=text_layer_summary["cue_count"],
+                    native_count=text_layer_summary["native_prompt_hint_count"],
+                )
+            )
         planning_summary = summarize_storyboard_planning_snapshot(planning_snapshot)
         if planning_summary:
             st.markdown(f"**{tr('history.detail.storyboard_planning')}**")
