@@ -108,7 +108,7 @@ def test_render_frame_skips_unselected_elements(tmp_path: Path) -> None:
     assert frame.getpixel((1, 1)) == (10, 20, 30)
 
 
-def test_render_video_builds_ffmpeg_command_with_audio_mux(
+def test_render_video_muxes_audio_without_shortening_generated_frames(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -151,4 +151,4 @@ def test_render_video_builds_ffmpeg_command_with_audio_mux(
     assert str(audio) in command
     assert "-c:a" in command
     assert command[command.index("-c:a") + 1] == "aac"
-    assert "-shortest" in command
+    assert "-shortest" not in command
