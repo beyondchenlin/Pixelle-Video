@@ -16,29 +16,26 @@ Pipeline UI Package
 Exports registry functions and automatically registers available pipelines.
 """
 
-# Import all pipeline UI modules to ensure they register themselves.
-# The import order defines the tab order on Home; keep quick_create first.
-from web.pipelines import (
-    standard as standard,
-)
-from web.pipelines import (
-    action_transfer as action_transfer,
-)
-from web.pipelines import (
-    asset_based as asset_based,
-)
-from web.pipelines import (
-    digital_human as digital_human,
-)
-from web.pipelines import (
-    i2v as i2v,
-)
+from importlib import import_module
+
 from web.pipelines.base import (
     PipelineUI,
     get_all_pipeline_uis,
     get_pipeline_ui,
     register_pipeline_ui,
 )
+
+# The import order defines the tab order on Home; keep quick_create first.
+for _pipeline_module in (
+    "standard",
+    "action_transfer",
+    "asset_based",
+    "digital_human",
+    "i2v",
+):
+    import_module(f"web.pipelines.{_pipeline_module}")
+
+del _pipeline_module
 
 __all__ = [
     "PipelineUI",
