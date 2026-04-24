@@ -16,7 +16,22 @@ Render package models for the render contract.
 """
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
+
+from pixelle_video.models.text_overlay import (
+    FrozenJSONValue,
+    freeze_json_value,
+    thaw_json_value,
+)
+
+
+def _freeze_json_mapping(
+    value: Mapping[str, Any] | None,
+) -> Mapping[str, FrozenJSONValue]:
+    frozen = freeze_json_value(dict(value or {}))
+    if not isinstance(frozen, Mapping):
+        raise TypeError("Expected a JSON object mapping.")
+    return frozen
 
 
 @dataclass
@@ -121,6 +136,121 @@ class CaptionCue:
         )
 
 
+@dataclass(frozen=True)
+class TextTrack:
+    id: str
+    kind: str
+    name: str
+    version: str = "text_track.v1"
+    enabled: bool = True
+    renderer_targets: tuple[str, ...] = ()
+    style_profile: Optional[str] = None
+    layer: int = 0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "renderer_targets",
+            tuple(str(target) for target in self.renderer_targets),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "version": self.version,
+            "id": self.id,
+            "kind": self.kind,
+            "name": self.name,
+            "enabled": self.enabled,
+            "renderer_targets": list(self.renderer_targets),
+            "style_profile": self.style_profile,
+            "layer": self.layer,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TextTrack":
+        return cls(
+            version=str(data.get("version", "text_track.v1")),
+            id=str(data["id"]),
+            kind=str(data["kind"]),
+            name=str(data["name"]),
+            enabled=bool(data.get("enabled", True)),
+            renderer_targets=tuple(data.get("renderer_targets", ())),
+            style_profile=data.get("style_profile"),
+            layer=int(data.get("layer", 0)),
+        )
+
+
+@dataclass(frozen=True)
+class TextCue:
+    id: str
+    track_id: str
+    text: str
+    start: float
+    end: float
+    role: str
+    version: str = "text_cue.v1"
+    frame_indices: tuple[int, ...] = ()
+    slot: Optional[str] = None
+    layout: Mapping[str, FrozenJSONValue] = field(default_factory=dict)
+    style_profile: Optional[str] = None
+    layer: int = 0
+    priority: int = 0
+    language: Optional[str] = None
+    source: Mapping[str, FrozenJSONValue] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.end < self.start:
+            raise ValueError("TextCue end must be greater than or equal to start.")
+        object.__setattr__(self, "start", float(self.start))
+        object.__setattr__(self, "end", float(self.end))
+        object.__setattr__(
+            self,
+            "frame_indices",
+            tuple(int(index) for index in self.frame_indices),
+        )
+        object.__setattr__(self, "layout", _freeze_json_mapping(self.layout))
+        object.__setattr__(self, "source", _freeze_json_mapping(self.source))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "version": self.version,
+            "id": self.id,
+            "track_id": self.track_id,
+            "text": self.text,
+            "start": self.start,
+            "end": self.end,
+            "role": self.role,
+            "frame_indices": list(self.frame_indices),
+            "slot": self.slot,
+            "layout": thaw_json_value(self.layout),
+            "style_profile": self.style_profile,
+            "layer": self.layer,
+            "priority": self.priority,
+            "language": self.language,
+            "source": thaw_json_value(self.source),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TextCue":
+        return cls(
+            version=str(data.get("version", "text_cue.v1")),
+            id=str(data["id"]),
+            track_id=str(data["track_id"]),
+            text=str(data["text"]),
+            start=float(data["start"]),
+            end=float(data["end"]),
+            role=str(data["role"]),
+            frame_indices=tuple(data.get("frame_indices", ())),
+            slot=data.get("slot"),
+            layout=data.get("layout", {}),
+            style_profile=data.get("style_profile"),
+            layer=int(data.get("layer", 0)),
+            priority=int(data.get("priority", 0)),
+            language=data.get("language"),
+            source=data.get("source", {}),
+        )
+
+
 def resolve_render_window(unit: SentenceUnit) -> tuple[float, float]:
     if unit.remapped_start is not None and unit.remapped_end is not None:
         return unit.remapped_start, unit.remapped_end
@@ -145,6 +275,8 @@ class RenderManifest:
     sentence_units: List[SentenceUnit] = field(default_factory=list)
     visual_clips: List[VisualClip] = field(default_factory=list)
     caption_cues: List[CaptionCue] = field(default_factory=list)
+    text_tracks: List[TextTrack] = field(default_factory=list)
+    text_cues: List[TextCue] = field(default_factory=list)
     canonical_timeline: str = "source"
 
     def __init__(
@@ -164,6 +296,8 @@ class RenderManifest:
         sentence_units: Optional[List[SentenceUnit]] = None,
         visual_clips: Optional[List[VisualClip]] = None,
         caption_cues: Optional[List[CaptionCue]] = None,
+        text_tracks: Optional[List[TextTrack]] = None,
+        text_cues: Optional[List[TextCue]] = None,
         canonical_timeline: str = "source",
         width: Optional[int] = None,
         height: Optional[int] = None,
@@ -193,6 +327,8 @@ class RenderManifest:
         self.sentence_units = list(sentence_units or [])
         self.visual_clips = list(visual_clips or [])
         self.caption_cues = list(caption_cues or [])
+        self.text_tracks = list(text_tracks or [])
+        self.text_cues = list(text_cues or [])
         self.canonical_timeline = canonical_timeline
 
     @property
@@ -222,6 +358,8 @@ class RenderManifest:
             "sentence_units": [unit.to_dict() for unit in self.sentence_units],
             "visual_clips": [clip.to_dict() for clip in self.visual_clips],
             "caption_cues": [cue.to_dict() for cue in self.caption_cues],
+            "text_tracks": [track.to_dict() for track in self.text_tracks],
+            "text_cues": [cue.to_dict() for cue in self.text_cues],
             "canonical_timeline": self.canonical_timeline,
         }
 
@@ -242,5 +380,7 @@ class RenderManifest:
             sentence_units=[SentenceUnit.from_dict(item) for item in data.get("sentence_units", [])],
             visual_clips=[VisualClip.from_dict(item) for item in data.get("visual_clips", [])],
             caption_cues=[CaptionCue.from_dict(item) for item in data.get("caption_cues", [])],
+            text_tracks=[TextTrack.from_dict(item) for item in data.get("text_tracks", [])],
+            text_cues=[TextCue.from_dict(item) for item in data.get("text_cues", [])],
             canonical_timeline=data.get("canonical_timeline", "source"),
         )

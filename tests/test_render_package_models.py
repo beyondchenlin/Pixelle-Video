@@ -8,6 +8,8 @@ from pixelle_video.models.render_package import (
     CaptionCue,
     RenderManifest,
     SentenceUnit,
+    TextCue,
+    TextTrack,
     VisualClip,
     resolve_render_window,
 )
@@ -83,6 +85,98 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
 
     assert restored.caption_cues[0].text == "Sentence 1"
     assert restored.audio_blocks[0].end == 4.2
+
+
+def test_text_track_and_text_cue_round_trip_with_immutable_layout_and_source():
+    cue = TextCue(
+        id="cue-1",
+        track_id="track-overlay",
+        text="重点词",
+        start=0.2,
+        end=1.4,
+        role="keyword",
+        frame_indices=(0,),
+        slot="center",
+        layout={"x": 0.5, "y": 0.35, "tokens": ["重点词"]},
+        style_profile="default",
+        layer=5,
+        priority=10,
+        language="zh-CN",
+        source={"kind": "text_overlay_plan", "candidate_id": "candidate-1"},
+    )
+
+    restored = TextCue.from_dict(cue.to_dict())
+
+    assert restored.version == "text_cue.v1"
+    assert restored.frame_indices == (0,)
+    assert restored.layout["tokens"] == ("重点词",)
+    assert restored.to_dict()["layout"]["tokens"] == ["重点词"]
+    assert restored.source["candidate_id"] == "candidate-1"
+
+
+def test_render_manifest_round_trips_text_tracks_and_text_cues_while_preserving_captions():
+    manifest = RenderManifest(
+        task_id="task-1",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        text_tracks=[
+            TextTrack(
+                id="track-overlay",
+                kind="overlay",
+                name="重点词轨",
+                renderer_targets=("hyperframes",),
+                style_profile="default",
+                layer=5,
+            )
+        ],
+        text_cues=[
+            TextCue(
+                id="cue-1",
+                track_id="track-overlay",
+                text="重点词",
+                start=0.2,
+                end=1.4,
+                role="keyword",
+                frame_indices=(0,),
+                slot="center",
+            )
+        ],
+        caption_cues=[
+            CaptionCue(
+                id="caption-1",
+                text="字幕",
+                start=0.0,
+                end=1.0,
+                frame_indices=[0],
+            )
+        ],
+    )
+
+    restored = RenderManifest.from_dict(manifest.to_dict())
+
+    assert restored.text_tracks[0].kind == "overlay"
+    assert restored.text_cues[0].role == "keyword"
+    assert restored.caption_cues[0].text == "字幕"
+
+
+def test_render_manifest_from_old_payload_defaults_text_layer_to_empty_lists():
+    payload = {
+        "task_id": "task-old",
+        "title": "demo",
+        "width": 1080,
+        "height": 1920,
+        "fps": 30,
+        "template_id": "image_default",
+        "caption_cues": [],
+    }
+
+    restored = RenderManifest.from_dict(payload)
+
+    assert restored.text_tracks == []
+    assert restored.text_cues == []
 
 
 def test_render_manifest_distinguishes_canvas_from_media_dimensions():
