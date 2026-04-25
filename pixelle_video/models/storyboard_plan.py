@@ -112,6 +112,22 @@ class StoryboardPlan:
             raise ValueError("source_text must not be empty")
         if not frames:
             raise ValueError("StoryboardPlan requires at least one frame")
+        if revision < 1:
+            raise ValueError("revision must be at least 1")
+
+        mode_value = StoryboardGenerationMode(mode)
+        count_mode_value = StoryboardCountMode(count_mode)
+        is_smart_manual = (
+            mode_value == StoryboardGenerationMode.SMART
+            and count_mode_value == StoryboardCountMode.MANUAL
+        )
+        if count_mode_value == StoryboardCountMode.MANUAL and mode_value != StoryboardGenerationMode.SMART:
+            raise ValueError("manual count mode is only valid for smart mode")
+        if is_smart_manual:
+            if requested_scene_count != len(frames):
+                raise ValueError("requested_scene_count must match frame count")
+        elif requested_scene_count is not None:
+            raise ValueError("requested_scene_count is only valid for smart manual mode")
 
         expected_indexes = list(range(1, len(frames) + 1))
         actual_indexes = [frame.index for frame in frames]
@@ -121,6 +137,7 @@ class StoryboardPlan:
         digest = hashlib.sha256(normalized_source.encode("utf-8")).hexdigest()
         stable_plan_id = plan_id or f"plan_{uuid.uuid4().hex}"
         owned_frames: list[StoryboardPlanFrame] = []
+        frame_ids: set[str] = set()
         for frame in frames:
             if not frame.narration_text.strip():
                 raise ValueError("frame narration_text must not be empty")
@@ -129,7 +146,11 @@ class StoryboardPlan:
                     raise ValueError("source_start and source_end must be set together")
                 if not 0 <= frame.source_start <= frame.source_end <= len(normalized_source):
                     raise ValueError("frame source range must index StoryboardPlan.source_text")
+            _validate_source_spans(frame.metadata, normalized_source)
             frame_id = frame.frame_id or f"frame_{frame.index:04d}_{uuid.uuid4().hex[:8]}"
+            if frame_id in frame_ids:
+                raise ValueError("frame_id must be unique")
+            frame_ids.add(frame_id)
             owned_frames.append(
                 StoryboardPlanFrame(
                     index=frame.index,
@@ -153,10 +174,10 @@ class StoryboardPlan:
         return cls(
             plan_id=stable_plan_id,
             revision=revision,
-            mode=StoryboardGenerationMode(mode),
-            count_mode=StoryboardCountMode(count_mode),
+            mode=mode_value,
+            count_mode=count_mode_value,
             requested_scene_count=requested_scene_count,
-            resolved_scene_count=len(frames),
+            resolved_scene_count=len(owned_frames),
             source_text=normalized_source,
             source_digest=digest,
             frames=tuple(owned_frames),
@@ -179,3 +200,41 @@ class StoryboardPlan:
             "frames": [frame.to_dict() for frame in self.frames],
             "diagnostics": deepcopy(self.diagnostics),
         }
+
+
+def _validate_source_spans(metadata: dict[str, Any], source_text: str) -> None:
+    source_spans = metadata.get("source_spans")
+    if source_spans is None:
+        return
+    if not isinstance(source_spans, list):
+        raise ValueError("source_spans must be a list")
+
+    previous_start = -1
+    previous_end = -1
+    for span in source_spans:
+        if isinstance(span, SourceSpan):
+            start = span.start
+            end = span.end
+            text = span.text
+            reason = span.reason
+        elif isinstance(span, dict):
+            start = span.get("start")
+            end = span.get("end")
+            text = span.get("text")
+            reason = span.get("reason", "")
+        else:
+            raise ValueError("source_spans entries must be SourceSpan or dict")
+
+        if not isinstance(start, int) or not isinstance(end, int):
+            raise ValueError("source_spans start and end must be integers")
+        if start < previous_start:
+            raise ValueError("source_spans must be sorted by start")
+        if not 0 <= start <= end <= len(source_text):
+            raise ValueError("source_spans range must index StoryboardPlan.source_text")
+        if not isinstance(text, str) or text != source_text[start:end]:
+            raise ValueError("source_spans text must match source_text slice")
+        if start < previous_end and not str(reason).strip():
+            raise ValueError("overlapping source_spans must include a reason")
+
+        previous_start = start
+        previous_end = max(previous_end, end)

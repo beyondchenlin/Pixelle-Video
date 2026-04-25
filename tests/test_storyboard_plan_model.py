@@ -174,3 +174,153 @@ def test_storyboard_plan_rejects_non_contiguous_indices():
                 )
             ],
         )
+
+
+def test_storyboard_plan_rejects_invalid_source_span_text():
+    with pytest.raises(ValueError, match="source_spans text must match source_text slice"):
+        StoryboardPlan.build(
+            mode="smart",
+            count_mode="auto",
+            requested_scene_count=None,
+            source_text="abcdef",
+            frames=[
+                StoryboardPlanFrame(
+                    index=1,
+                    source_text="abc",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                    metadata={"source_spans": [SourceSpan(start=0, end=3, text="wrong").to_dict()]},
+                )
+            ],
+        )
+
+
+def test_storyboard_plan_rejects_unsorted_source_spans():
+    with pytest.raises(ValueError, match="source_spans must be sorted by start"):
+        StoryboardPlan.build(
+            mode="smart",
+            count_mode="auto",
+            requested_scene_count=None,
+            source_text="abcdef",
+            frames=[
+                StoryboardPlanFrame(
+                    index=1,
+                    source_text="abcdef",
+                    narration_text="abcdef",
+                    visual_goal="show abcdef",
+                    prompt_intent="show abcdef",
+                    metadata={
+                        "source_spans": [
+                            SourceSpan(start=3, end=6, text="def").to_dict(),
+                            SourceSpan(start=0, end=3, text="abc").to_dict(),
+                        ]
+                    },
+                )
+            ],
+        )
+
+
+def test_storyboard_plan_rejects_manual_count_mismatch():
+    with pytest.raises(ValueError, match="requested_scene_count must match frame count"):
+        StoryboardPlan.build(
+            mode="smart",
+            count_mode="manual",
+            requested_scene_count=2,
+            source_text="abc",
+            frames=[
+                StoryboardPlanFrame(
+                    index=1,
+                    source_text="abc",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                )
+            ],
+        )
+
+
+def test_storyboard_plan_rejects_requested_count_outside_smart_manual():
+    with pytest.raises(ValueError, match="requested_scene_count is only valid for smart manual mode"):
+        StoryboardPlan.build(
+            mode="sentence",
+            count_mode="auto",
+            requested_scene_count=1,
+            source_text="abc",
+            frames=[
+                StoryboardPlanFrame(
+                    index=1,
+                    source_text="abc",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                )
+            ],
+        )
+
+
+def test_storyboard_plan_rejects_manual_count_mode_outside_smart():
+    with pytest.raises(ValueError, match="manual count mode is only valid for smart mode"):
+        StoryboardPlan.build(
+            mode="sentence",
+            count_mode="manual",
+            requested_scene_count=None,
+            source_text="abc",
+            frames=[
+                StoryboardPlanFrame(
+                    index=1,
+                    source_text="abc",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                )
+            ],
+        )
+
+
+def test_storyboard_plan_rejects_duplicate_frame_ids():
+    with pytest.raises(ValueError, match="frame_id must be unique"):
+        StoryboardPlan.build(
+            mode="smart",
+            count_mode="auto",
+            requested_scene_count=None,
+            source_text="abcdef",
+            frames=[
+                StoryboardPlanFrame(
+                    frame_id="frame_duplicate",
+                    index=1,
+                    source_text="abc",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                ),
+                StoryboardPlanFrame(
+                    frame_id="frame_duplicate",
+                    index=2,
+                    source_text="def",
+                    narration_text="def",
+                    visual_goal="show def",
+                    prompt_intent="show def",
+                ),
+            ],
+        )
+
+
+def test_storyboard_plan_rejects_invalid_revision():
+    with pytest.raises(ValueError, match="revision must be at least 1"):
+        StoryboardPlan.build(
+            mode="smart",
+            count_mode="auto",
+            requested_scene_count=None,
+            revision=0,
+            source_text="abc",
+            frames=[
+                StoryboardPlanFrame(
+                    index=1,
+                    source_text="abc",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                )
+            ],
+        )
