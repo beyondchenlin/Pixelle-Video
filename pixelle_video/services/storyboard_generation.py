@@ -14,6 +14,11 @@ from pixelle_video.models.storyboard_plan import (
 from pixelle_video.prompts.storyboard_generation import build_smart_storyboard_prompt
 
 
+SMART_STORYBOARD_BASE_MAX_TOKENS = 2000
+SMART_STORYBOARD_MAX_TOKENS_PER_SCENE = 350
+SMART_STORYBOARD_COMPATIBLE_MAX_TOKENS = 8192
+
+
 SENTENCE_TERMINATORS = "。！？.!?"
 CLOSING_PUNCTUATION = "”’\"'）)]}》】」』"
 
@@ -108,6 +113,14 @@ def _positive_int_config(config: dict[str, Any] | None, key: str, default: int) 
     if type(value) is not int or value < 1:
         raise ValueError(f"{key} must be a positive integer")
     return value
+
+
+def _smart_storyboard_max_tokens(max_scene_count: int) -> int:
+    requested_tokens = max(
+        SMART_STORYBOARD_BASE_MAX_TOKENS,
+        max_scene_count * SMART_STORYBOARD_MAX_TOKENS_PER_SCENE,
+    )
+    return min(requested_tokens, SMART_STORYBOARD_COMPATIBLE_MAX_TOKENS)
 
 
 def _repair_prompt(original_prompt: str, reason: str) -> str:
@@ -243,7 +256,7 @@ class StoryboardGenerationService:
                     prompt=current_prompt,
                     response_type=SmartStoryboardPlanResponse,
                     temperature=temperature,
-                    max_tokens=max(2000, max_scene_count * 350),
+                    max_tokens=_smart_storyboard_max_tokens(max_scene_count),
                 )
                 self._validate_smart_frame_count(
                     frame_count=len(response.frames),

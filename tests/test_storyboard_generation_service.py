@@ -331,6 +331,33 @@ async def test_smart_auto_uses_llm_to_create_plan_from_whole_source_text():
 
 
 @pytest.mark.asyncio
+async def test_smart_auto_caps_default_max_tokens_for_qwen_compatible_providers():
+    service = StoryboardGenerationService()
+    llm = SmartFakeLLM(
+        frames=[
+            {
+                "source_text": "alpha beta",
+                "narration_text": "alpha beta",
+                "visual_goal": "Introduce alpha beta.",
+                "prompt_intent": "A focused simple visual.",
+                "source_start": 0,
+                "source_end": 10,
+            }
+        ]
+    )
+
+    await service.generate(
+        llm_service=llm,
+        source_text="alpha beta",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert llm.calls[0]["max_tokens"] == 8192
+
+
+@pytest.mark.asyncio
 async def test_smart_backfills_source_ranges_from_exact_source_text_matches():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     llm = SmartFakeLLM(
