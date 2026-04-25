@@ -45,6 +45,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+import api.routers.tasks as tasks_router_module
+import api.routers.video as video_router_module
+import api.tasks.manager as task_manager_module
 from api.config import api_config
 from api.dependencies import shutdown_pixelle_video
 
@@ -61,7 +64,7 @@ from api.routers import (
     tts_router,
     video_router,
 )
-from api.tasks import task_manager
+from api.tasks.factory import build_task_manager
 
 
 @asynccontextmanager
@@ -73,14 +76,19 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info("🚀 Starting Pixelle-Video API...")
-    await task_manager.start()
+    manager = build_task_manager(api_config)
+    task_manager_module.task_manager = manager
+    tasks_router_module.task_manager = manager
+    video_router_module.task_manager = manager
+    app.state.task_manager = manager
+    await manager.start()
     logger.info("✅ Pixelle-Video API started successfully\n")
     
     yield
     
     # Shutdown
     logger.info("🛑 Shutting down Pixelle-Video API...")
-    await task_manager.stop()
+    await app.state.task_manager.stop()
     await shutdown_pixelle_video()
     logger.info("✅ Pixelle-Video API shutdown complete")
 
