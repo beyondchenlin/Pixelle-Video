@@ -213,15 +213,35 @@ class StoryboardGenerationService:
             min_scene_count=min_scene_count,
             max_scene_count=max_scene_count,
         )
-        frames = await self._generate_smart_frames_with_repair(
-            llm_service=llm_service,
-            prompt=prompt,
-            source_text=normalized_source,
-            count_mode=count_mode,
-            requested_scene_count=requested_scene_count,
-            min_scene_count=min_scene_count,
-            max_scene_count=max_scene_count,
-        )
+        try:
+            frames = await self._generate_smart_frames_with_repair(
+                llm_service=llm_service,
+                prompt=prompt,
+                source_text=normalized_source,
+                count_mode=count_mode,
+                requested_scene_count=requested_scene_count,
+                min_scene_count=min_scene_count,
+                max_scene_count=max_scene_count,
+            )
+        except ValueError as exc:
+            if (
+                count_mode != "auto"
+                or str(exc) != "smart storyboard frame source_text must be traceable"
+            ):
+                raise
+            return self._plan_from_segments(
+                mode="smart",
+                count_mode=count_mode,
+                requested_scene_count=requested_scene_count,
+                source_text=normalized_source,
+                segments=_sentence_segments(normalized_source),
+                frame_strategy="smart_sentence_fallback",
+                diagnostics_strategy="smart_sentence_fallback",
+                extra_diagnostics={
+                    "requested_scene_count": requested_scene_count,
+                    "fallback_reason": str(exc),
+                },
+            )
 
         return StoryboardPlan.build(
             mode="smart",
@@ -351,6 +371,9 @@ class StoryboardGenerationService:
         requested_scene_count: int | None,
         source_text: str,
         segments: list[tuple[str, int, int]],
+        frame_strategy: str | None = None,
+        diagnostics_strategy: str | None = None,
+        extra_diagnostics: dict[str, Any] | None = None,
     ) -> StoryboardPlan:
         normalized_source = _normalize_text(source_text)
         effective_segments = segments or [(normalized_source, 0, len(normalized_source))]
@@ -369,15 +392,21 @@ class StoryboardGenerationService:
                 prompt_intent=f"Create a coherent scene that communicates: {segment}",
                 source_start=start,
                 source_end=end,
-                metadata={"strategy": mode},
+                metadata={"strategy": frame_strategy or mode},
             )
             for index, (segment, start, end) in enumerate(effective_segments, start=1)
         ]
+        diagnostics = {
+            "strategy": diagnostics_strategy or mode,
+            "split_count": len(frames),
+        }
+        if extra_diagnostics:
+            diagnostics.update(extra_diagnostics)
         return StoryboardPlan.build(
             mode=mode,
             count_mode=count_mode,
             requested_scene_count=requested_scene_count,
             source_text=normalized_source,
             frames=frames,
-            diagnostics={"strategy": mode, "split_count": len(frames)},
+            diagnostics=diagnostics,
         )

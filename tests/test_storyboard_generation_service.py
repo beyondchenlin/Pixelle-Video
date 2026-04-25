@@ -706,7 +706,45 @@ async def test_smart_repairs_manual_count_mismatch_once():
 
 
 @pytest.mark.asyncio
-async def test_smart_rejects_unlocatable_source_text_after_repair():
+async def test_smart_auto_falls_back_to_sentence_segments_after_repair_traceability_failure():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    bad_frame = [
+        {
+            "source_text": "不存在的片段。",
+            "narration_text": "不存在的片段。",
+            "visual_goal": "Bad segment.",
+            "prompt_intent": "Bad segment.",
+        }
+    ]
+    llm = SequencedSmartFakeLLM([bad_frame, bad_frame])
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="开头完整表达。结尾完整表达。",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert len(llm.calls) == 2
+    assert plan.mode.value == "smart"
+    assert plan.count_mode.value == "auto"
+    assert plan.diagnostics["strategy"] == "smart_sentence_fallback"
+    assert plan.diagnostics["fallback_reason"] == (
+        "smart storyboard frame source_text must be traceable"
+    )
+    assert [frame.source_text for frame in plan.frames] == [
+        "开头完整表达。",
+        "结尾完整表达。",
+    ]
+    assert all(
+        frame.metadata["strategy"] == "smart_sentence_fallback"
+        for frame in plan.frames
+    )
+
+
+@pytest.mark.asyncio
+async def test_smart_manual_rejects_unlocatable_source_text_after_repair():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     bad_frame = [
         {
@@ -723,8 +761,8 @@ async def test_smart_rejects_unlocatable_source_text_after_repair():
             llm_service=llm,
             source_text="开头完整表达。结尾完整表达。",
             storyboard_mode="smart",
-            storyboard_count_mode="auto",
-            storyboard_scene_count=None,
+            storyboard_count_mode="manual",
+            storyboard_scene_count=1,
         )
 
     assert len(llm.calls) == 2
