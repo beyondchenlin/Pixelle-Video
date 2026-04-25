@@ -176,8 +176,19 @@ class TaskManager:
     ) -> list[Task]:
         """List tasks from the store and legacy memory."""
         legacy_tasks = list(self._tasks.values())
-        if status:
+        if status is not None:
             legacy_tasks = [task for task in legacy_tasks if task.status == status]
+
+        deduped_legacy_tasks = []
+        for task in legacy_tasks:
+            store_task = await self.store.get_task(task.task_id)
+            if store_task is not None and (
+                status is None or store_task.status == status
+            ):
+                continue
+            deduped_legacy_tasks.append(task)
+
+        legacy_tasks = deduped_legacy_tasks
         if not legacy_tasks:
             return await self.store.list_tasks(status=status, limit=limit, offset=offset)
 

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from api.tasks.artifacts import MissingArtifactStore
@@ -113,6 +115,39 @@ async def test_manager_list_tasks_without_legacy_tasks_delegates_exact_offset_to
         {"status": TaskStatus.PENDING, "limit": 2, "offset": 3}
     ]
     assert [task.task_id for task in tasks] == ["task-3", "task-4"]
+
+
+@pytest.mark.asyncio
+async def test_manager_list_tasks_dedupes_legacy_tasks_against_global_store():
+    store = InMemoryTaskStore()
+    manager = TaskManager(store=store, registry=object(), execution_mode="embedded")
+    base_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    for index in range(5):
+        await store.create_task(
+            Task(
+                task_id=f"task-{index}",
+                task_type=TaskType.VIDEO_GENERATION,
+                created_at=base_time + timedelta(seconds=index),
+            )
+        )
+
+    manager._tasks["task-0"] = Task(
+        task_id="task-0",
+        task_type=TaskType.VIDEO_GENERATION,
+        created_at=base_time + timedelta(seconds=10),
+    )
+
+    page_1 = await manager.list_tasks(limit=3, offset=0)
+    page_2 = await manager.list_tasks(limit=3, offset=3)
+
+    page_1_ids = [task.task_id for task in page_1]
+    page_2_ids = [task.task_id for task in page_2]
+    combined_ids = page_1_ids + page_2_ids
+
+    assert page_1_ids == ["task-4", "task-3", "task-2"]
+    assert page_2_ids == ["task-1", "task-0"]
+    assert len(combined_ids) == len(set(combined_ids))
 
 
 @pytest.mark.asyncio
