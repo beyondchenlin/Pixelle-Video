@@ -4,6 +4,7 @@ from pixelle_video.models.text_overlay import (
     TextOverlayCandidate,
     TextOverlayPlan,
     TextRenderingPolicy,
+    build_text_rendering_settings,
     build_text_rendering_policy,
     freeze_json_value,
     thaw_json_value,
@@ -75,6 +76,52 @@ def test_build_text_rendering_policy_respects_disabled_nested_request():
     assert policy.enabled_targets == ()
     assert policy.allow_native_text_in_image is False
     assert policy.suppress_unplanned_embedded_text is True
+
+
+def test_build_text_rendering_settings_defaults_do_not_suppress_image_text():
+    settings = build_text_rendering_settings(None)
+
+    assert settings.overlay.enabled is False
+    assert settings.image_text.suppress_embedded_text is False
+    assert settings.image_text.positive_prompt.startswith("no visible text")
+
+
+def test_build_text_rendering_settings_accepts_custom_image_text_prompt():
+    settings = build_text_rendering_settings(
+        {
+            "image_text": {
+                "suppress_embedded_text": True,
+                "positive_prompt": "avoid all written marks",
+                "negative_prompt": "letters, logo",
+            }
+        }
+    )
+
+    assert settings.image_text.suppress_embedded_text is True
+    assert settings.image_text.positive_prompt == "avoid all written marks"
+    assert settings.image_text.negative_prompt == "letters, logo"
+
+
+def test_build_text_rendering_policy_uses_overlay_only():
+    settings = build_text_rendering_settings(
+        {
+            "overlay": {
+                "enabled": True,
+                "mode": "programmatic_only",
+                "renderer_targets": ["ass"],
+                "density": "high",
+                "max_items_per_frame": 3,
+            },
+            "image_text": {"suppress_embedded_text": True},
+        }
+    )
+
+    policy = build_text_rendering_policy(settings.overlay)
+
+    assert policy.image_text_mode == "programmatic_only"
+    assert policy.enabled_targets == ("ass",)
+    assert policy.density == "high"
+    assert policy.max_items_per_frame == 3
 
 
 def test_freeze_json_value_blocks_nested_mutation_and_thaws_to_plain_json():

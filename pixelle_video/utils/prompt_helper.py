@@ -158,6 +158,20 @@ def apply_no_text_policy(prompt: str, enabled: bool = True) -> str:
     return ", ".join(_normalize_prompt_list([cleaned_prompt, NO_TEXT_POSITIVE_RULE]))
 
 
+def apply_image_text_policy(prompt: str, image_text_policy: Any) -> str:
+    cleaned_prompt = (prompt or "").strip()
+    if not cleaned_prompt:
+        return cleaned_prompt
+    if not _read_value(image_text_policy, "suppress_embedded_text", False):
+        return cleaned_prompt
+    positive_prompt = str(
+        _read_value(image_text_policy, "positive_prompt", "") or ""
+    ).strip()
+    if not positive_prompt:
+        return cleaned_prompt
+    return ", ".join(_normalize_prompt_list([cleaned_prompt, positive_prompt]))
+
+
 def apply_text_rendering_policy(
     prompt: str,
     *,
@@ -171,6 +185,17 @@ def apply_text_rendering_policy(
         prompt,
         enabled=_read_value(policy, "suppress_unplanned_embedded_text", True),
     )
+
+
+def select_image_text_negative_prompt(image_text_policy: Any) -> tuple[str, ...] | None:
+    if not _read_value(image_text_policy, "suppress_embedded_text", False):
+        return None
+    negative_prompt = str(
+        _read_value(image_text_policy, "negative_prompt", "") or ""
+    ).strip()
+    if not negative_prompt:
+        return None
+    return tuple(_normalize_negative_rule_list([negative_prompt]))
 
 
 def select_negative_text_rules(

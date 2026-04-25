@@ -13,6 +13,11 @@ FrozenJSONValue = (
 _TEXT_MODES = {"suppress", "programmatic_only", "native_hint", "hybrid"}
 _TARGETS = {"hyperframes", "html", "ass", "native_prompt", "python"}
 _DENSITIES = {"low", "medium", "high"}
+DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT = (
+    "no visible text, no Chinese characters, no English letters, no words, "
+    "no subtitles, no captions, no watermark, no logo text, convey the idea "
+    "through objects, symbols, composition, and scene elements instead of written text"
+)
 
 
 def freeze_json_value(value: Any) -> FrozenJSONValue:
@@ -39,6 +44,59 @@ def thaw_json_value(value: Any) -> JSONValue:
 
 def _freeze_mapping(value: Mapping[str, Any] | None) -> Mapping[str, FrozenJSONValue]:
     return freeze_json_value(dict(value or {}))
+
+
+@dataclass(frozen=True)
+class TextOverlaySettings:
+    enabled: bool = False
+    mode: str = "programmatic_only"
+    renderer_targets: tuple[str, ...] = ()
+    density: str = "medium"
+    max_items_per_frame: int = 2
+
+
+@dataclass(frozen=True)
+class ImageTextPromptPolicy:
+    suppress_embedded_text: bool = False
+    positive_prompt: str = DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
+    negative_prompt: str | None = None
+
+
+@dataclass(frozen=True)
+class TextRenderingSettings:
+    overlay: TextOverlaySettings = field(default_factory=TextOverlaySettings)
+    image_text: ImageTextPromptPolicy = field(default_factory=ImageTextPromptPolicy)
+
+
+def build_text_rendering_settings(data: Mapping[str, Any] | None) -> TextRenderingSettings:
+    payload = dict(data or {})
+    overlay_payload = dict(payload.get("overlay") or {})
+    image_payload = dict(payload.get("image_text") or {})
+    return TextRenderingSettings(
+        overlay=TextOverlaySettings(
+            enabled=bool(overlay_payload.get("enabled", False)),
+            mode=str(overlay_payload.get("mode", "programmatic_only")),
+            renderer_targets=tuple(overlay_payload.get("renderer_targets", ())),
+            density=str(overlay_payload.get("density", "medium")),
+            max_items_per_frame=int(overlay_payload.get("max_items_per_frame", 2)),
+        ),
+        image_text=ImageTextPromptPolicy(
+            suppress_embedded_text=bool(
+                image_payload.get("suppress_embedded_text", False)
+            ),
+            positive_prompt=str(
+                image_payload.get(
+                    "positive_prompt", DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
+                )
+                or ""
+            ).strip(),
+            negative_prompt=(
+                str(image_payload.get("negative_prompt")).strip()
+                if image_payload.get("negative_prompt") is not None
+                else None
+            ),
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -104,11 +162,21 @@ class TextRenderingPolicy:
 
 
 def build_text_rendering_policy(
-    text_layer_request: Mapping[str, Any] | None,
+    overlay: TextOverlaySettings | Mapping[str, Any] | None,
     *,
-    forbid_embedded_text_in_image: bool | None,
+    forbid_embedded_text_in_image: bool | None = None,
 ) -> TextRenderingPolicy:
-    request = dict(text_layer_request or {})
+    if isinstance(overlay, TextOverlaySettings):
+        request = {
+            "enabled": overlay.enabled,
+            "mode": overlay.mode,
+            "renderer_targets": overlay.renderer_targets,
+            "density": overlay.density,
+            "max_items_per_frame": overlay.max_items_per_frame,
+        }
+    else:
+        request = dict(overlay or {})
+
     if not request:
         if forbid_embedded_text_in_image is False:
             return TextRenderingPolicy(
@@ -121,7 +189,7 @@ def build_text_rendering_policy(
             )
         return TextRenderingPolicy()
 
-    if request.get("enabled") is False:
+    if request.get("enabled", False) is False:
         return TextRenderingPolicy()
 
     mode = str(request.get("mode", "programmatic_only"))
