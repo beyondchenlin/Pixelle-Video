@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 
 
@@ -42,10 +43,12 @@ def error_envelope(message: str, code: str, details: Any = None) -> dict[str, An
 
 
 def install_exception_handlers(app: FastAPI) -> None:
-    @app.exception_handler(HTTPException)
-    async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+    async def http_exception_handler(
+        _request: Request,
+        exc: StarletteHTTPException,
+    ) -> JSONResponse:
         message = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-        details = None if isinstance(exc.detail, str) else exc.detail
+        details = None if isinstance(exc.detail, str) else jsonable_encoder(exc.detail)
         return JSONResponse(
             status_code=exc.status_code,
             content=error_envelope(
@@ -55,6 +58,9 @@ def install_exception_handlers(app: FastAPI) -> None:
             ),
             headers=exc.headers,
         )
+
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(

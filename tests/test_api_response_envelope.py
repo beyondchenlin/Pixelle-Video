@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, field_validator
@@ -27,6 +29,13 @@ def build_test_app() -> FastAPI:
     @app.post("/payload")
     async def payload(body: DemoPayload):
         return {"name": body.name}
+
+    @app.get("/json-detail")
+    async def json_detail():
+        raise HTTPException(
+            status_code=418,
+            detail={"at": datetime(2026, 1, 2, 3, 4, 5)},
+        )
 
     return app
 
@@ -75,4 +84,42 @@ def test_success_envelope_omits_data_when_none():
     assert success_envelope() == {
         "success": True,
         "message": "Success",
+    }
+
+
+def test_unknown_path_uses_error_envelope():
+    client = TestClient(build_test_app())
+
+    response = client.get("/unknown")
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "http_404"
+
+
+def test_wrong_method_uses_error_envelope():
+    client = TestClient(build_test_app())
+
+    response = client.get("/payload")
+
+    assert response.status_code == 405
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "http_405"
+
+
+def test_non_string_http_exception_detail_is_json_safe():
+    client = TestClient(build_test_app())
+
+    response = client.get("/json-detail")
+
+    assert response.status_code == 418
+    assert response.json() == {
+        "success": False,
+        "message": "{'at': datetime.datetime(2026, 1, 2, 3, 4, 5)}",
+        "error": {
+            "code": "http_418",
+            "details": {"at": "2026-01-02T03:04:05"},
+        },
     }
