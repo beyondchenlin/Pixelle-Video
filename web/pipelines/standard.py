@@ -21,11 +21,8 @@ from typing import Any
 import streamlit as st
 
 # Import components
-from web.components.content_input import (
-    render_bgm_section,
-    render_content_input,
-    render_version_info,
-)
+from web.components.bgm_config import render_bgm_section
+from web.components.content_input import render_content_input, render_version_info
 from web.components.output_preview import render_output_preview
 from web.components.quick_create_flow import render_quick_create_flow_diagram
 from web.components.style_config import render_style_config
@@ -54,7 +51,7 @@ class StandardPipelineUI(PipelineUI):
         left_col, middle_col, right_col = st.columns([1, 1, 1])
         
         # ====================================================================
-        # Left Column: Content Input & BGM
+        # Left Column: Content Input & Version
         # ====================================================================
         with left_col:
             # Content input (mode, text, title, n_scenes)
@@ -64,7 +61,7 @@ class StandardPipelineUI(PipelineUI):
             render_version_info()
         
         # ====================================================================
-        # Middle Column: Style Configuration
+        # Middle Column: Generation Configuration
         # ====================================================================
         with middle_col:
             # BGM selection (bgm_path, bgm_volume)

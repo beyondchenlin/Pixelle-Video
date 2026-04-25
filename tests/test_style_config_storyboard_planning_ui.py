@@ -278,7 +278,7 @@ def test_standard_pipeline_ui_passes_storyboard_default_enabled_to_render_style_
 
     monkeypatch.setattr(standard_pipeline.st, "columns", fake_columns)
     monkeypatch.setattr(standard_pipeline, "render_content_input", lambda: {"content": "ok"})
-    monkeypatch.setattr(standard_pipeline, "render_bgm_section", lambda: {"bgm": "ok"})
+    monkeypatch.setattr(standard_pipeline, "render_bgm_section", lambda **_kwargs: {"bgm": "ok"})
     monkeypatch.setattr(standard_pipeline, "render_version_info", lambda: None)
     monkeypatch.setattr(standard_pipeline, "render_style_config", fake_render_style_config)
     monkeypatch.setattr(standard_pipeline, "render_quick_create_flow_diagram", fake_render_quick_create_flow_diagram)

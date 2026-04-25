@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
@@ -5,23 +6,55 @@ from streamlit.testing.v1 import AppTest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_quick_create_bgm_is_collapsed_before_middle_style_config():
-    source = (PROJECT_ROOT / "web" / "pipelines" / "standard.py").read_text(encoding="utf-8")
+def _read_module_ast(relative_path: str) -> ast.Module:
+    source = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
+    return ast.parse(source)
 
-    left_column_source = source.split("with left_col:", 1)[1].split("with middle_col:", 1)[0]
-    middle_column_source = source.split("with middle_col:", 1)[1].split("with right_col:", 1)[0]
 
-    assert "render_bgm_section(" not in left_column_source
-    assert "bgm_params = render_bgm_section(collapsible=True)" in middle_column_source
-    assert middle_column_source.index("render_bgm_section") < middle_column_source.index(
-        "render_style_config"
+def test_bgm_component_lives_in_config_module_not_content_input():
+    content_input_tree = _read_module_ast("web/components/content_input.py")
+    standard_tree = _read_module_ast("web/pipelines/standard.py")
+
+    assert not any(
+        isinstance(node, ast.FunctionDef) and node.name == "render_bgm_section"
+        for node in content_input_tree.body
     )
+    assert any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "web.components.bgm_config"
+        and any(alias.name == "render_bgm_section" for alias in node.names)
+        for node in standard_tree.body
+    )
+
+
+def test_quick_create_renders_bgm_before_style_config_in_middle_column():
+    tree = _read_module_ast("web/pipelines/standard.py")
+    render_method = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "render"
+    )
+    middle_column_block = next(
+        node
+        for node in render_method.body
+        if isinstance(node, ast.With)
+        and isinstance(node.items[0].context_expr, ast.Name)
+        and node.items[0].context_expr.id == "middle_col"
+    )
+
+    call_names = [
+        call.func.id
+        for call in ast.walk(ast.Module(body=middle_column_block.body, type_ignores=[]))
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+    ]
+
+    assert call_names.index("render_bgm_section") < call_names.index("render_style_config")
 
 
 def test_collapsed_bgm_section_renders_without_nested_expanders():
     script = """
 import pixelle_video.utils.os_util as os_util
-from web.components import content_input
+from web.components import bgm_config
 
 translations = {
     "section.bgm": "BGM",
@@ -36,10 +69,10 @@ translations = {
     "bgm.preview": "Preview",
 }
 
-content_input.tr = lambda key, **kwargs: translations.get(key, key)
+bgm_config.tr = lambda key, **kwargs: translations.get(key, key)
 os_util.list_resource_files = lambda _kind: ["default.mp3"]
 
-content_input.render_bgm_section(collapsible=True)
+bgm_config.render_bgm_section(collapsible=True)
 """
 
     at = AppTest.from_string(script)

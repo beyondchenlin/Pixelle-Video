@@ -26,7 +26,8 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent
-from web.components.content_input import render_bgm_section, render_version_info
+from web.components.bgm_config import render_bgm_section
+from web.components.content_input import render_version_info
 from web.components.output_preview import render_scaled_video_preview
 from web.i18n import get_language, tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
