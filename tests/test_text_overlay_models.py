@@ -90,6 +90,24 @@ def test_build_text_rendering_policy_respects_disabled_nested_request():
     assert policy.suppress_unplanned_embedded_text is True
 
 
+def test_build_text_rendering_policy_normalizes_mapping_string_enabled_false():
+    policy = build_text_rendering_policy(
+        {"enabled": "false", "mode": "hybrid", "renderer_targets": "ass"}
+    )
+
+    assert policy.image_text_mode == "programmatic_only"
+    assert policy.enabled_targets == ()
+
+
+def test_build_text_rendering_policy_normalizes_mapping_scalar_renderer_target():
+    policy = build_text_rendering_policy(
+        {"enabled": True, "mode": "programmatic_only", "renderer_targets": "ass"}
+    )
+
+    assert policy.image_text_mode == "programmatic_only"
+    assert policy.enabled_targets == ("ass",)
+
+
 def test_build_text_rendering_settings_defaults_do_not_suppress_image_text():
     settings = build_text_rendering_settings(None)
 

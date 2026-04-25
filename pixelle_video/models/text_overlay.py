@@ -203,11 +203,11 @@ def build_text_rendering_policy(
     if not request:
         return TextRenderingPolicy()
 
-    if request.get("enabled", False) is False:
+    if not _coerce_bool(request.get("enabled"), False):
         return TextRenderingPolicy()
 
     mode = str(request.get("mode", "programmatic_only"))
-    targets = tuple(str(target) for target in request.get("renderer_targets", ()))
+    targets = _coerce_renderer_targets(request.get("renderer_targets"))
     if mode in {"native_hint", "hybrid"} and "native_prompt" not in targets:
         targets = (*targets, "native_prompt")
     return TextRenderingPolicy(
