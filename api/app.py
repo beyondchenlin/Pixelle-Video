@@ -64,6 +64,7 @@ from api.routers import (
     tts_router,
     video_router,
 )
+from api.schemas.responses import install_exception_handlers
 from api.tasks.factory import build_task_manager
 
 
@@ -122,6 +123,7 @@ app = FastAPI(
     openapi_url=api_config.openapi_url,
     lifespan=lifespan,
 )
+install_exception_handlers(app)
 
 # Add CORS middleware
 if api_config.cors_enabled:
