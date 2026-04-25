@@ -227,6 +227,8 @@
     "video.frames_help": "More scenes = longer video",
     "video.frames_label": "Scenes: {n}",
     "video.frames_fixed_mode_hint": "💡 Fixed mode: scene count is determined by actual script segments",
+    "storyboard.generation.explanation.title": "Settings guide",
+    "storyboard.generation.explanation.body": "**Smart**: AI reads the full script first, then plans which text each shot covers. Best for most topics.\n\n**By Any Punctuation (Chinese/English)**: Splits at commas, periods, question marks, and other punctuation, so shots are more granular.\n\n**By Sentence-End Punctuation (。.!?！？)**: Splits only where sentences end, giving steadier pacing.\n\n**Auto**: AI chooses a suitable count from 1-30 storyboard frames. **Scenes**: manually set the number of storyboard frames.\n\n**Script Length**: Controls how long the AI-written script should be, not the duration of one storyboard frame.\n\n**max_tokens**: Limits how much JSON the model may output; it is not the storyboard frame count. Pixelle uses the Qwen-compatible upper limit to avoid 400 errors.",
     "bgm.selector": "Music Selection",
     "bgm.none": "🔇 No BGM",
     "bgm.volume": "Volume",

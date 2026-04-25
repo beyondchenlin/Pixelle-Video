@@ -1,4 +1,15 @@
+import json
+from pathlib import Path
+
 from web.components import content_input
+
+
+LOCALE_DIR = Path(__file__).resolve().parents[1] / "web" / "i18n" / "locales"
+
+
+def _load_translations(locale_name: str) -> dict:
+    with (LOCALE_DIR / f"{locale_name}.json").open(encoding="utf-8") as file:
+        return json.load(file)["t"]
 
 
 class _FakeExpander:
@@ -49,6 +60,17 @@ class _FakeStreamlit:
 
 def _fake_tr(key, fallback=None, **_kwargs):
     return fallback if fallback is not None else key
+
+
+def test_storyboard_generation_explanation_has_locale_entries():
+    en = _load_translations("en_US")
+    zh = _load_translations("zh_CN")
+
+    assert en["storyboard.generation.explanation.title"] == "Settings guide"
+    assert "max_tokens" in en["storyboard.generation.explanation.body"]
+    assert "not the storyboard frame count" in en["storyboard.generation.explanation.body"]
+    assert "max_tokens" in zh["storyboard.generation.explanation.body"]
+    assert "不是分镜数量" in zh["storyboard.generation.explanation.body"]
 
 
 def test_storyboard_generation_controls_are_collapsed_with_nested_explanation(monkeypatch):
