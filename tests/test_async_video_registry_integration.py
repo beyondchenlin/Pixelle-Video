@@ -1,0 +1,85 @@
+from types import SimpleNamespace
+
+import pytest
+
+from api.routers import video
+from api.schemas.video import VideoGenerateRequest
+from api.tasks.models import TaskType
+
+
+class FakeTaskManager:
+    def __init__(self, *, created: bool) -> None:
+        self.created = created
+        self.executed = []
+        self.reserve_calls = []
+        self.execution_mode = "embedded"
+
+    async def reserve_or_reuse_generation_task(
+        self,
+        *,
+        task_type,
+        generation_fingerprint,
+        request_params,
+    ):
+        self.reserve_calls.append(
+            {
+                "task_type": task_type,
+                "generation_fingerprint": generation_fingerprint,
+                "request_params": request_params,
+            }
+        )
+        task = SimpleNamespace(
+            task_id="task-1",
+            task_type=task_type,
+            request_params=request_params,
+        )
+        return SimpleNamespace(
+            task=task,
+            created=self.created,
+            reused_reason=None if self.created else "active",
+        )
+
+    async def execute_task(self, task_id, coro_func):
+        self.executed.append((task_id, coro_func))
+
+
+def build_request() -> VideoGenerateRequest:
+    return VideoGenerateRequest(
+        text="demo",
+        frame_template="1080x1920/image_default.html",
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_video_endpoint_returns_reused_task_without_execution(monkeypatch):
+    manager = FakeTaskManager(created=False)
+    monkeypatch.setattr(video, "task_manager", manager)
+
+    response = await video.generate_video_async(
+        build_request(),
+        pixelle_video=SimpleNamespace(),
+        request=SimpleNamespace(base_url="http://test/"),
+    )
+
+    assert response.task_id == "task-1"
+    assert response.message == "Task already running"
+    assert manager.executed == []
+    assert manager.reserve_calls[0]["task_type"] == TaskType.VIDEO_GENERATION
+
+
+@pytest.mark.asyncio
+async def test_async_video_endpoint_executes_new_task_in_embedded_mode(monkeypatch):
+    manager = FakeTaskManager(created=True)
+    monkeypatch.setattr(video, "task_manager", manager)
+
+    response = await video.generate_video_async(
+        build_request(),
+        pixelle_video=SimpleNamespace(),
+        request=SimpleNamespace(base_url="http://test/"),
+    )
+
+    assert response.task_id == "task-1"
+    assert [task_id for task_id, _ in manager.executed] == ["task-1"]
+    request_params = manager.reserve_calls[0]["request_params"]
+    assert request_params["generation_fingerprint"]
+    assert request_params["request_id"].startswith("req_")

@@ -59,6 +59,109 @@ def _copy_tts_text_policy_params(request_body: VideoGenerateRequest, video_param
             video_params[name] = value
 
 
+def resolve_video_media_size(frame_template: str | None) -> tuple[int, int]:
+    """Resolve video dimensions from the selected frame template."""
+    if not frame_template:
+        raise ValueError("frame_template is required to determine media size")
+
+    from pixelle_video.services.frame_html import HTMLFrameGenerator
+    from pixelle_video.utils.template_util import resolve_template_path
+
+    template_path = resolve_template_path(frame_template)
+    generator = HTMLFrameGenerator(template_path)
+    media_width, media_height = generator.get_media_size()
+    logger.debug(f"Auto-determined media size from template: {media_width}x{media_height}")
+    return media_width, media_height
+
+
+def build_video_generation_params(
+    request_body: VideoGenerateRequest,
+    *,
+    request_id: str,
+    media_width: int,
+    media_height: int,
+    api_task_id: str | None = None,
+) -> dict:
+    """Build PixelleVideoCore.generate_video kwargs from an API request."""
+    video_params = {
+        "text": request_body.text,
+        "mode": request_body.mode,
+        "title": request_body.title,
+        "n_scenes": request_body.n_scenes,
+        "min_narration_words": request_body.min_narration_words,
+        "max_narration_words": request_body.max_narration_words,
+        "min_image_prompt_words": request_body.min_image_prompt_words,
+        "max_image_prompt_words": request_body.max_image_prompt_words,
+        "media_width": media_width,
+        "media_height": media_height,
+        "media_workflow": request_body.media_workflow,
+        "video_fps": request_body.video_fps,
+        "frame_template": request_body.frame_template,
+        "prompt_prefix": request_body.prompt_prefix,
+        "world_preset_id": request_body.world_preset_id,
+        "shot_preset_id": request_body.shot_preset_id,
+        "consistency_strength": request_body.consistency_strength or "standard",
+        "content_mode": request_body.content_mode,
+        "role_strategy": request_body.role_strategy,
+        "role_locking_strength": request_body.role_locking_strength,
+        "shot_strategy": request_body.shot_strategy,
+        "forbid_embedded_text_in_image": (
+            True
+            if request_body.forbid_embedded_text_in_image is None
+            else request_body.forbid_embedded_text_in_image
+        ),
+        "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
+        "bgm_path": request_body.bgm_path,
+        "bgm_volume": request_body.bgm_volume,
+        "request_id": request_id,
+    }
+
+    if api_task_id is not None:
+        video_params["api_task_id"] = api_task_id
+
+    if request_body.tts_workflow:
+        video_params["tts_workflow"] = request_body.tts_workflow
+
+    if request_body.ref_audio:
+        video_params["ref_audio"] = request_body.ref_audio
+
+    if request_body.voice_id:
+        logger.warning("voice_id parameter is deprecated, please use tts_workflow instead")
+        video_params["voice_id"] = request_body.voice_id
+
+    if request_body.template_params:
+        video_params["template_params"] = request_body.template_params
+
+    if request_body.render_backend is not None:
+        video_params["render_backend"] = request_body.render_backend
+
+    if request_body.text_layer is not None:
+        video_params["text_layer"] = request_body.text_layer
+
+    _copy_tts_text_policy_params(request_body, video_params)
+    return video_params
+
+
+def path_to_storage_key(file_path: str) -> str:
+    """Convert a local output path into a storage key under output/."""
+    from pathlib import Path
+
+    normalized = file_path.replace("\\", "/")
+    is_absolute = os.path.isabs(normalized) or Path(normalized).is_absolute()
+
+    if is_absolute:
+        parts = normalized.split("/")
+        try:
+            output_idx = parts.index("output")
+            return "/".join(parts[output_idx + 1:])
+        except ValueError:
+            return Path(normalized).name
+
+    if normalized.startswith("output/"):
+        return normalized[7:]
+    return normalized
+
+
 def path_to_url(request: Request, file_path: str) -> str:
     """
     Convert file path to accessible URL
@@ -82,35 +185,9 @@ def path_to_url(request: Request, file_path: str) -> str:
         
         Domain:  With domain request -> https://your-domain.com/api/files/...
     """
-    import os
-    from pathlib import Path
-    
-    # Normalize path separators to forward slashes first (for cross-platform compatibility)
-    file_path = file_path.replace("\\", "/")
-    
-    # Check if it's an absolute path (works for both Windows and Linux)
-    is_absolute = os.path.isabs(file_path) or Path(file_path).is_absolute()
-    
-    if is_absolute:
-        # Find "output" in the path and get everything after it
-        # Split by / to work with normalized paths
-        parts = file_path.split("/")
-        try:
-            output_idx = parts.index("output")
-            # Get all parts after "output" and join them
-            relative_parts = parts[output_idx + 1:]
-            file_path = "/".join(relative_parts)
-        except ValueError:
-            # If "output" not in path, use the filename only
-            file_path = Path(file_path).name
-    else:
-        # If relative path starting with "output/", remove it
-        if file_path.startswith("output/"):
-            file_path = file_path[7:]  # Remove "output/"
-    
     # Build URL using request's base_url (automatically matches the request host)
     base_url = str(request.base_url).rstrip('/')
-    return f"{base_url}/api/files/{file_path}"
+    return f"{base_url}/api/files/{path_to_storage_key(file_path)}"
 
 
 @router.post("/generate/sync", response_model=VideoGenerateResponse)
@@ -140,75 +217,13 @@ async def generate_video_sync(
             content=build_content_observability(request_body.text),
         ).info("sync video generation request received")
         
-        # Auto-determine media_width and media_height from template meta tags (required)
-        if not request_body.frame_template:
-            raise ValueError("frame_template is required to determine media size")
-        
-        from pixelle_video.services.frame_html import HTMLFrameGenerator
-        from pixelle_video.utils.template_util import resolve_template_path
-        template_path = resolve_template_path(request_body.frame_template)
-        generator = HTMLFrameGenerator(template_path)
-        media_width, media_height = generator.get_media_size()
-        logger.debug(f"Auto-determined media size from template: {media_width}x{media_height}")
-        
-        # Build video generation parameters
-        video_params = {
-            "text": request_body.text,
-            "mode": request_body.mode,
-            "title": request_body.title,
-            "n_scenes": request_body.n_scenes,
-            "min_narration_words": request_body.min_narration_words,
-            "max_narration_words": request_body.max_narration_words,
-            "min_image_prompt_words": request_body.min_image_prompt_words,
-            "max_image_prompt_words": request_body.max_image_prompt_words,
-            "media_width": media_width,
-            "media_height": media_height,
-            "media_workflow": request_body.media_workflow,
-            "video_fps": request_body.video_fps,
-            "frame_template": request_body.frame_template,
-            "prompt_prefix": request_body.prompt_prefix,
-            "world_preset_id": request_body.world_preset_id,
-            "shot_preset_id": request_body.shot_preset_id,
-            "consistency_strength": request_body.consistency_strength or "standard",
-            "content_mode": request_body.content_mode,
-            "role_strategy": request_body.role_strategy,
-            "role_locking_strength": request_body.role_locking_strength,
-            "shot_strategy": request_body.shot_strategy,
-            "forbid_embedded_text_in_image": (
-                True
-                if request_body.forbid_embedded_text_in_image is None
-                else request_body.forbid_embedded_text_in_image
-            ),
-            "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
-            "bgm_path": request_body.bgm_path,
-            "bgm_volume": request_body.bgm_volume,
-            "request_id": request_id,
-        }
-        
-        # Add TTS workflow if specified
-        if request_body.tts_workflow:
-            video_params["tts_workflow"] = request_body.tts_workflow
-        
-        # Add ref_audio if specified
-        if request_body.ref_audio:
-            video_params["ref_audio"] = request_body.ref_audio
-        
-        # Legacy voice_id support (deprecated)
-        if request_body.voice_id:
-            logger.warning("voice_id parameter is deprecated, please use tts_workflow instead")
-            video_params["voice_id"] = request_body.voice_id
-        
-        # Add custom template parameters if specified
-        if request_body.template_params:
-            video_params["template_params"] = request_body.template_params
-
-        if request_body.render_backend is not None:
-            video_params["render_backend"] = request_body.render_backend
-
-        if request_body.text_layer is not None:
-            video_params["text_layer"] = request_body.text_layer
-
-        _copy_tts_text_policy_params(request_body, video_params)
+        media_width, media_height = resolve_video_media_size(request_body.frame_template)
+        video_params = build_video_generation_params(
+            request_body,
+            request_id=request_id,
+            media_width=media_width,
+            media_height=media_height,
+        )
         
         # Call video generator service
         result = await pixelle_video.generate_video(**video_params)
@@ -266,102 +281,40 @@ async def generate_video_async(
             pipeline="standard",
             params=request_body.model_dump(exclude_none=True),
         )
-        existing_task = task_manager.find_active_task_by_request_fingerprint(
-            request_fingerprint=generation_fingerprint,
+        request_params = {
+            **request_body.model_dump(),
+            "request_id": request_id,
+            "generation_fingerprint": generation_fingerprint,
+        }
+        outcome = await task_manager.reserve_or_reuse_generation_task(
             task_type=TaskType.VIDEO_GENERATION,
+            generation_fingerprint=generation_fingerprint,
+            request_params=request_params,
         )
-        if existing_task is not None:
-            logger.info(f"Reusing active async video generation task: {existing_task.task_id}")
-            return VideoGenerateAsyncResponse(
-                task_id=existing_task.task_id,
-                message="Task already running",
+        task = outcome.task
+        if not outcome.created:
+            logger.info(f"Reusing async video generation task: {task.task_id}")
+            message = (
+                "Task already completed"
+                if outcome.reused_reason == "recent_completed"
+                else "Task already running"
             )
-        
-        # Create task
-        task = task_manager.create_task(
-            task_type=TaskType.VIDEO_GENERATION,
-            request_params={
-                **request_body.model_dump(),
-                "request_id": request_id,
-                "generation_fingerprint": generation_fingerprint,
-            },
-        )
-        
+            return VideoGenerateAsyncResponse(
+                task_id=task.task_id,
+                message=message,
+            )
+
         # Define async execution function
         async def execute_video_generation():
             """Execute video generation in background"""
-            # Auto-determine media_width and media_height from template meta tags (required)
-            if not request_body.frame_template:
-                raise ValueError("frame_template is required to determine media size")
-            
-            from pixelle_video.services.frame_html import HTMLFrameGenerator
-            from pixelle_video.utils.template_util import resolve_template_path
-            template_path = resolve_template_path(request_body.frame_template)
-            generator = HTMLFrameGenerator(template_path)
-            media_width, media_height = generator.get_media_size()
-            logger.debug(f"Auto-determined media size from template: {media_width}x{media_height}")
-            
-            # Build video generation parameters
-            video_params = {
-                "text": request_body.text,
-                "mode": request_body.mode,
-                "title": request_body.title,
-                "n_scenes": request_body.n_scenes,
-                "min_narration_words": request_body.min_narration_words,
-                "max_narration_words": request_body.max_narration_words,
-                "min_image_prompt_words": request_body.min_image_prompt_words,
-                "max_image_prompt_words": request_body.max_image_prompt_words,
-                "media_width": media_width,
-                "media_height": media_height,
-                "media_workflow": request_body.media_workflow,
-                "video_fps": request_body.video_fps,
-                "frame_template": request_body.frame_template,
-                "prompt_prefix": request_body.prompt_prefix,
-                "world_preset_id": request_body.world_preset_id,
-                "shot_preset_id": request_body.shot_preset_id,
-                "consistency_strength": request_body.consistency_strength or "standard",
-                "content_mode": request_body.content_mode,
-                "role_strategy": request_body.role_strategy,
-                "role_locking_strength": request_body.role_locking_strength,
-                "shot_strategy": request_body.shot_strategy,
-                "forbid_embedded_text_in_image": (
-                    True
-                    if request_body.forbid_embedded_text_in_image is None
-                    else request_body.forbid_embedded_text_in_image
-                ),
-                "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
-                "bgm_path": request_body.bgm_path,
-                "bgm_volume": request_body.bgm_volume,
-                "request_id": request_id,
-                "api_task_id": task.task_id,
-                # Progress callback can be added here if needed
-                # "progress_callback": lambda event: task_manager.update_progress(...)
-            }
-            
-            # Add TTS workflow if specified
-            if request_body.tts_workflow:
-                video_params["tts_workflow"] = request_body.tts_workflow
-            
-            # Add ref_audio if specified
-            if request_body.ref_audio:
-                video_params["ref_audio"] = request_body.ref_audio
-            
-            # Legacy voice_id support (deprecated)
-            if request_body.voice_id:
-                logger.warning("voice_id parameter is deprecated, please use tts_workflow instead")
-                video_params["voice_id"] = request_body.voice_id
-            
-            # Add custom template parameters if specified
-            if request_body.template_params:
-                video_params["template_params"] = request_body.template_params
-
-            if request_body.render_backend is not None:
-                video_params["render_backend"] = request_body.render_backend
-
-            if request_body.text_layer is not None:
-                video_params["text_layer"] = request_body.text_layer
-
-            _copy_tts_text_policy_params(request_body, video_params)
+            media_width, media_height = resolve_video_media_size(request_body.frame_template)
+            video_params = build_video_generation_params(
+                request_body,
+                request_id=request_id,
+                media_width=media_width,
+                media_height=media_height,
+                api_task_id=task.task_id,
+            )
             
             result = await pixelle_video.generate_video(**video_params)
             
@@ -374,14 +327,15 @@ async def generate_video_async(
             return {
                 "video_url": video_url,
                 "duration": result.duration,
-                "file_size": file_size
+                "file_size": file_size,
+                "storage_key": path_to_storage_key(result.video_path),
             }
         
-        # Start execution
-        await task_manager.execute_task(
-            task_id=task.task_id,
-            coro_func=execute_video_generation
-        )
+        if getattr(task_manager, "execution_mode", "embedded") == "embedded":
+            await task_manager.execute_task(
+                task_id=task.task_id,
+                coro_func=execute_video_generation
+            )
         
         return VideoGenerateAsyncResponse(
             task_id=task.task_id
