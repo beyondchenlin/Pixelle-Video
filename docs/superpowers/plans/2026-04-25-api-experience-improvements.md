@@ -4,7 +4,7 @@
 
 **Goal:** Add five API improvements inspired by MoneyPrinterTurbo while preserving Pixelle's stronger task execution architecture.
 
-**Architecture:** Keep existing `/api` routes backward-compatible and add new behavior in small, testable increments. Use shared helpers for response envelopes, file path safety, task pagination, staged video diagnostics, and uploads instead of copying MoneyPrinterTurbo's lightweight thread queue.
+**Architecture:** Keep non-video `/api` routes backward-compatible and add new behavior in small, testable increments. The video generation main path follows the Storyboard Generation Contract and rejects old storyboard fields such as `n_scenes` and `split_mode`; new staged video endpoints must use that same contract from their first version. Use shared helpers for response envelopes, file path safety, task pagination, staged video diagnostics, and uploads instead of copying MoneyPrinterTurbo's lightweight thread queue.
 
 **Tech Stack:** FastAPI, Pydantic v2, pytest, pytest-asyncio, existing Pixelle task registry/store abstractions, existing Pixelle video pipeline services.
 
@@ -14,11 +14,13 @@
 
 - Do not use `git worktree`; `AGENTS.md` forbids worktree-based isolation for this repository.
 - Keep the existing async generation backend: `api/tasks/registry.py`, `api/tasks/store.py`, `api/tasks/postgres.py`, `api/tasks/lease.py`, and `api/tasks/worker.py`.
-- Additive API changes are preferred. Existing success responses should keep their current shape unless a route is newly introduced.
+- Additive API changes are preferred for non-video APIs. Existing non-video success responses should keep their current shape unless a route is newly introduced.
+- Video generation is the exception: the main video path follows the Storyboard Generation Contract and may reject `n_scenes`, `split_mode`, narration-count controls, or other removed storyboard fields.
 - Global error responses can be standardized because they only affect failure payload shape, not route paths or successful responses.
 - Use atomic commits. Each task below ends with a commit step and only stages files owned by that task.
 - Push immediately after every atomic commit. This follows `AGENTS.md`; do not defer pushes until the end unless the user explicitly requests local-only commits.
 - Staged video endpoints are diagnostic/building-block endpoints. They intentionally expose a focused subset of the full `/api/video/generate/*` contract; `/api/video/generate/async` remains the canonical full-generation API.
+- New staged video endpoints must not provide compatibility for `n_scenes`, `split_mode`, `min_narration_words`, `max_narration_words`, or `narrations` as storyboard upstream input. They must flow through `ScriptGenerationService -> source_text -> StoryboardGenerationService -> StoryboardPlan -> StoryboardEnhancer -> ImagePromptComposer`.
 
 ## File Structure
 
@@ -38,7 +40,7 @@
 - Modify `api/routers/resources.py`: add upload endpoints for BGM, reference audio, and local materials.
 - Create `tests/test_resources_upload_api.py`: upload extension, path traversal, collision, and file size tests.
 - Create `api/schemas/video_stages.py`: staged video request/response schemas.
-- Create `api/routers/video_stages.py`: stage endpoints for script, audio, storyboard, and render.
+- Create `api/routers/video_stages.py`: stage endpoints for script, storyboard plan, image prompts, audio, and render.
 - Modify `api/routers/__init__.py` and `api/app.py`: include the new video stages router.
 - Create `tests/test_video_stages_api.py`: unit-level tests using fake Pixelle services.
 - Modify `docs/en/user-guide/api.md`: document the new endpoints and response/error shape.
@@ -1088,7 +1090,21 @@ git push
 
 ---
 
-### Task 5: Staged Video API
+### Task 5: Staged Video API On StoryboardPlan Contract
+
+**Dependency:** This task depends on Storyboard Generation Contract phases 1-4 from `docs/superpowers/plans/2026-04-25-storyboard-generation-logic-implementation.md`. Do not implement these endpoints with legacy narration-first utilities while the new storyboard services are pending.
+
+Before starting Step 1, verify these imports exist and are the public integration points:
+
+```python
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
+from pixelle_video.services.script_generation import ScriptGenerationService
+from pixelle_video.services.storyboard_generation import StoryboardGenerationService
+from pixelle_video.services.storyboard_enhancer import StoryboardEnhancer
+from pixelle_video.services.image_prompt_composer import ImagePromptComposer
+```
+
+If any import is missing, stop Task 5. Do not implement the staged video router, do not document these staged endpoints as active API surface, and do not substitute legacy narration utilities to make the task pass.
 
 **Files:**
 - Create: `api/schemas/video_stages.py`
@@ -1097,7 +1113,7 @@ git push
 - Modify: `api/app.py`
 - Test: `tests/test_video_stages_api.py`
 
-- [ ] **Step 1: Write failing staged API tests**
+- [ ] **Step 1: Write failing staged API tests against the new storyboard contract**
 
 Create `tests/test_video_stages_api.py`:
 
@@ -1110,30 +1126,102 @@ from pydantic import ValidationError
 
 from api.routers.video_stages import (
     generate_audio_stage,
+    generate_image_prompts_stage,
     generate_script_stage,
+    generate_storyboard_plan_stage,
     render_segments_stage,
 )
 from api.schemas.video_stages import (
     AudioStageRequest,
+    ImagePromptStageRequest,
     RenderStageRequest,
     ScriptStageRequest,
+    StoryboardPlanStageRequest,
 )
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 
 
-class _FakeLLM:
-    pass
+def _plan(*, mode="smart", count_mode="auto", requested_scene_count=None, frame_count=2):
+    source_text = "First sentence. Second sentence."
+    frames = []
+    for index in range(1, frame_count + 1):
+        frames.append(
+            StoryboardPlanFrame(
+                index=index,
+                source_text=f"source {index}",
+                narration_text=f"voiceover {index}",
+                visual_goal=f"visual goal {index}",
+                prompt_intent=f"prompt intent {index}",
+            )
+        )
+    return StoryboardPlan.build(
+        mode=mode,
+        count_mode=count_mode,
+        requested_scene_count=requested_scene_count,
+        source_text=source_text,
+        frames=frames,
+    )
+
+
+class _FakeScriptService:
+    def __init__(self):
+        self.calls = []
+
+    async def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        return SimpleNamespace(
+            title="Generated Title",
+            source_text="Generated full source text.",
+            metadata={"script_length_mode": kwargs["script_length_mode"]},
+        )
+
+
+class _FakeStoryboardService:
+    def __init__(self):
+        self.calls = []
+
+    async def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        count_mode = kwargs["storyboard_count_mode"]
+        requested_scene_count = kwargs["storyboard_scene_count"]
+        frame_count = requested_scene_count if count_mode == "manual" else 2
+        return _plan(
+            mode=kwargs["storyboard_mode"],
+            count_mode=count_mode,
+            requested_scene_count=requested_scene_count,
+            frame_count=frame_count,
+        )
+
+
+class _FakeEnhancer:
+    def __init__(self):
+        self.calls = []
+
+    async def enhance(self, **kwargs):
+        self.calls.append(kwargs)
+        return kwargs["storyboard_plan"]
+
+
+class _FakeImagePromptComposer:
+    def __init__(self):
+        self.calls = []
+
+    async def compose(self, **kwargs):
+        self.calls.append(kwargs)
+        return [f"prompt for {frame.frame_id}" for frame in kwargs["storyboard_plan"].frames]
 
 
 class _FakeTTS:
-    def __init__(self, output_path: Path):
-        self.output_path = output_path
+    def __init__(self, output_dir: Path):
+        self.output_dir = output_dir
         self.calls = []
 
     async def __call__(self, **kwargs):
         self.calls.append(kwargs)
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        self.output_path.write_bytes(b"audio")
-        return str(self.output_path)
+        path = self.output_dir / f"audio-{len(self.calls)}.mp3"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"audio")
+        return str(path)
 
 
 class _FakeVideo:
@@ -1148,41 +1236,114 @@ class _FakeVideo:
 
 
 @pytest.mark.asyncio
-async def test_script_stage_returns_title_and_narrations(monkeypatch):
-    async def fake_generate_narrations_from_topic(*args, **kwargs):
-        return ["scene 1", "scene 2"]
-
-    async def fake_generate_title(*args, **kwargs):
-        return "Demo Title"
-
-    monkeypatch.setattr(
-        "api.routers.video_stages.generate_narrations_from_topic",
-        fake_generate_narrations_from_topic,
-    )
-    monkeypatch.setattr("api.routers.video_stages.generate_title", fake_generate_title)
+async def test_script_stage_returns_source_text(monkeypatch):
+    fake_service = _FakeScriptService()
+    monkeypatch.setattr("api.routers.video_stages.ScriptGenerationService", lambda config=None: fake_service)
 
     response = await generate_script_stage(
-        ScriptStageRequest(text="demo", n_scenes=2),
-        SimpleNamespace(llm=_FakeLLM()),
+        ScriptStageRequest(text="demo topic", mode="generate", script_length_mode="short"),
+        SimpleNamespace(llm=object(), config={"storyboard": {}}),
     )
 
-    assert response.title == "Demo Title"
-    assert response.narrations == ["scene 1", "scene 2"]
+    assert response.title == "Generated Title"
+    assert response.source_text == "Generated full source text."
+    assert response.script_generation["script_length_mode"] == "short"
+    assert fake_service.calls[0]["topic"] == "demo topic"
+
+
+def test_script_stage_rejects_illegal_fixed_length_controls():
+    with pytest.raises(ValidationError):
+        ScriptStageRequest(text="fixed source", mode="fixed", script_length_mode="short")
+
+    with pytest.raises(ValidationError):
+        ScriptStageRequest(text="fixed source", mode="fixed", script_target_words=120)
+
+    with pytest.raises(ValidationError):
+        ScriptStageRequest(text="demo", n_scenes=2)
 
 
 @pytest.mark.asyncio
-async def test_audio_stage_synthesizes_each_narration(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    ("storyboard_mode", "storyboard_count_mode", "storyboard_scene_count"),
+    [
+        ("smart", "auto", None),
+        ("smart", "manual", 2),
+        ("punctuation", "auto", None),
+        ("sentence", "auto", None),
+    ],
+)
+async def test_storyboard_plan_stage_supports_contract_modes(
+    monkeypatch,
+    storyboard_mode,
+    storyboard_count_mode,
+    storyboard_scene_count,
+):
+    fake_service = _FakeStoryboardService()
+    monkeypatch.setattr("api.routers.video_stages.StoryboardGenerationService", lambda config=None: fake_service)
+
+    response = await generate_storyboard_plan_stage(
+        StoryboardPlanStageRequest(
+            source_text="First sentence. Second sentence.",
+            storyboard_mode=storyboard_mode,
+            storyboard_count_mode=storyboard_count_mode,
+            storyboard_scene_count=storyboard_scene_count,
+        ),
+        SimpleNamespace(llm=object(), config={"storyboard": {}}),
+    )
+
+    assert response.storyboard_plan["mode"] == storyboard_mode
+    assert response.storyboard_plan["count_mode"] == storyboard_count_mode
+    assert response.resolved_scene_count == len(response.frames)
+    assert fake_service.calls[0]["source_text"] == "First sentence. Second sentence."
+
+
+@pytest.mark.asyncio
+async def test_image_prompt_stage_returns_one_prompt_per_plan_frame(monkeypatch):
+    fake_enhancer = _FakeEnhancer()
+    fake_composer = _FakeImagePromptComposer()
+    monkeypatch.setattr("api.routers.video_stages.StoryboardEnhancer", lambda config=None: fake_enhancer)
+    monkeypatch.setattr("api.routers.video_stages.ImagePromptComposer", lambda config=None: fake_composer)
+    plan = _plan()
+
+    response = await generate_image_prompts_stage(
+        ImagePromptStageRequest(
+            storyboard_plan=plan.to_dict(),
+            prompt_prefix="cinematic documentary",
+            media_workflow="selfhost/image.json",
+        ),
+        SimpleNamespace(llm=object(), media=object(), config={"comfyui": {"image": {}}}),
+    )
+
+    assert len(response.image_prompts) == len(plan.frames)
+    assert response.frames[0]["frame_id"] == plan.frames[0].frame_id
+    assert fake_composer.calls[0]["prompt_prefix"] == "cinematic documentary"
+
+
+@pytest.mark.asyncio
+async def test_audio_stage_uses_storyboard_plan_frame_voiceover(monkeypatch, tmp_path):
     monkeypatch.setattr("api.routers.video_stages.get_audio_duration", lambda path: 1.25)
-    fake_tts = _FakeTTS(tmp_path / "audio.mp3")
+    fake_tts = _FakeTTS(tmp_path)
+    plan = _plan()
 
     response = await generate_audio_stage(
-        AudioStageRequest(narrations=["scene 1", "scene 2"], tts_workflow="selfhost/tts_edge.json"),
+        AudioStageRequest(storyboard_plan=plan.to_dict(), tts_workflow="selfhost/tts_edge.json"),
         SimpleNamespace(tts=fake_tts),
     )
 
-    assert len(response.audio_files) == 2
-    assert fake_tts.calls[0] == {"text": "scene 1", "workflow": "selfhost/tts_edge.json"}
-    assert response.audio_files[0].duration == 1.25
+    assert [segment.text for segment in response.voiceover_segments] == ["voiceover 1", "voiceover 2"]
+    assert fake_tts.calls[0] == {"text": "voiceover 1", "workflow": "selfhost/tts_edge.json"}
+    assert response.voiceover_segments[0].duration == 1.25
+
+
+def test_staged_video_schemas_reject_legacy_storyboard_inputs():
+    with pytest.raises(ValidationError):
+        StoryboardPlanStageRequest(source_text="demo", split_mode="sentence")
+
+    with pytest.raises(ValidationError):
+        ImagePromptStageRequest(storyboard_plan=_plan().to_dict(), narrations=["legacy"])
+
+    with pytest.raises(ValidationError):
+        AudioStageRequest(narrations=["legacy"])
 
 
 @pytest.mark.asyncio
@@ -1202,12 +1363,13 @@ async def test_render_stage_concatenates_segments(monkeypatch, tmp_path):
     assert (tmp_path / response.video_path).read_bytes() == b"video"
 
 
-def test_stage_requests_reject_full_generation_only_controls():
-    with pytest.raises(ValidationError):
-        ScriptStageRequest(text="demo", render_backend="legacy")
+def test_staged_video_router_does_not_import_legacy_content_generators():
+    source = Path("api/routers/video_stages.py").read_text(encoding="utf-8")
 
-    with pytest.raises(ValidationError):
-        AudioStageRequest(narrations=["demo"], tts_split_mode="external_only")
+    assert "generate_narrations_from_topic" not in source
+    assert "split_narration_script" not in source
+    assert "generate_styled_image_prompt_batch" not in source
+    assert "narrations=" not in source
 ```
 
 - [ ] **Step 2: Run staged API tests to verify failure**
@@ -1218,43 +1380,114 @@ Run:
 uv run pytest tests/test_video_stages_api.py -q
 ```
 
-Expected: fail because staged API schemas and router do not exist.
+Expected: fail because staged API schemas and router do not exist, or because the Storyboard Contract services are not ready yet. If the failure is an import error for `ScriptGenerationService`, `StoryboardEnhancer`, or `ImagePromptComposer`, stop this task and return to the storyboard contract implementation plan instead of adding compatibility shims.
 
 - [ ] **Step 3: Add staged video schemas**
 
 Create `api/schemas/video_stages.py`:
 
 ```python
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from pixelle_video.models.storyboard_plan import (
+    ScriptLengthMode,
+    StoryboardCountMode,
+    StoryboardGenerationMode,
+)
 
 
 class ScriptStageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     text: str = Field(..., min_length=1)
-    mode: Literal["generate", "fixed"] = Field("generate")
-    n_scenes: int = Field(5, ge=1, le=20)
-    min_narration_words: int = Field(5, ge=1, le=100)
-    max_narration_words: int = Field(20, ge=1, le=200)
+    mode: Literal["generate", "fixed"] = "generate"
+    script_length_mode: ScriptLengthMode = ScriptLengthMode.AUTO
+    script_target_words: int | None = Field(None, ge=1)
     title: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_script_controls(self):
+        if self.mode == "fixed":
+            if self.script_length_mode != ScriptLengthMode.AUTO:
+                raise ValueError("fixed mode requires script_length_mode=auto")
+            if self.script_target_words is not None:
+                raise ValueError("script_target_words is valid only for generate mode")
+        elif self.script_length_mode == ScriptLengthMode.CUSTOM:
+            if self.script_target_words is None:
+                raise ValueError("script_target_words is required with script_length_mode=custom")
+        elif self.script_target_words is not None:
+            raise ValueError("script_target_words is valid only with script_length_mode=custom")
+        return self
 
 
 class ScriptStageResponse(BaseModel):
     success: bool = True
     message: str = "Success"
-    title: str
-    narrations: list[str]
+    title: str | None = None
+    source_text: str
+    script_generation: dict[str, Any] = Field(default_factory=dict)
+
+
+class StoryboardPlanStageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_text: str = Field(..., min_length=1)
+    storyboard_mode: StoryboardGenerationMode = StoryboardGenerationMode.SMART
+    storyboard_count_mode: StoryboardCountMode = StoryboardCountMode.AUTO
+    storyboard_scene_count: int | None = Field(None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_storyboard_controls(self):
+        is_manual_smart = (
+            self.storyboard_mode == StoryboardGenerationMode.SMART
+            and self.storyboard_count_mode == StoryboardCountMode.MANUAL
+        )
+        if self.storyboard_count_mode == StoryboardCountMode.MANUAL and self.storyboard_mode != StoryboardGenerationMode.SMART:
+            raise ValueError("manual storyboard count is valid only for smart mode")
+        if is_manual_smart and self.storyboard_scene_count is None:
+            raise ValueError("storyboard_scene_count is required with smart manual mode")
+        if not is_manual_smart and self.storyboard_scene_count is not None:
+            raise ValueError("storyboard_scene_count is valid only with smart manual mode")
+        return self
+
+
+class StoryboardPlanStageResponse(BaseModel):
+    success: bool = True
+    message: str = "Success"
+    storyboard_plan: dict[str, Any]
+    resolved_scene_count: int
+    frames: list[dict[str, Any]]
+
+
+class ImagePromptStageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    storyboard_plan: dict[str, Any]
+    prompt_prefix: Optional[str] = None
+    media_workflow: Optional[str] = None
+    image_style_config: dict[str, Any] = Field(default_factory=dict)
+
+
+class ImagePromptStageResponse(BaseModel):
+    success: bool = True
+    message: str = "Success"
+    image_prompts: list[str | None]
+    frames: list[dict[str, Any]]
 
 
 class AudioStageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    narrations: list[str] = Field(..., min_length=1)
+
+    storyboard_plan: dict[str, Any]
     tts_workflow: Optional[str] = None
     ref_audio: Optional[str] = None
 
 
-class AudioFileInfo(BaseModel):
+class VoiceoverSegmentInfo(BaseModel):
+    frame_id: str
+    index: int
     text: str
     audio_path: str
     duration: float
@@ -1263,37 +1496,15 @@ class AudioFileInfo(BaseModel):
 class AudioStageResponse(BaseModel):
     success: bool = True
     message: str = "Success"
-    audio_files: list[AudioFileInfo]
-
-
-class StoryboardStageRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    text: str = Field(..., min_length=1)
-    frame_template: str = Field("1080x1920/image_default.html")
-    mode: Literal["generate", "fixed"] = Field("generate")
-    n_scenes: int = Field(5, ge=1, le=20)
-    min_narration_words: int = Field(5, ge=1, le=100)
-    max_narration_words: int = Field(20, ge=1, le=200)
-    min_image_prompt_words: int = Field(30, ge=10, le=100)
-    max_image_prompt_words: int = Field(60, ge=10, le=200)
-    prompt_prefix: Optional[str] = None
-    media_workflow: Optional[str] = None
-    title: Optional[str] = None
-
-
-class StoryboardStageResponse(BaseModel):
-    success: bool = True
-    message: str = "Success"
-    title: str
-    narrations: list[str]
-    image_prompts: list[str | None]
+    voiceover_segments: list[VoiceoverSegmentInfo]
 
 
 class RenderStageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
     video_segment_paths: list[str] = Field(..., min_length=1)
     output_name: str = Field("final.mp4")
-    method: Literal["demuxer", "filter"] = Field("demuxer")
+    method: Literal["demuxer", "filter"] = "demuxer"
     bgm_path: Optional[str] = None
     bgm_volume: float = Field(0.3, ge=0.0, le=1.0)
 
@@ -1305,12 +1516,13 @@ class RenderStageResponse(BaseModel):
     file_size: int
 ```
 
-- [ ] **Step 4: Implement staged video router**
+- [ ] **Step 4: Implement staged video router with StoryboardPlan-first services**
 
 Create `api/routers/video_stages.py`:
 
 ```python
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from loguru import logger
@@ -1318,109 +1530,160 @@ from loguru import logger
 from api.dependencies import PixelleVideoDep
 from api.file_access import resolve_allowed_file_path, sanitize_upload_filename
 from api.schemas.video_stages import (
-    AudioFileInfo,
     AudioStageRequest,
     AudioStageResponse,
+    ImagePromptStageRequest,
+    ImagePromptStageResponse,
     RenderStageRequest,
     RenderStageResponse,
     ScriptStageRequest,
     ScriptStageResponse,
-    StoryboardStageRequest,
-    StoryboardStageResponse,
+    StoryboardPlanStageRequest,
+    StoryboardPlanStageResponse,
+    VoiceoverSegmentInfo,
 )
-from pixelle_video.utils.content_generators import (
-    generate_narrations_from_topic,
-    generate_styled_image_prompt_batch,
-    generate_title,
-    split_narration_script,
-)
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
+from pixelle_video.services.image_prompt_composer import ImagePromptComposer
+from pixelle_video.services.script_generation import ScriptGenerationService
+from pixelle_video.services.storyboard_enhancer import StoryboardEnhancer
+from pixelle_video.services.storyboard_generation import StoryboardGenerationService
 from pixelle_video.utils.tts_util import get_audio_duration
 
 router = APIRouter(prefix="/video/stages", tags=["Video Generation"])
+
+
+def _storyboard_config(pixelle_video: PixelleVideoDep) -> dict[str, Any]:
+    return dict(getattr(pixelle_video, "config", {}).get("storyboard", {}))
+
+
+def _plan_from_payload(payload: dict[str, Any]) -> StoryboardPlan:
+    frames = [
+        StoryboardPlanFrame(
+            frame_id=frame.get("frame_id", ""),
+            index=frame["index"],
+            source_text=frame["source_text"],
+            narration_text=frame["narration_text"],
+            visual_goal=frame["visual_goal"],
+            prompt_intent=frame["prompt_intent"],
+            shot_type=frame.get("shot_type"),
+            shot_purpose=frame.get("shot_purpose"),
+            primary_subject=frame.get("primary_subject"),
+            secondary_subjects=tuple(frame.get("secondary_subjects") or ()),
+            continuity_anchors=tuple(frame.get("continuity_anchors") or ()),
+            world_elements=tuple(frame.get("world_elements") or ()),
+            source_start=frame.get("source_start"),
+            source_end=frame.get("source_end"),
+            metadata=frame.get("metadata") or {},
+        )
+        for frame in payload["frames"]
+    ]
+    return StoryboardPlan.build(
+        plan_id=payload.get("plan_id"),
+        revision=payload.get("revision", 1),
+        mode=payload["mode"],
+        count_mode=payload["count_mode"],
+        requested_scene_count=payload.get("requested_scene_count"),
+        source_text=payload["source_text"],
+        frames=frames,
+        diagnostics=payload.get("diagnostics") or {},
+    )
 
 
 @router.post("/script", response_model=ScriptStageResponse)
 async def generate_script_stage(request: ScriptStageRequest, pixelle_video: PixelleVideoDep):
     try:
         if request.mode == "fixed":
-            narrations = await split_narration_script(request.text, split_mode="paragraph")
+            source_text = request.text.strip()
+            title = request.title
+            metadata = {"mode": "fixed"}
         else:
-            narrations = await generate_narrations_from_topic(
+            result = await ScriptGenerationService(config=_storyboard_config(pixelle_video)).generate(
                 llm_service=pixelle_video.llm,
                 topic=request.text,
-                n_scenes=request.n_scenes,
-                min_words=request.min_narration_words,
-                max_words=request.max_narration_words,
+                title=request.title,
+                script_length_mode=request.script_length_mode.value,
+                script_target_words=request.script_target_words,
             )
-        title = request.title or await generate_title(
-            llm_service=pixelle_video.llm,
-            content=request.text,
-            strategy="auto",
-        )
-        return ScriptStageResponse(title=title, narrations=narrations)
+            source_text = result.source_text
+            title = result.title
+            metadata = dict(getattr(result, "metadata", {}))
+        return ScriptStageResponse(title=title, source_text=source_text, script_generation=metadata)
     except Exception as exc:
         logger.error(f"Script stage error: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/storyboard-plan", response_model=StoryboardPlanStageResponse)
+async def generate_storyboard_plan_stage(request: StoryboardPlanStageRequest, pixelle_video: PixelleVideoDep):
+    try:
+        plan = await StoryboardGenerationService(config=_storyboard_config(pixelle_video)).generate(
+            llm_service=pixelle_video.llm,
+            source_text=request.source_text,
+            storyboard_mode=request.storyboard_mode.value,
+            storyboard_count_mode=request.storyboard_count_mode.value,
+            storyboard_scene_count=request.storyboard_scene_count,
+        )
+        payload = plan.to_dict()
+        return StoryboardPlanStageResponse(
+            storyboard_plan=payload,
+            resolved_scene_count=plan.resolved_scene_count,
+            frames=payload["frames"],
+        )
+    except Exception as exc:
+        logger.error(f"Storyboard plan stage error: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/image-prompts", response_model=ImagePromptStageResponse)
+async def generate_image_prompts_stage(request: ImagePromptStageRequest, pixelle_video: PixelleVideoDep):
+    try:
+        plan = _plan_from_payload(request.storyboard_plan)
+        enhanced_plan = await StoryboardEnhancer(config=_storyboard_config(pixelle_video)).enhance(
+            llm_service=pixelle_video.llm,
+            storyboard_plan=plan,
+        )
+        image_config = dict(getattr(pixelle_video, "config", {}).get("comfyui", {}).get("image", {}))
+        image_config.update(request.image_style_config)
+        prompts = await ImagePromptComposer(config=image_config).compose(
+            storyboard_plan=enhanced_plan,
+            prompt_prefix=request.prompt_prefix,
+            media_workflow=request.media_workflow,
+            media_service=pixelle_video.media,
+        )
+        plan_payload = enhanced_plan.to_dict()
+        return ImagePromptStageResponse(
+            image_prompts=list(prompts),
+            frames=plan_payload["frames"],
+        )
+    except Exception as exc:
+        logger.error(f"Image prompt stage error: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/audio", response_model=AudioStageResponse)
 async def generate_audio_stage(request: AudioStageRequest, pixelle_video: PixelleVideoDep):
     try:
-        audio_files = []
-        for narration in request.narrations:
-            params = {"text": narration}
+        plan = _plan_from_payload(request.storyboard_plan)
+        segments = []
+        for frame in plan.frames:
+            params = {"text": frame.narration_text}
             if request.tts_workflow:
                 params["workflow"] = request.tts_workflow
             if request.ref_audio:
                 params["ref_audio"] = request.ref_audio
             audio_path = await pixelle_video.tts(**params)
-            audio_files.append(
-                AudioFileInfo(
-                    text=narration,
+            segments.append(
+                VoiceoverSegmentInfo(
+                    frame_id=frame.frame_id,
+                    index=frame.index,
+                    text=frame.narration_text,
                     audio_path=audio_path,
                     duration=get_audio_duration(audio_path),
                 )
             )
-        return AudioStageResponse(audio_files=audio_files)
+        return AudioStageResponse(voiceover_segments=segments)
     except Exception as exc:
         logger.error(f"Audio stage error: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.post("/storyboard", response_model=StoryboardStageResponse)
-async def generate_storyboard_stage(request: StoryboardStageRequest, pixelle_video: PixelleVideoDep):
-    try:
-        script = await generate_script_stage(
-            ScriptStageRequest(
-                text=request.text,
-                mode=request.mode,
-                n_scenes=request.n_scenes,
-                min_narration_words=request.min_narration_words,
-                max_narration_words=request.max_narration_words,
-                title=request.title,
-            ),
-            pixelle_video,
-        )
-        image_config = pixelle_video.config.get("comfyui", {}).get("image", {})
-        batch = await generate_styled_image_prompt_batch(
-            llm_service=pixelle_video.llm,
-            narrations=script.narrations,
-            image_config=image_config,
-            prompt_prefix=request.prompt_prefix,
-            workflow=request.media_workflow,
-            media_service=pixelle_video.media,
-            min_words=request.min_image_prompt_words,
-            max_words=request.max_image_prompt_words,
-        )
-        return StoryboardStageResponse(
-            title=script.title,
-            narrations=script.narrations,
-            image_prompts=batch.prompts,
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error(f"Storyboard stage error: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -1432,10 +1695,7 @@ async def render_segments_stage(request: RenderStageRequest, pixelle_video: Pixe
             raise HTTPException(status_code=400, detail="output_name must end with .mp4")
         output_path = Path("output") / "staged" / safe_output
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        segment_paths = [
-            str(resolve_allowed_file_path(path))
-            for path in request.video_segment_paths
-        ]
+        segment_paths = [str(resolve_allowed_file_path(path)) for path in request.video_segment_paths]
         pixelle_video.video.concat_videos(
             segment_paths,
             str(output_path),
@@ -1453,6 +1713,8 @@ async def render_segments_stage(request: RenderStageRequest, pixelle_video: Pixe
         logger.error(f"Render stage error: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
 ```
+
+Do not import or call `generate_narrations_from_topic`, `split_narration_script`, or `generate_styled_image_prompt_batch` from this router. The only acceptable source for voiceover text is `StoryboardPlan.frames[*].narration_text`.
 
 - [ ] **Step 5: Register staged video router**
 
@@ -1496,13 +1758,13 @@ Run:
 uv run pytest tests/test_video_stages_api.py tests/test_video_api.py -q
 ```
 
-Expected: pass.
+Expected: pass after Storyboard Generation Contract phases 1-4 are implemented. If the contract services are still missing, this task remains deferred and must not be implemented with legacy content generator shortcuts.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add api/schemas/video_stages.py api/routers/video_stages.py api/routers/__init__.py api/app.py tests/test_video_stages_api.py
-git commit -m "feat(api): add staged video generation endpoints"
+git commit -m "feat(api): add storyboard-plan staged video endpoints"
 git push
 ```
 
@@ -1515,7 +1777,13 @@ git push
 
 - [ ] **Step 1: Update API documentation**
 
-Replace the short current `docs/en/user-guide/api.md` content with sections for:
+Before editing `docs/en/user-guide/api.md`, check whether Task 5 was actually implemented:
+
+```bash
+test -f api/routers/video_stages.py && test -f api/schemas/video_stages.py
+```
+
+If both files exist because Task 5 passed with the Storyboard Generation Contract services, replace the short current `docs/en/user-guide/api.md` content with sections for:
 
 ```markdown
 # API Usage
@@ -1559,7 +1827,7 @@ GET /api/tasks/page?page=1&page_size=20&status=completed
 
 ## Staged Video Endpoints
 
-These endpoints are diagnostic building blocks. They expose a focused subset of full video generation controls; use `/api/video/generate/async` for complete production generation.
+These endpoints are diagnostic building blocks. They use the Storyboard Generation Contract from their first version and do not accept legacy storyboard fields such as `n_scenes`, `split_mode`, or `narrations` as storyboard input. Use `/api/video/generate/async` for complete production generation.
 
 Generate script:
 
@@ -1567,16 +1835,22 @@ Generate script:
 POST /api/video/stages/script
 ```
 
-Generate audio:
+Generate a storyboard plan:
+
+```http
+POST /api/video/stages/storyboard-plan
+```
+
+Generate image prompts from a storyboard plan:
+
+```http
+POST /api/video/stages/image-prompts
+```
+
+Generate audio from `StoryboardPlan.frames[*].narration_text`:
 
 ```http
 POST /api/video/stages/audio
-```
-
-Generate storyboard prompts:
-
-```http
-POST /api/video/stages/storyboard
 ```
 
 Render prepared segments:
@@ -1607,6 +1881,14 @@ POST /api/resources/bgm
 POST /api/resources/reference-audio
 POST /api/resources/materials
 ```
+```
+
+If Task 5 was deferred because `ScriptGenerationService`, `StoryboardEnhancer`, or `ImagePromptComposer` was missing, do not document staged endpoints as active API surface. Use this staged section instead:
+
+```markdown
+## Staged Video Endpoints
+
+Staged video endpoints are deferred until the Storyboard Generation Contract services are complete. They must be implemented around `StoryboardPlan`; they must not expose `n_scenes`, `split_mode`, or `narrations` as storyboard input.
 ```
 
 - [ ] **Step 2: Run the focused verification suite**
@@ -1650,7 +1932,7 @@ Expected: `Everything up-to-date` because each atomic commit has already been pu
 ## Self-Review
 
 - Spec coverage: the plan covers the five requested areas: staged generation API, unified error envelope, task pagination, file stream/download split, and resource uploads.
-- Backward compatibility: existing route paths remain; new routes are additive. The main intentional behavior change is standardized error payloads from FastAPI exception handlers.
-- Type consistency: route response models are defined in `api/schemas/*`; routers import those schemas directly; task pagination updates manager/store/router signatures consistently.
+- Backward compatibility: non-video route paths and successful response shapes remain stable where routes already exist. Video generation follows the Storyboard Generation Contract and intentionally rejects removed storyboard fields such as `n_scenes`, `split_mode`, and narration-count controls.
+- Type consistency: route response models are defined in `api/schemas/*`; routers import those schemas directly; task pagination updates manager/store/router signatures consistently; staged video schemas use `source_text`, `StoryboardPlan`, `voiceover_segments`, and image prompts instead of legacy narration-first inputs.
 - Scope control: the plan keeps Pixelle's existing task registry and worker model. It does not copy MoneyPrinterTurbo's thread queue.
-- Risk: Task 2 touches both memory and PostgreSQL task stores. Run the focused task tests before moving to file/upload work.
+- Risk: Task 2 touches both memory and PostgreSQL task stores. Task 5 is intentionally gated on Storyboard Generation Contract phases 1-4 and must remain deferred rather than being implemented with legacy `generate_narrations_from_topic`, `split_narration_script`, or `generate_styled_image_prompt_batch` shortcuts.
