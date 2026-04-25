@@ -111,6 +111,63 @@ def test_video_generate_request_accepts_prompt_generation_performance_controls()
     assert request.llm_prompt_batch_concurrent_limit == 3
 
 
+def test_video_generate_request_accepts_storyboard_generation_contract_fields():
+    request = VideoGenerateRequest(
+        text="demo",
+        frame_template="1080x1920/image_default.html",
+        mode="generate",
+        storyboard_mode="smart",
+        storyboard_count_mode="manual",
+        storyboard_scene_count=4,
+        script_length_mode="custom",
+        script_target_words=180,
+    )
+
+    assert request.storyboard_mode == "smart"
+    assert request.storyboard_count_mode == "manual"
+    assert request.storyboard_scene_count == 4
+    assert request.script_length_mode == "custom"
+    assert request.script_target_words == 180
+
+
+@pytest.mark.parametrize(
+    "legacy_payload",
+    [
+        {"n_scenes": 5},
+        {"split_mode": "sentence"},
+    ],
+)
+def test_video_generate_request_rejects_legacy_storyboard_fields(legacy_payload):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            **legacy_payload,
+        )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"storyboard_mode": "smart", "storyboard_count_mode": "auto", "storyboard_scene_count": 4},
+        {"storyboard_mode": "smart", "storyboard_count_mode": "manual"},
+        {"storyboard_mode": "sentence", "storyboard_count_mode": "manual", "storyboard_scene_count": 2},
+        {"storyboard_mode": "punctuation", "storyboard_count_mode": "auto", "storyboard_scene_count": 2},
+        {"mode": "fixed", "script_length_mode": "short"},
+        {"mode": "fixed", "script_target_words": 120},
+        {"mode": "generate", "script_length_mode": "custom"},
+        {"mode": "generate", "script_length_mode": "auto", "script_target_words": 120},
+    ],
+)
+def test_video_generate_request_rejects_invalid_storyboard_contract_combinations(payload):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            **payload,
+        )
+
+
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [
@@ -295,6 +352,11 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             text="demo",
             frame_template="1080x1920/image_default.html",
             render_backend="hyperframes_compiled",
+            storyboard_mode="smart",
+            storyboard_count_mode="manual",
+            storyboard_scene_count=4,
+            script_length_mode="custom",
+            script_target_words=180,
             world_preset_id="neutral_knowledge_storyboard",
             shot_preset_id="balanced_explainer",
             consistency_strength="strong",
@@ -332,9 +394,11 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "text": "demo",
             "mode": "generate",
             "title": None,
-            "n_scenes": 5,
-            "min_narration_words": 5,
-            "max_narration_words": 20,
+            "storyboard_mode": "smart",
+            "storyboard_count_mode": "manual",
+            "storyboard_scene_count": 4,
+            "script_length_mode": "custom",
+            "script_target_words": 180,
             "min_image_prompt_words": 30,
             "max_image_prompt_words": 60,
             "media_width": 1080,

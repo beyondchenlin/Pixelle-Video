@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -108,8 +108,6 @@ def test_build_single_generation_request_includes_render_backend():
             "text": "demo",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "media_workflow": "runninghub/image_flux.json",
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": "clean",
@@ -129,6 +127,36 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["render_backend"] == "hyperframes_compiled"
     assert request["tts_audio_strategy"] == "master_track"
     assert request["progress_callback"] is _progress
+
+
+def test_build_single_generation_request_uses_storyboard_generation_contract_fields():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "title": "Demo",
+            "storyboard_mode": "smart",
+            "storyboard_count_mode": "manual",
+            "storyboard_scene_count": 4,
+            "script_length_mode": "custom",
+            "script_target_words": 180,
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["storyboard_mode"] == "smart"
+    assert request["storyboard_count_mode"] == "manual"
+    assert request["storyboard_scene_count"] == 4
+    assert request["script_length_mode"] == "custom"
+    assert request["script_target_words"] == 180
+    assert "n_scenes" not in request
+    assert "split_mode" not in request
 
 
 def test_build_single_generation_request_passes_request_and_session_ids():
@@ -317,7 +345,6 @@ def test_build_batch_shared_config_includes_render_backend():
     shared_config = output_preview.build_batch_shared_config(
         {
             "title_prefix": "Series",
-            "n_scenes": 5,
             "media_workflow": "runninghub/image_flux.json",
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": "clean",
@@ -338,10 +365,31 @@ def test_build_batch_shared_config_includes_render_backend():
     assert shared_config["tts_audio_strategy"] == "master_track"
 
 
+def test_build_batch_shared_config_uses_storyboard_generation_contract_fields():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "title_prefix": "Series",
+            "storyboard_mode": "smart",
+            "storyboard_count_mode": "manual",
+            "storyboard_scene_count": 6,
+            "script_length_mode": "long",
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+        }
+    )
+
+    assert shared_config["storyboard_mode"] == "smart"
+    assert shared_config["storyboard_count_mode"] == "manual"
+    assert shared_config["storyboard_scene_count"] == 6
+    assert shared_config["script_length_mode"] == "long"
+    assert "script_target_words" not in shared_config
+    assert "n_scenes" not in shared_config
+    assert "split_mode" not in shared_config
+
+
 def test_build_batch_shared_config_includes_prompt_generation_performance_overrides():
     shared_config = output_preview.build_batch_shared_config(
         {
-            "n_scenes": 5,
             "frame_template": "1080x1920/image_default.html",
             "tts_inference_mode": "local",
             LLM_PROMPT_BATCH_SIZE_PARAM: 8,
@@ -356,7 +404,6 @@ def test_build_batch_shared_config_includes_prompt_generation_performance_overri
 def test_build_batch_shared_config_omits_prompt_generation_performance_when_absent():
     shared_config = output_preview.build_batch_shared_config(
         {
-            "n_scenes": 5,
             "frame_template": "1080x1920/image_default.html",
             "tts_inference_mode": "local",
         }
@@ -381,7 +428,6 @@ def test_build_batch_shared_config_passes_session_id():
 def test_build_batch_shared_config_includes_storyboard_controls_and_frame_overrides():
     shared_config = output_preview.build_batch_shared_config(
         {
-            "n_scenes": 5,
             "frame_template": "1080x1920/image_default.html",
             "tts_inference_mode": "local",
             "world_preset_id": "neutral_knowledge_storyboard",
@@ -425,7 +471,6 @@ def test_build_batch_shared_config_includes_text_rendering_policy():
 
     shared_config = output_preview.build_batch_shared_config(
         {
-            "n_scenes": 5,
             "frame_template": "1080x1920/image_default.html",
             "tts_inference_mode": "local",
             "text_rendering": text_rendering,
@@ -448,7 +493,6 @@ def test_build_batch_shared_config_ignores_legacy_text_fields():
 
     shared_config = output_preview.build_batch_shared_config(
         {
-            "n_scenes": 5,
             "frame_template": "1080x1920/image_default.html",
             "tts_inference_mode": "local",
             "text_layer": text_layer,
@@ -469,8 +513,6 @@ def test_build_single_generation_request_includes_tts_speed_for_comfyui():
             "text": "demo",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "media_workflow": "runninghub/image_flux.json",
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": "clean",
@@ -494,7 +536,6 @@ def test_build_batch_shared_config_includes_tts_speed_for_comfyui():
     shared_config = output_preview.build_batch_shared_config(
         {
             "title_prefix": "Series",
-            "n_scenes": 5,
             "media_workflow": "runninghub/image_flux.json",
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": "clean",
@@ -615,8 +656,6 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
             "text": "demo",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "media_workflow": "runninghub/image_flux.json",
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": "clean",
@@ -830,8 +869,6 @@ def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_pa
             "text": "demo",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "media_workflow": "runninghub/image_flux.json",
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": "clean",
@@ -961,8 +998,6 @@ def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
             "text": "demo",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "media_workflow": "runninghub/image_flux.json",
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": "clean",
@@ -1088,8 +1123,6 @@ def test_render_single_output_shows_gallery_before_blocking_generation(monkeypat
             "text": "demo",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "tts_inference_mode": "local",
         },
     )
@@ -1208,8 +1241,6 @@ def test_render_single_output_keeps_existing_recent_video_during_generation(
             "text": "demo",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "tts_inference_mode": "local",
         },
     )
@@ -1318,8 +1349,6 @@ def test_render_single_output_reenables_button_after_generation_finishes(
             "text": "demo",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "tts_inference_mode": "local",
         },
     )
@@ -1440,8 +1469,6 @@ def test_render_single_output_marks_button_disabled_while_generation_runs(monkey
             "text": "demo",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "media_workflow": "runninghub/image_flux.json",
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": "clean",
@@ -1521,8 +1548,6 @@ def test_render_single_output_ignores_duplicate_click_while_generation_active(mo
             "text": "demo",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "tts_inference_mode": "local",
         },
     )
@@ -1634,8 +1659,6 @@ def test_render_single_output_consumes_request_before_long_generation(monkeypatc
             "text": "demo",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "tts_inference_mode": "local",
         },
     )
@@ -1706,8 +1729,6 @@ def test_render_single_output_does_not_stop_before_gallery_on_input_error(monkey
             "text": "",
             "mode": "generate",
             "title": "Demo",
-            "n_scenes": 3,
-            "split_mode": "paragraph",
             "tts_inference_mode": "local",
         },
     )

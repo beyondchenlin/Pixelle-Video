@@ -47,6 +47,13 @@ ELEMENT_ANIMATION_OPTION_KEYS = (
     "element_animation_intensity",
     "element_animation_workflow",
 )
+STORYBOARD_GENERATION_OPTION_KEYS = (
+    "storyboard_mode",
+    "storyboard_count_mode",
+    "storyboard_scene_count",
+    "script_length_mode",
+    "script_target_words",
+)
 SINGLE_VIDEO_GENERATING_KEY = "single_video_is_generating"
 SINGLE_VIDEO_REQUESTED_KEY = "single_video_generation_requested"
 SINGLE_VIDEO_DUPLICATE_CLICK_KEY = "single_video_duplicate_click"
@@ -109,6 +116,20 @@ def copy_element_animation_options(source, target):
             target[key] = source[key]
 
 
+def copy_storyboard_generation_options(source, target):
+    """Copy storyboard generation contract params into a generation request dict."""
+    defaults = {
+        "storyboard_mode": "smart",
+        "storyboard_count_mode": "auto",
+        "script_length_mode": "auto",
+    }
+    for key, default in defaults.items():
+        target[key] = source.get(key) or default
+    for key in ("storyboard_scene_count", "script_target_words"):
+        if source.get(key) is not None:
+            target[key] = source[key]
+
+
 def render_output_preview(pixelle_video, video_params):
     """Render output preview section (right column)"""
     # Check if batch mode
@@ -128,8 +149,6 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "text": video_params.get("text", ""),
         "mode": video_params.get("mode", "generate"),
         "title": video_params.get("title") if video_params.get("title") else None,
-        "n_scenes": video_params.get("n_scenes", 5),
-        "split_mode": video_params.get("split_mode", "paragraph"),
         "media_workflow": video_params.get("media_workflow"),
         "frame_template": video_params.get("frame_template"),
         "prompt_prefix": video_params.get("prompt_prefix", ""),
@@ -173,6 +192,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     copy_render_backend(video_params, request)
     copy_tts_audio_strategy(video_params, request)
     copy_tts_split_settings(video_params, request)
+    copy_storyboard_generation_options(video_params, request)
     copy_element_animation_options(video_params, request)
     copy_prompt_generation_performance_params(video_params, request)
     if video_params.get("text_rendering") is not None:
@@ -189,7 +209,6 @@ def build_batch_shared_config(video_params):
     """Build batch shared_config from Web UI params."""
     shared_config = {
         "title_prefix": video_params.get("title_prefix"),
-        "n_scenes": video_params.get("n_scenes") or 5,
         "media_workflow": video_params.get("media_workflow"),
         "frame_template": video_params.get("frame_template"),
         "prompt_prefix": video_params.get("prompt_prefix") or "",
@@ -236,6 +255,7 @@ def build_batch_shared_config(video_params):
     copy_render_backend(video_params, shared_config)
     copy_tts_audio_strategy(video_params, shared_config)
     copy_tts_split_settings(video_params, shared_config)
+    copy_storyboard_generation_options(video_params, shared_config)
     copy_element_animation_options(video_params, shared_config)
     copy_prompt_generation_performance_params(video_params, shared_config)
     if video_params.get("text_rendering") is not None:
@@ -249,8 +269,6 @@ def render_single_output(pixelle_video, video_params):
     text = video_params.get("text", "")
     mode = video_params.get("mode", "generate")
     title = video_params.get("title")
-    n_scenes = video_params.get("n_scenes", 5)
-    split_mode = video_params.get("split_mode", "paragraph")
     bgm_path = video_params.get("bgm_path")
     bgm_volume = video_params.get("bgm_volume", 0.2)
 
@@ -397,8 +415,10 @@ def render_single_output(pixelle_video, video_params):
                             "text": text,
                             "mode": mode,
                             "title": title,
-                            "n_scenes": n_scenes,
-                            "split_mode": split_mode,
+                            **{
+                                key: video_params.get(key)
+                                for key in STORYBOARD_GENERATION_OPTION_KEYS
+                            },
                             "media_workflow": workflow_key,
                             "frame_template": frame_template,
                             "prompt_prefix": prompt_prefix,

@@ -16,7 +16,7 @@ Video generation API schemas
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.schemas.text_rendering import TextRenderingRequest
 from pixelle_video.models.storyboard_planning import (
@@ -85,7 +85,9 @@ class VideoGenerateRequest(BaseModel):
             "example": {
                 "text": "Atomic Habits teaches us that small changes compound over time to produce remarkable results.",
                 "mode": "generate",
-                "n_scenes": 5,
+                "storyboard_mode": "smart",
+                "storyboard_count_mode": "auto",
+                "script_length_mode": "auto",
                 "frame_template": "1080x1920/image_default.html",
                 "render_backend": "legacy",
                 "template_params": {
@@ -109,8 +111,30 @@ class VideoGenerateRequest(BaseModel):
     # === Optional Title ===
     title: Optional[str] = Field(None, description="Video title (auto-generated if not provided)")
     
-    # === Basic Config ===
-    n_scenes: Optional[int] = Field(5, ge=1, le=20, description="Number of scenes (only used in 'generate' mode, ignored in 'fixed' mode)")
+    # === Storyboard Generation ===
+    storyboard_mode: Literal["smart", "punctuation", "sentence"] = Field(
+        "smart",
+        description="Storyboard generation mode",
+    )
+    storyboard_count_mode: Literal["auto", "manual"] = Field(
+        "auto",
+        description="Storyboard count mode. Manual is only valid with smart storyboard mode.",
+    )
+    storyboard_scene_count: Optional[int] = Field(
+        None,
+        ge=1,
+        le=30,
+        description="Manual storyboard scene count. Only valid with smart + manual.",
+    )
+    script_length_mode: Literal["auto", "short", "medium", "long", "custom"] = Field(
+        "auto",
+        description="Complete script length mode for generate mode",
+    )
+    script_target_words: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Custom target word count. Only valid with generate + custom script length mode.",
+    )
     
     # === TTS Parameters ===
     tts_workflow: Optional[str] = Field(
@@ -167,8 +191,6 @@ class VideoGenerateRequest(BaseModel):
     )
     
     # === LLM Parameters ===
-    min_narration_words: int = Field(5, ge=1, le=100, description="Min narration words")
-    max_narration_words: int = Field(20, ge=1, le=200, description="Max narration words")
     min_image_prompt_words: int = Field(30, ge=10, le=100, description="Min image prompt words")
     max_image_prompt_words: int = Field(60, ge=10, le=200, description="Max image prompt words")
     llm_prompt_batch_size: Optional[int] = Field(
@@ -239,6 +261,33 @@ class VideoGenerateRequest(BaseModel):
     # === BGM ===
     bgm_path: Optional[str] = Field(None, description="Background music path")
     bgm_volume: float = Field(0.3, ge=0.0, le=1.0, description="BGM volume (0.0-1.0)")
+
+    @model_validator(mode="after")
+    def validate_storyboard_generation_contract(self) -> "VideoGenerateRequest":
+        if self.storyboard_mode == "smart":
+            if self.storyboard_count_mode == "manual":
+                if self.storyboard_scene_count is None:
+                    raise ValueError("storyboard_scene_count is required with smart manual mode")
+            elif self.storyboard_scene_count is not None:
+                raise ValueError("storyboard_scene_count is valid only with smart manual mode")
+        else:
+            if self.storyboard_count_mode != "auto":
+                raise ValueError("deterministic storyboard modes require auto count mode")
+            if self.storyboard_scene_count is not None:
+                raise ValueError("storyboard_scene_count is not valid for deterministic storyboard modes")
+
+        if self.mode == "fixed":
+            if self.script_length_mode != "auto":
+                raise ValueError("script_length_mode is only configurable in generate mode")
+            if self.script_target_words is not None:
+                raise ValueError("script_target_words is only valid in generate mode")
+        elif self.script_length_mode == "custom":
+            if self.script_target_words is None:
+                raise ValueError("script_target_words is required with custom script length mode")
+        elif self.script_target_words is not None:
+            raise ValueError("script_target_words is only valid with custom script length mode")
+
+        return self
 
 
 class VideoGenerateResponse(BaseModel):

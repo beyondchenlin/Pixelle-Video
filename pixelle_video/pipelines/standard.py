@@ -187,7 +187,7 @@ class StandardPipeline(LinearVideoPipeline):
         """Step 2: Generate or process script/narrations."""
         mode = ctx.params.get("mode", "generate")
         text = ctx.input_text
-        n_scenes = ctx.params.get("n_scenes", 5)
+        requested_scene_count = ctx.params.get("storyboard_scene_count")
         stage_callback = self._ai_stage_callback(ctx)
 
         summary = ctx.observability.setdefault("ai_creation", {})
@@ -203,7 +203,7 @@ class StandardPipeline(LinearVideoPipeline):
                 latency_ms=0,
                 llm_call_count=0,
                 retry_count=0,
-                narration_count=n_scenes,
+                narration_count=requested_scene_count,
                 pipeline="standard",
                 workflow=ctx.params.get("media_workflow"),
                 template=ctx.params.get("frame_template"),

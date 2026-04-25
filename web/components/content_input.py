@@ -23,6 +23,113 @@ from web.i18n import tr
 from web.utils.async_helpers import get_project_version
 
 
+def build_storyboard_generation_payload(
+    *,
+    storyboard_mode: str,
+    storyboard_count_mode: str,
+    storyboard_scene_count: int | None,
+    script_length_mode: str,
+    script_target_words: int | None,
+) -> dict:
+    """Normalize UI storyboard generation controls into the video request contract."""
+    if storyboard_mode != "smart":
+        storyboard_count_mode = "auto"
+        storyboard_scene_count = None
+    elif storyboard_count_mode != "manual":
+        storyboard_count_mode = "auto"
+        storyboard_scene_count = None
+
+    if script_length_mode != "custom":
+        script_target_words = None
+
+    return {
+        "storyboard_mode": storyboard_mode,
+        "storyboard_count_mode": storyboard_count_mode,
+        "storyboard_scene_count": storyboard_scene_count,
+        "script_length_mode": script_length_mode,
+        "script_target_words": script_target_words,
+    }
+
+
+def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict:
+    """Render controls for source-text storyboard generation."""
+    st.markdown(f"**{tr('section.storyboard_planning')}**")
+    storyboard_mode = st.radio(
+        "Storyboard Mode",
+        ["smart", "punctuation", "sentence"],
+        index=0,
+        horizontal=True,
+        key=f"{key_prefix}_storyboard_mode",
+        format_func=lambda value: {
+            "smart": "Smart",
+            "punctuation": tr("split.mode_punctuation"),
+            "sentence": tr("split.mode_sentence"),
+        }[value],
+    )
+
+    storyboard_count_mode = "auto"
+    storyboard_scene_count = None
+    if storyboard_mode == "smart":
+        storyboard_count_mode = st.radio(
+            "Scene Count",
+            ["auto", "manual"],
+            index=0,
+            horizontal=True,
+            key=f"{key_prefix}_storyboard_count_mode",
+            format_func=lambda value: {
+                "auto": tr("storyboard.option.content_mode.auto"),
+                "manual": tr("video.frames"),
+            }[value],
+        )
+        if storyboard_count_mode == "manual":
+            storyboard_scene_count = st.slider(
+                tr("video.frames"),
+                min_value=1,
+                max_value=30,
+                value=5,
+                key=f"{key_prefix}_storyboard_scene_count",
+                help=tr("video.frames_help"),
+            )
+    else:
+        st.caption(tr("video.frames_fixed_mode_hint"))
+
+    script_length_mode = "auto"
+    script_target_words = None
+    if mode == "generate":
+        script_length_mode = st.selectbox(
+            "Script Length",
+            ["auto", "short", "medium", "long", "custom"],
+            index=0,
+            key=f"{key_prefix}_script_length_mode",
+            format_func=lambda value: {
+                "auto": tr("storyboard.option.content_mode.auto"),
+                "short": "Short",
+                "medium": "Medium",
+                "long": "Long",
+                "custom": tr("style.custom"),
+            }[value],
+        )
+        if script_length_mode == "custom":
+            script_target_words = int(
+                st.number_input(
+                    "Target Words",
+                    min_value=1,
+                    max_value=5000,
+                    value=240,
+                    step=10,
+                    key=f"{key_prefix}_script_target_words",
+                )
+            )
+
+    return build_storyboard_generation_payload(
+        storyboard_mode=storyboard_mode,
+        storyboard_count_mode=storyboard_count_mode,
+        storyboard_scene_count=storyboard_scene_count,
+        script_length_mode=script_length_mode,
+        script_target_words=script_target_words,
+    )
+
+
 def render_content_input():
     """Render content input section (left column) with batch support"""
     with st.container(border=True):
@@ -62,24 +169,6 @@ def render_content_input():
                 help=text_help
             )
             
-            # Split mode selector (only show in fixed mode)
-            if mode == "fixed":
-                split_mode_options = {
-                    "paragraph": tr("split.mode_paragraph"),
-                    "line": tr("split.mode_line"),
-                    "sentence": tr("split.mode_sentence"),
-                    "punctuation": tr("split.mode_punctuation"),
-                }
-                split_mode = st.selectbox(
-                    tr("split.mode_label"),
-                    options=list(split_mode_options.keys()),
-                    format_func=lambda x: split_mode_options[x],
-                    index=0,  # Default to paragraph mode
-                    help=tr("split.mode_help")
-                )
-            else:
-                split_mode = "paragraph"  # Default for generate mode (not used)
-            
             # Title input (optional for both modes)
             title = st.text_input(
                 tr("input.title"),
@@ -87,21 +176,10 @@ def render_content_input():
                 help=tr("input.title_help")
             )
             
-            # Number of scenes (only show in generate mode)
-            if mode == "generate":
-                n_scenes = st.slider(
-                    tr("video.frames"),
-                    min_value=3,
-                    max_value=30,
-                    value=5,
-                    help=tr("video.frames_help"),
-                    label_visibility="collapsed"
-                )
-                st.caption(tr("video.frames_label", n=n_scenes))
-            else:
-                # Fixed mode: n_scenes is ignored, set default value
-                n_scenes = 5
-                st.info(tr("video.frames_fixed_mode_hint"))
+            storyboard_generation = render_storyboard_generation_controls(
+                mode=mode,
+                key_prefix="single_video",
+            )
 
             prompt_generation_performance = render_prompt_generation_performance_controls(
                 key_prefix="single_video"
@@ -112,8 +190,7 @@ def render_content_input():
                 "mode": mode,
                 "text": text,
                 "title": title,
-                "n_scenes": n_scenes,
-                "split_mode": split_mode,
+                **storyboard_generation,
                 **prompt_generation_performance,
             }
         
@@ -174,15 +251,10 @@ def render_content_input():
                 help=tr("batch.title_prefix_help")
             )
             
-            # Number of scenes (unified for all videos)
-            n_scenes = st.slider(
-                tr("batch.n_scenes_label"),
-                min_value=3,
-                max_value=30,
-                value=5,
-                help=tr("batch.n_scenes_help")
+            storyboard_generation = render_storyboard_generation_controls(
+                mode="generate",
+                key_prefix="batch_video",
             )
-            st.caption(tr("batch.n_scenes_caption", n=n_scenes))
 
             prompt_generation_performance = render_prompt_generation_performance_controls(
                 key_prefix="batch_video"
@@ -196,7 +268,7 @@ def render_content_input():
                 "topics": topics,
                 "mode": "generate",  # Fixed to AI generate content
                 "title_prefix": title_prefix,
-                "n_scenes": n_scenes,
+                **storyboard_generation,
                 **prompt_generation_performance,
             }
 

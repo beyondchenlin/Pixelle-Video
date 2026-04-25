@@ -9,6 +9,7 @@ from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.render_package import SentenceUnit
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.text_overlay import TextOverlayCandidate, TextOverlayPlan
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
@@ -643,19 +644,60 @@ async def test_determine_title_progress_does_not_regress_after_generate_content(
     events = []
     ctx = PipelineContext(
         input_text="a sufficiently long topic for title generation",
-        params={"mode": "generate", "n_scenes": 3},
+        params={"mode": "generate"},
         progress_callback=events.append,
     )
 
-    async def fake_generate_narrations_from_topic(*args, **kwargs):
-        return ["scene 1", "scene 2", "scene 3"]
+    async def fake_script_generate(self, **kwargs):
+        return "scene 1. scene 2. scene 3."
+
+    async def fake_storyboard_generate(self, **kwargs):
+        return StoryboardPlan.build(
+            mode="smart",
+            count_mode="auto",
+            requested_scene_count=None,
+            source_text=kwargs["source_text"],
+            frames=[
+                StoryboardPlanFrame(
+                    index=1,
+                    source_text="scene 1.",
+                    narration_text="scene 1.",
+                    visual_goal="Show scene 1.",
+                    prompt_intent="Frame scene 1.",
+                    source_start=0,
+                    source_end=8,
+                ),
+                StoryboardPlanFrame(
+                    index=2,
+                    source_text=" scene 2.",
+                    narration_text="scene 2.",
+                    visual_goal="Show scene 2.",
+                    prompt_intent="Frame scene 2.",
+                    source_start=8,
+                    source_end=17,
+                ),
+                StoryboardPlanFrame(
+                    index=3,
+                    source_text=" scene 3.",
+                    narration_text="scene 3.",
+                    visual_goal="Show scene 3.",
+                    prompt_intent="Frame scene 3.",
+                    source_start=17,
+                    source_end=26,
+                ),
+            ],
+        )
 
     async def fake_generate_title(*args, **kwargs):
         return "Generated Title"
 
     monkeypatch.setattr(
-        "pixelle_video.pipelines.standard.generate_narrations_from_topic",
-        fake_generate_narrations_from_topic,
+        "pixelle_video.pipelines.standard.ScriptGenerationService.generate",
+        fake_script_generate,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.StoryboardGenerationService.generate",
+        fake_storyboard_generate,
     )
     monkeypatch.setattr(
         "pixelle_video.pipelines.standard.generate_title",
@@ -666,7 +708,8 @@ async def test_determine_title_progress_does_not_regress_after_generate_content(
     await pipeline.determine_title(ctx)
 
     assert [event.event_type for event in events] == [
-        "generating_narrations",
+        "generating_source_text",
+        "generating_storyboard_plan",
         "generating_title",
     ]
-    assert events[1].progress >= events[0].progress
+    assert events[-1].progress >= events[-2].progress >= events[0].progress
