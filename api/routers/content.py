@@ -125,7 +125,7 @@ async def generate_image_prompt(
             shot_strategy=request.shot_strategy,
             frame_overrides=_serialize_frame_overrides(request.frame_overrides),
             text_rendering=(
-                request.text_rendering.model_dump()
+                request.text_rendering.model_dump(exclude_none=True)
                 if request.text_rendering is not None
                 else None
             ),

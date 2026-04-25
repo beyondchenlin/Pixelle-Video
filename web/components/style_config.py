@@ -44,8 +44,7 @@ from pixelle_video.config.storyboard_preset_library import (
 from pixelle_video.prompts.prompt_prefix_generation import (
     build_prompt_prefix_generation_prompt,
 )
-from pixelle_video.models.text_overlay import DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
-from pixelle_video.render_backend import LEGACY_RENDER_BACKEND, SUPPORTED_RENDER_BACKENDS
+from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
 from pixelle_video.tts_audio_strategy import SUPPORTED_TTS_AUDIO_STRATEGIES
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
@@ -59,6 +58,12 @@ from pixelle_video.utils.text_splitting import (
     SUPPORTED_TTS_SENTENCE_JOINER_MODES,
 )
 from web.components.storyboard_preview import render_storyboard_preview
+from web.components.text_rendering_config import (
+    DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
+    build_text_rendering_payload,
+    render_text_layer_controls,
+    render_text_rendering_controls,
+)
 from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
 from web.utils.preview_media import load_preview_media
@@ -211,23 +216,6 @@ def build_storyboard_control_payload(
     if frame_overrides:
         normalized_payload["frame_overrides"] = frame_overrides
     return normalized_payload
-
-
-def build_text_rendering_payload(
-    *,
-    overlay_policy: dict | None,
-    suppress_embedded_text: bool,
-    positive_prompt: str,
-) -> dict:
-    """Build the nested text_rendering payload used by API and pipelines."""
-    cleaned_prompt = str(positive_prompt or "").strip()
-    return {
-        "overlay": overlay_policy or {"enabled": False},
-        "image_text": {
-            "suppress_embedded_text": bool(suppress_embedded_text),
-            "positive_prompt": cleaned_prompt,
-        },
-    }
 
 
 def resolve_storyboard_toggle_default(
@@ -2486,7 +2474,11 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         tts_split_settings = render_tts_split_settings()
 
     element_animation_settings = render_element_animation_controls()
-    text_rendering = render_text_rendering_controls(render_backend)
+    text_rendering = render_text_rendering_controls(
+        render_backend,
+        ui=st,
+        translate=tr,
+    )
 
     storyboard_world_preset_id = None
     storyboard_shot_preset_id = None
@@ -3230,101 +3222,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         **storyboard_payload,
     }
     return result
-
-
-def render_text_rendering_controls(render_backend: str) -> dict:
-    """Render the dedicated text rendering controls."""
-    with render_middle_column_collapsible_section(
-        tr("section.text_rendering"),
-        expanded=False,
-    ):
-        overlay_policy = render_text_layer_controls(render_backend)
-        suppress_embedded_text = st.checkbox(
-            tr("image_text.suppress_embedded_text"),
-            value=st.session_state.get("image_text_suppress_embedded_text", False),
-            help=tr("image_text.suppress_embedded_text_help"),
-            key="image_text_suppress_embedded_text",
-        )
-        positive_prompt = st.text_area(
-            tr("image_text.positive_prompt"),
-            value=st.session_state.get(
-                "image_text_positive_prompt",
-                DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
-            ),
-            help=tr("image_text.positive_prompt_help"),
-            key="image_text_positive_prompt",
-            disabled=False,
-        )
-
-    return build_text_rendering_payload(
-        overlay_policy=overlay_policy,
-        suppress_embedded_text=suppress_embedded_text,
-        positive_prompt=positive_prompt,
-    )
-
-
-def render_text_layer_controls(render_backend: str) -> dict | None:
-    """Render optional post-image text layer controls."""
-    enabled = st.checkbox(
-        tr("text_layer.enabled"),
-        value=st.session_state.get("text_layer_enabled", False),
-        key="text_layer_enabled",
-        help=tr("text_layer.enabled_help"),
-    )
-    if not enabled:
-        return None
-
-    mode_options = ["programmatic_only", "native_hint", "hybrid"]
-    mode = st.radio(
-        tr("text_layer.mode"),
-        mode_options,
-        index=0,
-        horizontal=True,
-        format_func=lambda value: tr(f"text_layer.mode.{value}"),
-        key="text_layer_mode",
-    )
-
-    default_target = "ass" if render_backend == LEGACY_RENDER_BACKEND else "hyperframes"
-    target_options = ["hyperframes", "ass", "both"]
-    target_preset = st.radio(
-        tr("text_layer.targets"),
-        target_options,
-        index=target_options.index(default_target),
-        horizontal=True,
-        format_func=lambda value: tr(f"text_layer.target.{value}"),
-        key="text_layer_target_preset",
-    )
-
-    density_options = ["low", "medium", "high"]
-    density = st.selectbox(
-        tr("text_layer.density"),
-        density_options,
-        index=1,
-        format_func=lambda value: tr(f"text_layer.density.{value}"),
-        key="text_layer_density",
-    )
-
-    max_items_per_frame = st.number_input(
-        tr("text_layer.max_items_per_frame"),
-        min_value=1,
-        max_value=5,
-        value=2,
-        step=1,
-        key="text_layer_max_items_per_frame",
-    )
-
-    target_map = {
-        "hyperframes": ["hyperframes"],
-        "ass": ["ass"],
-        "both": ["hyperframes", "ass"],
-    }
-    return {
-        "enabled": True,
-        "mode": mode,
-        "renderer_targets": target_map[target_preset],
-        "density": density,
-        "max_items_per_frame": int(max_items_per_frame),
-    }
 
 
 def render_element_animation_controls() -> dict:

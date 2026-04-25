@@ -44,8 +44,34 @@ class ImageTextPolicyRequest(BaseModel):
     negative_prompt: Optional[str] = None
 
 
+class TextStyleProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    font_family: str = Field("Noto Sans CJK SC", min_length=1, max_length=128)
+    font_size: int = Field(64, ge=8, le=240)
+    primary_color: str = Field("#FFFFFF", pattern=r"^#[0-9a-fA-F]{6}$")
+    stroke_color: str = Field("#000000", pattern=r"^#[0-9a-fA-F]{6}$")
+    stroke_width: int = Field(2, ge=0, le=16)
+    background_color: Optional[str] = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
+    background_opacity: float = Field(0.0, ge=0.0, le=1.0)
+    position: Literal[
+        "top",
+        "center",
+        "bottom",
+        "lower_third",
+        "top_left",
+        "top_right",
+        "bottom_left",
+        "bottom_right",
+    ] = "bottom"
+    margin_y: int = Field(140, ge=0, le=1000)
+    max_chars_per_line: Optional[int] = Field(None, ge=1, le=200)
+
+
 class TextRenderingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     overlay: TextOverlayRequest = Field(default_factory=TextOverlayRequest)
     image_text: ImageTextPolicyRequest = Field(default_factory=ImageTextPolicyRequest)
+    caption_style: Optional[TextStyleProfileRequest] = None
+    overlay_style: Optional[TextStyleProfileRequest] = None

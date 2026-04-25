@@ -511,3 +511,58 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
     assert "no visible text" in text_rendering["image_text"]["positive_prompt"]
     assert "no watermark" in text_rendering["image_text"]["positive_prompt"]
     assert text_rendering["image_text"]["negative_prompt"] == "letters"
+    assert "caption_style" not in text_rendering
+    assert "overlay_style" not in text_rendering
+
+
+@pytest.mark.asyncio
+async def test_generate_video_async_preserves_explicit_text_styles(monkeypatch, tmp_path):
+    output_path = tmp_path / "task-async" / "final.mp4"
+    fake_pixelle_video = _FakePixelleVideo(output_path)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        lambda template_path: SimpleNamespace(get_media_size=lambda: (1080, 1920)),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda template_path: template_path,
+    )
+    monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
+
+    class _FakeTaskManager:
+        async def reserve_or_reuse_generation_task(self, **_kwargs):
+            return SimpleNamespace(
+                created=True,
+                task=SimpleNamespace(task_id="task-1"),
+            )
+
+        async def execute_task(self, *, task_id, coro_func):
+            await coro_func()
+
+    monkeypatch.setattr("api.routers.video.task_manager", _FakeTaskManager())
+
+    await generate_video_async(
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            text_rendering={
+                "caption_style": {
+                    "font_size": 72,
+                    "primary_color": "#FFFF00",
+                },
+                "overlay_style": {
+                    "font_size": 88,
+                    "position": "center",
+                },
+            },
+        ),
+        fake_pixelle_video,
+        SimpleNamespace(base_url="http://testserver/"),
+    )
+
+    text_rendering = fake_pixelle_video.calls[0]["text_rendering"]
+    assert text_rendering["caption_style"]["font_size"] == 72
+    assert text_rendering["caption_style"]["primary_color"] == "#FFFF00"
+    assert text_rendering["overlay_style"]["font_size"] == 88
+    assert text_rendering["overlay_style"]["position"] == "center"

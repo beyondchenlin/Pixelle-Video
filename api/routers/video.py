@@ -134,7 +134,9 @@ def build_video_generation_params(
         video_params["render_backend"] = request_body.render_backend
 
     if request_body.text_rendering is not None:
-        video_params["text_rendering"] = request_body.text_rendering.model_dump()
+        video_params["text_rendering"] = request_body.text_rendering.model_dump(
+            exclude_none=True
+        )
 
     _copy_tts_text_policy_params(request_body, video_params)
     copy_prompt_generation_performance_params(request_body, video_params)

@@ -218,6 +218,8 @@ async def test_generate_image_prompt_endpoint_threads_text_rendering(monkeypatch
         assert "no visible text" in image_text["positive_prompt"]
         assert "no watermark" in image_text["positive_prompt"]
         assert image_text["negative_prompt"] == "letters"
+        assert "caption_style" not in kwargs["text_rendering"]
+        assert "overlay_style" not in kwargs["text_rendering"]
         return StyledImagePromptBatch(
             prompts=["styled prompt"],
             negative_prompt=None,
@@ -241,6 +243,44 @@ async def test_generate_image_prompt_endpoint_threads_text_rendering(monkeypatch
                 "image_text": {
                     "suppress_embedded_text": True,
                     "negative_prompt": "letters",
+                },
+            },
+        ),
+        _FakePixelleVideo(),
+    )
+
+    assert response.image_prompts == ["styled prompt"]
+
+
+@pytest.mark.asyncio
+async def test_generate_image_prompt_endpoint_preserves_explicit_text_styles(monkeypatch):
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        assert kwargs["text_rendering"]["caption_style"]["font_size"] == 72
+        assert kwargs["text_rendering"]["caption_style"]["primary_color"] == "#FFFF00"
+        assert kwargs["text_rendering"]["overlay_style"]["font_size"] == 88
+        assert kwargs["text_rendering"]["overlay_style"]["position"] == "center"
+        return StyledImagePromptBatch(
+            prompts=["styled prompt"],
+            negative_prompt=None,
+            resolved_style=None,
+        )
+
+    monkeypatch.setattr(
+        "api.routers.content.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    response = await generate_image_prompt(
+        ImagePromptGenerateRequest(
+            narrations=["scene one"],
+            text_rendering={
+                "caption_style": {
+                    "font_size": 72,
+                    "primary_color": "#FFFF00",
+                },
+                "overlay_style": {
+                    "font_size": 88,
+                    "position": "center",
                 },
             },
         ),

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import web.components.quick_create_flow as quick_create_flow
 import web.components.style_config as style_config
+import web.components.text_rendering_config as text_rendering_config
 import web.pipelines.standard as standard_pipeline
 from pixelle_video.config.storyboard_preset_library import (
     BUILTIN_SHOT_PRESETS,
@@ -442,8 +443,8 @@ def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monke
             return "low"
         return options[index]
 
-    monkeypatch.setattr(style_config, "st", fake_st)
-    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(text_rendering_config, "st", fake_st)
+    monkeypatch.setattr(text_rendering_config, "tr", lambda key, **kwargs: key)
     fake_st.checkbox = _checkbox
     fake_st.radio = _radio
     fake_st.selectbox = _selectbox
@@ -454,18 +455,40 @@ def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monke
 
     policy = style_config.render_text_rendering_controls("hyperframes_compiled")
 
-    assert policy == {
-        "overlay": {
-            "enabled": True,
-            "mode": "hybrid",
-            "renderer_targets": ["hyperframes", "ass"],
-            "density": "low",
-            "max_items_per_frame": 1,
-        },
-        "image_text": {
-            "suppress_embedded_text": True,
-            "positive_prompt": style_config.DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
-        },
+    assert policy["overlay"] == {
+        "enabled": True,
+        "mode": "hybrid",
+        "renderer_targets": ["hyperframes", "ass"],
+        "density": "low",
+        "max_items_per_frame": 1,
+    }
+    assert policy["caption_style"] == {
+        "font_family": "Noto Sans CJK SC",
+        "font_size": 1,
+        "primary_color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width": 1,
+        "background_color": "#000000",
+        "background_opacity": 1.0,
+        "position": "bottom",
+        "margin_y": 1,
+        "max_chars_per_line": 1,
+    }
+    assert policy["overlay_style"] == {
+        "font_family": "Noto Sans CJK SC",
+        "font_size": 1,
+        "primary_color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width": 1,
+        "background_color": "#000000",
+        "background_opacity": 1.0,
+        "position": "center",
+        "margin_y": 1,
+        "max_chars_per_line": 1,
+    }
+    assert policy["image_text"] == {
+        "suppress_embedded_text": True,
+        "positive_prompt": style_config.DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
     }
     assert text_area_calls[0]["disabled"] is False
 
@@ -478,8 +501,8 @@ def test_render_text_rendering_controls_keeps_prompt_editable_when_suppression_i
         fake_st.checkbox_calls.append({"label": label, "value": value, "key": key, **kwargs})
         return False
 
-    monkeypatch.setattr(style_config, "st", fake_st)
-    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(text_rendering_config, "st", fake_st)
+    monkeypatch.setattr(text_rendering_config, "tr", lambda key, **kwargs: key)
     fake_st.checkbox = _checkbox
     fake_st.text_area = lambda label, value="", **kwargs: (
         text_area_calls.append({"label": label, "value": value, **kwargs}) or "custom disabled-state prompt"
