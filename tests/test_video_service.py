@@ -144,6 +144,7 @@ def test_escape_ffmpeg_filter_path_handles_windows_drive_and_spaces():
         r"C:\测试 路径\master.ass"
     )
 
-    assert r"C\\:" in escaped
+    assert r"C\:" in escaped
+    assert r"C\\:" not in escaped
     assert "测试 路径" in escaped
     assert "master.ass" in escaped

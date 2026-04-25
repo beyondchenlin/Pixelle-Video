@@ -35,6 +35,7 @@ from typing import List, Literal, Optional
 import ffmpeg
 from loguru import logger
 
+from pixelle_video.services.font_resolver import FontResolver
 from pixelle_video.utils.os_util import (
     get_resource_path,
     list_resource_files,
@@ -184,7 +185,14 @@ class VideoService:
             else:
                 return self._concat_filter(videos, output)
 
-    def burn_ass_subtitles(self, input_video: str, ass_file: str, output: str) -> str:
+    def burn_ass_subtitles(
+        self,
+        input_video: str,
+        ass_file: str,
+        output: str,
+        fonts_dir: str | Path | None = None,
+        font_file: str | Path | None = None,
+    ) -> str:
         """
         Burn an ASS subtitle file into a video.
 
@@ -196,33 +204,69 @@ class VideoService:
         if input_path == output_path:
             raise ValueError("input_video and output cannot be the same path")
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        escaped_ass = self._escape_ffmpeg_filter_path(ass_file)
+        resolved_fonts_dir = self._resolve_ass_fonts_dir(fonts_dir, font_file)
+        ass_filter = self._build_ass_filter(ass_file, fonts_dir=resolved_fonts_dir)
 
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             (
                 ffmpeg
                 .input(str(input_path))
-                .output(str(output_path), vf=f"subtitles='{escaped_ass}'", c_a="copy")
+                .output(str(output_path), vf=ass_filter, acodec="copy")
                 .overwrite_output()
                 .run(capture_stdout=True, capture_stderr=True)
             )
             logger.success(f"ASS subtitles burned into video: {output_path}")
-            return str(output_path)
+            return output
         except ffmpeg.Error as e:
             error_msg = e.stderr.decode("utf-8", errors="replace") if e.stderr else str(e)
             logger.error(f"FFmpeg ASS burn-in error: {error_msg}")
             raise RuntimeError(f"Failed to burn ASS subtitles: {error_msg}")
 
-    def _escape_ffmpeg_filter_path(self, value: str) -> str:
+    def _resolve_ass_fonts_dir(
+        self,
+        fonts_dir: str | Path | None,
+        font_file: str | Path | None,
+    ) -> Path | None:
+        if fonts_dir is not None:
+            fonts_path = Path(fonts_dir)
+            if not fonts_path.is_dir():
+                raise ValueError(f"fonts_dir must be an existing directory: {fonts_dir}")
+            return fonts_path
+
+        if font_file is not None:
+            font_path = Path(font_file)
+            if not font_path.is_file():
+                raise ValueError(f"font_file must be an existing file: {font_file}")
+
+        return FontResolver().resolve_fontsdir(font_file)
+
+    def _build_ass_filter(
+        self,
+        ass_file: str | Path,
+        fonts_dir: str | Path | None = None,
+    ) -> str:
+        escaped_ass = self._escape_ffmpeg_filter_path(ass_file)
+        expression = f"ass='{escaped_ass}'"
+
+        if fonts_dir is not None:
+            fonts_path = Path(fonts_dir)
+            if not fonts_path.is_dir():
+                raise ValueError(f"fonts_dir must be an existing directory: {fonts_dir}")
+            escaped_fonts_dir = self._escape_ffmpeg_filter_path(fonts_path)
+            expression += f":fontsdir='{escaped_fonts_dir}'"
+
+        return expression
+
+    def _escape_ffmpeg_filter_path(self, value: str | Path) -> str:
         path = Path(value).resolve().as_posix()
         return (
             path.replace("\\", r"\\")
-            .replace(":", r"\\:")
-            .replace("'", r"\\'")
-            .replace(",", r"\\,")
-            .replace("[", r"\\[")
-            .replace("]", r"\\]")
+            .replace(":", r"\:")
+            .replace("'", r"\'")
+            .replace(",", r"\,")
+            .replace("[", r"\[")
+            .replace("]", r"\]")
         )
     
     def _concat_demuxer(self, videos: List[str], output: str) -> str:
