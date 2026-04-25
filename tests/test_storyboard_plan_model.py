@@ -311,7 +311,7 @@ def test_storyboard_plan_rejects_duplicate_frame_ids():
 
 
 def test_storyboard_plan_rejects_invalid_revision():
-    with pytest.raises(ValueError, match="revision must be at least 1"):
+    with pytest.raises(ValueError, match="revision must be a positive integer"):
         StoryboardPlan.build(
             mode="smart",
             count_mode="auto",
@@ -454,6 +454,101 @@ def test_storyboard_plan_rejects_non_strict_manual_scene_counts(requested_scene_
                     narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
+                )
+            ],
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("revision", True, "revision must be a positive integer"),
+        ("resolved_scene_count", True, "resolved_scene_count must be a positive integer"),
+    ],
+)
+def test_storyboard_plan_rejects_bool_plan_count_fields(field, value, message):
+    kwargs = {
+        "plan_id": "plan_test",
+        "revision": 1,
+        "mode": StoryboardGenerationMode.SMART,
+        "count_mode": StoryboardCountMode.AUTO,
+        "requested_scene_count": None,
+        "resolved_scene_count": 1,
+        "source_text": "abc",
+        "source_digest": hashlib.sha256("abc".encode("utf-8")).hexdigest(),
+        "frames": (
+            StoryboardPlanFrame(
+                frame_id="frame_0001",
+                index=1,
+                source_text="abc",
+                narration_text="abc",
+                visual_goal="show abc",
+                prompt_intent="show abc",
+            ),
+        ),
+        "diagnostics": {},
+    }
+    kwargs[field] = value
+
+    with pytest.raises(ValueError, match=message):
+        StoryboardPlan(**kwargs)
+
+
+def test_storyboard_plan_rejects_bool_frame_index():
+    with pytest.raises(ValueError, match="frame index must be a positive integer"):
+        StoryboardPlan.build(
+            mode="smart",
+            count_mode="auto",
+            requested_scene_count=None,
+            source_text="abc",
+            frames=[
+                StoryboardPlanFrame(
+                    index=True,
+                    source_text="abc",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                )
+            ],
+        )
+
+
+def test_storyboard_plan_rejects_bool_source_range_offsets():
+    with pytest.raises(ValueError, match="source_start and source_end must be integers"):
+        StoryboardPlan.build(
+            mode="sentence",
+            count_mode="auto",
+            requested_scene_count=None,
+            source_text="abc",
+            frames=[
+                StoryboardPlanFrame(
+                    index=1,
+                    source_text="abc",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                    source_start=False,
+                    source_end=3,
+                )
+            ],
+        )
+
+
+def test_storyboard_plan_rejects_bool_source_span_offsets():
+    with pytest.raises(ValueError, match="source_spans start and end must be integers"):
+        StoryboardPlan.build(
+            mode="smart",
+            count_mode="auto",
+            requested_scene_count=None,
+            source_text="abc",
+            frames=[
+                StoryboardPlanFrame(
+                    index=1,
+                    source_text="abc",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                    metadata={"source_spans": [SourceSpan(start=False, end=3, text="abc")]},
                 )
             ],
         )

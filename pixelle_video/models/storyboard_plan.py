@@ -108,14 +108,14 @@ class StoryboardPlan:
             raise ValueError("source_text must not be empty")
         if self.source_digest != _source_digest(normalized_source):
             raise ValueError("source_digest must match normalized source_text")
-        if self.revision < 1:
-            raise ValueError("revision must be at least 1")
+        _require_positive_int("revision", self.revision)
 
         mode_value = StoryboardGenerationMode(self.mode)
         count_mode_value = StoryboardCountMode(self.count_mode)
         frames = tuple(self.frames)
         if not frames:
             raise ValueError("StoryboardPlan requires at least one frame")
+        _require_positive_int("resolved_scene_count", self.resolved_scene_count)
         if self.resolved_scene_count != len(frames):
             raise ValueError("resolved_scene_count must match frame count")
 
@@ -214,8 +214,7 @@ def _validate_count_contract(
     if count_mode == StoryboardCountMode.MANUAL and mode != StoryboardGenerationMode.SMART:
         raise ValueError("manual count mode is only valid for smart mode")
     if is_smart_manual:
-        if type(requested_scene_count) is not int or requested_scene_count < 1:
-            raise ValueError("requested_scene_count must be a positive integer")
+        _require_positive_int("requested_scene_count", requested_scene_count)
         if requested_scene_count != frame_count:
             raise ValueError("requested_scene_count must match frame count")
     elif requested_scene_count is not None:
@@ -223,6 +222,8 @@ def _validate_count_contract(
 
 
 def _validate_frame_indexes(frames: tuple[StoryboardPlanFrame, ...]) -> None:
+    for frame in frames:
+        _require_positive_int("frame index", frame.index)
     expected_indexes = list(range(1, len(frames) + 1))
     actual_indexes = [frame.index for frame in frames]
     if actual_indexes != expected_indexes:
@@ -252,6 +253,8 @@ def _copy_frame(
     if frame.source_start is not None or frame.source_end is not None:
         if frame.source_start is None or frame.source_end is None:
             raise ValueError("source_start and source_end must be set together")
+        if type(frame.source_start) is not int or type(frame.source_end) is not int:
+            raise ValueError("source_start and source_end must be integers")
         if not 0 <= frame.source_start <= frame.source_end <= len(source_text):
             raise ValueError("frame source range must index StoryboardPlan.source_text")
         if frame.source_text != source_text[frame.source_start:frame.source_end]:
@@ -289,6 +292,11 @@ def _json_safe_copy(value: Any) -> Any:
     return deepcopy(value)
 
 
+def _require_positive_int(field_name: str, value: Any) -> None:
+    if type(value) is not int or value < 1:
+        raise ValueError(f"{field_name} must be a positive integer")
+
+
 def _deep_freeze(value: Any) -> Any:
     if isinstance(value, SourceSpan):
         return MappingProxyType(value.to_dict())
@@ -322,7 +330,7 @@ def _validate_source_spans(metadata: Mapping[str, Any], source_text: str) -> Non
         else:
             raise ValueError("source_spans entries must be SourceSpan or dict")
 
-        if not isinstance(start, int) or not isinstance(end, int):
+        if type(start) is not int or type(end) is not int:
             raise ValueError("source_spans start and end must be integers")
         if start < previous_start:
             raise ValueError("source_spans must be sorted by start")
