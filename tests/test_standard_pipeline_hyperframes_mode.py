@@ -242,6 +242,24 @@ class _RecordingVideoService:
         return output
 
 
+class _RecordingHyperframesBgmVideoService:
+    def __init__(self, calls: dict):
+        self.calls = calls
+
+    def concat_videos(self, videos, output, **kwargs):
+        raise AssertionError("legacy concat path should not run in hyperframes mode")
+
+    def _add_bgm_to_video(self, *, video, bgm_path, output, volume, mode):
+        self.calls["video"] = video
+        self.calls["bgm_path"] = bgm_path
+        self.calls["output"] = output
+        self.calls["volume"] = volume
+        self.calls["mode"] = mode
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+        Path(output).write_bytes(b"video-with-bgm")
+        return output
+
+
 class _RecordingPersistence:
     def __init__(self):
         self.saved_metadata = None
@@ -500,6 +518,60 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
     assert requested_output.exists()
     assert ctx.final_video_path == str(requested_output)
     assert ctx.storyboard.final_video_path == str(requested_output)
+
+
+@pytest.mark.asyncio
+async def test_post_production_adds_bgm_after_hyperframes_render(monkeypatch, tmp_path):
+    bgm_calls = {}
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.VideoService",
+        lambda: _RecordingHyperframesBgmVideoService(bgm_calls),
+    )
+
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+    final_output = tmp_path / "task-1" / "final.mp4"
+    ctx.final_video_path = str(final_output)
+    ctx.params.update(
+        {
+            "bgm_path": "default.mp3",
+            "bgm_volume": 0.35,
+            "bgm_mode": "once",
+        }
+    )
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        Path(frame.image_path).write_text("raw", encoding="utf-8")
+
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
+        Path(output_path).write_bytes(b"master-audio")
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", lambda audio_path: 2.0)
+
+    await pipeline.post_production(ctx)
+
+    no_bgm_output = final_output.with_name("final_no_bgm.mp4")
+    assert core.hyperframes_renderer.calls[0]["output_path"] == str(no_bgm_output)
+    assert bgm_calls == {
+        "video": str(no_bgm_output),
+        "bgm_path": "default.mp3",
+        "output": str(final_output),
+        "volume": 0.35,
+        "mode": "once",
+    }
+    assert final_output.read_bytes() == b"video-with-bgm"
+    assert ctx.final_video_path == str(final_output)
+    assert ctx.storyboard.final_video_path == str(final_output)
 
 
 @pytest.mark.asyncio

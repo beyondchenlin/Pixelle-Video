@@ -1281,15 +1281,39 @@ class StandardPipeline(LinearVideoPipeline):
             master_audio_duration=master_audio_duration,
         )
 
+        bgm_path = ctx.params.get("bgm_path")
+        render_output_path = ctx.final_video_path
+        if bgm_path:
+            final_output_path = Path(ctx.final_video_path)
+            final_suffix = final_output_path.suffix or ".mp4"
+            render_output_path = str(
+                final_output_path.with_name(
+                    f"{final_output_path.stem}_no_bgm{final_suffix}"
+                )
+            )
+
         final_video_path = self.core.hyperframes_renderer.render(
             str(project_paths.project_dir),
-            output_path=ctx.final_video_path,
+            output_path=render_output_path,
             width=canvas_width,
             height=canvas_height,
             fps=config.video_fps,
             expected_duration=master_audio_duration,
             expect_audio=bool(master_audio_path),
         )
+        if bgm_path:
+            logger.info(
+                "Adding BGM to HyperFrames render: "
+                f"{bgm_path} (volume={ctx.params.get('bgm_volume', 0.2)}, "
+                f"mode={ctx.params.get('bgm_mode', 'loop')})"
+            )
+            final_video_path = VideoService()._add_bgm_to_video(
+                video=final_video_path,
+                bgm_path=bgm_path,
+                output=ctx.final_video_path,
+                volume=ctx.params.get("bgm_volume", 0.2),
+                mode=ctx.params.get("bgm_mode", "loop"),
+            )
 
         storyboard.final_video_path = final_video_path
         storyboard.completed_at = datetime.now()
