@@ -17,7 +17,7 @@ For generating image prompts from narrations.
 """
 
 import json
-from typing import Any, List, Optional
+from typing import Any, List, Mapping, Optional, Sequence
 
 # ==================== PRESET IMAGE STYLES ====================
 # Predefined visual styles for different use cases
@@ -126,6 +126,7 @@ def build_image_prompt_prompt(
     min_words: int,
     max_words: int,
     style_profile: Optional[dict[str, Any]] = None,
+    prompt_contexts: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> str:
     """
     Build image prompt generation prompt
@@ -143,11 +144,10 @@ def build_image_prompt_prompt(
     Example:
         >>> build_image_prompt_prompt(narrations, 50, 100)
     """
-    narrations_json = json.dumps(
-        {"narrations": narrations},
-        ensure_ascii=False,
-        indent=2
-    )
+    payload: dict[str, Any] = {"narrations": narrations}
+    if prompt_contexts is not None:
+        payload["prompt_contexts"] = [dict(context) for context in prompt_contexts]
+    narrations_json = json.dumps(payload, ensure_ascii=False, indent=2)
     style_profile_json = json.dumps(style_profile or None, ensure_ascii=False, indent=2)
     
     return IMAGE_PROMPT_GENERATION_PROMPT.format(

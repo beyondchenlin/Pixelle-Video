@@ -642,6 +642,42 @@ async def test_generate_styled_image_prompt_batch_keeps_legacy_prompt_path_when_
 
 
 @pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_forwards_prompt_contexts(monkeypatch):
+    captured = {}
+
+    async def fake_generate_image_prompts(*args, **kwargs):
+        captured["prompt_contexts"] = kwargs.get("prompt_contexts")
+        return ["base scene prompt"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["第一句。"],
+        prompt_contexts=[
+            {
+                "narration_text": "第一句。",
+                "visual_goal": "Show idea one.",
+                "prompt_intent": "Visual metaphor one.",
+            }
+        ],
+        image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+    )
+
+    assert captured["prompt_contexts"] == [
+        {
+            "narration_text": "第一句。",
+            "visual_goal": "Show idea one.",
+            "prompt_intent": "Visual metaphor one.",
+        }
+    ]
+    assert result.prompts == ["base scene prompt"]
+
+
+@pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_reports_substage_progress_messages(monkeypatch):
     progress_events = []
 

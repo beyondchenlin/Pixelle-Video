@@ -17,7 +17,7 @@ For generating video prompts from narrations.
 """
 
 import json
-from typing import Any, List, Optional
+from typing import Any, List, Mapping, Optional, Sequence
 
 VIDEO_PROMPT_GENERATION_PROMPT = """# Role Definition
 You are a professional video creative designer, skilled at creating dynamic and expressive video generation prompts for video scripts, transforming narrative content into vivid video scenes.
@@ -108,6 +108,7 @@ def build_video_prompt_prompt(
     min_words: int,
     max_words: int,
     style_profile: Optional[dict[str, Any]] = None,
+    prompt_contexts: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> str:
     """
     Build video prompt generation prompt
@@ -123,11 +124,10 @@ def build_video_prompt_prompt(
     Example:
         >>> build_video_prompt_prompt(narrations, 50, 100)
     """
-    narrations_json = json.dumps(
-        {"narrations": narrations},
-        ensure_ascii=False,
-        indent=2
-    )
+    payload: dict[str, Any] = {"narrations": narrations}
+    if prompt_contexts is not None:
+        payload["prompt_contexts"] = [dict(context) for context in prompt_contexts]
+    narrations_json = json.dumps(payload, ensure_ascii=False, indent=2)
     style_profile_json = json.dumps(style_profile or None, ensure_ascii=False, indent=2)
     
     return VIDEO_PROMPT_GENERATION_PROMPT.format(

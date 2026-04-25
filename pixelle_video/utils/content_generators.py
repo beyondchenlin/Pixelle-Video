@@ -118,6 +118,36 @@ def _normalize_prompt_fragments(values: Sequence[Any]) -> list[str]:
     return normalized
 
 
+def _normalize_prompt_contexts(
+    prompt_contexts: Optional[Sequence[Mapping[str, Any]]],
+    expected_count: int,
+) -> Optional[list[dict[str, Any]]]:
+    if prompt_contexts is None:
+        return None
+    if len(prompt_contexts) != expected_count:
+        raise ValueError("prompt_contexts must match narration count")
+
+    normalized: list[dict[str, Any]] = []
+    for context in prompt_contexts:
+        if not isinstance(context, Mapping):
+            raise ValueError("prompt_contexts must contain mapping objects")
+        normalized.append(dict(context))
+    return normalized
+
+
+def _slice_prompt_contexts(
+    prompt_contexts: Optional[Sequence[Mapping[str, Any]]],
+    start_index: int,
+    item_count: int,
+) -> Optional[list[dict[str, Any]]]:
+    if prompt_contexts is None:
+        return None
+    return [
+        dict(context)
+        for context in prompt_contexts[start_index:start_index + item_count]
+    ]
+
+
 def _native_prompt_fragment(hint: NativePromptHint | str) -> str:
     if isinstance(hint, NativePromptHint):
         return hint.prompt_fragment
@@ -615,6 +645,7 @@ async def generate_image_prompts(
     max_retries: int = 3,
     progress_callback: Optional[callable] = None,
     style_profile: Optional[dict] = None,
+    prompt_contexts: Optional[Sequence[Mapping[str, Any]]] = None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> List[str]:
     """
@@ -637,6 +668,7 @@ async def generate_image_prompts(
     
     resolved_batch_size = _resolve_llm_prompt_batch_size(batch_size)
     resolved_max_concurrency = _resolve_llm_prompt_batch_concurrency(max_concurrency)
+    normalized_prompt_contexts = _normalize_prompt_contexts(prompt_contexts, len(narrations))
     batch_total = (
         (len(narrations) + resolved_batch_size - 1) // resolved_batch_size
         if narrations
@@ -671,6 +703,11 @@ async def generate_image_prompts(
             min_words=min_words,
             max_words=max_words,
             style_profile=style_profile,
+            prompt_contexts=_slice_prompt_contexts(
+                normalized_prompt_contexts,
+                batch.start_index,
+                len(batch.items),
+            ),
         )
 
         response: ImagePromptBatchResponse = await llm_service(
@@ -768,6 +805,7 @@ async def generate_styled_image_prompt_batch(
     llm_service,
     narrations: List[str],
     image_config,
+    prompt_contexts: Optional[Sequence[Mapping[str, Any]]] = None,
     prompt_prefix: Optional[str] = None,
     workflow: Optional[str] = None,
     media_service=None,
@@ -794,6 +832,7 @@ async def generate_styled_image_prompt_batch(
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
+    normalized_prompt_contexts = _normalize_prompt_contexts(prompt_contexts, len(narrations))
     text_rendering_settings = build_text_rendering_settings(text_rendering)
     native_hints = dict(native_prompt_hints_by_frame or {})
     resolved_text_policy = build_text_rendering_policy(text_rendering_settings.overlay)
@@ -985,6 +1024,7 @@ async def generate_styled_image_prompt_batch(
         max_retries=max_retries,
         progress_callback=progress_callback,
         style_profile=style_profile,
+        prompt_contexts=normalized_prompt_contexts,
         stage_callback=stage_callback,
     )
 
@@ -1141,6 +1181,7 @@ async def generate_video_prompts(
     max_retries: int = 3,
     progress_callback: Optional[callable] = None,
     style_profile: Optional[dict] = None,
+    prompt_contexts: Optional[Sequence[Mapping[str, Any]]] = None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> List[str]:
     """
@@ -1163,6 +1204,7 @@ async def generate_video_prompts(
     
     resolved_batch_size = _resolve_llm_prompt_batch_size(batch_size)
     resolved_max_concurrency = _resolve_llm_prompt_batch_concurrency(max_concurrency)
+    normalized_prompt_contexts = _normalize_prompt_contexts(prompt_contexts, len(narrations))
     batch_total = (
         (len(narrations) + resolved_batch_size - 1) // resolved_batch_size
         if narrations
@@ -1197,6 +1239,11 @@ async def generate_video_prompts(
             min_words=min_words,
             max_words=max_words,
             style_profile=style_profile,
+            prompt_contexts=_slice_prompt_contexts(
+                normalized_prompt_contexts,
+                batch.start_index,
+                len(batch.items),
+            ),
         )
 
         response: VideoPromptBatchResponse = await llm_service(
