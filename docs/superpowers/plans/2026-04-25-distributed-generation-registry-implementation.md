@@ -40,7 +40,7 @@
 - Modify `api/app.py`
   - Initialize backend dependencies at startup and fail fast in production mode when required services are unavailable.
 - Modify `api/routers/video.py`
-  - Route async generation through `TaskManager.reserve_or_reuse_video_task()` and use embedded execution only when configured.
+  - Route async generation through `TaskManager.reserve_or_reuse_generation_task()` and use embedded execution only when configured.
 - Modify `api/routers/tasks.py`
   - Read list/get/cancel from the store-backed facade.
 - Modify `api/routers/files.py`
