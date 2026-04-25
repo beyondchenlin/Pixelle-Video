@@ -67,7 +67,6 @@ async def download_file(file_path: str):
             path=str(abs_path),
             media_type=media_type_for(abs_path),
             filename=abs_path.name,
-            headers={"Content-Disposition": f'attachment; filename="{abs_path.name}"'},
         )
     except HTTPException:
         raise
@@ -106,7 +105,8 @@ async def get_file(file_path: str):
         return FileResponse(
             path=str(abs_path),
             media_type=media_type_for(abs_path),
-            headers={"Content-Disposition": f'inline; filename="{abs_path.name}"'},
+            filename=abs_path.name,
+            content_disposition_type="inline",
         )
 
     except HTTPException:

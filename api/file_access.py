@@ -33,6 +33,17 @@ MEDIA_TYPES = {
     ".json": "application/json",
 }
 
+WINDOWS_RESERVED_FILENAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "CONIN$",
+    "CONOUT$",
+    *{f"COM{index}" for index in range(1, 10)},
+    *{f"LPT{index}" for index in range(1, 10)},
+}
+
 
 def media_type_for(path: Path) -> str:
     return MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
@@ -66,17 +77,19 @@ def resolve_allowed_file_path(file_path: str, *, cwd: Path | None = None) -> Pat
 
 
 def parse_range_header(range_header: str | None, file_size: int) -> tuple[int, int, int, int]:
-    if file_size <= 0:
-        raise HTTPException(status_code=416, detail="Range not satisfiable")
     if not range_header:
-        return 0, file_size - 1, file_size, 200
+        return 0, max(file_size - 1, 0), file_size, 200
+
+    content_range_header = {"Content-Range": f"bytes */{file_size}"}
+    if file_size <= 0:
+        raise HTTPException(status_code=416, detail="Range not satisfiable", headers=content_range_header)
     if not range_header.startswith("bytes="):
-        raise HTTPException(status_code=416, detail="Invalid Range header")
+        raise HTTPException(status_code=416, detail="Invalid Range header", headers=content_range_header)
 
     value = range_header.removeprefix("bytes=")
     start_text, separator, end_text = value.partition("-")
     if separator != "-" or (start_text == "" and end_text == ""):
-        raise HTTPException(status_code=416, detail="Invalid Range header")
+        raise HTTPException(status_code=416, detail="Invalid Range header", headers=content_range_header)
 
     try:
         if start_text == "":
@@ -89,10 +102,11 @@ def parse_range_header(range_header: str | None, file_size: int) -> tuple[int, i
             start = int(start_text)
             end = int(end_text) if end_text else file_size - 1
     except ValueError:
-        raise HTTPException(status_code=416, detail="Invalid Range header") from None
+        raise HTTPException(status_code=416, detail="Invalid Range header", headers=content_range_header) from None
 
-    if start < 0 or end >= file_size or start > end:
-        raise HTTPException(status_code=416, detail="Range not satisfiable")
+    if start < 0 or start >= file_size or start > end:
+        raise HTTPException(status_code=416, detail="Range not satisfiable", headers=content_range_header)
+    end = min(end, file_size - 1)
     return start, end, end - start + 1, 206
 
 
@@ -109,7 +123,17 @@ def iter_file_range(path: Path, *, start: int, length: int, chunk_size: int = 10
 
 
 def sanitize_upload_filename(filename: str) -> str:
-    safe_name = (filename or "").replace("\\", "/").split("/")[-1].strip()
+    safe_name = (filename or "").replace("\\", "/").split("/")[-1]
     if not safe_name or safe_name in {".", ".."}:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if any(ord(char) < 32 or ord(char) == 127 for char in safe_name):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if ":" in safe_name:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if safe_name.endswith((" ", ".")):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    basename = safe_name.split(".", 1)[0].casefold()
+    if basename in {reserved.casefold() for reserved in WINDOWS_RESERVED_FILENAMES}:
         raise HTTPException(status_code=400, detail="Invalid filename")
     return safe_name
