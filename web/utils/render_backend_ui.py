@@ -35,9 +35,8 @@ def get_task_render_backend(metadata: Mapping[str, Any]) -> Optional[str]:
 
 def get_task_text_layer_summary(metadata: Mapping[str, Any]) -> Optional[dict[str, Any]]:
     """Read the text layer summary from completed task metadata."""
-    result_params = metadata.get("result") or {}
-    summary = result_params.get("text_layer_summary")
-    if not isinstance(summary, Mapping):
+    summary = _get_result_summary(metadata, "text_layer_summary")
+    if summary is None:
         return None
 
     try:
@@ -54,3 +53,57 @@ def get_task_text_layer_summary(metadata: Mapping[str, Any]) -> Optional[dict[st
         "cue_count": cue_count,
         "native_prompt_hint_count": native_hint_count,
     }
+
+
+def get_task_caption_rendering_summary(
+    metadata: Mapping[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Read the normal caption rendering summary from completed task metadata."""
+    summary = _get_result_summary(metadata, "caption_rendering_summary")
+    if summary is None:
+        return None
+
+    try:
+        cue_count = int(summary.get("caption_cue_count") or 0)
+    except (TypeError, ValueError):
+        cue_count = 0
+
+    return {
+        "enabled": bool(summary.get("enabled")),
+        "caption_cue_count": cue_count,
+        "style_profile_id": str(summary.get("style_profile_id") or "N/A"),
+        "renderer_targets": _format_targets(summary.get("renderer_targets")),
+    }
+
+
+def get_task_image_text_policy_summary(
+    metadata: Mapping[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Read the image text policy summary from completed task metadata."""
+    summary = _get_result_summary(metadata, "image_text_policy_summary")
+    if summary is None:
+        return None
+
+    return {
+        "status": str(summary.get("status") or "N/A"),
+        "suppress_embedded_text": bool(summary.get("suppress_embedded_text")),
+    }
+
+
+def _get_result_summary(
+    metadata: Mapping[str, Any],
+    key: str,
+) -> Optional[Mapping[str, Any]]:
+    result_params = metadata.get("result") or {}
+    summary = result_params.get(key)
+    if not isinstance(summary, Mapping):
+        return None
+    return summary
+
+
+def _format_targets(targets: Any) -> str:
+    if isinstance(targets, str):
+        return targets
+    if isinstance(targets, list):
+        return ", ".join(str(target) for target in targets)
+    return "N/A"

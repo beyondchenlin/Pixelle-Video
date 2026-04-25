@@ -194,6 +194,12 @@ async def test_custom_pipeline_records_contract_when_overlay_unsupported(
     assert metadata["result"]["text_layer_summary"] == observability[
         "text_layer_summary"
     ]
+    assert metadata["result"]["caption_rendering_summary"] == observability[
+        "caption_rendering_summary"
+    ]
+    assert metadata["result"]["image_text_policy_summary"] == observability[
+        "image_text_policy_summary"
+    ]
     assert "caption_style" not in observability["caption_rendering_summary"]
     assert "overlay_style" not in observability["text_layer_summary"]
 
@@ -246,6 +252,12 @@ async def test_asset_based_pipeline_records_contract_when_overlay_disabled(tmp_p
     assert metadata["input"]["text_rendering"] == ctx.request["text_rendering"]
     assert metadata["result"]["text_layer_summary"] == ctx.observability[
         "text_layer_summary"
+    ]
+    assert metadata["result"]["caption_rendering_summary"] == ctx.observability[
+        "caption_rendering_summary"
+    ]
+    assert metadata["result"]["image_text_policy_summary"] == ctx.observability[
+        "image_text_policy_summary"
     ]
 
 

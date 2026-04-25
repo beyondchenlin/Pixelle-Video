@@ -1010,6 +1010,15 @@ async def test_persist_task_data_records_text_layer_summary(tmp_path):
         "native_prompt_hint_count": 1,
         "targets": ["hyperframes", "native_prompt"],
     }
+    ctx.observability["caption_rendering_summary"] = {
+        "enabled": True,
+        "caption_cue_count": 2,
+        "style_profile_id": "caption-default",
+    }
+    ctx.observability["image_text_policy_summary"] = {
+        "status": "not_applicable",
+        "suppress_embedded_text": False,
+    }
     ctx.result = SimpleNamespace(
         video_path=str(output_path),
         duration=2.0,
@@ -1027,6 +1036,15 @@ async def test_persist_task_data_records_text_layer_summary(tmp_path):
         "track_count": 1,
         "native_prompt_hint_count": 1,
         "targets": ["hyperframes", "native_prompt"],
+    }
+    assert metadata["result"]["caption_rendering_summary"] == {
+        "enabled": True,
+        "caption_cue_count": 2,
+        "style_profile_id": "caption-default",
+    }
+    assert metadata["result"]["image_text_policy_summary"] == {
+        "status": "not_applicable",
+        "suppress_embedded_text": False,
     }
 
 

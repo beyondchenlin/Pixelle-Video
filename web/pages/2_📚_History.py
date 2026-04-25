@@ -35,6 +35,8 @@ from web.i18n import tr
 from web.state.session import get_pixelle_video, init_i18n, init_session_state
 from web.utils.async_helpers import run_async
 from web.utils.render_backend_ui import (
+    get_task_caption_rendering_summary,
+    get_task_image_text_policy_summary,
     get_task_render_backend,
     get_task_text_layer_summary,
 )
@@ -447,6 +449,18 @@ def render_task_detail_modal(task_id: str, pixelle_video):
         st.markdown(
             f"**{tr('history.detail.render_backend')}:** {get_task_render_backend(metadata) or 'N/A'}"
         )
+        caption_rendering_summary = get_task_caption_rendering_summary(metadata)
+        if caption_rendering_summary:
+            st.markdown(f"**{tr('history.detail.caption_rendering')}**")
+            st.markdown(
+                tr(
+                    "history.detail.caption_rendering_summary",
+                    enabled=caption_rendering_summary["enabled"],
+                    cue_count=caption_rendering_summary["caption_cue_count"],
+                    style_profile=caption_rendering_summary["style_profile_id"],
+                    targets=caption_rendering_summary["renderer_targets"],
+                )
+            )
         text_layer_summary = get_task_text_layer_summary(metadata)
         if text_layer_summary:
             st.markdown(f"**{tr('history.detail.text_layer')}**")
@@ -456,6 +470,18 @@ def render_task_detail_modal(task_id: str, pixelle_video):
                     renderer=text_layer_summary["renderer"],
                     cue_count=text_layer_summary["cue_count"],
                     native_count=text_layer_summary["native_prompt_hint_count"],
+                )
+            )
+        image_text_policy_summary = get_task_image_text_policy_summary(metadata)
+        if image_text_policy_summary:
+            st.markdown(f"**{tr('history.detail.image_text_policy')}**")
+            st.markdown(
+                tr(
+                    "history.detail.image_text_policy_summary",
+                    status=image_text_policy_summary["status"],
+                    suppress_embedded_text=image_text_policy_summary[
+                        "suppress_embedded_text"
+                    ],
                 )
             )
         planning_summary = summarize_storyboard_planning_snapshot(planning_snapshot)

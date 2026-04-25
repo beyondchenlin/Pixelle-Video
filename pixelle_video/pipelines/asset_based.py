@@ -861,7 +861,13 @@ class AssetBasedPipeline(LinearVideoPipeline):
                     "duration": storyboard.total_duration if storyboard else 0,
                     "file_size": file_size,
                     "n_frames": len(storyboard.frames) if storyboard else 0,
+                    "caption_rendering_summary": ctx.observability.get(
+                        "caption_rendering_summary"
+                    ),
                     "text_layer_summary": ctx.observability.get("text_layer_summary"),
+                    "image_text_policy_summary": ctx.observability.get(
+                        "image_text_policy_summary"
+                    ),
                 },
                 
                 "config": {

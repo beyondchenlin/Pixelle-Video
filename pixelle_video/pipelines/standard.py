@@ -2380,7 +2380,13 @@ class StandardPipeline(LinearVideoPipeline):
                     "duration": result.duration,
                     "file_size": result.file_size,
                     "n_frames": len(storyboard.frames),
+                    "caption_rendering_summary": ctx.observability.get(
+                        "caption_rendering_summary"
+                    ),
                     "text_layer_summary": ctx.observability.get("text_layer_summary"),
+                    "image_text_policy_summary": ctx.observability.get(
+                        "image_text_policy_summary"
+                    ),
                 },
                 
                 "config": {

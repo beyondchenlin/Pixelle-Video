@@ -833,7 +833,11 @@
     "history.detail.storyboard_role_locking": "角色锁定",
     "history.detail.storyboard_shot_strategy": "镜头策略",
     "history.detail.storyboard_override_count": "覆盖帧数",
+    "history.detail.caption_rendering": "字幕渲染",
+    "history.detail.caption_rendering_summary": "启用：{enabled}；Cue 数量：{cue_count}；样式：{style_profile}；目标：{targets}",
     "history.detail.text_layer": "文字层",
-    "history.detail.text_layer_summary": "渲染器：{renderer}；Cue 数量：{cue_count}；原生提示：{native_count}"
+    "history.detail.text_layer_summary": "渲染器：{renderer}；Cue 数量：{cue_count}；原生提示：{native_count}",
+    "history.detail.image_text_policy": "画面文字策略",
+    "history.detail.image_text_policy_summary": "状态：{status}；抑制嵌入文字：{suppress_embedded_text}"
   }
 }

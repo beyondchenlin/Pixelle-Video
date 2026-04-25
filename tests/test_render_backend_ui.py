@@ -59,6 +59,48 @@ def test_get_task_text_layer_summary_reads_result_payload():
     assert render_backend_ui.get_task_text_layer_summary({}) is None
 
 
+def test_get_task_caption_rendering_summary_reads_result_payload():
+    summary = render_backend_ui.get_task_caption_rendering_summary(
+        {
+            "result": {
+                "caption_rendering_summary": {
+                    "enabled": True,
+                    "caption_cue_count": 4,
+                    "style_profile_id": "caption-default",
+                    "renderer_targets": ["ass", "hyperframes"],
+                }
+            }
+        }
+    )
+
+    assert summary == {
+        "enabled": True,
+        "caption_cue_count": 4,
+        "style_profile_id": "caption-default",
+        "renderer_targets": "ass, hyperframes",
+    }
+    assert render_backend_ui.get_task_caption_rendering_summary({}) is None
+
+
+def test_get_task_image_text_policy_summary_reads_result_payload():
+    summary = render_backend_ui.get_task_image_text_policy_summary(
+        {
+            "result": {
+                "image_text_policy_summary": {
+                    "status": "applied",
+                    "suppress_embedded_text": True,
+                }
+            }
+        }
+    )
+
+    assert summary == {
+        "status": "applied",
+        "suppress_embedded_text": True,
+    }
+    assert render_backend_ui.get_task_image_text_policy_summary({}) is None
+
+
 def test_render_render_backend_selector_uses_runtime_default(monkeypatch):
     captured = {}
 

@@ -91,7 +91,7 @@
 - Fixture: `tests/fixtures/text_rendering/text_render_package_legacy_caption.json`
 - Fixture: `tests/fixtures/text_rendering/text_render_package_overlay_hybrid.json`
 
-- [ ] **Step 1: Write failing package tests**
+- [x] **Step 1: Write failing package tests**
 
 ```python
 from pixelle_video.models.text_render_package import (
@@ -155,7 +155,7 @@ def test_text_render_package_golden_fixtures_are_versioned():
         assert "text_style_profiles" in payload
 ```
 
-- [ ] **Step 2: Run package tests to verify they fail**
+- [x] **Step 2: Run package tests to verify they fail**
 
 Run:
 
@@ -165,7 +165,7 @@ pytest tests/test_text_render_package_models.py tests/test_text_rendering_golden
 
 Expected: FAIL because `text_render_package.py` and golden fixtures do not exist.
 
-- [ ] **Step 3: Implement canonical package models**
+- [x] **Step 3: Implement canonical package models**
 
 Create `pixelle_video/models/text_render_package.py` with immutable dataclasses:
 
@@ -177,11 +177,11 @@ Create `pixelle_video/models/text_layout.py` with `TextLayoutPlan(version, safe_
 
 Do not import renderer services in this model file.
 
-- [ ] **Step 4: Add golden fixtures**
+- [x] **Step 4: Add golden fixtures**
 
 Create `tests/fixtures/text_rendering/text_render_package_legacy_caption.json` with one caption cue and no overlay cue. Create `tests/fixtures/text_rendering/text_render_package_overlay_hybrid.json` with caption style, overlay style, one subtitle cue, one overlay cue, and one native hint diagnostic. Create `tests/fixtures/text_rendering/render_manifest_with_text_styles.json` as the derived manifest fixture used by ASS/HyperFrames adapter tests.
 
-- [ ] **Step 5: Run package tests**
+- [x] **Step 5: Run package tests**
 
 Run:
 
@@ -191,7 +191,7 @@ pytest tests/test_text_render_package_models.py tests/test_text_rendering_golden
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add pixelle_video/models/text_render_package.py pixelle_video/models/text_layout.py tests/test_text_render_package_models.py tests/test_text_rendering_golden_artifacts.py tests/fixtures/text_rendering/text_render_package_legacy_caption.json tests/fixtures/text_rendering/text_render_package_overlay_hybrid.json tests/fixtures/text_rendering/render_manifest_with_text_styles.json
@@ -204,7 +204,7 @@ git commit -m "feat: add canonical text render package"
 - Create: `pixelle_video/models/text_style.py`
 - Test: `tests/test_text_style_models.py`
 
-- [ ] **Step 1: Write failing model tests**
+- [x] **Step 1: Write failing model tests**
 
 Add tests covering serialization, defaults, color validation, opacity validation, and scale factor.
 
@@ -262,7 +262,7 @@ def test_default_text_style_profiles_include_caption_default():
     assert profiles[0].position == "bottom"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -272,7 +272,7 @@ pytest tests/test_text_style_models.py -v
 
 Expected: FAIL because `pixelle_video.models.text_style` does not exist.
 
-- [ ] **Step 3: Implement text style model**
+- [x] **Step 3: Implement text style model**
 
 Create `pixelle_video/models/text_style.py` with:
 
@@ -430,7 +430,7 @@ def build_default_text_style_profiles() -> list[TextStyleProfile]:
     ]
 ```
 
-- [ ] **Step 4: Run model tests**
+- [x] **Step 4: Run model tests**
 
 Run:
 
@@ -440,7 +440,7 @@ pytest tests/test_text_style_models.py -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pixelle_video/models/text_style.py tests/test_text_style_models.py
@@ -453,7 +453,7 @@ git commit -m "feat: add text style profile contract"
 - Modify: `pixelle_video/models/render_package.py`
 - Test: `tests/test_render_package_models.py`
 
-- [ ] **Step 1: Write failing RenderManifest test**
+- [x] **Step 1: Write failing RenderManifest test**
 
 Append:
 
@@ -480,7 +480,7 @@ def test_render_manifest_round_trips_text_style_profiles():
     assert restored.text_style_profiles[0].font_size == 66
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -490,7 +490,7 @@ pytest tests/test_render_package_models.py::test_render_manifest_round_trips_tex
 
 Expected: FAIL because `RenderManifest.__init__` does not accept `text_style_profiles`.
 
-- [ ] **Step 3: Implement RenderManifest field**
+- [x] **Step 3: Implement RenderManifest field**
 
 Modify `pixelle_video/models/render_package.py`:
 
@@ -525,7 +525,7 @@ text_style_profiles=[
 ],
 ```
 
-- [ ] **Step 4: Run RenderManifest tests**
+- [x] **Step 4: Run RenderManifest tests**
 
 Run:
 
@@ -535,7 +535,7 @@ pytest tests/test_render_package_models.py -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pixelle_video/models/render_package.py tests/test_render_package_models.py
@@ -550,7 +550,7 @@ git commit -m "feat: carry text style profiles in render manifest"
 - Test: `tests/test_text_style_resolver.py`
 - Test: `tests/test_text_rendering_orchestrator.py`
 
-- [ ] **Step 1: Write failing resolver tests**
+- [x] **Step 1: Write failing resolver tests**
 
 ```python
 from pixelle_video.models.render_package import TextCue, TextTrack
@@ -633,7 +633,7 @@ def test_overlay_role_defaults_to_overlay_profile():
     assert resolver.resolve_for_cue(cue=cue, track=track).id == DEFAULT_OVERLAY_STYLE_ID
 ```
 
-- [ ] **Step 2: Run resolver tests to verify they fail**
+- [x] **Step 2: Run resolver tests to verify they fail**
 
 Run:
 
@@ -643,7 +643,7 @@ pytest tests/test_text_style_resolver.py -v
 
 Expected: FAIL because `text_style_resolver.py` does not exist.
 
-- [ ] **Step 3: Implement resolver**
+- [x] **Step 3: Implement resolver**
 
 Create `pixelle_video/services/text_style_resolver.py`:
 
@@ -703,7 +703,7 @@ class TextStyleResolver:
         return profile
 ```
 
-- [ ] **Step 4: Write failing orchestrator tests**
+- [x] **Step 4: Write failing orchestrator tests**
 
 ```python
 from pixelle_video.models.text_style import DEFAULT_CAPTION_STYLE_ID
@@ -730,7 +730,7 @@ def test_orchestrator_builds_caption_style_when_overlay_disabled():
     assert result.image_text_policy.suppress_embedded_text is True
 ```
 
-- [ ] **Step 5: Run orchestrator test to verify it fails**
+- [x] **Step 5: Run orchestrator test to verify it fails**
 
 Run:
 
@@ -740,7 +740,7 @@ pytest tests/test_text_rendering_orchestrator.py -v
 
 Expected: FAIL because the orchestrator does not exist.
 
-- [ ] **Step 6: Implement orchestrator boundary**
+- [x] **Step 6: Implement orchestrator boundary**
 
 Create `pixelle_video/services/text_rendering_orchestrator.py`:
 
@@ -877,7 +877,7 @@ class TextRenderingOrchestrator:
 
 This file must not emit ASS `force_style`, CSS text, ffmpeg filter strings, or `fontsdir`.
 
-- [ ] **Step 7: Run resolver and orchestrator tests**
+- [x] **Step 7: Run resolver and orchestrator tests**
 
 Run:
 
@@ -887,7 +887,7 @@ pytest tests/test_text_style_resolver.py tests/test_text_rendering_orchestrator.
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add pixelle_video/services/text_style_resolver.py pixelle_video/services/text_rendering_orchestrator.py tests/test_text_style_resolver.py tests/test_text_rendering_orchestrator.py
@@ -904,7 +904,7 @@ git commit -m "feat: centralize text rendering style resolution"
 - Test: `tests/test_text_layout_planner.py`
 - Test: `tests/test_text_renderer_adapter_contract.py`
 
-- [ ] **Step 1: Write failing sanitizer tests**
+- [x] **Step 1: Write failing sanitizer tests**
 
 ```python
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
@@ -919,7 +919,7 @@ def test_sanitizer_removes_ass_override_tags_and_control_chars():
     assert result.requires_html_escape is True
 ```
 
-- [ ] **Step 2: Write failing layout planner tests**
+- [x] **Step 2: Write failing layout planner tests**
 
 ```python
 from pixelle_video.services.text_layout_planner import TextLayoutPlanner
@@ -937,7 +937,7 @@ def test_layout_planner_uses_cjk_display_width_and_safe_area():
     assert plan.slot == "lower_third"
 ```
 
-- [ ] **Step 3: Write failing adapter protocol test**
+- [x] **Step 3: Write failing adapter protocol test**
 
 ```python
 from pixelle_video.services.text_renderer_adapter import TextRenderExportResult
@@ -959,7 +959,7 @@ def test_export_result_records_required_diagnostics():
     assert result.to_dict()["artifacts"]["master_ass"] == "text_layer/master.ass"
 ```
 
-- [ ] **Step 4: Run tests to verify they fail**
+- [x] **Step 4: Run tests to verify they fail**
 
 Run:
 
@@ -969,7 +969,7 @@ pytest tests/test_text_content_sanitizer.py tests/test_text_layout_planner.py te
 
 Expected: FAIL because these services do not exist.
 
-- [ ] **Step 5: Implement the three source-boundary services**
+- [x] **Step 5: Implement the three source-boundary services**
 
 Required behavior:
 
@@ -979,7 +979,7 @@ Required behavior:
 - `TextRendererAdapter` is a `Protocol` with `supports(...)` and `export(...)`.
 - No ASS tags, HTML tags, CSS strings, or ffmpeg filter strings are emitted by sanitizer or layout planner.
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run:
 
@@ -989,7 +989,7 @@ pytest tests/test_text_content_sanitizer.py tests/test_text_layout_planner.py te
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add pixelle_video/services/text_content_sanitizer.py pixelle_video/services/text_layout_planner.py pixelle_video/services/text_renderer_adapter.py tests/test_text_content_sanitizer.py tests/test_text_layout_planner.py tests/test_text_renderer_adapter_contract.py
@@ -1002,7 +1002,7 @@ git commit -m "feat: add text rendering safety and adapter contracts"
 - Create: `pixelle_video/services/ass_style_builder.py`
 - Test: `tests/test_ass_style_builder.py`
 
-- [ ] **Step 1: Write failing ASS style builder tests**
+- [x] **Step 1: Write failing ASS style builder tests**
 
 ```python
 from pixelle_video.models.text_style import TextStyleProfile
@@ -1038,7 +1038,7 @@ def test_ass_style_scales_font_and_margin_for_canvas():
     assert ",3,0,2,53,53,93,1" in style
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1048,7 +1048,7 @@ pytest tests/test_ass_style_builder.py -v
 
 Expected: FAIL because builder does not exist.
 
-- [ ] **Step 3: Implement ASS style builder**
+- [x] **Step 3: Implement ASS style builder**
 
 Create:
 
@@ -1112,7 +1112,7 @@ class AssStyleBuilder:
         )
 ```
 
-- [ ] **Step 4: Run ASS builder tests**
+- [x] **Step 4: Run ASS builder tests**
 
 Run:
 
@@ -1122,7 +1122,7 @@ pytest tests/test_ass_style_builder.py -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pixelle_video/services/ass_style_builder.py tests/test_ass_style_builder.py
@@ -1135,7 +1135,7 @@ git commit -m "feat: build ass styles from text profiles"
 - Modify: `pixelle_video/services/ass_text_adapter.py`
 - Test: `tests/test_ass_text_adapter.py`
 
-- [ ] **Step 1: Add failing adapter test for manifest styles**
+- [x] **Step 1: Add failing adapter test for manifest styles**
 
 Append:
 
@@ -1189,7 +1189,7 @@ def test_ass_export_uses_manifest_text_style_profiles(tmp_path):
     assert "&H0000FFFF" in text
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1199,7 +1199,7 @@ pytest tests/test_ass_text_adapter.py::test_ass_export_uses_manifest_text_style_
 
 Expected: FAIL because adapter still emits hardcoded `Default` and `Overlay`.
 
-- [ ] **Step 3: Update AssTextAdapter**
+- [x] **Step 3: Update AssTextAdapter**
 
 Implement style resolution:
 
@@ -1224,7 +1224,7 @@ Behavior:
 - Dialogue style name is the resolved style profile id.
 - Return or expose a `TextRenderExportResult` shape for artifacts and fallback diagnostics.
 
-- [ ] **Step 4: Run ASS adapter tests**
+- [x] **Step 4: Run ASS adapter tests**
 
 Run:
 
@@ -1234,7 +1234,7 @@ pytest tests/test_ass_text_adapter.py tests/test_ass_style_builder.py -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pixelle_video/services/ass_text_adapter.py tests/test_ass_text_adapter.py
@@ -1248,7 +1248,7 @@ git commit -m "feat: export ass using text style profiles"
 - Modify: `pixelle_video/services/video.py`
 - Test: `tests/test_video_ass_burn_in.py`
 
-- [ ] **Step 1: Write failing font resolver and ffmpeg filter tests**
+- [x] **Step 1: Write failing font resolver and ffmpeg filter tests**
 
 ```python
 from pathlib import Path
@@ -1279,7 +1279,7 @@ def test_video_service_builds_ass_filter_with_fontsdir(tmp_path):
     assert "master.ass" in filter_expr
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -1289,7 +1289,7 @@ pytest tests/test_video_ass_burn_in.py -v
 
 Expected: FAIL because `FontResolver` and `_build_ass_filter` do not exist.
 
-- [ ] **Step 3: Implement FontResolver**
+- [x] **Step 3: Implement FontResolver**
 
 Create `pixelle_video/services/font_resolver.py`:
 
@@ -1319,7 +1319,7 @@ class FontResolver:
         return None
 ```
 
-- [ ] **Step 4: Add ASS filter builder to VideoService**
+- [x] **Step 4: Add ASS filter builder to VideoService**
 
 Add a private helper:
 
@@ -1334,7 +1334,7 @@ def _build_ass_filter(self, ass_file: str | Path, *, fonts_dir: str | Path | Non
 
 Update `burn_ass_subtitles(...)` to use this helper. If no fontsdir is available, continue with `ass='...'` and let caller summary record the fallback.
 
-- [ ] **Step 5: Run ASS burn-in tests**
+- [x] **Step 5: Run ASS burn-in tests**
 
 Run:
 
@@ -1344,7 +1344,7 @@ pytest tests/test_video_ass_burn_in.py -v
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add pixelle_video/services/font_resolver.py pixelle_video/services/video.py tests/test_video_ass_burn_in.py
@@ -1360,7 +1360,7 @@ git commit -m "feat: burn ass subtitles with font directory"
 - Test: `tests/test_hyperframes_project_service.py`
 - Test: `tests/test_hyperframes_compiler.py`
 
-- [ ] **Step 1: Write failing HyperFrames tests**
+- [x] **Step 1: Write failing HyperFrames tests**
 
 Add compiler assertion:
 
@@ -1416,7 +1416,7 @@ def test_hyperframes_compiler_emits_text_style_variables(tmp_path):
     assert "--text-fill: #FFFF00" in html
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1426,7 +1426,7 @@ pytest tests/test_hyperframes_compiler.py::test_hyperframes_compiler_emits_text_
 
 Expected: FAIL because context/compiler do not carry style profiles.
 
-- [ ] **Step 3: Implement context and compiler style support**
+- [x] **Step 3: Implement context and compiler style support**
 
 Required behavior:
 
@@ -1442,7 +1442,7 @@ Required behavior:
 - Each text cue DOM includes `data-style-profile`.
 - Inline style contains CSS variables from the resolved `TextStyleProfile`.
 
-- [ ] **Step 4: Run HyperFrames tests**
+- [x] **Step 4: Run HyperFrames tests**
 
 Run:
 
@@ -1452,7 +1452,7 @@ pytest tests/test_hyperframes_compiler.py tests/test_hyperframes_project_service
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pixelle_video/models/template_render_context.py pixelle_video/services/hyperframes_project_service.py pixelle_video/services/hyperframes_compiler.py tests/test_hyperframes_compiler.py tests/test_hyperframes_project_service.py
@@ -1465,7 +1465,7 @@ git commit -m "feat: carry text styles through hyperframes"
 - Modify: `pixelle_video/services/text_cue_compiler.py`
 - Test: `tests/test_text_cue_compiler.py`
 
-- [ ] **Step 1: Write failing compiler test**
+- [x] **Step 1: Write failing compiler test**
 
 ```python
 from pixelle_video.models.text_style import DEFAULT_OVERLAY_STYLE_ID
@@ -1494,7 +1494,7 @@ def test_text_cue_compiler_assigns_overlay_style_profile():
     assert cues[0].style_profile == DEFAULT_OVERLAY_STYLE_ID
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1504,7 +1504,7 @@ pytest tests/test_text_cue_compiler.py::test_text_cue_compiler_assigns_overlay_s
 
 Expected: FAIL because compiler does not assign style profiles.
 
-- [ ] **Step 3: Implement default style assignment**
+- [x] **Step 3: Implement default style assignment**
 
 Rules:
 
@@ -1512,7 +1512,7 @@ Rules:
 - `role == "model_native_hint"` uses no visual style profile.
 - all other programmatic text uses `DEFAULT_OVERLAY_STYLE_ID`.
 
-- [ ] **Step 4: Run compiler tests**
+- [x] **Step 4: Run compiler tests**
 
 Run:
 
@@ -1522,7 +1522,7 @@ pytest tests/test_text_cue_compiler.py -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pixelle_video/services/text_cue_compiler.py tests/test_text_cue_compiler.py
@@ -1539,7 +1539,7 @@ git commit -m "feat: assign default text style profiles to cues"
 - Modify: `web/i18n/locales/zh_CN.json`
 - Test: `tests/test_style_config_text_rendering_ui.py`
 
-- [ ] **Step 1: Write schema tests**
+- [x] **Step 1: Write schema tests**
 
 Add:
 
@@ -1576,7 +1576,7 @@ def test_text_rendering_controls_live_in_focused_component():
     assert "def render_text_rendering_controls" not in style_config.read_text(encoding="utf-8")
 ```
 
-- [ ] **Step 2: Run schema test to verify it fails**
+- [x] **Step 2: Run schema test to verify it fails**
 
 Run:
 
@@ -1586,7 +1586,7 @@ pytest tests/test_style_config_text_rendering_ui.py::test_text_rendering_request
 
 Expected: FAIL because schema does not have `caption_style` and the focused UI component does not exist.
 
-- [ ] **Step 3: Implement Pydantic style request**
+- [x] **Step 3: Implement Pydantic style request**
 
 Add `TextStyleProfileRequest` with:
 
@@ -1608,7 +1608,7 @@ caption_style: Optional[TextStyleProfileRequest] = None
 overlay_style: Optional[TextStyleProfileRequest] = None
 ```
 
-- [ ] **Step 4: Add UI controls in a focused component**
+- [x] **Step 4: Add UI controls in a focused component**
 
 Create `web/components/text_rendering_config.py`. In `render_text_rendering_controls(...)`, render three sibling sections inside the existing `section.text_rendering` expander:
 
@@ -1643,7 +1643,7 @@ from web.components.text_rendering_config import (
 
 Do not keep duplicate text rendering UI definitions in `style_config.py`.
 
-- [ ] **Step 5: Run UI/schema tests**
+- [x] **Step 5: Run UI/schema tests**
 
 Run:
 
@@ -1653,7 +1653,7 @@ pytest tests/test_style_config_text_rendering_ui.py -v
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add api/schemas/text_rendering.py web/components/text_rendering_config.py web/components/style_config.py web/i18n/locales/en_US.json web/i18n/locales/zh_CN.json tests/test_style_config_text_rendering_ui.py
@@ -1666,7 +1666,7 @@ git commit -m "feat: expose text style controls"
 - Modify: `pixelle_video/pipelines/standard.py`
 - Test: `tests/test_standard_pipeline_text_rendering_summary.py`
 
-- [ ] **Step 1: Write failing caption summary test**
+- [x] **Step 1: Write failing caption summary test**
 
 ```python
 from types import SimpleNamespace
@@ -1695,7 +1695,7 @@ def test_standard_pipeline_caption_summary_is_independent_from_text_layer():
     assert summary["artifacts"]["subtitle_only_ass"] == "text_layer/subtitle_only.ass"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -1705,7 +1705,7 @@ pytest tests/test_standard_pipeline_text_rendering_summary.py -v
 
 Expected: FAIL until a caption rendering summary is implemented.
 
-- [ ] **Step 3: Build style profiles from request**
+- [x] **Step 3: Build style profiles from request**
 
 In `StandardPipeline.plan_visuals(...)`:
 
@@ -1717,7 +1717,7 @@ In `StandardPipeline.plan_visuals(...)`:
 - Derive caption/text/image summaries from `TextRenderPackage` and adapter export results.
 - Ensure disabling overlay text layer does not clear or skip caption style.
 
-- [ ] **Step 4: Add separate summary methods**
+- [x] **Step 4: Add separate summary methods**
 
 Add `StandardPipeline._record_caption_rendering_summary(...)` for normal captions:
 
@@ -1737,7 +1737,7 @@ Keep `StandardPipeline._record_text_layer_summary(...)` for overlay text layer o
 
 Do not put normal caption style under `text_layer_summary`.
 
-- [ ] **Step 5: Run pipeline-related tests**
+- [x] **Step 5: Run pipeline-related tests**
 
 Run:
 
@@ -1747,7 +1747,7 @@ pytest tests/test_standard_pipeline_text_rendering_summary.py tests/test_standar
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add pixelle_video/pipelines/standard.py tests/test_standard_pipeline_text_rendering_summary.py tests/test_standard_pipeline_staged_mode.py
@@ -1761,7 +1761,7 @@ git commit -m "feat: wire text styles into standard pipeline"
 - Modify: `pixelle_video/pipelines/asset_based.py`
 - Test: `tests/test_pipeline_text_rendering_contract.py`
 
-- [ ] **Step 1: Write failing cross-pipeline contract tests**
+- [x] **Step 1: Write failing cross-pipeline contract tests**
 
 ```python
 from types import SimpleNamespace
@@ -1828,7 +1828,7 @@ def test_asset_based_pipeline_caption_style_is_independent_from_overlay_support(
     assert ctx.observability["text_layer_summary"]["disabled_reason"] == "asset_based_overlay_disabled"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -1838,7 +1838,7 @@ pytest tests/test_pipeline_text_rendering_contract.py -v
 
 Expected: FAIL because `custom` and `asset_based` do not record the shared contract summaries.
 
-- [ ] **Step 3: Add shared summary helper usage**
+- [x] **Step 3: Add shared summary helper usage**
 
 Both pipelines must call `TextRenderingOrchestrator().build(...)` with their incoming `text_rendering` payload before render-time branching. Minimum required behavior:
 
@@ -1848,7 +1848,7 @@ Both pipelines must call `TextRenderingOrchestrator().build(...)` with their inc
 - `image_text_policy_summary` records `not_applicable` when the pipeline does not generate image/video prompts.
 - No renderer-specific style fields are emitted.
 
-- [ ] **Step 4: Run cross-pipeline tests**
+- [x] **Step 4: Run cross-pipeline tests**
 
 Run:
 
@@ -1858,7 +1858,7 @@ pytest tests/test_pipeline_text_rendering_contract.py -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pixelle_video/pipelines/custom.py pixelle_video/pipelines/asset_based.py tests/test_pipeline_text_rendering_contract.py
@@ -1870,7 +1870,7 @@ git commit -m "feat: report text rendering contract across pipelines"
 **Files:**
 - No new files.
 
-- [ ] **Step 1: Run focused text rendering suite**
+- [x] **Step 1: Run focused text rendering suite**
 
 Run:
 
@@ -1880,7 +1880,7 @@ pytest tests/test_text_render_package_models.py tests/test_text_style_models.py 
 
 Expected: PASS.
 
-- [ ] **Step 2: Run broader affected suite**
+- [x] **Step 2: Run broader affected suite**
 
 Run:
 
@@ -1890,7 +1890,7 @@ pytest tests/test_render_package_models.py tests/test_template_render_context.py
 
 Expected: PASS.
 
-- [ ] **Step 3: Validate golden fixture JSON**
+- [x] **Step 3: Validate golden fixture JSON**
 
 Run:
 
@@ -1902,7 +1902,7 @@ python -m json.tool tests/fixtures/text_rendering/render_manifest_with_text_styl
 
 Expected: PASS with valid JSON.
 
-- [ ] **Step 4: Run golden artifact and visual smoke tests**
+- [x] **Step 4: Run golden artifact and visual smoke tests**
 
 Run:
 
@@ -1912,7 +1912,7 @@ pytest tests/test_text_rendering_golden_artifacts.py -v
 
 Expected: PASS. The test must verify ASS/HyperFrames snapshots and at least one rendered text layer is non-empty and inside its declared safe area.
 
-- [ ] **Step 5: Run lint or syntax check**
+- [x] **Step 5: Run lint or syntax check**
 
 Run:
 
@@ -1922,7 +1922,7 @@ python -m compileall pixelle_video api web tests
 
 Expected: PASS with no syntax errors.
 
-- [ ] **Step 6: Commit final docs if needed**
+- [x] **Step 6: Commit final docs if needed**
 
 ```bash
 git add docs/superpowers/specs/2026-04-25-text-rendering-contract-v2-design.md docs/superpowers/plans/2026-04-25-text-rendering-contract-v2.md

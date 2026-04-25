@@ -833,7 +833,11 @@
     "history.detail.storyboard_role_locking": "Role Locking",
     "history.detail.storyboard_shot_strategy": "Shot Strategy",
     "history.detail.storyboard_override_count": "Frame Overrides",
+    "history.detail.caption_rendering": "Caption Rendering",
+    "history.detail.caption_rendering_summary": "Enabled: {enabled}; cues: {cue_count}; style: {style_profile}; targets: {targets}",
     "history.detail.text_layer": "Text Layer",
-    "history.detail.text_layer_summary": "Renderer: {renderer}; cues: {cue_count}; native hints: {native_count}"
+    "history.detail.text_layer_summary": "Renderer: {renderer}; cues: {cue_count}; native hints: {native_count}",
+    "history.detail.image_text_policy": "Image Text Policy",
+    "history.detail.image_text_policy_summary": "Status: {status}; suppress embedded text: {suppress_embedded_text}"
   }
 }
