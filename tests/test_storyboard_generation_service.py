@@ -427,6 +427,60 @@ async def test_smart_repairs_backwards_source_ranges_once():
 
 
 @pytest.mark.asyncio
+async def test_smart_repairs_out_of_bounds_source_range_once():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    out_of_bounds_frames = [
+        {
+            "source_text": "开头完整表达。结尾完整表达。",
+            "narration_text": "开头完整表达。结尾完整表达。",
+            "visual_goal": "Introduce the full idea.",
+            "prompt_intent": "A coherent visual.",
+            "source_start": 0,
+            "source_end": 999,
+        }
+    ]
+    llm = SequencedSmartFakeLLM([out_of_bounds_frames, SmartFakeLLM().frames])
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="开头完整表达。结尾完整表达。",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert len(llm.calls) == 2
+    assert plan.resolved_scene_count == 2
+
+
+@pytest.mark.asyncio
+async def test_smart_rejects_out_of_bounds_source_range_after_repair():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    out_of_bounds_frames = [
+        {
+            "source_text": "开头完整表达。结尾完整表达。",
+            "narration_text": "开头完整表达。结尾完整表达。",
+            "visual_goal": "Introduce the full idea.",
+            "prompt_intent": "A coherent visual.",
+            "source_start": 0,
+            "source_end": 999,
+        }
+    ]
+    llm = SequencedSmartFakeLLM([out_of_bounds_frames, out_of_bounds_frames])
+
+    with pytest.raises(ValueError, match="smart storyboard frame source range must index source_text"):
+        await service.generate(
+            llm_service=llm,
+            source_text="开头完整表达。结尾完整表达。",
+            storyboard_mode="smart",
+            storyboard_count_mode="auto",
+            storyboard_scene_count=None,
+        )
+
+    assert len(llm.calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_smart_rejects_backwards_source_ranges_after_repair():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     backwards_frames = [

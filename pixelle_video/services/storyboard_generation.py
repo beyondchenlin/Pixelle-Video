@@ -293,6 +293,10 @@ class StoryboardGenerationService:
                         raise ValueError("smart storyboard frame source ranges must be ordered")
                     raise ValueError("smart storyboard frame source_text must be traceable")
                 end = start + len(frame.source_text)
+            if type(start) is not int or type(end) is not int:
+                raise ValueError("smart storyboard frame source range must use integer offsets")
+            if not 0 <= start <= end <= len(source_text):
+                raise ValueError("smart storyboard frame source range must index source_text")
             if start < search_start:
                 raise ValueError("smart storyboard frame source ranges must be ordered")
             if source_text[start:end] != frame.source_text:
