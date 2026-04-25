@@ -396,6 +396,68 @@ async def test_smart_repairs_unlocatable_source_text_once():
 
 
 @pytest.mark.asyncio
+async def test_smart_repairs_backwards_source_ranges_once():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    backwards_frames = [
+        {
+            "source_text": "结尾完整表达。",
+            "narration_text": "结尾完整表达。",
+            "visual_goal": "Close the idea.",
+            "prompt_intent": "A coherent closing visual.",
+        },
+        {
+            "source_text": "开头完整表达。",
+            "narration_text": "开头完整表达。",
+            "visual_goal": "Introduce the main idea.",
+            "prompt_intent": "A calm opening visual.",
+        },
+    ]
+    llm = SequencedSmartFakeLLM([backwards_frames, SmartFakeLLM().frames])
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="开头完整表达。结尾完整表达。",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert len(llm.calls) == 2
+    assert plan.narration_texts() == ["开头完整表达。", "结尾完整表达。"]
+
+
+@pytest.mark.asyncio
+async def test_smart_rejects_backwards_source_ranges_after_repair():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    backwards_frames = [
+        {
+            "source_text": "结尾完整表达。",
+            "narration_text": "结尾完整表达。",
+            "visual_goal": "Close the idea.",
+            "prompt_intent": "A coherent closing visual.",
+        },
+        {
+            "source_text": "开头完整表达。",
+            "narration_text": "开头完整表达。",
+            "visual_goal": "Introduce the main idea.",
+            "prompt_intent": "A calm opening visual.",
+        },
+    ]
+    llm = SequencedSmartFakeLLM([backwards_frames, backwards_frames])
+
+    with pytest.raises(ValueError, match="smart storyboard frame source ranges must be ordered"):
+        await service.generate(
+            llm_service=llm,
+            source_text="开头完整表达。结尾完整表达。",
+            storyboard_mode="smart",
+            storyboard_count_mode="auto",
+            storyboard_scene_count=None,
+        )
+
+    assert len(llm.calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_smart_repairs_invalid_structured_output_once():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     llm = FailingThenSmartFakeLLM()
@@ -410,6 +472,35 @@ async def test_smart_repairs_invalid_structured_output_once():
 
     assert len(llm.calls) == 2
     assert "Repair the previous storyboard response" in llm.calls[1]["prompt"]
+    assert plan.resolved_scene_count == 2
+
+
+@pytest.mark.asyncio
+async def test_smart_repairs_manual_count_mismatch_once():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    llm = SequencedSmartFakeLLM(
+        [
+            [
+                {
+                    "source_text": "开头完整表达。",
+                    "narration_text": "开头完整表达。",
+                    "visual_goal": "Introduce the main idea.",
+                    "prompt_intent": "A calm opening visual.",
+                }
+            ],
+            SmartFakeLLM().frames,
+        ]
+    )
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="开头完整表达。结尾完整表达。",
+        storyboard_mode="smart",
+        storyboard_count_mode="manual",
+        storyboard_scene_count=2,
+    )
+
+    assert len(llm.calls) == 2
     assert plan.resolved_scene_count == 2
 
 

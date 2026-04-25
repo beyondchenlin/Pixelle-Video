@@ -289,10 +289,12 @@ class StoryboardGenerationService:
             if start is None and end is None:
                 start = source_text.find(frame.source_text, search_start)
                 if start < 0:
-                    start = source_text.find(frame.source_text)
-                if start < 0:
+                    if source_text.find(frame.source_text) >= 0:
+                        raise ValueError("smart storyboard frame source ranges must be ordered")
                     raise ValueError("smart storyboard frame source_text must be traceable")
                 end = start + len(frame.source_text)
+            if start < search_start:
+                raise ValueError("smart storyboard frame source ranges must be ordered")
             if source_text[start:end] != frame.source_text:
                 raise ValueError("smart storyboard frame source_text must be traceable")
             search_start = max(search_start, end)
