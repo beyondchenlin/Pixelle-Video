@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+from sqlalchemy.dialects import postgresql
+
 
 def test_generation_tasks_migration_contains_source_level_constraints():
     migration = Path(
@@ -40,3 +43,40 @@ def test_postgres_store_list_tasks_uses_stable_pagination_order():
         ".order_by(desc(generation_tasks.c.created_at), desc(generation_tasks.c.task_id))"
         in source
     )
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_count_tasks_counts_generation_tasks_with_status_filter():
+    from api.tasks.models import TaskStatus
+    from api.tasks.postgres import PostgresTaskStore
+
+    class FakeResult:
+        def scalar_one(self) -> int:
+            return 7
+
+    class FakeSession:
+        statement = None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return FakeResult()
+
+    fake_session = FakeSession()
+    store = object.__new__(PostgresTaskStore)
+    store.session_factory = lambda: fake_session
+
+    assert await store.count_tasks(status=TaskStatus.RUNNING) == 7
+
+    compiled = fake_session.statement.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+
+    assert "SELECT count(*) AS count_1" in sql
+    assert "FROM generation_tasks" in sql
+    assert "WHERE generation_tasks.status =" in sql
+    assert compiled.params["status_1"] == TaskStatus.RUNNING.value
