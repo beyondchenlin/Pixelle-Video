@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 
 from pixelle_video.models.storyboard_plan import (
@@ -66,6 +68,92 @@ def test_source_spans_index_plan_source_text():
         frames=[frame],
     )
 
+    assert plan.frames[0].metadata["source_spans"][0]["text"] == "abc"
+
+
+def test_storyboard_plan_digest_uses_normalized_source_text():
+    plan = StoryboardPlan.build(
+        mode="smart",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="  abc  ",
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text="abc",
+                narration_text="abc",
+                visual_goal="show abc",
+                prompt_intent="show abc",
+            )
+        ],
+    )
+
+    assert plan.source_text == "abc"
+    assert plan.source_digest == hashlib.sha256("abc".encode("utf-8")).hexdigest()
+
+
+def test_storyboard_plan_owns_frames_after_build():
+    original_frame = StoryboardPlanFrame(
+        index=1,
+        source_text="abc",
+        narration_text="abc",
+        visual_goal="show abc",
+        prompt_intent="show abc",
+        metadata={"tags": ["original"]},
+    )
+    frames = [original_frame]
+
+    plan = StoryboardPlan.build(
+        mode="smart",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="abc",
+        frames=frames,
+    )
+
+    frames.append(
+        StoryboardPlanFrame(
+            index=2,
+            source_text="def",
+            narration_text="def",
+            visual_goal="show def",
+            prompt_intent="show def",
+        )
+    )
+    original_frame.narration_text = "changed"
+    original_frame.metadata["tags"].append("mutated")
+
+    assert plan.resolved_scene_count == 1
+    assert len(plan.frames) == 1
+    assert plan.frames[0] is not original_frame
+    assert plan.frames[0].narration_text == "abc"
+    assert plan.frames[0].metadata["tags"] == ["original"]
+
+
+def test_storyboard_plan_to_dict_deep_copies_nested_payloads():
+    plan = StoryboardPlan.build(
+        mode="smart",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="abc",
+        diagnostics={"warnings": [{"code": "demo"}]},
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text="abc",
+                narration_text="abc",
+                visual_goal="show abc",
+                prompt_intent="show abc",
+                metadata={"source_spans": [{"start": 0, "end": 3, "text": "abc"}]},
+            )
+        ],
+    )
+
+    payload = plan.to_dict()
+    payload["diagnostics"]["warnings"][0]["code"] = "changed"
+    payload["frames"][0]["metadata"]["source_spans"][0]["text"] = "changed"
+
+    assert plan.diagnostics["warnings"][0]["code"] == "demo"
     assert plan.frames[0].metadata["source_spans"][0]["text"] == "abc"
 
 

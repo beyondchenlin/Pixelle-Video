@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -71,12 +72,12 @@ class StoryboardPlanFrame:
             "shot_type": self.shot_type,
             "shot_purpose": self.shot_purpose,
             "primary_subject": self.primary_subject,
-            "secondary_subjects": list(self.secondary_subjects),
-            "continuity_anchors": list(self.continuity_anchors),
-            "world_elements": list(self.world_elements),
+            "secondary_subjects": deepcopy(self.secondary_subjects),
+            "continuity_anchors": deepcopy(self.continuity_anchors),
+            "world_elements": deepcopy(self.world_elements),
             "source_start": self.source_start,
             "source_end": self.source_end,
-            "metadata": dict(self.metadata),
+            "metadata": deepcopy(self.metadata),
         }
 
 
@@ -90,7 +91,7 @@ class StoryboardPlan:
     resolved_scene_count: int
     source_text: str
     source_digest: str
-    frames: list[StoryboardPlanFrame]
+    frames: tuple[StoryboardPlanFrame, ...]
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -119,6 +120,7 @@ class StoryboardPlan:
 
         digest = hashlib.sha256(normalized_source.encode("utf-8")).hexdigest()
         stable_plan_id = plan_id or f"plan_{uuid.uuid4().hex}"
+        owned_frames: list[StoryboardPlanFrame] = []
         for frame in frames:
             if not frame.narration_text.strip():
                 raise ValueError("frame narration_text must not be empty")
@@ -127,8 +129,26 @@ class StoryboardPlan:
                     raise ValueError("source_start and source_end must be set together")
                 if not 0 <= frame.source_start <= frame.source_end <= len(normalized_source):
                     raise ValueError("frame source range must index StoryboardPlan.source_text")
-            if not frame.frame_id:
-                frame.frame_id = f"frame_{frame.index:04d}_{uuid.uuid4().hex[:8]}"
+            frame_id = frame.frame_id or f"frame_{frame.index:04d}_{uuid.uuid4().hex[:8]}"
+            owned_frames.append(
+                StoryboardPlanFrame(
+                    index=frame.index,
+                    source_text=frame.source_text,
+                    narration_text=frame.narration_text,
+                    visual_goal=frame.visual_goal,
+                    prompt_intent=frame.prompt_intent,
+                    frame_id=frame_id,
+                    shot_type=frame.shot_type,
+                    shot_purpose=frame.shot_purpose,
+                    primary_subject=frame.primary_subject,
+                    secondary_subjects=deepcopy(frame.secondary_subjects),
+                    continuity_anchors=deepcopy(frame.continuity_anchors),
+                    world_elements=deepcopy(frame.world_elements),
+                    source_start=frame.source_start,
+                    source_end=frame.source_end,
+                    metadata=deepcopy(frame.metadata),
+                )
+            )
 
         return cls(
             plan_id=stable_plan_id,
@@ -139,8 +159,8 @@ class StoryboardPlan:
             resolved_scene_count=len(frames),
             source_text=normalized_source,
             source_digest=digest,
-            frames=frames,
-            diagnostics=dict(diagnostics or {}),
+            frames=tuple(owned_frames),
+            diagnostics=deepcopy(diagnostics or {}),
         )
 
     def narration_texts(self) -> list[str]:
@@ -157,5 +177,5 @@ class StoryboardPlan:
             "source_text": self.source_text,
             "source_digest": self.source_digest,
             "frames": [frame.to_dict() for frame in self.frames],
-            "diagnostics": dict(self.diagnostics),
+            "diagnostics": deepcopy(self.diagnostics),
         }
