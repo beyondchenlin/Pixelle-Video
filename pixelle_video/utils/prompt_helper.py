@@ -20,12 +20,9 @@ from collections.abc import Mapping
 from typing import Any, Optional
 
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
+from pixelle_video.models.text_overlay import DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
 
-NO_TEXT_POSITIVE_RULE = (
-    "no visible text, no Chinese characters, no English letters, no words, "
-    "no subtitles, no captions, no watermark, no logo text, convey the idea "
-    "through objects, symbols, composition, and scene elements instead of written text"
-)
+NO_TEXT_POSITIVE_RULE = DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
 NO_TEXT_NEGATIVE_RULES: tuple[str, ...] = (
     "text",
     "letters",

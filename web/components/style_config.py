@@ -3253,7 +3253,7 @@ def render_text_rendering_controls(render_backend: str) -> dict:
             ),
             help=tr("image_text.positive_prompt_help"),
             key="image_text_positive_prompt",
-            disabled=not suppress_embedded_text,
+            disabled=False,
         )
 
     return build_text_rendering_payload(

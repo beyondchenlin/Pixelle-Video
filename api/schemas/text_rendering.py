@@ -18,11 +18,9 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-DEFAULT_SUPPRESS_EMBEDDED_TEXT_PROMPT = (
-    "no visible text, no Chinese characters, no English letters, no words, no subtitles, "
-    "no captions, no watermark, no logo text, convey the idea through objects, symbols, "
-    "composition, and scene elements instead of written text"
-)
+from pixelle_video.models.text_overlay import DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
+
+DEFAULT_SUPPRESS_EMBEDDED_TEXT_PROMPT = DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
 
 
 class TextOverlayRequest(BaseModel):

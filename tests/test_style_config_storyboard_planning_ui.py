@@ -424,6 +424,7 @@ def test_build_text_rendering_payload_preserves_cleared_positive_prompt():
 
 def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monkeypatch):
     fake_st = _FakeStreamlit()
+    text_area_calls = []
 
     def _checkbox(label, value=False, key=None, **kwargs):
         fake_st.checkbox_calls.append({"label": label, "value": value, "key": key, **kwargs})
@@ -447,6 +448,9 @@ def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monke
     fake_st.radio = _radio
     fake_st.selectbox = _selectbox
     fake_st.number_input = lambda *args, **kwargs: 1
+    fake_st.text_area = lambda label, value="", **kwargs: (
+        text_area_calls.append({"label": label, "value": value, **kwargs}) or value
+    )
 
     policy = style_config.render_text_rendering_controls("hyperframes_compiled")
 
@@ -463,6 +467,31 @@ def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monke
             "positive_prompt": style_config.DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
         },
     }
+    assert text_area_calls[0]["disabled"] is False
+
+
+def test_render_text_rendering_controls_keeps_prompt_editable_when_suppression_is_off(monkeypatch):
+    fake_st = _FakeStreamlit()
+    text_area_calls = []
+
+    def _checkbox(label, value=False, key=None, **kwargs):
+        fake_st.checkbox_calls.append({"label": label, "value": value, "key": key, **kwargs})
+        return False
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    fake_st.checkbox = _checkbox
+    fake_st.text_area = lambda label, value="", **kwargs: (
+        text_area_calls.append({"label": label, "value": value, **kwargs}) or "custom disabled-state prompt"
+    )
+
+    policy = style_config.render_text_rendering_controls("hyperframes_compiled")
+
+    assert policy["image_text"] == {
+        "suppress_embedded_text": False,
+        "positive_prompt": "custom disabled-state prompt",
+    }
+    assert text_area_calls[0]["disabled"] is False
 
 
 def test_render_style_config_disables_storyboard_for_static_templates(monkeypatch):

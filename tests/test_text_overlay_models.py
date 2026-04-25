@@ -1,6 +1,8 @@
 import pytest
 
+from api.schemas import text_rendering as text_rendering_schema
 from pixelle_video.models.text_overlay import (
+    DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
     TextOverlayCandidate,
     TextOverlayPlan,
     TextOverlaySettings,
@@ -10,6 +12,7 @@ from pixelle_video.models.text_overlay import (
     freeze_json_value,
     thaw_json_value,
 )
+from pixelle_video.utils import prompt_helper
 
 
 def test_text_rendering_policy_rejects_native_prompt_for_programmatic_only():
@@ -22,6 +25,14 @@ def test_text_rendering_policy_rejects_native_prompt_for_programmatic_only():
             allow_native_text_in_image=False,
             suppress_unplanned_embedded_text=True,
         )
+
+
+def test_api_text_rendering_schema_reuses_core_default_image_text_prompt():
+    assert (
+        text_rendering_schema.DEFAULT_SUPPRESS_EMBEDDED_TEXT_PROMPT
+        is DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
+    )
+    assert prompt_helper.NO_TEXT_POSITIVE_RULE is DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
 
 
 def test_build_text_rendering_policy_defaults_when_overlay_missing():
