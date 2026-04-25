@@ -33,7 +33,7 @@ from loguru import logger
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.progress import ProgressEvent
-from pixelle_video.models.render_package import RenderManifest, VisualClip
+from pixelle_video.models.render_package import RenderAudioTrack, RenderManifest, VisualClip
 from pixelle_video.models.storyboard import (
     Storyboard,
     StoryboardConfig,
@@ -1247,6 +1247,11 @@ class StandardPipeline(LinearVideoPipeline):
             text_cues,
             renderer="hyperframes",
         )
+        audio_tracks = self._build_hyperframes_audio_tracks(
+            ctx,
+            master_audio_path=master_audio_path,
+            master_audio_duration=master_audio_duration,
+        )
 
         manifest = RenderManifest(
             task_id=ctx.task_id,
@@ -1259,6 +1264,7 @@ class StandardPipeline(LinearVideoPipeline):
             template_id=self._resolve_hyperframes_template_id(config),
             master_audio_path=master_audio_path,
             master_audio_duration=master_audio_duration,
+            audio_tracks=audio_tracks,
             audio_blocks=list(timing_plan.blocks),
             sentence_units=list(timing_plan.sentences),
             visual_clips=self._build_hyperframes_visual_clips(storyboard, timing_plan),
@@ -1287,39 +1293,15 @@ class StandardPipeline(LinearVideoPipeline):
             master_audio_duration=master_audio_duration,
         )
 
-        bgm_path = ctx.params.get("bgm_path")
-        render_output_path = ctx.final_video_path
-        if bgm_path:
-            final_output_path = Path(ctx.final_video_path)
-            final_suffix = final_output_path.suffix or ".mp4"
-            render_output_path = str(
-                final_output_path.with_name(
-                    f"{final_output_path.stem}_no_bgm{final_suffix}"
-                )
-            )
-
         final_video_path = self.core.hyperframes_renderer.render(
             str(project_paths.project_dir),
-            output_path=render_output_path,
+            output_path=ctx.final_video_path,
             width=canvas_width,
             height=canvas_height,
             fps=config.video_fps,
             expected_duration=master_audio_duration,
             expect_audio=bool(master_audio_path),
         )
-        if bgm_path:
-            logger.info(
-                "Adding BGM to HyperFrames render: "
-                f"{bgm_path} (volume={ctx.params.get('bgm_volume', 0.2)}, "
-                f"mode={ctx.params.get('bgm_mode', 'loop')})"
-            )
-            final_video_path = VideoService()._add_bgm_to_video(
-                video=final_video_path,
-                bgm_path=bgm_path,
-                output=ctx.final_video_path,
-                volume=ctx.params.get("bgm_volume", 0.2),
-                mode=ctx.params.get("bgm_mode", "loop"),
-            )
 
         storyboard.final_video_path = final_video_path
         storyboard.completed_at = datetime.now()
@@ -1336,6 +1318,85 @@ class StandardPipeline(LinearVideoPipeline):
             storyboard.final_video_path = final_video_path
 
         logger.success(f"HyperFrames video generation completed: {ctx.final_video_path}")
+
+    def _build_hyperframes_audio_tracks(
+        self,
+        ctx: PipelineContext,
+        *,
+        master_audio_path: str,
+        master_audio_duration: float,
+    ) -> list[RenderAudioTrack]:
+        duration = max(float(master_audio_duration), 0.0)
+        tracks = [
+            RenderAudioTrack(
+                id="narration-audio",
+                path=master_audio_path,
+                start=0.0,
+                end=duration,
+                volume=1.0,
+                role="narration",
+            )
+        ]
+
+        bgm_path = ctx.params.get("bgm_path")
+        if not bgm_path:
+            return tracks
+
+        bgm_output_path = str(Path(master_audio_path).with_name("background_audio.wav"))
+        prepared_bgm_path = self._prepare_bgm_audio_for_hyperframes(
+            bgm_path,
+            bgm_output_path,
+            duration=duration,
+            mode=ctx.params.get("bgm_mode", "loop"),
+        )
+        tracks.append(
+            RenderAudioTrack(
+                id="background-audio",
+                path=prepared_bgm_path,
+                start=0.0,
+                end=duration,
+                volume=float(ctx.params.get("bgm_volume", 0.2)),
+                role="background",
+            )
+        )
+        return tracks
+
+    def _prepare_bgm_audio_for_hyperframes(
+        self,
+        input_path: str,
+        output_path: str,
+        *,
+        duration: float,
+        mode: str,
+    ) -> str:
+        resolved_bgm = VideoService().resolve_bgm_path(input_path)
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+        command = ["ffmpeg"]
+        if mode == "loop":
+            command.extend(["-stream_loop", "-1"])
+        command.extend(
+            [
+                "-i",
+                resolved_bgm,
+                "-t",
+                self._format_ffmpeg_time(duration),
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+                output_path,
+            ]
+        )
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+            raise RuntimeError(f"Failed to prepare HyperFrames BGM audio: {detail}")
+        return output_path
 
     def _compile_text_layer_for_render(self, ctx: PipelineContext):
         package = getattr(ctx, "creation_package", None)

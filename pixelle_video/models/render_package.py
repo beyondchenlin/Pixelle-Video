@@ -88,6 +88,47 @@ class AudioBlock:
 
 
 @dataclass
+class RenderAudioTrack:
+    id: str
+    path: str
+    start: float
+    end: float
+    volume: float = 1.0
+    media_start: float = 0.0
+    track_index: int = 2
+    role: str = "narration"
+
+    def __post_init__(self) -> None:
+        self.start = float(self.start)
+        self.end = float(self.end)
+        self.volume = float(self.volume)
+        self.media_start = float(self.media_start)
+        self.track_index = int(self.track_index)
+        if self.end < self.start:
+            raise ValueError("RenderAudioTrack end must be greater than or equal to start.")
+        if self.volume < 0:
+            raise ValueError("RenderAudioTrack volume must be non-negative.")
+        if self.media_start < 0:
+            raise ValueError("RenderAudioTrack media_start must be non-negative.")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RenderAudioTrack":
+        return cls(
+            id=data["id"],
+            path=data["path"],
+            start=float(data.get("start", 0.0)),
+            end=float(data["end"]),
+            volume=float(data.get("volume", 1.0)),
+            media_start=float(data.get("media_start", 0.0)),
+            track_index=int(data.get("track_index", 2)),
+            role=str(data.get("role", "narration")),
+        )
+
+
+@dataclass
 class VisualClip:
     id: str
     frame_index: int
@@ -273,6 +314,7 @@ class RenderManifest:
     template_id: str
     master_audio_path: Optional[str] = None
     master_audio_duration: Optional[float] = None
+    audio_tracks: List[RenderAudioTrack] = field(default_factory=list)
     audio_blocks: List[AudioBlock] = field(default_factory=list)
     sentence_units: List[SentenceUnit] = field(default_factory=list)
     visual_clips: List[VisualClip] = field(default_factory=list)
@@ -298,6 +340,7 @@ class RenderManifest:
         media_height: Optional[int] = None,
         master_audio_path: Optional[str] = None,
         master_audio_duration: Optional[float] = None,
+        audio_tracks: Optional[List[RenderAudioTrack]] = None,
         audio_blocks: Optional[List[AudioBlock]] = None,
         sentence_units: Optional[List[SentenceUnit]] = None,
         visual_clips: Optional[List[VisualClip]] = None,
@@ -333,6 +376,10 @@ class RenderManifest:
         self.master_audio_duration = (
             float(master_audio_duration) if master_audio_duration is not None else None
         )
+        self.audio_tracks = [
+            track if isinstance(track, RenderAudioTrack) else RenderAudioTrack.from_dict(track)
+            for track in audio_tracks or []
+        ]
         self.audio_blocks = list(audio_blocks or [])
         self.sentence_units = list(sentence_units or [])
         self.visual_clips = list(visual_clips or [])
@@ -373,6 +420,7 @@ class RenderManifest:
             "template_id": self.template_id,
             "master_audio_path": self.master_audio_path,
             "master_audio_duration": self.master_audio_duration,
+            "audio_tracks": [track.to_dict() for track in self.audio_tracks],
             "audio_blocks": [block.to_dict() for block in self.audio_blocks],
             "sentence_units": [unit.to_dict() for unit in self.sentence_units],
             "visual_clips": [clip.to_dict() for clip in self.visual_clips],
@@ -403,6 +451,10 @@ class RenderManifest:
             template_id=data["template_id"],
             master_audio_path=data.get("master_audio_path"),
             master_audio_duration=data.get("master_audio_duration"),
+            audio_tracks=[
+                RenderAudioTrack.from_dict(item)
+                for item in data.get("audio_tracks", [])
+            ],
             audio_blocks=[AudioBlock.from_dict(item) for item in data.get("audio_blocks", [])],
             sentence_units=[SentenceUnit.from_dict(item) for item in data.get("sentence_units", [])],
             visual_clips=[VisualClip.from_dict(item) for item in data.get("visual_clips", [])],

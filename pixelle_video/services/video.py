@@ -875,6 +875,10 @@ class VideoService:
             loop=loop,
             fade_in=0.0
         )
+
+    def resolve_bgm_path(self, bgm_path: str) -> str:
+        """Resolve a BGM resource path for render-contract audio preparation."""
+        return self._resolve_bgm_path(bgm_path)
     
     def _get_unique_temp_path(self, prefix: str, original_filename: str) -> str:
         """
@@ -941,7 +945,7 @@ class VideoService:
             f"    2. {tried_paths[1]}"
             f"{available_msg}"
         )
-    
+
     def _list_available_bgm(self) -> list[str]:
         """
         List available BGM files (merged from bgm/ and data/bgm/)

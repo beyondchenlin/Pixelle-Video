@@ -29,6 +29,16 @@ PHASE1_TEMPLATE_FIELD_INVENTORY: Dict[str, Dict[str, str]] = {
 class TemplateAudioRef:
     path: str
     duration: float
+    id: str = "master-audio"
+    start: float = 0.0
+    media_start: float = 0.0
+    volume: float = 1.0
+    track_index: int = 2
+    role: str = "narration"
+
+    @property
+    def end(self) -> float:
+        return float(self.start) + float(self.duration)
 
 
 @dataclass
@@ -52,5 +62,6 @@ class TemplateRenderContext:
     captions: List[CaptionCue] = field(default_factory=list)
     text_tracks: List[TextTrack] = field(default_factory=list)
     text_cues: List[TextCue] = field(default_factory=list)
+    audio_tracks: List[TemplateAudioRef] = field(default_factory=list)
     element_animation_manifest_path: Optional[str] = None
     audio: Optional[TemplateAudioRef] = None

@@ -117,15 +117,31 @@ class HyperFramesCompiler:
         return f'<img class="visual-clip__media" src="{escaped_path}" alt="" />'
 
     def _render_audio(self, context: TemplateRenderContext) -> str:
-        if context.audio is None:
+        audio_tracks = list(context.audio_tracks)
+        if not audio_tracks and context.audio is not None:
+            audio_tracks = [context.audio]
+        if not audio_tracks:
             return ""
-        return (
-            '<audio id="master-audio" '
-            f'src="{escape(context.audio.path, quote=True)}" '
-            'data-start="0" '
-            f'data-duration="{context.audio.duration}" '
-            'data-track-index="2"></audio>'
-        )
+
+        rendered: list[str] = []
+        for track in audio_tracks:
+            start = float(track.start)
+            duration = max(float(track.duration), 0.0)
+            end = start + duration
+            rendered.append(
+                (
+                    f'<audio id="{escape(track.id, quote=True)}" '
+                    f'src="{escape(track.path, quote=True)}" '
+                    f'data-start="{start}" '
+                    f'data-end="{end}" '
+                    f'data-duration="{duration}" '
+                    f'data-media-start="{float(track.media_start)}" '
+                    f'data-volume="{float(track.volume)}" '
+                    f'data-track-index="{int(track.track_index)}" '
+                    f'data-role="{escape(track.role, quote=True)}"></audio>'
+                )
+            )
+        return "".join(rendered)
 
     def _render_captions(self, context: TemplateRenderContext) -> str:
         rendered: list[str] = []

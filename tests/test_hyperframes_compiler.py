@@ -105,6 +105,65 @@ def test_compiler_emits_static_index_without_manifest_fetch_or_remote_urls(tmp_p
     assert (project_dir / "runtime" / "fonts" / "phase1_fonts.css").exists()
 
 
+def test_compiler_emits_declarative_audio_tracks_for_hyperframes_mixer(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    (template_root / "image_default" / "compositions").mkdir(parents=True)
+    (template_root / "image_default" / "index.template.html").write_text(
+        '<div data-composition-id="main" data-duration="__DURATION__">__AUDIO__</div>',
+        encoding="utf-8",
+    )
+    (template_root / "image_default" / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=12.5,
+        fps=30,
+        title="demo",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        audio_tracks=[
+            TemplateAudioRef(
+                id="narration-audio",
+                path="assets/audio/master_audio.wav",
+                duration=12.5,
+                volume=1.0,
+                role="narration",
+            ),
+            TemplateAudioRef(
+                id="background-audio",
+                path="assets/audio/background_audio.wav",
+                duration=12.5,
+                volume=0.35,
+                role="background",
+            ),
+        ],
+    )
+
+    project_dir = tmp_path / "project"
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=project_dir,
+        context=context,
+    )
+
+    index_html = (project_dir / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="narration-audio"' in index_html
+    assert 'id="background-audio"' in index_html
+    assert 'src="assets/audio/background_audio.wav"' in index_html
+    assert 'data-start="0.0"' in index_html
+    assert 'data-end="12.5"' in index_html
+    assert 'data-duration="12.5"' in index_html
+    assert 'data-volume="0.35"' in index_html
+    assert 'data-role="background"' in index_html
+
+
 def test_compiler_emits_static_text_layer_without_manifest_fetch(tmp_path: Path):
     template_root = tmp_path / "templates"
     runtime_root = tmp_path / "runtime"

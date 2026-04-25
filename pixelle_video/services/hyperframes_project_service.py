@@ -13,6 +13,7 @@ from shutil import copy2
 from pixelle_video.models.render_package import (
     AudioBlock,
     CaptionCue,
+    RenderAudioTrack,
     RenderManifest,
     SentenceUnit,
     TextCue,
@@ -136,6 +137,25 @@ def build_template_render_context(
     duration = max(duration_candidates, default=0.0)
 
     audio = None
+    audio_tracks: list[TemplateAudioRef] = []
+    if manifest.audio_tracks:
+        audio_tracks = [
+            TemplateAudioRef(
+                id=track.id,
+                path=track.path,
+                start=track.start,
+                duration=max(float(track.end) - float(track.start), 0.0),
+                media_start=track.media_start,
+                volume=track.volume,
+                track_index=track.track_index,
+                role=track.role,
+            )
+            for track in manifest.audio_tracks
+        ]
+        audio = next(
+            (track for track in audio_tracks if track.role == "narration"),
+            audio_tracks[0],
+        )
     if manifest.master_audio_path:
         audio = TemplateAudioRef(
             path=manifest.master_audio_path,
@@ -158,6 +178,7 @@ def build_template_render_context(
         captions=caption_cues,
         text_tracks=list(manifest.text_tracks),
         text_cues=list(manifest.text_cues),
+        audio_tracks=audio_tracks,
         element_animation_manifest_path=manifest.element_animation_manifest_path,
         audio=audio,
     )
@@ -317,6 +338,8 @@ class HyperFramesProjectService:
         audio_sources: dict[str, Path] = {}
         if manifest.master_audio_path:
             audio_sources[Path(manifest.master_audio_path).name] = Path(manifest.master_audio_path)
+        for track in manifest.audio_tracks:
+            audio_sources[Path(track.path).name] = Path(track.path)
 
         image_sources: dict[str, Path] = {}
         video_sources: dict[str, Path] = {}
@@ -351,6 +374,16 @@ class HyperFramesProjectService:
                 Path(manifest.master_audio_path).name
             ]
 
+        localized_audio_tracks: list[RenderAudioTrack] = []
+        for track in manifest.audio_tracks:
+            source_name = Path(track.path).name
+            localized_audio_tracks.append(
+                replace(
+                    track,
+                    path=materialized["audio"][source_name],
+                )
+            )
+
         localized_element_animation_manifest_path = self._materialize_element_animation_manifest(
             manifest.element_animation_manifest_path,
             project_dir,
@@ -359,6 +392,7 @@ class HyperFramesProjectService:
         return replace(
             manifest,
             master_audio_path=localized_master_audio_path,
+            audio_tracks=localized_audio_tracks,
             visual_clips=localized_visuals,
             element_animation_manifest_path=localized_element_animation_manifest_path,
         )
@@ -490,10 +524,12 @@ class HyperFramesProjectService:
         master_audio_duration: float | None,
     ) -> RenderManifest:
         duration = self._resolve_master_audio_duration(manifest, master_audio_duration)
+        normalized_audio_tracks = self._normalize_audio_tracks(manifest.audio_tracks, duration)
         normalized_audio_blocks = self._normalize_audio_blocks(manifest.audio_blocks, duration)
         valid_block_ids = {block.id for block in normalized_audio_blocks}
         return replace(
             manifest,
+            audio_tracks=normalized_audio_tracks,
             audio_blocks=normalized_audio_blocks,
             sentence_units=self._normalize_sentence_units(
                 manifest.sentence_units,
@@ -540,6 +576,21 @@ class HyperFramesProjectService:
                 replace(block, start=span[0], end=span[1])
             )
         return normalized_blocks
+
+    def _normalize_audio_tracks(
+        self,
+        tracks: list[RenderAudioTrack],
+        duration: float,
+    ) -> list[RenderAudioTrack]:
+        normalized_tracks: list[RenderAudioTrack] = []
+        for track in tracks:
+            span = self._normalize_time_span(track.start, track.end, duration)
+            if span is None:
+                continue
+            normalized_tracks.append(
+                replace(track, start=span[0], end=span[1])
+            )
+        return normalized_tracks
 
     def _normalize_sentence_units(
         self,

@@ -10,6 +10,7 @@ from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.render_package import (
     AudioBlock,
     CaptionCue,
+    RenderAudioTrack,
     RenderManifest,
     SentenceUnit,
     TextCue,
@@ -98,6 +99,61 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     assert restored.caption_cues[0].text == "Sentence 1"
     assert restored.audio_blocks[0].end == 4.2
     assert restored.caption_punctuation_mode == "strip_all"
+
+
+def test_render_manifest_round_trips_declarative_audio_tracks():
+    manifest = RenderManifest(
+        task_id="task-audio",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        audio_tracks=[
+            RenderAudioTrack(
+                id="narration",
+                path="assets/audio/master_audio.wav",
+                start=0.0,
+                end=12.5,
+                volume=1.0,
+                role="narration",
+            ),
+            RenderAudioTrack(
+                id="background",
+                path="assets/audio/background_audio.wav",
+                start=0.0,
+                end=12.5,
+                volume=0.35,
+                role="background",
+            ),
+        ],
+    )
+
+    restored = RenderManifest.from_dict(manifest.to_dict())
+
+    assert [track.id for track in restored.audio_tracks] == ["narration", "background"]
+    assert restored.audio_tracks[1].path == "assets/audio/background_audio.wav"
+    assert restored.audio_tracks[1].volume == pytest.approx(0.35)
+    assert restored.to_dict()["audio_tracks"][1]["role"] == "background"
+
+
+def test_render_audio_track_rejects_invalid_timing_and_volume():
+    with pytest.raises(ValueError, match="end"):
+        RenderAudioTrack(
+            id="bad-time",
+            path="assets/audio/bad.wav",
+            start=2.0,
+            end=1.0,
+        )
+
+    with pytest.raises(ValueError, match="volume"):
+        RenderAudioTrack(
+            id="bad-volume",
+            path="assets/audio/bad.wav",
+            start=0.0,
+            end=1.0,
+            volume=-0.1,
+        )
 
 
 def test_text_track_and_text_cue_round_trip_with_immutable_layout_and_source():

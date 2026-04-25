@@ -5,6 +5,7 @@ import pytest
 from pixelle_video.models.render_package import (
     AudioBlock,
     CaptionCue,
+    RenderAudioTrack,
     RenderManifest,
     SentenceUnit,
     TextCue,
@@ -256,6 +257,46 @@ def test_build_template_render_context_prefers_remapped_timing_when_present():
     assert context.captions[0].end == 2.2
 
 
+def test_build_template_render_context_carries_declarative_audio_tracks():
+    manifest = RenderManifest(
+        task_id="task-audio-context",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        master_audio_duration=4.0,
+        audio_tracks=[
+            RenderAudioTrack(
+                id="narration-audio",
+                path="assets/audio/master_audio.wav",
+                start=0.0,
+                end=4.0,
+                volume=1.0,
+                role="narration",
+            ),
+            RenderAudioTrack(
+                id="background-audio",
+                path="assets/audio/background_audio.wav",
+                start=0.0,
+                end=4.0,
+                volume=0.25,
+                role="background",
+            ),
+        ],
+    )
+
+    context = build_template_render_context(manifest, template_params={})
+
+    assert [track.id for track in context.audio_tracks] == [
+        "narration-audio",
+        "background-audio",
+    ]
+    assert context.audio_tracks[1].path == "assets/audio/background_audio.wav"
+    assert context.audio_tracks[1].volume == pytest.approx(0.25)
+    assert context.audio_tracks[1].role == "background"
+
+
 def test_build_template_render_context_carries_text_layer_from_manifest():
     manifest = RenderManifest(
         task_id="task-context",
@@ -348,6 +389,53 @@ def test_write_project_materializes_local_assets_and_compiles_static_html(tmp_pa
     assert 'src="assets/images/01_image.png"' in index_html
     assert manifest_data["master_audio_path"] == "assets/audio/master_audio.wav"
     assert manifest_data["visual_clips"][0]["media_path"] == "assets/images/01_image.png"
+
+
+def test_write_project_materializes_declarative_audio_tracks(tmp_path):
+    source_master_audio = tmp_path / "master_audio.wav"
+    source_bgm_audio = tmp_path / "background_audio.wav"
+    source_master_audio.write_bytes(b"master")
+    source_bgm_audio.write_bytes(b"bgm")
+
+    manifest = RenderManifest(
+        task_id="task-audio-tracks",
+        title="demo",
+        canvas_width=1080,
+        canvas_height=1920,
+        fps=30,
+        template_id="image_default",
+        master_audio_duration=3.0,
+        audio_tracks=[
+            RenderAudioTrack(
+                id="narration-audio",
+                path=str(source_master_audio),
+                start=0.0,
+                end=3.0,
+                volume=1.0,
+                role="narration",
+            ),
+            RenderAudioTrack(
+                id="background-audio",
+                path=str(source_bgm_audio),
+                start=0.0,
+                end=3.0,
+                volume=0.35,
+                role="background",
+            ),
+        ],
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    project_paths = service.write_project(manifest, template_params={})
+    manifest_data = json.loads(project_paths.manifest_path.read_text(encoding="utf-8"))
+    index_html = (project_paths.project_dir / "index.html").read_text(encoding="utf-8")
+
+    assert (project_paths.project_dir / "assets" / "audio" / "master_audio.wav").exists()
+    assert (project_paths.project_dir / "assets" / "audio" / "background_audio.wav").exists()
+    assert manifest_data["audio_tracks"][0]["path"] == "assets/audio/master_audio.wav"
+    assert manifest_data["audio_tracks"][1]["path"] == "assets/audio/background_audio.wav"
+    assert 'src="assets/audio/background_audio.wav"' in index_html
+    assert 'data-volume="0.35"' in index_html
 
 
 def test_write_project_materializes_element_animation_manifest_and_assets(tmp_path):

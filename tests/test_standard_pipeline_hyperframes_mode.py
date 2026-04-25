@@ -242,22 +242,12 @@ class _RecordingVideoService:
         return output
 
 
-class _RecordingHyperframesBgmVideoService:
-    def __init__(self, calls: dict):
-        self.calls = calls
-
+class _NoPostRenderBgmVideoService:
     def concat_videos(self, videos, output, **kwargs):
         raise AssertionError("legacy concat path should not run in hyperframes mode")
 
     def _add_bgm_to_video(self, *, video, bgm_path, output, volume, mode):
-        self.calls["video"] = video
-        self.calls["bgm_path"] = bgm_path
-        self.calls["output"] = output
-        self.calls["volume"] = volume
-        self.calls["mode"] = mode
-        Path(output).parent.mkdir(parents=True, exist_ok=True)
-        Path(output).write_bytes(b"video-with-bgm")
-        return output
+        raise AssertionError("BGM must be compiled as a HyperFrames audio track")
 
 
 class _RecordingPersistence:
@@ -521,13 +511,8 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
 
 
 @pytest.mark.asyncio
-async def test_post_production_adds_bgm_after_hyperframes_render(monkeypatch, tmp_path):
-    bgm_calls = {}
-
-    monkeypatch.setattr(
-        "pixelle_video.pipelines.standard.VideoService",
-        lambda: _RecordingHyperframesBgmVideoService(bgm_calls),
-    )
+async def test_post_production_compiles_bgm_as_hyperframes_audio_track(monkeypatch, tmp_path):
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoPostRenderBgmVideoService)
 
     core = _DummyCore(tmp_path)
     pipeline = StandardPipeline(core)
@@ -554,24 +539,88 @@ async def test_post_production_adds_bgm_after_hyperframes_render(monkeypatch, tm
         Path(output_path).write_bytes(b"wav")
         return output_path
 
+    bgm_prepare_calls = []
+
+    def fake_prepare_bgm_audio(input_path, output_path, *, duration, mode):
+        bgm_prepare_calls.append(
+            {
+                "input_path": input_path,
+                "output_path": output_path,
+                "duration": duration,
+                "mode": mode,
+            }
+        )
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_path).write_bytes(b"bgm-wav")
+        return output_path
+
     monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
     monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_prepare_bgm_audio_for_hyperframes", fake_prepare_bgm_audio, raising=False)
     monkeypatch.setattr(pipeline, "_get_audio_duration", lambda audio_path: 2.0)
 
     await pipeline.post_production(ctx)
 
-    no_bgm_output = final_output.with_name("final_no_bgm.mp4")
-    assert core.hyperframes_renderer.calls[0]["output_path"] == str(no_bgm_output)
-    assert bgm_calls == {
-        "video": str(no_bgm_output),
-        "bgm_path": "default.mp3",
-        "output": str(final_output),
-        "volume": 0.35,
-        "mode": "once",
-    }
-    assert final_output.read_bytes() == b"video-with-bgm"
+    manifest = core.hyperframes_project_service.manifest
+
+    assert core.hyperframes_renderer.calls[0]["output_path"] == str(final_output)
+    assert bgm_prepare_calls == [
+        {
+            "input_path": "default.mp3",
+            "output_path": str(Path(ctx.task_dir) / "audio" / "background_audio.wav"),
+            "duration": 2.0,
+            "mode": "once",
+        }
+    ]
+    assert [track.id for track in manifest.audio_tracks] == [
+        "narration-audio",
+        "background-audio",
+    ]
+    assert manifest.audio_tracks[0].path.endswith("master_audio.wav")
+    assert manifest.audio_tracks[0].volume == pytest.approx(1.0)
+    assert manifest.audio_tracks[1].path.endswith("background_audio.wav")
+    assert manifest.audio_tracks[1].end == pytest.approx(2.0)
+    assert manifest.audio_tracks[1].volume == pytest.approx(0.35)
+    assert manifest.audio_tracks[1].role == "background"
     assert ctx.final_video_path == str(final_output)
     assert ctx.storyboard.final_video_path == str(final_output)
+
+
+def test_prepare_bgm_audio_for_hyperframes_resolves_and_loops_bgm(monkeypatch, tmp_path):
+    commands = []
+
+    class _ResolvingVideoService:
+        def resolve_bgm_path(self, bgm_path):
+            assert bgm_path == "default.mp3"
+            return str(tmp_path / "resolved-default.mp3")
+
+    def fake_run(command, **kwargs):
+        commands.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _ResolvingVideoService)
+    monkeypatch.setattr("pixelle_video.pipelines.standard.subprocess.run", fake_run)
+
+    pipeline = StandardPipeline(_DummyCore(tmp_path))
+    output_path = tmp_path / "task-1" / "audio" / "background_audio.wav"
+
+    result = pipeline._prepare_bgm_audio_for_hyperframes(
+        "default.mp3",
+        str(output_path),
+        duration=12.5,
+        mode="loop",
+    )
+
+    command, kwargs = commands[0]
+    assert result == str(output_path)
+    assert command[:4] == ["ffmpeg", "-stream_loop", "-1", "-i"]
+    assert command[4] == str(tmp_path / "resolved-default.mp3")
+    assert command[command.index("-t") + 1] == "12.5"
+    assert command[command.index("-c:a") + 1] == "pcm_s16le"
+    assert command[-2:] == ["-y", str(output_path)]
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+    assert kwargs["check"] is False
 
 
 @pytest.mark.asyncio
