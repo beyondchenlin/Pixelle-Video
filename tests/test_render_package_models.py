@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -16,6 +19,7 @@ from pixelle_video.models.render_package import (
 )
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig
 from pixelle_video.models.text_overlay import TextOverlayPlan
+from pixelle_video.models.text_style import TextStyleProfile
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.pipelines.linear import PipelineContext
@@ -185,6 +189,49 @@ def test_render_manifest_round_trips_text_tracks_and_text_cues_while_preserving_
     assert restored.text_tracks[0].kind == "overlay"
     assert restored.text_cues[0].role == "keyword"
     assert restored.caption_cues[0].text == "字幕"
+
+
+def test_render_manifest_round_trips_text_style_profiles():
+    manifest = RenderManifest(
+        task_id="task-1",
+        title="Text styles",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        text_style_profiles=[
+            TextStyleProfile(
+                id="caption-default",
+                name="Caption Default",
+                font_size=66,
+                primary_color="#ffff00",
+            )
+        ],
+    )
+
+    restored = RenderManifest.from_dict(manifest.to_dict())
+
+    assert restored.version == "render_manifest.v1"
+    assert restored.to_dict()["version"] == "render_manifest.v1"
+    assert restored.text_style_profiles[0].id == "caption-default"
+    assert restored.text_style_profiles[0].font_size == 66
+    assert restored.to_dict()["text_style_profiles"][0]["primary_color"] == "#FFFF00"
+
+
+def test_render_manifest_golden_fixture_preserves_text_style_profiles():
+    payload = json.loads(
+        Path(
+            "tests/fixtures/text_rendering/render_manifest_with_text_styles.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    restored = RenderManifest.from_dict(payload).to_dict()
+
+    assert restored["version"] == "render_manifest.v1"
+    assert [profile["id"] for profile in restored["text_style_profiles"]] == [
+        "caption-default",
+        "overlay-default",
+    ]
 
 
 def test_render_manifest_round_trip_preserves_element_animation_manifest_path():

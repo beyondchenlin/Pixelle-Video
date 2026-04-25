@@ -23,6 +23,7 @@ from pixelle_video.models.text_overlay import (
     freeze_json_value,
     thaw_json_value,
 )
+from pixelle_video.models.text_style import TextStyleProfile
 
 
 def _freeze_json_mapping(
@@ -261,6 +262,7 @@ def resolve_render_window(unit: SentenceUnit) -> tuple[float, float]:
 
 @dataclass(init=False)
 class RenderManifest:
+    version: str = "render_manifest.v1"
     task_id: str
     title: str
     canvas_width: int
@@ -275,6 +277,7 @@ class RenderManifest:
     sentence_units: List[SentenceUnit] = field(default_factory=list)
     visual_clips: List[VisualClip] = field(default_factory=list)
     caption_cues: List[CaptionCue] = field(default_factory=list)
+    text_style_profiles: List[TextStyleProfile] = field(default_factory=list)
     text_tracks: List[TextTrack] = field(default_factory=list)
     text_cues: List[TextCue] = field(default_factory=list)
     element_animation_manifest_path: Optional[str] = None
@@ -288,6 +291,7 @@ class RenderManifest:
         title: str,
         fps: int,
         template_id: str,
+        version: str = "render_manifest.v1",
         canvas_width: Optional[int] = None,
         canvas_height: Optional[int] = None,
         media_width: Optional[int] = None,
@@ -298,6 +302,7 @@ class RenderManifest:
         sentence_units: Optional[List[SentenceUnit]] = None,
         visual_clips: Optional[List[VisualClip]] = None,
         caption_cues: Optional[List[CaptionCue]] = None,
+        text_style_profiles: Optional[List[TextStyleProfile]] = None,
         text_tracks: Optional[List[TextTrack]] = None,
         text_cues: Optional[List[TextCue]] = None,
         element_animation_manifest_path: Optional[str] = None,
@@ -311,6 +316,7 @@ class RenderManifest:
         if effective_canvas_width is None or effective_canvas_height is None:
             raise ValueError("RenderManifest requires canvas_width/canvas_height or width/height.")
 
+        self.version = str(version)
         self.task_id = task_id
         self.title = title
         self.canvas_width = int(effective_canvas_width)
@@ -331,6 +337,12 @@ class RenderManifest:
         self.sentence_units = list(sentence_units or [])
         self.visual_clips = list(visual_clips or [])
         self.caption_cues = list(caption_cues or [])
+        self.text_style_profiles = [
+            profile
+            if isinstance(profile, TextStyleProfile)
+            else TextStyleProfile.from_dict(profile)
+            for profile in text_style_profiles or []
+        ]
         self.text_tracks = list(text_tracks or [])
         self.text_cues = list(text_cues or [])
         self.element_animation_manifest_path = element_animation_manifest_path
@@ -347,6 +359,7 @@ class RenderManifest:
 
     def to_dict(self) -> Dict[str, Any]:
         data = {
+            "version": self.version,
             "task_id": self.task_id,
             "title": self.title,
             "canvas_width": self.canvas_width,
@@ -364,6 +377,9 @@ class RenderManifest:
             "sentence_units": [unit.to_dict() for unit in self.sentence_units],
             "visual_clips": [clip.to_dict() for clip in self.visual_clips],
             "caption_cues": [cue.to_dict() for cue in self.caption_cues],
+            "text_style_profiles": [
+                profile.to_dict() for profile in self.text_style_profiles
+            ],
             "text_tracks": [track.to_dict() for track in self.text_tracks],
             "text_cues": [cue.to_dict() for cue in self.text_cues],
             "canonical_timeline": self.canonical_timeline,
@@ -376,6 +392,7 @@ class RenderManifest:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RenderManifest":
         return cls(
+            version=str(data.get("version", "render_manifest.v1")),
             task_id=data["task_id"],
             title=data["title"],
             canvas_width=data.get("canvas_width", data.get("width")),
@@ -390,6 +407,10 @@ class RenderManifest:
             sentence_units=[SentenceUnit.from_dict(item) for item in data.get("sentence_units", [])],
             visual_clips=[VisualClip.from_dict(item) for item in data.get("visual_clips", [])],
             caption_cues=[CaptionCue.from_dict(item) for item in data.get("caption_cues", [])],
+            text_style_profiles=[
+                TextStyleProfile.from_dict(item)
+                for item in data.get("text_style_profiles", [])
+            ],
             text_tracks=[TextTrack.from_dict(item) for item in data.get("text_tracks", [])],
             text_cues=[TextCue.from_dict(item) for item in data.get("text_cues", [])],
             element_animation_manifest_path=data.get("element_animation_manifest_path"),
