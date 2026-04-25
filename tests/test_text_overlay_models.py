@@ -3,6 +3,7 @@ import pytest
 from pixelle_video.models.text_overlay import (
     TextOverlayCandidate,
     TextOverlayPlan,
+    TextOverlaySettings,
     TextRenderingPolicy,
     build_text_rendering_settings,
     build_text_rendering_policy,
@@ -23,8 +24,8 @@ def test_text_rendering_policy_rejects_native_prompt_for_programmatic_only():
         )
 
 
-def test_build_text_rendering_policy_normalizes_legacy_no_text_default():
-    policy = build_text_rendering_policy(None, forbid_embedded_text_in_image=True)
+def test_build_text_rendering_policy_defaults_when_overlay_missing():
+    policy = build_text_rendering_policy(None)
 
     assert policy.image_text_mode == "programmatic_only"
     assert policy.enabled_targets == ()
@@ -32,12 +33,25 @@ def test_build_text_rendering_policy_normalizes_legacy_no_text_default():
     assert policy.suppress_unplanned_embedded_text is True
 
 
-def test_build_text_rendering_policy_maps_legacy_text_allowed_to_native_hint():
-    policy = build_text_rendering_policy(None, forbid_embedded_text_in_image=False)
+def test_build_text_rendering_policy_rejects_legacy_no_text_keyword():
+    with pytest.raises(TypeError):
+        build_text_rendering_policy(None, forbid_embedded_text_in_image=False)
 
-    assert policy.image_text_mode == "native_hint"
-    assert policy.enabled_targets == ("native_prompt",)
-    assert policy.allow_native_text_in_image is True
+
+def test_build_text_rendering_policy_defaults_when_overlay_disabled():
+    policy = build_text_rendering_policy(
+        TextOverlaySettings(
+            enabled=False,
+            mode="hybrid",
+            renderer_targets=("hyperframes", "native_prompt"),
+            density="high",
+            max_items_per_frame=3,
+        )
+    )
+
+    assert policy.image_text_mode == "programmatic_only"
+    assert policy.enabled_targets == ()
+    assert policy.allow_native_text_in_image is False
     assert policy.suppress_unplanned_embedded_text is True
 
 
@@ -49,8 +63,7 @@ def test_build_text_rendering_policy_uses_nested_request_and_adds_native_target(
             "renderer_targets": ["hyperframes"],
             "density": "high",
             "max_items_per_frame": 3,
-        },
-        forbid_embedded_text_in_image=True,
+        }
     )
 
     assert policy.image_text_mode == "hybrid"
@@ -68,8 +81,7 @@ def test_build_text_rendering_policy_respects_disabled_nested_request():
             "renderer_targets": ["hyperframes", "native_prompt"],
             "density": "high",
             "max_items_per_frame": 3,
-        },
-        forbid_embedded_text_in_image=False,
+        }
     )
 
     assert policy.image_text_mode == "programmatic_only"

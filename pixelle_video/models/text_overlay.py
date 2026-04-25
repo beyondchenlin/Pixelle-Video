@@ -163,8 +163,6 @@ class TextRenderingPolicy:
 
 def build_text_rendering_policy(
     overlay: TextOverlaySettings | Mapping[str, Any] | None,
-    *,
-    forbid_embedded_text_in_image: bool | None = None,
 ) -> TextRenderingPolicy:
     if isinstance(overlay, TextOverlaySettings):
         request = {
@@ -178,15 +176,6 @@ def build_text_rendering_policy(
         request = dict(overlay or {})
 
     if not request:
-        if forbid_embedded_text_in_image is False:
-            return TextRenderingPolicy(
-                image_text_mode="native_hint",
-                enabled_targets=("native_prompt",),
-                density="medium",
-                max_items_per_frame=2,
-                allow_native_text_in_image=True,
-                suppress_unplanned_embedded_text=True,
-            )
         return TextRenderingPolicy()
 
     if request.get("enabled", False) is False:
