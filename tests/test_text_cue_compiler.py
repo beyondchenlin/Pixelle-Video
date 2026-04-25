@@ -1,5 +1,9 @@
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.render_package import SentenceUnit
+from pixelle_video.models.text_style import (
+    DEFAULT_CAPTION_STYLE_ID,
+    DEFAULT_OVERLAY_STYLE_ID,
+)
 from pixelle_video.models.text_overlay import TextOverlayCandidate, TextOverlayPlan
 from pixelle_video.services.text_cue_compiler import TextCueCompiler
 
@@ -156,3 +160,142 @@ def test_compiler_maps_native_hint_role_to_native_track_kind():
 
     assert tracks[0].kind == "native_hint"
     assert cues[0].role == "model_native_hint"
+
+
+def test_text_cue_compiler_assigns_overlay_style_profile():
+    package = CreationPackage(
+        task_id="task-1",
+        text_overlay_plan=TextOverlayPlan(
+            candidates=(
+                TextOverlayCandidate(
+                    id="candidate-1",
+                    text="Key idea",
+                    role="keyword",
+                    renderer_targets=("hyperframes",),
+                    source={"frame_index": 0},
+                ),
+            )
+        ),
+    )
+
+    tracks, cues = TextCueCompiler().compile(
+        package=package,
+        sentence_units=[],
+        frame_duration=1.5,
+    )
+
+    assert tracks[0].style_profile == DEFAULT_OVERLAY_STYLE_ID
+    assert cues[0].style_profile == DEFAULT_OVERLAY_STYLE_ID
+
+
+def test_text_cue_compiler_assigns_caption_style_profile_to_subtitles():
+    package = CreationPackage(
+        task_id="task-1",
+        text_overlay_plan=TextOverlayPlan(
+            candidates=(
+                TextOverlayCandidate(
+                    id="candidate-1",
+                    text="Subtitle text",
+                    role="subtitle",
+                    renderer_targets=("ass",),
+                    source={"frame_index": 0},
+                ),
+            )
+        ),
+    )
+
+    tracks, cues = TextCueCompiler().compile(
+        package=package,
+        sentence_units=[],
+        frame_duration=1.5,
+    )
+
+    assert tracks[0].style_profile == DEFAULT_CAPTION_STYLE_ID
+    assert cues[0].style_profile == DEFAULT_CAPTION_STYLE_ID
+
+
+def test_text_cue_compiler_keeps_native_hint_style_profile_empty():
+    package = CreationPackage(
+        task_id="task-1",
+        text_overlay_plan=TextOverlayPlan(
+            candidates=(
+                TextOverlayCandidate(
+                    id="candidate-1",
+                    text="Pixelle",
+                    role="model_native_hint",
+                    renderer_targets=("native_prompt",),
+                    source={"frame_index": 0},
+                ),
+            )
+        ),
+    )
+
+    tracks, cues = TextCueCompiler().compile(
+        package=package,
+        sentence_units=[],
+        frame_duration=1.5,
+    )
+
+    assert tracks[0].style_profile is None
+    assert cues[0].style_profile is None
+
+
+def test_text_cue_compiler_keeps_native_hint_alias_style_profile_empty():
+    package = CreationPackage(
+        task_id="task-1",
+        text_overlay_plan=TextOverlayPlan(
+            candidates=(
+                TextOverlayCandidate(
+                    id="candidate-1",
+                    text="Pixelle",
+                    role="native_hint",
+                    renderer_targets=("native_prompt",),
+                    source={"frame_index": 0},
+                ),
+            )
+        ),
+    )
+
+    tracks, cues = TextCueCompiler().compile(
+        package=package,
+        sentence_units=[],
+        frame_duration=1.5,
+    )
+
+    assert tracks[0].style_profile is None
+    assert cues[0].style_profile is None
+
+
+def test_text_cue_compiler_merges_targets_for_shared_tracks():
+    package = CreationPackage(
+        task_id="task-1",
+        text_overlay_plan=TextOverlayPlan(
+            candidates=(
+                TextOverlayCandidate(
+                    id="candidate-1",
+                    text="HyperFrames cue",
+                    role="keyword",
+                    renderer_targets=("hyperframes",),
+                    source={"frame_index": 0},
+                ),
+                TextOverlayCandidate(
+                    id="candidate-2",
+                    text="Shared cue",
+                    role="keyword",
+                    renderer_targets=("hyperframes", "ass"),
+                    source={"frame_index": 1},
+                ),
+            )
+        ),
+    )
+
+    tracks, cues = TextCueCompiler().compile(
+        package=package,
+        sentence_units=[],
+        frame_duration=1.5,
+    )
+
+    assert len(tracks) == 1
+    assert tracks[0].renderer_targets == ("hyperframes", "ass")
+    assert tracks[0].style_profile == DEFAULT_OVERLAY_STYLE_ID
+    assert [cue.track_id for cue in cues] == [tracks[0].id, tracks[0].id]
