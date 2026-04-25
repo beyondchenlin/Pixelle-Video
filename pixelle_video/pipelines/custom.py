@@ -21,6 +21,7 @@ For real projects, copy this file and modify it according to your needs.
 
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Callable, Optional
 
 from loguru import logger
@@ -39,6 +40,10 @@ from pixelle_video.pipelines.base import BasePipeline
 from pixelle_video.pipelines.storyboard_config import (
     STORYBOARD_RENDER_DEFAULTS,
     resolve_storyboard_render_kwargs,
+)
+from pixelle_video.services.text_rendering_contract_summary import (
+    record_text_rendering_contract_summary,
+    resolve_overlay_disabled_reason,
 )
 from pixelle_video.utils.logging_util import attach_task_log_sinks
 from pixelle_video.utils.prompt_generation_performance import (
@@ -264,6 +269,24 @@ class CustomPipeline(BasePipeline):
         # )
         
         logger.info(f"Generated {len(narrations)} narrations")
+        text_contract_context = SimpleNamespace(observability={})
+        self._record_text_rendering_contract_summary(
+            text_contract_context,
+            text_rendering=kwargs.get("text_rendering"),
+            narrations=narrations,
+            render_backend=kwargs.get("render_backend"),
+            frame_count=len(narrations),
+            task_id=task_id,
+            task_dir=task_dir,
+            supported_overlay=False,
+            disabled_reason=resolve_overlay_disabled_reason(
+                kwargs.get("text_rendering"),
+                "overlay_unsupported",
+            ),
+            image_text_status=(
+                "applicable" if template_requires_media else "not_applicable"
+            ),
+        )
         
         # ========== Step 2: Generate image prompts (CONDITIONAL - CUSTOMIZE THIS) ==========
         self._report_progress(progress_callback, "generating_image_prompts", 0.25)
@@ -457,7 +480,8 @@ class CustomPipeline(BasePipeline):
                     "bgm_path": bgm_path,
                     "bgm_volume": bgm_volume,
                     "render_backend": storyboard.config.render_backend,
-                }
+                },
+                observability=text_contract_context.observability,
             )
             task_log_session.close()
             return result
@@ -473,7 +497,8 @@ class CustomPipeline(BasePipeline):
         self,
         storyboard: Storyboard,
         result: VideoGenerationResult,
-        input_params: dict
+        input_params: dict,
+        observability: dict | None = None,
     ):
         """
         Persist task metadata and storyboard to filesystem
@@ -496,6 +521,14 @@ class CustomPipeline(BasePipeline):
                 input_with_title["title"] = storyboard.title
             input_with_title.setdefault("render_backend", storyboard.config.render_backend)
             
+            text_observability = {
+                "version": "v1",
+                "task_id": task_id,
+                "runtime_log_path": str(self.core.persistence.get_task_runtime_log_path(task_id)),
+                "ai_creation_log_path": None,
+            }
+            text_observability.update(observability or {})
+
             metadata = {
                 "task_id": task_id,
                 "created_at": storyboard.created_at.isoformat() if storyboard.created_at else None,
@@ -508,7 +541,10 @@ class CustomPipeline(BasePipeline):
                     "video_path": result.video_path,
                     "duration": result.duration,
                     "file_size": result.file_size,
-                    "n_frames": len(storyboard.frames)
+                    "n_frames": len(storyboard.frames),
+                    "text_layer_summary": text_observability.get(
+                        "text_layer_summary"
+                    ),
                 },
                 
                 "config": {
@@ -518,12 +554,7 @@ class CustomPipeline(BasePipeline):
                     "runninghub_enabled": bool(self.core.config.get("comfyui", {}).get("runninghub_api_key")),
                     "render_backend": storyboard.config.render_backend,
                 },
-                "observability": {
-                    "version": "v1",
-                    "task_id": task_id,
-                    "runtime_log_path": str(self.core.persistence.get_task_runtime_log_path(task_id)),
-                    "ai_creation_log_path": None,
-                },
+                "observability": text_observability,
             }
             
             # Save metadata
@@ -540,6 +571,33 @@ class CustomPipeline(BasePipeline):
     
     # ==================== Custom Helper Methods ====================
     # Add your own helper methods here
+
+    def _record_text_rendering_contract_summary(
+        self,
+        context,
+        *,
+        text_rendering,
+        narrations=(),
+        render_backend=None,
+        frame_count=None,
+        task_id=None,
+        task_dir=None,
+        supported_overlay: bool = False,
+        disabled_reason: str = "overlay_unsupported",
+        image_text_status: str = "not_applicable",
+    ):
+        return record_text_rendering_contract_summary(
+            context,
+            text_rendering=text_rendering,
+            narrations=narrations,
+            render_backend=render_backend,
+            frame_count=frame_count,
+            task_id=task_id,
+            task_dir=task_dir,
+            supported_overlay=supported_overlay,
+            disabled_reason=disabled_reason,
+            image_text_status=image_text_status,
+        )
     
     async def _custom_content_analysis(self, text: str) -> dict:
         """

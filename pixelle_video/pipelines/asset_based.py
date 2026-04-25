@@ -41,6 +41,10 @@ from pixelle_video.models.asset_script import AssetCatalogEntry, AssetScriptResp
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
+from pixelle_video.services.text_rendering_contract_summary import (
+    record_text_rendering_contract_summary,
+    resolve_overlay_disabled_reason,
+)
 from pixelle_video.utils.logging_util import attach_task_log_sinks
 from pixelle_video.utils.os_util import create_task_output_dir, get_task_final_video_path
 
@@ -500,6 +504,14 @@ class AssetBasedPipeline(LinearVideoPipeline):
             frame_template=template_name,
             template_params=context.params.get("template_params")
         )
+        self._record_text_rendering_contract_summary(
+            context,
+            supported_overlay=False,
+            disabled_reason=resolve_overlay_disabled_reason(
+                context.request.get("text_rendering"),
+                "overlay_unsupported",
+            ),
+        )
         
         # Create Storyboard
         context.storyboard = Storyboard(
@@ -833,6 +845,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
                 "voice_id": ctx.request.get("voice_id"),
                 "tts_speed": ctx.request.get("tts_speed"),
                 "render_backend": storyboard.config.render_backend if storyboard else None,
+                "text_rendering": ctx.request.get("text_rendering"),
             }
             
             metadata = {
@@ -847,7 +860,8 @@ class AssetBasedPipeline(LinearVideoPipeline):
                     "video_path": ctx.final_video_path,
                     "duration": storyboard.total_duration if storyboard else 0,
                     "file_size": file_size,
-                    "n_frames": len(storyboard.frames) if storyboard else 0
+                    "n_frames": len(storyboard.frames) if storyboard else 0,
+                    "text_layer_summary": ctx.observability.get("text_layer_summary"),
                 },
                 
                 "config": {
@@ -873,6 +887,30 @@ class AssetBasedPipeline(LinearVideoPipeline):
             # Don't raise - persistence failure shouldn't break video generation
     
     # Helper methods
+
+    def _record_text_rendering_contract_summary(
+        self,
+        context: PipelineContext,
+        *,
+        supported_overlay: bool = False,
+        disabled_reason: str = "overlay_unsupported",
+    ):
+        return record_text_rendering_contract_summary(
+            context,
+            text_rendering=context.request.get("text_rendering"),
+            narrations=getattr(context, "narrations", ()) or (),
+            render_backend=getattr(
+                getattr(context, "config", None),
+                "render_backend",
+                None,
+            ),
+            frame_count=len(getattr(context, "matched_scenes", ()) or ()),
+            task_id=getattr(context, "task_id", None),
+            task_dir=getattr(context, "task_dir", None),
+            supported_overlay=supported_overlay,
+            disabled_reason=disabled_reason,
+            image_text_status="not_applicable",
+        )
     
     def _get_asset_type(self, path: Path) -> str:
         """Determine asset type from file extension"""
