@@ -21,6 +21,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from loguru import logger
 
+from api.schemas.tasks import TaskListResponse
 from api.tasks import Task, TaskStatus, task_manager
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
@@ -47,6 +48,31 @@ async def list_tasks(
         
     except Exception as e:
         logger.error(f"List tasks error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/page", response_model=TaskListResponse)
+async def list_tasks_page(
+    status: Optional[TaskStatus] = Query(None, description="Filter by status"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=1000, description="Tasks per page"),
+):
+    """
+    List tasks with pagination metadata.
+    """
+    try:
+        offset = (page - 1) * page_size
+        tasks = await task_manager.list_tasks(status=status, limit=page_size, offset=offset)
+        total = await task_manager.count_tasks(status=status)
+        return TaskListResponse(
+            tasks=tasks,
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    except Exception as e:
+        logger.error(f"List paginated tasks error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

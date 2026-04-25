@@ -172,9 +172,10 @@ class TaskManager:
         self,
         status: Optional[TaskStatus] = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[Task]:
         """List tasks from the store and legacy memory."""
-        store_tasks = await self.store.list_tasks(status=status, limit=limit)
+        store_tasks = await self.store.list_tasks(status=status, limit=limit + offset)
         by_id = {task.task_id: task for task in store_tasks}
 
         legacy_tasks = list(self._tasks.values())
@@ -185,7 +186,22 @@ class TaskManager:
 
         tasks = list(by_id.values())
         tasks.sort(key=lambda task: task.created_at, reverse=True)
-        return tasks[:limit]
+        return tasks[offset : offset + limit]
+
+    async def count_tasks(self, status: Optional[TaskStatus] = None) -> int:
+        """Count tasks from the store and legacy memory without duplicate ids."""
+        total = await self.store.count_tasks(status=status)
+
+        legacy_tasks = list(self._tasks.values())
+        if status:
+            legacy_tasks = [task for task in legacy_tasks if task.status == status]
+
+        for task in legacy_tasks:
+            store_task = await self.store.get_task(task.task_id)
+            if store_task is None or (status is not None and store_task.status != status):
+                total += 1
+
+        return total
 
     def update_progress(
         self,

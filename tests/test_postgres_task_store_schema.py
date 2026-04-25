@@ -27,6 +27,7 @@ def test_postgres_store_exposes_required_methods():
         "update_progress",
         "claim_next_pending",
         "list_tasks",
+        "count_tasks",
         "cancel_task",
     ]:
         assert hasattr(PostgresTaskStore, name)

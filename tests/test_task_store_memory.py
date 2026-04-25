@@ -7,6 +7,27 @@ from api.tasks.store import InMemoryTaskStore, LostTaskLeaseError
 
 
 @pytest.mark.asyncio
+async def test_memory_store_lists_tasks_with_offset_and_count():
+    store = InMemoryTaskStore()
+    base_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    for index in range(3):
+        await store.create_task(
+            Task(
+                task_id=f"task-{index}",
+                task_type=TaskType.VIDEO_GENERATION,
+                created_at=base_time + timedelta(seconds=index),
+            )
+        )
+
+    tasks = await store.list_tasks(limit=2, offset=1)
+    total = await store.count_tasks(status=None)
+
+    assert [task.task_id for task in tasks] == ["task-1", "task-0"]
+    assert total == 3
+
+
+@pytest.mark.asyncio
 async def test_memory_store_reuses_active_task_by_fingerprint():
     store = InMemoryTaskStore()
     task = await store.create_task(

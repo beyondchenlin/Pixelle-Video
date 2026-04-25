@@ -97,7 +97,15 @@ class TaskStore(Protocol):
     ) -> Task | None:
         raise NotImplementedError
 
-    async def list_tasks(self, status: TaskStatus | None, limit: int) -> list[Task]:
+    async def list_tasks(
+        self,
+        status: TaskStatus | None,
+        limit: int,
+        offset: int = 0,
+    ) -> list[Task]:
+        raise NotImplementedError
+
+    async def count_tasks(self, status: TaskStatus | None) -> int:
         raise NotImplementedError
 
     async def cancel_task(self, task_id: str) -> bool:
@@ -296,13 +304,24 @@ class InMemoryTaskStore:
             task.updated_at = now
             return self._clone(task)
 
-    async def list_tasks(self, status: TaskStatus | None = None, limit: int = 100) -> list[Task]:
+    async def list_tasks(
+        self,
+        status: TaskStatus | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Task]:
         async with self._lock:
             tasks = list(self._tasks.values())
             if status is not None:
                 tasks = [task for task in tasks if task.status == status]
             tasks.sort(key=lambda task: task.created_at, reverse=True)
-            return [self._clone(task) for task in tasks[:limit]]
+            return [self._clone(task) for task in tasks[offset : offset + limit]]
+
+    async def count_tasks(self, status: TaskStatus | None = None) -> int:
+        async with self._lock:
+            if status is None:
+                return len(self._tasks)
+            return sum(1 for task in self._tasks.values() if task.status == status)
 
     async def cancel_task(self, task_id: str) -> bool:
         async with self._lock:

@@ -313,13 +313,31 @@ class PostgresTaskStore:
                 row = result.mappings().first()
                 return self._row_to_task(row) if row is not None else None
 
-    async def list_tasks(self, status: TaskStatus | None = None, limit: int = 100) -> list[Task]:
+    async def list_tasks(
+        self,
+        status: TaskStatus | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Task]:
         async with self.session_factory() as session:
-            query = select(generation_tasks).order_by(desc(generation_tasks.c.created_at)).limit(limit)
+            query = (
+                select(generation_tasks)
+                .order_by(desc(generation_tasks.c.created_at))
+                .limit(limit)
+                .offset(offset)
+            )
             if status is not None:
                 query = query.where(generation_tasks.c.status == status.value)
             result = await session.execute(query)
             return [self._row_to_task(row) for row in result.mappings()]
+
+    async def count_tasks(self, status: TaskStatus | None = None) -> int:
+        async with self.session_factory() as session:
+            query = select(func.count()).select_from(generation_tasks)
+            if status is not None:
+                query = query.where(generation_tasks.c.status == status.value)
+            result = await session.execute(query)
+            return result.scalar_one()
 
     async def cancel_task(self, task_id: str) -> bool:
         async with self.session_factory() as session:

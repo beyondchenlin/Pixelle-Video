@@ -3,7 +3,7 @@ import pytest
 from api.tasks.artifacts import MissingArtifactStore
 from api.tasks.lease import InMemoryGenerationLease
 from api.tasks.manager import TaskManager
-from api.tasks.models import TaskStatus, TaskType
+from api.tasks.models import Task, TaskStatus, TaskType
 from api.tasks.registry import GenerationRegistry
 from api.tasks.store import InMemoryTaskStore
 
@@ -82,3 +82,23 @@ async def test_manager_list_tasks_reads_registry_store_before_legacy_tasks():
 
     assert {task.task_id for task in tasks} >= {"task-1"}
     assert len(tasks) == 2
+
+
+@pytest.mark.asyncio
+async def test_manager_count_tasks_merges_store_and_legacy_without_duplicates():
+    manager = build_manager()
+    await manager.reserve_or_reuse_generation_task(
+        task_type=TaskType.VIDEO_GENERATION,
+        generation_fingerprint="fp-1",
+        request_params={},
+    )
+    manager._tasks["task-1"] = Task(
+        task_id="task-1",
+        task_type=TaskType.VIDEO_GENERATION,
+    )
+    manager.create_task(
+        task_type=TaskType.VIDEO_GENERATION,
+        request_params={"generation_fingerprint": "legacy-fp"},
+    )
+
+    assert await manager.count_tasks(status=None) == 2
