@@ -134,6 +134,61 @@ async def test_generate_styled_image_prompt_batch_injects_native_hints_before_te
 
 
 @pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_does_not_conflict_native_text_with_image_text_suppression(
+    monkeypatch,
+):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["a clean hanging sign"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: None,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
+        lambda *args, **kwargs: type("Caps", (), {"supports_negative_prompt": True})(),
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["scene one"],
+        image_config={},
+        media_service=object(),
+        workflow="selfhost/image_z_image_turbo.json",
+        native_prompt_hints_by_frame={
+            0: [
+                NativePromptHint(
+                    prompt_fragment='render the planned text "Pixelle"',
+                    source_candidate_ids=("candidate-1",),
+                )
+            ]
+        },
+        text_rendering={
+            "overlay": {
+                "enabled": True,
+                "mode": "native_hint",
+                "renderer_targets": ["native_prompt"],
+            },
+            "image_text": {
+                "suppress_embedded_text": True,
+                "negative_prompt": "forbid all typography",
+            },
+        },
+    )
+
+    assert 'render the planned text "Pixelle"' in result.prompts[0]
+    assert NO_TEXT_POSITIVE_RULE not in result.prompts[0]
+    assert result.negative_prompt is not None
+    assert "unplanned text" in result.negative_prompt
+    assert "random letters" in result.negative_prompt
+    assert "forbid all typography" not in result.negative_prompt
+
+
+@pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_defaults_to_no_image_text_suppression(
     monkeypatch,
 ):

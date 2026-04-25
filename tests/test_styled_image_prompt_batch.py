@@ -6,6 +6,13 @@ from pixelle_video.utils.content_generators import generate_styled_image_prompt_
 from pixelle_video.utils.prompt_helper import apply_no_text_policy
 
 
+def _suppress_image_text(negative_prompt: str | None = None) -> dict:
+    image_text = {"suppress_embedded_text": True}
+    if negative_prompt is not None:
+        image_text["negative_prompt"] = negative_prompt
+    return {"image_text": image_text}
+
+
 def _resolved_ip_world() -> ResolvedStyleSpec:
     return ResolvedStyleSpec(
         style_kind="ip_world",
@@ -69,6 +76,7 @@ async def test_generate_styled_image_prompt_batch_blocks_raw_fallback_for_ip_wor
         media_service=object(),
         workflow="selfhost/image_z_image_turbo.json",
         prompt_prefix="Angry Birds style",
+        text_rendering=_suppress_image_text("text, Chinese characters"),
     )
 
     assert result.prompts == [
@@ -108,6 +116,7 @@ async def test_generate_styled_image_prompt_batch_falls_back_to_legacy_prefix_wh
         image_config={"prompt_prefix": "flat illustration", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
         media_service=None,
         prompt_prefix=None,
+        text_rendering=_suppress_image_text(),
     )
 
     assert result.prompts == [apply_no_text_policy("flat illustration, base scene prompt")]
@@ -157,6 +166,7 @@ async def test_generate_styled_image_prompt_batch_preserves_raw_ip_world_prefix_
         image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
         media_service=None,
         prompt_prefix="Angry Birds style",
+        text_rendering=_suppress_image_text(),
     )
 
     assert result.prompts == [apply_no_text_policy("Angry Birds style, base scene prompt")]
@@ -201,6 +211,7 @@ async def test_generate_styled_image_prompt_batch_ignores_capability_probe_failu
         media_service=object(),
         workflow="missing.json",
         prompt_prefix="Angry Birds style",
+        text_rendering=_suppress_image_text(),
     )
 
     assert result.prompts == [
@@ -229,6 +240,7 @@ async def test_generate_styled_image_prompt_batch_appends_no_text_policy_when_ne
         image_config={"prompt_prefix": "flat illustration", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
         media_service=object(),
         workflow="selfhost/image_z_image_turbo.json",
+        text_rendering=_suppress_image_text(),
     )
 
     assert result.negative_prompt is None
@@ -276,6 +288,7 @@ async def test_generate_styled_image_prompt_batch_merges_no_text_negative_prompt
         media_service=object(),
         workflow="selfhost/image_flux.json",
         prompt_prefix="Angry Birds style",
+        text_rendering=_suppress_image_text("text, Chinese characters"),
     )
 
     assert "no visible text" in result.prompts[0]
@@ -331,6 +344,7 @@ async def test_generate_styled_image_prompt_batch_uses_video_prompt_generator_fo
         media_service=None,
         media_type="video",
         prompt_prefix="Angry Birds style",
+        text_rendering=_suppress_image_text(),
     )
 
     assert captured["style_profile"]["style_kind"] == "ip_world"
@@ -413,6 +427,7 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
         role_locking_strength="strong",
         shot_strategy="strict",
         frame_overrides=[{"scene_id": "scene-1", "locked_fields": ["shot_type"], "shot_type": "medium_shot"}],
+        text_rendering=_suppress_image_text(),
     )
 
     assert captured["planner_kwargs"]["world_preset_id"] == "neutral_knowledge_storyboard"
@@ -496,6 +511,7 @@ async def test_generate_styled_image_prompt_batch_storyboard_falls_back_to_legac
         narrations=["scene one"],
         image_config={"prompt_prefix": "flat illustration", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
         world_preset_id="neutral_knowledge_storyboard",
+        text_rendering=_suppress_image_text(),
     )
 
     assert result.prompts == [
@@ -587,6 +603,7 @@ async def test_generate_styled_image_prompt_batch_storyboard_keeps_compatible_te
         narrations=["scene one"],
         image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
         world_preset_id="neutral_knowledge_storyboard",
+        text_rendering=_suppress_image_text(),
     )
 
     assert result.prompts == [
@@ -617,6 +634,7 @@ async def test_generate_styled_image_prompt_batch_keeps_legacy_prompt_path_when_
         llm_service=object(),
         narrations=["scene one"],
         image_config={"prompt_prefix": "flat illustration", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+        text_rendering=_suppress_image_text(),
     )
 
     assert result.prompts == [apply_no_text_policy("flat illustration, base scene prompt")]

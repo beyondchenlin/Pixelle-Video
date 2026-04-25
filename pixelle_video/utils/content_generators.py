@@ -1027,28 +1027,34 @@ async def generate_styled_image_prompt_batch(
             for index, prompt in enumerate(final_prompts)
         ]
 
-    final_prompts = [
-        apply_image_text_policy(prompt, text_rendering_settings.image_text)
-        for prompt in final_prompts
-    ]
-
     if progress_callback:
         progress_callback(progress_total, progress_total, "progress.detail.prompt_assembly")
 
     has_any_native_hints = any(native_hints.values())
+    native_text_allowed = resolved_text_policy.allow_native_text_in_image
+    final_prompts = [
+        (
+            prompt
+            if native_text_allowed and bool(native_hints.get(index))
+            else apply_image_text_policy(prompt, text_rendering_settings.image_text)
+        )
+        for index, prompt in enumerate(final_prompts)
+    ]
+
     extra_negative_rules: list[str] = []
-    image_text_negative_prompt = select_image_text_negative_prompt(
-        text_rendering_settings.image_text
-    )
-    if image_text_negative_prompt is not None:
-        extra_negative_rules.extend(image_text_negative_prompt)
-    if has_any_native_hints and resolved_text_policy.allow_native_text_in_image:
+    if has_any_native_hints and native_text_allowed:
         native_negative_rules = select_negative_text_rules(
             policy=resolved_text_policy,
             has_native_hints=True,
         )
         if native_negative_rules is not None:
             extra_negative_rules.extend(native_negative_rules)
+    else:
+        image_text_negative_prompt = select_image_text_negative_prompt(
+            text_rendering_settings.image_text
+        )
+        if image_text_negative_prompt is not None:
+            extra_negative_rules.extend(image_text_negative_prompt)
 
     negative_prompt = assemble_negative_prompt(
         resolved_style,
