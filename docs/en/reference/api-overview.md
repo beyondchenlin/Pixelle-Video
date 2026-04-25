@@ -25,7 +25,10 @@ Primary method for generating videos.
 
 - `text` (str): Topic or complete script
 - `mode` (str): Generation mode ("generate" or "fixed")
-- `n_scenes` (int): Number of scenes
+- `storyboard_mode` (str): Storyboard mode ("smart", "punctuation", or "sentence")
+- `storyboard_count_mode` (str): Count mode ("auto" or "manual")
+- `storyboard_scene_count` (int, optional): Manual scene count, only valid with `smart` + `manual`
+- `script_length_mode` (str): Complete script length mode for `generate`
 - `title` (str, optional): Video title
 - `tts_workflow` (str): TTS workflow
 - `media_workflow` (str): Media generation workflow (image or video)
@@ -58,7 +61,9 @@ Generate video synchronously, waits until completion. Suitable for small videos 
 {
   "text": "Why you should develop a reading habit",
   "mode": "generate",
-  "n_scenes": 5,
+  "storyboard_mode": "smart",
+  "storyboard_count_mode": "auto",
+  "script_length_mode": "auto",
   "frame_template": "1080x1920/image_default.html",
   "template_params": {
     "accent_color": "#3498db",
@@ -122,7 +127,11 @@ Generate video asynchronously, returns task ID immediately. Suitable for large v
 |-----------|------|----------|-------------|
 | `text` | string | Yes | Topic or complete script |
 | `mode` | string | No | `"generate"` (AI generates) or `"fixed"` (use text as-is) |
-| `n_scenes` | int | No | Number of scenes (1-20), only used in generate mode |
+| `storyboard_mode` | string | No | `"smart"` (LLM plans from the full script), `"punctuation"`, or `"sentence"` |
+| `storyboard_count_mode` | string | No | `"auto"` or `"manual"`; manual is only valid with `storyboard_mode="smart"` |
+| `storyboard_scene_count` | int | No | Manual storyboard count (1-30), only valid with smart/manual |
+| `script_length_mode` | string | No | `"auto"`, `"short"`, `"medium"`, `"long"`, or `"custom"` for generate mode |
+| `script_target_words` | int | No | Required only when `script_length_mode="custom"` |
 | `title` | string | No | Video title (auto-generated if not provided) |
 | `frame_template` | string | No | Template path, e.g., `1080x1920/image_default.html` |
 | `template_params` | object | No | Custom template parameters (colors, backgrounds, etc.) |
@@ -138,4 +147,3 @@ Generate video asynchronously, returns task ID immediately. Suitable for large v
 ## More Information
 
 API documentation is also available via Swagger UI: `http://localhost:8000/docs`
-

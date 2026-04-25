@@ -202,3 +202,47 @@ async def test_composer_applies_new_frame_override_identity_to_prompt_context(mo
     assert captured["prompt_contexts"][0]["locked_fields"] == ["visual_goal", "prompt_intent"]
     assert captured["prompt_contexts"][0]["visual_goal"] == "Locked visual goal."
     assert captured["prompt_contexts"][0]["prompt_intent"] == "Locked prompt intent."
+
+
+@pytest.mark.asyncio
+async def test_composer_applies_source_text_override_to_frame_source_text(monkeypatch):
+    captured = {}
+    plan = _plan()
+    first_frame = plan.frames[0]
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured.update(kwargs)
+        return type(
+            "Batch",
+            (),
+            {
+                "prompts": ["prompt one", "prompt two"],
+                "resolved_style": None,
+                "negative_prompt": None,
+                "planning_snapshot": {},
+            },
+        )()
+
+    monkeypatch.setattr(
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    await ImagePromptComposer().compose(
+        llm_service=object(),
+        storyboard_plan=plan,
+        image_config={},
+        frame_overrides=[
+            {
+                "plan_id": plan.plan_id,
+                "plan_revision": plan.revision,
+                "frame_id": first_frame.frame_id,
+                "source_digest": plan.source_digest,
+                "locked_fields": ["source_text"],
+                "source_text": "Locked source fragment.",
+            }
+        ],
+    )
+
+    assert captured["prompt_contexts"][0]["source_text"] == "Locked source fragment."
+    assert captured["prompt_contexts"][0]["frame_source_text"] == "Locked source fragment."

@@ -1,6 +1,6 @@
 # API 概览
 
-Pixelle-Video 提供 Python SDK 和 HTTP REST API 两种方式。
+Pixelle-Video 提供 Python SDK 和 HTTP REST API 两种调用方式。
 
 ---
 
@@ -8,7 +8,7 @@ Pixelle-Video 提供 Python SDK 和 HTTP REST API 两种方式。
 
 ### PixelleVideoCore
 
-主要服务类，提供视频生成功能。
+主服务类，用于视频生成。
 
 ```python
 from pixelle_video.service import PixelleVideoCore
@@ -21,26 +21,29 @@ await pixelle.initialize()
 
 生成视频的主要方法。
 
-**参数**:
+**参数**：
 
 - `text` (str): 主题或完整文案
-- `mode` (str): 生成模式 ("generate" 或 "fixed")
-- `n_scenes` (int): 分镜数量
+- `mode` (str): 生成模式，`"generate"` 或 `"fixed"`
+- `storyboard_mode` (str): 分镜模式，`"smart"`、`"punctuation"` 或 `"sentence"`
+- `storyboard_count_mode` (str): 分镜数量模式，`"auto"` 或 `"manual"`
+- `storyboard_scene_count` (int, optional): 手动分镜数量，仅在 `smart + manual` 时有效
+- `script_length_mode` (str): `generate` 模式下的完整文案长度模式
 - `title` (str, optional): 视频标题
 - `tts_workflow` (str): TTS 工作流
-- `media_workflow` (str): 媒体生成工作流（图像或视频）
+- `media_workflow` (str): 媒体生成工作流（图片或视频）
 - `frame_template` (str): 视频模板
 - `template_params` (dict, optional): 模板自定义参数
 - `bgm_path` (str, optional): BGM 文件路径
 - `bgm_volume` (float): BGM 音量 (0.0-1.0)
 
-**返回**: `VideoResult` 对象
+**返回**：`VideoResult` 对象
 
 ---
 
 ## HTTP REST API
 
-启动 API 服务器：
+启动 API 服务：
 
 ```bash
 uv run uvicorn api.app:app --host 0.0.0.0 --port 8000
@@ -50,15 +53,17 @@ uv run uvicorn api.app:app --host 0.0.0.0 --port 8000
 
 `POST /api/video/generate/sync`
 
-同步生成视频，等待完成后返回结果。适合小视频（< 30 秒）。
+同步生成视频，等待完成后返回结果。适合较短的视频。
 
-**请求体**:
+**请求体**：
 
 ```json
 {
   "text": "为什么要养成阅读习惯",
   "mode": "generate",
-  "n_scenes": 5,
+  "storyboard_mode": "smart",
+  "storyboard_count_mode": "auto",
+  "script_length_mode": "auto",
   "frame_template": "1080x1920/image_default.html",
   "template_params": {
     "accent_color": "#3498db",
@@ -68,7 +73,7 @@ uv run uvicorn api.app:app --host 0.0.0.0 --port 8000
 }
 ```
 
-**响应**:
+**响应**：
 
 ```json
 {
@@ -84,9 +89,9 @@ uv run uvicorn api.app:app --host 0.0.0.0 --port 8000
 
 `POST /api/video/generate/async`
 
-异步生成视频，立即返回任务 ID。适合大视频。
+异步生成视频，立即返回任务 ID。适合较长的视频。
 
-**响应**:
+**响应**：
 
 ```json
 {
@@ -100,7 +105,7 @@ uv run uvicorn api.app:app --host 0.0.0.0 --port 8000
 
 `GET /api/tasks/{task_id}`
 
-**响应**:
+**响应**：
 
 ```json
 {
@@ -121,15 +126,19 @@ uv run uvicorn api.app:app --host 0.0.0.0 --port 8000
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `text` | string | 是 | 主题或完整文案 |
-| `mode` | string | 否 | `"generate"` (AI 生成) 或 `"fixed"` (固定文案) |
-| `n_scenes` | int | 否 | 分镜数量 (1-20)，仅 generate 模式有效 |
-| `title` | string | 否 | 视频标题（不填则自动生成） |
+| `mode` | string | 否 | `"generate"`（AI 生成完整文案）或 `"fixed"`（使用输入文案） |
+| `storyboard_mode` | string | 否 | `"smart"`（大模型理解完整文案规划分镜）、`"punctuation"` 或 `"sentence"` |
+| `storyboard_count_mode` | string | 否 | `"auto"` 或 `"manual"`；手动数量只适用于 `storyboard_mode="smart"` |
+| `storyboard_scene_count` | int | 否 | 手动分镜数量 (1-30)，仅适用于 smart/manual |
+| `script_length_mode` | string | 否 | `generate` 模式下的文案长度：`"auto"`、`"short"`、`"medium"`、`"long"` 或 `"custom"` |
+| `script_target_words` | int | 否 | 仅在 `script_length_mode="custom"` 时必填 |
+| `title` | string | 否 | 视频标题，不填则自动生成 |
 | `frame_template` | string | 否 | 模板路径，如 `1080x1920/image_default.html` |
-| `template_params` | object | 否 | 模板自定义参数（颜色、背景等） |
-| `media_workflow` | string | 否 | 媒体工作流（图像或视频生成） |
+| `template_params` | object | 否 | 模板自定义参数，如颜色、背景等 |
+| `media_workflow` | string | 否 | 媒体工作流（图片或视频生成） |
 | `tts_workflow` | string | 否 | TTS 工作流 |
 | `ref_audio` | string | 否 | 声音克隆参考音频路径 |
-| `prompt_prefix` | string | 否 | 图像风格前缀 |
+| `prompt_prefix` | string | 否 | 图片风格前缀 |
 | `bgm_path` | string | 否 | BGM 文件路径 |
 | `bgm_volume` | float | 否 | BGM 音量 (0.0-1.0，默认 0.3) |
 
@@ -138,4 +147,3 @@ uv run uvicorn api.app:app --host 0.0.0.0 --port 8000
 ## 更多信息
 
 API 文档也可通过 Swagger UI 访问：`http://localhost:8000/docs`
-

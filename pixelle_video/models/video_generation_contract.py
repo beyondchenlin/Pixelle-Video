@@ -52,6 +52,8 @@ PLAN_FRAME_OVERRIDE_ALLOWED_FIELDS = (
     PLAN_FRAME_OVERRIDE_METADATA_FIELDS | PLAN_FRAME_OVERRIDE_VALUE_FIELDS
 )
 VIDEO_GENERATION_MODES = frozenset({"generate", "fixed"})
+STORYBOARD_SCENE_COUNT_MIN = 1
+STORYBOARD_SCENE_COUNT_MAX = 30
 
 
 def validate_standard_video_generation_params(params: Mapping[str, Any]) -> None:
@@ -83,8 +85,14 @@ def validate_standard_video_generation_params(params: Mapping[str, Any]) -> None
         if count_mode == "manual":
             if scene_count is None:
                 raise ValueError("storyboard_scene_count is required with smart manual mode")
-            if type(scene_count) is not int or scene_count < 1:
-                raise ValueError("storyboard_scene_count must be a positive integer")
+            if (
+                type(scene_count) is not int
+                or not STORYBOARD_SCENE_COUNT_MIN <= scene_count <= STORYBOARD_SCENE_COUNT_MAX
+            ):
+                raise ValueError(
+                    "storyboard_scene_count must be between "
+                    f"{STORYBOARD_SCENE_COUNT_MIN} and {STORYBOARD_SCENE_COUNT_MAX}"
+                )
         elif scene_count is not None:
             raise ValueError("storyboard_scene_count is valid only with smart manual mode")
     else:

@@ -127,6 +127,8 @@ def _build_prompt_contexts(
             for field_name in PLAN_FRAME_OVERRIDE_VALUE_FIELDS:
                 if field_name in override and override[field_name] is not None:
                     context[field_name] = override[field_name]
+                    if field_name == "source_text":
+                        context["frame_source_text"] = override[field_name]
         contexts.append(context)
     return contexts
 

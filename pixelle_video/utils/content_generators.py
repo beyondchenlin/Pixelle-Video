@@ -960,6 +960,7 @@ async def generate_styled_image_prompt_batch(
                 role_strategy=role_strategy,
                 role_locking_strength=role_locking_strength,
                 shot_strategy=shot_strategy,
+                prompt_contexts=normalized_prompt_contexts,
                 frame_overrides=frame_overrides,
             )
         except Exception:

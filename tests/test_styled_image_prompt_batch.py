@@ -461,6 +461,67 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
 
 
 @pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_passes_prompt_contexts_to_storyboard_planner(monkeypatch):
+    captured = {}
+    prompt_contexts = [
+        {
+            "plan_source_text": "Full script with connected ideas.",
+            "frame_source_text": "First idea in the connected script.",
+            "narration_text": "First idea narration.",
+            "visual_goal": "Show the first idea as part of the whole story.",
+            "prompt_intent": "Keep continuity with the complete script.",
+        }
+    ]
+
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["base scene prompt"]
+
+    async def fake_plan_storyboard_batch(**kwargs):
+        captured["planner_kwargs"] = kwargs
+        return type(
+            "PlanResult",
+            (),
+            {
+                "frames": (
+                    FramePlan(
+                        scene_id="1",
+                        shot_type="medium_shot",
+                        shot_purpose="context",
+                        world_elements=("strategy board",),
+                        prompt_intent="teach the first relationship",
+                    ),
+                ),
+                "planning_snapshot": {
+                    "world_preset_id": "neutral_knowledge_storyboard",
+                    "world_preset": {
+                        "display_name": "Neutral Knowledge Storyboard",
+                        "style_core": "clean educational illustration",
+                    },
+                },
+            },
+        )()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.plan_storyboard_batch",
+        fake_plan_storyboard_batch,
+    )
+
+    await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["First idea narration."],
+        prompt_contexts=prompt_contexts,
+        image_config={},
+        world_preset_id="neutral_knowledge_storyboard",
+    )
+
+    assert captured["planner_kwargs"]["prompt_contexts"] == prompt_contexts
+
+
+@pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_storyboard_falls_back_to_legacy_prefix_when_resolver_fails(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
         assert kwargs["style_profile"] is None

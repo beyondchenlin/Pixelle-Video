@@ -89,6 +89,23 @@ def _chunk_narrations(narrations: Sequence[str], batch_size: int) -> list[tuple[
     ]
 
 
+def _normalize_prompt_contexts(
+    prompt_contexts: Sequence[Mapping[str, Any]] | None,
+    expected_count: int,
+) -> list[dict[str, Any]] | None:
+    if prompt_contexts is None:
+        return None
+    if len(prompt_contexts) != expected_count:
+        raise ValueError("storyboard prompt_contexts must match narration count")
+
+    normalized: list[dict[str, Any]] = []
+    for context in prompt_contexts:
+        if not isinstance(context, Mapping):
+            raise ValueError("storyboard prompt_contexts must contain mapping objects")
+        normalized.append(dict(context))
+    return normalized
+
+
 def _storyboard_planning_max_tokens(frame_count: int) -> int:
     return max(
         STORYBOARD_PLANNING_BASE_MAX_TOKENS,
@@ -294,6 +311,7 @@ async def plan_storyboard_batch(
     role_strategy: str | None = None,
     role_locking_strength: str | None = None,
     shot_strategy: str | None = None,
+    prompt_contexts: Sequence[Mapping[str, Any]] | None = None,
     frame_overrides: Sequence[Mapping[str, Any]] | None = None,
     world_preset_library: Any | None = None,
     shot_preset_library: Any | None = None,
@@ -332,14 +350,24 @@ async def plan_storyboard_batch(
     )
     selected_role_locking_strength = role_locking_strength or consistency_strength
     selected_shot_strategy = shot_strategy or resolved_shot_preset.override_policy
+    normalized_prompt_contexts = _normalize_prompt_contexts(
+        prompt_contexts,
+        len(narrations),
+    )
 
     narration_batches = _chunk_narrations(narrations, STORYBOARD_PLANNING_BATCH_SIZE)
     planning_semaphore = asyncio.Semaphore(STORYBOARD_PLANNING_MAX_CONCURRENCY)
 
     async def plan_batch(start_index: int, batch_narrations: list[str]) -> tuple[int, list[FramePlan]]:
         scene_id_start = start_index + 1
+        batch_prompt_contexts = (
+            normalized_prompt_contexts[start_index:start_index + len(batch_narrations)]
+            if normalized_prompt_contexts is not None
+            else None
+        )
         planner_prompt = build_storyboard_planning_prompt(
             narrations=batch_narrations,
+            prompt_contexts=batch_prompt_contexts,
             world_preset=world_preset,
             shot_preset=shot_preset_map.get(resolved_shot_preset.preset_id, {}),
             resolved_mode=resolved_mode.mode,

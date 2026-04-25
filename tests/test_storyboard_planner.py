@@ -829,6 +829,77 @@ async def test_plan_storyboard_batch_runs_prompt_parse_override_repair_and_snaps
 
 
 @pytest.mark.asyncio
+async def test_plan_storyboard_batch_includes_frame_aware_prompt_contexts_in_llm_prompt():
+    captured_prompts = []
+    planner_frames = [
+        {
+            "scene_id": "1",
+            "narration_fragment": "First idea narration.",
+            "knowledge_goal": "goal 1",
+            "shot_type": "medium_shot",
+            "shot_purpose": "context",
+            "primary_subject": "subject 1",
+            "secondary_subjects": [],
+            "world_elements": ["board"],
+            "continuity_anchors": ["shared anchor"],
+            "focus_detail": "detail 1",
+            "prompt_intent": "intent 1",
+            "locked_fields": [],
+            "override_source": None,
+            "frame_source": "planner_generated",
+            "replan_scope": "local",
+            "planner_version": "1.0",
+        }
+    ]
+
+    class FakeLLM:
+        async def __call__(self, *, prompt: str, **kwargs):
+            captured_prompts.append(prompt)
+            return json.dumps({"frames": planner_frames})
+
+    await plan_storyboard_batch(
+        llm_service=FakeLLM(),
+        narrations=["First idea narration."],
+        prompt_contexts=[
+            {
+                "plan_source_text": "Full script with connected ideas.",
+                "frame_source_text": "First idea in the connected script.",
+                "narration_text": "First idea narration.",
+                "visual_goal": "Show the first idea as part of the whole story.",
+                "prompt_intent": "Keep continuity with the complete script.",
+            }
+        ],
+        world_preset_library={
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [
+                {
+                    "preset_id": "neutral_knowledge_storyboard",
+                    "supported_modes": ["theme_mapping", "concept_explainer"],
+                    "default_shot_preset_ids": ["balanced_explainer"],
+                    "conservative_fallback_mode": "concept_explainer",
+                }
+            ],
+        },
+        shot_preset_library={
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [
+                {
+                    "preset_id": "balanced_explainer",
+                    "supported_scene_count": [1],
+                    "override_policy": "adaptive",
+                    "shot_distribution_rules": [],
+                }
+            ],
+        },
+    )
+
+    assert captured_prompts
+    assert "prompt_contexts" in captured_prompts[0]
+    assert "Full script with connected ideas." in captured_prompts[0]
+    assert "Show the first idea as part of the whole story." in captured_prompts[0]
+
+
+@pytest.mark.asyncio
 async def test_plan_storyboard_batch_respects_preset_max_consecutive_same(monkeypatch):
     class FakeLLM:
         async def __call__(self, *, prompt: str, **kwargs):
