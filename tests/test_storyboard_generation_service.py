@@ -112,6 +112,30 @@ async def test_storyboard_generation_normalizes_whitespace_and_preserves_ranges(
 
 
 @pytest.mark.asyncio
+async def test_punctuation_mode_normalizes_whitespace_and_preserves_ranges():
+    service = StoryboardGenerationService(config={"max_scene_count": 10})
+
+    plan = await service.generate(
+        llm_service=None,
+        source_text="  第一段，\n\n第二段:  继续！  ",
+        storyboard_mode="punctuation",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert plan.source_text == "第一段， 第二段: 继续！"
+    assert [frame.narration_text for frame in plan.frames] == [
+        "第一段，",
+        "第二段:",
+        "继续！",
+    ]
+    assert [
+        plan.source_text[frame.source_start : frame.source_end]
+        for frame in plan.frames
+    ] == [frame.source_text for frame in plan.frames]
+
+
+@pytest.mark.asyncio
 async def test_deterministic_strategy_rejects_over_max_scene_count():
     service = StoryboardGenerationService(config={"max_scene_count": 2})
 
@@ -170,8 +194,10 @@ async def test_storyboard_generation_rejects_unknown_mode():
 
 
 @pytest.mark.asyncio
-async def test_storyboard_generation_rejects_invalid_max_scene_count_config():
-    service = StoryboardGenerationService(config={"max_scene_count": 0})
+@pytest.mark.parametrize("max_scene_count", [0, "30", True, None])
+@pytest.mark.asyncio
+async def test_storyboard_generation_rejects_invalid_max_scene_count_config(max_scene_count):
+    service = StoryboardGenerationService(config={"max_scene_count": max_scene_count})
 
     with pytest.raises(ValueError, match="max_scene_count must be a positive integer"):
         await service.generate(
