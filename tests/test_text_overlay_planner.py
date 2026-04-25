@@ -48,11 +48,11 @@ def test_planner_emits_native_candidates_only_when_policy_allows_native_prompt()
 def test_planner_splits_hybrid_programmatic_and_native_targets():
     policy = build_text_rendering_policy(
         {
+            "enabled": True,
             "mode": "hybrid",
             "renderer_targets": ["hyperframes", "ass"],
             "max_items_per_frame": 1,
-        },
-        forbid_embedded_text_in_image=True,
+        }
     )
 
     plan = TextOverlayPlanner().plan(

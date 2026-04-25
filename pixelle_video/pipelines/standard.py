@@ -42,7 +42,10 @@ from pixelle_video.models.storyboard import (
     build_storyboard_config_planning_kwargs,
     build_storyboard_frame_planning_kwargs,
 )
-from pixelle_video.models.text_overlay import build_text_rendering_policy
+from pixelle_video.models.text_overlay import (
+    build_text_rendering_policy,
+    build_text_rendering_settings,
+)
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.render_backend import (
@@ -311,13 +314,11 @@ class StandardPipeline(LinearVideoPipeline):
                 )
             
             image_config = self.core.config.get("comfyui", {}).get(media_type, {})
-            text_policy = build_text_rendering_policy(
-                ctx.params.get("text_layer"),
-                forbid_embedded_text_in_image=ctx.params.get(
-                    "forbid_embedded_text_in_image",
-                    True,
-                ),
+            text_rendering_settings = build_text_rendering_settings(
+                ctx.params.get("text_rendering")
+                or {"overlay": ctx.params.get("text_layer")}
             )
+            text_policy = build_text_rendering_policy(text_rendering_settings.overlay)
             text_plan = TextOverlayPlanner().plan(
                 narrations=ctx.narrations,
                 policy=text_policy,

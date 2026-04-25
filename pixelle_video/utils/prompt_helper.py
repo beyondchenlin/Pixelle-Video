@@ -16,6 +16,7 @@ Prompt helper utilities
 Simple utilities for building prompts with optional prefixes.
 """
 
+from collections.abc import Mapping
 from typing import Any, Optional
 
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
@@ -55,7 +56,7 @@ PLANNED_TEXT_NEGATIVE_RULES: tuple[str, ...] = (
 
 
 def _read_value(container: Any, key: str, default: Any = None) -> Any:
-    if isinstance(container, dict):
+    if isinstance(container, Mapping):
         return container.get(key, default)
     return getattr(container, key, default)
 

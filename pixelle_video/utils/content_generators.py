@@ -36,6 +36,7 @@ from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.models.text_overlay import (
     TextRenderingPolicy,
     build_text_rendering_policy,
+    build_text_rendering_settings,
 )
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
@@ -769,8 +770,7 @@ async def generate_styled_image_prompt_batch(
         text_rendering_policy
         if isinstance(text_rendering_policy, TextRenderingPolicy)
         else build_text_rendering_policy(
-            text_rendering_policy,
-            forbid_embedded_text_in_image=forbid_embedded_text_in_image,
+            build_text_rendering_settings(text_rendering_policy).overlay
         )
     )
 

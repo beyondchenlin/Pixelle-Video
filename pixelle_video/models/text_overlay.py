@@ -46,6 +46,29 @@ def _freeze_mapping(value: Mapping[str, Any] | None) -> Mapping[str, FrozenJSONV
     return freeze_json_value(dict(value or {}))
 
 
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off", ""}:
+            return False
+    return bool(value)
+
+
+def _coerce_renderer_targets(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return (cleaned,) if cleaned else ()
+    return tuple(value)
+
+
 @dataclass(frozen=True)
 class TextOverlaySettings:
     enabled: bool = False
@@ -74,15 +97,17 @@ def build_text_rendering_settings(data: Mapping[str, Any] | None) -> TextRenderi
     image_payload = dict(payload.get("image_text") or {})
     return TextRenderingSettings(
         overlay=TextOverlaySettings(
-            enabled=bool(overlay_payload.get("enabled", False)),
+            enabled=_coerce_bool(overlay_payload.get("enabled"), False),
             mode=str(overlay_payload.get("mode", "programmatic_only")),
-            renderer_targets=tuple(overlay_payload.get("renderer_targets", ())),
+            renderer_targets=_coerce_renderer_targets(
+                overlay_payload.get("renderer_targets")
+            ),
             density=str(overlay_payload.get("density", "medium")),
             max_items_per_frame=int(overlay_payload.get("max_items_per_frame", 2)),
         ),
         image_text=ImageTextPromptPolicy(
-            suppress_embedded_text=bool(
-                image_payload.get("suppress_embedded_text", False)
+            suppress_embedded_text=_coerce_bool(
+                image_payload.get("suppress_embedded_text"), False
             ),
             positive_prompt=str(
                 image_payload.get(

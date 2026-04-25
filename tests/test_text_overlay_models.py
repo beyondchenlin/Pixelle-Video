@@ -114,6 +114,26 @@ def test_build_text_rendering_settings_accepts_custom_image_text_prompt():
     assert settings.image_text.negative_prompt == "letters, logo"
 
 
+def test_build_text_rendering_settings_normalizes_string_booleans():
+    settings = build_text_rendering_settings(
+        {
+            "overlay": {"enabled": "false"},
+            "image_text": {"suppress_embedded_text": "false"},
+        }
+    )
+
+    assert settings.overlay.enabled is False
+    assert settings.image_text.suppress_embedded_text is False
+
+
+def test_build_text_rendering_settings_normalizes_scalar_renderer_target():
+    settings = build_text_rendering_settings(
+        {"overlay": {"renderer_targets": "ass"}}
+    )
+
+    assert settings.overlay.renderer_targets == ("ass",)
+
+
 def test_build_text_rendering_policy_uses_overlay_only():
     settings = build_text_rendering_settings(
         {
