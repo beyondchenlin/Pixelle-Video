@@ -15,7 +15,27 @@ Task management for async operations
 """
 
 from api.tasks.manager import task_manager
-from api.tasks.models import Task, TaskStatus, TaskType
+from api.tasks.models import (
+    ArtifactStatus,
+    ClaimedTask,
+    ExecutionLease,
+    ReserveOutcome,
+    Task,
+    TaskStatus,
+    TaskType,
+)
+from api.tasks.registry import GenerationRegistry
+from api.tasks.store import InMemoryTaskStore
 
-__all__ = ["Task", "TaskStatus", "TaskType", "task_manager"]
-
+__all__ = [
+    "ArtifactStatus",
+    "ClaimedTask",
+    "ExecutionLease",
+    "GenerationRegistry",
+    "InMemoryTaskStore",
+    "ReserveOutcome",
+    "Task",
+    "TaskStatus",
+    "TaskType",
+    "task_manager",
+]

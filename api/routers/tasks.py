@@ -42,7 +42,7 @@ async def list_tasks(
     Returns list of tasks sorted by creation time (newest first).
     """
     try:
-        tasks = task_manager.list_tasks(status=status, limit=limit)
+        tasks = await task_manager.list_tasks(status=status, limit=limit)
         return tasks
         
     except Exception as e:
@@ -62,7 +62,7 @@ async def get_task(task_id: str):
     Returns task details including status, progress, and result (if completed).
     """
     try:
-        task = task_manager.get_task(task_id)
+        task = await task_manager.get_task(task_id)
         
         if not task:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
@@ -88,7 +88,7 @@ async def cancel_task(task_id: str):
     Returns success status.
     """
     try:
-        success = task_manager.cancel_task(task_id)
+        success = await task_manager.cancel_task(task_id)
         
         if not success:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
@@ -103,4 +103,3 @@ async def cancel_task(task_id: str):
     except Exception as e:
         logger.error(f"Cancel task error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
