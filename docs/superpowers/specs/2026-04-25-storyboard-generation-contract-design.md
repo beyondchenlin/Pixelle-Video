@@ -105,6 +105,16 @@ storyboard_count_mode:
 
 storyboard_scene_count:
   integer | null
+
+script_length_mode:
+  auto
+  short
+  medium
+  long
+  custom
+
+script_target_words:
+  integer | null
 ```
 
 默认值：
@@ -113,15 +123,51 @@ storyboard_scene_count:
 storyboard_mode = smart
 storyboard_count_mode = auto
 storyboard_scene_count = null
+script_length_mode = auto
+script_target_words = null
 ```
 
 约束：
 
 - `smart + auto`：系统决定最终分镜数量。
 - `smart + manual`：必须按 `storyboard_scene_count` 输出指定数量的分镜。
-- `punctuation`：分镜数量由标点拆分结果决定，忽略 `storyboard_scene_count`。
-- `sentence`：分镜数量由句意标点拆分结果决定，忽略 `storyboard_scene_count`。
-- `storyboard_scene_count` 必须有全局上限，建议进入配置，例如 `config.storyboard.max_scene_count`。
+- `punctuation`：分镜数量由标点拆分结果决定。
+- `sentence`：分镜数量由句意标点拆分结果决定。
+- `storyboard_scene_count` 只能在 `storyboard_mode=smart` 且 `storyboard_count_mode=manual` 时出现。
+- `storyboard_scene_count` 必须落在全局分镜数量上下限内。
+- `script_target_words` 只能在 `script_length_mode=custom` 时出现。
+- `script_length_mode` 只影响 generate 内容模式生成完整文案的长度，不影响分镜数量。
+
+合法组合矩阵：
+
+| storyboard_mode | storyboard_count_mode | storyboard_scene_count | 结果 |
+| --- | --- | --- | --- |
+| `smart` | `auto` | `null` | 合法，LLM 自动决定分镜数量 |
+| `smart` | `manual` | `1..max_scene_count` | 合法，LLM 必须输出指定数量 |
+| `smart` | `auto` | 非空 | 422 |
+| `smart` | `manual` | 空 | 422 |
+| `punctuation` | `auto` | `null` | 合法，按所有标点拆 |
+| `punctuation` | `manual` | 任意 | 422 |
+| `punctuation` | `auto` | 非空 | 422 |
+| `sentence` | `auto` | `null` | 合法，按完整句意标点拆 |
+| `sentence` | `manual` | 任意 | 422 |
+| `sentence` | `auto` | 非空 | 422 |
+
+配置硬契约：
+
+```text
+config.storyboard.min_scene_count
+config.storyboard.max_scene_count
+config.storyboard.max_source_chars
+config.storyboard.script_default_target_words
+config.storyboard.script_min_target_words
+config.storyboard.script_max_target_words
+config.storyboard.script_length_profiles.short.target_words
+config.storyboard.script_length_profiles.medium.target_words
+config.storyboard.script_length_profiles.long.target_words
+```
+
+这些不是建议值，而是 API、service 和测试共同依赖的上限/下限事实源。
 
 破坏性迁移策略：
 
@@ -157,8 +203,17 @@ class StoryboardCountMode(str, Enum):
     MANUAL = "manual"
 
 
+class ScriptLengthMode(str, Enum):
+    AUTO = "auto"
+    SHORT = "short"
+    MEDIUM = "medium"
+    LONG = "long"
+    CUSTOM = "custom"
+
+
 @dataclass
 class StoryboardPlanFrame:
+    frame_id: str
     index: int
     source_text: str
     narration_text: str
@@ -170,17 +225,21 @@ class StoryboardPlanFrame:
     secondary_subjects: list[str]
     continuity_anchors: list[str]
     world_elements: list[str]
-    source_range: tuple[int, int] | None
+    source_start: int | None
+    source_end: int | None
     metadata: dict[str, Any]
 
 
 @dataclass
 class StoryboardPlan:
+    plan_id: str
+    revision: int
     mode: StoryboardGenerationMode
     count_mode: StoryboardCountMode
     requested_scene_count: int | None
     resolved_scene_count: int
     source_text: str
+    source_digest: str
     frames: list[StoryboardPlanFrame]
     diagnostics: dict[str, Any]
 ```
@@ -189,13 +248,46 @@ class StoryboardPlan:
 
 - `resolved_scene_count == len(frames)`。
 - `frame.index` 从 1 开始连续递增。
+- `plan_id` 在一次分镜生成中稳定不变。
+- `revision` 从 1 开始；任何重分镜、用户锁定字段重放或手动编辑都会递增。
+- `frame.frame_id` 在同一个 `plan_id + revision` 内唯一。
 - `frame.narration_text` 不为空。
-- `frame.source_text` 不为空。
-- `source_range` 有值时必须在 `source_text` 范围内，且 start <= end。
+- `frame.source_text` 是完整文案中的片段摘录，不是 source range 的索引基准。
+- `source_start/source_end` 永远索引 `StoryboardPlan.source_text`，使用 Python 字符串切片语义：start 包含，end 不包含。
+- `source_start/source_end` 都有值时必须满足 `0 <= source_start <= source_end <= len(StoryboardPlan.source_text)`。
+- `frame.source_text` 应等于或语义覆盖 `StoryboardPlan.source_text[source_start:source_end]`；智能重组导致非连续来源时，`source_start/source_end` 可为空，并在 `metadata.source_spans` 记录多个来源片段。
 - `smart + manual` 必须严格满足用户指定数量，除非超过全局上限或输入为空。
 - 后续图片 prompt 数量必须等于 `len(frames)`。
 
 ## 7. 组件设计
+
+### 7.0 ScriptGenerationService
+
+新增服务建议放在：
+
+```text
+pixelle_video/services/script_generation.py
+```
+
+职责：
+
+- 只服务 `mode=generate`。
+- 接收用户输入的主题、可选标题、`script_length_mode`、`script_target_words`、语言和内容安全约束。
+- 输出完整 `source_text`，而不是 narrations 列表。
+- 输出诊断信息，例如目标字数、实际字数、是否触发 repair、使用的 prompt 版本。
+
+长度控制：
+
+- `script_length_mode=auto` 时，目标字数由 `config.storyboard.script_default_target_words`、输入主题复杂度和模板场景共同决定。
+- `short/medium/long` 对应配置中的固定目标区间。
+- `custom` 必须提供 `script_target_words`，并且落在 `script_min_target_words..script_max_target_words` 内。
+- `storyboard_scene_count` 不得反向控制文案长度。
+
+失败处理：
+
+- 生成空文案、低于最小字数、明显偏离主题或结构化输出不合法时，允许一次 repair。
+- repair 后仍失败时，返回明确错误。
+- 不允许回退到 `generate_narrations_from_topic`，因为那会重新引入“先生成 N 段旁白”的旧事实源。
 
 ### 7.1 StoryboardGenerationService
 
@@ -218,6 +310,28 @@ pixelle_video/services/storyboard_generation/
 - 拼最终 image prompt。
 - 操作 TTS 拆分。
 - 直接写 `Storyboard` 或 `StoryboardConfig`。
+
+### 7.1.1 Override Identity
+
+当前 `frame_overrides` 依赖 `scene_id` 和 `snapshot_identity`。新契约下，智能分镜会改变帧数量、顺序和来源片段，只靠 index 或 scene id 不能保证用户编辑回放到正确帧。
+
+新 override 绑定模型：
+
+```text
+plan_id
+plan_revision
+frame_id
+source_digest
+locked_fields
+override_source
+```
+
+规则：
+
+- `frame_id` 是 frame override 的主绑定键。
+- `plan_id + plan_revision + source_digest` 用于防止把旧计划的锁定字段应用到新文案或新分镜上。
+- 当 source digest 或 revision 不匹配时，override 必须拒绝或进入显式 rebase 流程，不能静默套用。
+- `scene_id` 可在历史 snapshot 中只读展示，但不再作为新 override 的主身份。
 
 ### 7.2 Strategy 层
 
@@ -330,7 +444,19 @@ ctx.narrations = [frame.narration_text for frame in ctx.storyboard_plan.frames]
 topic/text prompt -> complete script/source_text -> storyboard generation
 ```
 
-也就是说内容生成层应新增或改造为“生成完整文案”，而不是“生成固定数量旁白”。`generate_narrations_from_topic` 可以继续服务独立内容 API 或测试工具，但标准视频生成链路不应再依赖它决定分镜数量。
+也就是说内容生成层应新增 `ScriptGenerationService`，把主题生成完整文案，而不是生成固定数量旁白。`generate_narrations_from_topic` 可以继续服务独立内容 API 或测试工具，但标准视频生成链路不应再依赖它决定分镜数量。
+
+generate 模式流程：
+
+```text
+user topic / instruction
+  -> ScriptGenerationService
+  -> source_text
+  -> StoryboardGenerationService
+  -> StoryboardPlan
+```
+
+`ScriptGenerationService` 的输出必须进入 `ctx.source_text`，后续分镜数量只由 `StoryboardGenerationService` 决定。若完整文案生成失败，pipeline 应直接失败并返回可理解错误，不得降级到旧 narration 生成路径。
 
 ### 8.3 Fixed 内容模式
 
@@ -352,12 +478,17 @@ fixed 模式不再直接调用 `split_narration_script` 产出最终分镜，而
 storyboard_mode: StoryboardGenerationMode = "smart"
 storyboard_count_mode: StoryboardCountMode = "auto"
 storyboard_scene_count: Optional[int] = None
+script_length_mode: ScriptLengthMode = "auto"
+script_target_words: Optional[int] = None
 ```
 
 校验：
 
-- `storyboard_count_mode=manual` 时，`storyboard_scene_count` 必须存在。
-- `storyboard_scene_count` 超过配置上限时返回 422。
+- `storyboard_mode/storyboard_count_mode/storyboard_scene_count` 必须满足第 5 节合法组合矩阵。
+- `storyboard_scene_count` 超过配置上下限时返回 422。
+- `script_length_mode=custom` 时，`script_target_words` 必须存在。
+- `script_length_mode!=custom` 时，`script_target_words` 必须为空。
+- `script_target_words` 超过配置上下限时返回 422。
 - `n_scenes` 和 `split_mode` 不属于 `VideoGenerateRequest`。
 - 视频生成 API 收到 `n_scenes` 或 `split_mode` 时返回 422，不做静默映射。
 - 独立内容 API 若继续保留 `n_scenes`，必须在文档中说明它只表示“生成几段文本”，不表示“视频分镜数量”。
@@ -412,20 +543,24 @@ POST /content/storyboard-plan
 ```json
 {
   "storyboard_generation": {
+    "plan_id": "plan_...",
+    "revision": 1,
     "mode": "smart",
     "count_mode": "auto",
     "requested_scene_count": null,
     "resolved_scene_count": 8,
     "strategy_version": "storyboard_generation_v1",
-    "source_text_hash": "...",
+    "source_digest": "...",
     "diagnostics": {}
   },
   "frames": [
     {
+      "frame_id": "frame_01_...",
       "index": 1,
       "source_text": "...",
       "narration_text": "...",
-      "source_range": [0, 24],
+      "source_start": 0,
+      "source_end": 24,
       "visual_goal": "...",
       "prompt_intent": "...",
       "shot_type": "...",
@@ -473,56 +608,65 @@ Prompt 编排：
 2. `punctuation` strategy：中英文标点、连续标点、空片段、全标点输入。
 3. `sentence` strategy：中文句号问号感叹号、英文 `.?!`、引号闭合。
 4. `smart` strategy：mock LLM 结构化输出、auto 数量、manual 数量、repair。
-5. `StoryboardGenerationService`：三种 strategy 路由。
-6. `StoryboardEnhancer`：一帧输入对应一帧增强输出。
-7. `ImagePromptComposer`：prompt prefix 只应用一次，输出数量等于帧数。
-8. `StandardPipeline`：generate/fixed 都先得到 source_text，再得到 `StoryboardPlan`。
-9. API schema：新字段校验，视频生成 API 对 `n_scenes` 和 `split_mode` 返回 422。
-10. 前端 request builder：默认智能分镜，手动数量传参，确定性模式不传无效数量。
-11. 持久化：`storyboard_plan` 和 `planning_snapshot.storyboard_generation` 可保存和恢复。
-12. 回归测试：TTS split、text rendering、asset_based pipeline 不因分镜改造改变行为。
+5. `ScriptGenerationService`：auto/short/medium/long/custom 长度控制、repair、失败不回退到 narrations。
+6. `StoryboardGenerationService`：三种 strategy 路由。
+7. 参数矩阵：非法的 `storyboard_mode/storyboard_count_mode/storyboard_scene_count` 组合返回 422。
+8. `source_start/source_end`：索引基准永远是 `StoryboardPlan.source_text`。
+9. override identity：`plan_id/frame_id/source_digest/revision` 不匹配时拒绝静默套用。
+10. `StoryboardEnhancer`：一帧输入对应一帧增强输出。
+11. `ImagePromptComposer`：prompt prefix 只应用一次，输出数量等于帧数。
+12. `StandardPipeline`：generate/fixed 都先得到 source_text，再得到 `StoryboardPlan`。
+13. API schema：新字段校验，视频生成 API 对 `n_scenes` 和 `split_mode` 返回 422。
+14. 前端 request builder：默认智能分镜，手动数量传参，确定性模式不传无效数量。
+15. 持久化：`storyboard_plan` 和 `planning_snapshot.storyboard_generation` 可保存和恢复。
+16. 回归测试：TTS split、text rendering、asset_based pipeline 不因分镜改造改变行为。
 
 ## 13. 迁移计划
 
-推荐分阶段实施，但最终交付必须形成完整新契约。
+推荐分阶段实施，但切换到新入口必须是原子切换，不能先删除旧字段再补新能力。
 
-### 阶段 1：契约和旧字段清理
+### 阶段 1：内部契约落地，不切入口
 
-- 新增 `StoryboardPlan` 模型。
-- 新增 `StoryboardGenerationService`。
-- 从视频生成请求、前端 request builder、标准视频 pipeline 中移除 `n_scenes` 和 `split_mode`。
-- 将历史页新任务展示切换为 `resolved_scene_count`。
-- 更新测试，确保视频生成 API 收到旧字段时失败。
+- 新增 `StoryboardPlan` 模型，包括 `plan_id`、`revision`、`source_digest`、`frame_id`、`source_start/source_end`。
+- 新增配置硬契约：分镜数量上下限、source text 最大长度、script target words 上下限。
+- 新增 `ScriptGenerationService` 和 `StoryboardGenerationService` 的空集成测试。
+- 旧视频生成入口保持不变，避免中间断档。
 
-### 阶段 2：确定性策略
+### 阶段 2：三种 strategy 和完整文案生成
 
-- 实现 `punctuation` 和 `sentence` strategy。
-- 接入 `StandardPipeline`，让 fixed 文案先走新分镜层。
+- 实现 `ScriptGenerationService`。
+- 实现 `punctuation`、`sentence`、`smart` 三种 strategy。
+- smart strategy 支持 auto/manual 数量、repair retry 和不变量校验。
+- 所有 strategy 只输出 `StoryboardPlan`，不生成最终 image prompt。
 
-### 阶段 3：智能分镜
-
-- 新增 smart strategy prompt 和结构化输出模型。
-- 支持 auto/manual 数量。
-- 加入 repair retry 和不变量校验。
-
-### 阶段 4：增强层和 composer 收口
+### 阶段 3：增强层和 composer 收口
 
 - 调整现有 `storyboard_planner.py` 为增强 `StoryboardPlanFrame`。
 - 抽出 `ImagePromptComposer`。
 - 确保三种模式最终统一进入 composer。
+- 在内部测试路径中验证 `StoryboardPlan -> enhanced plan -> image_prompts` 完整闭环。
 
-### 阶段 5：API、前端和持久化
+### 阶段 4：视频主链路原子切换
 
-- 前端新增三种分镜方式。
-- API 新增分镜字段。
+- 同一次变更内切换 `StandardPipeline`、`VideoGenerateRequest`、`api/routers/video.py`、前端 request builder。
+- 视频生成请求新增 `storyboard_mode/storyboard_count_mode/storyboard_scene_count/script_length_mode/script_target_words`。
+- 视频生成请求删除 `n_scenes`，并继续禁止 `split_mode`。
+- 前端不再发送 `n_scenes/split_mode`。
+- `standard.py` 不再调用 `generate_narrations_from_topic` 或 `split_narration_script` 决定分镜。
+- 测试必须证明新入口可完整生成 storyboard 和 image prompts。
+
+### 阶段 5：持久化、历史和预览
+
 - `planning_snapshot` 和 `CreationPackage.storyboard_plan` 持久化新结构。
-- 添加预览接口。
+- 历史页新任务展示 `resolved_scene_count`，旧任务只读展示旧 `n_scenes`。
+- 添加 `/content/storyboard-plan` 预览接口。
+- override 使用 `plan_id/frame_id/source_digest/revision`。
 
-### 阶段 6：删除旧事实源依赖
+### 阶段 6：旧事实源隔离
 
 - 新 UI 不再暴露 paragraph/line split。
-- 标准视频 pipeline 不再调用 `split_narration_script` 决定分镜。
-- 标准视频 pipeline 不再调用 `generate_narrations_from_topic` 决定分镜数量。
+- 独立内容 API 可以继续保留 `n_scenes`，但文档和测试必须证明它不会流入标准视频 pipeline。
+- 旧 `/content/image-prompt` 只作为独立内容工具保留，不属于标准视频分镜主链路。
 - 更新文档和测试，防止新代码继续依赖 `ctx.narrations` 作为分镜事实源。
 
 ## 14. 两轮设计复审结论
@@ -564,4 +708,4 @@ Prompt 编排：
 
 最终决策：
 
-视频生成主链路执行破坏性迁移，不做旧字段兼容。新请求只接受 `storyboard_mode`、`storyboard_count_mode`、`storyboard_scene_count`。旧字段只允许出现在历史记录读取、独立内容生成 API 或已隔离的旧测试中，不能参与新视频分镜流程。
+视频生成主链路执行破坏性迁移，不做旧字段兼容。新请求只接受 `storyboard_mode`、`storyboard_count_mode`、`storyboard_scene_count`、`script_length_mode`、`script_target_words` 等新契约字段。旧字段只允许出现在历史记录读取、独立内容生成 API 或已隔离的旧测试中，不能参与新视频分镜流程。
