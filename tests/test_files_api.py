@@ -21,6 +21,34 @@ async def test_get_file_rejects_output_path_traversal(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_get_file_rejects_prefixed_traversal_into_another_allowed_root(monkeypatch, tmp_path):
+    (tmp_path / "output").mkdir()
+    resources = tmp_path / "resources"
+    resources.mkdir()
+    (resources / "leak.txt").write_text("secret", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_file("output/../resources/leak.txt")
+
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_get_file_rejects_unprefixed_traversal_into_another_allowed_root(monkeypatch, tmp_path):
+    (tmp_path / "output").mkdir()
+    resources = tmp_path / "resources"
+    resources.mkdir()
+    (resources / "leak.txt").write_text("secret", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_file("../resources/leak.txt")
+
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_get_file_allows_file_inside_output(monkeypatch, tmp_path):
     video = tmp_path / "output" / "task-1" / "final.mp4"
     video.parent.mkdir(parents=True)

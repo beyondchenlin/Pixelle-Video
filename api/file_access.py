@@ -40,18 +40,20 @@ def media_type_for(path: Path) -> str:
 
 def resolve_allowed_file_path(file_path: str, *, cwd: Path | None = None) -> Path:
     root = (cwd or Path.cwd()).resolve()
-    allowed_roots = [(root / prefix.rstrip("/")).resolve() for prefix in ALLOWED_PREFIXES]
 
     requested_path = None
+    allowed_root = None
     for prefix in ALLOWED_PREFIXES:
         if file_path.startswith(prefix):
             requested_path = file_path
+            allowed_root = (root / prefix.rstrip("/")).resolve()
             break
     if requested_path is None:
         requested_path = f"output/{file_path}"
+        allowed_root = (root / "output").resolve()
 
     abs_path = (root / requested_path).resolve()
-    if not any(abs_path == allowed or abs_path.is_relative_to(allowed) for allowed in allowed_roots):
+    if not (abs_path == allowed_root or abs_path.is_relative_to(allowed_root)):
         raise HTTPException(
             status_code=403,
             detail=f"Access denied: only {', '.join(p.rstrip('/') for p in ALLOWED_PREFIXES)} directories are accessible",
