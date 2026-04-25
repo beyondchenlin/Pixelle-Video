@@ -175,17 +175,20 @@ class TaskManager:
         offset: int = 0,
     ) -> list[Task]:
         """List tasks from the store and legacy memory."""
-        store_tasks = await self.store.list_tasks(status=status, limit=limit + offset)
-        by_id = {task.task_id: task for task in store_tasks}
-
         legacy_tasks = list(self._tasks.values())
         if status:
             legacy_tasks = [task for task in legacy_tasks if task.status == status]
+        if not legacy_tasks:
+            return await self.store.list_tasks(status=status, limit=limit, offset=offset)
+
+        store_tasks = await self.store.list_tasks(status=status, limit=limit + offset)
+        by_id = {task.task_id: task for task in store_tasks}
+
         for task in legacy_tasks:
             by_id.setdefault(task.task_id, task)
 
         tasks = list(by_id.values())
-        tasks.sort(key=lambda task: task.created_at, reverse=True)
+        tasks.sort(key=lambda task: (task.created_at, task.task_id), reverse=True)
         return tasks[offset : offset + limit]
 
     async def count_tasks(self, status: Optional[TaskStatus] = None) -> int:

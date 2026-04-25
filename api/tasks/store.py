@@ -314,7 +314,7 @@ class InMemoryTaskStore:
             tasks = list(self._tasks.values())
             if status is not None:
                 tasks = [task for task in tasks if task.status == status]
-            tasks.sort(key=lambda task: task.created_at, reverse=True)
+            tasks.sort(key=lambda task: (task.created_at, task.task_id), reverse=True)
             return [self._clone(task) for task in tasks[offset : offset + limit]]
 
     async def count_tasks(self, status: TaskStatus | None = None) -> int:

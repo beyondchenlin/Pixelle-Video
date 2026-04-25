@@ -28,6 +28,25 @@ async def test_memory_store_lists_tasks_with_offset_and_count():
 
 
 @pytest.mark.asyncio
+async def test_memory_store_lists_tasks_with_stable_task_id_tie_breaker():
+    store = InMemoryTaskStore()
+    created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    for task_id in ["task-a", "task-c", "task-b"]:
+        await store.create_task(
+            Task(
+                task_id=task_id,
+                task_type=TaskType.VIDEO_GENERATION,
+                created_at=created_at,
+            )
+        )
+
+    tasks = await store.list_tasks(limit=2, offset=1)
+
+    assert [task.task_id for task in tasks] == ["task-b", "task-a"]
+
+
+@pytest.mark.asyncio
 async def test_memory_store_reuses_active_task_by_fingerprint():
     store = InMemoryTaskStore()
     task = await store.create_task(

@@ -31,3 +31,12 @@ def test_postgres_store_exposes_required_methods():
         "cancel_task",
     ]:
         assert hasattr(PostgresTaskStore, name)
+
+
+def test_postgres_store_list_tasks_uses_stable_pagination_order():
+    source = Path("api/tasks/postgres.py").read_text(encoding="utf-8")
+
+    assert (
+        ".order_by(desc(generation_tasks.c.created_at), desc(generation_tasks.c.task_id))"
+        in source
+    )

@@ -8,6 +8,24 @@ from api.tasks.registry import GenerationRegistry
 from api.tasks.store import InMemoryTaskStore
 
 
+class RecordingTaskStore:
+    def __init__(self) -> None:
+        self.list_calls = []
+        self.tasks = [
+            Task(task_id=f"task-{index}", task_type=TaskType.VIDEO_GENERATION)
+            for index in range(5)
+        ]
+
+    async def list_tasks(
+        self,
+        status: TaskStatus | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Task]:
+        self.list_calls.append({"status": status, "limit": limit, "offset": offset})
+        return self.tasks[offset : offset + limit]
+
+
 def build_manager(task_id="task-1"):
     store = InMemoryTaskStore()
     registry = GenerationRegistry(
@@ -82,6 +100,19 @@ async def test_manager_list_tasks_reads_registry_store_before_legacy_tasks():
 
     assert {task.task_id for task in tasks} >= {"task-1"}
     assert len(tasks) == 2
+
+
+@pytest.mark.asyncio
+async def test_manager_list_tasks_without_legacy_tasks_delegates_exact_offset_to_store():
+    store = RecordingTaskStore()
+    manager = TaskManager(store=store, registry=object(), execution_mode="embedded")
+
+    tasks = await manager.list_tasks(status=TaskStatus.PENDING, limit=2, offset=3)
+
+    assert store.list_calls == [
+        {"status": TaskStatus.PENDING, "limit": 2, "offset": 3}
+    ]
+    assert [task.task_id for task in tasks] == ["task-3", "task-4"]
 
 
 @pytest.mark.asyncio

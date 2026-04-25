@@ -322,7 +322,7 @@ class PostgresTaskStore:
         async with self.session_factory() as session:
             query = (
                 select(generation_tasks)
-                .order_by(desc(generation_tasks.c.created_at))
+                .order_by(desc(generation_tasks.c.created_at), desc(generation_tasks.c.task_id))
                 .limit(limit)
                 .offset(offset)
             )
