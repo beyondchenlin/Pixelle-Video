@@ -16,6 +16,7 @@ Style configuration components for web UI (middle column)
 
 import base64
 import os
+from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from html import escape
@@ -46,15 +47,15 @@ from pixelle_video.prompts.prompt_prefix_generation import (
 from pixelle_video.render_backend import LEGACY_RENDER_BACKEND, SUPPORTED_RENDER_BACKENDS
 from pixelle_video.tts_audio_strategy import SUPPORTED_TTS_AUDIO_STRATEGIES
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
-from pixelle_video.utils.text_splitting import (
-    SUPPORTED_CAPTION_PUNCTUATION_MODES,
-    SUPPORTED_TTS_SENTENCE_JOINER_MODES,
-)
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_prefix_generation import (
     PromptPrefixGenerationResult,
     build_prompt_prefix_preview_batch,
     sanitize_prompt_prefix_candidates,
+)
+from pixelle_video.utils.text_splitting import (
+    SUPPORTED_CAPTION_PUNCTUATION_MODES,
+    SUPPORTED_TTS_SENTENCE_JOINER_MODES,
 )
 from web.components.storyboard_preview import render_storyboard_preview
 from web.i18n import get_language, tr
@@ -3402,6 +3403,27 @@ def render_render_backend_selector() -> str:
     return selected_backend
 
 
+def _render_tts_inline_radio(
+    label: str,
+    options: Sequence[str],
+    *,
+    index: int,
+    format_func: Callable[[str], str],
+    key: str,
+    help_text: str,
+) -> str:
+    """Render compact TTS choice controls with one shared layout contract."""
+    return st.radio(
+        label,
+        options,
+        index=index,
+        horizontal=True,
+        format_func=format_func,
+        key=key,
+        help=help_text,
+    )
+
+
 def render_tts_audio_strategy_selector() -> str:
     """Render the per-task TTS audio strategy selector for Web UI."""
     options = list(SUPPORTED_TTS_AUDIO_STRATEGIES)
@@ -3409,14 +3431,13 @@ def render_tts_audio_strategy_selector() -> str:
         config_manager.config.render.timing.tts_audio_strategy
     )
 
-    selected_strategy = st.radio(
+    selected_strategy = _render_tts_inline_radio(
         tr("tts_audio_strategy.label"),
         options,
         index=options.index(configured_strategy),
-        horizontal=True,
         format_func=lambda value: tr(f"tts_audio_strategy.option.{value}"),
         key="tts_audio_strategy_select",
-        help=tr("tts_audio_strategy.help"),
+        help_text=tr("tts_audio_strategy.help"),
     )
     st.caption(tr(f"tts_audio_strategy.caption.{selected_strategy}"))
     return selected_strategy
@@ -3428,14 +3449,13 @@ def render_tts_split_settings() -> dict:
     options = list(SUPPORTED_TTS_SPLIT_MODES)
     configured_mode = get_tts_split_mode_default(timing_config.tts_split_mode)
 
-    selected_mode = st.radio(
+    selected_mode = _render_tts_inline_radio(
         tr("tts_split_mode.label"),
         options,
         index=options.index(configured_mode),
-        horizontal=True,
         format_func=lambda value: tr(f"tts_split_mode.option.{value}"),
         key="tts_split_mode_select",
-        help=tr("tts_split_mode.help"),
+        help_text=tr("tts_split_mode.help"),
     )
     st.caption(tr(f"tts_split_mode.caption.{selected_mode}"))
 
