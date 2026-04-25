@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a unified platform text style contract so Pixelle captions, overlays, HyperFrames text, HTML text, ASS burn-in, and native prompt hints use one shared text rendering model.
+**Goal:** Build a unified platform text rendering contract so Pixelle captions, overlays, HyperFrames text, HTML text, ASS burn-in, and native prompt hints use one shared, persisted `TextRenderPackage`.
 
-**Architecture:** Keep the existing `TextRenderingPolicy -> TextOverlayPlan -> CreationPackage -> TextCueCompiler -> RenderManifest -> renderer adapters` direction. Add `TextStyleProfile` as the missing style fact source, route all pipelines through a shared `TextRenderingOrchestrator`, and force ASS/HyperFrames/HTML adapters to consume one `TextStyleResolver`.
+**Architecture:** Keep the existing `TextRenderingPolicy -> TextOverlayPlan -> TextCueCompiler -> RenderManifest -> renderer adapters` direction, but insert `TextRenderPackage` as the canonical persisted fact source. Add `TextStyleProfile`, `CaptionRenderingSettings`, `TextLayoutPlan`, `TextStyleResolver`, and `TextRendererAdapter` so pipelines and renderers consume one contract instead of rebuilding text state locally.
 
 **Tech Stack:** Python dataclasses, Pydantic API schemas, Streamlit UI, FFmpeg ASS subtitles, HyperFrames compiled HTML, pytest.
 
@@ -14,12 +14,22 @@
 
 ## File Structure
 
+- Create: `pixelle_video/models/text_render_package.py`
+  - Owns `CaptionRenderingSettings`, `TextRenderPackage`, serialization, and compatibility defaults.
 - Create: `pixelle_video/models/text_style.py`
   - Owns `TextStyleProfile`, color normalization, style profile serialization, default caption/overlay profiles.
+- Create: `pixelle_video/models/text_layout.py`
+  - Owns `TextLayoutPlan`, safe-area, wrapped-line, and layer metadata.
 - Create: `pixelle_video/services/text_style_resolver.py`
   - Owns style lookup and fallback diagnostics for every renderer adapter.
 - Create: `pixelle_video/services/text_rendering_orchestrator.py`
-  - Builds text settings, text policy, style profiles, overlay plans, and disabled reasons for every pipeline.
+  - Builds text settings, text policy, style profiles, layout plan, `TextRenderPackage`, and disabled reasons for every pipeline.
+- Create: `pixelle_video/services/text_content_sanitizer.py`
+  - Produces safe display text before ASS/HTML/HyperFrames adapter projection.
+- Create: `pixelle_video/services/text_layout_planner.py`
+  - Produces shared wrapping, safe-area, and collision-avoidance intent before renderer adapters run.
+- Create: `pixelle_video/services/text_renderer_adapter.py`
+  - Defines `TextRendererAdapter`, `TextRenderExportResult`, and shared adapter diagnostics.
 - Modify: `pixelle_video/models/render_package.py`
   - Adds `text_style_profiles` to `RenderManifest`.
 - Modify: `pixelle_video/models/template_render_context.py`
@@ -51,6 +61,10 @@
 - Modify: `pixelle_video/pipelines/asset_based.py`
   - Preserves caption styles and records overlay/image-text support state for user-asset pipelines.
 - Test: `tests/test_text_style_models.py`
+- Test: `tests/test_text_render_package_models.py`
+- Test: `tests/test_text_content_sanitizer.py`
+- Test: `tests/test_text_layout_planner.py`
+- Test: `tests/test_text_renderer_adapter_contract.py`
 - Test: `tests/test_text_style_resolver.py`
 - Test: `tests/test_text_rendering_orchestrator.py`
 - Test: `tests/test_ass_style_builder.py`
@@ -62,6 +76,127 @@
 - Test: `tests/test_style_config_text_rendering_ui.py`
 - Test: `tests/test_standard_pipeline_text_rendering_summary.py`
 - Test: `tests/test_pipeline_text_rendering_contract.py`
+- Test: `tests/test_text_rendering_golden_artifacts.py`
+- Fixture: `tests/fixtures/text_rendering/text_render_package_legacy_caption.json`
+- Fixture: `tests/fixtures/text_rendering/text_render_package_overlay_hybrid.json`
+- Fixture: `tests/fixtures/text_rendering/render_manifest_with_text_styles.json`
+
+## Task 0: Freeze Canonical Text Rendering Package
+
+**Files:**
+- Create: `pixelle_video/models/text_render_package.py`
+- Create: `pixelle_video/models/text_layout.py`
+- Test: `tests/test_text_render_package_models.py`
+- Test: `tests/test_text_rendering_golden_artifacts.py`
+- Fixture: `tests/fixtures/text_rendering/text_render_package_legacy_caption.json`
+- Fixture: `tests/fixtures/text_rendering/text_render_package_overlay_hybrid.json`
+
+- [ ] **Step 1: Write failing package tests**
+
+```python
+from pixelle_video.models.text_render_package import (
+    CaptionRenderingSettings,
+    TextRenderPackage,
+)
+from pixelle_video.models.text_layout import TextLayoutPlan
+
+
+def test_caption_settings_separate_caption_overlay_and_image_text():
+    settings = CaptionRenderingSettings(
+        enabled=True,
+        source="narration_timing",
+        style_profile="caption-default",
+        punctuation_mode="strip_all",
+        renderer_targets=("hyperframes", "ass"),
+    )
+
+    assert settings.enabled is True
+    assert settings.style_profile == "caption-default"
+    assert settings.renderer_targets == ("hyperframes", "ass")
+
+
+def test_text_render_package_round_trips_with_version():
+    package = TextRenderPackage(
+        version="text_render_package.v1",
+        task_id="task-1",
+        caption_settings=CaptionRenderingSettings(),
+        text_style_profiles=(),
+        caption_cues=(),
+        text_tracks=(),
+        text_cues=(),
+        layout_plan=TextLayoutPlan(),
+        diagnostics={"disabled_reasons": []},
+    )
+
+    restored = TextRenderPackage.from_dict(package.to_dict())
+
+    assert restored.version == "text_render_package.v1"
+    assert restored.caption_settings.style_profile == "caption-default"
+```
+
+Add `tests/test_text_rendering_golden_artifacts.py`:
+
+```python
+import json
+from pathlib import Path
+
+
+FIXTURE_DIR = Path("tests/fixtures/text_rendering")
+
+
+def test_text_render_package_golden_fixtures_are_versioned():
+    for name in [
+        "text_render_package_legacy_caption.json",
+        "text_render_package_overlay_hybrid.json",
+    ]:
+        payload = json.loads((FIXTURE_DIR / name).read_text(encoding="utf-8"))
+        assert payload["version"] == "text_render_package.v1"
+        assert "caption_settings" in payload
+        assert "text_style_profiles" in payload
+```
+
+- [ ] **Step 2: Run package tests to verify they fail**
+
+Run:
+
+```bash
+pytest tests/test_text_render_package_models.py tests/test_text_rendering_golden_artifacts.py -v
+```
+
+Expected: FAIL because `text_render_package.py` and golden fixtures do not exist.
+
+- [ ] **Step 3: Implement canonical package models**
+
+Create `pixelle_video/models/text_render_package.py` with immutable dataclasses:
+
+- `CaptionRenderingSettings(version, enabled, source, style_profile, punctuation_mode, renderer_targets)`
+- `TextRenderPackage(version, task_id, caption_settings, text_style_profiles, caption_cues, text_tracks, text_cues, layout_plan, diagnostics)`
+- `to_dict()` and `from_dict()` methods that accept missing v1 fields by applying defaults and recording compatibility diagnostics.
+
+Create `pixelle_video/models/text_layout.py` with `TextLayoutPlan(version, safe_areas, wrapped_lines, collisions, diagnostics)` and serialization helpers. Keep layout as intent, not renderer CSS or ASS tags.
+
+Do not import renderer services in this model file.
+
+- [ ] **Step 4: Add golden fixtures**
+
+Create `tests/fixtures/text_rendering/text_render_package_legacy_caption.json` with one caption cue and no overlay cue. Create `tests/fixtures/text_rendering/text_render_package_overlay_hybrid.json` with caption style, overlay style, one subtitle cue, one overlay cue, and one native hint diagnostic. Create `tests/fixtures/text_rendering/render_manifest_with_text_styles.json` as the derived manifest fixture used by ASS/HyperFrames adapter tests.
+
+- [ ] **Step 5: Run package tests**
+
+Run:
+
+```bash
+pytest tests/test_text_render_package_models.py tests/test_text_rendering_golden_artifacts.py -v
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add pixelle_video/models/text_render_package.py pixelle_video/models/text_layout.py tests/test_text_render_package_models.py tests/test_text_rendering_golden_artifacts.py tests/fixtures/text_rendering/text_render_package_legacy_caption.json tests/fixtures/text_rendering/text_render_package_overlay_hybrid.json tests/fixtures/text_rendering/render_manifest_with_text_styles.json
+git commit -m "feat: add canonical text render package"
+```
 
 ## Task 1: Add TextStyleProfile Contract
 
@@ -588,6 +723,8 @@ def test_orchestrator_builds_caption_style_when_overlay_disabled():
 
     assert result.caption_style.id == DEFAULT_CAPTION_STYLE_ID
     assert result.caption_style.font_size == 72
+    assert result.caption_settings.enabled is True
+    assert result.text_render_package.version == "text_render_package.v1"
     assert result.settings.overlay.enabled is False
     assert result.overlay_policy.enabled_targets == ()
     assert result.image_text_policy.suppress_embedded_text is True
@@ -613,6 +750,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from pixelle_video.models.text_layout import TextLayoutPlan
 from pixelle_video.models.text_overlay import (
     ImageTextPromptPolicy,
     TextOverlayPlan,
@@ -620,6 +758,10 @@ from pixelle_video.models.text_overlay import (
     TextRenderingSettings,
     build_text_rendering_policy,
     build_text_rendering_settings,
+)
+from pixelle_video.models.text_render_package import (
+    CaptionRenderingSettings,
+    TextRenderPackage,
 )
 from pixelle_video.models.text_style import (
     DEFAULT_CAPTION_STYLE_ID,
@@ -632,6 +774,8 @@ from pixelle_video.services.text_overlay_planner import TextOverlayPlanner
 @dataclass(frozen=True)
 class TextRenderingBuildResult:
     settings: TextRenderingSettings
+    text_render_package: TextRenderPackage
+    caption_settings: CaptionRenderingSettings
     overlay_policy: TextRenderingPolicy
     overlay_plan: TextOverlayPlan
     text_style_profiles: tuple[TextStyleProfile, ...]
@@ -678,6 +822,14 @@ class TextRenderingOrchestrator:
             name="Caption Default",
             data=request.get("caption_style"),
         )
+        caption_payload = dict(request.get("caption") or {})
+        caption_settings = CaptionRenderingSettings(
+            enabled=bool(caption_payload.get("enabled", True)),
+            source=str(caption_payload.get("source", "narration_timing")),
+            style_profile=caption_style.id,
+            punctuation_mode=str(caption_payload.get("punctuation_mode", "strip_all")),
+            renderer_targets=tuple(caption_payload.get("renderer_targets", ("hyperframes", "ass"))),
+        )
         overlay_style = _profile_from_request(
             style_id=DEFAULT_OVERLAY_STYLE_ID,
             name="Overlay Default",
@@ -698,8 +850,21 @@ class TextRenderingOrchestrator:
         }
         if not overlay_enabled:
             diagnostics["disabled_reasons"].append("overlay_text_layer_disabled")
+        package = TextRenderPackage(
+            version="text_render_package.v1",
+            task_id=str(request.get("task_id", "")),
+            caption_settings=caption_settings,
+            text_style_profiles=(caption_style, overlay_style),
+            caption_cues=(),
+            text_tracks=(),
+            text_cues=(),
+            layout_plan=TextLayoutPlan(),
+            diagnostics=diagnostics,
+        )
         return TextRenderingBuildResult(
             settings=settings,
+            text_render_package=package,
+            caption_settings=caption_settings,
             overlay_policy=overlay_policy,
             overlay_plan=overlay_plan,
             text_style_profiles=(caption_style, overlay_style),
@@ -727,6 +892,108 @@ Expected: PASS.
 ```bash
 git add pixelle_video/services/text_style_resolver.py pixelle_video/services/text_rendering_orchestrator.py tests/test_text_style_resolver.py tests/test_text_rendering_orchestrator.py
 git commit -m "feat: centralize text rendering style resolution"
+```
+
+## Task 2B: Add Text Sanitization, Layout Planning, And Adapter Protocol
+
+**Files:**
+- Create: `pixelle_video/services/text_content_sanitizer.py`
+- Create: `pixelle_video/services/text_layout_planner.py`
+- Create: `pixelle_video/services/text_renderer_adapter.py`
+- Test: `tests/test_text_content_sanitizer.py`
+- Test: `tests/test_text_layout_planner.py`
+- Test: `tests/test_text_renderer_adapter_contract.py`
+
+- [ ] **Step 1: Write failing sanitizer tests**
+
+```python
+from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
+
+
+def test_sanitizer_removes_ass_override_tags_and_control_chars():
+    result = TextContentSanitizer().sanitize("你好{\\pos(1,2)}\u200b<script>x</script>")
+
+    assert result.raw_text == "你好{\\pos(1,2)}\u200b<script>x</script>"
+    assert "{\\pos" not in result.display_text
+    assert "\u200b" not in result.display_text
+    assert result.requires_html_escape is True
+```
+
+- [ ] **Step 2: Write failing layout planner tests**
+
+```python
+from pixelle_video.services.text_layout_planner import TextLayoutPlanner
+
+
+def test_layout_planner_uses_cjk_display_width_and_safe_area():
+    plan = TextLayoutPlanner().plan_text(
+        text="这是一个很长的中文标题",
+        max_display_width=10,
+        slot="lower_third",
+    )
+
+    assert len(plan.wrapped_lines) >= 2
+    assert plan.safe_area == "caption_safe_area"
+    assert plan.slot == "lower_third"
+```
+
+- [ ] **Step 3: Write failing adapter protocol test**
+
+```python
+from pixelle_video.services.text_renderer_adapter import TextRenderExportResult
+
+
+def test_export_result_records_required_diagnostics():
+    result = TextRenderExportResult(
+        target="ass",
+        enabled=True,
+        artifacts={"master_ass": "text_layer/master.ass"},
+        cue_count=2,
+        style_profile_ids=("caption-default",),
+        fallbacks=(),
+        warnings=(),
+        duration_ms=12,
+    )
+
+    assert result.to_dict()["target"] == "ass"
+    assert result.to_dict()["artifacts"]["master_ass"] == "text_layer/master.ass"
+```
+
+- [ ] **Step 4: Run tests to verify they fail**
+
+Run:
+
+```bash
+pytest tests/test_text_content_sanitizer.py tests/test_text_layout_planner.py tests/test_text_renderer_adapter_contract.py -v
+```
+
+Expected: FAIL because these services do not exist.
+
+- [ ] **Step 5: Implement the three source-boundary services**
+
+Required behavior:
+
+- `TextContentSanitizer.sanitize(...)` returns `raw_text`, `display_text`, `removed_tokens`, `requires_html_escape`, and `requires_ass_escape`.
+- `TextLayoutPlanner.plan_text(...)` uses display width, not byte length, and returns wrapped lines plus safe-area/slot/layer intent.
+- `TextRenderExportResult` serializes a standard adapter result shape.
+- `TextRendererAdapter` is a `Protocol` with `supports(...)` and `export(...)`.
+- No ASS tags, HTML tags, CSS strings, or ffmpeg filter strings are emitted by sanitizer or layout planner.
+
+- [ ] **Step 6: Run tests**
+
+Run:
+
+```bash
+pytest tests/test_text_content_sanitizer.py tests/test_text_layout_planner.py tests/test_text_renderer_adapter_contract.py -v
+```
+
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add pixelle_video/services/text_content_sanitizer.py pixelle_video/services/text_layout_planner.py pixelle_video/services/text_renderer_adapter.py tests/test_text_content_sanitizer.py tests/test_text_layout_planner.py tests/test_text_renderer_adapter_contract.py
+git commit -m "feat: add text rendering safety and adapter contracts"
 ```
 
 ## Task 3: Build ASS Style Builder
@@ -944,15 +1211,18 @@ from pixelle_video.models.text_style import (
     build_default_text_style_profiles,
 )
 from pixelle_video.services.ass_style_builder import AssStyleBuilder
+from pixelle_video.services.text_renderer_adapter import TextRenderExportResult
+from pixelle_video.services.text_style_resolver import TextStyleResolver
 ```
 
 Behavior:
 
-- Build `profiles_by_id` from `manifest.text_style_profiles + defaults`.
-- Build one ASS style per referenced profile.
+- Resolve all styles through `TextStyleResolver`; do not implement fallback inside `AssTextAdapter`.
+- Build one ASS style per referenced profile in the `TextRenderPackage`/manifest.
 - For subtitle cues default to `DEFAULT_CAPTION_STYLE_ID`.
 - For non-subtitle cues default to `DEFAULT_OVERLAY_STYLE_ID`.
 - Dialogue style name is the resolved style profile id.
+- Return or expose a `TextRenderExportResult` shape for artifacts and fallback diagnostics.
 
 - [ ] **Step 4: Run ASS adapter tests**
 
@@ -1164,8 +1434,11 @@ Required behavior:
 - `build_template_render_context(...)` passes `manifest.text_style_profiles`.
 - `_build_text_tracks_payload(...)` includes `text_style_profiles`.
 - `_build_caption_cues_from_sentences(...)` assigns normal captions a caption style profile id independent of overlay text layer state.
-- `HyperFramesCompiler._render_captions(...)` resolves `CaptionCue.style_profile` and emits caption CSS variables into `captions.html`.
-- `HyperFramesCompiler._render_text_cues(...)` resolves style id from cue then track.
+- `HyperFramesProjectService` reads from `TextRenderPackage` when present and derives the normalized manifest from it.
+- `HyperFramesCompiler._render_captions(...)` resolves `CaptionCue.style_profile` through `TextStyleResolver` and emits caption CSS variables into `captions.html`.
+- `HyperFramesCompiler._render_text_cues(...)` resolves style id from cue then track through `TextStyleResolver`.
+- Text content comes from sanitized display text; HTML escaping stays adapter-specific.
+- Layout slot/safe-area intent comes from `TextLayoutPlan`, not template-local guesses.
 - Each text cue DOM includes `data-style-profile`.
 - Inline style contains CSS variables from the resolved `TextStyleProfile`.
 
@@ -1439,8 +1712,9 @@ In `StandardPipeline.plan_visuals(...)`:
 - Parse `ctx.params["text_rendering"]["caption_style"]` independently of `ctx.params["text_rendering"]["overlay"]`.
 - Build caption style profiles even when `overlay.enabled` is false.
 - Build overlay style profiles only for overlay text layer output.
-- Store profiles in `ctx.creation_package.render_plan["text_style_profiles"]` or a dedicated context attribute.
-- Pass profiles into `RenderManifest` in both legacy and HyperFrames post-production.
+- Store `TextRenderPackage` in the task directory and keep a reference on pipeline context.
+- Pass `TextRenderPackage.text_style_profiles` into `RenderManifest` in both legacy and HyperFrames post-production.
+- Derive caption/text/image summaries from `TextRenderPackage` and adapter export results.
 - Ensure disabling overlay text layer does not clear or skip caption style.
 
 - [ ] **Step 4: Add separate summary methods**
@@ -1568,6 +1842,7 @@ Expected: FAIL because `custom` and `asset_based` do not record the shared contr
 
 Both pipelines must call `TextRenderingOrchestrator().build(...)` with their incoming `text_rendering` payload before render-time branching. Minimum required behavior:
 
+- A `TextRenderPackage` is produced or an explicit disabled package is recorded.
 - `caption_rendering_summary` records caption style id even when overlay is disabled or unsupported.
 - `text_layer_summary` records `enabled=False`, renderer targets, disabled reason, and style profile ids when overlay cannot run.
 - `image_text_policy_summary` records `not_applicable` when the pipeline does not generate image/video prompts.
@@ -1600,7 +1875,7 @@ git commit -m "feat: report text rendering contract across pipelines"
 Run:
 
 ```bash
-pytest tests/test_text_style_models.py tests/test_text_style_resolver.py tests/test_text_rendering_orchestrator.py tests/test_ass_style_builder.py tests/test_ass_text_adapter.py tests/test_video_ass_burn_in.py tests/test_text_cue_compiler.py tests/test_hyperframes_compiler.py tests/test_hyperframes_project_service.py -v
+pytest tests/test_text_render_package_models.py tests/test_text_style_models.py tests/test_text_content_sanitizer.py tests/test_text_layout_planner.py tests/test_text_renderer_adapter_contract.py tests/test_text_style_resolver.py tests/test_text_rendering_orchestrator.py tests/test_ass_style_builder.py tests/test_ass_text_adapter.py tests/test_video_ass_burn_in.py tests/test_text_cue_compiler.py tests/test_hyperframes_compiler.py tests/test_hyperframes_project_service.py -v
 ```
 
 Expected: PASS.
@@ -1615,7 +1890,29 @@ pytest tests/test_render_package_models.py tests/test_template_render_context.py
 
 Expected: PASS.
 
-- [ ] **Step 3: Run lint or syntax check**
+- [ ] **Step 3: Validate golden fixture JSON**
+
+Run:
+
+```bash
+python -m json.tool tests/fixtures/text_rendering/text_render_package_legacy_caption.json > $null
+python -m json.tool tests/fixtures/text_rendering/text_render_package_overlay_hybrid.json > $null
+python -m json.tool tests/fixtures/text_rendering/render_manifest_with_text_styles.json > $null
+```
+
+Expected: PASS with valid JSON.
+
+- [ ] **Step 4: Run golden artifact and visual smoke tests**
+
+Run:
+
+```bash
+pytest tests/test_text_rendering_golden_artifacts.py -v
+```
+
+Expected: PASS. The test must verify ASS/HyperFrames snapshots and at least one rendered text layer is non-empty and inside its declared safe area.
+
+- [ ] **Step 5: Run lint or syntax check**
 
 Run:
 
@@ -1625,7 +1922,7 @@ python -m compileall pixelle_video api web tests
 
 Expected: PASS with no syntax errors.
 
-- [ ] **Step 4: Commit final docs if needed**
+- [ ] **Step 6: Commit final docs if needed**
 
 ```bash
 git add docs/superpowers/specs/2026-04-25-text-rendering-contract-v2-design.md docs/superpowers/plans/2026-04-25-text-rendering-contract-v2.md
@@ -1636,8 +1933,10 @@ git commit -m "docs: plan text rendering contract v2"
 
 Spec coverage:
 
+- Canonical persisted text rendering package: Task 0.
 - Unified text style contract: Tasks 1 and 2.
 - Shared resolver/orchestrator boundary: Task 2A.
+- Text safety, shared layout, and adapter protocol: Task 2B.
 - ASS adapter without hardcoded style: Tasks 3 and 4.
 - ASS font directory and burn-in reliability: Task 4A.
 - HyperFrames style consumption: Task 5.
@@ -1654,3 +1953,5 @@ Known implementation caution:
 - This plan does not replace the distributed generation plan. Artifact storage and S3/MinIO remain separate production infrastructure work.
 - Do not introduce renderer-specific request fields. Style request fields must stay platform-level.
 - Do not let `StandardPipeline.plan_visuals` remain the only place that constructs text rendering state.
+- Do not let any renderer adapter mutate or invent `TextRenderPackage` fields; adapters only return `TextRenderExportResult`.
+- Do not ship this without golden fixture and visual non-empty/safe-area checks.

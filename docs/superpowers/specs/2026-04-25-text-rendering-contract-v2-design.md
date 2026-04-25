@@ -8,15 +8,15 @@ Pixelle 不应该继续把字幕、图片加字、重点词、模板文字分别
 
 ```text
 CreationRequest
-  -> TextRenderingPolicy
-  -> TextOverlayPlan
-  -> CreationPackage
-  -> TextCueCompiler
+  -> TextRenderingOrchestrator
+  -> TextRenderPackage
   -> RenderManifest.text_tracks / text_cues / text_style_profiles
-  -> HyperFrames / HTML / ASS / native prompt adapters
+  -> TextRendererAdapter(HyperFrames / HTML / ASS / native prompt)
 ```
 
 字幕属性不是 Python 专属参数。Python/ASS 是一个消费端，HTML/HyperFrames 也是一个消费端。字号、颜色、描边、位置、背景、换行、边距等属性必须先进入统一样式契约，再分别投影成 ASS style、CSS variables、模板能力校验或 native prompt hint。
+
+二次复审后的更强约束：`TextRenderPackage` 必须成为唯一可持久化的文字渲染事实源。`CreationPackage` 可以引用它，`RenderManifest` 可以派生它，renderer adapter 可以消费它，但任何 pipeline 或 renderer 不允许重新拼装一套平行的 caption/overlay/style 事实。
 
 ## 2. 背景依据
 
@@ -68,6 +68,9 @@ CreationRequest
 4. `pixelle_video/pipelines/standard.py` 的文字层规划主要发生在需要生成媒体的分支。静态模板、用户素材和后期渲染不应该因为没有图片 prompt 生成而跳过文字渲染契约。
 5. `pixelle_video/services/video.py` 当前使用 ffmpeg `subtitles` filter burn-in ASS 文件，缺少 `ass=...:fontsdir=...` 的字体可靠性契约。
 6. `web/components/style_config.py` 已经承载过多配置 UI。继续把字幕样式、overlay 样式、image text policy 都堆进去，会把平台契约变成 UI 局部实现。
+7. 当前没有 canonical text rendering artifact。`TextOverlayPlan`、`CaptionCue`、`TextTrack/TextCue`、prompt policy、style profiles 分散在不同对象里，会让后续实现者在 pipeline 中反复组装。
+8. 当前没有统一的 text content sanitization 和 layout plan。ASS/HTML/HyperFrames 都会各自处理转义、换行、花括号、HTML escape、标点清理和 safe area，长期会产生安全和视觉不一致问题。
+9. 当前没有 renderer adapter protocol。即使有 `AssTextAdapter` 和 `HyperFramesCompiler`，pipeline 仍然可能直接调用具体实现，导致 summary、artifacts、diagnostics 和 fallback 格式不一致。
 
 ## 4. 核心问题
 
@@ -173,6 +176,27 @@ web/components/text_rendering_config.py
 
 ## 6. 新增平台契约
 
+### 6.0 CaptionRenderingSettings
+
+普通字幕必须有独立 contract，不再只是一组隐含 caption cues：
+
+```python
+@dataclass(frozen=True)
+class CaptionRenderingSettings:
+    enabled: bool = True
+    source: str = "narration_timing"
+    style_profile: str = "caption-default"
+    punctuation_mode: str = "strip_all"
+    renderer_targets: tuple[str, ...] = ("hyperframes", "ass")
+```
+
+原则：
+
+1. `caption.enabled` 控制普通旁白字幕是否显示。
+2. `overlay.enabled` 控制画面重点词/模板叠字/native hint 审计层。
+3. `image_text.suppress_embedded_text` 控制图像模型 prompt，不控制字幕。
+4. 旧的 `caption_punctuation_mode` 可以迁移到 `CaptionRenderingSettings.punctuation_mode`，但不能继续挂在 TTS 配置里作为唯一事实源。
+
 ### 6.1 TextStyleProfile
 
 建议新增：
@@ -233,6 +257,41 @@ text_style_profiles: list[TextStyleProfile]
 2. `TextTrack.style_profile` 和 `TextCue.style_profile` 仍然保存 profile id。
 3. 如果 cue 没有 style profile，则使用 track profile。
 4. 如果 track 也没有，则 adapter 使用平台默认 profile，但必须在 summary 记录 fallback。
+
+### 6.2.1 TextRenderPackage
+
+新增：
+
+```text
+pixelle_video/models/text_render_package.py
+```
+
+核心字段：
+
+```python
+@dataclass(frozen=True)
+class TextRenderPackage:
+    version: str
+    task_id: str
+    caption_settings: CaptionRenderingSettings
+    overlay_policy: TextRenderingPolicy
+    image_text_policy: ImageTextPromptPolicy
+    text_style_profiles: tuple[TextStyleProfile, ...]
+    caption_cues: tuple[CaptionCue, ...]
+    text_tracks: tuple[TextTrack, ...]
+    text_cues: tuple[TextCue, ...]
+    layout_plan: TextLayoutPlan
+    diagnostics: Mapping[str, Any]
+```
+
+职责：
+
+1. 作为 `TextRenderingOrchestrator` 的持久化输出。
+2. 作为 `RenderManifest`、ASS、HyperFrames、HTML、History summary 的共同输入。
+3. 存到任务目录，例如 `text_rendering/text_render_package.json`。
+4. 禁止 renderer adapter 修改 package；adapter 只能返回 export result。
+
+`RenderManifest` 是渲染器需要的 manifest，不是唯一事实源。`CreationPackage` 是创作阶段包，不应继续承担完整文字渲染事实源。
 
 ### 6.3 TextRenderingRequest 扩展
 
@@ -312,7 +371,85 @@ pixelle_video/services/text_rendering_orchestrator.py
 
 `standard`、`custom`、`asset_based` 和静态模板路径都应该调用它。某条 pipeline 如果不生成 overlay cue，也应该拿到 caption style、image text policy summary 和 disabled reason。
 
+### 6.6 TextContentSanitizer 与 TextLayoutPlan
+
+新增：
+
+```text
+pixelle_video/services/text_content_sanitizer.py
+pixelle_video/services/text_layout_planner.py
+```
+
+`TextContentSanitizer` 负责平台层文本清洗：
+
+1. 保留原始文本 `raw_text`，生成展示文本 `display_text`。
+2. 禁止 ASS override tag 注入，例如 `{\\pos(...)}`。
+3. 禁止 HTML/script 注入；HTML escaping 仍由 HTML adapter 做，但平台层必须记录文本安全状态。
+4. 统一处理不可见控制字符、异常换行、零宽字符和过长文本。
+
+`TextLayoutPlan` 负责跨 renderer 共享布局意图：
+
+1. 使用 Unicode grapheme cluster 和 CJK display width，而不是简单 `len(text)`。
+2. 生成推荐 `wrapped_lines`、`safe_area`、`max_width_ratio`、`line_height`、`layer`。
+3. 明确 caption safe area 与 overlay slots 的碰撞规则。
+4. adapter 可以根据目标能力做最终投影，但不能重新决定高层布局意图。
+
+### 6.7 Schema version 与迁移
+
+所有新增 artifact 必须带版本：
+
+- `text_render_package.v1`
+- `text_style_profile.v1`
+- `caption_rendering_settings.v1`
+- `text_layout_plan.v1`
+
+读取旧任务时：
+
+1. 缺 `text_render_package.json` 时，从旧 `RenderManifest`/metadata 做只读兼容，不反写旧任务。
+2. 缺 `text_style_profiles` 时注入默认 profile，并在 diagnostics 记录 compatibility fallback。
+3. History 页面必须能显示旧 `text_layer_summary`，同时支持新的 caption/text/image 三段 summary。
+
 ## 7. Renderer Adapter 设计
+
+### 7.0 TextRendererAdapter protocol
+
+新增：
+
+```text
+pixelle_video/services/text_renderer_adapter.py
+```
+
+统一接口：
+
+```python
+class TextRendererAdapter(Protocol):
+    target: str
+
+    def supports(self, package: TextRenderPackage) -> TextRendererSupport:
+        ...
+
+    def export(
+        self,
+        *,
+        package: TextRenderPackage,
+        manifest: RenderManifest,
+        output_dir: Path,
+    ) -> TextRenderExportResult:
+        ...
+```
+
+`TextRenderExportResult` 必须包含：
+
+- `target`
+- `enabled`
+- `artifacts`
+- `cue_count`
+- `style_profile_ids`
+- `fallbacks`
+- `warnings`
+- `duration_ms`
+
+pipeline 只能依赖 adapter protocol，不允许直接依赖 `AssTextAdapter` 或 HyperFrames 私有方法。
 
 ### 7.1 ASS adapter
 
@@ -618,6 +755,24 @@ metadata 只存摘要和相对路径，大对象落任务目录。
 | 字体缺失 | summary 记录 fallback 字体/目录 |
 | ASS 和 HyperFrames 同源渲染 | cue count、style id、timing 一致 |
 
+### 11.6 Golden artifacts 与视觉回归
+
+必须新增 golden fixtures：
+
+```text
+tests/fixtures/text_rendering/text_render_package_legacy_caption.json
+tests/fixtures/text_rendering/text_render_package_overlay_hybrid.json
+tests/fixtures/text_rendering/render_manifest_with_text_styles.json
+```
+
+验证要求：
+
+1. `TextRenderPackage.from_dict(to_dict())` 稳定。
+2. 旧 manifest 缺 `text_style_profiles` 时兼容读取并记录 fallback。
+3. ASS golden snapshot 检查 `PlayResX/Y`、Style、Dialogue、转义文本。
+4. HyperFrames compiled snapshot 检查 `data-style-profile`、CSS variables、HTML escaped text。
+5. Playwright 或 HyperFrames preview 截图至少验证 caption/overlay 非空、未越界、未覆盖保留 safe area。
+
 ## 12. 分阶段落地
 
 ### 阶段 0：契约冻结
@@ -626,10 +781,16 @@ metadata 只存摘要和相对路径，大对象落任务目录。
 
 产物：
 
+- `pixelle_video/models/text_render_package.py`
 - `pixelle_video/models/text_style.py`
+- `pixelle_video/models/text_layout.py`
 - `RenderManifest.text_style_profiles`
 - `pixelle_video/services/text_style_resolver.py`
 - `pixelle_video/services/text_rendering_orchestrator.py`
+- `pixelle_video/services/text_renderer_adapter.py`
+- `pixelle_video/services/text_content_sanitizer.py`
+- `pixelle_video/services/text_layout_planner.py`
+- golden fixtures
 - schema 序列化测试
 - 文档更新
 
@@ -703,6 +864,9 @@ metadata 只存摘要和相对路径，大对象落任务目录。
 8. 不允许 renderer adapter 各自实现 style fallback。
 9. 不允许 UI/API 暴露 `fontsdir`、`ass` filter、`force_style`、CSS 字符串等私有字段。
 10. 不允许继续把文字渲染 UI 细节全部堆进 `style_config.py`。
+11. 不允许绕过 `TextRenderPackage` 直接从 pipeline 拼 ASS/HTML 文本。
+12. 不允许 renderer adapter 私自清洗、截断或重排文本；平台层必须先产出 sanitized display text 和 layout plan。
+13. 不允许只靠单元测试验收文字渲染；必须有 golden artifact 和至少一条视觉非空/不越界验证。
 
 ## 14. 最终推荐
 
