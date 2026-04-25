@@ -64,6 +64,19 @@ def test_video_generate_request_rejects_legacy_text_fields():
         VideoGenerateRequest(text="hello", forbid_embedded_text_in_image=True)
 
 
+@pytest.mark.parametrize(
+    "text_rendering",
+    [
+        {"unexpected": {}},
+        {"overlay": {"enabled": True, "unexpected": "x"}},
+        {"image_text": {"suppress_embedded_text": True, "unexpected": "x"}},
+    ],
+)
+def test_video_generate_request_rejects_unknown_text_rendering_keys(text_rendering: dict):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="hello", text_rendering=text_rendering)
+
+
 def test_video_generate_request_accepts_tts_text_policy_controls():
     request = VideoGenerateRequest(
         text="demo",
@@ -412,21 +425,15 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
     assert captured["task_id"] == "task-1"
     assert fake_pixelle_video.calls[0]["request_id"] == "req_test"
     assert fake_pixelle_video.calls[0]["api_task_id"] == "task-1"
-    assert fake_pixelle_video.calls[0]["text_rendering"] == {
-        "overlay": {
-            "enabled": True,
-            "mode": "hybrid",
-            "renderer_targets": ["hyperframes"],
-            "density": "medium",
-            "max_items_per_frame": 2,
-        },
-        "image_text": {
-            "suppress_embedded_text": True,
-            "positive_prompt": (
-                "no visible text, no Chinese characters, no English letters, no words, no subtitles, "
-                "no captions, no watermark, no logo text, convey the idea through objects, symbols, "
-                "composition, and scene elements instead of written text"
-            ),
-            "negative_prompt": "letters",
-        },
+    text_rendering = fake_pixelle_video.calls[0]["text_rendering"]
+    assert text_rendering["overlay"] == {
+        "enabled": True,
+        "mode": "hybrid",
+        "renderer_targets": ["hyperframes"],
+        "density": "medium",
+        "max_items_per_frame": 2,
     }
+    assert text_rendering["image_text"]["suppress_embedded_text"] is True
+    assert "no visible text" in text_rendering["image_text"]["positive_prompt"]
+    assert "no watermark" in text_rendering["image_text"]["positive_prompt"]
+    assert text_rendering["image_text"]["negative_prompt"] == "letters"

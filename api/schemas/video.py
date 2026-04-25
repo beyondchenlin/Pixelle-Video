@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas.text_rendering import TextRenderingRequest
 from pixelle_video.models.storyboard_planning import (
     ConsistencyStrength,
     ContentMode,
@@ -68,28 +69,6 @@ class StoryboardFrameOverride(BaseModel):
     continuity_anchors: Optional[List[str]] = Field(None, description="Locked continuity anchor overrides")
     focus_detail: Optional[str] = Field(None, description="Locked focus detail override")
     prompt_intent: Optional[str] = Field(None, description="Locked prompt intent override")
-
-
-class TextOverlayRequest(BaseModel):
-    enabled: bool = False
-    mode: Literal["suppress", "programmatic_only", "native_hint", "hybrid"] = "programmatic_only"
-    renderer_targets: List[Literal["hyperframes", "html", "ass", "native_prompt", "python"]] = Field(default_factory=list)
-    density: Literal["low", "medium", "high"] = "medium"
-    max_items_per_frame: int = Field(2, ge=0)
-
-
-class ImageTextPolicyRequest(BaseModel):
-    suppress_embedded_text: bool = False
-    positive_prompt: str = Field(
-        "no visible text, no Chinese characters, no English letters, no words, no subtitles, no captions, no watermark, no logo text, convey the idea through objects, symbols, composition, and scene elements instead of written text",
-        description="Prompt fragment appended only when suppress_embedded_text is true",
-    )
-    negative_prompt: Optional[str] = None
-
-
-class TextRenderingRequest(BaseModel):
-    overlay: TextOverlayRequest = Field(default_factory=TextOverlayRequest)
-    image_text: ImageTextPolicyRequest = Field(default_factory=ImageTextPolicyRequest)
 
 
 class VideoGenerateRequest(BaseModel):

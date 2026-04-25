@@ -18,7 +18,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas.video import TextRenderingRequest
+from api.schemas.text_rendering import TextRenderingRequest
 from pixelle_video.models.storyboard_planning import (
     ConsistencyStrength,
     ContentMode,

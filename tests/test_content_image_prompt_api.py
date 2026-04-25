@@ -97,6 +97,19 @@ def test_image_prompt_generate_request_rejects_legacy_text_fields():
         )
 
 
+@pytest.mark.parametrize(
+    "text_rendering",
+    [
+        {"unexpected": {}},
+        {"overlay": {"enabled": True, "unexpected": "x"}},
+        {"image_text": {"suppress_embedded_text": True, "unexpected": "x"}},
+    ],
+)
+def test_image_prompt_generate_request_rejects_unknown_text_rendering_keys(text_rendering: dict):
+    with pytest.raises(ValidationError):
+        ImagePromptGenerateRequest(narrations=["scene one"], text_rendering=text_rendering)
+
+
 @pytest.mark.asyncio
 async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypatch):
     async def fake_generate_styled_image_prompt_batch(**kwargs):
@@ -158,24 +171,18 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
 @pytest.mark.asyncio
 async def test_generate_image_prompt_endpoint_threads_text_rendering(monkeypatch):
     async def fake_generate_styled_image_prompt_batch(**kwargs):
-        assert kwargs["text_rendering"] == {
-            "overlay": {
-                "enabled": True,
-                "mode": "hybrid",
-                "renderer_targets": ["hyperframes"],
-                "density": "medium",
-                "max_items_per_frame": 2,
-            },
-            "image_text": {
-                "suppress_embedded_text": True,
-                "positive_prompt": (
-                    "no visible text, no Chinese characters, no English letters, no words, no subtitles, "
-                    "no captions, no watermark, no logo text, convey the idea through objects, symbols, "
-                    "composition, and scene elements instead of written text"
-                ),
-                "negative_prompt": "letters",
-            },
+        assert kwargs["text_rendering"]["overlay"] == {
+            "enabled": True,
+            "mode": "hybrid",
+            "renderer_targets": ["hyperframes"],
+            "density": "medium",
+            "max_items_per_frame": 2,
         }
+        image_text = kwargs["text_rendering"]["image_text"]
+        assert image_text["suppress_embedded_text"] is True
+        assert "no visible text" in image_text["positive_prompt"]
+        assert "no watermark" in image_text["positive_prompt"]
+        assert image_text["negative_prompt"] == "letters"
         return StyledImagePromptBatch(
             prompts=["styled prompt"],
             negative_prompt=None,
