@@ -30,6 +30,7 @@ from pixelle_video.prompts.prompt_prefix_generation import (
 )
 from pixelle_video.prompts.style_conversion import build_style_conversion_prompt
 from pixelle_video.prompts.style_resolution import build_style_resolution_prompt
+from pixelle_video.prompts.storyboard_generation import build_smart_storyboard_prompt
 from pixelle_video.prompts.title_generation import build_title_generation_prompt
 from pixelle_video.prompts.topic_narration import build_topic_narration_prompt
 
@@ -44,6 +45,7 @@ __all__ = [
     "build_style_conversion_prompt",
     "build_prompt_prefix_generation_prompt",
     "build_style_resolution_prompt",
+    "build_smart_storyboard_prompt",
     
     # Image style presets
     "IMAGE_STYLE_PRESETS",

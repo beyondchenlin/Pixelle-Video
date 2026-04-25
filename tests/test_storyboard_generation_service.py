@@ -3,6 +3,40 @@ import pytest
 from pixelle_video.services.storyboard_generation import StoryboardGenerationService
 
 
+class SmartFakeLLM:
+    def __init__(self, frames=None):
+        self.calls = []
+        self.frames = frames or [
+            {
+                "source_text": "开头完整表达。",
+                "narration_text": "开头完整表达。",
+                "visual_goal": "Introduce the main idea.",
+                "prompt_intent": "A calm opening visual.",
+                "source_start": 0,
+                "source_end": 7,
+            },
+            {
+                "source_text": "结尾完整表达。",
+                "narration_text": "结尾完整表达。",
+                "visual_goal": "Close the idea.",
+                "prompt_intent": "A coherent closing visual.",
+                "source_start": 7,
+                "source_end": 14,
+            },
+        ]
+
+    async def __call__(self, *, prompt, response_type, temperature, max_tokens):
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "response_type": response_type,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
+        return response_type(frames=self.frames)
+
+
 @pytest.mark.asyncio
 async def test_punctuation_mode_splits_on_all_unicode_punctuation():
     service = StoryboardGenerationService(config={"max_scene_count": 10})
@@ -234,4 +268,143 @@ async def test_deterministic_strategy_rejects_manual_scene_count():
             storyboard_mode="sentence",
             storyboard_count_mode="auto",
             storyboard_scene_count=1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_smart_auto_uses_llm_to_create_plan_from_whole_source_text():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    llm = SmartFakeLLM()
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="开头完整表达。结尾完整表达。",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert plan.mode.value == "smart"
+    assert plan.count_mode.value == "auto"
+    assert plan.resolved_scene_count == 2
+    assert plan.frames[0].visual_goal == "Introduce the main idea."
+    assert plan.frames[1].prompt_intent == "A coherent closing visual."
+    assert llm.calls[0]["response_type"].__name__ == "SmartStoryboardPlanResponse"
+    assert "开头完整表达。结尾完整表达。" in llm.calls[0]["prompt"]
+    assert plan.diagnostics["strategy"] == "smart"
+
+
+@pytest.mark.asyncio
+async def test_smart_manual_requires_exact_scene_count():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+
+    with pytest.raises(ValueError, match="expected 3 smart storyboard frames"):
+        await service.generate(
+            llm_service=SmartFakeLLM(),
+            source_text="开头完整表达。结尾完整表达。",
+            storyboard_mode="smart",
+            storyboard_count_mode="manual",
+            storyboard_scene_count=3,
+        )
+
+
+@pytest.mark.asyncio
+async def test_smart_manual_accepts_exact_scene_count():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+
+    plan = await service.generate(
+        llm_service=SmartFakeLLM(),
+        source_text="开头完整表达。结尾完整表达。",
+        storyboard_mode="smart",
+        storyboard_count_mode="manual",
+        storyboard_scene_count=2,
+    )
+
+    assert plan.count_mode.value == "manual"
+    assert plan.requested_scene_count == 2
+    assert plan.resolved_scene_count == 2
+
+
+@pytest.mark.asyncio
+async def test_smart_requires_llm_service():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+
+    with pytest.raises(ValueError, match="smart storyboard mode requires llm_service"):
+        await service.generate(
+            llm_service=None,
+            source_text="开头完整表达。",
+            storyboard_mode="smart",
+            storyboard_count_mode="auto",
+            storyboard_scene_count=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_smart_rejects_unknown_count_mode_before_calling_llm():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    llm = SmartFakeLLM()
+
+    with pytest.raises(ValueError, match="unsupported storyboard count mode"):
+        await service.generate(
+            llm_service=llm,
+            source_text="开头完整表达。",
+            storyboard_mode="smart",
+            storyboard_count_mode="unknown",
+            storyboard_scene_count=None,
+        )
+
+    assert llm.calls == []
+
+
+@pytest.mark.asyncio
+async def test_smart_manual_scene_count_must_be_within_configured_bounds():
+    service = StoryboardGenerationService(config={"min_scene_count": 2, "max_scene_count": 4})
+
+    with pytest.raises(ValueError, match="storyboard_scene_count must be within configured bounds"):
+        await service.generate(
+            llm_service=SmartFakeLLM(),
+            source_text="开头完整表达。结尾完整表达。",
+            storyboard_mode="smart",
+            storyboard_count_mode="manual",
+            storyboard_scene_count=5,
+        )
+
+
+@pytest.mark.asyncio
+async def test_smart_auto_rejects_too_few_frames():
+    service = StoryboardGenerationService(config={"min_scene_count": 2, "max_scene_count": 10})
+    llm = SmartFakeLLM(
+        frames=[
+            {
+                "source_text": "开头完整表达。",
+                "narration_text": "开头完整表达。",
+                "visual_goal": "Introduce the main idea.",
+                "prompt_intent": "A calm opening visual.",
+                "source_start": 0,
+                "source_end": 7,
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="too few storyboard frames"):
+        await service.generate(
+            llm_service=llm,
+            source_text="开头完整表达。结尾完整表达。",
+            storyboard_mode="smart",
+            storyboard_count_mode="auto",
+            storyboard_scene_count=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_smart_auto_rejects_too_many_frames():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 1})
+
+    with pytest.raises(ValueError, match="too many storyboard frames"):
+        await service.generate(
+            llm_service=SmartFakeLLM(),
+            source_text="开头完整表达。结尾完整表达。",
+            storyboard_mode="smart",
+            storyboard_count_mode="auto",
+            storyboard_scene_count=None,
         )

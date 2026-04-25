@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 class _StringListResponse(BaseModel):
@@ -48,8 +50,48 @@ class VideoPromptBatchResponse(_StringListResponse):
         return cls._normalize_strings(values, "video_prompts")
 
 
+class SmartStoryboardFrameResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source_text: str
+    narration_text: str
+    visual_goal: str
+    prompt_intent: str
+    source_start: Optional[int] = None
+    source_end: Optional[int] = None
+
+    @field_validator("source_text", "narration_text", "visual_goal", "prompt_intent")
+    @classmethod
+    def _validate_text_fields(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("smart storyboard text fields must not be empty")
+        return stripped
+
+    @model_validator(mode="after")
+    def _validate_source_range_pair(self):
+        if (self.source_start is None) != (self.source_end is None):
+            raise ValueError("source_start and source_end must be set together")
+        return self
+
+
+class SmartStoryboardPlanResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    frames: list[SmartStoryboardFrameResponse]
+
+    @field_validator("frames")
+    @classmethod
+    def _validate_frames(cls, values: list[SmartStoryboardFrameResponse]) -> list[SmartStoryboardFrameResponse]:
+        if not values:
+            raise ValueError("frames must not be empty")
+        return values
+
+
 __all__ = [
     "NarrationBatchResponse",
     "ImagePromptBatchResponse",
     "VideoPromptBatchResponse",
+    "SmartStoryboardFrameResponse",
+    "SmartStoryboardPlanResponse",
 ]

@@ -6,10 +6,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from pixelle_video.models.content_generation import SmartStoryboardPlanResponse
 from pixelle_video.models.storyboard_plan import (
     StoryboardPlan,
     StoryboardPlanFrame,
 )
+from pixelle_video.prompts.storyboard_generation import build_smart_storyboard_prompt
 
 
 SENTENCE_TERMINATORS = "。！？.!?"
@@ -142,8 +144,88 @@ class StoryboardGenerationService:
                 segments=segments,
             )
         if storyboard_mode == "smart":
-            raise ValueError("smart storyboard mode is not implemented yet")
+            return await self._generate_smart(
+                llm_service=llm_service,
+                source_text=source_text,
+                count_mode=storyboard_count_mode,
+                requested_scene_count=storyboard_scene_count,
+            )
         raise ValueError(f"unsupported storyboard mode: {storyboard_mode}")
+
+    async def _generate_smart(
+        self,
+        *,
+        llm_service,
+        source_text: str,
+        count_mode: str,
+        requested_scene_count: int | None,
+    ) -> StoryboardPlan:
+        if llm_service is None:
+            raise ValueError("smart storyboard mode requires llm_service")
+
+        normalized_source = _normalize_text(source_text)
+        min_scene_count = _positive_int_config(self.config, "min_scene_count", 1)
+        max_scene_count = _positive_int_config(self.config, "max_scene_count", 30)
+        if min_scene_count > max_scene_count:
+            raise ValueError("min_scene_count must not exceed max_scene_count")
+
+        if count_mode not in {"auto", "manual"}:
+            raise ValueError(f"unsupported storyboard count mode: {count_mode}")
+        if count_mode == "manual":
+            if type(requested_scene_count) is not int:
+                raise ValueError("storyboard_scene_count is required with manual count mode")
+            if not min_scene_count <= requested_scene_count <= max_scene_count:
+                raise ValueError("storyboard_scene_count must be within configured bounds")
+        elif requested_scene_count is not None:
+            raise ValueError("storyboard_scene_count is valid only with manual count mode")
+
+        prompt = build_smart_storyboard_prompt(
+            source_text=normalized_source,
+            count_mode=count_mode,
+            requested_scene_count=requested_scene_count,
+            min_scene_count=min_scene_count,
+            max_scene_count=max_scene_count,
+        )
+        response = await llm_service(
+            prompt=prompt,
+            response_type=SmartStoryboardPlanResponse,
+            temperature=0.3,
+            max_tokens=max(2000, max_scene_count * 350),
+        )
+
+        frame_count = len(response.frames)
+        if count_mode == "manual" and frame_count != requested_scene_count:
+            raise ValueError(f"expected {requested_scene_count} smart storyboard frames")
+        if frame_count > max_scene_count:
+            raise ValueError("too many storyboard frames")
+        if count_mode == "auto" and frame_count < min_scene_count:
+            raise ValueError("too few storyboard frames")
+
+        frames = [
+            StoryboardPlanFrame(
+                index=index,
+                source_text=frame.source_text,
+                narration_text=frame.narration_text,
+                visual_goal=frame.visual_goal,
+                prompt_intent=frame.prompt_intent,
+                source_start=frame.source_start,
+                source_end=frame.source_end,
+                metadata={"strategy": "smart"},
+            )
+            for index, frame in enumerate(response.frames, start=1)
+        ]
+        return StoryboardPlan.build(
+            mode="smart",
+            count_mode=count_mode,
+            requested_scene_count=requested_scene_count,
+            source_text=normalized_source,
+            frames=frames,
+            diagnostics={
+                "strategy": "smart",
+                "requested_scene_count": requested_scene_count,
+                "split_count": len(frames),
+            },
+        )
 
     def _plan_from_segments(
         self,
