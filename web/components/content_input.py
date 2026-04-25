@@ -188,76 +188,92 @@ def render_content_input():
             }
 
 
-def render_bgm_section(key_prefix=""):
-    """Render BGM selection section"""
+def render_bgm_section(key_prefix="", *, collapsible=False):
+    """Render BGM selection section."""
+    if collapsible:
+        with st.expander(tr("section.bgm"), expanded=False):
+            return _render_bgm_section_controls(key_prefix=key_prefix, help_display="popover")
+
     with st.container(border=True):
         st.markdown(f"**{tr('section.bgm')}**")
-        
-        with st.expander(tr("help.feature_description"), expanded=False):
-            st.markdown(f"**{tr('help.what')}**")
-            st.markdown(tr("bgm.what"))
-            st.markdown(f"**{tr('help.how')}**")
-            st.markdown(tr("bgm.how"))
-        
-        # Dynamically scan bgm folder for music files (merged from bgm/ and data/bgm/)
-        from pixelle_video.utils.os_util import list_resource_files
-        
-        try:
-            all_files = list_resource_files("bgm")
-            # Filter to audio files only
-            audio_extensions = ('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg')
-            bgm_files = sorted([f for f in all_files if f.lower().endswith(audio_extensions)])
-        except Exception as e:
-            st.warning(f"Failed to load BGM files: {e}")
-            bgm_files = []
-        
-        # Add special "None" option
-        bgm_options = [tr("bgm.none")] + bgm_files
-        
-        # Default to "default.mp3" if exists, otherwise first option
-        default_index = 0
-        if "default.mp3" in bgm_files:
-            default_index = bgm_options.index("default.mp3")
-        
-        bgm_choice = st.selectbox(
-            "BGM",
-            bgm_options,
-            index=default_index,
-            label_visibility="collapsed",
-            key=f"{key_prefix}bgm_selector"
+        return _render_bgm_section_controls(key_prefix=key_prefix, help_display="expander")
+
+
+def _render_bgm_feature_description(help_display: str) -> None:
+    help_context = (
+        st.popover(tr("help.feature_description"))
+        if help_display == "popover"
+        else st.expander(tr("help.feature_description"), expanded=False)
+    )
+    with help_context:
+        st.markdown(f"**{tr('help.what')}**")
+        st.markdown(tr("bgm.what"))
+        st.markdown(f"**{tr('help.how')}**")
+        st.markdown(tr("bgm.how"))
+
+
+def _render_bgm_section_controls(key_prefix="", *, help_display="expander"):
+    _render_bgm_feature_description(help_display)
+
+    # Dynamically scan bgm folder for music files (merged from bgm/ and data/bgm/)
+    from pixelle_video.utils.os_util import list_resource_files
+
+    try:
+        all_files = list_resource_files("bgm")
+        # Filter to audio files only
+        audio_extensions = ('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg')
+        bgm_files = sorted([f for f in all_files if f.lower().endswith(audio_extensions)])
+    except Exception as e:
+        st.warning(f"Failed to load BGM files: {e}")
+        bgm_files = []
+
+    # Add special "None" option
+    bgm_options = [tr("bgm.none")] + bgm_files
+
+    # Default to "default.mp3" if exists, otherwise first option
+    default_index = 0
+    if "default.mp3" in bgm_files:
+        default_index = bgm_options.index("default.mp3")
+
+    bgm_choice = st.selectbox(
+        "BGM",
+        bgm_options,
+        index=default_index,
+        label_visibility="collapsed",
+        key=f"{key_prefix}bgm_selector"
+    )
+
+    # BGM volume slider (only show when BGM is selected)
+    if bgm_choice != tr("bgm.none"):
+        bgm_volume = st.slider(
+            tr("bgm.volume"),
+            min_value=0.0,
+            max_value=0.5,
+            value=0.2,
+            step=0.01,
+            format="%.2f",
+            key=f"{key_prefix}bgm_volume_slider",
+            help=tr("bgm.volume_help")
         )
-        
-        # BGM volume slider (only show when BGM is selected)
-        if bgm_choice != tr("bgm.none"):
-            bgm_volume = st.slider(
-                tr("bgm.volume"),
-                min_value=0.0,
-                max_value=0.5,
-                value=0.2,
-                step=0.01,
-                format="%.2f",
-                key=f"{key_prefix}bgm_volume_slider",
-                help=tr("bgm.volume_help")
-            )
-        else:
-            bgm_volume = 0.2  # Default value when no BGM selected
-        
-        # BGM preview button (only if BGM is not "None")
-        if bgm_choice != tr("bgm.none"):
-            if st.button(tr("bgm.preview"), key=f"{key_prefix}preview_bgm", width="stretch"):
-                from pixelle_video.utils.os_util import get_resource_path, resource_exists
-                try:
-                    if resource_exists("bgm", bgm_choice):
-                        bgm_file_path = get_resource_path("bgm", bgm_choice)
-                        st.audio(bgm_file_path)
-                    else:
-                        st.error(tr("bgm.preview_failed", file=bgm_choice))
-                except Exception as e:
-                    st.error(f"{tr('bgm.preview_failed', file=bgm_choice)}: {e}")
-        
-        # Use full filename for bgm_path (including extension)
-        bgm_path = None if bgm_choice == tr("bgm.none") else bgm_choice
-    
+    else:
+        bgm_volume = 0.2  # Default value when no BGM selected
+
+    # BGM preview button (only if BGM is not "None")
+    if bgm_choice != tr("bgm.none"):
+        if st.button(tr("bgm.preview"), key=f"{key_prefix}preview_bgm", width="stretch"):
+            from pixelle_video.utils.os_util import get_resource_path, resource_exists
+            try:
+                if resource_exists("bgm", bgm_choice):
+                    bgm_file_path = get_resource_path("bgm", bgm_choice)
+                    st.audio(bgm_file_path)
+                else:
+                    st.error(tr("bgm.preview_failed", file=bgm_choice))
+            except Exception as e:
+                st.error(f"{tr('bgm.preview_failed', file=bgm_choice)}: {e}")
+
+    # Use full filename for bgm_path (including extension)
+    bgm_path = None if bgm_choice == tr("bgm.none") else bgm_choice
+
     return {
         "bgm_path": bgm_path,
         "bgm_volume": bgm_volume

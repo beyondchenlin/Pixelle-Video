@@ -59,10 +59,7 @@ class StandardPipelineUI(PipelineUI):
         with left_col:
             # Content input (mode, text, title, n_scenes)
             content_params = render_content_input()
-            
-            # BGM selection (bgm_path, bgm_volume)
-            bgm_params = render_bgm_section()
-            
+
             # Version info & GitHub link
             render_version_info()
         
@@ -70,6 +67,9 @@ class StandardPipelineUI(PipelineUI):
         # Middle Column: Style Configuration
         # ====================================================================
         with middle_col:
+            # BGM selection (bgm_path, bgm_volume)
+            bgm_params = render_bgm_section(collapsible=True)
+
             # Style configuration (TTS, template, workflow, etc.)
             style_params = render_style_config(pixelle_video, storyboard_default_enabled=True)
             render_quick_create_flow_diagram()
