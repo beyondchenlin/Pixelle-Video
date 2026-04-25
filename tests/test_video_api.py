@@ -278,13 +278,23 @@ async def test_generate_video_async_reuses_active_duplicate_task(monkeypatch, tm
         task_id = "existing-task"
 
     class _FakeTaskManager:
-        def find_active_task_by_request_fingerprint(self, **kwargs):
-            assert kwargs["task_type"].value == "video_generation"
-            assert kwargs["request_fingerprint"]
-            return _ExistingTask()
+        execution_mode = "embedded"
 
-        def create_task(self, **_kwargs):
-            raise AssertionError("duplicate async request should not create a new task")
+        async def reserve_or_reuse_generation_task(
+            self,
+            *,
+            task_type,
+            generation_fingerprint,
+            request_params,
+        ):
+            assert task_type.value == "video_generation"
+            assert generation_fingerprint
+            assert request_params["generation_fingerprint"] == generation_fingerprint
+            return SimpleNamespace(
+                task=_ExistingTask(),
+                created=False,
+                reused_reason="active",
+            )
 
         async def execute_task(self, **_kwargs):
             raise AssertionError("duplicate async request should not start execution")
@@ -329,22 +339,30 @@ async def test_generate_video_async_passes_no_text_toggle_to_video_core(monkeypa
     )
     monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
 
-    class _FakeTask:
-        task_id = "task-1"
+    class _FakeTaskManager:
+        execution_mode = "embedded"
 
-    monkeypatch.setattr(
-        "api.routers.video.task_manager.create_task",
-        lambda **kwargs: _FakeTask(),
-    )
+        async def reserve_or_reuse_generation_task(
+            self,
+            *,
+            task_type,
+            generation_fingerprint,
+            request_params,
+        ):
+            assert task_type.value == "video_generation"
+            assert generation_fingerprint
+            assert request_params["generation_fingerprint"] == generation_fingerprint
+            return SimpleNamespace(
+                task=SimpleNamespace(task_id="task-1"),
+                created=True,
+                reused_reason=None,
+            )
 
-    async def fake_execute_task(*, task_id, coro_func):
-        captured["task_id"] = task_id
-        captured["result"] = await coro_func()
+        async def execute_task(self, *, task_id, coro_func):
+            captured["task_id"] = task_id
+            captured["result"] = await coro_func()
 
-    monkeypatch.setattr(
-        "api.routers.video.task_manager.execute_task",
-        fake_execute_task,
-    )
+    monkeypatch.setattr("api.routers.video.task_manager", _FakeTaskManager())
 
     response = await generate_video_async(
         VideoGenerateRequest(
