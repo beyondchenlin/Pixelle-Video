@@ -13,7 +13,7 @@
     "section.template": "📐 分镜模板",
     "section.storyboard_planning": "🧭 分镜规划",
     "section.video_generation": "🎬 生成视频",
-    "section.element_animation": "✨ 元素微动增强",
+    "section.element_animation": "✨ 元素微动",
     "quick_create_flow.title": "快速创作流程",
     "quick_create_flow.caption": "按从左到右阅读：先在左栏填写脚本内容，再完成中栏配置，最后到右栏生成视频。",
     "quick_create_flow.badge": "流程导览",
