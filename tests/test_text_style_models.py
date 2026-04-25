@@ -85,8 +85,14 @@ def test_default_text_style_profiles_include_caption_and_overlay_defaults():
         DEFAULT_OVERLAY_STYLE_ID,
     ]
     assert profiles[0].position == "bottom"
+    assert profiles[0].font_size == 42
+    assert profiles[0].font_weight == 500
+    assert profiles[0].primary_color == "#2C3E50"
+    assert profiles[0].stroke_width == 0
     assert profiles[1].name == "Overlay Default"
     assert profiles[1].font_size == 76
+    assert profiles[1].primary_color == "#FFFFFF"
+    assert profiles[1].stroke_width == 2
     assert profiles[1].position == "center"
     assert profiles[1].margin_y == 80
 
@@ -96,5 +102,8 @@ def test_text_style_profile_from_dict_preserves_defaults_for_missing_fields():
 
     assert profile.version == "text_style_profile.v1"
     assert profile.font_family == "Noto Sans CJK SC"
-    assert profile.primary_color == "#FFFFFF"
+    assert profile.font_size == 42
+    assert profile.font_weight == 500
+    assert profile.primary_color == "#2C3E50"
     assert profile.stroke_color == "#000000"
+    assert profile.stroke_width == 0

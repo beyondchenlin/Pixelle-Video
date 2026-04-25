@@ -14,23 +14,31 @@
 Focused Streamlit controls for the shared text rendering contract.
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
 from pixelle_video.models.text_overlay import DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
+from pixelle_video.models.text_style import (
+    DEFAULT_CAPTION_FONT_SIZE,
+    DEFAULT_CAPTION_PRIMARY_COLOR,
+    DEFAULT_CAPTION_STROKE_WIDTH,
+    DEFAULT_OVERLAY_FONT_SIZE,
+    DEFAULT_OVERLAY_PRIMARY_COLOR,
+    DEFAULT_OVERLAY_STROKE_WIDTH,
+)
 from pixelle_video.render_backend import LEGACY_RENDER_BACKEND
 from web.i18n import tr
 
-
 CAPTION_STYLE_DEFAULTS: dict[str, Any] = {
     "font_family": "Noto Sans CJK SC",
-    "font_size": 64,
-    "primary_color": "#FFFFFF",
+    "font_size": DEFAULT_CAPTION_FONT_SIZE,
+    "primary_color": DEFAULT_CAPTION_PRIMARY_COLOR,
     "stroke_color": "#000000",
-    "stroke_width": 2,
+    "stroke_width": DEFAULT_CAPTION_STROKE_WIDTH,
     "background_color": "#000000",
     "background_opacity": 0.0,
     "position": "bottom",
@@ -40,7 +48,9 @@ CAPTION_STYLE_DEFAULTS: dict[str, Any] = {
 
 OVERLAY_STYLE_DEFAULTS: dict[str, Any] = {
     **CAPTION_STYLE_DEFAULTS,
-    "font_size": 76,
+    "font_size": DEFAULT_OVERLAY_FONT_SIZE,
+    "primary_color": DEFAULT_OVERLAY_PRIMARY_COLOR,
+    "stroke_width": DEFAULT_OVERLAY_STROKE_WIDTH,
     "position": "center",
     "margin_y": 80,
 }
@@ -56,6 +66,19 @@ TEXT_POSITION_OPTIONS = [
     "bottom_right",
 ]
 
+FONT_FILE_EXTENSIONS = {".ttf", ".otf", ".ttc", ".otc"}
+FONT_SEARCH_DIRS = (
+    Path("fonts"),
+    Path("font"),
+    Path("resource/fonts"),
+)
+LEGACY_CAPTION_STYLE_DEFAULTS = {
+    "font_size": 64,
+    "primary_color": "#FFFFFF",
+    "stroke_width": 2,
+}
+CAPTION_DEFAULTS_MIGRATION_KEY = "caption_style_template_defaults_migrated_v2"
+
 
 def _resolve_ui(ui: Any | None) -> Any:
     return ui or st
@@ -70,6 +93,74 @@ def _session_value(ui: Any, key: str, default: Any) -> Any:
     if hasattr(session_state, "get"):
         return session_state.get(key, default)
     return default
+
+
+def _set_session_value(ui: Any, key: str, value: Any) -> None:
+    session_state = getattr(ui, "session_state", None)
+    if session_state is None or not hasattr(session_state, "__setitem__"):
+        return
+    session_state[key] = value
+
+
+def _migrate_legacy_caption_style_defaults(ui: Any) -> None:
+    session_state = getattr(ui, "session_state", None)
+    if session_state is None or not hasattr(session_state, "get"):
+        return
+    if session_state.get(CAPTION_DEFAULTS_MIGRATION_KEY):
+        return
+
+    has_legacy_caption_defaults = all(
+        session_state.get(f"caption_style_{key}") == value
+        for key, value in LEGACY_CAPTION_STYLE_DEFAULTS.items()
+    )
+    if has_legacy_caption_defaults:
+        _set_session_value(ui, "caption_style_font_size", DEFAULT_CAPTION_FONT_SIZE)
+        _set_session_value(ui, "caption_style_primary_color", DEFAULT_CAPTION_PRIMARY_COLOR)
+        _set_session_value(ui, "caption_style_stroke_width", DEFAULT_CAPTION_STROKE_WIDTH)
+    _set_session_value(ui, CAPTION_DEFAULTS_MIGRATION_KEY, True)
+
+
+def _font_family_from_file(path: Path) -> str:
+    try:
+        from PIL import ImageFont
+
+        family, _style = ImageFont.truetype(str(path), size=12).getname()
+        cleaned = str(family).strip()
+        if cleaned:
+            return cleaned
+    except Exception:
+        pass
+
+    return path.stem.strip()
+
+
+def discover_font_families(
+    candidate_dirs: Iterable[str | Path] | None = None,
+) -> list[str]:
+    """Discover local font family names from project font directories."""
+    font_dirs = tuple(Path(candidate) for candidate in (candidate_dirs or FONT_SEARCH_DIRS))
+    families_by_key: dict[str, str] = {}
+    for font_dir in font_dirs:
+        if not font_dir.is_dir():
+            continue
+        for font_file in font_dir.rglob("*"):
+            if not font_file.is_file() or font_file.suffix.lower() not in FONT_FILE_EXTENSIONS:
+                continue
+            family = _font_family_from_file(font_file)
+            if not family:
+                continue
+            families_by_key.setdefault(family.casefold(), family)
+
+    return sorted(families_by_key.values(), key=str.casefold)
+
+
+def _font_family_options(current_value: str, discovered_families: list[str]) -> list[str]:
+    options = list(discovered_families)
+    if current_value and current_value.casefold() not in {
+        option.casefold() for option in options
+    }:
+        options.insert(0, current_value)
+    return options
 
 
 @contextmanager
@@ -157,15 +248,38 @@ def _render_text_style_controls(
     ui: Any,
     translate,
 ) -> dict:
-    font_family = _call_control(
-        ui,
-        "text_input",
-        _session_value(ui, f"{prefix}_font_family", defaults["font_family"]),
-        translate(f"{prefix}.font_family"),
-        value=_session_value(ui, f"{prefix}_font_family", defaults["font_family"]),
-        key=f"{prefix}_font_family",
-        help=translate(f"{prefix}.font_family_help"),
+    if prefix == "caption_style":
+        _migrate_legacy_caption_style_defaults(ui)
+
+    configured_font_family = str(
+        _session_value(ui, f"{prefix}_font_family", defaults["font_family"])
+    ).strip() or str(defaults["font_family"])
+    discovered_font_families = discover_font_families()
+    font_family_options = _font_family_options(
+        configured_font_family,
+        discovered_font_families,
     )
+    if discovered_font_families:
+        font_family = _call_control(
+            ui,
+            "selectbox",
+            configured_font_family,
+            translate(f"{prefix}.font_family"),
+            font_family_options,
+            index=font_family_options.index(configured_font_family),
+            key=f"{prefix}_font_family",
+            help=translate(f"{prefix}.font_family_help"),
+        )
+    else:
+        font_family = _call_control(
+            ui,
+            "text_input",
+            configured_font_family,
+            translate(f"{prefix}.font_family"),
+            value=configured_font_family,
+            key=f"{prefix}_font_family",
+            help=translate(f"{prefix}.font_family_help"),
+        )
     font_size = _call_control(
         ui,
         "number_input",

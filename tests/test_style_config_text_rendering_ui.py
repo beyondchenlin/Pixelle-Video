@@ -7,10 +7,10 @@ from api.schemas.text_rendering import TextRenderingRequest
 
 
 class _TextStyleFakeUI:
-    session_state = {}
-
     def __init__(self):
+        self.session_state = {}
         self.text_inputs = []
+        self.selectboxes = []
 
     def text_input(self, label, value="", **kwargs):
         self.text_inputs.append({"label": label, "value": value, **kwargs})
@@ -23,6 +23,9 @@ class _TextStyleFakeUI:
         return value
 
     def selectbox(self, _label, options, index=0, **_kwargs):
+        self.selectboxes.append(
+            {"label": _label, "options": list(options), "index": index, **_kwargs}
+        )
         return options[index]
 
 
@@ -123,10 +126,27 @@ def test_build_text_rendering_payload_keeps_overlay_style_when_overlay_disabled(
     }
 
 
-def test_text_style_font_family_control_explains_font_directory():
-    from web.components.text_rendering_config import CAPTION_STYLE_DEFAULTS, _render_text_style_controls
+def test_caption_style_ui_defaults_match_template_dark_text():
+    from web.components.text_rendering_config import CAPTION_STYLE_DEFAULTS, OVERLAY_STYLE_DEFAULTS
+
+    assert CAPTION_STYLE_DEFAULTS["font_size"] == 42
+    assert CAPTION_STYLE_DEFAULTS["primary_color"] == "#2C3E50"
+    assert CAPTION_STYLE_DEFAULTS["stroke_width"] == 0
+    assert OVERLAY_STYLE_DEFAULTS["font_size"] == 76
+    assert OVERLAY_STYLE_DEFAULTS["primary_color"] == "#FFFFFF"
+    assert OVERLAY_STYLE_DEFAULTS["stroke_width"] == 2
+
+
+def test_text_style_font_family_control_explains_font_directory(monkeypatch):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import (
+        CAPTION_STYLE_DEFAULTS,
+        _render_text_style_controls,
+    )
 
     fake_ui = _TextStyleFakeUI()
+
+    monkeypatch.setattr(text_rendering_config, "discover_font_families", lambda: [])
 
     _render_text_style_controls(
         "caption_style",
@@ -137,6 +157,88 @@ def test_text_style_font_family_control_explains_font_directory():
 
     assert fake_ui.text_inputs[0]["label"] == "translated:caption_style.font_family"
     assert fake_ui.text_inputs[0]["help"] == "translated:caption_style.font_family_help"
+
+
+def test_discover_font_families_reads_project_font_directories(tmp_path):
+    from web.components.text_rendering_config import discover_font_families
+
+    fonts_dir = tmp_path / "fonts"
+    ignored_dir = tmp_path / "ignored"
+    nested_dir = fonts_dir / "nested"
+    nested_dir.mkdir(parents=True)
+    ignored_dir.mkdir()
+    (fonts_dir / "PixelleDemoFont.ttf").write_bytes(b"not a real font")
+    (nested_dir / "FZZhengHeiS-EB-GB.TTF").write_bytes(b"not a real font")
+    (ignored_dir / "ignored.ttf").write_bytes(b"not a real font")
+
+    assert discover_font_families(candidate_dirs=(fonts_dir,)) == [
+        "FZZhengHeiS-EB-GB",
+        "PixelleDemoFont",
+    ]
+
+
+def test_text_style_font_family_control_uses_dropdown_when_fonts_exist(monkeypatch):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import (
+        CAPTION_STYLE_DEFAULTS,
+        _render_text_style_controls,
+    )
+
+    fake_ui = _TextStyleFakeUI()
+    fake_ui.session_state = {"caption_style_font_family": "SimHei"}
+    monkeypatch.setattr(
+        text_rendering_config,
+        "discover_font_families",
+        lambda: [
+            "FZCuHeiSongS-B-GB",
+            "SimHei",
+        ],
+    )
+
+    style = _render_text_style_controls(
+        "caption_style",
+        CAPTION_STYLE_DEFAULTS,
+        ui=fake_ui,
+        translate=lambda key: f"translated:{key}",
+    )
+
+    font_select = fake_ui.selectboxes[0]
+    assert fake_ui.text_inputs == []
+    assert font_select["label"] == "translated:caption_style.font_family"
+    assert font_select["options"] == ["FZCuHeiSongS-B-GB", "SimHei"]
+    assert font_select["index"] == 1
+    assert font_select["help"] == "translated:caption_style.font_family_help"
+    assert style["font_family"] == "SimHei"
+
+
+def test_caption_style_control_migrates_legacy_hollow_caption_defaults(monkeypatch):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import (
+        CAPTION_STYLE_DEFAULTS,
+        _render_text_style_controls,
+    )
+
+    fake_ui = _TextStyleFakeUI()
+    fake_ui.session_state = {
+        "caption_style_font_size": 64,
+        "caption_style_primary_color": "#FFFFFF",
+        "caption_style_stroke_width": 2,
+    }
+    monkeypatch.setattr(text_rendering_config, "discover_font_families", lambda: [])
+
+    style = _render_text_style_controls(
+        "caption_style",
+        CAPTION_STYLE_DEFAULTS,
+        ui=fake_ui,
+        translate=lambda key: f"translated:{key}",
+    )
+
+    assert style["font_size"] == 42
+    assert style["primary_color"] == "#2C3E50"
+    assert style["stroke_width"] == 0
+    assert fake_ui.session_state["caption_style_font_size"] == 42
+    assert fake_ui.session_state["caption_style_primary_color"] == "#2C3E50"
+    assert fake_ui.session_state["caption_style_stroke_width"] == 0
 
 
 def test_text_rendering_font_help_translation_keys_exist_in_supported_locales():

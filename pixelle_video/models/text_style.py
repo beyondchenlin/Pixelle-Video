@@ -6,6 +6,13 @@ from typing import Any, Mapping
 
 DEFAULT_CAPTION_STYLE_ID = "caption-default"
 DEFAULT_OVERLAY_STYLE_ID = "overlay-default"
+DEFAULT_CAPTION_FONT_SIZE = 42
+DEFAULT_CAPTION_FONT_WEIGHT = 500
+DEFAULT_CAPTION_PRIMARY_COLOR = "#2C3E50"
+DEFAULT_CAPTION_STROKE_WIDTH = 0
+DEFAULT_OVERLAY_FONT_SIZE = 76
+DEFAULT_OVERLAY_PRIMARY_COLOR = "#FFFFFF"
+DEFAULT_OVERLAY_STROKE_WIDTH = 2
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _POSITIONS = {
@@ -40,13 +47,13 @@ class TextStyleProfile:
     version: str = "text_style_profile.v1"
     font_family: str = "Noto Sans CJK SC"
     font_file: str | None = None
-    font_size: int = 64
-    font_weight: int = 700
-    primary_color: str = "#FFFFFF"
+    font_size: int = DEFAULT_CAPTION_FONT_SIZE
+    font_weight: int = DEFAULT_CAPTION_FONT_WEIGHT
+    primary_color: str = DEFAULT_CAPTION_PRIMARY_COLOR
     background_color: str | None = None
     background_opacity: float = 0.0
     stroke_color: str = "#000000"
-    stroke_width: int = 2
+    stroke_width: int = DEFAULT_CAPTION_STROKE_WIDTH
     shadow_color: str | None = None
     shadow_blur: int = 0
     position: str = "bottom"
@@ -147,13 +154,15 @@ class TextStyleProfile:
             name=str(data.get("name", data["id"])),
             font_family=str(data.get("font_family", "Noto Sans CJK SC")),
             font_file=data.get("font_file"),
-            font_size=int(data.get("font_size", 64)),
-            font_weight=int(data.get("font_weight", 700)),
-            primary_color=str(data.get("primary_color", "#FFFFFF")),
+            font_size=int(data.get("font_size", DEFAULT_CAPTION_FONT_SIZE)),
+            font_weight=int(data.get("font_weight", DEFAULT_CAPTION_FONT_WEIGHT)),
+            primary_color=str(
+                data.get("primary_color", DEFAULT_CAPTION_PRIMARY_COLOR)
+            ),
             background_color=data.get("background_color"),
             background_opacity=float(data.get("background_opacity", 0.0)),
             stroke_color=str(data.get("stroke_color", "#000000")),
-            stroke_width=int(data.get("stroke_width", 2)),
+            stroke_width=int(data.get("stroke_width", DEFAULT_CAPTION_STROKE_WIDTH)),
             shadow_color=data.get("shadow_color"),
             shadow_blur=int(data.get("shadow_blur", 0)),
             position=str(data.get("position", "bottom")),
@@ -179,7 +188,10 @@ def build_default_text_style_profiles() -> list[TextStyleProfile]:
         TextStyleProfile(
             id=DEFAULT_OVERLAY_STYLE_ID,
             name="Overlay Default",
-            font_size=76,
+            font_size=DEFAULT_OVERLAY_FONT_SIZE,
+            font_weight=700,
+            primary_color=DEFAULT_OVERLAY_PRIMARY_COLOR,
+            stroke_width=DEFAULT_OVERLAY_STROKE_WIDTH,
             position="center",
             margin_y=80,
         ),

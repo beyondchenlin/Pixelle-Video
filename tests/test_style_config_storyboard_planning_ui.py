@@ -465,7 +465,7 @@ def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monke
     assert policy["caption_style"] == {
         "font_family": "Noto Sans CJK SC",
         "font_size": 1,
-        "primary_color": "#FFFFFF",
+        "primary_color": "#2C3E50",
         "stroke_color": "#000000",
         "stroke_width": 1,
         "background_color": "#000000",
