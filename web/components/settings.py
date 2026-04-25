@@ -205,6 +205,27 @@ def render_advanced_settings():
                     )
                 else:
                     llm_model = selected_model_option
+
+                st.markdown("---")
+                prompt_batch_col, prompt_concurrency_col = st.columns(2)
+                with prompt_batch_col:
+                    llm_prompt_batch_size = st.number_input(
+                        tr("settings.llm.prompt_batch_size"),
+                        min_value=1,
+                        max_value=50,
+                        value=int(current_llm.get("prompt_batch_size", 10) or 10),
+                        help=tr("settings.llm.prompt_batch_size_help"),
+                        key="llm_prompt_batch_size_input",
+                    )
+                with prompt_concurrency_col:
+                    llm_prompt_batch_concurrent_limit = st.number_input(
+                        tr("settings.llm.prompt_batch_concurrent_limit"),
+                        min_value=1,
+                        max_value=10,
+                        value=int(current_llm.get("prompt_batch_concurrent_limit", 1) or 1),
+                        help=tr("settings.llm.prompt_batch_concurrent_limit_help"),
+                        key="llm_prompt_batch_concurrent_limit_input",
+                    )
         
         # ====================================================================
         # Column 2: ComfyUI Settings
@@ -332,7 +353,13 @@ def render_advanced_settings():
                     if not (llm_api_key and llm_base_url and llm_model):
                         st.error(tr("status.llm_config_incomplete"))
                     else:
-                        config_manager.set_llm_config(llm_api_key, llm_base_url, llm_model)
+                        config_manager.set_llm_config(
+                            llm_api_key,
+                            llm_base_url,
+                            llm_model,
+                            prompt_batch_size=int(llm_prompt_batch_size),
+                            prompt_batch_concurrent_limit=int(llm_prompt_batch_concurrent_limit),
+                        )
                     
                     # Save ComfyUI configuration (optional fields, always save what's provided)
                     # Convert checkbox to instance type: True -> "plus", False -> ""

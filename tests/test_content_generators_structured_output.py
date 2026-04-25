@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from pixelle_video.utils import content_generators
@@ -122,6 +124,50 @@ async def test_generate_image_prompts_uses_structured_output():
 
 
 @pytest.mark.asyncio
+async def test_generate_image_prompts_runs_batches_concurrently_and_preserves_order():
+    class FakeLLM:
+        def __init__(self):
+            self._lock = asyncio.Lock()
+            self._next_call = 0
+            self._active_calls = 0
+            self.max_active_calls = 0
+            self.outputs = [
+                ["prompt 1", "prompt 2"],
+                ["prompt 3", "prompt 4"],
+                ["prompt 5"],
+            ]
+            self.delays = [0.04, 0.01, 0.0]
+
+        async def __call__(self, prompt, **kwargs):
+            async with self._lock:
+                call_index = self._next_call
+                self._next_call += 1
+                self._active_calls += 1
+                self.max_active_calls = max(self.max_active_calls, self._active_calls)
+
+            try:
+                await asyncio.sleep(self.delays[call_index])
+                return content_generators.ImagePromptBatchResponse(
+                    image_prompts=self.outputs[call_index]
+                )
+            finally:
+                async with self._lock:
+                    self._active_calls -= 1
+
+    llm = FakeLLM()
+
+    prompts = await content_generators.generate_image_prompts(
+        llm,
+        narrations=["scene 1", "scene 2", "scene 3", "scene 4", "scene 5"],
+        batch_size=2,
+        max_concurrency=2,
+    )
+
+    assert prompts == ["prompt 1", "prompt 2", "prompt 3", "prompt 4", "prompt 5"]
+    assert llm.max_active_calls == 2
+
+
+@pytest.mark.asyncio
 async def test_generate_video_prompts_uses_structured_output():
     captured_response_type: list[object] = []
 
@@ -140,3 +186,46 @@ async def test_generate_video_prompts_uses_structured_output():
 
     assert captured_response_type == [content_generators.VideoPromptBatchResponse]
     assert prompts == ["video prompt one", "video prompt two"]
+
+
+@pytest.mark.asyncio
+async def test_generate_video_prompts_runs_batches_concurrently_and_preserves_order():
+    class FakeLLM:
+        def __init__(self):
+            self._lock = asyncio.Lock()
+            self._next_call = 0
+            self._active_calls = 0
+            self.max_active_calls = 0
+            self.outputs = [
+                ["video prompt 1", "video prompt 2"],
+                ["video prompt 3", "video prompt 4"],
+            ]
+            self.delays = [0.04, 0.01]
+
+        async def __call__(self, prompt, **kwargs):
+            async with self._lock:
+                call_index = self._next_call
+                self._next_call += 1
+                self._active_calls += 1
+                self.max_active_calls = max(self.max_active_calls, self._active_calls)
+
+            try:
+                await asyncio.sleep(self.delays[call_index])
+                return content_generators.VideoPromptBatchResponse(
+                    video_prompts=self.outputs[call_index]
+                )
+            finally:
+                async with self._lock:
+                    self._active_calls -= 1
+
+    llm = FakeLLM()
+
+    prompts = await content_generators.generate_video_prompts(
+        llm,
+        narrations=["scene 1", "scene 2", "scene 3", "scene 4"],
+        batch_size=2,
+        max_concurrency=2,
+    )
+
+    assert prompts == ["video prompt 1", "video prompt 2", "video prompt 3", "video prompt 4"]
+    assert llm.max_active_calls == 2

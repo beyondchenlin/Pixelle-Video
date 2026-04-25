@@ -39,6 +39,7 @@ from pixelle_video.models.text_overlay import (
 )
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
+from pixelle_video.utils.prompt_batching import PromptBatch, run_prompt_batches
 from pixelle_video.utils.prompt_helper import (
     apply_image_text_policy,
     apply_text_rendering_policy,
@@ -59,6 +60,18 @@ from pixelle_video.utils.workflow_capabilities import (
     WorkflowCapabilities,
     get_media_workflow_capabilities,
 )
+
+
+def _resolve_llm_prompt_batch_size(batch_size: Optional[int]) -> int:
+    if batch_size is not None:
+        return max(1, int(batch_size))
+    return max(1, int(getattr(config_manager.config.llm, "prompt_batch_size", 10) or 10))
+
+
+def _resolve_llm_prompt_batch_concurrency(max_concurrency: Optional[int]) -> int:
+    if max_concurrency is not None:
+        return max(1, int(max_concurrency))
+    return max(1, int(getattr(config_manager.config.llm, "prompt_batch_concurrent_limit", 1) or 1))
 
 
 def _serialize_storyboard_frame_plan(frame_plan: Any) -> dict[str, Any]:
@@ -593,7 +606,8 @@ async def generate_image_prompts(
     narrations: List[str],
     min_words: int = 30,
     max_words: int = 60,
-    batch_size: int = 10,
+    batch_size: Optional[int] = None,
+    max_concurrency: Optional[int] = None,
     max_retries: int = 3,
     progress_callback: Optional[callable] = None,
     style_profile: Optional[dict] = None,
@@ -608,6 +622,7 @@ async def generate_image_prompts(
         min_words: Min image prompt length
         max_words: Max image prompt length
         batch_size: Max narrations per batch (default: 10)
+        max_concurrency: Max concurrent LLM prompt batches (default: config llm.prompt_batch_concurrent_limit)
         max_retries: Max retry attempts per batch (default: 3)
         progress_callback: Optional callback(completed, total, message) for progress updates
     
@@ -616,8 +631,19 @@ async def generate_image_prompts(
     """
     from pixelle_video.prompts import build_image_prompt_prompt
     
+    resolved_batch_size = _resolve_llm_prompt_batch_size(batch_size)
+    resolved_max_concurrency = _resolve_llm_prompt_batch_concurrency(max_concurrency)
+    batch_total = (
+        (len(narrations) + resolved_batch_size - 1) // resolved_batch_size
+        if narrations
+        else 0
+    )
     start_time = perf_counter()
-    logger.info(f"Generating image prompts for {len(narrations)} narrations (batch_size={batch_size})")
+    logger.info(
+        "Generating image prompts for "
+        f"{len(narrations)} narrations "
+        f"(batch_size={resolved_batch_size}, max_concurrency={resolved_max_concurrency})"
+    )
     emit_stage_event(
         channel="ai_creation",
         stage="image_prompt_batch",
@@ -625,92 +651,77 @@ async def generate_image_prompts(
         message="image prompt batch started",
         callback=stage_callback,
         narration_count=len(narrations),
+        batch_size=resolved_batch_size,
+        max_concurrency=resolved_max_concurrency,
     )
-    
-    # Split narrations into batches
-    batches = [narrations[i:i + batch_size] for i in range(0, len(narrations), batch_size)]
-    logger.info(f"Split into {len(batches)} batches")
-    
-    all_prompts = []
-    stage_llm_calls = 0
-    
-    # Process each batch
-    for batch_idx, batch_narrations in enumerate(batches, 1):
-        logger.info(f"Processing batch {batch_idx}/{len(batches)} ({len(batch_narrations)} narrations)")
-        batch_start_time = perf_counter()
-        
-        # Retry logic for this batch
-        for attempt in range(1, max_retries + 1):
-            try:
-                # Generate prompts for this batch
-                prompt = build_image_prompt_prompt(
-                    narrations=batch_narrations,
-                    min_words=min_words,
-                    max_words=max_words,
-                    style_profile=style_profile,
-                )
-                
-                stage_llm_calls += 1
-                response: ImagePromptBatchResponse = await llm_service(
-                    prompt=prompt,
-                    response_type=ImagePromptBatchResponse,
-                    temperature=0.7,
-                    max_tokens=8192
-                )
 
-                batch_prompts = list(response.image_prompts)
-                
-                # Validate count
-                if len(batch_prompts) != len(batch_narrations):
-                    error_msg = (
-                        f"Batch {batch_idx} prompt count mismatch (attempt {attempt}/{max_retries}):\n"
-                        f"  Expected: {len(batch_narrations)} prompts\n"
-                        f"  Got: {len(batch_prompts)} prompts"
-                    )
-                    logger.warning(error_msg)
-                    
-                    if attempt < max_retries:
-                        logger.info(f"Retrying batch {batch_idx}...")
-                        continue
-                    else:
-                        raise ValueError(error_msg)
-                
-                # Success!
-                logger.info(
-                    f"鉁?Batch {batch_idx} completed successfully ({len(batch_prompts)} prompts) in "
-                    f"{perf_counter() - batch_start_time:.2f}s"
-                )
-                all_prompts.extend(batch_prompts)
-                
-                # Report progress
-                if progress_callback:
-                    progress_callback(
-                        len(all_prompts),
-                        len(narrations),
-                        f"Batch {batch_idx}/{len(batches)} completed"
-                    )
-                
-                break
-                
-            except Exception as e:
-                logger.error(f"Batch {batch_idx} generation error (attempt {attempt}/{max_retries}): {e}")
-                if attempt >= max_retries:
-                    emit_stage_event(
-                        channel="ai_creation",
-                        stage="image_prompt_batch",
-                        event="fail",
-                        message="image prompt batch failed",
-                        callback=stage_callback,
-                        status="failed",
-                        latency_ms=round((perf_counter() - start_time) * 1000),
-                        llm_call_count=stage_llm_calls,
-                        retry_count=max(stage_llm_calls - batch_idx, 0),
-                        batch_index=batch_idx,
-                        batch_total=len(batches),
-                        narration_count=len(narrations),
-                    )
-                    raise
-                logger.info(f"Retrying batch {batch_idx}...")
+    logger.info(f"Split into {batch_total} batches")
+    stage_llm_calls = 0
+
+    async def run_batch(batch: PromptBatch[str], attempt: int) -> list[str]:
+        nonlocal stage_llm_calls
+
+        logger.info(
+            f"Processing batch {batch.index}/{batch_total} "
+            f"({len(batch.items)} narrations, attempt {attempt}/{max_retries})"
+        )
+        batch_start_time = perf_counter()
+        prompt = build_image_prompt_prompt(
+            narrations=batch.items,
+            min_words=min_words,
+            max_words=max_words,
+            style_profile=style_profile,
+        )
+
+        stage_llm_calls += 1
+        response: ImagePromptBatchResponse = await llm_service(
+            prompt=prompt,
+            response_type=ImagePromptBatchResponse,
+            temperature=0.7,
+            max_tokens=8192
+        )
+
+        batch_prompts = list(response.image_prompts)
+        if len(batch_prompts) != len(batch.items):
+            error_msg = (
+                f"Batch {batch.index} prompt count mismatch (attempt {attempt}/{max_retries}):\n"
+                f"  Expected: {len(batch.items)} prompts\n"
+                f"  Got: {len(batch_prompts)} prompts"
+            )
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+
+        logger.info(
+            f"鉁?Batch {batch.index} completed successfully ({len(batch_prompts)} prompts) in "
+            f"{perf_counter() - batch_start_time:.2f}s"
+        )
+        return batch_prompts
+
+    try:
+        batch_result = await run_prompt_batches(
+            items=narrations,
+            batch_size=resolved_batch_size,
+            max_concurrency=resolved_max_concurrency,
+            max_retries=max_retries,
+            run_batch=run_batch,
+            progress_callback=progress_callback,
+        )
+    except Exception:
+        emit_stage_event(
+            channel="ai_creation",
+            stage="image_prompt_batch",
+            event="fail",
+            message="image prompt batch failed",
+            callback=stage_callback,
+            status="failed",
+            latency_ms=round((perf_counter() - start_time) * 1000),
+            llm_call_count=stage_llm_calls,
+            retry_count=max(stage_llm_calls - min(stage_llm_calls, batch_total), 0),
+            batch_total=batch_total,
+            narration_count=len(narrations),
+            max_concurrency=resolved_max_concurrency,
+        )
+        raise
     
     emit_stage_event(
         channel="ai_creation",
@@ -720,15 +731,17 @@ async def generate_image_prompts(
         callback=stage_callback,
         status="success",
         latency_ms=round((perf_counter() - start_time) * 1000),
-        llm_call_count=stage_llm_calls,
-        retry_count=max(stage_llm_calls - len(batches), 0),
-        batch_total=len(batches),
+        llm_call_count=batch_result.call_count,
+        retry_count=batch_result.retry_count,
+        batch_total=batch_result.batch_total,
         narration_count=len(narrations),
+        batch_size=resolved_batch_size,
+        max_concurrency=resolved_max_concurrency,
     )
     logger.info(
-        f"鉁?Generated {len(all_prompts)} image prompts in {perf_counter() - start_time:.2f}s"
+        f"鉁?Generated {len(batch_result.outputs)} image prompts in {perf_counter() - start_time:.2f}s"
     )
-    return all_prompts
+    return batch_result.outputs
 
 
 async def generate_styled_image_prompt_batch(
@@ -741,7 +754,8 @@ async def generate_styled_image_prompt_batch(
     media_type: Literal["image", "video"] = "image",
     min_words: int = 30,
     max_words: int = 60,
-    batch_size: int = 10,
+    batch_size: Optional[int] = None,
+    max_concurrency: Optional[int] = None,
     max_retries: int = 3,
     progress_callback: Optional[callable] = None,
     world_preset_id: Optional[str] = None,
@@ -947,6 +961,7 @@ async def generate_styled_image_prompt_batch(
         min_words=min_words,
         max_words=max_words,
         batch_size=batch_size,
+        max_concurrency=max_concurrency,
         max_retries=max_retries,
         progress_callback=progress_callback,
         style_profile=style_profile,
@@ -1101,7 +1116,8 @@ async def generate_video_prompts(
     narrations: List[str],
     min_words: int = 30,
     max_words: int = 60,
-    batch_size: int = 10,
+    batch_size: Optional[int] = None,
+    max_concurrency: Optional[int] = None,
     max_retries: int = 3,
     progress_callback: Optional[callable] = None,
     style_profile: Optional[dict] = None,
@@ -1116,6 +1132,7 @@ async def generate_video_prompts(
         min_words: Min video prompt length
         max_words: Max video prompt length
         batch_size: Max narrations per batch (default: 10)
+        max_concurrency: Max concurrent LLM prompt batches (default: config llm.prompt_batch_concurrent_limit)
         max_retries: Max retry attempts per batch (default: 3)
         progress_callback: Optional callback(completed, total, message) for progress updates
     
@@ -1124,8 +1141,19 @@ async def generate_video_prompts(
     """
     from pixelle_video.prompts.video_generation import build_video_prompt_prompt
     
+    resolved_batch_size = _resolve_llm_prompt_batch_size(batch_size)
+    resolved_max_concurrency = _resolve_llm_prompt_batch_concurrency(max_concurrency)
+    batch_total = (
+        (len(narrations) + resolved_batch_size - 1) // resolved_batch_size
+        if narrations
+        else 0
+    )
     start_time = perf_counter()
-    logger.info(f"Generating video prompts for {len(narrations)} narrations (batch_size={batch_size})")
+    logger.info(
+        "Generating video prompts for "
+        f"{len(narrations)} narrations "
+        f"(batch_size={resolved_batch_size}, max_concurrency={resolved_max_concurrency})"
+    )
     emit_stage_event(
         channel="ai_creation",
         stage="video_prompt_batch",
@@ -1133,81 +1161,73 @@ async def generate_video_prompts(
         message="video prompt batch started",
         callback=stage_callback,
         narration_count=len(narrations),
+        batch_size=resolved_batch_size,
+        max_concurrency=resolved_max_concurrency,
     )
-    
-    # Split narrations into batches
-    batches = [narrations[i:i + batch_size] for i in range(0, len(narrations), batch_size)]
-    logger.info(f"Split into {len(batches)} batches")
-    
-    all_prompts = []
-    stage_llm_calls = 0
-    
-    # Process each batch
-    for batch_idx, batch_narrations in enumerate(batches, 1):
-        logger.info(f"Processing batch {batch_idx}/{len(batches)} ({len(batch_narrations)} narrations)")
-        batch_start_time = perf_counter()
-        
-        # Retry logic for this batch
-        for attempt in range(1, max_retries + 1):
-            try:
-                # Generate prompts for this batch
-                prompt = build_video_prompt_prompt(
-                    narrations=batch_narrations,
-                    min_words=min_words,
-                    max_words=max_words,
-                    style_profile=style_profile,
-                )
-                
-                stage_llm_calls += 1
-                response: VideoPromptBatchResponse = await llm_service(
-                    prompt=prompt,
-                    response_type=VideoPromptBatchResponse,
-                    temperature=0.7,
-                    max_tokens=8192
-                )
 
-                batch_prompts = list(response.video_prompts)
-                
-                # Validate batch result
-                if len(batch_prompts) != len(batch_narrations):
-                    raise ValueError(
-                        f"Prompt count mismatch: expected {len(batch_narrations)}, got {len(batch_prompts)}"
-                    )
-                
-                # Success - add to all_prompts
-                all_prompts.extend(batch_prompts)
-                logger.info(
-                    f"鉁?Batch {batch_idx} completed: {len(batch_prompts)} video prompts in "
-                    f"{perf_counter() - batch_start_time:.2f}s"
-                )
-                
-                # Report progress
-                if progress_callback:
-                    completed = len(all_prompts)
-                    total = len(narrations)
-                    progress_callback(completed, total, f"Batch {batch_idx}/{len(batches)} completed")
-                
-                break  # Success, move to next batch
-            
-            except Exception as e:
-                logger.warning(f"鉁?Batch {batch_idx} attempt {attempt} failed: {e}")
-                if attempt >= max_retries:
-                    emit_stage_event(
-                        channel="ai_creation",
-                        stage="video_prompt_batch",
-                        event="fail",
-                        message="video prompt batch failed",
-                        callback=stage_callback,
-                        status="failed",
-                        latency_ms=round((perf_counter() - start_time) * 1000),
-                        llm_call_count=stage_llm_calls,
-                        retry_count=max(stage_llm_calls - batch_idx, 0),
-                        batch_index=batch_idx,
-                        batch_total=len(batches),
-                        narration_count=len(narrations),
-                    )
-                    raise
-                logger.info(f"Retrying batch {batch_idx}...")
+    logger.info(f"Split into {batch_total} batches")
+    stage_llm_calls = 0
+
+    async def run_batch(batch: PromptBatch[str], attempt: int) -> list[str]:
+        nonlocal stage_llm_calls
+
+        logger.info(
+            f"Processing batch {batch.index}/{batch_total} "
+            f"({len(batch.items)} narrations, attempt {attempt}/{max_retries})"
+        )
+        batch_start_time = perf_counter()
+        prompt = build_video_prompt_prompt(
+            narrations=batch.items,
+            min_words=min_words,
+            max_words=max_words,
+            style_profile=style_profile,
+        )
+
+        stage_llm_calls += 1
+        response: VideoPromptBatchResponse = await llm_service(
+            prompt=prompt,
+            response_type=VideoPromptBatchResponse,
+            temperature=0.7,
+            max_tokens=8192
+        )
+
+        batch_prompts = list(response.video_prompts)
+        if len(batch_prompts) != len(batch.items):
+            raise ValueError(
+                f"Prompt count mismatch: expected {len(batch.items)}, got {len(batch_prompts)}"
+            )
+
+        logger.info(
+            f"鉁?Batch {batch.index} completed: {len(batch_prompts)} video prompts in "
+            f"{perf_counter() - batch_start_time:.2f}s"
+        )
+        return batch_prompts
+
+    try:
+        batch_result = await run_prompt_batches(
+            items=narrations,
+            batch_size=resolved_batch_size,
+            max_concurrency=resolved_max_concurrency,
+            max_retries=max_retries,
+            run_batch=run_batch,
+            progress_callback=progress_callback,
+        )
+    except Exception:
+        emit_stage_event(
+            channel="ai_creation",
+            stage="video_prompt_batch",
+            event="fail",
+            message="video prompt batch failed",
+            callback=stage_callback,
+            status="failed",
+            latency_ms=round((perf_counter() - start_time) * 1000),
+            llm_call_count=stage_llm_calls,
+            retry_count=max(stage_llm_calls - min(stage_llm_calls, batch_total), 0),
+            batch_total=batch_total,
+            narration_count=len(narrations),
+            max_concurrency=resolved_max_concurrency,
+        )
+        raise
     
     emit_stage_event(
         channel="ai_creation",
@@ -1217,14 +1237,16 @@ async def generate_video_prompts(
         callback=stage_callback,
         status="success",
         latency_ms=round((perf_counter() - start_time) * 1000),
-        llm_call_count=stage_llm_calls,
-        retry_count=max(stage_llm_calls - len(batches), 0),
-        batch_total=len(batches),
+        llm_call_count=batch_result.call_count,
+        retry_count=batch_result.retry_count,
+        batch_total=batch_result.batch_total,
         narration_count=len(narrations),
+        batch_size=resolved_batch_size,
+        max_concurrency=resolved_max_concurrency,
     )
     logger.info(
-        f"鉁?Generated {len(all_prompts)} video prompts in {perf_counter() - start_time:.2f}s"
+        f"鉁?Generated {len(batch_result.outputs)} video prompts in {perf_counter() - start_time:.2f}s"
     )
-    return all_prompts
+    return batch_result.outputs
 
 
