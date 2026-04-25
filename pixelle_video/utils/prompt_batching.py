@@ -18,6 +18,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Generic, Sequence, TypeVar
 
+from loguru import logger
+
 TInput = TypeVar("TInput")
 TOutput = TypeVar("TOutput")
 
@@ -39,6 +41,25 @@ class PromptBatchRunResult(Generic[TOutput]):
     call_count: int
     retry_count: int
     batch_total: int
+
+
+class PromptBatchRunError(RuntimeError):
+    """Batch execution failed after retries; includes partial run metrics."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        call_count: int,
+        retry_count: int,
+        batch_total: int,
+        failed_batch_index: int,
+    ):
+        super().__init__(message)
+        self.call_count = call_count
+        self.retry_count = retry_count
+        self.batch_total = batch_total
+        self.failed_batch_index = failed_batch_index
 
 
 BatchRunner = Callable[[PromptBatch[TInput], int], Awaitable[Sequence[TOutput]]]
@@ -93,15 +114,18 @@ async def run_prompt_batches(
     total_items = len(items)
     completed_items = 0
     call_count = 0
+    retry_count = 0
     state_lock = asyncio.Lock()
 
     async def execute_batch(batch: PromptBatch[TInput]) -> tuple[int, list[TOutput]]:
-        nonlocal completed_items, call_count
+        nonlocal completed_items, call_count, retry_count
 
         for attempt in range(1, max_retries + 1):
             try:
                 async with state_lock:
                     call_count += 1
+                    if attempt > 1:
+                        retry_count += 1
 
                 outputs = list(await run_batch(batch, attempt))
                 if len(outputs) != len(batch.items):
@@ -114,17 +138,30 @@ async def run_prompt_batches(
                     completed_items += len(outputs)
                     completed_count = completed_items
                 if progress_callback is not None:
-                    message = (
-                        progress_message(batch.index, len(batches))
-                        if progress_message is not None
-                        else f"Batch {batch.index}/{len(batches)} completed"
-                    )
-                    progress_callback(completed_count, total_items, message)
+                    message = f"Batch {batch.index}/{len(batches)} completed"
+                    if progress_message is not None:
+                        try:
+                            message = progress_message(batch.index, len(batches))
+                        except Exception as exc:
+                            logger.warning(f"Prompt batch progress message failed: {exc}")
+                    try:
+                        progress_callback(completed_count, total_items, message)
+                    except Exception as exc:
+                        logger.warning(f"Prompt batch progress callback failed: {exc}")
 
                 return batch.start_index, outputs
-            except Exception:
+            except Exception as exc:
                 if attempt >= max_retries:
-                    raise
+                    async with state_lock:
+                        failed_call_count = call_count
+                        failed_retry_count = retry_count
+                    raise PromptBatchRunError(
+                        str(exc),
+                        call_count=failed_call_count,
+                        retry_count=failed_retry_count,
+                        batch_total=len(batches),
+                        failed_batch_index=batch.index,
+                    ) from exc
 
         raise RuntimeError("unreachable prompt batch retry state")
 
@@ -158,6 +195,6 @@ async def run_prompt_batches(
     return PromptBatchRunResult(
         outputs=ordered_outputs,
         call_count=call_count,
-        retry_count=max(call_count - len(batches), 0),
+        retry_count=retry_count,
         batch_total=len(batches),
     )

@@ -168,6 +168,39 @@ async def test_generate_image_prompts_runs_batches_concurrently_and_preserves_or
 
 
 @pytest.mark.asyncio
+async def test_generate_image_prompts_failure_event_reports_retry_count_from_failed_batch():
+    observed = []
+
+    class FakeLLM:
+        async def __call__(self, prompt, **kwargs):
+            if "scene 1" in prompt:
+                return content_generators.ImagePromptBatchResponse(
+                    image_prompts=["wrong prompt count"]
+                )
+            return content_generators.ImagePromptBatchResponse(
+                image_prompts=["prompt"] * prompt.count("scene ")
+            )
+
+    with pytest.raises(ValueError, match="prompt count mismatch"):
+        await content_generators.generate_image_prompts(
+            FakeLLM(),
+            narrations=["scene 1", "scene 2", "scene 3", "scene 4", "scene 5"],
+            batch_size=2,
+            max_concurrency=1,
+            max_retries=3,
+            stage_callback=observed.append,
+        )
+
+    fail_event = next(
+        item
+        for item in observed
+        if item["stage"] == "image_prompt_batch" and item["event"] == "fail"
+    )
+    assert fail_event["retry_count"] == 2
+    assert fail_event["batch_total"] == 3
+
+
+@pytest.mark.asyncio
 async def test_generate_video_prompts_uses_structured_output():
     captured_response_type: list[object] = []
 

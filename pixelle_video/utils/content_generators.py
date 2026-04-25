@@ -39,7 +39,11 @@ from pixelle_video.models.text_overlay import (
 )
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
-from pixelle_video.utils.prompt_batching import PromptBatch, run_prompt_batches
+from pixelle_video.utils.prompt_batching import (
+    PromptBatch,
+    PromptBatchRunError,
+    run_prompt_batches,
+)
 from pixelle_video.utils.prompt_helper import (
     apply_image_text_policy,
     apply_text_rendering_policy,
@@ -656,11 +660,7 @@ async def generate_image_prompts(
     )
 
     logger.info(f"Split into {batch_total} batches")
-    stage_llm_calls = 0
-
     async def run_batch(batch: PromptBatch[str], attempt: int) -> list[str]:
-        nonlocal stage_llm_calls
-
         logger.info(
             f"Processing batch {batch.index}/{batch_total} "
             f"({len(batch.items)} narrations, attempt {attempt}/{max_retries})"
@@ -673,7 +673,6 @@ async def generate_image_prompts(
             style_profile=style_profile,
         )
 
-        stage_llm_calls += 1
         response: ImagePromptBatchResponse = await llm_service(
             prompt=prompt,
             response_type=ImagePromptBatchResponse,
@@ -706,6 +705,26 @@ async def generate_image_prompts(
             run_batch=run_batch,
             progress_callback=progress_callback,
         )
+    except PromptBatchRunError as exc:
+        emit_stage_event(
+            channel="ai_creation",
+            stage="image_prompt_batch",
+            event="fail",
+            message="image prompt batch failed",
+            callback=stage_callback,
+            status="failed",
+            latency_ms=round((perf_counter() - start_time) * 1000),
+            llm_call_count=exc.call_count,
+            retry_count=exc.retry_count,
+            batch_index=exc.failed_batch_index,
+            batch_total=exc.batch_total,
+            narration_count=len(narrations),
+            batch_size=resolved_batch_size,
+            max_concurrency=resolved_max_concurrency,
+        )
+        if exc.__cause__ is not None:
+            raise exc.__cause__ from exc
+        raise
     except Exception:
         emit_stage_event(
             channel="ai_creation",
@@ -715,10 +734,11 @@ async def generate_image_prompts(
             callback=stage_callback,
             status="failed",
             latency_ms=round((perf_counter() - start_time) * 1000),
-            llm_call_count=stage_llm_calls,
-            retry_count=max(stage_llm_calls - min(stage_llm_calls, batch_total), 0),
+            llm_call_count=0,
+            retry_count=0,
             batch_total=batch_total,
             narration_count=len(narrations),
+            batch_size=resolved_batch_size,
             max_concurrency=resolved_max_concurrency,
         )
         raise
@@ -1166,11 +1186,7 @@ async def generate_video_prompts(
     )
 
     logger.info(f"Split into {batch_total} batches")
-    stage_llm_calls = 0
-
     async def run_batch(batch: PromptBatch[str], attempt: int) -> list[str]:
-        nonlocal stage_llm_calls
-
         logger.info(
             f"Processing batch {batch.index}/{batch_total} "
             f"({len(batch.items)} narrations, attempt {attempt}/{max_retries})"
@@ -1183,7 +1199,6 @@ async def generate_video_prompts(
             style_profile=style_profile,
         )
 
-        stage_llm_calls += 1
         response: VideoPromptBatchResponse = await llm_service(
             prompt=prompt,
             response_type=VideoPromptBatchResponse,
@@ -1212,6 +1227,26 @@ async def generate_video_prompts(
             run_batch=run_batch,
             progress_callback=progress_callback,
         )
+    except PromptBatchRunError as exc:
+        emit_stage_event(
+            channel="ai_creation",
+            stage="video_prompt_batch",
+            event="fail",
+            message="video prompt batch failed",
+            callback=stage_callback,
+            status="failed",
+            latency_ms=round((perf_counter() - start_time) * 1000),
+            llm_call_count=exc.call_count,
+            retry_count=exc.retry_count,
+            batch_index=exc.failed_batch_index,
+            batch_total=exc.batch_total,
+            narration_count=len(narrations),
+            batch_size=resolved_batch_size,
+            max_concurrency=resolved_max_concurrency,
+        )
+        if exc.__cause__ is not None:
+            raise exc.__cause__ from exc
+        raise
     except Exception:
         emit_stage_event(
             channel="ai_creation",
@@ -1221,10 +1256,11 @@ async def generate_video_prompts(
             callback=stage_callback,
             status="failed",
             latency_ms=round((perf_counter() - start_time) * 1000),
-            llm_call_count=stage_llm_calls,
-            retry_count=max(stage_llm_calls - min(stage_llm_calls, batch_total), 0),
+            llm_call_count=0,
+            retry_count=0,
             batch_total=batch_total,
             narration_count=len(narrations),
+            batch_size=resolved_batch_size,
             max_concurrency=resolved_max_concurrency,
         )
         raise
