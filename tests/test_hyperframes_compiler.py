@@ -4,6 +4,7 @@ import pytest
 
 from pixelle_video.models.render_package import CaptionCue, TextCue, TextTrack, VisualClip
 from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
+from pixelle_video.models.text_style import TextStyleProfile
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 
 
@@ -211,7 +212,7 @@ def test_compiler_emits_static_text_layer_without_manifest_fetch(tmp_path: Path)
             TextCue(
                 id="cue-1",
                 track_id="track-1",
-                text="<Pixelle & 字>",
+                text="5 < 6 & text",
                 start=0.5,
                 end=1.5,
                 role="keyword",
@@ -231,12 +232,331 @@ def test_compiler_emits_static_text_layer_without_manifest_fetch(tmp_path: Path)
         encoding="utf-8"
     )
 
-    assert "&lt;Pixelle &amp; 字&gt;" in text_layer
+    assert "5 &lt; 6 &amp; text" in text_layer
     assert 'data-start="0.5"' in text_layer
     assert 'data-duration="1.0"' in text_layer
     assert 'data-slot="center"' in text_layer
     assert 'data-layer="4"' in text_layer
     assert "text_tracks.json" not in text_layer
+
+
+def test_hyperframes_compiler_emits_text_style_variables(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<div data-duration="__DURATION__">__TEXT_CUES__</div>',
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "text_layer.template.html").write_text(
+        '<div id="text-layer">__TEXT_CUES__</div><script>__TEXT_TIMELINE__</script>',
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="Title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        text_style_profiles=[
+            TextStyleProfile(
+                id="caption-yellow",
+                name="Caption Yellow",
+                primary_color="#FFFF00",
+            )
+        ],
+        text_tracks=[
+            TextTrack(
+                id="overlay",
+                kind="overlay",
+                name="Overlay",
+                renderer_targets=("hyperframes",),
+                style_profile="caption-yellow",
+            )
+        ],
+        text_cues=[
+            TextCue(
+                id="cue-1",
+                track_id="overlay",
+                text="Important <b>text</b> & keep",
+                start=0,
+                end=1,
+                role="keyword",
+                slot="center",
+            )
+        ],
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'data-style-profile="caption-yellow"' in html
+    assert "--text-fill: #FFFF00" in html
+    assert "Important text &amp; keep" in html
+    assert "<b>" not in html
+
+
+def test_hyperframes_compiler_prefers_cue_style_over_track_style(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        "__TEXT_CUES__",
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "text_layer.template.html").write_text(
+        "__TEXT_CUES__",
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="Title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        text_style_profiles=[
+            TextStyleProfile(
+                id="track-style",
+                name="Track Style",
+                primary_color="#FFFFFF",
+            ),
+            TextStyleProfile(
+                id="cue-style",
+                name="Cue Style",
+                primary_color="#FFFF00",
+            ),
+        ],
+        text_tracks=[
+            TextTrack(
+                id="overlay",
+                kind="overlay",
+                name="Overlay",
+                renderer_targets=("hyperframes",),
+                style_profile="track-style",
+            )
+        ],
+        text_cues=[
+            TextCue(
+                id="cue-1",
+                track_id="overlay",
+                text="Cue style",
+                start=0,
+                end=1,
+                role="keyword",
+                style_profile="cue-style",
+            )
+        ],
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'data-style-profile="cue-style"' in html
+    assert "--text-fill: #FFFF00" in html
+    assert 'data-style-profile="track-style"' not in html
+
+
+def test_hyperframes_compiler_sanitizes_css_profile_values(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        "__TEXT_CUES__",
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "text_layer.template.html").write_text(
+        "__TEXT_CUES__",
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="Title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        text_style_profiles=[
+            TextStyleProfile(
+                id="hostile-font",
+                name="Hostile Font",
+                font_family='Noto Sans"; background:url(javascript:alert(1)); /*',
+                primary_color="#FFFF00",
+            )
+        ],
+        text_tracks=[
+            TextTrack(
+                id="overlay",
+                kind="overlay",
+                name="Overlay",
+                renderer_targets=("hyperframes",),
+                style_profile="hostile-font",
+            )
+        ],
+        text_cues=[
+            TextCue(
+                id="cue-1",
+                track_id="overlay",
+                text="Safe text",
+                start=0,
+                end=1,
+                role="keyword",
+            )
+        ],
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(
+        encoding="utf-8"
+    )
+    assert "--text-fill: #FFFF00" in html
+    assert "--text-stroke-color:" in html
+    assert "--text-font-family: sans-serif" in html
+    assert "javascript:" not in html
+    assert "backgroundurl" not in html
+    assert "/*" not in html
+    assert "*/" not in html
+
+
+def test_hyperframes_compiler_emits_caption_style_variables(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<div data-duration="__DURATION__">__CAPTIONS__</div>',
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        '<div id="captions">__CAPTIONS__</div>',
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="Title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        text_style_profiles=[
+            TextStyleProfile(
+                id="caption-yellow",
+                name="Caption Yellow",
+                primary_color="#FFFF00",
+            )
+        ],
+        captions=[
+            CaptionCue(
+                id="caption-1",
+                text="Caption <b>text</b> & keep",
+                start=0,
+                end=1,
+                style_profile="caption-yellow",
+            )
+        ],
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "compositions" / "captions.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'data-style-profile="caption-yellow"' in html
+    assert "--text-fill: #FFFF00" in html
+    assert "Caption text &amp; keep" in html
+    assert "<b>" not in html
+
+
+def test_hyperframes_compiler_escapes_element_animation_manifest_attribute(
+    tmp_path: Path,
+):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<script src="__ELEMENT_ANIMATION_MANIFEST__"></script>',
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "text_layer.template.html").write_text(
+        "__TEXT_CUES__",
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="Title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        element_animation_manifest_path='data/manifest" onerror="alert(1).json',
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert 'src="data/manifest&quot; onerror=&quot;alert(1).json"' in html
+    assert ' onerror="' not in html
 
 
 def test_phase1_templates_do_not_depend_on_remote_fonts_or_cdn_scripts():

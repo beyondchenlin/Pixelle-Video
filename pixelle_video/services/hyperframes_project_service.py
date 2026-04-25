@@ -22,6 +22,7 @@ from pixelle_video.models.render_package import (
 )
 from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
 from pixelle_video.models.template_text_capabilities import TemplateTextCapabilities
+from pixelle_video.models.text_style import DEFAULT_CAPTION_STYLE_ID
 from pixelle_video.services.hyperframes_asset_materializer import HyperFramesAssetMaterializer
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 from pixelle_video.utils.os_util import get_output_path
@@ -51,7 +52,7 @@ def _build_caption_cues_from_sentences(manifest: RenderManifest) -> list[Caption
                 sentence=sentence,
                 start=float(start),
                 end=float(end),
-                style_profile=manifest.template_id,
+                style_profile=DEFAULT_CAPTION_STYLE_ID,
                 punctuation_mode=manifest.caption_punctuation_mode,
             )
         )
@@ -177,6 +178,7 @@ def build_template_render_context(
         template_params=params,
         visuals=list(manifest.visual_clips),
         captions=caption_cues,
+        text_style_profiles=list(manifest.text_style_profiles),
         text_tracks=list(manifest.text_tracks),
         text_cues=list(manifest.text_cues),
         audio_tracks=audio_tracks,
@@ -279,6 +281,9 @@ class HyperFramesProjectService:
     def _build_text_tracks_payload(self, manifest: RenderManifest) -> dict:
         return {
             "task_id": manifest.task_id,
+            "text_style_profiles": [
+                profile.to_dict() for profile in manifest.text_style_profiles
+            ],
             "text_tracks": [track.to_dict() for track in manifest.text_tracks],
             "text_cues": [cue.to_dict() for cue in manifest.text_cues],
         }

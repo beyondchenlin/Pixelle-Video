@@ -4,7 +4,11 @@ from html import escape
 from pathlib import Path
 from shutil import copy2
 
+from pixelle_video.models.render_package import CaptionCue, TextCue
 from pixelle_video.models.template_render_context import TemplateRenderContext
+from pixelle_video.models.text_style import TextStyleProfile
+from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
+from pixelle_video.services.text_style_resolver import TextStyleResolver
 
 
 class HyperFramesCompiler:
@@ -12,6 +16,7 @@ class HyperFramesCompiler:
         self,
         template_root: Path | None = None,
         runtime_root: Path | None = None,
+        text_sanitizer: TextContentSanitizer | None = None,
     ):
         self.template_root = (
             Path(template_root)
@@ -23,6 +28,7 @@ class HyperFramesCompiler:
             if runtime_root is not None
             else Path("resources/hyperframes/runtime")
         )
+        self.text_sanitizer = text_sanitizer or TextContentSanitizer()
 
     def compile(self, *, project_dir: Path, context: TemplateRenderContext) -> None:
         template_dir = self.template_root / context.template_id
@@ -52,7 +58,10 @@ class HyperFramesCompiler:
             "__CAPTIONS__": self._render_captions(context),
             "__TEXT_CUES__": self._render_text_cues(context),
             "__TEXT_TIMELINE__": self._render_text_timeline(context),
-            "__ELEMENT_ANIMATION_MANIFEST__": context.element_animation_manifest_path or "",
+            "__ELEMENT_ANIMATION_MANIFEST__": escape(
+                context.element_animation_manifest_path or "",
+                quote=True,
+            ),
         }
 
         compiled_index = self._replace_placeholders(index_template, replacements)
@@ -144,16 +153,24 @@ class HyperFramesCompiler:
         return "".join(rendered)
 
     def _render_captions(self, context: TemplateRenderContext) -> str:
+        resolver = TextStyleResolver(profiles=context.text_style_profiles)
         rendered: list[str] = []
         for cue in context.captions:
             duration = max(float(cue.end) - float(cue.start), 0.1)
+            profile = resolver.resolve_for_cue(cue=self._caption_as_text_cue(cue))
+            css_variables = self._style_profile_css_variables(profile, context)
+            text_style = self._text_content_inline_style()
+            display_text = self._safe_display_text(cue.text)
             rendered.append(
                 (
                     f'<div id="{escape(cue.id, quote=True)}" class="clip caption-group" '
                     f'data-start="{cue.start}" '
                     f'data-duration="{duration}" '
-                    'data-track-index="1">'
-                    f'<div class="caption-text">{escape(cue.text)}</div>'
+                    'data-track-index="1" '
+                    f'data-style-profile="{escape(profile.id, quote=True)}" '
+                    f'style="{escape(css_variables, quote=True)}">'
+                    f'<div class="caption-text" style="{escape(text_style, quote=True)}">'
+                    f"{escape(display_text)}</div>"
                     "</div>"
                 )
             )
@@ -161,6 +178,7 @@ class HyperFramesCompiler:
 
     def _render_text_cues(self, context: TemplateRenderContext) -> str:
         tracks = {track.id: track for track in context.text_tracks if track.enabled}
+        resolver = TextStyleResolver(profiles=context.text_style_profiles)
         rendered: list[str] = []
         for cue in context.text_cues:
             track = tracks.get(cue.track_id)
@@ -168,6 +186,13 @@ class HyperFramesCompiler:
                 continue
 
             duration = max(float(cue.end) - float(cue.start), 0.1)
+            profile = resolver.resolve_for_cue(cue=cue, track=track)
+            css_variables = self._style_profile_css_variables(profile, context)
+            cue_style = (
+                f"{css_variables} max-width: var(--text-max-width);"
+            )
+            text_style = self._text_content_inline_style()
+            display_text = self._safe_display_text(cue.text)
             rendered.append(
                 (
                     f'<div id="{escape(cue.id, quote=True)}" '
@@ -176,12 +201,100 @@ class HyperFramesCompiler:
                     f'data-track-id="{escape(cue.track_id, quote=True)}" '
                     f'data-role="{escape(cue.role, quote=True)}" '
                     f'data-slot="{escape(cue.slot or "center", quote=True)}" '
-                    f'data-layer="{cue.layer}">'
-                    f'<span class="text-cue__content">{escape(cue.text)}</span>'
+                    f'data-layer="{cue.layer}" '
+                    f'data-style-profile="{escape(profile.id, quote=True)}" '
+                    f'style="{escape(cue_style, quote=True)}">'
+                    f'<span class="text-cue__content" '
+                    f'style="{escape(text_style, quote=True)}">'
+                    f"{escape(display_text)}</span>"
                     "</div>"
                 )
             )
         return "".join(rendered)
+
+    def _safe_display_text(self, text: object) -> str:
+        return self.text_sanitizer.sanitize(text).display_text
+
+    def _caption_as_text_cue(self, cue: CaptionCue) -> TextCue:
+        return TextCue(
+            id=cue.id,
+            track_id="captions",
+            text=cue.text,
+            start=float(cue.start),
+            end=float(cue.end),
+            role="caption",
+            frame_indices=tuple(cue.frame_indices),
+            style_profile=cue.style_profile,
+        )
+
+    def _style_profile_css_variables(
+        self,
+        profile: TextStyleProfile,
+        context: TemplateRenderContext,
+    ) -> str:
+        scale = profile.scale_for_canvas(context.canvas_width, context.canvas_height)
+        font_size = max(1, int(round(profile.font_size * scale)))
+        stroke_width = max(0, int(round(profile.stroke_width * scale)))
+        margin_x = max(0, int(round(profile.margin_x * scale)))
+        margin_y = max(0, int(round(profile.margin_y * scale)))
+        max_width = max(1, int(round(context.canvas_width * profile.max_width_ratio)))
+        background = self._rgba(profile.background_color, profile.background_opacity)
+        return "; ".join(
+            [
+                f"--text-fill: {profile.primary_color}",
+                f"--text-stroke-color: {profile.stroke_color}",
+                f"--text-stroke-width: {stroke_width}px",
+                f"--text-background: {background}",
+                f"--text-font-family: {self._css_font_family_value(profile.font_family)}",
+                f"--text-font-size: {font_size}px",
+                f"--text-font-weight: {int(profile.font_weight)}",
+                f"--text-line-height: {float(profile.line_height)}",
+                f"--text-max-width: {max_width}px",
+                f"--text-margin-x: {margin_x}px",
+                f"--text-margin-y: {margin_y}px",
+            ]
+        ) + ";"
+
+    @staticmethod
+    def _text_content_inline_style() -> str:
+        return (
+            "color: var(--text-fill); "
+            "font-family: var(--text-font-family); "
+            "font-size: var(--text-font-size); "
+            "font-weight: var(--text-font-weight); "
+            "line-height: var(--text-line-height); "
+            "-webkit-text-stroke: var(--text-stroke-width) "
+            "var(--text-stroke-color);"
+        )
+
+    @staticmethod
+    def _rgba(color: str | None, opacity: float) -> str:
+        if not color:
+            return "rgba(0, 0, 0, 0)"
+        red = int(color[1:3], 16)
+        green = int(color[3:5], 16)
+        blue = int(color[5:7], 16)
+        alpha = max(0.0, min(float(opacity), 1.0))
+        return f"rgba({red}, {green}, {blue}, {alpha:g})"
+
+    @staticmethod
+    def _css_font_family_value(value: object) -> str:
+        raw_value = str(value).replace("\r", " ").replace("\n", " ")
+        unsafe_chars = ("\"", "'", "`", ";", "{", "}", "\\", "/", "*", ":", "(", ")")
+        if any(char in raw_value for char in unsafe_chars):
+            return "sans-serif"
+
+        cleaned_chars = []
+        for char in raw_value:
+            if char.isalnum() or char.isspace() or char in {"-", "_", ",", "."}:
+                cleaned_chars.append(char)
+        cleaned = " ".join("".join(cleaned_chars).split())
+        families = [
+            family.strip()
+            for family in cleaned.split(",")
+            if family.strip()
+        ]
+        return ", ".join(families) or "sans-serif"
 
     def _render_text_timeline(self, context: TemplateRenderContext) -> str:
         return (

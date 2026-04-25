@@ -12,6 +12,7 @@ from pixelle_video.models.render_package import (
     TextTrack,
     VisualClip,
 )
+from pixelle_video.models.text_style import DEFAULT_CAPTION_STYLE_ID, TextStyleProfile
 from pixelle_video.services.hyperframes_project_service import (
     HyperFramesProjectService,
     build_template_render_context,
@@ -98,6 +99,13 @@ def test_write_project_data_writes_text_tracks_diagnostic_payload(tmp_path):
         height=1920,
         fps=30,
         template_id="image_default",
+        text_style_profiles=[
+            TextStyleProfile(
+                id="caption-yellow",
+                name="Caption Yellow",
+                primary_color="#FFFF00",
+            )
+        ],
         text_tracks=[
             TextTrack(
                 id="track-overlay",
@@ -128,6 +136,8 @@ def test_write_project_data_writes_text_tracks_diagnostic_payload(tmp_path):
 
     assert text_tracks_path.exists()
     assert text_tracks_data["task_id"] == "task-text"
+    assert text_tracks_data["text_style_profiles"][0]["id"] == "caption-yellow"
+    assert text_tracks_data["text_style_profiles"][0]["primary_color"] == "#FFFF00"
     assert text_tracks_data["text_tracks"][0]["kind"] == "overlay"
     assert text_tracks_data["text_cues"][0]["role"] == "keyword"
     assert manifest_data["text_tracks"][0]["id"] == "track-overlay"
@@ -357,6 +367,29 @@ def test_build_template_render_context_carries_text_layer_from_manifest():
     assert context.text_tracks[0].id == "track-overlay"
     assert context.text_cues[0].slot == "center"
     assert context.duration == 1.4
+
+
+def test_build_template_render_context_carries_text_style_profiles():
+    manifest = RenderManifest(
+        task_id="task-context-styles",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        text_style_profiles=[
+            TextStyleProfile(
+                id="caption-yellow",
+                name="Caption Yellow",
+                primary_color="#FFFF00",
+            )
+        ],
+    )
+
+    context = build_template_render_context(manifest, template_params={})
+
+    assert context.text_style_profiles[0].id == "caption-yellow"
+    assert context.text_style_profiles[0].primary_color == "#FFFF00"
 
 
 def test_write_project_data_keeps_audio_tracks_when_duration_comes_from_tracks(tmp_path):
@@ -844,7 +877,7 @@ def test_write_project_data_derives_captions_from_sentence_units_when_manifest_c
             "start": 0.2,
             "end": 1.4,
             "frame_indices": [0],
-            "style_profile": "image_life_insights_light",
+            "style_profile": DEFAULT_CAPTION_STYLE_ID,
         }
     ]
 
@@ -880,6 +913,10 @@ def test_write_project_data_can_preserve_caption_punctuation_when_configured(tmp
     captions_data = json.loads((project_paths.data_dir / "captions.json").read_text(encoding="utf-8"))
 
     assert captions_data["captions"][0]["text"] == "Sentence 1."
+    assert (
+        captions_data["captions"][0]["style_profile"]
+        == DEFAULT_CAPTION_STYLE_ID
+    )
 
 
 def test_write_project_data_splits_long_sentence_captions_into_expression_level_cues(tmp_path):
@@ -913,7 +950,7 @@ def test_write_project_data_splits_long_sentence_captions_into_expression_level_
             "start": 0.0,
             "end": 1.2,
             "frame_indices": [0],
-            "style_profile": "image_life_insights_light",
+            "style_profile": DEFAULT_CAPTION_STYLE_ID,
         },
         {
             "id": "sentence-1-cue-2",
@@ -921,7 +958,7 @@ def test_write_project_data_splits_long_sentence_captions_into_expression_level_
             "start": 1.2,
             "end": 2.2,
             "frame_indices": [0],
-            "style_profile": "image_life_insights_light",
+            "style_profile": DEFAULT_CAPTION_STYLE_ID,
         },
     ]
 

@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from pixelle_video.models.render_package import CaptionCue, TextCue, TextTrack, VisualClip
+from pixelle_video.models.text_style import TextStyleProfile
 
 # Phase-1 field inventory maps the legacy Pixelle source templates onto the
 # normalized shell contract that compiled HyperFrames templates must consume.
@@ -60,6 +61,7 @@ class TemplateRenderContext:
     template_params: Dict[str, Any] = field(default_factory=dict)
     visuals: List[VisualClip] = field(default_factory=list)
     captions: List[CaptionCue] = field(default_factory=list)
+    text_style_profiles: List[TextStyleProfile] = field(default_factory=list)
     text_tracks: List[TextTrack] = field(default_factory=list)
     text_cues: List[TextCue] = field(default_factory=list)
     audio_tracks: List[TemplateAudioRef] = field(default_factory=list)
