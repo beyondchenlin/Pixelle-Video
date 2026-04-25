@@ -193,6 +193,55 @@ async def test_registry_heartbeat_rejects_stale_lease_token():
 
 
 @pytest.mark.asyncio
+async def test_registry_reclaims_running_task_after_execution_lease_is_lost():
+    lease = InMemoryGenerationLease()
+    registry = GenerationRegistry(
+        store=InMemoryTaskStore(),
+        lease=lease,
+        artifact_store=MissingArtifactStore(),
+        task_id_factory=lambda: "task-1",
+    )
+    await registry.reserve_or_reuse(
+        fingerprint="fp-1",
+        task_type=TaskType.VIDEO_GENERATION,
+        request_params={},
+        reuse_completed_within_seconds=86400,
+    )
+    first_claim = await registry.claim_next_pending(worker_id="worker-old")
+    await lease.release_task_lease(
+        "task-1",
+        first_claim.lease.owner_id,
+        first_claim.lease.lease_token,
+    )
+
+    reclaimed = await registry.claim_next_pending(worker_id="worker-new")
+
+    assert reclaimed is not None
+    assert reclaimed.task.task_id == "task-1"
+    assert reclaimed.lease.owner_id == "worker-new"
+    assert reclaimed.lease.lease_token != first_claim.lease.lease_token
+
+
+@pytest.mark.asyncio
+async def test_registry_does_not_reclaim_running_task_with_live_execution_lease():
+    registry = GenerationRegistry(
+        store=InMemoryTaskStore(),
+        lease=InMemoryGenerationLease(),
+        artifact_store=MissingArtifactStore(),
+        task_id_factory=lambda: "task-1",
+    )
+    await registry.reserve_or_reuse(
+        fingerprint="fp-1",
+        task_type=TaskType.VIDEO_GENERATION,
+        request_params={},
+        reuse_completed_within_seconds=86400,
+    )
+    await registry.claim_next_pending(worker_id="worker-live")
+
+    assert await registry.claim_next_pending(worker_id="worker-other") is None
+
+
+@pytest.mark.asyncio
 async def test_registry_waits_for_task_created_by_competing_submit_lock():
     class ContendedLease(InMemoryGenerationLease):
         async def acquire_submit_lock(self, fingerprint: str, owner_id: str) -> bool:

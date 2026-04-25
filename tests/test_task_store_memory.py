@@ -112,6 +112,50 @@ async def test_memory_store_claims_pending_task_once():
 
 
 @pytest.mark.asyncio
+async def test_memory_store_claims_specific_running_task_with_current_fencing_token():
+    store = InMemoryTaskStore()
+    await store.create_task(
+        Task(
+            task_id="task-1",
+            task_type=TaskType.VIDEO_GENERATION,
+            generation_fingerprint="fp-1",
+            status=TaskStatus.RUNNING,
+            owner_id="worker-old",
+            lease_token="token-old",
+        )
+    )
+
+    claimed = await store.claim_running_task(
+        task_id="task-1",
+        owner_id="worker-new",
+        lease_token="token-new",
+        expected_owner_id="worker-old",
+        expected_lease_token="token-old",
+    )
+
+    assert claimed is not None
+    assert claimed.owner_id == "worker-new"
+    assert claimed.lease_token == "token-new"
+
+
+@pytest.mark.asyncio
+async def test_memory_store_does_not_cancel_terminal_task():
+    store = InMemoryTaskStore()
+    await store.create_task(
+        Task(
+            task_id="task-1",
+            task_type=TaskType.VIDEO_GENERATION,
+            status=TaskStatus.COMPLETED,
+            result={"storage_key": "task-1/final.mp4"},
+        )
+    )
+
+    assert await store.cancel_task("task-1") is False
+    task = await store.get_task("task-1")
+    assert task.status == TaskStatus.COMPLETED
+
+
+@pytest.mark.asyncio
 async def test_memory_store_progress_update_requires_current_lease():
     store = InMemoryTaskStore()
     await store.create_task(

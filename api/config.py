@@ -15,7 +15,7 @@
 import os
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class APIConfig(BaseModel):
@@ -40,6 +40,8 @@ class APIConfig(BaseModel):
     require_distributed_coordination: bool = False
     generation_lease_ttl_seconds: int = 120
     generation_heartbeat_seconds: int = 30
+    generation_submit_lock_wait_seconds: float = 2.0
+    generation_submit_lock_poll_seconds: float = 0.05
     completed_reuse_seconds: int = 86400
     execution_mode: Literal["embedded", "worker"] = "embedded"
     worker_poll_interval_seconds: float = 2.0
@@ -77,6 +79,14 @@ class APIConfig(BaseModel):
                 "PIXELLE_GENERATION_HEARTBEAT_SECONDS",
                 default=30,
             ),
+            generation_submit_lock_wait_seconds=_env_float(
+                "PIXELLE_GENERATION_SUBMIT_LOCK_WAIT_SECONDS",
+                default=2.0,
+            ),
+            generation_submit_lock_poll_seconds=_env_float(
+                "PIXELLE_GENERATION_SUBMIT_LOCK_POLL_SECONDS",
+                default=0.05,
+            ),
             completed_reuse_seconds=_env_int(
                 "PIXELLE_COMPLETED_REUSE_SECONDS",
                 default=86400,
@@ -90,6 +100,20 @@ class APIConfig(BaseModel):
             artifact_base_url=os.getenv("PIXELLE_ARTIFACT_BASE_URL", "/api/files"),
             artifact_base_path=os.getenv("PIXELLE_ARTIFACT_BASE_PATH", "output"),
         )
+
+    @model_validator(mode="after")
+    def validate_distributed_timing(self) -> "APIConfig":
+        if self.generation_heartbeat_seconds >= self.generation_lease_ttl_seconds:
+            raise ValueError(
+                "generation_heartbeat_seconds must be less than generation_lease_ttl_seconds"
+            )
+        if self.generation_submit_lock_poll_seconds <= 0:
+            raise ValueError("generation_submit_lock_poll_seconds must be greater than 0")
+        if self.generation_submit_lock_wait_seconds < self.generation_submit_lock_poll_seconds:
+            raise ValueError(
+                "generation_submit_lock_wait_seconds must be greater than or equal to generation_submit_lock_poll_seconds"
+            )
+        return self
 
 
 def _env_bool(name: str, *, default: bool) -> bool:

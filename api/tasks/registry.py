@@ -108,7 +108,10 @@ class GenerationRegistry:
             task_types=task_types,
         )
         if task is None:
-            return None
+            return await self._claim_orphaned_running(
+                worker_id=worker_id,
+                task_types=task_types,
+            )
 
         try:
             lease = await self.lease.create_task_lease(
@@ -128,6 +131,40 @@ class GenerationRegistry:
             raise LostTaskLeaseError(task.task_id) from exc
 
         return ClaimedTask(task=task, lease=lease)
+
+    async def _claim_orphaned_running(
+        self,
+        *,
+        worker_id: str,
+        task_types: set[TaskType] | None = None,
+    ) -> ClaimedTask | None:
+        running_tasks = await self.store.list_running_tasks(task_types=task_types, limit=100)
+        for task in running_tasks:
+            if task.owner_id and task.lease_token:
+                if await self.lease.has_task_lease(task.task_id, task.owner_id, task.lease_token):
+                    continue
+
+            lease_token = self.lease.new_token()
+            claimed = await self.store.claim_running_task(
+                task_id=task.task_id,
+                owner_id=worker_id,
+                lease_token=lease_token,
+                expected_owner_id=task.owner_id,
+                expected_lease_token=task.lease_token,
+            )
+            if claimed is None:
+                continue
+
+            try:
+                lease = await self.lease.create_task_lease(
+                    task_id=claimed.task_id,
+                    owner_id=worker_id,
+                    lease_token=lease_token,
+                )
+            except LostLeaseError:
+                continue
+            return ClaimedTask(task=claimed, lease=lease)
+        return None
 
     async def mark_completed(
         self,

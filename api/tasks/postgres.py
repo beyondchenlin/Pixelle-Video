@@ -260,6 +260,59 @@ class PostgresTaskStore:
                 updated_row = updated.mappings().one()
                 return self._row_to_task(updated_row)
 
+    async def list_running_tasks(
+        self,
+        *,
+        task_types: set[TaskType] | None = None,
+        limit: int = 100,
+    ) -> list[Task]:
+        async with self.session_factory() as session:
+            query = (
+                select(generation_tasks)
+                .where(generation_tasks.c.status == TaskStatus.RUNNING.value)
+                .order_by(asc(generation_tasks.c.updated_at), asc(generation_tasks.c.task_id))
+                .limit(limit)
+            )
+            if task_types:
+                query = query.where(
+                    generation_tasks.c.task_type.in_([task_type.value for task_type in task_types])
+                )
+            result = await session.execute(query)
+            return [self._row_to_task(row) for row in result.mappings()]
+
+    async def claim_running_task(
+        self,
+        *,
+        task_id: str,
+        owner_id: str,
+        lease_token: str,
+        expected_owner_id: str | None,
+        expected_lease_token: str | None,
+    ) -> Task | None:
+        async with self.session_factory() as session:
+            async with session.begin():
+                statement = (
+                    update(generation_tasks)
+                    .where(
+                        generation_tasks.c.task_id == task_id,
+                        generation_tasks.c.status == TaskStatus.RUNNING.value,
+                    )
+                    .values(
+                        owner_id=owner_id,
+                        lease_token=lease_token,
+                        updated_at=utc_now(),
+                    )
+                    .returning(generation_tasks)
+                )
+                if expected_owner_id is not None:
+                    statement = statement.where(generation_tasks.c.owner_id == expected_owner_id)
+                if expected_lease_token is not None:
+                    statement = statement.where(generation_tasks.c.lease_token == expected_lease_token)
+
+                result = await session.execute(statement)
+                row = result.mappings().first()
+                return self._row_to_task(row) if row is not None else None
+
     async def list_tasks(self, status: TaskStatus | None = None, limit: int = 100) -> list[Task]:
         async with self.session_factory() as session:
             query = select(generation_tasks).order_by(desc(generation_tasks.c.created_at)).limit(limit)
@@ -273,6 +326,7 @@ class PostgresTaskStore:
             result = await session.execute(
                 update(generation_tasks)
                 .where(generation_tasks.c.task_id == task_id)
+                .where(generation_tasks.c.status.in_([TaskStatus.PENDING.value, TaskStatus.RUNNING.value]))
                 .values(
                     status=TaskStatus.CANCELLED.value,
                     lease_token=None,

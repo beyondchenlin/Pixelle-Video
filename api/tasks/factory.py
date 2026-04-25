@@ -45,6 +45,8 @@ def build_task_manager(config: APIConfig) -> TaskManager:
         store=store,
         lease=lease,
         artifact_store=artifact_store,
+        submit_lock_wait_seconds=config.generation_submit_lock_wait_seconds,
+        submit_lock_poll_interval_seconds=config.generation_submit_lock_poll_seconds,
     )
     return TaskManager(
         store=store,

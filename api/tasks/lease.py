@@ -35,6 +35,9 @@ class GenerationLease(Protocol):
     async def release_task_lease(self, task_id: str, owner_id: str, lease_token: str) -> None:
         raise NotImplementedError
 
+    async def has_task_lease(self, task_id: str, owner_id: str, lease_token: str) -> bool:
+        raise NotImplementedError
+
     def new_token(self) -> str:
         raise NotImplementedError
 
@@ -79,6 +82,9 @@ class InMemoryGenerationLease:
     async def release_task_lease(self, task_id: str, owner_id: str, lease_token: str) -> None:
         if self.task_leases.get(task_id) == (owner_id, lease_token):
             self.task_leases.pop(task_id, None)
+
+    async def has_task_lease(self, task_id: str, owner_id: str, lease_token: str) -> bool:
+        return self.task_leases.get(task_id) == (owner_id, lease_token)
 
     def new_token(self) -> str:
         return secrets.token_urlsafe(24)
@@ -180,6 +186,11 @@ class RedisGenerationLease:
     async def release_task_lease(self, task_id: str, owner_id: str, lease_token: str) -> None:
         key = self._task_lease_key(task_id)
         await self._compare_delete(key, self._encode_lease(owner_id, lease_token))
+
+    async def has_task_lease(self, task_id: str, owner_id: str, lease_token: str) -> bool:
+        key = self._task_lease_key(task_id)
+        current = await self.redis.get(key)
+        return self._decode(current) == self._encode_lease(owner_id, lease_token)
 
     def new_token(self) -> str:
         return secrets.token_urlsafe(24)

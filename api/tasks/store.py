@@ -78,6 +78,25 @@ class TaskStore(Protocol):
     ) -> Task | None:
         raise NotImplementedError
 
+    async def list_running_tasks(
+        self,
+        *,
+        task_types: set[TaskType] | None = None,
+        limit: int = 100,
+    ) -> list[Task]:
+        raise NotImplementedError
+
+    async def claim_running_task(
+        self,
+        *,
+        task_id: str,
+        owner_id: str,
+        lease_token: str,
+        expected_owner_id: str | None,
+        expected_lease_token: str | None,
+    ) -> Task | None:
+        raise NotImplementedError
+
     async def list_tasks(self, status: TaskStatus | None, limit: int) -> list[Task]:
         raise NotImplementedError
 
@@ -236,6 +255,47 @@ class InMemoryTaskStore:
             task.updated_at = now
             return self._clone(task)
 
+    async def list_running_tasks(
+        self,
+        *,
+        task_types: set[TaskType] | None = None,
+        limit: int = 100,
+    ) -> list[Task]:
+        async with self._lock:
+            running = [
+                task
+                for task in self._tasks.values()
+                if task.status == TaskStatus.RUNNING
+                and (task_types is None or task.task_type in task_types)
+            ]
+            running.sort(key=lambda task: task.updated_at)
+            return [self._clone(task) for task in running[:limit]]
+
+    async def claim_running_task(
+        self,
+        *,
+        task_id: str,
+        owner_id: str,
+        lease_token: str,
+        expected_owner_id: str | None,
+        expected_lease_token: str | None,
+    ) -> Task | None:
+        async with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None or task.status != TaskStatus.RUNNING:
+                return None
+            self._assert_expected_lease(
+                task,
+                expected_owner_id=expected_owner_id,
+                expected_lease_token=expected_lease_token,
+            )
+            now = utc_now()
+            task.owner_id = owner_id
+            task.lease_token = lease_token
+            task.started_at = task.started_at or now
+            task.updated_at = now
+            return self._clone(task)
+
     async def list_tasks(self, status: TaskStatus | None = None, limit: int = 100) -> list[Task]:
         async with self._lock:
             tasks = list(self._tasks.values())
@@ -248,6 +308,8 @@ class InMemoryTaskStore:
         async with self._lock:
             task = self._tasks.get(task_id)
             if task is None:
+                return False
+            if task.status not in {TaskStatus.PENDING, TaskStatus.RUNNING}:
                 return False
 
             now = utc_now()
