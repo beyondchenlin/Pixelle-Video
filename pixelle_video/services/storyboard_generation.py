@@ -110,6 +110,15 @@ def _positive_int_config(config: dict[str, Any] | None, key: str, default: int) 
     return value
 
 
+def _repair_prompt(original_prompt: str, reason: str) -> str:
+    return (
+        f"{original_prompt}\n\n"
+        "# Repair the previous storyboard response\n"
+        f"The previous response was invalid: {reason}\n"
+        "Return a corrected JSON object that satisfies the same schema and requirements."
+    )
+
+
 @dataclass
 class StoryboardGenerationService:
     config: dict[str, Any] | None = None
@@ -186,34 +195,16 @@ class StoryboardGenerationService:
             min_scene_count=min_scene_count,
             max_scene_count=max_scene_count,
         )
-        response = await llm_service(
+        frames = await self._generate_smart_frames_with_repair(
+            llm_service=llm_service,
             prompt=prompt,
-            response_type=SmartStoryboardPlanResponse,
-            temperature=0.3,
-            max_tokens=max(2000, max_scene_count * 350),
+            source_text=normalized_source,
+            count_mode=count_mode,
+            requested_scene_count=requested_scene_count,
+            min_scene_count=min_scene_count,
+            max_scene_count=max_scene_count,
         )
 
-        frame_count = len(response.frames)
-        if count_mode == "manual" and frame_count != requested_scene_count:
-            raise ValueError(f"expected {requested_scene_count} smart storyboard frames")
-        if frame_count > max_scene_count:
-            raise ValueError("too many storyboard frames")
-        if count_mode == "auto" and frame_count < min_scene_count:
-            raise ValueError("too few storyboard frames")
-
-        frames = [
-            StoryboardPlanFrame(
-                index=index,
-                source_text=frame.source_text,
-                narration_text=frame.narration_text,
-                visual_goal=frame.visual_goal,
-                prompt_intent=frame.prompt_intent,
-                source_start=frame.source_start,
-                source_end=frame.source_end,
-                metadata={"strategy": "smart"},
-            )
-            for index, frame in enumerate(response.frames, start=1)
-        ]
         return StoryboardPlan.build(
             mode="smart",
             count_mode=count_mode,
@@ -226,6 +217,98 @@ class StoryboardGenerationService:
                 "split_count": len(frames),
             },
         )
+
+    async def _generate_smart_frames_with_repair(
+        self,
+        *,
+        llm_service,
+        prompt: str,
+        source_text: str,
+        count_mode: str,
+        requested_scene_count: int | None,
+        min_scene_count: int,
+        max_scene_count: int,
+    ) -> list[StoryboardPlanFrame]:
+        current_prompt = prompt
+        temperature = 0.3
+        repair_used = False
+        while True:
+            try:
+                response = await llm_service(
+                    prompt=current_prompt,
+                    response_type=SmartStoryboardPlanResponse,
+                    temperature=temperature,
+                    max_tokens=max(2000, max_scene_count * 350),
+                )
+                frames = self._frames_from_smart_response(
+                    response=response,
+                    source_text=source_text,
+                )
+                self._validate_smart_frame_count(
+                    frame_count=len(frames),
+                    count_mode=count_mode,
+                    requested_scene_count=requested_scene_count,
+                    min_scene_count=min_scene_count,
+                    max_scene_count=max_scene_count,
+                )
+                return frames
+            except ValueError as exc:
+                if repair_used:
+                    raise
+                current_prompt = _repair_prompt(prompt, str(exc))
+                temperature = 0.2
+                repair_used = True
+
+    def _validate_smart_frame_count(
+        self,
+        *,
+        frame_count: int,
+        count_mode: str,
+        requested_scene_count: int | None,
+        min_scene_count: int,
+        max_scene_count: int,
+    ) -> None:
+        if count_mode == "manual" and frame_count != requested_scene_count:
+            raise ValueError(f"expected {requested_scene_count} smart storyboard frames")
+        if frame_count > max_scene_count:
+            raise ValueError("too many storyboard frames")
+        if count_mode == "auto" and frame_count < min_scene_count:
+            raise ValueError("too few storyboard frames")
+
+    def _frames_from_smart_response(
+        self,
+        *,
+        response: SmartStoryboardPlanResponse,
+        source_text: str,
+    ) -> list[StoryboardPlanFrame]:
+        search_start = 0
+        frames: list[StoryboardPlanFrame] = []
+        for index, frame in enumerate(response.frames, start=1):
+            start = frame.source_start
+            end = frame.source_end
+            if start is None and end is None:
+                start = source_text.find(frame.source_text, search_start)
+                if start < 0:
+                    start = source_text.find(frame.source_text)
+                if start < 0:
+                    raise ValueError("smart storyboard frame source_text must be traceable")
+                end = start + len(frame.source_text)
+            if source_text[start:end] != frame.source_text:
+                raise ValueError("smart storyboard frame source_text must be traceable")
+            search_start = max(search_start, end)
+            frames.append(
+                StoryboardPlanFrame(
+                    index=index,
+                    source_text=frame.source_text,
+                    narration_text=frame.narration_text,
+                    visual_goal=frame.visual_goal,
+                    prompt_intent=frame.prompt_intent,
+                    source_start=start,
+                    source_end=end,
+                    metadata={"strategy": "smart"},
+                )
+            )
+        return frames
 
     def _plan_from_segments(
         self,
