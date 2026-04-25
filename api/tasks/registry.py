@@ -163,6 +163,15 @@ class GenerationRegistry:
                 )
             except LostLeaseError:
                 continue
+            try:
+                await self.heartbeat(
+                    task_id=claimed.task_id,
+                    owner_id=worker_id,
+                    lease_token=lease_token,
+                )
+            except LostTaskLeaseError:
+                await self.lease.release_task_lease(claimed.task_id, worker_id, lease_token)
+                continue
             return ClaimedTask(task=claimed, lease=lease)
         return None
 

@@ -34,6 +34,10 @@ def test_api_worker_and_web_share_task_backend_environment():
         assert env["PIXELLE_REDIS_URL"] == "redis://redis:6379/0"
         assert env["PIXELLE_REQUIRE_DISTRIBUTED_COORDINATION"] == "true"
         assert env["PIXELLE_ARTIFACT_BACKEND"] == "local"
+        assert env["PIXELLE_GENERATION_LEASE_TTL_SECONDS"] == "120"
+        assert env["PIXELLE_GENERATION_HEARTBEAT_SECONDS"] == "30"
+        assert env["PIXELLE_GENERATION_SUBMIT_LOCK_WAIT_SECONDS"] == "2"
+        assert env["PIXELLE_GENERATION_SUBMIT_LOCK_POLL_SECONDS"] == "0.05"
 
     assert env_list_to_dict(services["api"]["environment"])["PIXELLE_EXECUTION_MODE"] == "worker"
     assert env_list_to_dict(services["worker"]["environment"])["PIXELLE_EXECUTION_MODE"] == "worker"

@@ -223,6 +223,54 @@ async def test_registry_reclaims_running_task_after_execution_lease_is_lost():
 
 
 @pytest.mark.asyncio
+async def test_registry_confirms_orphan_claim_still_owns_db_and_redis_after_lease_creation():
+    class RacingLease(InMemoryGenerationLease):
+        def __init__(self, store):
+            super().__init__()
+            self.store = store
+            self.raced = False
+
+        async def create_task_lease(self, task_id, owner_id, lease_token):
+            lease = await super().create_task_lease(task_id, owner_id, lease_token)
+            if owner_id == "worker-new" and not self.raced:
+                self.raced = True
+                await self.store.claim_running_task(
+                    task_id=task_id,
+                    owner_id="worker-race",
+                    lease_token="token-race",
+                    expected_owner_id=owner_id,
+                    expected_lease_token=lease_token,
+                )
+            return lease
+
+    store = InMemoryTaskStore()
+    lease = RacingLease(store)
+    registry = GenerationRegistry(
+        store=store,
+        lease=lease,
+        artifact_store=MissingArtifactStore(),
+        task_id_factory=lambda: "task-1",
+    )
+    await registry.reserve_or_reuse(
+        fingerprint="fp-1",
+        task_type=TaskType.VIDEO_GENERATION,
+        request_params={},
+        reuse_completed_within_seconds=86400,
+    )
+    first_claim = await registry.claim_next_pending(worker_id="worker-old")
+    await lease.release_task_lease(
+        "task-1",
+        first_claim.lease.owner_id,
+        first_claim.lease.lease_token,
+    )
+
+    assert await registry.claim_next_pending(worker_id="worker-new") is None
+    task = await registry.get_task("task-1")
+    assert task.owner_id == "worker-race"
+    assert await lease.has_task_lease("task-1", "worker-new", task.lease_token or "") is False
+
+
+@pytest.mark.asyncio
 async def test_registry_does_not_reclaim_running_task_with_live_execution_lease():
     registry = GenerationRegistry(
         store=InMemoryTaskStore(),
