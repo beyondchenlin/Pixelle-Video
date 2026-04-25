@@ -1,4 +1,5 @@
 import hashlib
+import json
 
 import pytest
 
@@ -323,4 +324,76 @@ def test_storyboard_plan_rejects_invalid_revision():
                     prompt_intent="show abc",
                 )
             ],
+        )
+
+
+def test_storyboard_plan_serializes_sourcespan_objects_as_json_safe_dicts():
+    plan = StoryboardPlan.build(
+        mode="smart",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="abcdef",
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text="abc",
+                narration_text="abc",
+                visual_goal="show abc",
+                prompt_intent="show abc",
+                metadata={"source_spans": [SourceSpan(start=0, end=3, text="abc")]},
+            )
+        ],
+    )
+
+    payload = plan.to_dict()
+
+    assert payload["frames"][0]["metadata"]["source_spans"] == [
+        {"start": 0, "end": 3, "text": "abc", "reason": ""}
+    ]
+    json.dumps(payload)
+
+
+def test_storyboard_plan_rejects_source_text_that_conflicts_with_source_range():
+    with pytest.raises(ValueError, match="frame source_text must match source range slice"):
+        StoryboardPlan.build(
+            mode="sentence",
+            count_mode="auto",
+            requested_scene_count=None,
+            source_text="abcdef",
+            frames=[
+                StoryboardPlanFrame(
+                    index=1,
+                    source_text="zzz",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                    source_start=0,
+                    source_end=3,
+                )
+            ],
+        )
+
+
+def test_storyboard_plan_direct_constructor_enforces_invariants():
+    with pytest.raises(ValueError, match="resolved_scene_count must match frame count"):
+        StoryboardPlan(
+            plan_id="plan_test",
+            revision=1,
+            mode=StoryboardGenerationMode.SMART,
+            count_mode=StoryboardCountMode.AUTO,
+            requested_scene_count=None,
+            resolved_scene_count=2,
+            source_text="abc",
+            source_digest=hashlib.sha256("abc".encode("utf-8")).hexdigest(),
+            frames=(
+                StoryboardPlanFrame(
+                    frame_id="frame_0001",
+                    index=1,
+                    source_text="abc",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                ),
+            ),
+            diagnostics={},
         )

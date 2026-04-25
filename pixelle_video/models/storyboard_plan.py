@@ -72,12 +72,12 @@ class StoryboardPlanFrame:
             "shot_type": self.shot_type,
             "shot_purpose": self.shot_purpose,
             "primary_subject": self.primary_subject,
-            "secondary_subjects": deepcopy(self.secondary_subjects),
-            "continuity_anchors": deepcopy(self.continuity_anchors),
-            "world_elements": deepcopy(self.world_elements),
+            "secondary_subjects": _json_safe_copy(self.secondary_subjects),
+            "continuity_anchors": _json_safe_copy(self.continuity_anchors),
+            "world_elements": _json_safe_copy(self.world_elements),
             "source_start": self.source_start,
             "source_end": self.source_end,
-            "metadata": deepcopy(self.metadata),
+            "metadata": _json_safe_copy(self.metadata),
         }
 
 
@@ -94,6 +94,43 @@ class StoryboardPlan:
     frames: tuple[StoryboardPlanFrame, ...]
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        normalized_source = self.source_text.strip()
+        if not normalized_source:
+            raise ValueError("source_text must not be empty")
+        if self.source_digest != _source_digest(normalized_source):
+            raise ValueError("source_digest must match normalized source_text")
+        if self.revision < 1:
+            raise ValueError("revision must be at least 1")
+
+        mode_value = StoryboardGenerationMode(self.mode)
+        count_mode_value = StoryboardCountMode(self.count_mode)
+        frames = tuple(self.frames)
+        if not frames:
+            raise ValueError("StoryboardPlan requires at least one frame")
+        if self.resolved_scene_count != len(frames):
+            raise ValueError("resolved_scene_count must match frame count")
+
+        _validate_count_contract(
+            mode=mode_value,
+            count_mode=count_mode_value,
+            requested_scene_count=self.requested_scene_count,
+            frame_count=len(frames),
+        )
+        _validate_frame_indexes(frames)
+
+        owned_frames = tuple(
+            _copy_frame(frame=frame, source_text=normalized_source, frame_id=frame.frame_id)
+            for frame in frames
+        )
+        _validate_frame_ids(owned_frames)
+
+        self.source_text = normalized_source
+        self.mode = mode_value
+        self.count_mode = count_mode_value
+        self.frames = owned_frames
+        self.diagnostics = _json_safe_copy(self.diagnostics or {})
+
     @classmethod
     def build(
         cls,
@@ -108,68 +145,17 @@ class StoryboardPlan:
         revision: int = 1,
     ) -> "StoryboardPlan":
         normalized_source = source_text.strip()
-        if not normalized_source:
-            raise ValueError("source_text must not be empty")
-        if not frames:
-            raise ValueError("StoryboardPlan requires at least one frame")
-        if revision < 1:
-            raise ValueError("revision must be at least 1")
-
         mode_value = StoryboardGenerationMode(mode)
         count_mode_value = StoryboardCountMode(count_mode)
-        is_smart_manual = (
-            mode_value == StoryboardGenerationMode.SMART
-            and count_mode_value == StoryboardCountMode.MANUAL
-        )
-        if count_mode_value == StoryboardCountMode.MANUAL and mode_value != StoryboardGenerationMode.SMART:
-            raise ValueError("manual count mode is only valid for smart mode")
-        if is_smart_manual:
-            if requested_scene_count != len(frames):
-                raise ValueError("requested_scene_count must match frame count")
-        elif requested_scene_count is not None:
-            raise ValueError("requested_scene_count is only valid for smart manual mode")
-
-        expected_indexes = list(range(1, len(frames) + 1))
-        actual_indexes = [frame.index for frame in frames]
-        if actual_indexes != expected_indexes:
-            raise ValueError("frame indexes must start at 1 and be contiguous")
-
-        digest = hashlib.sha256(normalized_source.encode("utf-8")).hexdigest()
         stable_plan_id = plan_id or f"plan_{uuid.uuid4().hex}"
-        owned_frames: list[StoryboardPlanFrame] = []
-        frame_ids: set[str] = set()
-        for frame in frames:
-            if not frame.narration_text.strip():
-                raise ValueError("frame narration_text must not be empty")
-            if frame.source_start is not None or frame.source_end is not None:
-                if frame.source_start is None or frame.source_end is None:
-                    raise ValueError("source_start and source_end must be set together")
-                if not 0 <= frame.source_start <= frame.source_end <= len(normalized_source):
-                    raise ValueError("frame source range must index StoryboardPlan.source_text")
-            _validate_source_spans(frame.metadata, normalized_source)
-            frame_id = frame.frame_id or f"frame_{frame.index:04d}_{uuid.uuid4().hex[:8]}"
-            if frame_id in frame_ids:
-                raise ValueError("frame_id must be unique")
-            frame_ids.add(frame_id)
-            owned_frames.append(
-                StoryboardPlanFrame(
-                    index=frame.index,
-                    source_text=frame.source_text,
-                    narration_text=frame.narration_text,
-                    visual_goal=frame.visual_goal,
-                    prompt_intent=frame.prompt_intent,
-                    frame_id=frame_id,
-                    shot_type=frame.shot_type,
-                    shot_purpose=frame.shot_purpose,
-                    primary_subject=frame.primary_subject,
-                    secondary_subjects=deepcopy(frame.secondary_subjects),
-                    continuity_anchors=deepcopy(frame.continuity_anchors),
-                    world_elements=deepcopy(frame.world_elements),
-                    source_start=frame.source_start,
-                    source_end=frame.source_end,
-                    metadata=deepcopy(frame.metadata),
-                )
+        frames_with_ids = tuple(
+            _copy_frame(
+                frame=frame,
+                source_text=normalized_source,
+                frame_id=frame.frame_id or f"frame_{frame.index:04d}_{uuid.uuid4().hex[:8]}",
             )
+            for frame in frames
+        )
 
         return cls(
             plan_id=stable_plan_id,
@@ -177,11 +163,11 @@ class StoryboardPlan:
             mode=mode_value,
             count_mode=count_mode_value,
             requested_scene_count=requested_scene_count,
-            resolved_scene_count=len(owned_frames),
+            resolved_scene_count=len(frames_with_ids),
             source_text=normalized_source,
-            source_digest=digest,
-            frames=tuple(owned_frames),
-            diagnostics=deepcopy(diagnostics or {}),
+            source_digest=_source_digest(normalized_source),
+            frames=frames_with_ids,
+            diagnostics=_json_safe_copy(diagnostics or {}),
         )
 
     def narration_texts(self) -> list[str]:
@@ -198,8 +184,99 @@ class StoryboardPlan:
             "source_text": self.source_text,
             "source_digest": self.source_digest,
             "frames": [frame.to_dict() for frame in self.frames],
-            "diagnostics": deepcopy(self.diagnostics),
+            "diagnostics": _json_safe_copy(self.diagnostics),
         }
+
+
+def _source_digest(source_text: str) -> str:
+    return hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+
+
+def _validate_count_contract(
+    *,
+    mode: StoryboardGenerationMode,
+    count_mode: StoryboardCountMode,
+    requested_scene_count: int | None,
+    frame_count: int,
+) -> None:
+    is_smart_manual = (
+        mode == StoryboardGenerationMode.SMART
+        and count_mode == StoryboardCountMode.MANUAL
+    )
+    if count_mode == StoryboardCountMode.MANUAL and mode != StoryboardGenerationMode.SMART:
+        raise ValueError("manual count mode is only valid for smart mode")
+    if is_smart_manual:
+        if requested_scene_count != frame_count:
+            raise ValueError("requested_scene_count must match frame count")
+    elif requested_scene_count is not None:
+        raise ValueError("requested_scene_count is only valid for smart manual mode")
+
+
+def _validate_frame_indexes(frames: tuple[StoryboardPlanFrame, ...]) -> None:
+    expected_indexes = list(range(1, len(frames) + 1))
+    actual_indexes = [frame.index for frame in frames]
+    if actual_indexes != expected_indexes:
+        raise ValueError("frame indexes must start at 1 and be contiguous")
+
+
+def _validate_frame_ids(frames: tuple[StoryboardPlanFrame, ...]) -> None:
+    frame_ids: set[str] = set()
+    for frame in frames:
+        if not frame.frame_id:
+            raise ValueError("frame_id must not be empty")
+        if frame.frame_id in frame_ids:
+            raise ValueError("frame_id must be unique")
+        frame_ids.add(frame.frame_id)
+
+
+def _copy_frame(
+    *,
+    frame: StoryboardPlanFrame,
+    source_text: str,
+    frame_id: str,
+) -> StoryboardPlanFrame:
+    if not frame.narration_text.strip():
+        raise ValueError("frame narration_text must not be empty")
+    if not isinstance(frame.metadata, dict):
+        raise ValueError("frame metadata must be a dict")
+    if frame.source_start is not None or frame.source_end is not None:
+        if frame.source_start is None or frame.source_end is None:
+            raise ValueError("source_start and source_end must be set together")
+        if not 0 <= frame.source_start <= frame.source_end <= len(source_text):
+            raise ValueError("frame source range must index StoryboardPlan.source_text")
+        if frame.source_text != source_text[frame.source_start:frame.source_end]:
+            raise ValueError("frame source_text must match source range slice")
+
+    metadata = _json_safe_copy(frame.metadata)
+    _validate_source_spans(metadata, source_text)
+
+    return StoryboardPlanFrame(
+        index=frame.index,
+        source_text=frame.source_text,
+        narration_text=frame.narration_text,
+        visual_goal=frame.visual_goal,
+        prompt_intent=frame.prompt_intent,
+        frame_id=frame_id,
+        shot_type=frame.shot_type,
+        shot_purpose=frame.shot_purpose,
+        primary_subject=frame.primary_subject,
+        secondary_subjects=_json_safe_copy(frame.secondary_subjects),
+        continuity_anchors=_json_safe_copy(frame.continuity_anchors),
+        world_elements=_json_safe_copy(frame.world_elements),
+        source_start=frame.source_start,
+        source_end=frame.source_end,
+        metadata=metadata,
+    )
+
+
+def _json_safe_copy(value: Any) -> Any:
+    if isinstance(value, SourceSpan):
+        return value.to_dict()
+    if isinstance(value, dict):
+        return {key: _json_safe_copy(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_copy(item) for item in value]
+    return deepcopy(value)
 
 
 def _validate_source_spans(metadata: dict[str, Any], source_text: str) -> None:
