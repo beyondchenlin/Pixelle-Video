@@ -32,10 +32,15 @@ def build_storyboard_planning_prompt(
     role_strategy: str = "auto",
     role_locking_strength: str = "standard",
     shot_strategy: str = "adaptive",
+    scene_id_start: int = 1,
 ) -> str:
     """Build the structured planning prompt sent to the LLM."""
 
     required_frame_fields = list(FramePlan.required_prompt_fields())
+    narration_items = [
+        {"scene_id": str(scene_id_start + index), "text": narration}
+        for index, narration in enumerate(narrations)
+    ]
     payload = {
         "task": "plan_storyboard_frames",
         "resolved_mode": resolved_mode,
@@ -44,6 +49,7 @@ def build_storyboard_planning_prompt(
         "role_locking_strength": role_locking_strength,
         "shot_strategy": shot_strategy,
         "narrations": narrations,
+        "narration_items": narration_items,
         "world_preset": dict(world_preset),
         "shot_preset": dict(shot_preset),
         "required_frame_fields": required_frame_fields,
@@ -51,8 +57,8 @@ def build_storyboard_planning_prompt(
         "instructions": [
             "Return JSON only.",
             "Produce exactly one frame plan per narration.",
-            "Keep the same order as the input narrations.",
-            'Return every "scene_id" as a quoted string matching narration order, never a number.',
+            "Use narration_items as the authoritative input list and keep exactly the same order.",
+            'Return every "scene_id" as the quoted string from narration_items, never a number.',
             "Make every array field contain strings only.",
             "Validate the final payload against required_output before returning it.",
             "Do not wrap the JSON in markdown fences.",

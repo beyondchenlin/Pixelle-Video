@@ -127,6 +127,37 @@ def test_resolve_shot_preset_rejects_unsupported_explicit_scene_count():
         )
 
 
+def test_resolve_shot_preset_allows_large_storyboards_to_extend_explicit_preset():
+    resolved = resolve_shot_preset(
+        requested_preset_id="detail_focus",
+        scene_count=25,
+        world_preset_default_ids=(),
+        available_presets={
+            "detail_focus": {"supported_scene_count": (3, 4), "override_policy": "adaptive"},
+        },
+    )
+
+    assert resolved.preset_id == "detail_focus"
+    assert resolved.selection_source == "user_selected"
+    assert resolved.fallback_reason == "large storyboard extends shot preset beyond nominal scene counts"
+
+
+def test_resolve_shot_preset_allows_large_storyboards_to_extend_world_default():
+    resolved = resolve_shot_preset(
+        requested_preset_id=None,
+        scene_count=25,
+        world_preset_default_ids=("detail_focus",),
+        available_presets={
+            "detail_focus": {"supported_scene_count": (3, 4), "override_policy": "adaptive"},
+            "balanced_explainer": {"supported_scene_count": (3, 4, 5, 6, 7), "override_policy": "adaptive"},
+        },
+    )
+
+    assert resolved.preset_id == "detail_focus"
+    assert resolved.selection_source == "auto_selected"
+    assert resolved.fallback_reason == "large storyboard extends shot preset beyond nominal scene counts"
+
+
 def test_repair_frame_plan_shots_breaks_four_consecutive_identical_medium_shots():
     plans = [
         FramePlan(scene_id="1", shot_type="medium_shot", shot_purpose="context", prompt_intent="a"),
@@ -465,6 +496,25 @@ def test_build_storyboard_planning_prompt_instructs_string_scene_ids():
     assert any("never a number" in instruction for instruction in prompt["instructions"])
 
 
+def test_build_storyboard_planning_prompt_can_use_absolute_scene_ids_for_batches():
+    prompt = json.loads(
+        build_storyboard_planning_prompt(
+            narrations=["middle", "ending"],
+            world_preset=_neutral_world(),
+            shot_preset={"preset_id": "balanced_explainer"},
+            resolved_mode="concept_explainer",
+            consistency_strength="standard",
+            scene_id_start=12,
+        )
+    )
+
+    assert prompt["narration_items"] == [
+        {"scene_id": "12", "text": "middle"},
+        {"scene_id": "13", "text": "ending"},
+    ]
+    assert any("narration_items" in instruction for instruction in prompt["instructions"])
+
+
 @pytest.mark.asyncio
 async def test_plan_storyboard_batch_normalizes_numeric_scene_ids_from_llm():
     class FakeLLM:
@@ -543,6 +593,80 @@ async def test_plan_storyboard_batch_normalizes_numeric_scene_ids_from_llm():
     )
 
     assert [frame.scene_id for frame in result.frames] == ["1", "2"]
+
+
+@pytest.mark.asyncio
+async def test_plan_storyboard_batch_plans_large_storyboards_in_chunks():
+    captured_prompts: list[dict[str, object]] = []
+    captured_max_tokens: list[int] = []
+
+    class FakeLLM:
+        async def __call__(self, *, prompt: str, **kwargs):
+            payload = json.loads(prompt)
+            captured_prompts.append(payload)
+            captured_max_tokens.append(kwargs["max_tokens"])
+            frames = []
+            for item in payload["narration_items"]:
+                frames.append(
+                    {
+                        "scene_id": item["scene_id"],
+                        "narration_fragment": item["text"],
+                        "knowledge_goal": f"goal {item['scene_id']}",
+                        "shot_type": "medium_shot",
+                        "shot_purpose": "explain",
+                        "primary_subject": "subject",
+                        "secondary_subjects": [],
+                        "world_elements": ["board"],
+                        "continuity_anchors": [],
+                        "focus_detail": "detail",
+                        "prompt_intent": "intent",
+                        "locked_fields": [],
+                        "override_source": None,
+                        "frame_source": "planner_generated",
+                        "replan_scope": "local",
+                        "planner_version": "1.0",
+                    }
+                )
+            return json.dumps({"frames": frames})
+
+    narrations = [f"scene {index}" for index in range(1, 26)]
+    result = await plan_storyboard_batch(
+        llm_service=FakeLLM(),
+        narrations=narrations,
+        world_preset_library={
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [
+                {
+                    "preset_id": "neutral_knowledge_storyboard",
+                    "supported_modes": ["theme_mapping", "concept_explainer"],
+                    "default_shot_preset_ids": ["balanced_explainer"],
+                    "conservative_fallback_mode": "concept_explainer",
+                }
+            ],
+        },
+        shot_preset_library={
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [
+                {
+                    "preset_id": "balanced_explainer",
+                    "supported_scene_count": list(range(1, 101)),
+                    "override_policy": "adaptive",
+                    "shot_distribution_rules": [],
+                }
+            ],
+        },
+        shot_preset_id="balanced_explainer",
+        content_mode="concept_explainer",
+        role_strategy="auto",
+        classifier_result={"mode": "concept_explainer", "confidence": 0.91},
+    )
+
+    assert len(captured_prompts) == 3
+    assert [len(prompt["narration_items"]) for prompt in captured_prompts] == [10, 10, 5]
+    assert [prompt["narration_items"][0]["scene_id"] for prompt in captured_prompts] == ["1", "11", "21"]
+    assert all(max_tokens >= 2400 for max_tokens in captured_max_tokens)
+    assert [frame.scene_id for frame in result.frames] == [str(index) for index in range(1, 26)]
+    assert result.planning_snapshot["planning_batch_count"] == 3
 
 
 def test_parse_storyboard_frames_accepts_markdown_fenced_json():

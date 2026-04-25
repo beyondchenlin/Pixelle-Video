@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
+from pixelle_video.models.storyboard_planning import StoryboardPlanningResponse
 from pixelle_video.services.llm_service import LLMService
 
 
@@ -146,3 +147,32 @@ async def test_llm_service_falls_back_to_schema_prompt_for_unsupported_openai_mo
     assert result == MovieReview(title="Legacy", rating=7)
     assert parse_recorder.calls == []
     assert len(create_recorder.calls) == 1
+
+
+def test_parse_response_as_model_rejects_truncated_outer_payload_instead_of_embedded_frame():
+    service = LLMService({})
+    truncated = """
+    {
+      "frames": [
+        {
+          "scene_id": "1",
+          "narration_fragment": "intro",
+          "knowledge_goal": "goal",
+          "shot_type": "medium_shot",
+          "shot_purpose": "context",
+          "primary_subject": "subject",
+          "secondary_subjects": [],
+          "world_elements": ["board"],
+          "continuity_anchors": [],
+          "focus_detail": "detail",
+          "prompt_intent": "intent",
+          "locked_fields": [],
+          "override_source": null,
+          "frame_source": "planner_generated",
+          "replan_scope": "local",
+          "planner_version": "1.0"
+        }
+    """
+
+    with pytest.raises(ValueError, match="Failed to parse LLM response"):
+        service._parse_response_as_model(truncated, StoryboardPlanningResponse)

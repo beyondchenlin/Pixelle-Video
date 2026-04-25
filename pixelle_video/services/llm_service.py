@@ -376,7 +376,7 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
             data = parse_llm_json_response(
                 content,
                 allow_code_fence=True,
-                allow_embedded_json=True,
+                allow_embedded_json=False,
             )
             return response_type.model_validate(data)
         except json.JSONDecodeError:
