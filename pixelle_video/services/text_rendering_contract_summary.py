@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from pixelle_video.models.text_overlay import build_text_rendering_settings
 from pixelle_video.services.text_rendering_orchestrator import TextRenderingOrchestrator
+
+TEXT_RENDERING_RESULT_SUMMARY_KEYS = (
+    "caption_rendering_summary",
+    "text_layer_summary",
+    "image_text_policy_summary",
+)
+TEXT_RENDER_PACKAGE_ARTIFACT_PATH = "text_render_package.json"
 
 
 def record_text_rendering_contract_summary(
@@ -59,6 +67,24 @@ def record_text_rendering_contract_summary(
     return result
 
 
+def build_text_rendering_result_metadata(
+    observability: Mapping[str, Any] | None,
+    *,
+    text_render_package_path: str | None = TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
+) -> dict[str, Any]:
+    """Build the public metadata.result text rendering fields from observability."""
+    source = observability or {}
+    result_metadata = {
+        key: copy.deepcopy(source.get(key))
+        for key in TEXT_RENDERING_RESULT_SUMMARY_KEYS
+    }
+    if text_render_package_path and any(
+        isinstance(source.get(key), Mapping) for key in TEXT_RENDERING_RESULT_SUMMARY_KEYS
+    ):
+        result_metadata["text_render_package_path"] = text_render_package_path
+    return result_metadata
+
+
 def resolve_overlay_disabled_reason(
     text_rendering: Mapping[str, Any] | None,
     unsupported_reason: str,
@@ -102,7 +128,7 @@ def _build_text_layer_summary(
 def _persist_text_render_package(task_dir: str | Path | None, package) -> None:
     if not task_dir:
         return
-    package_path = Path(task_dir) / "text_render_package.json"
+    package_path = Path(task_dir) / TEXT_RENDER_PACKAGE_ARTIFACT_PATH
     package_path.parent.mkdir(parents=True, exist_ok=True)
     package_path.write_text(
         json.dumps(package.to_dict(), ensure_ascii=False, indent=2),

@@ -90,6 +90,11 @@ def get_task_image_text_policy_summary(
     }
 
 
+def format_task_boolean(value: Any, *, true_label: str, false_label: str) -> str:
+    """Format a task metadata boolean with caller-provided localized labels."""
+    return true_label if bool(value) else false_label
+
+
 def _get_result_summary(
     metadata: Mapping[str, Any],
     key: str,

@@ -7,6 +7,9 @@ from pixelle_video.models.asset_script import AssetScriptSceneResponse
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.custom import CustomPipeline
+from pixelle_video.services.text_rendering_contract_summary import (
+    build_text_rendering_result_metadata,
+)
 
 
 class _RecordingPersistence:
@@ -30,6 +33,51 @@ class _MinimalCore:
     tts = object()
     media = object()
     video = object()
+
+
+def test_build_text_rendering_result_metadata_centralizes_public_summaries():
+    observability = {
+        "caption_rendering_summary": {
+            "enabled": True,
+            "artifacts": {"subtitle_only_ass": "text_layer/subtitle_only.ass"},
+        },
+        "text_layer_summary": {"enabled": False, "fallbacks": []},
+        "image_text_policy_summary": {
+            "status": "not_applicable",
+            "suppress_embedded_text": False,
+        },
+    }
+
+    result_metadata = build_text_rendering_result_metadata(
+        observability,
+        text_render_package_path="text_render_package.json",
+    )
+
+    assert result_metadata == {
+        "caption_rendering_summary": observability["caption_rendering_summary"],
+        "text_layer_summary": observability["text_layer_summary"],
+        "image_text_policy_summary": observability["image_text_policy_summary"],
+        "text_render_package_path": "text_render_package.json",
+    }
+    observability["caption_rendering_summary"]["artifacts"][
+        "subtitle_only_ass"
+    ] = "changed.ass"
+    assert result_metadata["caption_rendering_summary"]["artifacts"][
+        "subtitle_only_ass"
+    ] == "text_layer/subtitle_only.ass"
+
+
+def test_build_text_rendering_result_metadata_omits_artifact_path_without_contract():
+    result_metadata = build_text_rendering_result_metadata(
+        {},
+        text_render_package_path="text_render_package.json",
+    )
+
+    assert result_metadata == {
+        "caption_rendering_summary": None,
+        "text_layer_summary": None,
+        "image_text_policy_summary": None,
+    }
 
 
 def test_custom_pipeline_direct_contract_summary_honors_disabled_reason():
@@ -200,6 +248,7 @@ async def test_custom_pipeline_records_contract_when_overlay_unsupported(
     assert metadata["result"]["image_text_policy_summary"] == observability[
         "image_text_policy_summary"
     ]
+    assert metadata["result"]["text_render_package_path"] == "text_render_package.json"
     assert "caption_style" not in observability["caption_rendering_summary"]
     assert "overlay_style" not in observability["text_layer_summary"]
 
@@ -259,6 +308,7 @@ async def test_asset_based_pipeline_records_contract_when_overlay_disabled(tmp_p
     assert metadata["result"]["image_text_policy_summary"] == ctx.observability[
         "image_text_policy_summary"
     ]
+    assert metadata["result"]["text_render_package_path"] == "text_render_package.json"
 
 
 @pytest.mark.asyncio

@@ -1046,6 +1046,7 @@ async def test_persist_task_data_records_text_layer_summary(tmp_path):
         "status": "not_applicable",
         "suppress_embedded_text": False,
     }
+    assert metadata["result"]["text_render_package_path"] == "text_render_package.json"
 
 
 @pytest.mark.asyncio

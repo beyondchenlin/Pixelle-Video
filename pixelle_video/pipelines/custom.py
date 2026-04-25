@@ -42,6 +42,8 @@ from pixelle_video.pipelines.storyboard_config import (
     resolve_storyboard_render_kwargs,
 )
 from pixelle_video.services.text_rendering_contract_summary import (
+    TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
+    build_text_rendering_result_metadata,
     record_text_rendering_contract_summary,
     resolve_overlay_disabled_reason,
 )
@@ -542,14 +544,9 @@ class CustomPipeline(BasePipeline):
                     "duration": result.duration,
                     "file_size": result.file_size,
                     "n_frames": len(storyboard.frames),
-                    "caption_rendering_summary": text_observability.get(
-                        "caption_rendering_summary"
-                    ),
-                    "text_layer_summary": text_observability.get(
-                        "text_layer_summary"
-                    ),
-                    "image_text_policy_summary": text_observability.get(
-                        "image_text_policy_summary"
+                    **build_text_rendering_result_metadata(
+                        text_observability,
+                        text_render_package_path=TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
                     ),
                 },
                 

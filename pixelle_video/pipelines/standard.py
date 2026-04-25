@@ -59,6 +59,10 @@ from pixelle_video.services.ass_text_adapter import AssTextAdapter
 from pixelle_video.services.caption_cue_builder import build_caption_cues_from_sentences
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
 from pixelle_video.services.text_cue_compiler import TextCueCompiler
+from pixelle_video.services.text_rendering_contract_summary import (
+    TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
+    build_text_rendering_result_metadata,
+)
 from pixelle_video.services.text_rendering_orchestrator import TextRenderingOrchestrator
 from pixelle_video.services.timing_planner import TimingPlanner
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
@@ -1552,7 +1556,7 @@ class StandardPipeline(LinearVideoPipeline):
         prompt_plan = dict(getattr(existing, "prompt_plan", {}) or {})
         prompt_plan["text_rendering_policy"] = result.overlay_policy.to_dict()
         if getattr(ctx, "task_dir", None):
-            prompt_plan["text_render_package"] = "text_render_package.json"
+            prompt_plan["text_render_package"] = TEXT_RENDER_PACKAGE_ARTIFACT_PATH
 
         if existing is None:
             ctx.creation_package = CreationPackage(
@@ -1578,7 +1582,7 @@ class StandardPipeline(LinearVideoPipeline):
         if not task_dir:
             return
 
-        package_path = Path(task_dir) / "text_render_package.json"
+        package_path = Path(task_dir) / TEXT_RENDER_PACKAGE_ARTIFACT_PATH
         package_path.parent.mkdir(parents=True, exist_ok=True)
         package_path.write_text(
             json.dumps(package.to_dict(), ensure_ascii=False, indent=2),
@@ -2380,12 +2384,9 @@ class StandardPipeline(LinearVideoPipeline):
                     "duration": result.duration,
                     "file_size": result.file_size,
                     "n_frames": len(storyboard.frames),
-                    "caption_rendering_summary": ctx.observability.get(
-                        "caption_rendering_summary"
-                    ),
-                    "text_layer_summary": ctx.observability.get("text_layer_summary"),
-                    "image_text_policy_summary": ctx.observability.get(
-                        "image_text_policy_summary"
+                    **build_text_rendering_result_metadata(
+                        ctx.observability,
+                        text_render_package_path=TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
                     ),
                 },
                 

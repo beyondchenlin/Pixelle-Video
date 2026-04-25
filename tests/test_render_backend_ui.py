@@ -101,6 +101,21 @@ def test_get_task_image_text_policy_summary_reads_result_payload():
     assert render_backend_ui.get_task_image_text_policy_summary({}) is None
 
 
+def test_format_task_boolean_uses_localized_labels():
+    assert (
+        render_backend_ui.format_task_boolean(
+            True, true_label="Yes", false_label="No"
+        )
+        == "Yes"
+    )
+    assert render_backend_ui.format_task_boolean(
+        False, true_label="Yes", false_label="No"
+    ) == "No"
+    assert render_backend_ui.format_task_boolean(
+        "", true_label="Yes", false_label="No"
+    ) == "No"
+
+
 def test_render_render_backend_selector_uses_runtime_default(monkeypatch):
     captured = {}
 

@@ -42,6 +42,8 @@ from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.services.text_rendering_contract_summary import (
+    TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
+    build_text_rendering_result_metadata,
     record_text_rendering_contract_summary,
     resolve_overlay_disabled_reason,
 )
@@ -861,12 +863,9 @@ class AssetBasedPipeline(LinearVideoPipeline):
                     "duration": storyboard.total_duration if storyboard else 0,
                     "file_size": file_size,
                     "n_frames": len(storyboard.frames) if storyboard else 0,
-                    "caption_rendering_summary": ctx.observability.get(
-                        "caption_rendering_summary"
-                    ),
-                    "text_layer_summary": ctx.observability.get("text_layer_summary"),
-                    "image_text_policy_summary": ctx.observability.get(
-                        "image_text_policy_summary"
+                    **build_text_rendering_result_metadata(
+                        ctx.observability,
+                        text_render_package_path=TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
                     ),
                 },
                 

@@ -35,6 +35,7 @@ from web.i18n import tr
 from web.state.session import get_pixelle_video, init_i18n, init_session_state
 from web.utils.async_helpers import run_async
 from web.utils.render_backend_ui import (
+    format_task_boolean,
     get_task_caption_rendering_summary,
     get_task_image_text_policy_summary,
     get_task_render_backend,
@@ -455,7 +456,11 @@ def render_task_detail_modal(task_id: str, pixelle_video):
             st.markdown(
                 tr(
                     "history.detail.caption_rendering_summary",
-                    enabled=caption_rendering_summary["enabled"],
+                    enabled=format_task_boolean(
+                        caption_rendering_summary["enabled"],
+                        true_label=tr("history.detail.boolean_yes"),
+                        false_label=tr("history.detail.boolean_no"),
+                    ),
                     cue_count=caption_rendering_summary["caption_cue_count"],
                     style_profile=caption_rendering_summary["style_profile_id"],
                     targets=caption_rendering_summary["renderer_targets"],
@@ -479,9 +484,11 @@ def render_task_detail_modal(task_id: str, pixelle_video):
                 tr(
                     "history.detail.image_text_policy_summary",
                     status=image_text_policy_summary["status"],
-                    suppress_embedded_text=image_text_policy_summary[
-                        "suppress_embedded_text"
-                    ],
+                    suppress_embedded_text=format_task_boolean(
+                        image_text_policy_summary["suppress_embedded_text"],
+                        true_label=tr("history.detail.boolean_yes"),
+                        false_label=tr("history.detail.boolean_no"),
+                    ),
                 )
             )
         planning_summary = summarize_storyboard_planning_snapshot(planning_snapshot)
