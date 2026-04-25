@@ -164,6 +164,7 @@ def _render_text_style_controls(
         translate(f"{prefix}.font_family"),
         value=_session_value(ui, f"{prefix}_font_family", defaults["font_family"]),
         key=f"{prefix}_font_family",
+        help=translate(f"{prefix}.font_family_help"),
     )
     font_size = _call_control(
         ui,

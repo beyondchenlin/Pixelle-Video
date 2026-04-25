@@ -6,6 +6,26 @@ from pydantic import ValidationError
 from api.schemas.text_rendering import TextRenderingRequest
 
 
+class _TextStyleFakeUI:
+    session_state = {}
+
+    def __init__(self):
+        self.text_inputs = []
+
+    def text_input(self, label, value="", **kwargs):
+        self.text_inputs.append({"label": label, "value": value, **kwargs})
+        return value
+
+    def number_input(self, _label, value=0, **_kwargs):
+        return value
+
+    def color_picker(self, _label, value="#000000", **_kwargs):
+        return value
+
+    def selectbox(self, _label, options, index=0, **_kwargs):
+        return options[index]
+
+
 def test_text_rendering_request_accepts_caption_style_and_forbids_unknown_fields():
     request = TextRenderingRequest.model_validate(
         {
@@ -101,3 +121,34 @@ def test_build_text_rendering_payload_keeps_overlay_style_when_overlay_disabled(
         "font_size": 88,
         "position": "center",
     }
+
+
+def test_text_style_font_family_control_explains_font_directory():
+    from web.components.text_rendering_config import CAPTION_STYLE_DEFAULTS, _render_text_style_controls
+
+    fake_ui = _TextStyleFakeUI()
+
+    _render_text_style_controls(
+        "caption_style",
+        CAPTION_STYLE_DEFAULTS,
+        ui=fake_ui,
+        translate=lambda key: f"translated:{key}",
+    )
+
+    assert fake_ui.text_inputs[0]["label"] == "translated:caption_style.font_family"
+    assert fake_ui.text_inputs[0]["help"] == "translated:caption_style.font_family_help"
+
+
+def test_text_rendering_font_help_translation_keys_exist_in_supported_locales():
+    import json
+
+    locale_dir = Path(__file__).resolve().parents[1] / "web" / "i18n" / "locales"
+    required_keys = [
+        "caption_style.font_family_help",
+        "overlay_style.font_family_help",
+    ]
+
+    for locale_name in ("zh_CN.json", "en_US.json"):
+        translations = json.loads((locale_dir / locale_name).read_text(encoding="utf-8"))["t"]
+        missing_keys = [key for key in required_keys if key not in translations]
+        assert missing_keys == []
