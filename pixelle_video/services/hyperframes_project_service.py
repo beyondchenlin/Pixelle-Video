@@ -18,15 +18,14 @@ from pixelle_video.models.render_package import (
     SentenceUnit,
     TextCue,
     VisualClip,
-    resolve_render_window,
 )
 from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
 from pixelle_video.models.template_text_capabilities import TemplateTextCapabilities
 from pixelle_video.models.text_style import DEFAULT_CAPTION_STYLE_ID
+from pixelle_video.services.caption_cue_builder import build_caption_cues_from_sentences
 from pixelle_video.services.hyperframes_asset_materializer import HyperFramesAssetMaterializer
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 from pixelle_video.utils.os_util import get_output_path
-from pixelle_video.utils.text_splitting import format_caption_text, split_text_into_subtitle_phrases
 
 
 @dataclass(frozen=True)
@@ -40,87 +39,20 @@ class HyperFramesProjectPaths:
 
 
 def _build_caption_cues_from_sentences(manifest: RenderManifest) -> list[CaptionCue]:
-    captions: list[CaptionCue] = []
-    for sentence in manifest.sentence_units:
-        try:
-            start, end = resolve_render_window(sentence)
-        except ValueError:
-            continue
-
-        captions.extend(
-            _build_sentence_caption_cues(
-                sentence=sentence,
-                start=float(start),
-                end=float(end),
-                style_profile=DEFAULT_CAPTION_STYLE_ID,
-                punctuation_mode=manifest.caption_punctuation_mode,
-            )
-        )
-    return captions
+    return build_caption_cues_from_sentences(
+        manifest.sentence_units,
+        style_profile=DEFAULT_CAPTION_STYLE_ID,
+        punctuation_mode=manifest.caption_punctuation_mode,
+    )
 
 
-def _build_sentence_caption_cues(
-    *,
-    sentence: SentenceUnit,
-    start: float,
-    end: float,
-    style_profile: str,
-    punctuation_mode: str,
-) -> list[CaptionCue]:
-    phrases = split_text_into_subtitle_phrases(sentence.text)
-    if not phrases:
+def _resolve_caption_cues_for_manifest(manifest: RenderManifest) -> list[CaptionCue]:
+    if (
+        not manifest.caption_rendering_enabled
+        or "hyperframes" not in manifest.caption_renderer_targets
+    ):
         return []
-
-    if len(phrases) == 1 or end <= start:
-        return [
-            CaptionCue(
-                id=sentence.id,
-                text=format_caption_text(sentence.text, punctuation_mode=punctuation_mode),
-                start=float(start),
-                end=float(end),
-                frame_indices=list(sentence.frame_indices),
-                style_profile=style_profile,
-            )
-        ]
-
-    weights = [_estimate_caption_phrase_weight(phrase) for phrase in phrases]
-    total_weight = sum(weights) or len(phrases)
-    span = float(end) - float(start)
-    elapsed_weight = 0.0
-    captions: list[CaptionCue] = []
-
-    for index, (phrase, weight) in enumerate(zip(phrases, weights), start=1):
-        cue_start = float(start) if index == 1 else captions[-1].end
-        if index == len(phrases):
-            cue_end = float(end)
-        else:
-            elapsed_weight += weight
-            cue_end = float(start) + span * (elapsed_weight / total_weight)
-
-        if cue_end <= cue_start:
-            continue
-
-        captions.append(
-            CaptionCue(
-                id=f"{sentence.id}-cue-{index}",
-                text=format_caption_text(phrase, punctuation_mode=punctuation_mode),
-                start=cue_start,
-                end=cue_end,
-                frame_indices=list(sentence.frame_indices),
-                style_profile=style_profile,
-            )
-        )
-
-    if not captions:
-        return []
-
-    captions[-1] = replace(captions[-1], end=float(end))
-    return captions
-
-
-def _estimate_caption_phrase_weight(text: str) -> int:
-    visible_chars = [char for char in text if not char.isspace()]
-    return max(1, len(visible_chars))
+    return list(manifest.caption_cues or _build_caption_cues_from_sentences(manifest))
 
 
 def build_template_render_context(
@@ -129,7 +61,7 @@ def build_template_render_context(
     template_params: dict | None,
 ) -> TemplateRenderContext:
     params = dict(template_params or {})
-    caption_cues = list(manifest.caption_cues or _build_caption_cues_from_sentences(manifest))
+    caption_cues = _resolve_caption_cues_for_manifest(manifest)
 
     duration_candidates = [float(manifest.master_audio_duration or 0.0)]
     duration_candidates.extend(float(track.end) for track in manifest.audio_tracks)
@@ -289,7 +221,7 @@ class HyperFramesProjectService:
         }
 
     def _resolve_caption_cues(self, manifest: RenderManifest) -> list[CaptionCue]:
-        return list(manifest.caption_cues or _build_caption_cues_from_sentences(manifest))
+        return _resolve_caption_cues_for_manifest(manifest)
 
     def _prepare_manifest_for_export(
         self,

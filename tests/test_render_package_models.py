@@ -81,6 +81,8 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
                 track_index=0,
             )
         ],
+        caption_rendering_enabled=False,
+        caption_renderer_targets=["ass"],
         caption_cues=[
             CaptionCue(
                 id="c1",
@@ -97,8 +99,26 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     restored = RenderManifest.from_dict(data)
 
     assert restored.caption_cues[0].text == "Sentence 1"
+    assert restored.caption_rendering_enabled is False
+    assert restored.caption_renderer_targets == ["ass"]
     assert restored.audio_blocks[0].end == 4.2
     assert restored.caption_punctuation_mode == "strip_all"
+
+
+def test_render_manifest_preserves_explicit_empty_caption_renderer_targets():
+    manifest = RenderManifest(
+        task_id="task-empty-caption-targets",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        caption_renderer_targets=[],
+    )
+
+    restored = RenderManifest.from_dict(manifest.to_dict())
+
+    assert restored.caption_renderer_targets == []
 
 
 def test_render_manifest_round_trips_declarative_audio_tracks():

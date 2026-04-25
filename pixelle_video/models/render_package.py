@@ -318,6 +318,10 @@ class RenderManifest:
     audio_blocks: List[AudioBlock] = field(default_factory=list)
     sentence_units: List[SentenceUnit] = field(default_factory=list)
     visual_clips: List[VisualClip] = field(default_factory=list)
+    caption_rendering_enabled: bool = True
+    caption_renderer_targets: List[str] = field(
+        default_factory=lambda: ["hyperframes", "ass"]
+    )
     caption_cues: List[CaptionCue] = field(default_factory=list)
     text_style_profiles: List[TextStyleProfile] = field(default_factory=list)
     text_tracks: List[TextTrack] = field(default_factory=list)
@@ -344,6 +348,8 @@ class RenderManifest:
         audio_blocks: Optional[List[AudioBlock]] = None,
         sentence_units: Optional[List[SentenceUnit]] = None,
         visual_clips: Optional[List[VisualClip]] = None,
+        caption_rendering_enabled: bool = True,
+        caption_renderer_targets: Optional[List[str]] = None,
         caption_cues: Optional[List[CaptionCue]] = None,
         text_style_profiles: Optional[List[TextStyleProfile]] = None,
         text_tracks: Optional[List[TextTrack]] = None,
@@ -383,6 +389,16 @@ class RenderManifest:
         self.audio_blocks = list(audio_blocks or [])
         self.sentence_units = list(sentence_units or [])
         self.visual_clips = list(visual_clips or [])
+        self.caption_rendering_enabled = bool(caption_rendering_enabled)
+        resolved_caption_targets = (
+            ["hyperframes", "ass"]
+            if caption_renderer_targets is None
+            else caption_renderer_targets
+        )
+        self.caption_renderer_targets = [
+            str(target)
+            for target in resolved_caption_targets
+        ]
         self.caption_cues = list(caption_cues or [])
         self.text_style_profiles = [
             profile
@@ -424,6 +440,8 @@ class RenderManifest:
             "audio_blocks": [block.to_dict() for block in self.audio_blocks],
             "sentence_units": [unit.to_dict() for unit in self.sentence_units],
             "visual_clips": [clip.to_dict() for clip in self.visual_clips],
+            "caption_rendering_enabled": self.caption_rendering_enabled,
+            "caption_renderer_targets": list(self.caption_renderer_targets),
             "caption_cues": [cue.to_dict() for cue in self.caption_cues],
             "text_style_profiles": [
                 profile.to_dict() for profile in self.text_style_profiles
@@ -458,6 +476,10 @@ class RenderManifest:
             audio_blocks=[AudioBlock.from_dict(item) for item in data.get("audio_blocks", [])],
             sentence_units=[SentenceUnit.from_dict(item) for item in data.get("sentence_units", [])],
             visual_clips=[VisualClip.from_dict(item) for item in data.get("visual_clips", [])],
+            caption_rendering_enabled=bool(data.get("caption_rendering_enabled", True)),
+            caption_renderer_targets=list(
+                data.get("caption_renderer_targets", ["hyperframes", "ass"])
+            ),
             caption_cues=[CaptionCue.from_dict(item) for item in data.get("caption_cues", [])],
             text_style_profiles=[
                 TextStyleProfile.from_dict(item)

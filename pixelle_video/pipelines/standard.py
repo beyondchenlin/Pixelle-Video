@@ -23,7 +23,7 @@ import json
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, List, Literal, Optional
@@ -33,7 +33,14 @@ from loguru import logger
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.progress import ProgressEvent
-from pixelle_video.models.render_package import RenderAudioTrack, RenderManifest, VisualClip
+from pixelle_video.models.render_package import (
+    CaptionCue,
+    RenderAudioTrack,
+    RenderManifest,
+    TextCue,
+    TextTrack,
+    VisualClip,
+)
 from pixelle_video.models.storyboard import (
     Storyboard,
     StoryboardConfig,
@@ -42,10 +49,6 @@ from pixelle_video.models.storyboard import (
     build_storyboard_config_planning_kwargs,
     build_storyboard_frame_planning_kwargs,
 )
-from pixelle_video.models.text_overlay import (
-    build_text_rendering_policy,
-    build_text_rendering_settings,
-)
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.render_backend import (
@@ -53,9 +56,10 @@ from pixelle_video.render_backend import (
     LEGACY_RENDER_BACKEND,
 )
 from pixelle_video.services.ass_text_adapter import AssTextAdapter
+from pixelle_video.services.caption_cue_builder import build_caption_cues_from_sentences
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
 from pixelle_video.services.text_cue_compiler import TextCueCompiler
-from pixelle_video.services.text_overlay_planner import TextOverlayPlanner
+from pixelle_video.services.text_rendering_orchestrator import TextRenderingOrchestrator
 from pixelle_video.services.timing_planner import TimingPlanner
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.services.video import VideoService
@@ -282,6 +286,7 @@ class StandardPipeline(LinearVideoPipeline):
         template_type = get_template_type(template_name)
         template_requires_media = (template_type in ["image", "video"])
         stage_callback = self._ai_stage_callback(ctx)
+        text_rendering_result = self._get_text_rendering_result(ctx)
         
         if template_type == "image":
             logger.info("📸 Template requires image generation")
@@ -318,22 +323,9 @@ class StandardPipeline(LinearVideoPipeline):
                 )
             
             image_config = self.core.config.get("comfyui", {}).get(media_type, {})
-            text_rendering_settings = build_text_rendering_settings(
-                ctx.params.get("text_rendering")
-            )
-            text_policy = build_text_rendering_policy(text_rendering_settings.overlay)
-            text_plan = TextOverlayPlanner().plan(
-                narrations=ctx.narrations,
-                policy=text_policy,
-            )
-            ctx.creation_package = CreationPackage(
-                task_id=ctx.task_id or "",
-                text_overlay_plan=text_plan,
-                prompt_plan={"text_rendering_policy": text_policy.to_dict()},
-            )
             native_hints = NativePromptProjection().project(
-                plan=text_plan,
-                policy=text_policy,
+                plan=text_rendering_result.overlay_plan,
+                policy=text_rendering_result.overlay_policy,
             )
             styled_batch = await generate_styled_image_prompt_batch(
                 llm_service=self.llm,
@@ -1153,12 +1145,32 @@ class StandardPipeline(LinearVideoPipeline):
             bgm_mode=ctx.params.get("bgm_mode", "loop")
         )
 
+        self._get_text_rendering_result(ctx)
         text_tracks, text_cues = self._compile_text_layer_for_render(ctx)
-        ass_tracks, ass_cues = self._filter_text_layer_for_renderer(
+        caption_cues = (
+            self._build_caption_cues_for_render(ctx, rebuild=True)
+            if self._caption_renderer_enabled(ctx, "ass")
+            else []
+        )
+        self._update_text_render_package(
+            ctx,
+            caption_cues=caption_cues,
+            text_tracks=text_tracks,
+            text_cues=text_cues,
+        )
+        overlay_ass_tracks, overlay_ass_cues = self._filter_text_layer_for_renderer(
             text_tracks,
             text_cues,
             renderer="ass",
         )
+        caption_ass_tracks, caption_ass_cues = self._caption_text_layer_for_renderer(
+            ctx,
+            caption_cues=caption_cues,
+            renderer="ass",
+        )
+        ass_tracks = [*caption_ass_tracks, *overlay_ass_tracks]
+        ass_cues = [*caption_ass_cues, *overlay_ass_cues]
+        ass_outputs = None
         if ass_cues:
             ass_dir = Path(ctx.task_dir or Path(final_video_path).parent) / "text_layer"
             manifest = RenderManifest(
@@ -1168,6 +1180,12 @@ class StandardPipeline(LinearVideoPipeline):
                 height=storyboard.config.media_height,
                 fps=storyboard.config.video_fps,
                 template_id="legacy",
+                caption_rendering_enabled=self._caption_renderer_enabled(ctx, "ass"),
+                caption_renderer_targets=list(
+                    self._caption_renderer_targets_for_summary(ctx)
+                ),
+                caption_cues=caption_cues,
+                text_style_profiles=self._text_style_profiles_for_manifest(ctx),
                 text_tracks=ass_tracks,
                 text_cues=ass_cues,
             )
@@ -1181,12 +1199,31 @@ class StandardPipeline(LinearVideoPipeline):
                 str(ass_outputs.master),
                 burned_path,
             )
+        self._record_caption_rendering_summary(
+            ctx,
+            enabled=bool(caption_ass_cues),
+            caption_cue_count=len(caption_ass_cues),
+            style_profile=self._caption_style_profile_for_summary(ctx),
+            renderer_targets=self._caption_renderer_targets_for_summary(ctx),
+            artifacts=self._ass_caption_artifacts(ass_outputs),
+            fallbacks=self._ass_export_fallbacks(ass_outputs),
+        )
         self._record_text_layer_summary(
             ctx,
-            renderer="ass" if ass_cues else "disabled",
-            text_tracks=ass_tracks,
-            text_cues=ass_cues,
+            renderer="ass" if overlay_ass_cues else "disabled",
+            text_tracks=overlay_ass_tracks,
+            text_cues=overlay_ass_cues,
             native_hint_count=self._count_native_prompt_hints(ctx),
+            artifacts=(
+                self._ass_text_layer_artifacts(ass_outputs)
+                if overlay_ass_cues
+                else {}
+            ),
+            fallbacks=(
+                self._ass_export_fallbacks(ass_outputs)
+                if overlay_ass_cues
+                else ()
+            ),
         )
         
         storyboard.final_video_path = final_video_path
@@ -1241,10 +1278,27 @@ class StandardPipeline(LinearVideoPipeline):
             timing_plan.blocks[-1].end = master_audio_duration
         storyboard.total_duration = master_audio_duration
         canvas_width, canvas_height = self._resolve_hyperframes_canvas_size(config)
-        text_tracks, text_cues = self._compile_text_layer_for_render(ctx)
+        self._get_text_rendering_result(ctx)
+        compiled_text_tracks, compiled_text_cues = self._compile_text_layer_for_render(ctx)
+        caption_cues = (
+            self._build_caption_cues_for_render(ctx, rebuild=True)
+            if self._caption_renderer_enabled(ctx, "hyperframes")
+            else []
+        )
+        hyperframes_caption_cues = self._caption_cues_for_renderer(
+            ctx,
+            caption_cues=caption_cues,
+            renderer="hyperframes",
+        )
+        self._update_text_render_package(
+            ctx,
+            caption_cues=caption_cues,
+            text_tracks=compiled_text_tracks,
+            text_cues=compiled_text_cues,
+        )
         text_tracks, text_cues = self._filter_text_layer_for_renderer(
-            text_tracks,
-            text_cues,
+            compiled_text_tracks,
+            compiled_text_cues,
             renderer="hyperframes",
         )
         audio_tracks = self._build_hyperframes_audio_tracks(
@@ -1268,9 +1322,15 @@ class StandardPipeline(LinearVideoPipeline):
             audio_blocks=list(timing_plan.blocks),
             sentence_units=list(timing_plan.sentences),
             visual_clips=self._build_hyperframes_visual_clips(storyboard, timing_plan),
+            caption_rendering_enabled=self._caption_renderer_enabled(ctx, "hyperframes"),
+            caption_renderer_targets=list(
+                self._caption_renderer_targets_for_summary(ctx)
+            ),
+            caption_cues=hyperframes_caption_cues,
+            text_style_profiles=self._text_style_profiles_for_manifest(ctx),
             text_tracks=text_tracks,
             text_cues=text_cues,
-            caption_punctuation_mode=config.caption_punctuation_mode,
+            caption_punctuation_mode=self._caption_punctuation_mode_for_manifest(ctx),
             canonical_timeline=(
                 "remapped"
                 if any(
@@ -1291,6 +1351,18 @@ class StandardPipeline(LinearVideoPipeline):
             manifest,
             template_params=storyboard.config.template_params or {},
             master_audio_duration=master_audio_duration,
+        )
+        self._record_caption_rendering_summary(
+            ctx,
+            enabled=bool(hyperframes_caption_cues),
+            caption_cue_count=len(hyperframes_caption_cues),
+            style_profile=self._caption_style_profile_for_summary(ctx),
+            renderer_targets=self._caption_renderer_targets_for_summary(ctx),
+            artifacts=(
+                {"captions_json": str(project_paths.captions_path)}
+                if hyperframes_caption_cues
+                else {}
+            ),
         )
 
         final_video_path = self.core.hyperframes_renderer.render(
@@ -1398,6 +1470,283 @@ class StandardPipeline(LinearVideoPipeline):
             raise RuntimeError(f"Failed to prepare HyperFrames BGM audio: {detail}")
         return output_path
 
+    def _get_text_rendering_result(self, ctx: PipelineContext):
+        existing = getattr(ctx, "text_rendering_result", None)
+        if existing is not None:
+            return existing
+
+        narrations = self._text_rendering_narrations(ctx)
+        result = TextRenderingOrchestrator().build(
+            text_rendering=self._text_rendering_request_for_contract(ctx),
+            narrations=narrations,
+            render_backend=self._resolve_text_rendering_backend_label(ctx),
+            frame_count=len(narrations),
+            task_id=getattr(ctx, "task_id", None),
+        )
+        setattr(ctx, "text_rendering_result", result)
+        self._set_text_render_package(ctx, result.text_render_package)
+        self._attach_text_rendering_contract_to_creation_package(ctx, result)
+        return result
+
+    def _text_rendering_request_for_contract(self, ctx: PipelineContext) -> dict:
+        params = getattr(ctx, "params", {}) or {}
+        payload = dict(params.get("text_rendering") or {})
+        caption_payload = dict(payload.get("caption") or {})
+
+        if "punctuation_mode" not in caption_payload:
+            punctuation_mode = self._caption_punctuation_mode_from_context(ctx)
+            if punctuation_mode:
+                caption_payload["punctuation_mode"] = punctuation_mode
+
+        if caption_payload:
+            payload["caption"] = caption_payload
+        return payload
+
+    def _caption_punctuation_mode_from_context(self, ctx: PipelineContext) -> str | None:
+        params = getattr(ctx, "params", {}) or {}
+        if params.get("caption_punctuation_mode") is not None:
+            return str(params["caption_punctuation_mode"])
+
+        config = getattr(ctx, "config", None)
+        if config is not None and getattr(config, "caption_punctuation_mode", None):
+            return str(config.caption_punctuation_mode)
+        return None
+
+    def _text_rendering_narrations(self, ctx: PipelineContext) -> list[str]:
+        narrations = list(getattr(ctx, "narrations", []) or [])
+        if narrations:
+            return narrations
+
+        storyboard = getattr(ctx, "storyboard", None)
+        return [
+            str(getattr(frame, "narration", "") or "")
+            for frame in getattr(storyboard, "frames", []) or []
+        ]
+
+    def _resolve_text_rendering_backend_label(self, ctx: PipelineContext) -> str | None:
+        config = getattr(ctx, "config", None)
+        if config is None:
+            return getattr(ctx, "params", {}).get("render_backend")
+
+        try:
+            return self._resolve_effective_render_backend(ctx)
+        except Exception:
+            return getattr(config, "render_backend", None)
+
+    def _get_text_render_package(self, ctx: PipelineContext):
+        package = getattr(ctx, "text_render_package", None)
+        if package is not None:
+            return package
+        return self._get_text_rendering_result(ctx).text_render_package
+
+    def _set_text_render_package(self, ctx: PipelineContext, package) -> None:
+        setattr(ctx, "text_render_package", package)
+        self._persist_text_render_package(ctx, package)
+
+    def _attach_text_rendering_contract_to_creation_package(
+        self,
+        ctx: PipelineContext,
+        result,
+    ) -> None:
+        existing = getattr(ctx, "creation_package", None)
+        prompt_plan = dict(getattr(existing, "prompt_plan", {}) or {})
+        prompt_plan["text_rendering_policy"] = result.overlay_policy.to_dict()
+        if getattr(ctx, "task_dir", None):
+            prompt_plan["text_render_package"] = "text_render_package.json"
+
+        if existing is None:
+            ctx.creation_package = CreationPackage(
+                task_id=getattr(ctx, "task_id", None) or "",
+                text_overlay_plan=result.overlay_plan,
+                prompt_plan=prompt_plan,
+            )
+            return
+
+        text_overlay_plan = (
+            existing.text_overlay_plan
+            if existing.text_overlay_plan is not None
+            else result.overlay_plan
+        )
+        ctx.creation_package = replace(
+            existing,
+            text_overlay_plan=text_overlay_plan,
+            prompt_plan=prompt_plan,
+        )
+
+    def _persist_text_render_package(self, ctx: PipelineContext, package) -> None:
+        task_dir = getattr(ctx, "task_dir", None)
+        if not task_dir:
+            return
+
+        package_path = Path(task_dir) / "text_render_package.json"
+        package_path.parent.mkdir(parents=True, exist_ok=True)
+        package_path.write_text(
+            json.dumps(package.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _update_text_render_package(
+        self,
+        ctx: PipelineContext,
+        *,
+        caption_cues=None,
+        text_tracks=None,
+        text_cues=None,
+    ):
+        package = self._get_text_render_package(ctx)
+        updated = replace(
+            package,
+            caption_cues=(
+                tuple(caption_cues)
+                if caption_cues is not None
+                else package.caption_cues
+            ),
+            text_tracks=(
+                tuple(text_tracks)
+                if text_tracks is not None
+                else package.text_tracks
+            ),
+            text_cues=(
+                tuple(text_cues)
+                if text_cues is not None
+                else package.text_cues
+            ),
+        )
+        self._set_text_render_package(ctx, updated)
+        existing_result = getattr(ctx, "text_rendering_result", None)
+        if existing_result is not None:
+            setattr(
+                ctx,
+                "text_rendering_result",
+                replace(
+                    existing_result,
+                    text_render_package=updated,
+                    diagnostics=updated.diagnostics,
+                ),
+            )
+        return updated
+
+    def _text_style_profiles_for_manifest(self, ctx: PipelineContext) -> list:
+        return list(self._get_text_render_package(ctx).text_style_profiles)
+
+    def _caption_style_profile_for_summary(self, ctx: PipelineContext):
+        package = self._get_text_render_package(ctx)
+        style_profile_id = package.caption_settings.style_profile
+        return next(
+            (
+                profile
+                for profile in package.text_style_profiles
+                if profile.id == style_profile_id
+            ),
+            style_profile_id,
+        )
+
+    def _caption_renderer_targets_for_summary(
+        self,
+        ctx: PipelineContext,
+    ) -> tuple[str, ...]:
+        return self._get_text_render_package(ctx).caption_settings.renderer_targets
+
+    def _caption_renderer_enabled(self, ctx: PipelineContext, renderer: str) -> bool:
+        settings = self._get_text_render_package(ctx).caption_settings
+        return settings.enabled and renderer in settings.renderer_targets
+
+    def _caption_punctuation_mode_for_manifest(self, ctx: PipelineContext) -> str:
+        return self._get_text_render_package(ctx).caption_settings.punctuation_mode
+
+    def _build_caption_cues_for_render(
+        self,
+        ctx: PipelineContext,
+        *,
+        rebuild: bool = False,
+    ) -> list[CaptionCue]:
+        package = self._get_text_render_package(ctx)
+        if not package.caption_settings.enabled:
+            return []
+        if package.caption_cues and not rebuild:
+            return list(package.caption_cues)
+
+        timing_plan = getattr(ctx, "timing_plan", None)
+        sentences = list(getattr(timing_plan, "sentences", []) or [])
+        if not sentences:
+            return []
+        return build_caption_cues_from_sentences(
+            sentences,
+            style_profile=package.caption_settings.style_profile,
+            punctuation_mode=package.caption_settings.punctuation_mode,
+        )
+
+    def _caption_cues_for_renderer(
+        self,
+        ctx: PipelineContext,
+        *,
+        caption_cues: list[CaptionCue],
+        renderer: str,
+    ) -> list[CaptionCue]:
+        if not self._caption_renderer_enabled(ctx, renderer):
+            return []
+        return list(caption_cues)
+
+    def _caption_text_layer_for_renderer(
+        self,
+        ctx: PipelineContext,
+        *,
+        caption_cues: list[CaptionCue],
+        renderer: str,
+    ) -> tuple[list[TextTrack], list[TextCue]]:
+        package = self._get_text_render_package(ctx)
+        settings = package.caption_settings
+        if (
+            not settings.enabled
+            or renderer not in settings.renderer_targets
+            or not caption_cues
+        ):
+            return [], []
+
+        track = TextTrack(
+            id=f"track-{renderer}-captions",
+            kind="caption",
+            name="Captions",
+            renderer_targets=(renderer,),
+            style_profile=settings.style_profile,
+            layer=0,
+        )
+        cues = [
+            TextCue(
+                id=f"{renderer}-caption-{cue.id}",
+                track_id=track.id,
+                text=cue.text,
+                start=cue.start,
+                end=cue.end,
+                role="subtitle",
+                frame_indices=tuple(cue.frame_indices),
+                style_profile=cue.style_profile or settings.style_profile,
+                layer=0,
+                source={"caption_cue_id": cue.id},
+            )
+            for cue in caption_cues
+        ]
+        return [track], cues
+
+    def _ass_caption_artifacts(self, ass_outputs) -> dict[str, str]:
+        if ass_outputs is None or getattr(ass_outputs, "subtitle_only", None) is None:
+            return {}
+        return {"subtitle_only_ass": str(ass_outputs.subtitle_only)}
+
+    def _ass_text_layer_artifacts(self, ass_outputs) -> dict[str, str]:
+        if ass_outputs is None:
+            return {}
+        artifacts = {}
+        if getattr(ass_outputs, "master", None) is not None:
+            artifacts["master_ass"] = str(ass_outputs.master)
+        if getattr(ass_outputs, "overlay_only", None) is not None:
+            artifacts["overlay_only_ass"] = str(ass_outputs.overlay_only)
+        return artifacts
+
+    def _ass_export_fallbacks(self, ass_outputs) -> list:
+        diagnostics = getattr(ass_outputs, "diagnostics", None) or {}
+        return list(diagnostics.get("fallbacks", []) or [])
+
     def _compile_text_layer_for_render(self, ctx: PipelineContext):
         package = getattr(ctx, "creation_package", None)
         timing_plan = getattr(ctx, "timing_plan", None)
@@ -1457,20 +1806,73 @@ class StandardPipeline(LinearVideoPipeline):
         text_tracks,
         text_cues,
         native_hint_count: int = 0,
+        artifacts: dict | None = None,
+        fallbacks=(),
     ) -> None:
+        overlay_tracks = [
+            track
+            for track in text_tracks
+            if getattr(track, "kind", None) not in {"caption", "subtitle"}
+        ]
+        overlay_track_ids = {track.id for track in overlay_tracks}
+        overlay_cues = [
+            cue
+            for cue in text_cues
+            if getattr(cue, "role", None) not in {"caption", "subtitle"}
+            and getattr(cue, "track_id", None) in overlay_track_ids
+        ]
+        style_profile_ids = sorted(
+            {
+                style_profile
+                for style_profile in (
+                    [
+                        getattr(track, "style_profile", None)
+                        for track in overlay_tracks
+                    ]
+                    + [
+                        getattr(cue, "style_profile", None)
+                        for cue in overlay_cues
+                    ]
+                )
+                if style_profile
+            }
+        )
         ctx.observability["text_layer_summary"] = {
-            "enabled": bool(text_tracks or text_cues or native_hint_count),
+            "enabled": bool(overlay_tracks or overlay_cues or native_hint_count),
             "renderer": renderer,
-            "track_count": len(text_tracks),
-            "cue_count": len(text_cues),
+            "track_count": len(overlay_tracks),
+            "cue_count": len(overlay_cues),
             "native_prompt_hint_count": native_hint_count,
+            "style_profile_ids": style_profile_ids,
+            "artifacts": dict(artifacts or {}),
+            "fallbacks": [dict(item) if isinstance(item, dict) else item for item in fallbacks],
             "targets": sorted(
                 {
                     target
-                    for track in text_tracks
+                    for track in overlay_tracks
                     for target in track.renderer_targets
                 }
             ),
+        }
+
+    def _record_caption_rendering_summary(
+        self,
+        ctx: PipelineContext,
+        *,
+        enabled: bool | None = None,
+        caption_cue_count: int,
+        style_profile,
+        renderer_targets,
+        artifacts: dict | None,
+        fallbacks=(),
+    ) -> None:
+        ctx.observability["caption_rendering_summary"] = {
+            "enabled": bool(caption_cue_count) if enabled is None else bool(enabled),
+            "caption_cue_count": int(caption_cue_count),
+            "style_profile_id": getattr(style_profile, "id", style_profile),
+            "renderer_targets": sorted(str(target) for target in renderer_targets),
+            "artifacts": dict(artifacts or {}),
+            "fallbacks": [dict(item) if isinstance(item, dict) else item for item in fallbacks],
         }
 
     def _align_hyperframes_timing_plan(self, ctx: PipelineContext) -> None:
