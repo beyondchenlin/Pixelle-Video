@@ -123,11 +123,17 @@ storyboard_scene_count = null
 - `sentence`：分镜数量由句意标点拆分结果决定，忽略 `storyboard_scene_count`。
 - `storyboard_scene_count` 必须有全局上限，建议进入配置，例如 `config.storyboard.max_scene_count`。
 
-兼容策略：
+破坏性迁移策略：
 
-- `n_scenes` 保留为旧入口。若新字段不存在，`mode=generate` 可映射为 `storyboard_mode=smart`，`storyboard_count_mode=manual`，`storyboard_scene_count=n_scenes`。
-- `split_mode` 保留为旧入口。若新字段不存在，`split_mode=punctuation` 映射为 `storyboard_mode=punctuation`，`split_mode=sentence` 映射为 `storyboard_mode=sentence`。
-- `paragraph` 和 `line` 不进入新 UI。旧请求可继续兼容一段时间，但内部应标记为 legacy deterministic segmentation。
+- 视频生成主链路不再接收 `n_scenes`。
+- 视频生成主链路不再接收 `split_mode`。
+- `VideoGenerateRequest` 必须删除 `n_scenes`，且不得新增 `split_mode`。
+- 由于 `VideoGenerateRequest.extra="forbid"`，旧客户端继续传 `n_scenes` 或 `split_mode` 时应直接得到 422，而不是被静默映射。
+- 前端 request builder 不再发送 `n_scenes` 或 `split_mode`。
+- `standard.py` 不再读取 `ctx.params["n_scenes"]` 或 `ctx.params["split_mode"]`。
+- `paragraph` 和 `line` 不进入新分镜系统，也不作为隐藏映射保留。
+- 若独立内容生成 API 仍需要“生成 N 段旁白”能力，可以在内容 API 内继续使用 `n_scenes`，但它不属于视频分镜契约，也不能回流到标准视频 pipeline 决定画面数量。
+- 历史记录可以只读展示旧任务中的 `n_scenes` 字段，但新任务必须展示 `storyboard_generation.resolved_scene_count`。
 
 ## 6. 核心数据模型
 
@@ -324,7 +330,7 @@ ctx.narrations = [frame.narration_text for frame in ctx.storyboard_plan.frames]
 topic/text prompt -> complete script/source_text -> storyboard generation
 ```
 
-也就是说内容生成层应新增或改造为“生成完整文案”，而不是“生成固定数量旁白”。旧的 `generate_narrations_from_topic` 可以保留给兼容 API，但标准视频生成链路不应再依赖它决定分镜数量。
+也就是说内容生成层应新增或改造为“生成完整文案”，而不是“生成固定数量旁白”。`generate_narrations_from_topic` 可以继续服务独立内容 API 或测试工具，但标准视频生成链路不应再依赖它决定分镜数量。
 
 ### 8.3 Fixed 内容模式
 
@@ -352,7 +358,9 @@ storyboard_scene_count: Optional[int] = None
 
 - `storyboard_count_mode=manual` 时，`storyboard_scene_count` 必须存在。
 - `storyboard_scene_count` 超过配置上限时返回 422。
-- 旧 `n_scenes` 只作为兼容字段，不作为新 UI 的主要字段。
+- `n_scenes` 和 `split_mode` 不属于 `VideoGenerateRequest`。
+- 视频生成 API 收到 `n_scenes` 或 `split_mode` 时返回 422，不做静默映射。
+- 独立内容 API 若继续保留 `n_scenes`，必须在文档中说明它只表示“生成几段文本”，不表示“视频分镜数量”。
 
 `api/routers/video.py` 应把这些字段转发到核心生成参数。
 
@@ -393,7 +401,7 @@ POST /content/storyboard-plan
 
 确定性模式下不显示分镜数量控制，只显示说明：分镜数量由拆分结果决定。
 
-原来的 paragraph/line 选项不进入新 UI。若需要保留历史兼容，可隐藏在 legacy mapping 中，不再作为新产品能力暴露。
+原来的 paragraph/line 选项不进入新 UI，也不作为隐藏映射保留。
 
 ## 10. 持久化和可观测性
 
@@ -469,7 +477,7 @@ Prompt 编排：
 6. `StoryboardEnhancer`：一帧输入对应一帧增强输出。
 7. `ImagePromptComposer`：prompt prefix 只应用一次，输出数量等于帧数。
 8. `StandardPipeline`：generate/fixed 都先得到 source_text，再得到 `StoryboardPlan`。
-9. API schema：新字段校验、旧字段兼容映射。
+9. API schema：新字段校验，视频生成 API 对 `n_scenes` 和 `split_mode` 返回 422。
 10. 前端 request builder：默认智能分镜，手动数量传参，确定性模式不传无效数量。
 11. 持久化：`storyboard_plan` 和 `planning_snapshot.storyboard_generation` 可保存和恢复。
 12. 回归测试：TTS split、text rendering、asset_based pipeline 不因分镜改造改变行为。
@@ -478,36 +486,43 @@ Prompt 编排：
 
 推荐分阶段实施，但最终交付必须形成完整新契约。
 
-### 阶段 1：契约和确定性策略
+### 阶段 1：契约和旧字段清理
 
 - 新增 `StoryboardPlan` 模型。
 - 新增 `StoryboardGenerationService`。
+- 从视频生成请求、前端 request builder、标准视频 pipeline 中移除 `n_scenes` 和 `split_mode`。
+- 将历史页新任务展示切换为 `resolved_scene_count`。
+- 更新测试，确保视频生成 API 收到旧字段时失败。
+
+### 阶段 2：确定性策略
+
 - 实现 `punctuation` 和 `sentence` strategy。
 - 接入 `StandardPipeline`，让 fixed 文案先走新分镜层。
 
-### 阶段 2：智能分镜
+### 阶段 3：智能分镜
 
 - 新增 smart strategy prompt 和结构化输出模型。
 - 支持 auto/manual 数量。
 - 加入 repair retry 和不变量校验。
 
-### 阶段 3：增强层和 composer 收口
+### 阶段 4：增强层和 composer 收口
 
 - 调整现有 `storyboard_planner.py` 为增强 `StoryboardPlanFrame`。
 - 抽出 `ImagePromptComposer`。
 - 确保三种模式最终统一进入 composer。
 
-### 阶段 4：API、前端和持久化
+### 阶段 5：API、前端和持久化
 
 - 前端新增三种分镜方式。
 - API 新增分镜字段。
 - `planning_snapshot` 和 `CreationPackage.storyboard_plan` 持久化新结构。
 - 添加预览接口。
 
-### 阶段 5：清理旧债
+### 阶段 6：删除旧事实源依赖
 
 - 新 UI 不再暴露 paragraph/line split。
-- `n_scenes` 和 `split_mode` 标记为 legacy compatibility。
+- 标准视频 pipeline 不再调用 `split_narration_script` 决定分镜。
+- 标准视频 pipeline 不再调用 `generate_narrations_from_topic` 决定分镜数量。
 - 更新文档和测试，防止新代码继续依赖 `ctx.narrations` 作为分镜事实源。
 
 ## 14. 两轮设计复审结论
@@ -528,3 +543,25 @@ Prompt 编排：
 最终判断：
 
 这项改造的最佳实践不是“新增智能分镜选项”，而是建立 `Storyboard Generation Contract`。只有把分镜计划变成正式事实源，才能从源头解决长文案图片割裂、风格不统一、数量控制混乱和后续难维护的问题。
+
+## 15. 旧字段清理专项复审
+
+用户确认倾向于“不要兼容旧字段”后，重新检查了旧字段在当前代码里的扩散范围：
+
+- `n_scenes` 当前散落在 API、前端、pipeline、history、tests 和内容生成工具中。
+- `split_mode` 当前散落在前端、标准 pipeline、拆分工具和测试中。
+- `ctx.narrations` 当前仍被标准 pipeline 当作分镜事实源使用。
+- `generate_narrations_from_topic` 当前会让 generate 模式天然回到“先生成 N 段旁白”的旧思路。
+- `split_narration_script` 当前会让 fixed 模式天然回到“按文本片段就是分镜”的旧思路。
+
+专项复审结论：
+
+1. `n_scenes` 不能作为 `storyboard_scene_count` 的兼容别名。旧语义是“生成几段旁白”，新语义是“智能分镜目标数量”，静默映射会制造长期误用。
+2. `split_mode` 不能作为 `storyboard_mode` 的兼容别名。旧语义包含 paragraph/line/sentence/punctuation，新语义只允许 smart/punctuation/sentence。
+3. `paragraph` 和 `line` 不应保留为隐藏模式。它们不属于本轮用户确认的三种分镜方式，保留会让新系统继续携带旧产品心智。
+4. 独立内容 API 可以继续拥有 `n_scenes`，但必须和视频分镜 API 隔离。它只能表示“生成几段文本”，不能表示“视频几张分镜”。
+5. 视频生成 API 应利用 `extra="forbid"` 明确拒绝旧字段。这样错误会尽早暴露，不会在 pipeline 内部产生难排查的行为差异。
+
+最终决策：
+
+视频生成主链路执行破坏性迁移，不做旧字段兼容。新请求只接受 `storyboard_mode`、`storyboard_count_mode`、`storyboard_scene_count`。旧字段只允许出现在历史记录读取、独立内容生成 API 或已隔离的旧测试中，不能参与新视频分镜流程。
