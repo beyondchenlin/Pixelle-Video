@@ -297,6 +297,32 @@ def test_build_template_render_context_carries_declarative_audio_tracks():
     assert context.audio_tracks[1].role == "background"
 
 
+def test_build_template_render_context_derives_duration_from_audio_tracks():
+    manifest = RenderManifest(
+        task_id="task-audio-duration",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        audio_tracks=[
+            RenderAudioTrack(
+                id="background-audio",
+                path="assets/audio/background_audio.wav",
+                start=1.0,
+                end=4.5,
+                volume=0.25,
+                role="background",
+            ),
+        ],
+    )
+
+    context = build_template_render_context(manifest, template_params={})
+
+    assert context.duration == pytest.approx(4.5)
+    assert context.audio_tracks[0].duration == pytest.approx(3.5)
+
+
 def test_build_template_render_context_carries_text_layer_from_manifest():
     manifest = RenderManifest(
         task_id="task-context",
@@ -331,6 +357,35 @@ def test_build_template_render_context_carries_text_layer_from_manifest():
     assert context.text_tracks[0].id == "track-overlay"
     assert context.text_cues[0].slot == "center"
     assert context.duration == 1.4
+
+
+def test_write_project_data_keeps_audio_tracks_when_duration_comes_from_tracks(tmp_path):
+    manifest = RenderManifest(
+        task_id="task-audio-track-only",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        audio_tracks=[
+            RenderAudioTrack(
+                id="background-audio",
+                path="assets/audio/background_audio.wav",
+                start=0.0,
+                end=4.0,
+                volume=0.25,
+                role="background",
+            ),
+        ],
+    )
+
+    project_paths = HyperFramesProjectService(output_dir=str(tmp_path)).write_project_data(
+        manifest,
+    )
+    manifest_data = json.loads(project_paths.manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest_data["audio_tracks"][0]["id"] == "background-audio"
+    assert manifest_data["audio_tracks"][0]["end"] == pytest.approx(4.0)
 
 
 def test_write_project_materializes_local_assets_and_compiles_static_html(tmp_path):

@@ -131,6 +131,7 @@ def build_template_render_context(
     caption_cues = list(manifest.caption_cues or _build_caption_cues_from_sentences(manifest))
 
     duration_candidates = [float(manifest.master_audio_duration or 0.0)]
+    duration_candidates.extend(float(track.end) for track in manifest.audio_tracks)
     duration_candidates.extend(float(cue.end) for cue in caption_cues)
     duration_candidates.extend(float(cue.end) for cue in manifest.text_cues)
     duration_candidates.extend(float(clip.end) for clip in manifest.visual_clips)
@@ -552,6 +553,8 @@ class HyperFramesProjectService:
             return max(0.0, float(manifest.master_audio_duration))
 
         candidates = [0.0]
+        for track in manifest.audio_tracks:
+            candidates.append(float(track.end))
         for block in manifest.audio_blocks:
             candidates.append(float(block.end or 0.0))
         for sentence in manifest.sentence_units:
