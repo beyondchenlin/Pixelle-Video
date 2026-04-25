@@ -33,6 +33,10 @@ from pixelle_video.utils.content_generators import (
     generate_styled_image_prompt_batch,
     generate_title,
 )
+from pixelle_video.utils.prompt_generation_performance import (
+    LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM,
+    LLM_PROMPT_BATCH_SIZE_PARAM,
+)
 
 router = APIRouter(prefix="/content", tags=["Content Generation"])
 
@@ -110,6 +114,8 @@ async def generate_image_prompt(
             media_service=pixelle_video.media,
             min_words=request.min_words,
             max_words=request.max_words,
+            batch_size=getattr(request, LLM_PROMPT_BATCH_SIZE_PARAM),
+            max_concurrency=getattr(request, LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM),
             world_preset_id=request.world_preset_id,
             shot_preset_id=request.shot_preset_id,
             consistency_strength=request.consistency_strength or "standard",

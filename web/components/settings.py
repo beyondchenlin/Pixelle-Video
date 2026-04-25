@@ -207,6 +207,7 @@ def render_advanced_settings():
                     llm_model = selected_model_option
 
                 st.markdown("---")
+                st.markdown(f"**{tr('settings.llm.default_performance_title')}**")
                 prompt_batch_col, prompt_concurrency_col = st.columns(2)
                 with prompt_batch_col:
                     llm_prompt_batch_size = st.number_input(

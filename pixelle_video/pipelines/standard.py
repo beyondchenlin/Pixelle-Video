@@ -83,6 +83,10 @@ from pixelle_video.utils.os_util import (
     get_task_frame_path,
     get_task_path,
 )
+from pixelle_video.utils.prompt_generation_performance import (
+    LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM,
+    LLM_PROMPT_BATCH_SIZE_PARAM,
+)
 from pixelle_video.utils.template_util import get_template_type, parse_template_size
 
 
@@ -341,6 +345,8 @@ class StandardPipeline(LinearVideoPipeline):
                 media_type=media_type,
                 min_words=min_words,
                 max_words=max_words,
+                batch_size=ctx.params.get(LLM_PROMPT_BATCH_SIZE_PARAM),
+                max_concurrency=ctx.params.get(LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM),
                 progress_callback=image_prompt_progress,
                 world_preset_id=ctx.params.get("world_preset_id"),
                 shot_preset_id=ctx.params.get("shot_preset_id"),

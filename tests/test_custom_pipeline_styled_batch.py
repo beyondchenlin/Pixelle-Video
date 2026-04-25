@@ -237,6 +237,8 @@ async def test_custom_pipeline_accepts_shared_prompt_prefix_override(monkeypatch
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured["prompt_prefix"] = kwargs["prompt_prefix"]
+        captured["batch_size"] = kwargs.get("batch_size")
+        captured["max_concurrency"] = kwargs.get("max_concurrency")
         captured["text_rendering"] = kwargs.get("text_rendering")
         captured["has_forbid_embedded_text_arg"] = "forbid_embedded_text_in_image" in kwargs
         return StyledImagePromptBatch(
@@ -263,6 +265,8 @@ async def test_custom_pipeline_accepts_shared_prompt_prefix_override(monkeypatch
         text="scene one",
         tts_inference_mode="local",
         prompt_prefix="angry birds world",
+        llm_prompt_batch_size=8,
+        llm_prompt_batch_concurrent_limit=3,
         text_rendering={
             "image_text": {
                 "suppress_embedded_text": True,
@@ -273,6 +277,8 @@ async def test_custom_pipeline_accepts_shared_prompt_prefix_override(monkeypatch
     )
 
     assert captured["prompt_prefix"] == "angry birds world"
+    assert captured["batch_size"] == 8
+    assert captured["max_concurrency"] == 3
     assert captured["text_rendering"] == {
         "image_text": {
             "suppress_embedded_text": True,

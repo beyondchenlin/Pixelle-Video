@@ -41,6 +41,11 @@ from pixelle_video.pipelines.storyboard_config import (
     resolve_storyboard_render_kwargs,
 )
 from pixelle_video.utils.logging_util import attach_task_log_sinks
+from pixelle_video.utils.prompt_generation_performance import (
+    LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM,
+    LLM_PROMPT_BATCH_SIZE_PARAM,
+    PROMPT_GENERATION_PERFORMANCE_PARAM_NAMES,
+)
 
 
 class CustomPipeline(BasePipeline):
@@ -156,6 +161,7 @@ class CustomPipeline(BasePipeline):
             for key in kwargs.keys()
             if key not in STORYBOARD_RENDER_DEFAULTS
             and key not in self._STORYBOARD_PLANNING_PARAM_NAMES
+            and key not in PROMPT_GENERATION_PERFORMANCE_PARAM_NAMES
         )
         if ignored_kwargs:
             logger.debug(f"Ignoring extra custom pipeline kwargs: {ignored_kwargs}")
@@ -281,6 +287,8 @@ class CustomPipeline(BasePipeline):
                 media_type=media_type,
                 min_words=min_image_prompt_words,
                 max_words=max_image_prompt_words,
+                batch_size=kwargs.get(LLM_PROMPT_BATCH_SIZE_PARAM),
+                max_concurrency=kwargs.get(LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM),
                 world_preset_id=kwargs.get("world_preset_id"),
                 shot_preset_id=kwargs.get("shot_preset_id"),
                 consistency_strength=kwargs.get("consistency_strength", "standard"),

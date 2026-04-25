@@ -22,6 +22,9 @@ from loguru import logger
 from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
+from web.components.prompt_generation_performance import (
+    copy_prompt_generation_performance_params,
+)
 from web.components.recent_video_gallery import (
     render_recent_video_gallery,
     store_recent_generated_video,
@@ -171,6 +174,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     copy_tts_audio_strategy(video_params, request)
     copy_tts_split_settings(video_params, request)
     copy_element_animation_options(video_params, request)
+    copy_prompt_generation_performance_params(video_params, request)
     if video_params.get("text_rendering") is not None:
         request["text_rendering"] = video_params["text_rendering"]
 
@@ -233,6 +237,7 @@ def build_batch_shared_config(video_params):
     copy_tts_audio_strategy(video_params, shared_config)
     copy_tts_split_settings(video_params, shared_config)
     copy_element_animation_options(video_params, shared_config)
+    copy_prompt_generation_performance_params(video_params, shared_config)
     if video_params.get("text_rendering") is not None:
         shared_config["text_rendering"] = video_params["text_rendering"]
     return shared_config

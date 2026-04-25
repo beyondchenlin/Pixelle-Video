@@ -83,6 +83,37 @@ def test_image_prompt_generate_request_accepts_text_rendering_policy():
     assert request.text_rendering.image_text.positive_prompt == "no letters in image"
 
 
+def test_image_prompt_generate_request_accepts_prompt_generation_performance_controls():
+    request = ImagePromptGenerateRequest(
+        narrations=["scene one"],
+        llm_prompt_batch_size=8,
+        llm_prompt_batch_concurrent_limit=3,
+    )
+
+    assert request.llm_prompt_batch_size == 8
+    assert request.llm_prompt_batch_concurrent_limit == 3
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("llm_prompt_batch_size", 0),
+        ("llm_prompt_batch_size", 51),
+        ("llm_prompt_batch_concurrent_limit", 0),
+        ("llm_prompt_batch_concurrent_limit", 11),
+    ],
+)
+def test_image_prompt_generate_request_rejects_invalid_prompt_generation_performance_controls(
+    field_name: str,
+    value: int,
+):
+    with pytest.raises(ValidationError):
+        ImagePromptGenerateRequest(
+            narrations=["scene one"],
+            **{field_name: value},
+        )
+
+
 def test_image_prompt_generate_request_rejects_legacy_text_fields():
     with pytest.raises(ValidationError):
         ImagePromptGenerateRequest(
@@ -115,6 +146,8 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         assert kwargs["prompt_prefix"] == "angry birds world"
         assert kwargs["workflow"] == "selfhost/image_z_image_turbo.json"
+        assert kwargs["batch_size"] == 8
+        assert kwargs["max_concurrency"] == 3
         assert kwargs["world_preset_id"] == "neutral_knowledge_storyboard"
         assert kwargs["shot_preset_id"] == "balanced_explainer"
         assert kwargs["consistency_strength"] == "strong"
@@ -146,6 +179,8 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
             narrations=["scene one"],
             prompt_prefix="angry birds world",
             workflow="selfhost/image_z_image_turbo.json",
+            llm_prompt_batch_size=8,
+            llm_prompt_batch_concurrent_limit=3,
             world_preset_id="neutral_knowledge_storyboard",
             shot_preset_id="balanced_explainer",
             consistency_strength="strong",

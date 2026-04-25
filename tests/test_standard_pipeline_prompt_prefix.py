@@ -172,6 +172,8 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured["prompt_prefix"] = kwargs["prompt_prefix"]
+        captured["batch_size"] = kwargs.get("batch_size")
+        captured["max_concurrency"] = kwargs.get("max_concurrency")
         captured["text_rendering"] = kwargs.get("text_rendering")
         captured["has_forbid_embedded_text_arg"] = "forbid_embedded_text_in_image" in kwargs
         return StyledImagePromptBatch(
@@ -191,6 +193,8 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
         params={
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": "explicit override",
+            "llm_prompt_batch_size": 8,
+            "llm_prompt_batch_concurrent_limit": 3,
             "text_rendering": {
                 "image_text": {
                     "suppress_embedded_text": True,
@@ -205,6 +209,8 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
     await pipeline.plan_visuals(ctx)
 
     assert captured["prompt_prefix"] == "explicit override"
+    assert captured["batch_size"] == 8
+    assert captured["max_concurrency"] == 3
     assert captured["text_rendering"] == ctx.params["text_rendering"]
     assert captured["has_forbid_embedded_text_arg"] is False
     assert ctx.image_prompts == ["override prompt"]

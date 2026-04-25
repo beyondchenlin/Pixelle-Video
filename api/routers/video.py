@@ -30,6 +30,9 @@ from api.schemas.video import (
 from api.tasks import TaskType, task_manager
 from pixelle_video.services.generation_coordinator import build_generation_fingerprint
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
+from pixelle_video.utils.prompt_generation_performance import (
+    copy_prompt_generation_performance_params,
+)
 
 router = APIRouter(prefix="/video", tags=["Video Generation"])
 
@@ -134,6 +137,7 @@ def build_video_generation_params(
         video_params["text_rendering"] = request_body.text_rendering.model_dump()
 
     _copy_tts_text_policy_params(request_body, video_params)
+    copy_prompt_generation_performance_params(request_body, video_params)
     return video_params
 
 

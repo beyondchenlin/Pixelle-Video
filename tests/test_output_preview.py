@@ -3,6 +3,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from web.components import output_preview
+from web.components.prompt_generation_performance import (
+    LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM,
+    LLM_PROMPT_BATCH_SIZE_PARAM,
+)
 from web.utils import batch_manager as batch_manager_module
 from web.utils.streamlit_helpers import RefreshableSlot
 
@@ -269,6 +273,46 @@ def test_build_single_generation_request_omits_text_rendering_when_absent():
     assert "text_rendering" not in request
 
 
+def test_build_single_generation_request_includes_prompt_generation_performance_overrides():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            LLM_PROMPT_BATCH_SIZE_PARAM: 8,
+            LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM: 3,
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request[LLM_PROMPT_BATCH_SIZE_PARAM] == 8
+    assert request[LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM] == 3
+
+
+def test_build_single_generation_request_omits_prompt_generation_performance_when_absent():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert LLM_PROMPT_BATCH_SIZE_PARAM not in request
+    assert LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM not in request
+
+
 def test_build_batch_shared_config_includes_render_backend():
     shared_config = output_preview.build_batch_shared_config(
         {
@@ -292,6 +336,34 @@ def test_build_batch_shared_config_includes_render_backend():
 
     assert shared_config["render_backend"] == "hyperframes_compiled"
     assert shared_config["tts_audio_strategy"] == "master_track"
+
+
+def test_build_batch_shared_config_includes_prompt_generation_performance_overrides():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "n_scenes": 5,
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            LLM_PROMPT_BATCH_SIZE_PARAM: 8,
+            LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM: 3,
+        }
+    )
+
+    assert shared_config[LLM_PROMPT_BATCH_SIZE_PARAM] == 8
+    assert shared_config[LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM] == 3
+
+
+def test_build_batch_shared_config_omits_prompt_generation_performance_when_absent():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "n_scenes": 5,
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+        }
+    )
+
+    assert LLM_PROMPT_BATCH_SIZE_PARAM not in shared_config
+    assert LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM not in shared_config
 
 
 def test_build_batch_shared_config_passes_session_id():

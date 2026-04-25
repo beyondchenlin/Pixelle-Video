@@ -28,6 +28,12 @@ from pixelle_video.models.storyboard_planning import (
 )
 from pixelle_video.render_backend import RenderBackend
 from pixelle_video.tts_split_strategy import TtsSplitMode
+from pixelle_video.utils.prompt_generation_performance import (
+    PROMPT_BATCH_CONCURRENT_LIMIT_MAX,
+    PROMPT_BATCH_CONCURRENT_LIMIT_MIN,
+    PROMPT_BATCH_SIZE_MAX,
+    PROMPT_BATCH_SIZE_MIN,
+)
 
 StoryboardOverrideField = Literal[
     "narration_fragment",
@@ -165,6 +171,18 @@ class VideoGenerateRequest(BaseModel):
     max_narration_words: int = Field(20, ge=1, le=200, description="Max narration words")
     min_image_prompt_words: int = Field(30, ge=10, le=100, description="Min image prompt words")
     max_image_prompt_words: int = Field(60, ge=10, le=200, description="Max image prompt words")
+    llm_prompt_batch_size: Optional[int] = Field(
+        None,
+        ge=PROMPT_BATCH_SIZE_MIN,
+        le=PROMPT_BATCH_SIZE_MAX,
+        description="Request-scoped LLM prompt batch size override",
+    )
+    llm_prompt_batch_concurrent_limit: Optional[int] = Field(
+        None,
+        ge=PROMPT_BATCH_CONCURRENT_LIMIT_MIN,
+        le=PROMPT_BATCH_CONCURRENT_LIMIT_MAX,
+        description="Request-scoped LLM prompt batch concurrency override",
+    )
     
     # === Media Parameters ===
     # Note: media_width and media_height are auto-determined from template meta tags

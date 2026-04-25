@@ -16,6 +16,9 @@ Content input components for web UI (left column)
 
 import streamlit as st
 
+from web.components.prompt_generation_performance import (
+    render_prompt_generation_performance_controls,
+)
 from web.i18n import tr
 from web.utils.async_helpers import get_project_version
 
@@ -99,6 +102,10 @@ def render_content_input():
                 # Fixed mode: n_scenes is ignored, set default value
                 n_scenes = 5
                 st.info(tr("video.frames_fixed_mode_hint"))
+
+            prompt_generation_performance = render_prompt_generation_performance_controls(
+                key_prefix="single_video"
+            )
             
             return {
                 "batch_mode": False,
@@ -106,7 +113,8 @@ def render_content_input():
                 "text": text,
                 "title": title,
                 "n_scenes": n_scenes,
-                "split_mode": split_mode
+                "split_mode": split_mode,
+                **prompt_generation_performance,
             }
         
         else:
@@ -175,6 +183,10 @@ def render_content_input():
                 help=tr("batch.n_scenes_help")
             )
             st.caption(tr("batch.n_scenes_caption", n=n_scenes))
+
+            prompt_generation_performance = render_prompt_generation_performance_controls(
+                key_prefix="batch_video"
+            )
             
             # Config info
             st.info(f"📌 {tr('batch.config_info')}")
@@ -185,6 +197,7 @@ def render_content_input():
                 "mode": "generate",  # Fixed to AI generate content
                 "title_prefix": title_prefix,
                 "n_scenes": n_scenes,
+                **prompt_generation_performance,
             }
 
 

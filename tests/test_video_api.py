@@ -99,6 +99,39 @@ def test_video_generate_request_accepts_tts_text_policy_controls():
     assert request.preserve_natural_punctuation is False
 
 
+def test_video_generate_request_accepts_prompt_generation_performance_controls():
+    request = VideoGenerateRequest(
+        text="demo",
+        frame_template="1080x1920/image_default.html",
+        llm_prompt_batch_size=8,
+        llm_prompt_batch_concurrent_limit=3,
+    )
+
+    assert request.llm_prompt_batch_size == 8
+    assert request.llm_prompt_batch_concurrent_limit == 3
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("llm_prompt_batch_size", 0),
+        ("llm_prompt_batch_size", 51),
+        ("llm_prompt_batch_concurrent_limit", 0),
+        ("llm_prompt_batch_concurrent_limit", 11),
+    ],
+)
+def test_video_generate_request_rejects_invalid_prompt_generation_performance_controls(
+    field_name: str,
+    value: int,
+):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            **{field_name: value},
+        )
+
+
 @pytest.mark.asyncio
 async def test_generate_video_sync_passes_tts_text_policy_controls_to_video_core(monkeypatch, tmp_path):
     class _FakeFrameGenerator:
@@ -149,6 +182,47 @@ async def test_generate_video_sync_passes_tts_text_policy_controls_to_video_core
     assert call["tts_sentence_joiner_mode"] == "space"
     assert call["caption_punctuation_mode"] == "preserve"
     assert call["preserve_natural_punctuation"] is False
+
+
+@pytest.mark.asyncio
+async def test_generate_video_sync_passes_prompt_generation_performance_controls_to_video_core(
+    monkeypatch,
+    tmp_path,
+):
+    class _FakeFrameGenerator:
+        def __init__(self, template_path):
+            self.template_path = template_path
+
+        def get_media_size(self):
+            return 1080, 1920
+
+    output_path = tmp_path / "task-prompt-performance" / "final.mp4"
+    fake_pixelle_video = _FakePixelleVideo(output_path)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda template_path: template_path,
+    )
+    monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
+
+    await generate_video_sync(
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            llm_prompt_batch_size=8,
+            llm_prompt_batch_concurrent_limit=3,
+        ),
+        fake_pixelle_video,
+        SimpleNamespace(base_url="http://testserver/"),
+    )
+
+    call = fake_pixelle_video.calls[0]
+    assert call["llm_prompt_batch_size"] == 8
+    assert call["llm_prompt_batch_concurrent_limit"] == 3
 
 
 @pytest.mark.parametrize(

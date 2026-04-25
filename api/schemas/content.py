@@ -26,6 +26,12 @@ from pixelle_video.models.storyboard_planning import (
     RoleStrategy,
     ShotOverridePolicy,
 )
+from pixelle_video.utils.prompt_generation_performance import (
+    PROMPT_BATCH_CONCURRENT_LIMIT_MAX,
+    PROMPT_BATCH_CONCURRENT_LIMIT_MIN,
+    PROMPT_BATCH_SIZE_MAX,
+    PROMPT_BATCH_SIZE_MIN,
+)
 
 StoryboardOverrideField = Literal[
     "narration_fragment",
@@ -123,6 +129,18 @@ class ImagePromptGenerateRequest(BaseModel):
     narrations: List[str] = Field(..., description="List of narrations")
     min_words: int = Field(30, ge=10, le=100, description="Minimum words per prompt")
     max_words: int = Field(60, ge=10, le=200, description="Maximum words per prompt")
+    llm_prompt_batch_size: Optional[int] = Field(
+        None,
+        ge=PROMPT_BATCH_SIZE_MIN,
+        le=PROMPT_BATCH_SIZE_MAX,
+        description="Request-scoped LLM prompt batch size override",
+    )
+    llm_prompt_batch_concurrent_limit: Optional[int] = Field(
+        None,
+        ge=PROMPT_BATCH_CONCURRENT_LIMIT_MIN,
+        le=PROMPT_BATCH_CONCURRENT_LIMIT_MAX,
+        description="Request-scoped LLM prompt batch concurrency override",
+    )
     prompt_prefix: Optional[str] = Field(
         None,
         description="Request-scoped image style prefix override",
