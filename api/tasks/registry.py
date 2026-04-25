@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 import uuid
 from datetime import timedelta
 from typing import Callable
@@ -17,7 +19,7 @@ from api.tasks.models import (
     TaskType,
     utc_now,
 )
-from api.tasks.store import LostTaskLeaseError, TaskStore
+from api.tasks.store import LostTaskLeaseError, TaskAlreadyExistsError, TaskStore
 
 ACTIVE_TASK_STATUSES = {TaskStatus.PENDING, TaskStatus.RUNNING}
 
@@ -32,11 +34,15 @@ class GenerationRegistry:
         lease: GenerationLease,
         artifact_store: ArtifactStore,
         task_id_factory: Callable[[], str] | None = None,
+        submit_lock_wait_seconds: float = 2.0,
+        submit_lock_poll_interval_seconds: float = 0.05,
     ) -> None:
         self.store = store
         self.lease = lease
         self.artifact_store = artifact_store
         self.task_id_factory = task_id_factory or (lambda: str(uuid.uuid4()))
+        self.submit_lock_wait_seconds = submit_lock_wait_seconds
+        self.submit_lock_poll_interval_seconds = submit_lock_poll_interval_seconds
 
     async def reserve_or_reuse(
         self,
@@ -49,7 +55,7 @@ class GenerationRegistry:
         submit_owner = f"submit-{uuid.uuid4()}"
         acquired = await self.lease.acquire_submit_lock(fingerprint, submit_owner)
         if not acquired:
-            reusable = await self._find_reusable(
+            reusable = await self._wait_for_reusable(
                 fingerprint=fingerprint,
                 task_type=task_type,
                 reuse_completed_within_seconds=reuse_completed_within_seconds,
@@ -74,7 +80,17 @@ class GenerationRegistry:
                 request_params=request_params,
                 generation_fingerprint=fingerprint,
             )
-            created = await self.store.create_task(task)
+            try:
+                created = await self.store.create_task(task)
+            except TaskAlreadyExistsError:
+                reusable = await self._find_reusable(
+                    fingerprint=fingerprint,
+                    task_type=task_type,
+                    reuse_completed_within_seconds=reuse_completed_within_seconds,
+                )
+                if reusable is not None:
+                    return reusable
+                raise
             return ReserveOutcome(task=created, created=True)
         finally:
             await self.lease.release_submit_lock(fingerprint, submit_owner)
@@ -121,6 +137,7 @@ class GenerationRegistry:
         owner_id: str,
         lease_token: str,
     ) -> None:
+        await self.heartbeat(task_id=task_id, owner_id=owner_id, lease_token=lease_token)
         await self.store.update_status(
             task_id=task_id,
             status=TaskStatus.COMPLETED,
@@ -140,6 +157,7 @@ class GenerationRegistry:
         owner_id: str,
         lease_token: str,
     ) -> None:
+        await self.heartbeat(task_id=task_id, owner_id=owner_id, lease_token=lease_token)
         await self.store.update_status(
             task_id=task_id,
             status=TaskStatus.FAILED,
@@ -217,3 +235,23 @@ class GenerationRegistry:
             artifact_status=ArtifactStatus.MISSING,
         )
         return None
+
+    async def _wait_for_reusable(
+        self,
+        *,
+        fingerprint: str,
+        task_type: TaskType,
+        reuse_completed_within_seconds: int,
+    ) -> ReserveOutcome | None:
+        deadline = time.monotonic() + self.submit_lock_wait_seconds
+        while True:
+            reusable = await self._find_reusable(
+                fingerprint=fingerprint,
+                task_type=task_type,
+                reuse_completed_within_seconds=reuse_completed_within_seconds,
+            )
+            if reusable is not None:
+                return reusable
+            if time.monotonic() >= deadline:
+                return None
+            await asyncio.sleep(self.submit_lock_poll_interval_seconds)

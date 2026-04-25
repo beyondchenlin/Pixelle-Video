@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -96,3 +97,83 @@ async def test_worker_marks_task_failed_when_generation_raises(tmp_path):
     task = await registry.get_task("task-1")
     assert task.status == TaskStatus.FAILED
     assert task.error == "generation exploded"
+
+
+@pytest.mark.asyncio
+async def test_worker_heartbeats_while_generation_is_running(tmp_path):
+    class CountingRegistry(GenerationRegistry):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.heartbeat_count = 0
+
+        async def heartbeat(self, **kwargs):
+            self.heartbeat_count += 1
+            await super().heartbeat(**kwargs)
+
+    class SlowCore:
+        async def generate_video(self, **params):
+            await asyncio.sleep(0.03)
+            output = Path(params["output_path"])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"video")
+            return SimpleNamespace(video_path=str(output), duration=2.5)
+
+    registry = CountingRegistry(
+        store=InMemoryTaskStore(),
+        lease=InMemoryGenerationLease(),
+        artifact_store=LocalArtifactStore(output_root=tmp_path / "output"),
+        task_id_factory=lambda: "task-1",
+    )
+    await registry.reserve_or_reuse(
+        fingerprint="fp-1",
+        task_type=TaskType.VIDEO_GENERATION,
+        request_params={"text": "demo"},
+        reuse_completed_within_seconds=86400,
+    )
+    worker = GenerationWorker(
+        registry=registry,
+        core=SlowCore(),
+        artifact_store=registry.artifact_store,
+        output_root=tmp_path / "work",
+        heartbeat_interval_seconds=0.005,
+    )
+
+    assert await worker.run_once() is True
+    assert registry.heartbeat_count > 0
+
+
+@pytest.mark.asyncio
+async def test_worker_leaves_cancelled_task_cancelled_after_generation_finishes(tmp_path):
+    class CancellingCore:
+        def __init__(self, registry):
+            self.registry = registry
+
+        async def generate_video(self, **params):
+            await self.registry.cancel("task-1")
+            output = Path(params["output_path"])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"video")
+            return SimpleNamespace(video_path=str(output), duration=2.5)
+
+    registry = GenerationRegistry(
+        store=InMemoryTaskStore(),
+        lease=InMemoryGenerationLease(),
+        artifact_store=LocalArtifactStore(output_root=tmp_path / "output"),
+        task_id_factory=lambda: "task-1",
+    )
+    await registry.reserve_or_reuse(
+        fingerprint="fp-1",
+        task_type=TaskType.VIDEO_GENERATION,
+        request_params={"text": "demo"},
+        reuse_completed_within_seconds=86400,
+    )
+    worker = GenerationWorker(
+        registry=registry,
+        core=CancellingCore(registry),
+        artifact_store=registry.artifact_store,
+        output_root=tmp_path / "work",
+    )
+
+    assert await worker.run_once() is True
+    task = await registry.get_task("task-1")
+    assert task.status == TaskStatus.CANCELLED
