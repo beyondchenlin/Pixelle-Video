@@ -454,6 +454,126 @@ async def test_smart_repairs_out_of_bounds_source_range_once():
 
 
 @pytest.mark.asyncio
+async def test_smart_repairs_missing_source_coverage_once():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    partial_frames = [
+        {
+            "source_text": "alpha",
+            "narration_text": "alpha",
+            "visual_goal": "Introduce alpha.",
+            "prompt_intent": "A focused opening visual.",
+            "source_start": 0,
+            "source_end": 5,
+        }
+    ]
+    full_frames = [
+        {
+            "source_text": "alpha beta",
+            "narration_text": "alpha beta",
+            "visual_goal": "Introduce the first connected idea.",
+            "prompt_intent": "A coherent opening visual.",
+            "source_start": 0,
+            "source_end": 10,
+        },
+        {
+            "source_text": "gamma",
+            "narration_text": "gamma",
+            "visual_goal": "Resolve with gamma.",
+            "prompt_intent": "A clear closing visual.",
+            "source_start": 11,
+            "source_end": 16,
+        },
+    ]
+    llm = SequencedSmartFakeLLM([partial_frames, full_frames])
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="alpha beta gamma",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert len(llm.calls) == 2
+    assert plan.narration_texts() == ["alpha beta", "gamma"]
+
+
+@pytest.mark.asyncio
+async def test_smart_rejects_missing_source_coverage_after_repair():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    partial_frames = [
+        {
+            "source_text": "alpha",
+            "narration_text": "alpha",
+            "visual_goal": "Introduce alpha.",
+            "prompt_intent": "A focused opening visual.",
+            "source_start": 0,
+            "source_end": 5,
+        }
+    ]
+    llm = SequencedSmartFakeLLM([partial_frames, partial_frames])
+
+    with pytest.raises(ValueError, match="smart storyboard frames must cover source_text"):
+        await service.generate(
+            llm_service=llm,
+            source_text="alpha beta gamma",
+            storyboard_mode="smart",
+            storyboard_count_mode="auto",
+            storyboard_scene_count=None,
+        )
+
+    assert len(llm.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_smart_allows_whitespace_only_source_coverage_gaps():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    frames = [
+        {
+            "source_text": "alpha",
+            "narration_text": "alpha",
+            "visual_goal": "Introduce alpha.",
+            "prompt_intent": "A focused opening visual.",
+            "source_start": 0,
+            "source_end": 5,
+        },
+        {
+            "source_text": "beta",
+            "narration_text": "beta",
+            "visual_goal": "Resolve with beta.",
+            "prompt_intent": "A clear closing visual.",
+            "source_start": 6,
+            "source_end": 10,
+        },
+    ]
+
+    plan = await service.generate(
+        llm_service=SmartFakeLLM(frames=frames),
+        source_text="alpha beta",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert plan.narration_texts() == ["alpha", "beta"]
+
+
+def test_smart_storyboard_prompt_requires_complete_source_coverage():
+    from pixelle_video.prompts.storyboard_generation import build_smart_storyboard_prompt
+
+    prompt = build_smart_storyboard_prompt(
+        source_text="alpha beta gamma",
+        count_mode="auto",
+        requested_scene_count=None,
+        min_scene_count=1,
+        max_scene_count=10,
+    )
+
+    assert "cover the entire source_text" in prompt
+    assert "Do not omit" in prompt
+
+
+@pytest.mark.asyncio
 async def test_smart_rejects_out_of_bounds_source_range_after_repair():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     out_of_bounds_frames = [
@@ -499,7 +619,7 @@ async def test_smart_rejects_backwards_source_ranges_after_repair():
     ]
     llm = SequencedSmartFakeLLM([backwards_frames, backwards_frames])
 
-    with pytest.raises(ValueError, match="smart storyboard frame source ranges must be ordered"):
+    with pytest.raises(ValueError, match="smart storyboard frames must cover source_text"):
         await service.generate(
             llm_service=llm,
             source_text="开头完整表达。结尾完整表达。",

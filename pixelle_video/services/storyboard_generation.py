@@ -119,6 +119,11 @@ def _repair_prompt(original_prompt: str, reason: str) -> str:
     )
 
 
+def _assert_no_meaningful_source_gap(source_text: str, start: int, end: int) -> None:
+    if source_text[start:end].strip():
+        raise ValueError("smart storyboard frames must cover source_text")
+
+
 @dataclass
 class StoryboardGenerationService:
     config: dict[str, Any] | None = None
@@ -240,6 +245,13 @@ class StoryboardGenerationService:
                     temperature=temperature,
                     max_tokens=max(2000, max_scene_count * 350),
                 )
+                self._validate_smart_frame_count(
+                    frame_count=len(response.frames),
+                    count_mode=count_mode,
+                    requested_scene_count=requested_scene_count,
+                    min_scene_count=min_scene_count,
+                    max_scene_count=max_scene_count,
+                )
                 frames = self._frames_from_smart_response(
                     response=response,
                     source_text=source_text,
@@ -299,6 +311,7 @@ class StoryboardGenerationService:
                 raise ValueError("smart storyboard frame source range must index source_text")
             if start < search_start:
                 raise ValueError("smart storyboard frame source ranges must be ordered")
+            _assert_no_meaningful_source_gap(source_text, search_start, start)
             if source_text[start:end] != frame.source_text:
                 raise ValueError("smart storyboard frame source_text must be traceable")
             search_start = max(search_start, end)
@@ -314,6 +327,7 @@ class StoryboardGenerationService:
                     metadata={"strategy": "smart"},
                 )
             )
+        _assert_no_meaningful_source_gap(source_text, search_start, len(source_text))
         return frames
 
     def _plan_from_segments(

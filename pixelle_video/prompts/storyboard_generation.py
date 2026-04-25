@@ -22,6 +22,8 @@ def build_smart_storyboard_prompt(
         "count_instruction": count_instruction,
         "requirements": [
             "Understand the complete source_text before creating frames.",
+            "The returned frames must cover the entire source_text in source order.",
+            "Do not omit meaningful source_text; only whitespace-only gaps between frames are allowed.",
             "Frames may merge adjacent ideas when one sentence is too small for a visual scene.",
             "Frames may split a long sentence when it naturally contains multiple visual beats.",
             "Maintain continuity of style, subjects, and visual logic across all frames.",
