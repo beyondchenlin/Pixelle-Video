@@ -42,20 +42,36 @@ LLM 图片/视频提示词生成已经支持批量大小和并发数配置。当
 
 ## 数据流
 
-`render_content_input()` 读取全局 LLM 默认值并渲染本次任务覆盖控件。
+新增一个专门的提示词生成性能 UI/helper 层，避免把字段名和渲染逻辑散落在 `content_input.py`、`output_preview.py`、批量管理器和 API 适配里。该 helper 负责：
 
-返回的 `video_params` 增加两个可选字段：
+- 渲染「提示词生成性能」折叠区。
+- 读取并展示全局 LLM 默认值。
+- 只在用户启用自定义时返回覆盖字段。
+- 提供共享字段名常量，避免调用链中手写字符串。
+
+返回的 `video_params` 在用户启用自定义时增加两个字段：
 
 - `llm_prompt_batch_size`
 - `llm_prompt_batch_concurrent_limit`
 
-当用户未启用自定义时，这两个字段为 `None` 或不传，后端继续读取系统配置默认值。
+当用户未启用自定义时，不写入这两个字段。后端继续读取系统配置默认值。不要把 `None` 写入请求、共享配置或任务日志；这样可以避免「未覆盖」和「覆盖为空」两种状态混在一起。
 
 单视频生成时，`build_single_generation_request()` 将可选字段传入 `generate_video()` 请求。
 
 批量生成时，`build_batch_shared_config()` 将可选字段写入共享配置，使批量内每个视频使用同一组本次任务覆盖值。
 
 `StandardPipeline.plan_visuals()` 将这两个参数传入 `generate_styled_image_prompt_batch()`，最终进入统一的 prompt batch runner。
+
+`CustomPipeline` 中已有的 `generate_styled_image_prompt_batch()` 调用也必须透传这两个参数，避免 Web UI 以外的自定义 pipeline 路径表现不一致。
+
+API 层也必须支持同一契约：
+
+- `api.schemas.video.VideoGenerateRequest` 增加两个可选字段，并使用与配置相同的范围约束。
+- `api.routers.video.build_video_generation_params()` 只在请求字段不为 `None` 时写入生成参数。
+- `api.schemas.content.ImagePromptGenerateRequest` 增加两个可选字段。
+- `api.routers.content.generate_image_prompts_endpoint()` 将字段传给 `generate_styled_image_prompt_batch()`。
+
+这样 Web、同步 API、异步 API、直接内容提示词 API 和 pipeline 内部调用都使用同一套参数语义。
 
 ## 系统配置调整
 
@@ -70,13 +86,16 @@ LLM 默认性能配置
 ## 错误处理
 
 - 前端数字输入限制范围，避免非法值进入后端。
+- API schema 和全局配置 schema 使用相同范围约束，避免不同入口允许不同值。
 - 后端保留已有归一化逻辑，继续兜底处理缺失值或异常值。
 - 本次任务覆盖不改变现有失败、重试、取消和观测行为。
 
 ## 测试
 
 - 配置默认值测试：未传覆盖值时仍使用全局 LLM 配置。
-- 单视频请求构建测试：开启覆盖时请求包含两个可选字段。
-- 批量共享配置测试：开启覆盖时共享配置包含两个可选字段。
+- 单视频请求构建测试：开启覆盖时请求包含两个字段；未开启时两个字段完全不存在。
+- 批量共享配置测试：开启覆盖时共享配置包含两个字段；未开启时两个字段完全不存在。
 - Pipeline 参数传递测试：`StandardPipeline` 将覆盖值传给提示词生成函数。
+- Pipeline 参数传递测试：`CustomPipeline` 将覆盖值传给提示词生成函数。
+- API 参数传递测试：视频生成 API 和内容提示词 API 都能接收并透传这两个字段。
 - 前端结构通过现有 Streamlit 组件路径验证，确保不使用齿轮图标文案。
