@@ -182,9 +182,7 @@ class TaskManager:
         deduped_legacy_tasks = []
         for task in legacy_tasks:
             store_task = await self.store.get_task(task.task_id)
-            if store_task is not None and (
-                status is None or store_task.status == status
-            ):
+            if store_task is not None:
                 continue
             deduped_legacy_tasks.append(task)
 
@@ -212,7 +210,7 @@ class TaskManager:
 
         for task in legacy_tasks:
             store_task = await self.store.get_task(task.task_id)
-            if store_task is None or (status is not None and store_task.status != status):
+            if store_task is None:
                 total += 1
 
         return total

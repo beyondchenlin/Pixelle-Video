@@ -168,3 +168,30 @@ async def test_manager_count_tasks_merges_store_and_legacy_without_duplicates():
     )
 
     assert await manager.count_tasks(status=None) == 2
+
+
+@pytest.mark.asyncio
+async def test_manager_status_filtered_pages_keep_store_copy_canonical_for_duplicate_ids():
+    store = InMemoryTaskStore()
+    manager = TaskManager(store=store, registry=object(), execution_mode="embedded")
+    base_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    await store.create_task(
+        Task(
+            task_id="same",
+            task_type=TaskType.VIDEO_GENERATION,
+            status=TaskStatus.PENDING,
+            created_at=base_time,
+        )
+    )
+    manager._tasks["same"] = Task(
+        task_id="same",
+        task_type=TaskType.VIDEO_GENERATION,
+        status=TaskStatus.COMPLETED,
+        created_at=base_time + timedelta(seconds=1),
+    )
+
+    tasks = await manager.list_tasks(status=TaskStatus.COMPLETED, limit=10)
+
+    assert tasks == []
+    assert await manager.count_tasks(status=TaskStatus.COMPLETED) == 0
