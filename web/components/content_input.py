@@ -51,83 +51,113 @@ def build_storyboard_generation_payload(
     }
 
 
+def render_storyboard_generation_explanation() -> None:
+    """Render a concise help block for storyboard generation controls."""
+    with st.expander(
+        tr("storyboard.generation.explanation.title", fallback="设置说明"),
+        expanded=False,
+    ):
+        st.markdown(
+            tr(
+                "storyboard.generation.explanation.body",
+                fallback=(
+                    "**Smart**：让 AI 先理解完整脚本，再自动规划每个画面覆盖哪段内容，"
+                    "适合大多数主题。\n\n"
+                    "**按所有标点（中英文）**：遇到逗号、句号、问号等标点就切一段，"
+                    "分镜会更细。\n\n"
+                    "**按句末标点（。.!?！？）**：只按句子结束位置切分，节奏更稳。\n\n"
+                    "**自动**：AI 在 1-30 个分镜里自己选择合适数量；"
+                    "**分镜数**：手动指定要生成多少个分镜。\n\n"
+                    "**Script Length**：控制 AI 先写多长的脚本，不是单个分镜的时长。\n\n"
+                    "**max_tokens**：这是模型最多能输出多少 JSON 内容，不是分镜数量；"
+                    "本地会使用 Qwen 能接受的上限，避免请求被 400 拒绝。"
+                ),
+            )
+        )
+
+
 def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict:
     """Render controls for source-text storyboard generation."""
-    st.markdown(f"**{tr('section.storyboard_planning')}**")
-    storyboard_mode = st.radio(
-        "Storyboard Mode",
-        ["smart", "punctuation", "sentence"],
-        index=0,
-        horizontal=True,
-        key=f"{key_prefix}_storyboard_mode",
-        format_func=lambda value: {
-            "smart": "Smart",
-            "punctuation": tr("split.mode_punctuation"),
-            "sentence": tr("split.mode_sentence"),
-        }[value],
-    )
-
-    storyboard_count_mode = "auto"
-    storyboard_scene_count = None
-    if storyboard_mode == "smart":
-        storyboard_count_mode = st.radio(
-            "Scene Count",
-            ["auto", "manual"],
+    with st.expander(
+        tr("section.storyboard_planning", fallback="🧭 分镜规划"),
+        expanded=False,
+    ):
+        storyboard_mode = st.radio(
+            "Storyboard Mode",
+            ["smart", "punctuation", "sentence"],
             index=0,
             horizontal=True,
-            key=f"{key_prefix}_storyboard_count_mode",
+            key=f"{key_prefix}_storyboard_mode",
             format_func=lambda value: {
-                "auto": tr("storyboard.option.content_mode.auto"),
-                "manual": tr("video.frames"),
+                "smart": "Smart",
+                "punctuation": tr("split.mode_punctuation"),
+                "sentence": tr("split.mode_sentence"),
             }[value],
         )
-        if storyboard_count_mode == "manual":
-            storyboard_scene_count = st.slider(
-                tr("video.frames"),
-                min_value=1,
-                max_value=30,
-                value=5,
-                key=f"{key_prefix}_storyboard_scene_count",
-                help=tr("video.frames_help"),
-            )
-    else:
-        st.caption(tr("video.frames_fixed_mode_hint"))
 
-    script_length_mode = "auto"
-    script_target_words = None
-    if mode == "generate":
-        script_length_mode = st.selectbox(
-            "Script Length",
-            ["auto", "short", "medium", "long", "custom"],
-            index=0,
-            key=f"{key_prefix}_script_length_mode",
-            format_func=lambda value: {
-                "auto": tr("storyboard.option.content_mode.auto"),
-                "short": "Short",
-                "medium": "Medium",
-                "long": "Long",
-                "custom": tr("style.custom"),
-            }[value],
-        )
-        if script_length_mode == "custom":
-            script_target_words = int(
-                st.number_input(
-                    "Target Words",
+        storyboard_count_mode = "auto"
+        storyboard_scene_count = None
+        if storyboard_mode == "smart":
+            storyboard_count_mode = st.radio(
+                "Scene Count",
+                ["auto", "manual"],
+                index=0,
+                horizontal=True,
+                key=f"{key_prefix}_storyboard_count_mode",
+                format_func=lambda value: {
+                    "auto": tr("storyboard.option.content_mode.auto"),
+                    "manual": tr("video.frames"),
+                }[value],
+            )
+            if storyboard_count_mode == "manual":
+                storyboard_scene_count = st.slider(
+                    tr("video.frames"),
                     min_value=1,
-                    max_value=5000,
-                    value=240,
-                    step=10,
-                    key=f"{key_prefix}_script_target_words",
+                    max_value=30,
+                    value=5,
+                    key=f"{key_prefix}_storyboard_scene_count",
+                    help=tr("video.frames_help"),
                 )
-            )
+        else:
+            st.caption(tr("video.frames_fixed_mode_hint"))
 
-    return build_storyboard_generation_payload(
-        storyboard_mode=storyboard_mode,
-        storyboard_count_mode=storyboard_count_mode,
-        storyboard_scene_count=storyboard_scene_count,
-        script_length_mode=script_length_mode,
-        script_target_words=script_target_words,
-    )
+        script_length_mode = "auto"
+        script_target_words = None
+        if mode == "generate":
+            script_length_mode = st.selectbox(
+                "Script Length",
+                ["auto", "short", "medium", "long", "custom"],
+                index=0,
+                key=f"{key_prefix}_script_length_mode",
+                format_func=lambda value: {
+                    "auto": tr("storyboard.option.content_mode.auto"),
+                    "short": "Short",
+                    "medium": "Medium",
+                    "long": "Long",
+                    "custom": tr("style.custom"),
+                }[value],
+            )
+            if script_length_mode == "custom":
+                script_target_words = int(
+                    st.number_input(
+                        "Target Words",
+                        min_value=1,
+                        max_value=5000,
+                        value=240,
+                        step=10,
+                        key=f"{key_prefix}_script_target_words",
+                    )
+                )
+
+        render_storyboard_generation_explanation()
+
+        return build_storyboard_generation_payload(
+            storyboard_mode=storyboard_mode,
+            storyboard_count_mode=storyboard_count_mode,
+            storyboard_scene_count=storyboard_scene_count,
+            script_length_mode=script_length_mode,
+            script_target_words=script_target_words,
+        )
 
 
 def render_content_input():
