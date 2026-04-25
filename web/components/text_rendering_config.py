@@ -31,6 +31,14 @@ from pixelle_video.models.text_style import (
     DEFAULT_OVERLAY_STROKE_WIDTH,
 )
 from pixelle_video.render_backend import LEGACY_RENDER_BACKEND
+from pixelle_video.services.font_discovery import (
+    FontOption,
+    discover_font_options,
+    font_path_for_payload,
+)
+from pixelle_video.services.font_discovery import (
+    discover_font_families as _discover_font_families,
+)
 from web.i18n import tr
 
 CAPTION_STYLE_DEFAULTS: dict[str, Any] = {
@@ -66,7 +74,6 @@ TEXT_POSITION_OPTIONS = [
     "bottom_right",
 ]
 
-FONT_FILE_EXTENSIONS = {".ttf", ".otf", ".ttc", ".otc"}
 FONT_SEARCH_DIRS = (
     Path("fonts"),
     Path("font"),
@@ -120,38 +127,10 @@ def _migrate_legacy_caption_style_defaults(ui: Any) -> None:
     _set_session_value(ui, CAPTION_DEFAULTS_MIGRATION_KEY, True)
 
 
-def _font_family_from_file(path: Path) -> str:
-    try:
-        from PIL import ImageFont
-
-        family, _style = ImageFont.truetype(str(path), size=12).getname()
-        cleaned = str(family).strip()
-        if cleaned:
-            return cleaned
-    except Exception:
-        pass
-
-    return path.stem.strip()
-
-
 def discover_font_families(
     candidate_dirs: Iterable[str | Path] | None = None,
 ) -> list[str]:
-    """Discover local font family names from project font directories."""
-    font_dirs = tuple(Path(candidate) for candidate in (candidate_dirs or FONT_SEARCH_DIRS))
-    families_by_key: dict[str, str] = {}
-    for font_dir in font_dirs:
-        if not font_dir.is_dir():
-            continue
-        for font_file in font_dir.rglob("*"):
-            if not font_file.is_file() or font_file.suffix.lower() not in FONT_FILE_EXTENSIONS:
-                continue
-            family = _font_family_from_file(font_file)
-            if not family:
-                continue
-            families_by_key.setdefault(family.casefold(), family)
-
-    return sorted(families_by_key.values(), key=str.casefold)
+    return _discover_font_families(candidate_dirs or FONT_SEARCH_DIRS)
 
 
 def _font_family_options(current_value: str, discovered_families: list[str]) -> list[str]:
@@ -161,6 +140,16 @@ def _font_family_options(current_value: str, discovered_families: list[str]) -> 
     }:
         options.insert(0, current_value)
     return options
+
+
+def _font_file_for_family(
+    font_family: str,
+    discovered_options: list[FontOption],
+) -> str | None:
+    for option in discovered_options:
+        if option.family.casefold() == font_family.casefold():
+            return font_path_for_payload(option.path)
+    return None
 
 
 @contextmanager
@@ -196,7 +185,7 @@ def _clean_text_style_payload(style: Mapping[str, Any] | None) -> dict | None:
     for key, value in style.items():
         if value is None:
             continue
-        if key == "font_family":
+        if key in {"font_family", "font_file"}:
             value = str(value).strip()
             if not value:
                 continue
@@ -254,7 +243,8 @@ def _render_text_style_controls(
     configured_font_family = str(
         _session_value(ui, f"{prefix}_font_family", defaults["font_family"])
     ).strip() or str(defaults["font_family"])
-    discovered_font_families = discover_font_families()
+    discovered_font_options = discover_font_options(FONT_SEARCH_DIRS)
+    discovered_font_families = [option.family for option in discovered_font_options]
     font_family_options = _font_family_options(
         configured_font_family,
         discovered_font_families,
@@ -280,6 +270,7 @@ def _render_text_style_controls(
             key=f"{prefix}_font_family",
             help=translate(f"{prefix}.font_family_help"),
         )
+    font_file = _font_file_for_family(str(font_family), discovered_font_options)
     font_size = _call_control(
         ui,
         "number_input",
@@ -378,6 +369,7 @@ def _render_text_style_controls(
 
     return {
         "font_family": font_family,
+        "font_file": font_file,
         "font_size": font_size,
         "primary_color": primary_color,
         "stroke_color": stroke_color,

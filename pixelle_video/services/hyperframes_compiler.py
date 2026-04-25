@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+from dataclasses import dataclass
+from hashlib import sha1
 from html import escape
 from pathlib import Path
 from shutil import copy2
@@ -7,8 +10,15 @@ from shutil import copy2
 from pixelle_video.models.render_package import CaptionCue, TextCue
 from pixelle_video.models.template_render_context import TemplateRenderContext
 from pixelle_video.models.text_style import TextStyleProfile
+from pixelle_video.services.font_discovery import resolve_font_file
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
 from pixelle_video.services.text_style_resolver import TextStyleResolver
+
+
+@dataclass(frozen=True)
+class _CustomFontAsset:
+    family: str
+    file_name: str
 
 
 class HyperFramesCompiler:
@@ -64,12 +74,28 @@ class HyperFramesCompiler:
             ),
         }
 
-        compiled_index = self._replace_placeholders(index_template, replacements)
-        compiled_captions = self._replace_placeholders(captions_template, replacements)
-        compiled_text_layer = self._replace_placeholders(text_layer_template, replacements)
-
         (project_dir / "compositions").mkdir(parents=True, exist_ok=True)
         self._copy_runtime_assets(project_dir)
+        custom_fonts = self._copy_custom_font_assets(
+            project_dir,
+            context.text_style_profiles,
+        )
+
+        compiled_index = self._inject_custom_font_faces(
+            self._replace_placeholders(index_template, replacements),
+            custom_fonts,
+            font_url_prefix="./runtime/custom_fonts",
+        )
+        compiled_captions = self._inject_custom_font_faces(
+            self._replace_placeholders(captions_template, replacements),
+            custom_fonts,
+            font_url_prefix="../runtime/custom_fonts",
+        )
+        compiled_text_layer = self._inject_custom_font_faces(
+            self._replace_placeholders(text_layer_template, replacements),
+            custom_fonts,
+            font_url_prefix="../runtime/custom_fonts",
+        )
         (project_dir / "index.html").write_text(compiled_index, encoding="utf-8")
         (project_dir / "compositions" / "captions.html").write_text(
             compiled_captions,
@@ -326,6 +352,92 @@ class HyperFramesCompiler:
 
             target_path.parent.mkdir(parents=True, exist_ok=True)
             copy2(source_path, target_path)
+
+    def _copy_custom_font_assets(
+        self,
+        project_dir: Path,
+        profiles: Iterable[TextStyleProfile],
+    ) -> list[_CustomFontAsset]:
+        copied_by_key: dict[tuple[str, str], _CustomFontAsset] = {}
+        target_dir = project_dir / "runtime" / "custom_fonts"
+        for profile in profiles:
+            if not profile.font_file:
+                continue
+
+            source_path = resolve_font_file(profile.font_file)
+            if source_path is None:
+                raise ValueError(f"font_file must be an existing file: {profile.font_file}")
+
+            family = str(profile.font_family).strip()
+            if not family:
+                continue
+
+            source_path = source_path.resolve()
+            key = (family.casefold(), str(source_path).casefold())
+            if key in copied_by_key:
+                continue
+
+            target_dir.mkdir(parents=True, exist_ok=True)
+            file_name = self._custom_font_file_name(source_path)
+            copy2(source_path, target_dir / file_name)
+            copied_by_key[key] = _CustomFontAsset(
+                family=family,
+                file_name=file_name,
+            )
+
+        return list(copied_by_key.values())
+
+    def _inject_custom_font_faces(
+        self,
+        html: str,
+        custom_fonts: list[_CustomFontAsset],
+        *,
+        font_url_prefix: str,
+    ) -> str:
+        if not custom_fonts:
+            return html
+
+        css = "\n".join(
+            self._custom_font_face_css(asset, font_url_prefix=font_url_prefix)
+            for asset in custom_fonts
+        )
+        style_end = "</style>"
+        if style_end in html:
+            return html.replace(style_end, f"{css}\n{style_end}", 1)
+
+        style_block = f"<style>\n{css}\n</style>"
+        head_end = "</head>"
+        if head_end in html:
+            return html.replace(head_end, f"{style_block}\n{head_end}", 1)
+        return f"{style_block}\n{html}"
+
+    @staticmethod
+    def _custom_font_file_name(source_path: Path) -> str:
+        digest = sha1(str(source_path).encode("utf-8")).hexdigest()[:10]
+        stem = "".join(
+            char if char.isalnum() or char in {"-", "_"} else "-"
+            for char in source_path.stem
+        ).strip("-") or "font"
+        suffix = source_path.suffix.lower()
+        return f"{stem}-{digest}{suffix}"
+
+    def _custom_font_face_css(
+        self,
+        asset: _CustomFontAsset,
+        *,
+        font_url_prefix: str,
+    ) -> str:
+        family = self._css_string_literal(asset.family)
+        url = f"{font_url_prefix}/{asset.file_name}"
+        return (
+            f"@font-face {{ font-family: {family}; "
+            f"src: url(\"{url}\"); font-display: swap; }}"
+        )
+
+    @staticmethod
+    def _css_string_literal(value: str) -> str:
+        escaped = value.replace("\\", "\\\\").replace("\"", "\\\"")
+        return f"\"{escaped}\""
 
     @staticmethod
     def _replace_placeholders(template: str, replacements: dict[str, str]) -> str:

@@ -516,6 +516,72 @@ def test_hyperframes_compiler_emits_caption_style_variables(tmp_path: Path):
     assert "<b>" not in html
 
 
+def test_hyperframes_compiler_copies_custom_font_file_and_emits_font_face(
+    tmp_path: Path,
+):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    font_file = tmp_path / "fonts" / "simhei.ttf"
+    (template_dir / "compositions").mkdir(parents=True)
+    font_file.parent.mkdir(parents=True)
+    font_file.write_bytes(b"font bytes")
+    (template_dir / "index.template.html").write_text(
+        "<style></style>__CAPTIONS__",
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "<style></style>__CAPTIONS__",
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="Title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        text_style_profiles=[
+            TextStyleProfile(
+                id="caption-local-font",
+                name="Caption Local Font",
+                font_family="SimHei",
+                font_file=str(font_file),
+            )
+        ],
+        captions=[
+            CaptionCue(
+                id="caption-1",
+                text="本地字体",
+                start=0,
+                end=1,
+                style_profile="caption-local-font",
+            )
+        ],
+    )
+
+    project_dir = tmp_path / "project"
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=project_dir,
+        context=context,
+    )
+
+    copied_fonts = list((project_dir / "runtime" / "custom_fonts").glob("*.ttf"))
+    captions_html = (project_dir / "compositions" / "captions.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert len(copied_fonts) == 1
+    assert copied_fonts[0].read_bytes() == b"font bytes"
+    assert '@font-face { font-family: "SimHei";' in captions_html
+    assert "../runtime/custom_fonts/" in captions_html
+    assert "--text-font-family: SimHei" in captions_html
+
+
 def test_hyperframes_compiler_escapes_element_animation_manifest_attribute(
     tmp_path: Path,
 ):

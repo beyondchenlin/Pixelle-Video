@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -146,7 +147,7 @@ def test_text_style_font_family_control_explains_font_directory(monkeypatch):
 
     fake_ui = _TextStyleFakeUI()
 
-    monkeypatch.setattr(text_rendering_config, "discover_font_families", lambda: [])
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
 
     _render_text_style_controls(
         "caption_style",
@@ -188,11 +189,12 @@ def test_text_style_font_family_control_uses_dropdown_when_fonts_exist(monkeypat
     fake_ui.session_state = {"caption_style_font_family": "SimHei"}
     monkeypatch.setattr(
         text_rendering_config,
-        "discover_font_families",
-        lambda: [
-            "FZCuHeiSongS-B-GB",
-            "SimHei",
+        "discover_font_options",
+        lambda *_args: [
+            SimpleNamespace(family="FZCuHeiSongS-B-GB", path=Path("fonts/fzchsjt.ttf")),
+            SimpleNamespace(family="SimHei", path=Path("fonts/simhei.ttf")),
         ],
+        raising=False,
     )
 
     style = _render_text_style_controls(
@@ -209,6 +211,7 @@ def test_text_style_font_family_control_uses_dropdown_when_fonts_exist(monkeypat
     assert font_select["index"] == 1
     assert font_select["help"] == "translated:caption_style.font_family_help"
     assert style["font_family"] == "SimHei"
+    assert style["font_file"] == "fonts/simhei.ttf"
 
 
 def test_caption_style_control_migrates_legacy_hollow_caption_defaults(monkeypatch):
@@ -224,7 +227,7 @@ def test_caption_style_control_migrates_legacy_hollow_caption_defaults(monkeypat
         "caption_style_primary_color": "#FFFFFF",
         "caption_style_stroke_width": 2,
     }
-    monkeypatch.setattr(text_rendering_config, "discover_font_families", lambda: [])
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
 
     style = _render_text_style_controls(
         "caption_style",

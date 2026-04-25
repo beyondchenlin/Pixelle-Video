@@ -45,16 +45,19 @@ class ImageTextPolicyRequest(BaseModel):
 
 
 class TextStyleProfileRequest(BaseModel):
+    """Partial text style override merged with role-specific defaults downstream."""
+
     model_config = ConfigDict(extra="forbid")
 
-    font_family: str = Field("Noto Sans CJK SC", min_length=1, max_length=128)
-    font_size: int = Field(64, ge=8, le=240)
-    primary_color: str = Field("#FFFFFF", pattern=r"^#[0-9a-fA-F]{6}$")
-    stroke_color: str = Field("#000000", pattern=r"^#[0-9a-fA-F]{6}$")
-    stroke_width: int = Field(2, ge=0, le=16)
+    font_family: Optional[str] = Field(None, min_length=1, max_length=128)
+    font_file: Optional[str] = Field(None, min_length=1, max_length=512)
+    font_size: Optional[int] = Field(None, ge=8, le=240)
+    primary_color: Optional[str] = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
+    stroke_color: Optional[str] = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
+    stroke_width: Optional[int] = Field(None, ge=0, le=16)
     background_color: Optional[str] = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
-    background_opacity: float = Field(0.0, ge=0.0, le=1.0)
-    position: Literal[
+    background_opacity: Optional[float] = Field(None, ge=0.0, le=1.0)
+    position: Optional[Literal[
         "top",
         "center",
         "bottom",
@@ -63,8 +66,8 @@ class TextStyleProfileRequest(BaseModel):
         "top_right",
         "bottom_left",
         "bottom_right",
-    ] = "bottom"
-    margin_y: int = Field(140, ge=0, le=1000)
+    ]] = None
+    margin_y: Optional[int] = Field(None, ge=0, le=1000)
     max_chars_per_line: Optional[int] = Field(None, ge=1, le=200)
 
 
