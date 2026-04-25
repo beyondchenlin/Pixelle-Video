@@ -44,6 +44,8 @@ WINDOWS_RESERVED_FILENAMES = {
     *{f"LPT{index}" for index in range(1, 10)},
 }
 
+WINDOWS_ILLEGAL_FILENAME_CHARS = {'"', "<", ">", "|", "?", "*"}
+
 
 def media_type_for(path: Path) -> str:
     return MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
@@ -128,7 +130,7 @@ def sanitize_upload_filename(filename: str) -> str:
         raise HTTPException(status_code=400, detail="Invalid filename")
     if any(ord(char) < 32 or ord(char) == 127 for char in safe_name):
         raise HTTPException(status_code=400, detail="Invalid filename")
-    if ":" in safe_name:
+    if ":" in safe_name or any(char in WINDOWS_ILLEGAL_FILENAME_CHARS for char in safe_name):
         raise HTTPException(status_code=400, detail="Invalid filename")
     if safe_name.endswith((" ", ".")):
         raise HTTPException(status_code=400, detail="Invalid filename")

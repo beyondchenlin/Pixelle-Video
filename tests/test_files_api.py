@@ -61,6 +61,48 @@ async def test_get_file_allows_file_inside_output(monkeypatch, tmp_path):
     assert Path(response.path) == video
 
 
+@pytest.mark.asyncio
+async def test_get_file_returns_404_for_missing_file(monkeypatch, tmp_path):
+    (tmp_path / "output").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_file("missing.mp4")
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_file_returns_400_for_directory_path(monkeypatch, tmp_path):
+    directory = tmp_path / "output" / "task-1"
+    directory.mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_file("task-1")
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("relative_path", "expected_bytes"),
+    [
+        ("data/reference_audio/voice.wav", b"voice"),
+        ("data/materials/clip.png", b"image"),
+    ],
+)
+async def test_get_file_allows_data_asset_prefixes(monkeypatch, tmp_path, relative_path, expected_bytes):
+    asset = tmp_path / relative_path
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(expected_bytes)
+    monkeypatch.chdir(tmp_path)
+
+    response = await get_file(relative_path)
+
+    assert Path(response.path) == asset
+
+
 def _files_client() -> TestClient:
     app = FastAPI()
     app.include_router(files_router)
@@ -208,6 +250,24 @@ def test_get_file_uses_inline_disposition(monkeypatch, tmp_path):
     ],
 )
 def test_sanitize_upload_filename_rejects_risky_names(filename):
+    with pytest.raises(HTTPException) as exc_info:
+        sanitize_upload_filename(filename)
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        'bad"name.txt',
+        "bad<name.txt",
+        "bad>name.txt",
+        "bad|name.txt",
+        "bad?name.txt",
+        "bad*name.txt",
+    ],
+)
+def test_sanitize_upload_filename_rejects_windows_illegal_characters(filename):
     with pytest.raises(HTTPException) as exc_info:
         sanitize_upload_filename(filename)
 
