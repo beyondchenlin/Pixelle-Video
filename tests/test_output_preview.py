@@ -193,9 +193,17 @@ def test_build_single_generation_request_includes_storyboard_controls_and_frame_
     ]
 
 
-def test_build_single_generation_request_includes_no_text_toggle():
+def test_build_single_generation_request_includes_text_rendering_policy():
     def _progress(_event):
         return None
+
+    text_rendering = {
+        "overlay": {"enabled": False},
+        "image_text": {
+            "suppress_embedded_text": True,
+            "positive_prompt": "avoid generated lettering",
+        },
+    }
 
     request = output_preview.build_single_generation_request(
         {
@@ -203,16 +211,18 @@ def test_build_single_generation_request_includes_no_text_toggle():
             "mode": "generate",
             "frame_template": "1080x1920/image_default.html",
             "tts_inference_mode": "local",
-            "forbid_embedded_text_in_image": False,
+            "text_rendering": text_rendering,
         },
         progress_callback=_progress,
         session_state={"template_media_width": 1080, "template_media_height": 1920},
     )
 
-    assert request["forbid_embedded_text_in_image"] is False
+    assert request["text_rendering"] == text_rendering
+    assert "forbid_embedded_text_in_image" not in request
+    assert "text_layer" not in request
 
 
-def test_build_single_generation_request_includes_text_layer_policy():
+def test_build_single_generation_request_ignores_legacy_text_fields():
     def _progress(_event):
         return None
 
@@ -231,15 +241,17 @@ def test_build_single_generation_request_includes_text_layer_policy():
             "frame_template": "1080x1920/image_default.html",
             "tts_inference_mode": "local",
             "text_layer": text_layer,
+            "forbid_embedded_text_in_image": False,
         },
         progress_callback=_progress,
         session_state={"template_media_width": 1080, "template_media_height": 1920},
     )
 
-    assert request["text_layer"] == text_layer
+    assert "text_layer" not in request
+    assert "forbid_embedded_text_in_image" not in request
 
 
-def test_build_single_generation_request_defaults_no_text_toggle_to_true():
+def test_build_single_generation_request_omits_text_rendering_when_absent():
     def _progress(_event):
         return None
 
@@ -254,7 +266,7 @@ def test_build_single_generation_request_defaults_no_text_toggle_to_true():
         session_state={"template_media_width": 1080, "template_media_height": 1920},
     )
 
-    assert request["forbid_embedded_text_in_image"] is True
+    assert "text_rendering" not in request
 
 
 def test_build_batch_shared_config_includes_render_backend():
@@ -333,20 +345,27 @@ def test_build_batch_shared_config_includes_storyboard_controls_and_frame_overri
     ]
 
 
-def test_build_batch_shared_config_includes_no_text_toggle():
+def test_build_batch_shared_config_includes_text_rendering_policy():
+    text_rendering = {
+        "overlay": {"enabled": True, "mode": "programmatic_only"},
+        "image_text": {"suppress_embedded_text": False},
+    }
+
     shared_config = output_preview.build_batch_shared_config(
         {
             "n_scenes": 5,
             "frame_template": "1080x1920/image_default.html",
             "tts_inference_mode": "local",
-            "forbid_embedded_text_in_image": False,
+            "text_rendering": text_rendering,
         }
     )
 
-    assert shared_config["forbid_embedded_text_in_image"] is False
+    assert shared_config["text_rendering"] == text_rendering
+    assert "forbid_embedded_text_in_image" not in shared_config
+    assert "text_layer" not in shared_config
 
 
-def test_build_batch_shared_config_includes_text_layer_policy():
+def test_build_batch_shared_config_ignores_legacy_text_fields():
     text_layer = {
         "enabled": True,
         "mode": "programmatic_only",
@@ -361,10 +380,12 @@ def test_build_batch_shared_config_includes_text_layer_policy():
             "frame_template": "1080x1920/image_default.html",
             "tts_inference_mode": "local",
             "text_layer": text_layer,
+            "forbid_embedded_text_in_image": False,
         }
     )
 
-    assert shared_config["text_layer"] == text_layer
+    assert "text_layer" not in shared_config
+    assert "forbid_embedded_text_in_image" not in shared_config
 
 
 def test_build_single_generation_request_includes_tts_speed_for_comfyui():
@@ -537,10 +558,16 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
             "tts_boundary_search_radius": 12,
             "tts_soft_overflow_chars": 4,
             "tts_audio_boundary_fade_ms": 16,
-            "text_layer": {
-                "enabled": True,
-                "mode": "hybrid",
-                "renderer_targets": ["hyperframes", "ass"],
+            "text_rendering": {
+                "overlay": {
+                    "enabled": True,
+                    "mode": "hybrid",
+                    "renderer_targets": ["hyperframes", "ass"],
+                },
+                "image_text": {
+                    "suppress_embedded_text": True,
+                    "positive_prompt": "avoid generated lettering",
+                },
             },
             "element_animation_enabled": True,
             "element_animation_backend": "python_ffmpeg",
@@ -556,7 +583,6 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
             "role_strategy": "auto",
             "role_locking_strength": "strong",
             "shot_strategy": "strict",
-            "forbid_embedded_text_in_image": False,
             "frame_overrides": [
                 {
                     "scene_id": "scene-1",
@@ -580,10 +606,16 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
     assert captured["request"]["tts_boundary_search_radius"] == 12
     assert captured["request"]["tts_soft_overflow_chars"] == 4
     assert captured["request"]["tts_audio_boundary_fade_ms"] == 16
-    assert captured["request"]["text_layer"] == {
-        "enabled": True,
-        "mode": "hybrid",
-        "renderer_targets": ["hyperframes", "ass"],
+    assert captured["request"]["text_rendering"] == {
+        "overlay": {
+            "enabled": True,
+            "mode": "hybrid",
+            "renderer_targets": ["hyperframes", "ass"],
+        },
+        "image_text": {
+            "suppress_embedded_text": True,
+            "positive_prompt": "avoid generated lettering",
+        },
     }
     assert captured["request"]["element_animation_enabled"] is True
     assert captured["request"]["element_animation_backend"] == "python_ffmpeg"
@@ -592,7 +624,8 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
     assert captured["request"]["element_animation_prompt"] == "animate the main product"
     assert captured["request"]["element_animation_intensity"] == "high"
     assert captured["request"]["element_animation_workflow"] == "custom_segment.json"
-    assert captured["request"]["forbid_embedded_text_in_image"] is False
+    assert "forbid_embedded_text_in_image" not in captured["request"]
+    assert "text_layer" not in captured["request"]
     assert captured["request"]["frame_overrides"] == [
         {
             "scene_id": "scene-1",

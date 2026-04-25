@@ -146,7 +146,6 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "role_locking_strength": video_params.get("role_locking_strength"),
         "shot_strategy": video_params.get("shot_strategy"),
         "frame_overrides": video_params.get("frame_overrides"),
-        "forbid_embedded_text_in_image": video_params.get("forbid_embedded_text_in_image", True),
     }
 
     if request["tts_inference_mode"] == "local":
@@ -172,8 +171,8 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     copy_tts_audio_strategy(video_params, request)
     copy_tts_split_settings(video_params, request)
     copy_element_animation_options(video_params, request)
-    if video_params.get("text_layer") is not None:
-        request["text_layer"] = video_params["text_layer"]
+    if video_params.get("text_rendering") is not None:
+        request["text_rendering"] = video_params["text_rendering"]
 
     if video_params.get("request_id"):
         request["request_id"] = video_params["request_id"]
@@ -203,7 +202,6 @@ def build_batch_shared_config(video_params):
         "role_locking_strength": video_params.get("role_locking_strength"),
         "shot_strategy": video_params.get("shot_strategy"),
         "frame_overrides": video_params.get("frame_overrides"),
-        "forbid_embedded_text_in_image": video_params.get("forbid_embedded_text_in_image", True),
     }
 
     tts_speed = video_params.get("tts_speed")
@@ -235,8 +233,8 @@ def build_batch_shared_config(video_params):
     copy_tts_audio_strategy(video_params, shared_config)
     copy_tts_split_settings(video_params, shared_config)
     copy_element_animation_options(video_params, shared_config)
-    if video_params.get("text_layer") is not None:
-        shared_config["text_layer"] = video_params["text_layer"]
+    if video_params.get("text_rendering") is not None:
+        shared_config["text_rendering"] = video_params["text_rendering"]
     return shared_config
 
 
@@ -419,9 +417,8 @@ def render_single_output(pixelle_video, video_params):
                             "role_strategy": video_params.get("role_strategy"),
                             "role_locking_strength": video_params.get("role_locking_strength"),
                             "shot_strategy": video_params.get("shot_strategy"),
-                            "forbid_embedded_text_in_image": video_params.get("forbid_embedded_text_in_image", True),
                             "frame_overrides": video_params.get("frame_overrides"),
-                            "text_layer": video_params.get("text_layer"),
+                            "text_rendering": video_params.get("text_rendering"),
                             **{
                                 key: video_params.get(key)
                                 for key in TTS_SPLIT_SETTING_KEYS

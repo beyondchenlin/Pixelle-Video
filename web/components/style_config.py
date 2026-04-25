@@ -44,6 +44,7 @@ from pixelle_video.config.storyboard_preset_library import (
 from pixelle_video.prompts.prompt_prefix_generation import (
     build_prompt_prefix_generation_prompt,
 )
+from pixelle_video.models.text_overlay import DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
 from pixelle_video.render_backend import LEGACY_RENDER_BACKEND, SUPPORTED_RENDER_BACKENDS
 from pixelle_video.tts_audio_strategy import SUPPORTED_TTS_AUDIO_STRATEGIES
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
@@ -182,7 +183,6 @@ def build_storyboard_control_payload(
     role_locking_strength: str | None = None,
     shot_strategy: str | None = None,
     frame_overrides: list[dict] | None = None,
-    forbid_embedded_text_in_image: bool | None = None,
 ) -> dict:
     """Build a normalized storyboard control payload from UI selections."""
     if shot_preset_id == STORYBOARD_SHOT_PRESET_AUTO_VALUE:
@@ -210,9 +210,24 @@ def build_storyboard_control_payload(
 
     if frame_overrides:
         normalized_payload["frame_overrides"] = frame_overrides
-    if forbid_embedded_text_in_image is not None:
-        normalized_payload["forbid_embedded_text_in_image"] = forbid_embedded_text_in_image
     return normalized_payload
+
+
+def build_text_rendering_payload(
+    *,
+    overlay_policy: dict | None,
+    suppress_embedded_text: bool,
+    positive_prompt: str,
+) -> dict:
+    """Build the nested text_rendering payload used by API and pipelines."""
+    cleaned_prompt = str(positive_prompt or "").strip()
+    return {
+        "overlay": overlay_policy or {"enabled": False},
+        "image_text": {
+            "suppress_embedded_text": bool(suppress_embedded_text),
+            "positive_prompt": cleaned_prompt,
+        },
+    }
 
 
 def resolve_storyboard_toggle_default(
@@ -259,7 +274,6 @@ STORYBOARD_GUIDE_FIELD_SPECS: tuple[tuple[str, str], ...] = (
     ("storyboard.role_strategy", "storyboard.guide.field.role_strategy"),
     ("storyboard.role_locking_strength", "storyboard.guide.field.role_locking_strength"),
     ("storyboard.shot_strategy", "storyboard.guide.field.shot_strategy"),
-    ("storyboard.forbid_embedded_text", "storyboard.guide.field.forbid_embedded_text"),
 )
 
 STORYBOARD_GUIDE_PRESET_PICKER_SPECS: tuple[dict[str, object], ...] = (
@@ -2470,9 +2484,9 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         render_backend = render_render_backend_selector()
         tts_audio_strategy = render_tts_audio_strategy_selector()
         tts_split_settings = render_tts_split_settings()
-        text_layer_policy = render_text_layer_controls(render_backend)
 
     element_animation_settings = render_element_animation_controls()
+    text_rendering = render_text_rendering_controls(render_backend)
 
     storyboard_world_preset_id = None
     storyboard_shot_preset_id = None
@@ -2481,10 +2495,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
     storyboard_role_strategy = None
     storyboard_role_locking_strength = None
     storyboard_shot_strategy = None
-    storyboard_forbid_embedded_text_in_image = st.session_state.get(
-        "storyboard_forbid_embedded_text_in_image",
-        True,
-    )
     storyboard_frame_overrides: list[dict] = []
     selected_template_type_for_storyboard = st.session_state.get("template_type_selector")
     storyboard_controls_disabled = selected_template_type_for_storyboard == "static"
@@ -2594,13 +2604,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
                     format_func=lambda value: tr(f"storyboard.option.shot_strategy.{value}"),
                     key="storyboard_shot_strategy",
                 )
-
-            storyboard_forbid_embedded_text_in_image = st.checkbox(
-                tr("storyboard.forbid_embedded_text"),
-                value=st.session_state.get("storyboard_forbid_embedded_text_in_image", True),
-                help=tr("storyboard.forbid_embedded_text_help"),
-                key="storyboard_forbid_embedded_text_in_image",
-            )
             storyboard_frame_overrides = render_storyboard_preview(
                 st.session_state.get("storyboard_preview_snapshot")
             )
@@ -3194,12 +3197,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
             workflow_key = None
             prompt_prefix = ""
     
-    storyboard_no_text_override = (
-        storyboard_forbid_embedded_text_in_image
-        if storyboard_enabled and not storyboard_controls_disabled
-        else None
-    )
-
     storyboard_payload = build_storyboard_control_payload(
         world_preset_id=storyboard_world_preset_id,
         shot_preset_id=storyboard_shot_preset_id,
@@ -3209,7 +3206,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         role_locking_strength=storyboard_role_locking_strength,
         shot_strategy=storyboard_shot_strategy,
         frame_overrides=storyboard_frame_overrides,
-        forbid_embedded_text_in_image=storyboard_no_text_override,
     )
 
     # Return all style configuration parameters
@@ -3229,12 +3225,42 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         "prompt_prefix": prompt_prefix if prompt_prefix else "",
         "media_width": media_width,
         "media_height": media_height,
+        "text_rendering": text_rendering,
         **element_animation_settings,
         **storyboard_payload,
     }
-    if text_layer_policy is not None:
-        result["text_layer"] = text_layer_policy
     return result
+
+
+def render_text_rendering_controls(render_backend: str) -> dict:
+    """Render the dedicated text rendering controls."""
+    with render_middle_column_collapsible_section(
+        tr("section.text_rendering"),
+        expanded=False,
+    ):
+        overlay_policy = render_text_layer_controls(render_backend)
+        suppress_embedded_text = st.checkbox(
+            tr("image_text.suppress_embedded_text"),
+            value=st.session_state.get("image_text_suppress_embedded_text", False),
+            help=tr("image_text.suppress_embedded_text_help"),
+            key="image_text_suppress_embedded_text",
+        )
+        positive_prompt = st.text_area(
+            tr("image_text.positive_prompt"),
+            value=st.session_state.get(
+                "image_text_positive_prompt",
+                DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
+            ),
+            help=tr("image_text.positive_prompt_help"),
+            key="image_text_positive_prompt",
+            disabled=not suppress_embedded_text,
+        )
+
+    return build_text_rendering_payload(
+        overlay_policy=overlay_policy,
+        suppress_embedded_text=suppress_embedded_text,
+        positive_prompt=positive_prompt,
+    )
 
 
 def render_text_layer_controls(render_backend: str) -> dict | None:

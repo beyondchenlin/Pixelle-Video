@@ -393,24 +393,41 @@ def test_build_storyboard_control_payload_includes_storyboard_fields():
     }
 
 
-def test_build_storyboard_control_payload_includes_no_text_toggle():
-    payload = build_storyboard_control_payload(
-        world_preset_id="neutral_knowledge_storyboard",
-        forbid_embedded_text_in_image=False,
+def test_build_text_rendering_payload_defaults_image_text_suppression_off():
+    payload = style_config.build_text_rendering_payload(
+        overlay_policy=None,
+        suppress_embedded_text=False,
+        positive_prompt="avoid generated lettering",
     )
 
     assert payload == {
-        "world_preset_id": "neutral_knowledge_storyboard",
-        "forbid_embedded_text_in_image": False,
+        "overlay": {"enabled": False},
+        "image_text": {
+            "suppress_embedded_text": False,
+            "positive_prompt": "avoid generated lettering",
+        },
     }
 
 
-def test_render_text_layer_controls_returns_policy_when_enabled(monkeypatch):
+def test_build_text_rendering_payload_preserves_cleared_positive_prompt():
+    payload = style_config.build_text_rendering_payload(
+        overlay_policy=None,
+        suppress_embedded_text=True,
+        positive_prompt="   ",
+    )
+
+    assert payload["image_text"] == {
+        "suppress_embedded_text": True,
+        "positive_prompt": "",
+    }
+
+
+def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monkeypatch):
     fake_st = _FakeStreamlit()
 
     def _checkbox(label, value=False, key=None, **kwargs):
         fake_st.checkbox_calls.append({"label": label, "value": value, "key": key, **kwargs})
-        return key == "text_layer_enabled"
+        return key in {"text_layer_enabled", "image_text_suppress_embedded_text"}
 
     def _radio(label, options, index=0, key=None, **kwargs):
         if key == "text_layer_mode":
@@ -431,20 +448,25 @@ def test_render_text_layer_controls_returns_policy_when_enabled(monkeypatch):
     fake_st.selectbox = _selectbox
     fake_st.number_input = lambda *args, **kwargs: 1
 
-    policy = style_config.render_text_layer_controls("hyperframes_compiled")
+    policy = style_config.render_text_rendering_controls("hyperframes_compiled")
 
     assert policy == {
-        "enabled": True,
-        "mode": "hybrid",
-        "renderer_targets": ["hyperframes", "ass"],
-        "density": "low",
-        "max_items_per_frame": 1,
+        "overlay": {
+            "enabled": True,
+            "mode": "hybrid",
+            "renderer_targets": ["hyperframes", "ass"],
+            "density": "low",
+            "max_items_per_frame": 1,
+        },
+        "image_text": {
+            "suppress_embedded_text": True,
+            "positive_prompt": style_config.DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
+        },
     }
 
 
 def test_render_style_config_disables_storyboard_for_static_templates(monkeypatch):
     fake_st = _FakeStreamlit()
-    fake_st.session_state["storyboard_forbid_embedded_text_in_image"] = False
     monkeypatch.setattr(style_config, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
@@ -688,7 +710,7 @@ def test_render_style_config_shows_expanded_image_notice_when_template_does_not_
     assert "image.not_required_hint" in fake_st.caption_calls
 
 
-def test_render_style_config_defaults_no_text_toggle_to_true(monkeypatch):
+def test_render_style_config_defaults_image_text_suppression_to_false(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
     monkeypatch.setattr(style_config, "st", fake_st)
@@ -806,18 +828,17 @@ def test_render_style_config_defaults_no_text_toggle_to_true(monkeypatch):
 
     result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
 
-    assert result["forbid_embedded_text_in_image"] is True
+    assert result["text_rendering"]["image_text"]["suppress_embedded_text"] is False
     no_text_checkbox = next(
-        call for call in fake_st.checkbox_calls if call["label"] == "storyboard.forbid_embedded_text"
+        call for call in fake_st.checkbox_calls if call["label"] == "image_text.suppress_embedded_text"
     )
-    assert no_text_checkbox["value"] is True
+    assert no_text_checkbox["value"] is False
 
 
 def test_render_style_config_does_not_apply_no_text_override_when_storyboard_disabled(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
     fake_st.session_state["storyboard_planning_enabled"] = False
-    fake_st.session_state["storyboard_forbid_embedded_text_in_image"] = False
     monkeypatch.setattr(style_config, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
@@ -933,15 +954,15 @@ def test_render_style_config_does_not_apply_no_text_override_when_storyboard_dis
 
     result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
 
-    assert "forbid_embedded_text_in_image" not in result
+    assert result["text_rendering"]["image_text"]["suppress_embedded_text"] is False
     assert all(call["label"] != "storyboard.forbid_embedded_text" for call in fake_st.checkbox_calls)
 
 
-def test_render_style_config_restores_session_no_text_choice_when_storyboard_reenabled(monkeypatch):
+def test_render_style_config_restores_session_image_text_choice(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
     fake_st.session_state["storyboard_planning_enabled"] = True
-    fake_st.session_state["storyboard_forbid_embedded_text_in_image"] = False
+    fake_st.session_state["image_text_suppress_embedded_text"] = True
     monkeypatch.setattr(style_config, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
@@ -1057,11 +1078,11 @@ def test_render_style_config_restores_session_no_text_choice_when_storyboard_ree
 
     result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
 
-    assert result["forbid_embedded_text_in_image"] is False
+    assert result["text_rendering"]["image_text"]["suppress_embedded_text"] is True
     no_text_checkbox = next(
-        call for call in fake_st.checkbox_calls if call["label"] == "storyboard.forbid_embedded_text"
+        call for call in fake_st.checkbox_calls if call["label"] == "image_text.suppress_embedded_text"
     )
-    assert no_text_checkbox["value"] is False
+    assert no_text_checkbox["value"] is True
 
 
 def test_render_style_config_template_and_image_workflow_help_use_popovers_without_nested_expander(monkeypatch):
@@ -1536,7 +1557,6 @@ def test_render_storyboard_planning_guide_renders_default_on_copy_and_detail_sec
     assert "storyboard.guide.preset_picker.shot.title" in expander_html
     assert "storyboard.guide.preset_picker.world.item.angry_birds_three_kingdoms" in expander_html
     assert "storyboard.guide.preset_picker.shot.item.character_relationship" in expander_html
-    assert "storyboard.guide.field.forbid_embedded_text" in expander_html
     assert "storyboard.guide.override_title" in expander_html
     assert any(kwargs.get("unsafe_allow_html") for _body, kwargs in fake_st.expander_markdowns)
 
@@ -1585,9 +1605,6 @@ def test_storyboard_planning_guide_translation_keys_exist_in_supported_locales()
         "storyboard.guide.field.role_strategy",
         "storyboard.guide.field.role_locking_strength",
         "storyboard.guide.field.shot_strategy",
-        "storyboard.forbid_embedded_text",
-        "storyboard.forbid_embedded_text_help",
-        "storyboard.guide.field.forbid_embedded_text",
         "storyboard.guide.preset_picker_title",
         "storyboard.guide.preset_picker.world.title",
         "storyboard.guide.preset_picker.world.body",
