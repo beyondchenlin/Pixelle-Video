@@ -20,12 +20,18 @@ class APIErrorResponse(BaseModel):
 
 class APIEnvelope(BaseModel):
     success: bool = True
-    message: str = "success"
+    message: str = "Success"
     data: Any = None
 
 
-def success_envelope(data: Any = None, message: str = "success") -> dict[str, Any]:
-    return APIEnvelope(message=message, data=data).model_dump()
+def success_envelope(data: Any = None, message: str = "Success") -> dict[str, Any]:
+    envelope: dict[str, Any] = {
+        "success": True,
+        "message": message,
+    }
+    if data is not None:
+        envelope["data"] = data
+    return envelope
 
 
 def error_envelope(message: str, code: str, details: Any = None) -> dict[str, Any]:
@@ -39,12 +45,13 @@ def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
         message = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        details = None if isinstance(exc.detail, str) else exc.detail
         return JSONResponse(
             status_code=exc.status_code,
             content=error_envelope(
                 message=message,
                 code=f"http_{exc.status_code}",
-                details=exc.detail,
+                details=details,
             ),
             headers=exc.headers,
         )

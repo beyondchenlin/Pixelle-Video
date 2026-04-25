@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, field_validator
 
-from api.schemas.responses import install_exception_handlers
+from api.schemas.responses import install_exception_handlers, success_envelope
 
 
 class DemoPayload(BaseModel):
@@ -40,7 +40,7 @@ def test_http_exception_uses_error_envelope():
     assert response.json() == {
         "success": False,
         "message": "not found",
-        "error": {"code": "http_404", "details": "not found"},
+        "error": {"code": "http_404", "details": None},
     }
 
 
@@ -69,3 +69,10 @@ def test_field_validator_value_error_details_are_json_safe():
     assert body["error"]["code"] == "validation_error"
     assert body["error"]["details"][0]["loc"] == ["body", "name"]
     assert "bad name" in body["error"]["details"][0]["msg"]
+
+
+def test_success_envelope_omits_data_when_none():
+    assert success_envelope() == {
+        "success": True,
+        "message": "Success",
+    }
