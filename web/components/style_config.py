@@ -3432,7 +3432,7 @@ def render_tts_split_settings() -> dict:
         tr("tts_split_mode.label"),
         options,
         index=options.index(configured_mode),
-        horizontal=False,
+        horizontal=True,
         format_func=lambda value: tr(f"tts_split_mode.option.{value}"),
         key="tts_split_mode_select",
         help=tr("tts_split_mode.help"),
