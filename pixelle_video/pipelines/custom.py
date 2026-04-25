@@ -94,6 +94,7 @@ class CustomPipeline(BasePipeline):
         "role_locking_strength",
         "shot_strategy",
         "frame_overrides",
+        "text_rendering",
     }
 
     async def __call__(
@@ -288,7 +289,7 @@ class CustomPipeline(BasePipeline):
                 role_locking_strength=kwargs.get("role_locking_strength"),
                 shot_strategy=kwargs.get("shot_strategy"),
                 frame_overrides=kwargs.get("frame_overrides"),
-                forbid_embedded_text_in_image=kwargs.get("forbid_embedded_text_in_image", True),
+                text_rendering=kwargs.get("text_rendering"),
             )
 
             final_image_prompts = styled_batch.prompts
@@ -444,6 +445,7 @@ class CustomPipeline(BasePipeline):
                     "ref_audio_text": ref_audio_text or kwargs.get("prompt_text"),
                     "media_workflow": media_workflow,
                     "frame_template": frame_template,
+                    "text_rendering": kwargs.get("text_rendering"),
                     "bgm_path": bgm_path,
                     "bgm_volume": bgm_volume,
                     "render_backend": storyboard.config.render_backend,

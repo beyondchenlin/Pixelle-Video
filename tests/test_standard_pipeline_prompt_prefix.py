@@ -5,7 +5,6 @@ from pixelle_video.models.style_resolution import StyledImagePromptBatch, StyleS
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
-from pixelle_video.utils.prompt_helper import apply_no_text_policy
 
 
 class _DummyCore:
@@ -22,6 +21,8 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
     captured = {}
 
     async def real_styled_batch_with_capture(**kwargs):
+        captured["has_forbid_embedded_text_arg"] = "forbid_embedded_text_in_image" in kwargs
+        captured["text_rendering"] = kwargs.get("text_rendering")
         captured["world_preset_id"] = kwargs["world_preset_id"]
         captured["shot_preset_id"] = kwargs["shot_preset_id"]
         captured["content_mode"] = kwargs["content_mode"]
@@ -138,6 +139,8 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
     await pipeline.initialize_storyboard(ctx)
 
     assert captured["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert captured["has_forbid_embedded_text_arg"] is False
+    assert captured["text_rendering"] is None
     assert captured["shot_preset_id"] == "balanced_explainer"
     assert captured["content_mode"] == "concept_explainer"
     assert captured["consistency_strength"] == "strong"
@@ -145,13 +148,9 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
     assert captured["role_locking_strength"] == "strong"
     assert captured["shot_strategy"] == "strict"
     assert ctx.image_prompts == [
-        apply_no_text_policy(
-            "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, bird-universe dog sprint"
-        )
+        "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, bird-universe dog sprint"
     ]
-    assert ctx.media_negative_prompt is not None
-    assert "text" in ctx.media_negative_prompt
-    assert "Chinese characters" in ctx.media_negative_prompt
+    assert ctx.media_negative_prompt is None
     assert ctx.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
     assert ctx.planning_snapshot["frames"][0]["shot_type"] == "medium_shot"
     assert ctx.storyboard.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
@@ -173,6 +172,8 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured["prompt_prefix"] = kwargs["prompt_prefix"]
+        captured["text_rendering"] = kwargs.get("text_rendering")
+        captured["has_forbid_embedded_text_arg"] = "forbid_embedded_text_in_image" in kwargs
         return StyledImagePromptBatch(
             prompts=["override prompt"],
             negative_prompt=None,
@@ -190,6 +191,13 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
         params={
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": "explicit override",
+            "text_rendering": {
+                "image_text": {
+                    "suppress_embedded_text": True,
+                    "positive_prompt": "avoid generated lettering",
+                    "negative_prompt": "signage",
+                }
+            },
         },
     )
     ctx.narrations = ["scene one"]
@@ -197,6 +205,8 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
     await pipeline.plan_visuals(ctx)
 
     assert captured["prompt_prefix"] == "explicit override"
+    assert captured["text_rendering"] == ctx.params["text_rendering"]
+    assert captured["has_forbid_embedded_text_arg"] is False
     assert ctx.image_prompts == ["override prompt"]
 
 
@@ -250,7 +260,9 @@ async def test_standard_pipeline_plan_visuals_builds_text_package_and_native_hin
         captured["native_prompt_hints_by_frame"] = kwargs.get(
             "native_prompt_hints_by_frame"
         )
-        captured["text_rendering_policy"] = kwargs.get("text_rendering_policy")
+        captured["text_rendering"] = kwargs.get("text_rendering")
+        captured["has_text_rendering_policy_arg"] = "text_rendering_policy" in kwargs
+        captured["has_forbid_embedded_text_arg"] = "forbid_embedded_text_in_image" in kwargs
         return StyledImagePromptBatch(
             prompts=["native prompt"],
             negative_prompt=None,
@@ -270,11 +282,13 @@ async def test_standard_pipeline_plan_visuals_builds_text_package_and_native_hin
             "frame_template": "1080x1920/image_default.html",
             "media_width": 1024,
             "media_height": 1024,
-            "text_layer": {
-                "enabled": True,
-                "mode": "native_hint",
-                "renderer_targets": ["native_prompt"],
-                "max_items_per_frame": 1,
+            "text_rendering": {
+                "overlay": {
+                    "enabled": True,
+                    "mode": "native_hint",
+                    "renderer_targets": ["native_prompt"],
+                    "max_items_per_frame": 1,
+                }
             },
         },
     )
@@ -289,7 +303,9 @@ async def test_standard_pipeline_plan_visuals_builds_text_package_and_native_hin
     assert ctx.creation_package is not None
     assert ctx.creation_package.text_overlay_plan is not None
     assert ctx.creation_package.text_overlay_plan.candidates[0].role == "model_native_hint"
-    assert captured["text_rendering_policy"].image_text_mode == "native_hint"
+    assert captured["text_rendering"] == ctx.params["text_rendering"]
+    assert captured["has_text_rendering_policy_arg"] is False
+    assert captured["has_forbid_embedded_text_arg"] is False
     assert captured["native_prompt_hints_by_frame"][0][0].source_candidate_ids == (
         "text-1-1",
     )

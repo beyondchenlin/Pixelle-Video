@@ -6,7 +6,6 @@ from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.style_resolution import StyledImagePromptBatch, StyleSourceSpec
 from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
-from pixelle_video.utils.prompt_helper import apply_no_text_policy
 
 
 @pytest.mark.asyncio
@@ -58,6 +57,8 @@ async def test_custom_pipeline_uses_styled_batch_and_threads_negative_prompt(mon
         return "Custom Title"
 
     async def real_styled_batch_with_capture(**kwargs):
+        captured["has_forbid_embedded_text_arg"] = "forbid_embedded_text_in_image" in kwargs
+        captured["text_rendering"] = kwargs.get("text_rendering")
         captured["prompt_prefix"] = kwargs["prompt_prefix"]
         captured["world_preset_id"] = kwargs["world_preset_id"]
         captured["shot_preset_id"] = kwargs["shot_preset_id"]
@@ -156,6 +157,8 @@ async def test_custom_pipeline_uses_styled_batch_and_threads_negative_prompt(mon
         shot_strategy="strict",
     )
 
+    assert captured["has_forbid_embedded_text_arg"] is False
+    assert captured["text_rendering"] is None
     assert captured["prompt_prefix"] is None
     assert captured["world_preset_id"] == "neutral_knowledge_storyboard"
     assert captured["shot_preset_id"] == "balanced_explainer"
@@ -164,9 +167,7 @@ async def test_custom_pipeline_uses_styled_batch_and_threads_negative_prompt(mon
     assert captured["role_strategy"] == "auto"
     assert captured["role_locking_strength"] == "strong"
     assert captured["shot_strategy"] == "strict"
-    assert captured["media_negative_prompt"] is not None
-    assert "text" in captured["media_negative_prompt"]
-    assert "Chinese characters" in captured["media_negative_prompt"]
+    assert captured["media_negative_prompt"] is None
     assert result.storyboard.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
     assert result.storyboard.planning_snapshot["frames"][0]["shot_type"] == "medium_shot"
     assert result.storyboard.config.world_preset_id == "neutral_knowledge_storyboard"
@@ -179,7 +180,7 @@ async def test_custom_pipeline_uses_styled_batch_and_threads_negative_prompt(mon
     assert result.storyboard.frames[0].shot_type == "medium_shot"
     assert result.storyboard.frames[0].shot_purpose == "context"
     assert result.storyboard.frames[0].frame_source == "planner_generated"
-    assert result.storyboard.frames[0].image_prompt == apply_no_text_policy(
+    assert result.storyboard.frames[0].image_prompt == (
         "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, styled prompt"
     )
 
@@ -236,6 +237,8 @@ async def test_custom_pipeline_accepts_shared_prompt_prefix_override(monkeypatch
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured["prompt_prefix"] = kwargs["prompt_prefix"]
+        captured["text_rendering"] = kwargs.get("text_rendering")
+        captured["has_forbid_embedded_text_arg"] = "forbid_embedded_text_in_image" in kwargs
         return StyledImagePromptBatch(
             prompts=["styled prompt"],
             negative_prompt=None,
@@ -260,9 +263,24 @@ async def test_custom_pipeline_accepts_shared_prompt_prefix_override(monkeypatch
         text="scene one",
         tts_inference_mode="local",
         prompt_prefix="angry birds world",
+        text_rendering={
+            "image_text": {
+                "suppress_embedded_text": True,
+                "positive_prompt": "avoid generated lettering",
+                "negative_prompt": "signage",
+            }
+        },
     )
 
     assert captured["prompt_prefix"] == "angry birds world"
+    assert captured["text_rendering"] == {
+        "image_text": {
+            "suppress_embedded_text": True,
+            "positive_prompt": "avoid generated lettering",
+            "negative_prompt": "signage",
+        }
+    }
+    assert captured["has_forbid_embedded_text_arg"] is False
 
 
 @pytest.mark.asyncio

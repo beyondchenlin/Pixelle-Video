@@ -316,7 +316,6 @@ class StandardPipeline(LinearVideoPipeline):
             image_config = self.core.config.get("comfyui", {}).get(media_type, {})
             text_rendering_settings = build_text_rendering_settings(
                 ctx.params.get("text_rendering")
-                or {"overlay": ctx.params.get("text_layer")}
             )
             text_policy = build_text_rendering_policy(text_rendering_settings.overlay)
             text_plan = TextOverlayPlanner().plan(
@@ -351,9 +350,8 @@ class StandardPipeline(LinearVideoPipeline):
                 role_locking_strength=ctx.params.get("role_locking_strength"),
                 shot_strategy=ctx.params.get("shot_strategy"),
                 frame_overrides=ctx.params.get("frame_overrides"),
-                forbid_embedded_text_in_image=ctx.params.get("forbid_embedded_text_in_image", True),
+                text_rendering=ctx.params.get("text_rendering"),
                 native_prompt_hints_by_frame=native_hints,
-                text_rendering_policy=text_policy,
                 stage_callback=stage_callback,
             )
 
@@ -1866,6 +1864,7 @@ class StandardPipeline(LinearVideoPipeline):
             
             # Build metadata
             input_with_title = ctx.params.copy()
+            input_with_title.pop("forbid_embedded_text_in_image", None)
             input_with_title["text"] = ctx.input_text # Ensure text is included
             if not input_with_title.get("title"):
                 input_with_title["title"] = storyboard.title
@@ -1925,7 +1924,11 @@ class StandardPipeline(LinearVideoPipeline):
             "completed_at": datetime.now().isoformat(),
             "status": "failed",
             "error": str(error),
-            "input": {"text": ctx.input_text, **ctx.params},
+            "input": {
+                key: value
+                for key, value in {"text": ctx.input_text, **ctx.params}.items()
+                if key != "forbid_embedded_text_in_image"
+            },
             "config": {},
             "observability": ctx.observability,
         }

@@ -34,20 +34,19 @@ from pixelle_video.models.content_generation import (
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.models.text_overlay import (
-    TextRenderingPolicy,
     build_text_rendering_policy,
     build_text_rendering_settings,
 )
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
 from pixelle_video.utils.prompt_helper import (
-    NO_TEXT_NEGATIVE_RULES,
-    apply_no_text_policy,
+    apply_image_text_policy,
     apply_text_rendering_policy,
     assemble_image_prompt,
     assemble_negative_prompt,
     assemble_storyboard_prompt,
     build_image_prompt,
+    select_image_text_negative_prompt,
     select_negative_text_rules,
 )
 from pixelle_video.utils.style_resolution import (
@@ -753,26 +752,17 @@ async def generate_styled_image_prompt_batch(
     role_locking_strength: Optional[str] = None,
     shot_strategy: Optional[str] = None,
     frame_overrides: Optional[list[dict[str, Any]]] = None,
-    forbid_embedded_text_in_image: bool = True,
+    text_rendering: Optional[Mapping[str, Any]] = None,
     native_prompt_hints_by_frame: Optional[
         Mapping[int, Sequence[NativePromptHint | str]]
     ] = None,
-    text_rendering_policy: Optional[TextRenderingPolicy | Mapping[str, Any]] = None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
-    has_explicit_text_policy = (
-        native_prompt_hints_by_frame is not None or text_rendering_policy is not None
-    )
+    text_rendering_settings = build_text_rendering_settings(text_rendering)
     native_hints = dict(native_prompt_hints_by_frame or {})
-    resolved_text_policy = (
-        text_rendering_policy
-        if isinstance(text_rendering_policy, TextRenderingPolicy)
-        else build_text_rendering_policy(
-            build_text_rendering_settings(text_rendering_policy).overlay
-        )
-    )
+    resolved_text_policy = build_text_rendering_policy(text_rendering_settings.overlay)
 
     def _storyboard_controls_enabled() -> bool:
         return any(
@@ -1009,7 +999,7 @@ async def generate_styled_image_prompt_batch(
             for base_prompt in base_prompts
         ]
 
-    if has_explicit_text_policy:
+    if native_hints:
         final_prompts = [
             ", ".join(
                 _normalize_prompt_fragments(
@@ -1025,36 +1015,47 @@ async def generate_styled_image_prompt_batch(
             for index, prompt in enumerate(final_prompts)
         ]
         final_prompts = [
-            apply_text_rendering_policy(
-                prompt,
-                policy=resolved_text_policy,
-                has_native_hints=bool(native_hints.get(index)),
+            (
+                apply_text_rendering_policy(
+                    prompt,
+                    policy=resolved_text_policy,
+                    has_native_hints=True,
+                )
+                if native_hints.get(index)
+                else prompt
             )
             for index, prompt in enumerate(final_prompts)
         ]
-    else:
-        final_prompts = [
-            apply_no_text_policy(prompt, enabled=forbid_embedded_text_in_image)
-            for prompt in final_prompts
-        ]
+
+    final_prompts = [
+        apply_image_text_policy(prompt, text_rendering_settings.image_text)
+        for prompt in final_prompts
+    ]
 
     if progress_callback:
         progress_callback(progress_total, progress_total, "progress.detail.prompt_assembly")
 
     has_any_native_hints = any(native_hints.values())
+    extra_negative_rules: list[str] = []
+    image_text_negative_prompt = select_image_text_negative_prompt(
+        text_rendering_settings.image_text
+    )
+    if image_text_negative_prompt is not None:
+        extra_negative_rules.extend(image_text_negative_prompt)
+    if has_any_native_hints and resolved_text_policy.allow_native_text_in_image:
+        native_negative_rules = select_negative_text_rules(
+            policy=resolved_text_policy,
+            has_native_hints=True,
+        )
+        if native_negative_rules is not None:
+            extra_negative_rules.extend(native_negative_rules)
+
     negative_prompt = assemble_negative_prompt(
         resolved_style,
         supports_negative_prompt=capabilities.supports_negative_prompt,
-        extra_negative_rules=(
-            select_negative_text_rules(
-                policy=resolved_text_policy,
-                has_native_hints=has_any_native_hints,
-            )
-            if has_explicit_text_policy
-            else NO_TEXT_NEGATIVE_RULES if forbid_embedded_text_in_image else None
-        ),
+        extra_negative_rules=extra_negative_rules or None,
     )
-    if has_explicit_text_policy:
+    if native_prompt_hints_by_frame is not None or text_rendering_settings.overlay.enabled:
         planning_snapshot = dict(planning_snapshot or {})
         planning_snapshot["text_rendering_policy"] = resolved_text_policy.to_dict()
         planning_snapshot["native_prompt_hint_count"] = sum(
