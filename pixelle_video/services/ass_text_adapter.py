@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pixelle_video.models.render_package import RenderManifest, TextCue
+from pixelle_video.models.text_style import TextStyleProfile
+from pixelle_video.services.ass_style_builder import AssStyleBuilder
+from pixelle_video.services.text_style_resolver import TextStyleResolver
 
 
 @dataclass(frozen=True)
@@ -11,6 +14,13 @@ class AssExportOutputs:
     master: Path
     subtitle_only: Path
     overlay_only: Path
+    diagnostics: dict | None = None
+
+
+@dataclass(frozen=True)
+class _ResolvedAssCue:
+    cue: TextCue
+    profile: TextStyleProfile
 
 
 class AssTextAdapter:
@@ -26,21 +36,31 @@ class AssTextAdapter:
             if track.enabled and "ass" in track.renderer_targets
         }
         cues = [cue for cue in manifest.text_cues if cue.track_id in tracks]
+        resolver = TextStyleResolver(profiles=manifest.text_style_profiles)
+        resolved_cues = [
+            _ResolvedAssCue(
+                cue=cue,
+                profile=resolver.resolve_for_cue(cue=cue, track=tracks[cue.track_id]),
+            )
+            for cue in cues
+        ]
 
         master = target / "master.ass"
         subtitle_only = target / "subtitle_only.ass"
         overlay_only = target / "overlay_only.ass"
-        master.write_text(self._render_ass(cues, manifest=manifest), encoding="utf-8")
+        master.write_text(
+            self._render_ass(resolved_cues, manifest=manifest), encoding="utf-8"
+        )
         subtitle_only.write_text(
             self._render_ass(
-                [cue for cue in cues if cue.role == "subtitle"],
+                [item for item in resolved_cues if item.cue.role == "subtitle"],
                 manifest=manifest,
             ),
             encoding="utf-8",
         )
         overlay_only.write_text(
             self._render_ass(
-                [cue for cue in cues if cue.role != "subtitle"],
+                [item for item in resolved_cues if item.cue.role != "subtitle"],
                 manifest=manifest,
             ),
             encoding="utf-8",
@@ -49,9 +69,12 @@ class AssTextAdapter:
             master=master,
             subtitle_only=subtitle_only,
             overlay_only=overlay_only,
+            diagnostics=self._copy_diagnostics(resolver.diagnostics),
         )
 
-    def _render_ass(self, cues: list[TextCue], *, manifest: RenderManifest) -> str:
+    def _render_ass(
+        self, cues: list[_ResolvedAssCue], *, manifest: RenderManifest
+    ) -> str:
         lines = [
             "[Script Info]",
             "ScriptType: v4.00+",
@@ -65,25 +88,37 @@ class AssTextAdapter:
                 "BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, "
                 "MarginL, MarginR, MarginV, Encoding"
             ),
-            (
-                "Style: Default,Noto Sans CJK SC,64,&H00FFFFFF,&H80000000,"
-                "&H40000000,1,0,1,2,0,2,80,80,140,1"
-            ),
-            (
-                "Style: Overlay,Noto Sans CJK SC,76,&H00FFFFFF,&H80000000,"
-                "&H40000000,1,0,1,2,0,5,80,80,80,1"
-            ),
-            "",
-            "[Events]",
-            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
         ]
+        builder = AssStyleBuilder()
+        referenced_profiles: dict[str, TextStyleProfile] = {}
+        for item in cues:
+            referenced_profiles.setdefault(item.profile.id, item.profile)
+        for profile_id, profile in referenced_profiles.items():
+            lines.append(
+                builder.build_style(
+                    profile_id,
+                    profile,
+                    canvas_width=manifest.canvas_width,
+                    canvas_height=manifest.canvas_height,
+                )
+            )
+        lines.extend(
+            [
+                "",
+                "[Events]",
+                (
+                    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, "
+                    "MarginV, Effect, Text"
+                ),
+            ]
+        )
 
-        for cue in cues:
-            style = "Default" if cue.role == "subtitle" else "Overlay"
+        for item in cues:
+            cue = item.cue
             lines.append(
                 "Dialogue: "
                 f"{cue.layer},{self._format_time(cue.start)},"
-                f"{self._format_time(cue.end)},{style},,0,0,0,,"
+                f"{self._format_time(cue.end)},{item.profile.id},,0,0,0,,"
                 f"{self._escape_text(cue.text)}"
             )
         return "\n".join(lines) + "\n"
@@ -106,3 +141,9 @@ class AssTextAdapter:
             .replace("\r", "\n")
             .replace("\n", r"\N")
         )
+
+    def _copy_diagnostics(self, diagnostics: dict) -> dict:
+        return {
+            key: [dict(item) for item in value] if isinstance(value, list) else value
+            for key, value in diagnostics.items()
+        }
