@@ -29,6 +29,7 @@ from web.components.recent_video_gallery import (
 from web.i18n import tr
 from web.utils.async_helpers import run_async
 from web.utils.render_backend_ui import copy_render_backend
+from web.utils.streamlit_helpers import RefreshableSlot
 from web.utils.tts_audio_strategy_ui import copy_tts_audio_strategy
 from web.utils.tts_split_mode_ui import TTS_SPLIT_SETTING_KEYS, copy_tts_split_settings
 
@@ -270,19 +271,11 @@ def render_single_output(pixelle_video, video_params):
             st.warning(tr("settings.not_configured"))
 
         # Generate Button
-        button_slot = st.empty()
-        button_render_count = 0
+        button_slot = RefreshableSlot(st.empty())
         was_generating = bool(st.session_state.get(SINGLE_VIDEO_GENERATING_KEY, False))
 
         def render_generate_button(*, disabled: bool, refresh: bool = False) -> bool:
-            nonlocal button_render_count
-
-            if refresh:
-                button_slot.empty()
-
-            button_render_count += 1
-            key_suffix = "" if button_render_count == 1 else f"_refresh_{button_render_count}"
-            with button_slot.container():
+            def render_button(key_suffix: str) -> bool:
                 return st.button(
                     tr("btn.generate"),
                     key=f"{SINGLE_VIDEO_BUTTON_KEY}{key_suffix}",
@@ -291,6 +284,8 @@ def render_single_output(pixelle_video, video_params):
                     disabled=disabled,
                     on_click=_request_single_video_generation,
                 )
+
+            return button_slot.render(render_button, refresh=refresh)
 
         button_clicked = render_generate_button(disabled=was_generating)
         generation_requested = bool(st.session_state.pop(SINGLE_VIDEO_REQUESTED_KEY, False))
@@ -310,23 +305,22 @@ def render_single_output(pixelle_video, video_params):
 
         gallery_slot = None
         gallery_rendered = False
-        gallery_render_count = 0
 
         def render_gallery(*, refresh: bool = False) -> None:
-            nonlocal gallery_render_count, gallery_rendered
+            nonlocal gallery_rendered
 
             if gallery_slot is None:
                 render_recent_video_gallery(pixelle_video)
                 gallery_rendered = True
                 return
 
-            if refresh:
-                gallery_slot.empty()
-
-            gallery_render_count += 1
-            key_suffix = "" if gallery_render_count == 1 else f"_refresh_{gallery_render_count}"
-            with gallery_slot.container():
-                render_recent_video_gallery(pixelle_video, key_suffix=key_suffix)
+            gallery_slot.render(
+                lambda key_suffix: render_recent_video_gallery(
+                    pixelle_video,
+                    key_suffix=key_suffix,
+                ),
+                refresh=refresh,
+            )
             gallery_rendered = True
 
         if generation_requested:
@@ -345,7 +339,7 @@ def render_single_output(pixelle_video, video_params):
                 # Show progress
                 progress_bar = st.progress(0)
                 status_text = st.empty()
-                gallery_slot = st.empty()
+                gallery_slot = RefreshableSlot(st.empty())
                 render_gallery()
 
                 # Record start time for generation

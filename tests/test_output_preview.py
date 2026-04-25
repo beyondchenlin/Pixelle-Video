@@ -4,8 +4,39 @@ from types import SimpleNamespace
 
 from web.components import output_preview
 from web.utils import batch_manager as batch_manager_module
+from web.utils.streamlit_helpers import RefreshableSlot
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_refreshable_slot_uses_stable_initial_suffix_and_refresh_suffix():
+    captured = {"emptied": 0, "entered": 0, "suffixes": []}
+
+    class _FakeContainer:
+        def __enter__(self):
+            captured["entered"] += 1
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeSlot:
+        def empty(self):
+            captured["emptied"] += 1
+
+        def container(self):
+            return _FakeContainer()
+
+    slot = RefreshableSlot(_FakeSlot())
+
+    assert slot.render(lambda suffix: captured["suffixes"].append(suffix)) is None
+    assert slot.render(lambda suffix: captured["suffixes"].append(suffix), refresh=True) is None
+
+    assert captured == {
+        "emptied": 1,
+        "entered": 2,
+        "suffixes": ["", "_refresh_2"],
+    }
 
 
 def test_build_video_preview_css_overrides_streamlit_inline_width():

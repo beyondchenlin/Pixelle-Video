@@ -14,11 +14,39 @@
 Streamlit helper functions
 """
 
+from collections.abc import Callable
+from typing import Any, TypeVar
+
 import streamlit as st
 import streamlit.components.v1 as components
 
 from pixelle_video.config import config_manager
 from web.i18n import tr
+
+T = TypeVar("T")
+
+
+class RefreshableSlot:
+    """Render dynamic Streamlit content in one placeholder with fresh widget keys."""
+
+    def __init__(self, slot: Any, *, refresh_prefix: str = "_refresh") -> None:
+        self._slot = slot
+        self._refresh_prefix = refresh_prefix
+        self._render_count = 0
+
+    def render(self, renderer: Callable[[str], T], *, refresh: bool = False) -> T:
+        """Run renderer inside the slot and provide a suffix for nested widget keys."""
+        if refresh:
+            self._slot.empty()
+
+        self._render_count += 1
+        key_suffix = (
+            ""
+            if self._render_count == 1
+            else f"{self._refresh_prefix}_{self._render_count}"
+        )
+        with self._slot.container():
+            return renderer(key_suffix)
 
 
 def safe_rerun():
@@ -94,4 +122,3 @@ def _show_js_alert(workflow_path: str):
     """
     
     components.html(js_code, height=0, width=0)
-

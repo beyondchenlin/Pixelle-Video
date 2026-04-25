@@ -96,25 +96,33 @@ class GenerationCoordinator:
         fingerprint: str,
         factory: Callable[[], Awaitable[Any]],
     ) -> Any:
-        owner = False
         async with self._lock:
             task = self._inflight.get(fingerprint)
             if task is None:
                 task = asyncio.create_task(factory())
                 self._inflight[fingerprint] = task
-                owner = True
+                task.add_done_callback(
+                    lambda completed_task, key=fingerprint: asyncio.create_task(
+                        self._release_if_current(key, completed_task)
+                    )
+                )
             else:
                 logger.info(f"Reusing in-flight video generation: {fingerprint[:12]}")
 
         try:
-            if owner:
-                return await task
             return await asyncio.shield(task)
         finally:
-            if owner:
-                async with self._lock:
-                    if self._inflight.get(fingerprint) is task:
-                        self._inflight.pop(fingerprint, None)
+            if task.done():
+                await self._release_if_current(fingerprint, task)
+
+    async def _release_if_current(
+        self,
+        fingerprint: str,
+        task: asyncio.Task[Any],
+    ) -> None:
+        async with self._lock:
+            if self._inflight.get(fingerprint) is task:
+                self._inflight.pop(fingerprint, None)
 
     def inflight_count(self) -> int:
         return len(self._inflight)

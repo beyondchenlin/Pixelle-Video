@@ -4,7 +4,10 @@ from types import SimpleNamespace
 import pytest
 
 from pixelle_video.service import PixelleVideoCore
-from pixelle_video.services.generation_coordinator import build_generation_fingerprint
+from pixelle_video.services.generation_coordinator import (
+    GenerationCoordinator,
+    build_generation_fingerprint,
+)
 
 
 def test_generation_fingerprint_ignores_runtime_only_fields():
@@ -143,3 +146,35 @@ async def test_core_generate_video_releases_fingerprint_after_failure():
 
     assert result.call_number == 2
     assert pipeline.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_generation_coordinator_keeps_shared_task_after_owner_cancellation():
+    coordinator = GenerationCoordinator()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def factory():
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        return "generated"
+
+    owner = asyncio.create_task(coordinator.run("same-request", factory))
+    await started.wait()
+    duplicate = asyncio.create_task(coordinator.run("same-request", factory))
+    await asyncio.sleep(0)
+
+    owner.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await owner
+
+    assert calls == 1
+    assert coordinator.inflight_count() == 1
+
+    release.set()
+    assert await duplicate == "generated"
+    await asyncio.sleep(0)
+    assert coordinator.inflight_count() == 0
