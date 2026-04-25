@@ -1,6 +1,7 @@
 import pytest
 
 from pixelle_video.models.storyboard_planning import FramePlan
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch, StyleSourceSpec
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
@@ -16,12 +17,33 @@ class _DummyCore:
         self.video = None
 
 
+def _storyboard_plan(narration: str = "scene one") -> StoryboardPlan:
+    return StoryboardPlan.build(
+        mode="smart",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=narration,
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text=narration,
+                narration_text=narration,
+                visual_goal="Show the scene clearly.",
+                prompt_intent="Keep the generated visual aligned with the storyboard.",
+                source_start=0,
+                source_end=len(narration),
+            )
+        ],
+    )
+
+
 @pytest.mark.asyncio
 async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypatch):
     captured = {}
 
     async def real_styled_batch_with_capture(**kwargs):
         captured["has_forbid_embedded_text_arg"] = "forbid_embedded_text_in_image" in kwargs
+        captured["prompt_contexts"] = kwargs.get("prompt_contexts")
         captured["text_rendering"] = kwargs.get("text_rendering")
         captured["world_preset_id"] = kwargs["world_preset_id"]
         captured["shot_preset_id"] = kwargs["shot_preset_id"]
@@ -69,7 +91,7 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
         raise RuntimeError("resolver boom")
 
     monkeypatch.setattr(
-        "pixelle_video.pipelines.standard.generate_styled_image_prompt_batch",
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
         real_styled_batch_with_capture,
     )
     monkeypatch.setattr(
@@ -133,12 +155,14 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
     )
     ctx.title = "Storyboard Title"
     ctx.task_id = "task-1"
-    ctx.narrations = ["scene one"]
+    ctx.storyboard_plan = _storyboard_plan()
+    ctx.narrations = ctx.storyboard_plan.narration_texts()
 
     await pipeline.plan_visuals(ctx)
     await pipeline.initialize_storyboard(ctx)
 
     assert captured["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert captured["prompt_contexts"][0]["visual_goal"] == "Show the scene clearly."
     assert captured["has_forbid_embedded_text_arg"] is False
     assert captured["text_rendering"] is None
     assert captured["shot_preset_id"] == "balanced_explainer"
@@ -183,7 +207,7 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
         )
 
     monkeypatch.setattr(
-        "pixelle_video.pipelines.standard.generate_styled_image_prompt_batch",
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -204,7 +228,8 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
             },
         },
     )
-    ctx.narrations = ["scene one"]
+    ctx.storyboard_plan = _storyboard_plan()
+    ctx.narrations = ctx.storyboard_plan.narration_texts()
 
     await pipeline.plan_visuals(ctx)
 
@@ -230,7 +255,7 @@ async def test_standard_pipeline_plan_visuals_uses_video_config_and_media_type(m
         )
 
     monkeypatch.setattr(
-        "pixelle_video.pipelines.standard.generate_styled_image_prompt_batch",
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -245,7 +270,8 @@ async def test_standard_pipeline_plan_visuals_uses_video_config_and_media_type(m
         input_text="topic",
         params={"frame_template": "1080x1920/video_default.html"},
     )
-    ctx.narrations = ["scene one"]
+    ctx.storyboard_plan = _storyboard_plan()
+    ctx.narrations = ctx.storyboard_plan.narration_texts()
 
     await pipeline.plan_visuals(ctx)
 
@@ -277,7 +303,7 @@ async def test_standard_pipeline_plan_visuals_builds_text_package_and_native_hin
         )
 
     monkeypatch.setattr(
-        "pixelle_video.pipelines.standard.generate_styled_image_prompt_batch",
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
         fake_generate_styled_image_prompt_batch,
     )
 
@@ -292,7 +318,7 @@ async def test_standard_pipeline_plan_visuals_builds_text_package_and_native_hin
                 "overlay": {
                     "enabled": True,
                     "mode": "native_hint",
-                    "renderer_targets": ["native_prompt"],
+                    "renderer_targets": ["hyperframes", "native_prompt"],
                     "max_items_per_frame": 1,
                 }
             },
@@ -301,7 +327,8 @@ async def test_standard_pipeline_plan_visuals_builds_text_package_and_native_hin
     ctx.title = "Text Layer"
     ctx.task_id = "task-1"
     ctx.task_dir = str(tmp_path)
-    ctx.narrations = ["把品牌名 Pixelle 放在画面中心。"]
+    ctx.storyboard_plan = _storyboard_plan("把品牌名 Pixelle 放在画面中心。")
+    ctx.narrations = ctx.storyboard_plan.narration_texts()
 
     await pipeline.plan_visuals(ctx)
     await pipeline.initialize_storyboard(ctx)

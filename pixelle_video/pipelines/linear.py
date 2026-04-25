@@ -26,6 +26,7 @@ from loguru import logger
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, VideoGenerationResult
+from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
 from pixelle_video.pipelines.base import BasePipeline
 from pixelle_video.services.timing_planner import TimingPlan
@@ -55,6 +56,8 @@ class PipelineContext:
     
     # === Content ===
     title: Optional[str] = None
+    source_text: Optional[str] = None
+    storyboard_plan: Optional[StoryboardPlan] = None
     narrations: List[str] = field(default_factory=list)
     
     # === Visuals ===

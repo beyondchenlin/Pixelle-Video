@@ -57,7 +57,10 @@ from pixelle_video.render_backend import (
 )
 from pixelle_video.services.ass_text_adapter import AssTextAdapter
 from pixelle_video.services.caption_cue_builder import build_caption_cues_from_sentences
+from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
+from pixelle_video.services.script_generation import ScriptGenerationService
+from pixelle_video.services.storyboard_generation import StoryboardGenerationService
 from pixelle_video.services.text_cue_compiler import TextCueCompiler
 from pixelle_video.services.text_rendering_contract_summary import (
     TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
@@ -75,10 +78,7 @@ from pixelle_video.tts_audio_strategy import (
 from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
 from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
 from pixelle_video.utils.content_generators import (
-    generate_narrations_from_topic,
-    generate_styled_image_prompt_batch,
     generate_title,
-    split_narration_script,
 )
 from pixelle_video.utils.logging_util import (
     attach_task_log_sinks,
@@ -188,8 +188,6 @@ class StandardPipeline(LinearVideoPipeline):
         mode = ctx.params.get("mode", "generate")
         text = ctx.input_text
         n_scenes = ctx.params.get("n_scenes", 5)
-        min_words = ctx.params.get("min_narration_words", 5)
-        max_words = ctx.params.get("max_narration_words", 20)
         stage_callback = self._ai_stage_callback(ctx)
 
         summary = ctx.observability.setdefault("ai_creation", {})
@@ -212,28 +210,29 @@ class StandardPipeline(LinearVideoPipeline):
             )
         
         if mode == "generate":
-            self._report_progress(ctx.progress_callback, "generating_narrations", 0.05)
-            render_kwargs = resolve_storyboard_render_kwargs(self.core.config, ctx.params)
-            ctx.narrations = await generate_narrations_from_topic(
-                self.llm,
+            self._report_progress(ctx.progress_callback, "generating_source_text", 0.05)
+            ctx.source_text = await ScriptGenerationService().generate(
+                llm_service=self.llm,
                 topic=text,
-                n_scenes=n_scenes,
-                min_words=min_words,
-                max_words=max_words,
-                stage_callback=stage_callback,
-                preserve_natural_punctuation=render_kwargs["preserve_natural_punctuation"],
+                script_length_mode=ctx.params.get("script_length_mode", "auto"),
+                script_target_words=ctx.params.get("script_target_words"),
             )
-            logger.info(f"✅ Generated {len(ctx.narrations)} narrations")
+            logger.info("✅ Generated complete source text for storyboard planning")
         else:  # fixed
-            self._report_progress(ctx.progress_callback, "splitting_script", 0.05)
-            split_mode = ctx.params.get("split_mode", "paragraph")
-            ctx.narrations = await split_narration_script(
-                text,
-                split_mode=split_mode,
-                stage_callback=stage_callback,
-            )
-            logger.info(f"✅ Split script into {len(ctx.narrations)} segments (mode={split_mode})")
-            logger.info(f"   Note: n_scenes={n_scenes} is ignored in fixed mode")
+            self._report_progress(ctx.progress_callback, "preparing_source_text", 0.05)
+            ctx.source_text = text.strip()
+            logger.info("✅ Prepared fixed source text for storyboard planning")
+
+        self._report_progress(ctx.progress_callback, "generating_storyboard_plan", 0.08)
+        ctx.storyboard_plan = await StoryboardGenerationService().generate(
+            llm_service=self.llm,
+            source_text=ctx.source_text,
+            storyboard_mode=ctx.params.get("storyboard_mode", "smart"),
+            storyboard_count_mode=ctx.params.get("storyboard_count_mode", "auto"),
+            storyboard_scene_count=ctx.params.get("storyboard_scene_count"),
+        )
+        ctx.narrations = ctx.storyboard_plan.narration_texts()
+        logger.info(f"✅ Generated storyboard plan with {len(ctx.narrations)} frames")
 
     async def determine_title(self, ctx: PipelineContext):
         """Step 3: Determine or generate video title."""
@@ -331,9 +330,12 @@ class StandardPipeline(LinearVideoPipeline):
                 plan=text_rendering_result.overlay_plan,
                 policy=text_rendering_result.overlay_policy,
             )
-            styled_batch = await generate_styled_image_prompt_batch(
+            if ctx.storyboard_plan is None:
+                raise ValueError("storyboard_plan must be generated before visual planning")
+
+            styled_batch = await ImagePromptComposer().compose(
                 llm_service=self.llm,
-                narrations=ctx.narrations,
+                storyboard_plan=ctx.storyboard_plan,
                 image_config=image_config,
                 prompt_prefix=prompt_prefix,
                 workflow=ctx.params.get("media_workflow"),
@@ -368,7 +370,11 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.image_prompts = [None] * len(ctx.narrations)
             ctx.resolved_style = None
             ctx.media_negative_prompt = None
-            ctx.planning_snapshot = None
+            ctx.planning_snapshot = (
+                {"storyboard_generation": ctx.storyboard_plan.to_dict()}
+                if ctx.storyboard_plan is not None
+                else None
+            )
             emit_stage_event(
                 channel="ai_creation",
                 stage="image_prompt_batch",
