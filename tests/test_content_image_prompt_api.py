@@ -3,7 +3,6 @@ from pydantic import ValidationError
 
 from api.routers.content import generate_image_prompt
 from api.schemas.content import ImagePromptGenerateRequest
-from api.schemas.video import VideoGenerateRequest
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 
 
@@ -62,22 +61,40 @@ def test_image_prompt_generate_request_rejects_malformed_frame_overrides(frame_o
         )
 
 
-def test_image_prompt_generate_request_accepts_no_text_toggle():
+def test_image_prompt_generate_request_accepts_text_rendering_policy():
     request = ImagePromptGenerateRequest(
         narrations=["scene one"],
-        forbid_embedded_text_in_image=False,
+        text_rendering={
+            "overlay": {
+                "enabled": True,
+                "mode": "programmatic_only",
+                "renderer_targets": ["hyperframes"],
+            },
+            "image_text": {
+                "suppress_embedded_text": True,
+                "positive_prompt": "no letters in image",
+                "negative_prompt": "letters, watermark",
+            },
+        },
     )
 
-    assert request.forbid_embedded_text_in_image is False
+    assert request.text_rendering.overlay.enabled is True
+    assert request.text_rendering.image_text.suppress_embedded_text is True
+    assert request.text_rendering.image_text.positive_prompt == "no letters in image"
 
 
-def test_video_generate_request_accepts_no_text_toggle():
-    request = VideoGenerateRequest(
-        text="demo",
-        forbid_embedded_text_in_image=False,
-    )
+def test_image_prompt_generate_request_rejects_legacy_text_fields():
+    with pytest.raises(ValidationError):
+        ImagePromptGenerateRequest(
+            narrations=["scene one"],
+            forbid_embedded_text_in_image=False,
+        )
 
-    assert request.forbid_embedded_text_in_image is False
+    with pytest.raises(ValidationError):
+        ImagePromptGenerateRequest(
+            narrations=["scene one"],
+            text_layer={"enabled": True},
+        )
 
 
 @pytest.mark.asyncio
@@ -139,9 +156,26 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_generate_image_prompt_endpoint_threads_no_text_toggle(monkeypatch):
+async def test_generate_image_prompt_endpoint_threads_text_rendering(monkeypatch):
     async def fake_generate_styled_image_prompt_batch(**kwargs):
-        assert kwargs["forbid_embedded_text_in_image"] is False
+        assert kwargs["text_rendering"] == {
+            "overlay": {
+                "enabled": True,
+                "mode": "hybrid",
+                "renderer_targets": ["hyperframes"],
+                "density": "medium",
+                "max_items_per_frame": 2,
+            },
+            "image_text": {
+                "suppress_embedded_text": True,
+                "positive_prompt": (
+                    "no visible text, no Chinese characters, no English letters, no words, no subtitles, "
+                    "no captions, no watermark, no logo text, convey the idea through objects, symbols, "
+                    "composition, and scene elements instead of written text"
+                ),
+                "negative_prompt": "letters",
+            },
+        }
         return StyledImagePromptBatch(
             prompts=["styled prompt"],
             negative_prompt=None,
@@ -156,7 +190,17 @@ async def test_generate_image_prompt_endpoint_threads_no_text_toggle(monkeypatch
     response = await generate_image_prompt(
         ImagePromptGenerateRequest(
             narrations=["scene one"],
-            forbid_embedded_text_in_image=False,
+            text_rendering={
+                "overlay": {
+                    "enabled": True,
+                    "mode": "hybrid",
+                    "renderer_targets": ["hyperframes"],
+                },
+                "image_text": {
+                    "suppress_embedded_text": True,
+                    "negative_prompt": "letters",
+                },
+            },
         ),
         _FakePixelleVideo(),
     )

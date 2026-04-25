@@ -105,11 +105,6 @@ def build_video_generation_params(
         "role_strategy": request_body.role_strategy,
         "role_locking_strength": request_body.role_locking_strength,
         "shot_strategy": request_body.shot_strategy,
-        "forbid_embedded_text_in_image": (
-            True
-            if request_body.forbid_embedded_text_in_image is None
-            else request_body.forbid_embedded_text_in_image
-        ),
         "frame_overrides": _serialize_frame_overrides(request_body.frame_overrides),
         "bgm_path": request_body.bgm_path,
         "bgm_volume": request_body.bgm_volume,
@@ -135,8 +130,8 @@ def build_video_generation_params(
     if request_body.render_backend is not None:
         video_params["render_backend"] = request_body.render_backend
 
-    if request_body.text_layer is not None:
-        video_params["text_layer"] = request_body.text_layer
+    if request_body.text_rendering is not None:
+        video_params["text_rendering"] = request_body.text_rendering.model_dump()
 
     _copy_tts_text_policy_params(request_body, video_params)
     return video_params

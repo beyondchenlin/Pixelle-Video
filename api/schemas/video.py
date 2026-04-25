@@ -70,9 +70,32 @@ class StoryboardFrameOverride(BaseModel):
     prompt_intent: Optional[str] = Field(None, description="Locked prompt intent override")
 
 
+class TextOverlayRequest(BaseModel):
+    enabled: bool = False
+    mode: Literal["suppress", "programmatic_only", "native_hint", "hybrid"] = "programmatic_only"
+    renderer_targets: List[Literal["hyperframes", "html", "ass", "native_prompt", "python"]] = Field(default_factory=list)
+    density: Literal["low", "medium", "high"] = "medium"
+    max_items_per_frame: int = Field(2, ge=0)
+
+
+class ImageTextPolicyRequest(BaseModel):
+    suppress_embedded_text: bool = False
+    positive_prompt: str = Field(
+        "no visible text, no Chinese characters, no English letters, no words, no subtitles, no captions, no watermark, no logo text, convey the idea through objects, symbols, composition, and scene elements instead of written text",
+        description="Prompt fragment appended only when suppress_embedded_text is true",
+    )
+    negative_prompt: Optional[str] = None
+
+
+class TextRenderingRequest(BaseModel):
+    overlay: TextOverlayRequest = Field(default_factory=TextOverlayRequest)
+    image_text: ImageTextPolicyRequest = Field(default_factory=ImageTextPolicyRequest)
+
+
 class VideoGenerateRequest(BaseModel):
     """Video generation request"""
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={
             "example": {
                 "text": "Atomic Habits teaches us that small changes compound over time to produce remarkable results.",
@@ -211,13 +234,9 @@ class VideoGenerateRequest(BaseModel):
         None,
         description="Per-frame storyboard overrides collected from preview",
     )
-    forbid_embedded_text_in_image: Optional[bool] = Field(
+    text_rendering: Optional[TextRenderingRequest] = Field(
         None,
-        description="Whether to suppress embedded text inside generated images",
-    )
-    text_layer: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Optional text overlay policy for programmatic subtitles, native text hints, or hybrid mode",
+        description="Unified text rendering and generated-image text policy",
     )
     
     # === BGM ===

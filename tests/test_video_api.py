@@ -32,26 +32,36 @@ def test_video_generate_request_rejects_removed_hyperframes_alias():
         )
 
 
-def test_video_generate_request_accepts_text_layer_policy():
+def test_video_generate_request_accepts_text_rendering_policy():
     request = VideoGenerateRequest(
-        text="demo",
-        frame_template="1080x1920/image_default.html",
-        text_layer={
-            "enabled": True,
-            "mode": "hybrid",
-            "renderer_targets": ["hyperframes", "ass"],
-            "density": "low",
-            "max_items_per_frame": 1,
+        text="hello",
+        text_rendering={
+            "overlay": {
+                "enabled": True,
+                "mode": "programmatic_only",
+                "renderer_targets": ["hyperframes"],
+                "density": "medium",
+                "max_items_per_frame": 2,
+            },
+            "image_text": {
+                "suppress_embedded_text": True,
+                "positive_prompt": "no letters in image",
+                "negative_prompt": "letters, watermark",
+            },
         },
     )
 
-    assert request.text_layer == {
-        "enabled": True,
-        "mode": "hybrid",
-        "renderer_targets": ["hyperframes", "ass"],
-        "density": "low",
-        "max_items_per_frame": 1,
-    }
+    assert request.text_rendering.overlay.enabled is True
+    assert request.text_rendering.image_text.suppress_embedded_text is True
+    assert request.text_rendering.image_text.positive_prompt == "no letters in image"
+
+
+def test_video_generate_request_rejects_legacy_text_fields():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="hello", text_layer={"enabled": True})
+
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="hello", forbid_embedded_text_in_image=True)
 
 
 def test_video_generate_request_accepts_tts_text_policy_controls():
@@ -205,11 +215,17 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             role_strategy="auto",
             role_locking_strength="strong",
             shot_strategy="strict",
-            forbid_embedded_text_in_image=False,
-            text_layer={
-                "enabled": True,
-                "mode": "programmatic_only",
-                "renderer_targets": ["ass"],
+            text_rendering={
+                "overlay": {
+                    "enabled": True,
+                    "mode": "programmatic_only",
+                    "renderer_targets": ["ass"],
+                },
+                "image_text": {
+                    "suppress_embedded_text": True,
+                    "positive_prompt": "no letters in image",
+                    "negative_prompt": "letters, watermark",
+                },
             },
             frame_overrides=[
                 {
@@ -251,11 +267,19 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "role_strategy": "auto",
             "role_locking_strength": "strong",
             "shot_strategy": "strict",
-            "forbid_embedded_text_in_image": False,
-            "text_layer": {
-                "enabled": True,
-                "mode": "programmatic_only",
-                "renderer_targets": ["ass"],
+            "text_rendering": {
+                "overlay": {
+                    "enabled": True,
+                    "mode": "programmatic_only",
+                    "renderer_targets": ["ass"],
+                    "density": "medium",
+                    "max_items_per_frame": 2,
+                },
+                "image_text": {
+                    "suppress_embedded_text": True,
+                    "positive_prompt": "no letters in image",
+                    "negative_prompt": "letters, watermark",
+                },
             },
             "frame_overrides": [
                 {
@@ -317,7 +341,7 @@ async def test_generate_video_async_reuses_active_duplicate_task(monkeypatch, tm
 
 
 @pytest.mark.asyncio
-async def test_generate_video_async_passes_no_text_toggle_to_video_core(monkeypatch, tmp_path):
+async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypatch, tmp_path):
     class _FakeFrameGenerator:
         def __init__(self, template_path):
             self.template_path = template_path
@@ -368,11 +392,16 @@ async def test_generate_video_async_passes_no_text_toggle_to_video_core(monkeypa
         VideoGenerateRequest(
             text="demo",
             frame_template="1080x1920/image_default.html",
-            forbid_embedded_text_in_image=False,
-            text_layer={
-                "enabled": True,
-                "mode": "hybrid",
-                "renderer_targets": ["hyperframes"],
+            text_rendering={
+                "overlay": {
+                    "enabled": True,
+                    "mode": "hybrid",
+                    "renderer_targets": ["hyperframes"],
+                },
+                "image_text": {
+                    "suppress_embedded_text": True,
+                    "negative_prompt": "letters",
+                },
             },
         ),
         fake_pixelle_video,
@@ -383,9 +412,21 @@ async def test_generate_video_async_passes_no_text_toggle_to_video_core(monkeypa
     assert captured["task_id"] == "task-1"
     assert fake_pixelle_video.calls[0]["request_id"] == "req_test"
     assert fake_pixelle_video.calls[0]["api_task_id"] == "task-1"
-    assert fake_pixelle_video.calls[0]["forbid_embedded_text_in_image"] is False
-    assert fake_pixelle_video.calls[0]["text_layer"] == {
-        "enabled": True,
-        "mode": "hybrid",
-        "renderer_targets": ["hyperframes"],
+    assert fake_pixelle_video.calls[0]["text_rendering"] == {
+        "overlay": {
+            "enabled": True,
+            "mode": "hybrid",
+            "renderer_targets": ["hyperframes"],
+            "density": "medium",
+            "max_items_per_frame": 2,
+        },
+        "image_text": {
+            "suppress_embedded_text": True,
+            "positive_prompt": (
+                "no visible text, no Chinese characters, no English letters, no words, no subtitles, "
+                "no captions, no watermark, no logo text, convey the idea through objects, symbols, "
+                "composition, and scene elements instead of written text"
+            ),
+            "negative_prompt": "letters",
+        },
     }

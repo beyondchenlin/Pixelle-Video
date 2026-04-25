@@ -18,6 +18,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas.video import TextRenderingRequest
 from pixelle_video.models.storyboard_planning import (
     ConsistencyStrength,
     ContentMode,
@@ -104,6 +105,7 @@ class NarrationGenerateResponse(BaseModel):
 class ImagePromptGenerateRequest(BaseModel):
     """Image prompt generation request"""
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={
             "example": {
                 "narrations": [
@@ -146,9 +148,9 @@ class ImagePromptGenerateRequest(BaseModel):
         None,
         description="Per-frame storyboard overrides collected from preview",
     )
-    forbid_embedded_text_in_image: Optional[bool] = Field(
+    text_rendering: Optional[TextRenderingRequest] = Field(
         None,
-        description="Whether to suppress embedded text inside generated images",
+        description="Unified text rendering and generated-image text policy",
     )
 
 
