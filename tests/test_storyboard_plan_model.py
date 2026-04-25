@@ -1,5 +1,6 @@
 import hashlib
 import json
+from dataclasses import FrozenInstanceError
 
 import pytest
 
@@ -121,14 +122,16 @@ def test_storyboard_plan_owns_frames_after_build():
             prompt_intent="show def",
         )
     )
-    original_frame.narration_text = "changed"
-    original_frame.metadata["tags"].append("mutated")
+    with pytest.raises(FrozenInstanceError):
+        original_frame.narration_text = "changed"
+    with pytest.raises(TypeError):
+        original_frame.metadata["tags"] += ("mutated",)
 
     assert plan.resolved_scene_count == 1
     assert len(plan.frames) == 1
     assert plan.frames[0] is not original_frame
     assert plan.frames[0].narration_text == "abc"
-    assert plan.frames[0].metadata["tags"] == ["original"]
+    assert plan.frames[0].metadata["tags"] == ("original",)
 
 
 def test_storyboard_plan_to_dict_deep_copies_nested_payloads():
@@ -396,4 +399,61 @@ def test_storyboard_plan_direct_constructor_enforces_invariants():
                 ),
             ),
             diagnostics={},
+        )
+
+
+def test_storyboard_plan_is_immutable_after_construction():
+    plan = StoryboardPlan.build(
+        mode="smart",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="abcdef",
+        diagnostics={"warnings": [{"code": "demo"}]},
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text="abc",
+                narration_text="abc",
+                visual_goal="show abc",
+                prompt_intent="show abc",
+                secondary_subjects=["subject"],
+                metadata={"source_spans": [SourceSpan(start=0, end=3, text="abc")]},
+            )
+        ],
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        plan.resolved_scene_count = 99
+    with pytest.raises(FrozenInstanceError):
+        plan.frames[0].narration_text = ""
+    with pytest.raises(FrozenInstanceError):
+        plan.frames[0].secondary_subjects += ("mutated",)
+    with pytest.raises(TypeError):
+        plan.frames[0].metadata["source_spans"][0]["text"] = "bad"
+    with pytest.raises(TypeError):
+        plan.diagnostics["warnings"][0]["code"] = "changed"
+
+    assert plan.resolved_scene_count == 1
+    assert plan.frames[0].narration_text == "abc"
+    assert plan.frames[0].metadata["source_spans"][0]["text"] == "abc"
+    assert plan.diagnostics["warnings"][0]["code"] == "demo"
+
+
+@pytest.mark.parametrize("requested_scene_count", [True, 1.0, "1", 0])
+def test_storyboard_plan_rejects_non_strict_manual_scene_counts(requested_scene_count):
+    with pytest.raises(ValueError, match="requested_scene_count must be a positive integer"):
+        StoryboardPlan.build(
+            mode="smart",
+            count_mode="manual",
+            requested_scene_count=requested_scene_count,
+            source_text="abc",
+            frames=[
+                StoryboardPlanFrame(
+                    index=1,
+                    source_text="abc",
+                    narration_text="abc",
+                    visual_goal="show abc",
+                    prompt_intent="show abc",
+                )
+            ],
         )

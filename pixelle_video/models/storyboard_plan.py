@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import Any
 
 
@@ -43,7 +45,7 @@ class SourceSpan:
         }
 
 
-@dataclass
+@dataclass(frozen=True)
 class StoryboardPlanFrame:
     index: int
     source_text: str
@@ -54,12 +56,18 @@ class StoryboardPlanFrame:
     shot_type: str | None = None
     shot_purpose: str | None = None
     primary_subject: str | None = None
-    secondary_subjects: list[str] = field(default_factory=list)
-    continuity_anchors: list[str] = field(default_factory=list)
-    world_elements: list[str] = field(default_factory=list)
+    secondary_subjects: tuple[str, ...] = field(default_factory=tuple)
+    continuity_anchors: tuple[str, ...] = field(default_factory=tuple)
+    world_elements: tuple[str, ...] = field(default_factory=tuple)
     source_start: int | None = None
     source_end: int | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "secondary_subjects", tuple(self.secondary_subjects))
+        object.__setattr__(self, "continuity_anchors", tuple(self.continuity_anchors))
+        object.__setattr__(self, "world_elements", tuple(self.world_elements))
+        object.__setattr__(self, "metadata", _deep_freeze(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -81,7 +89,7 @@ class StoryboardPlanFrame:
         }
 
 
-@dataclass
+@dataclass(frozen=True)
 class StoryboardPlan:
     plan_id: str
     revision: int
@@ -92,7 +100,7 @@ class StoryboardPlan:
     source_text: str
     source_digest: str
     frames: tuple[StoryboardPlanFrame, ...]
-    diagnostics: dict[str, Any] = field(default_factory=dict)
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         normalized_source = self.source_text.strip()
@@ -125,11 +133,11 @@ class StoryboardPlan:
         )
         _validate_frame_ids(owned_frames)
 
-        self.source_text = normalized_source
-        self.mode = mode_value
-        self.count_mode = count_mode_value
-        self.frames = owned_frames
-        self.diagnostics = _json_safe_copy(self.diagnostics or {})
+        object.__setattr__(self, "source_text", normalized_source)
+        object.__setattr__(self, "mode", mode_value)
+        object.__setattr__(self, "count_mode", count_mode_value)
+        object.__setattr__(self, "frames", owned_frames)
+        object.__setattr__(self, "diagnostics", _deep_freeze(self.diagnostics or {}))
 
     @classmethod
     def build(
@@ -206,6 +214,8 @@ def _validate_count_contract(
     if count_mode == StoryboardCountMode.MANUAL and mode != StoryboardGenerationMode.SMART:
         raise ValueError("manual count mode is only valid for smart mode")
     if is_smart_manual:
+        if type(requested_scene_count) is not int or requested_scene_count < 1:
+            raise ValueError("requested_scene_count must be a positive integer")
         if requested_scene_count != frame_count:
             raise ValueError("requested_scene_count must match frame count")
     elif requested_scene_count is not None:
@@ -237,7 +247,7 @@ def _copy_frame(
 ) -> StoryboardPlanFrame:
     if not frame.narration_text.strip():
         raise ValueError("frame narration_text must not be empty")
-    if not isinstance(frame.metadata, dict):
+    if not isinstance(frame.metadata, Mapping):
         raise ValueError("frame metadata must be a dict")
     if frame.source_start is not None or frame.source_end is not None:
         if frame.source_start is None or frame.source_end is None:
@@ -272,18 +282,28 @@ def _copy_frame(
 def _json_safe_copy(value: Any) -> Any:
     if isinstance(value, SourceSpan):
         return value.to_dict()
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return {key: _json_safe_copy(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe_copy(item) for item in value]
     return deepcopy(value)
 
 
-def _validate_source_spans(metadata: dict[str, Any], source_text: str) -> None:
+def _deep_freeze(value: Any) -> Any:
+    if isinstance(value, SourceSpan):
+        return MappingProxyType(value.to_dict())
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _deep_freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_deep_freeze(item) for item in value)
+    return deepcopy(value)
+
+
+def _validate_source_spans(metadata: Mapping[str, Any], source_text: str) -> None:
     source_spans = metadata.get("source_spans")
     if source_spans is None:
         return
-    if not isinstance(source_spans, list):
+    if not isinstance(source_spans, (list, tuple)):
         raise ValueError("source_spans must be a list")
 
     previous_start = -1
@@ -294,7 +314,7 @@ def _validate_source_spans(metadata: dict[str, Any], source_text: str) -> None:
             end = span.end
             text = span.text
             reason = span.reason
-        elif isinstance(span, dict):
+        elif isinstance(span, Mapping):
             start = span.get("start")
             end = span.get("end")
             text = span.get("text")
