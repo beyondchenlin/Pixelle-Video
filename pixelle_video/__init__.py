@@ -36,18 +36,14 @@ Usage:
     # Standard pipeline (default)
     result = await pixelle_video.generate_video(
         text="如何提高学习效率",
-        n_scenes=5
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
     )
     
-    # Custom pipeline (template for your own logic)
-    result = await pixelle_video.generate_video(
-        text=your_content,
-        pipeline="custom",
-        custom_param_example="custom_value"
-    )
+    # Register CustomPipeline explicitly when building your own workflow.
     
     # Check available pipelines
-    print(pixelle_video.pipelines.keys())  # dict_keys(['standard', 'custom'])
+    print(pixelle_video.pipelines.keys())  # dict_keys(['standard', 'asset_based'])
 """
 
 from pixelle_video.config import config_manager

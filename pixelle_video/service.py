@@ -24,6 +24,9 @@ from comfykit import ComfyKit
 from loguru import logger
 
 from pixelle_video.config import config_manager
+from pixelle_video.models.video_generation_contract import (
+    validate_standard_video_generation_params,
+)
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.pipelines.standard import StandardPipeline
@@ -236,7 +239,6 @@ class PixelleVideoCore:
         # 2. Register video generation pipelines
         self.pipelines = {
             "standard": StandardPipeline(self),
-            "custom": CustomPipeline(self),
             "asset_based": AssetBasedPipeline(self),
         }
         logger.info(f"📹 Registered pipelines: {', '.join(self.pipelines.keys())}")
@@ -300,15 +302,11 @@ class PixelleVideoCore:
                 # Use standard pipeline (default)
                 result = await pixelle_video.generate_video(
                     text="如何提高学习效率",
-                    n_scenes=5
+                    storyboard_mode="smart",
+                    storyboard_count_mode="auto",
                 )
                 
-                # Use custom pipeline
-                result = await pixelle_video.generate_video(
-                    text=your_content,
-                    pipeline="custom",
-                    custom_param_example="custom_value"
-                )
+                # Register CustomPipeline explicitly when building your own workflow.
             """
             if pipeline not in self.pipelines:
                 available = ", ".join(self.pipelines.keys())
@@ -317,6 +315,9 @@ class PixelleVideoCore:
                     f"Available pipelines: {available}"
                 )
             
+            if pipeline == "standard":
+                validate_standard_video_generation_params(kwargs)
+
             pipeline_instance = self.pipelines[pipeline]
             fingerprint = build_generation_fingerprint(
                 text=text,

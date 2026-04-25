@@ -33,6 +33,12 @@ Based on the existing video script, create corresponding **English** video gener
 # Input Content
 {narrations_json}
 
+# Frame-Aware Context Contract
+- When `prompt_contexts` is present, Use prompt_contexts as the primary source for video prompt generation.
+- Read `plan_source_text` first to understand the complete script and maintain global meaning.
+- Use each frame's `frame_source_text`, `narration_text`, `visual_goal`, and `prompt_intent` together; do not infer the video from narration_text alone.
+- Preserve continuity across frames by respecting shared subjects, world elements, camera logic, and any `locked_fields` in the matching prompt_context.
+
 # Output Requirements
 
 ## Video Prompt Specifications

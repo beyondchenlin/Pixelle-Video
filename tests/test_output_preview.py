@@ -199,9 +199,12 @@ def test_build_single_generation_request_includes_storyboard_controls_and_frame_
             "shot_strategy": "strict",
             "frame_overrides": [
                 {
-                    "scene_id": "scene-1",
-                    "locked_fields": ["shot_type"],
-                    "shot_type": "medium_shot",
+                    "plan_id": "plan_abc",
+                    "plan_revision": 1,
+                    "frame_id": "frame_0001",
+                    "source_digest": "a" * 64,
+                    "locked_fields": ["visual_goal"],
+                    "visual_goal": "Locked visual goal.",
                 }
             ],
         },
@@ -218,11 +221,40 @@ def test_build_single_generation_request_includes_storyboard_controls_and_frame_
     assert request["shot_strategy"] == "strict"
     assert request["frame_overrides"] == [
         {
-            "scene_id": "scene-1",
-            "locked_fields": ["shot_type"],
-            "shot_type": "medium_shot",
+            "plan_id": "plan_abc",
+            "plan_revision": 1,
+            "frame_id": "frame_0001",
+            "source_digest": "a" * 64,
+            "locked_fields": ["visual_goal"],
+            "visual_goal": "Locked visual goal.",
         }
     ]
+
+
+def test_build_single_generation_request_drops_legacy_scene_identity_overrides():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "frame_overrides": [
+                {
+                    "scene_id": "scene-1",
+                    "snapshot_identity": "snapshot:scene-1",
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                }
+            ],
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert "frame_overrides" not in request
 
 
 def test_build_single_generation_request_includes_text_rendering_policy():
@@ -439,9 +471,12 @@ def test_build_batch_shared_config_includes_storyboard_controls_and_frame_overri
             "shot_strategy": "strict",
             "frame_overrides": [
                 {
-                    "scene_id": "scene-1",
-                    "locked_fields": ["shot_type"],
-                    "shot_type": "medium_shot",
+                    "plan_id": "plan_abc",
+                    "plan_revision": 1,
+                    "frame_id": "frame_0001",
+                    "source_digest": "a" * 64,
+                    "locked_fields": ["visual_goal"],
+                    "visual_goal": "Locked visual goal.",
                 }
             ],
         }
@@ -456,11 +491,33 @@ def test_build_batch_shared_config_includes_storyboard_controls_and_frame_overri
     assert shared_config["shot_strategy"] == "strict"
     assert shared_config["frame_overrides"] == [
         {
-            "scene_id": "scene-1",
-            "locked_fields": ["shot_type"],
-            "shot_type": "medium_shot",
+            "plan_id": "plan_abc",
+            "plan_revision": 1,
+            "frame_id": "frame_0001",
+            "source_digest": "a" * 64,
+            "locked_fields": ["visual_goal"],
+            "visual_goal": "Locked visual goal.",
         }
     ]
+
+
+def test_build_batch_shared_config_drops_legacy_scene_identity_overrides():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "frame_overrides": [
+                {
+                    "scene_id": "scene-1",
+                    "snapshot_identity": "snapshot:scene-1",
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                }
+            ],
+        }
+    )
+
+    assert "frame_overrides" not in shared_config
 
 
 def test_build_batch_shared_config_includes_text_rendering_policy():
@@ -696,9 +753,12 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
             "shot_strategy": "strict",
             "frame_overrides": [
                 {
-                    "scene_id": "scene-1",
-                    "locked_fields": ["shot_type"],
-                    "shot_type": "medium_shot",
+                    "plan_id": "plan_abc",
+                    "plan_revision": 1,
+                    "frame_id": "frame_0001",
+                    "source_digest": "a" * 64,
+                    "locked_fields": ["visual_goal"],
+                    "visual_goal": "Locked visual goal.",
                 }
             ],
         },
@@ -739,9 +799,12 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
     assert "text_layer" not in captured["request"]
     assert captured["request"]["frame_overrides"] == [
         {
-            "scene_id": "scene-1",
-            "locked_fields": ["shot_type"],
-            "shot_type": "medium_shot",
+            "plan_id": "plan_abc",
+            "plan_revision": 1,
+            "frame_id": "frame_0001",
+            "source_digest": "a" * 64,
+            "locked_fields": ["visual_goal"],
+            "visual_goal": "Locked visual goal.",
         }
     ]
 

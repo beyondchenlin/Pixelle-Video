@@ -19,7 +19,8 @@ async def main():
     result = await pixelle.generate_video(
         text="为什么要养成阅读习惯",
         mode="generate",
-        n_scenes=5
+        storyboard_mode="smart",
+        storyboard_count_mode="auto"
     )
     
     print(f"视频已生成: {result.video_path}")
@@ -39,4 +40,3 @@ asyncio.run(main())
 ## 示例
 
 更多使用示例请参考项目的 `examples/` 目录。
-

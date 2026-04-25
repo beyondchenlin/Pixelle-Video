@@ -63,6 +63,10 @@ async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
     )
 
     assert captured["narrations"] == ["第一句。", "第二句。"]
+    plan = _plan()
+    assert captured["prompt_contexts"][0]["plan_source_text"] == plan.source_text
+    assert captured["prompt_contexts"][0]["frame_source_text"] == plan.frames[0].source_text
+    assert captured["prompt_contexts"][0]["narration_text"] == plan.frames[0].narration_text
     assert captured["prompt_contexts"][0]["visual_goal"] == "Show idea one."
     assert captured["prompt_contexts"][1]["prompt_intent"] == "Visual metaphor two."
     assert result.prompts == ["prompt one", "prompt two"]
@@ -95,3 +99,106 @@ async def test_composer_rejects_prompt_count_mismatch(monkeypatch):
             storyboard_plan=_plan(),
             image_config={},
         )
+
+
+@pytest.mark.asyncio
+async def test_composer_rejects_legacy_frame_override_identity(monkeypatch):
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        raise AssertionError("legacy override should be rejected before prompt generation")
+
+    monkeypatch.setattr(
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    with pytest.raises(ValueError, match="legacy frame override"):
+        await ImagePromptComposer().compose(
+            llm_service=object(),
+            storyboard_plan=_plan(),
+            image_config={},
+            frame_overrides=[
+                {
+                    "scene_id": "scene-1",
+                    "snapshot_identity": "snapshot-1",
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                }
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_composer_rejects_non_sha256_source_digest_override(monkeypatch):
+    plan = _plan()
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        raise AssertionError("malformed override should be rejected before prompt generation")
+
+    monkeypatch.setattr(
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    with pytest.raises(ValueError, match="source_digest"):
+        await ImagePromptComposer().compose(
+            llm_service=object(),
+            storyboard_plan=plan,
+            image_config={},
+            frame_overrides=[
+                {
+                    "plan_id": plan.plan_id,
+                    "plan_revision": plan.revision,
+                    "frame_id": plan.frames[0].frame_id,
+                    "source_digest": "z" * 64,
+                    "locked_fields": ["visual_goal"],
+                    "visual_goal": "Locked visual goal.",
+                }
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_composer_applies_new_frame_override_identity_to_prompt_context(monkeypatch):
+    captured = {}
+    plan = _plan()
+    first_frame = plan.frames[0]
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured.update(kwargs)
+        return type(
+            "Batch",
+            (),
+            {
+                "prompts": ["prompt one", "prompt two"],
+                "resolved_style": None,
+                "negative_prompt": None,
+                "planning_snapshot": {},
+            },
+        )()
+
+    monkeypatch.setattr(
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    await ImagePromptComposer().compose(
+        llm_service=object(),
+        storyboard_plan=plan,
+        image_config={},
+        frame_overrides=[
+            {
+                "plan_id": plan.plan_id,
+                "plan_revision": plan.revision,
+                "frame_id": first_frame.frame_id,
+                "source_digest": plan.source_digest,
+                "locked_fields": ["visual_goal", "prompt_intent"],
+                "visual_goal": "Locked visual goal.",
+                "prompt_intent": "Locked prompt intent.",
+            }
+        ],
+    )
+
+    assert captured["frame_overrides"] is None
+    assert captured["prompt_contexts"][0]["locked_fields"] == ["visual_goal", "prompt_intent"]
+    assert captured["prompt_contexts"][0]["visual_goal"] == "Locked visual goal."
+    assert captured["prompt_contexts"][0]["prompt_intent"] == "Locked prompt intent."

@@ -21,6 +21,7 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.video_generation_contract import is_plan_frame_override_payload
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from web.components.prompt_generation_performance import (
     copy_prompt_generation_performance_params,
@@ -58,6 +59,14 @@ SINGLE_VIDEO_GENERATING_KEY = "single_video_is_generating"
 SINGLE_VIDEO_REQUESTED_KEY = "single_video_generation_requested"
 SINGLE_VIDEO_DUPLICATE_CLICK_KEY = "single_video_duplicate_click"
 SINGLE_VIDEO_BUTTON_KEY = "single_video_generate_button"
+
+
+def _plan_identity_frame_overrides(video_params):
+    return [
+        dict(override)
+        for override in video_params.get("frame_overrides") or []
+        if isinstance(override, dict) and is_plan_frame_override_payload(override)
+    ]
 
 
 def _get_or_create_log_session_id(session_state) -> str:
@@ -167,8 +176,10 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "role_strategy": video_params.get("role_strategy"),
         "role_locking_strength": video_params.get("role_locking_strength"),
         "shot_strategy": video_params.get("shot_strategy"),
-        "frame_overrides": video_params.get("frame_overrides"),
     }
+    plan_frame_overrides = _plan_identity_frame_overrides(video_params)
+    if plan_frame_overrides:
+        request["frame_overrides"] = plan_frame_overrides
 
     if request["tts_inference_mode"] == "local":
         request["tts_voice"] = video_params.get("tts_voice")
@@ -224,8 +235,10 @@ def build_batch_shared_config(video_params):
         "role_strategy": video_params.get("role_strategy"),
         "role_locking_strength": video_params.get("role_locking_strength"),
         "shot_strategy": video_params.get("shot_strategy"),
-        "frame_overrides": video_params.get("frame_overrides"),
     }
+    plan_frame_overrides = _plan_identity_frame_overrides(video_params)
+    if plan_frame_overrides:
+        shared_config["frame_overrides"] = plan_frame_overrides
 
     tts_speed = video_params.get("tts_speed")
     if tts_speed is not None:

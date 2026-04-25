@@ -60,6 +60,12 @@ Based on the existing video script, create corresponding **English** image promp
 # Input Content
 {narrations_json}
 
+# Frame-Aware Context Contract
+- When `prompt_contexts` is present, Use prompt_contexts as the primary source for image prompt generation.
+- Read `plan_source_text` first to understand the complete script and maintain global meaning.
+- Use each frame's `frame_source_text`, `narration_text`, `visual_goal`, and `prompt_intent` together; do not infer the image from narration_text alone.
+- Preserve continuity across frames by respecting shared subjects, world elements, and any `locked_fields` in the matching prompt_context.
+
 # Output Requirements
 
 ## Image Prompt Specifications

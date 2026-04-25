@@ -41,6 +41,7 @@ from web.utils.render_backend_ui import (
     get_task_render_backend,
     get_task_text_layer_summary,
 )
+from web.utils.storyboard_history import resolve_history_storyboard_scene_count
 
 # Page config
 st.set_page_config(
@@ -444,7 +445,10 @@ def render_task_detail_modal(task_id: str, pixelle_video):
         
         # Display input parameters
         st.markdown(f"**{tr('history.detail.mode')}:** {input_params.get('mode', 'N/A')}")
-        st.markdown(f"**{tr('history.detail.n_scenes')}:** {input_params.get('n_scenes', 'N/A')}")
+        st.markdown(
+            f"**{tr('history.detail.storyboard_scene_count')}:** "
+            f"{resolve_history_storyboard_scene_count(detail) or 'N/A'}"
+        )
         st.markdown(f"**{tr('history.detail.tts_mode')}:** {input_params.get('tts_inference_mode', 'N/A')}")
         st.markdown(f"**{tr('history.detail.voice')}:** {input_params.get('tts_voice', 'N/A')}")
         st.markdown(

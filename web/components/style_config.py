@@ -41,6 +41,7 @@ from pixelle_video.config.storyboard_preset_library import (
     BUILTIN_SHOT_PRESETS,
     BUILTIN_WORLD_PRESETS,
 )
+from pixelle_video.models.video_generation_contract import is_plan_frame_override_payload
 from pixelle_video.prompts.prompt_prefix_generation import (
     build_prompt_prefix_generation_prompt,
 )
@@ -214,7 +215,13 @@ def build_storyboard_control_payload(
         normalized_payload[key] = value
 
     if frame_overrides:
-        normalized_payload["frame_overrides"] = frame_overrides
+        plan_identity_overrides = [
+            dict(override)
+            for override in frame_overrides
+            if isinstance(override, dict) and is_plan_frame_override_payload(override)
+        ]
+        if plan_identity_overrides:
+            normalized_payload["frame_overrides"] = plan_identity_overrides
     return normalized_payload
 
 

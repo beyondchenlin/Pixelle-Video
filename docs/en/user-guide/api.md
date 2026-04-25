@@ -19,7 +19,8 @@ async def main():
     result = await pixelle.generate_video(
         text="Why develop a reading habit",
         mode="generate",
-        n_scenes=5
+        storyboard_mode="smart",
+        storyboard_count_mode="auto"
     )
     
     print(f"Video generated: {result.video_path}")
@@ -39,4 +40,3 @@ For detailed API documentation, see [API Overview](../reference/api-overview.md)
 ## Examples
 
 For more usage examples, check the `examples/` directory in the project.
-

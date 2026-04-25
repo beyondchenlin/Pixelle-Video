@@ -369,9 +369,12 @@ def test_build_storyboard_control_payload_includes_storyboard_fields():
         shot_strategy="strict",
         frame_overrides=[
             {
-                "scene_id": "scene-1",
-                "locked_fields": ["shot_type"],
-                "shot_type": "medium_shot",
+                "plan_id": "plan_abc",
+                "plan_revision": 1,
+                "frame_id": "frame_0001",
+                "source_digest": "a" * 64,
+                "locked_fields": ["visual_goal"],
+                "visual_goal": "Locked visual goal.",
             }
         ],
     )
@@ -386,12 +389,31 @@ def test_build_storyboard_control_payload_includes_storyboard_fields():
         "shot_strategy": "strict",
         "frame_overrides": [
             {
+                "plan_id": "plan_abc",
+                "plan_revision": 1,
+                "frame_id": "frame_0001",
+                "source_digest": "a" * 64,
+                "locked_fields": ["visual_goal"],
+                "visual_goal": "Locked visual goal.",
+            }
+        ],
+    }
+
+
+def test_build_storyboard_control_payload_drops_legacy_scene_identity_overrides():
+    payload = build_storyboard_control_payload(
+        world_preset_id="neutral_knowledge_storyboard",
+        frame_overrides=[
+            {
                 "scene_id": "scene-1",
+                "snapshot_identity": "snapshot:scene-1",
                 "locked_fields": ["shot_type"],
                 "shot_type": "medium_shot",
             }
         ],
-    }
+    )
+
+    assert payload == {"world_preset_id": "neutral_knowledge_storyboard"}
 
 
 def test_build_text_rendering_payload_defaults_image_text_suppression_off():

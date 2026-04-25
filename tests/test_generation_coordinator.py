@@ -15,7 +15,9 @@ def test_generation_fingerprint_ignores_runtime_only_fields():
         text="demo",
         pipeline="standard",
         params={
-            "n_scenes": 5,
+            "storyboard_mode": "smart",
+            "storyboard_count_mode": "manual",
+            "storyboard_scene_count": 5,
             "request_id": "req-one",
             "session_id": "sess-one",
             "api_task_id": "api-one",
@@ -29,7 +31,9 @@ def test_generation_fingerprint_ignores_runtime_only_fields():
         pipeline="standard",
         params={
             "template_params": {"unused": None, "accent": "#fff"},
-            "n_scenes": 5,
+            "storyboard_mode": "smart",
+            "storyboard_count_mode": "manual",
+            "storyboard_scene_count": 5,
             "request_id": "req-two",
             "session_id": "sess-two",
             "api_task_id": "api-two",
@@ -39,7 +43,12 @@ def test_generation_fingerprint_ignores_runtime_only_fields():
     changed = build_generation_fingerprint(
         text="demo",
         pipeline="standard",
-        params={"n_scenes": 6, "template_params": {"accent": "#fff"}},
+        params={
+            "storyboard_mode": "smart",
+            "storyboard_count_mode": "manual",
+            "storyboard_scene_count": 6,
+            "template_params": {"accent": "#fff"},
+        },
     )
 
     assert first == second
@@ -69,7 +78,9 @@ async def test_core_generate_video_reuses_identical_inflight_generation():
     first = asyncio.create_task(
         core.generate_video(
             text="demo",
-            n_scenes=5,
+            storyboard_mode="smart",
+            storyboard_count_mode="manual",
+            storyboard_scene_count=5,
             frame_template="1080x1920/image_default.html",
             request_id="req-one",
             session_id="sess-one",
@@ -81,7 +92,9 @@ async def test_core_generate_video_reuses_identical_inflight_generation():
     second = asyncio.create_task(
         core.generate_video(
             text="demo",
-            n_scenes=5,
+            storyboard_mode="smart",
+            storyboard_count_mode="manual",
+            storyboard_scene_count=5,
             frame_template="1080x1920/image_default.html",
             request_id="req-two",
             session_id="sess-two",
@@ -114,8 +127,8 @@ async def test_core_generate_video_releases_fingerprint_after_completion():
     core.pipelines = {"standard": pipeline}
     core.generate_video = core._create_generate_video_wrapper()
 
-    first = await core.generate_video(text="demo", n_scenes=5)
-    second = await core.generate_video(text="demo", n_scenes=5)
+    first = await core.generate_video(text="demo", storyboard_mode="smart")
+    second = await core.generate_video(text="demo", storyboard_mode="smart")
 
     assert first.call_number == 1
     assert second.call_number == 2
@@ -140,12 +153,100 @@ async def test_core_generate_video_releases_fingerprint_after_failure():
     core.generate_video = core._create_generate_video_wrapper()
 
     with pytest.raises(RuntimeError, match="temporary failure"):
-        await core.generate_video(text="demo", n_scenes=5)
+        await core.generate_video(text="demo", storyboard_mode="smart")
 
-    result = await core.generate_video(text="demo", n_scenes=5)
+    result = await core.generate_video(text="demo", storyboard_mode="smart")
 
     assert result.call_number == 2
     assert pipeline.calls == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_params", [{"n_scenes": 5}, {"split_mode": "sentence"}])
+async def test_core_generate_video_rejects_legacy_storyboard_fields_for_standard_pipeline(legacy_params):
+    class _Pipeline:
+        def __init__(self):
+            self.calls = 0
+
+        async def __call__(self, *, text, **kwargs):
+            self.calls += 1
+            return SimpleNamespace(text=text, kwargs=kwargs)
+
+    core = PixelleVideoCore()
+    pipeline = _Pipeline()
+    core.pipelines = {"standard": pipeline}
+    core.generate_video = core._create_generate_video_wrapper()
+
+    with pytest.raises(ValueError, match="legacy storyboard parameter"):
+        await core.generate_video(text="demo", **legacy_params)
+
+    assert pipeline.calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid_params",
+    [
+        {"mode": "bogus"},
+        {"storyboard_mode": "bogus"},
+        {"storyboard_count_mode": "bogus"},
+        {"script_length_mode": "bogus"},
+        {"script_length_mode": "custom", "script_target_words": 0},
+    ],
+)
+async def test_core_generate_video_rejects_invalid_contract_enums_for_standard_pipeline(invalid_params):
+    class _Pipeline:
+        def __init__(self):
+            self.calls = 0
+
+        async def __call__(self, *, text, **kwargs):
+            self.calls += 1
+            return SimpleNamespace(text=text, kwargs=kwargs)
+
+    core = PixelleVideoCore()
+    pipeline = _Pipeline()
+    core.pipelines = {"standard": pipeline}
+    core.generate_video = core._create_generate_video_wrapper()
+
+    with pytest.raises(ValueError, match="unsupported|invalid"):
+        await core.generate_video(text="demo", **invalid_params)
+
+    assert pipeline.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_core_initialize_does_not_register_custom_template_pipeline_by_default(monkeypatch):
+    import pixelle_video.service as service_module
+
+    class _DummyService:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+    class _DummyPipeline:
+        def __init__(self, core):
+            self.core = core
+
+    monkeypatch.setattr(service_module, "LLMService", _DummyService)
+    monkeypatch.setattr(service_module, "TTSService", _DummyService)
+    monkeypatch.setattr(service_module, "MediaService", _DummyService)
+    monkeypatch.setattr(service_module, "ImageAnalysisService", _DummyService)
+    monkeypatch.setattr(service_module, "VideoAnalysisService", _DummyService)
+    monkeypatch.setattr(service_module, "VideoService", _DummyService)
+    monkeypatch.setattr(service_module, "FrameProcessor", _DummyService)
+    monkeypatch.setattr(service_module, "PersistenceService", _DummyService)
+    monkeypatch.setattr(service_module, "HistoryManager", _DummyService)
+    monkeypatch.setattr(service_module, "AlignmentService", _DummyService)
+    monkeypatch.setattr(service_module, "AudioEditService", _DummyService)
+    monkeypatch.setattr(service_module, "HyperFramesProjectService", _DummyService)
+    monkeypatch.setattr(service_module, "HyperFramesRenderer", _DummyService)
+    monkeypatch.setattr(service_module, "StandardPipeline", _DummyPipeline)
+    monkeypatch.setattr(service_module, "AssetBasedPipeline", _DummyPipeline)
+
+    core = PixelleVideoCore()
+    await core.initialize()
+
+    assert set(core.pipelines) == {"standard", "asset_based"}
 
 
 @pytest.mark.asyncio

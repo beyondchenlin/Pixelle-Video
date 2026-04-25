@@ -130,6 +130,45 @@ def test_video_generate_request_accepts_storyboard_generation_contract_fields():
     assert request.script_target_words == 180
 
 
+def test_video_generate_request_accepts_plan_identity_frame_overrides():
+    request = VideoGenerateRequest(
+        text="demo",
+        frame_template="1080x1920/image_default.html",
+        frame_overrides=[
+            {
+                "plan_id": "plan_abc",
+                "plan_revision": 1,
+                "frame_id": "frame_0001",
+                "source_digest": "a" * 64,
+                "locked_fields": ["visual_goal", "prompt_intent"],
+                "visual_goal": "Locked visual goal.",
+                "prompt_intent": "Locked prompt intent.",
+            }
+        ],
+    )
+
+    assert request.frame_overrides[0].frame_id == "frame_0001"
+    assert request.frame_overrides[0].locked_fields == ["visual_goal", "prompt_intent"]
+
+
+def test_video_generate_request_rejects_non_sha256_frame_override_source_digest():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            frame_overrides=[
+                {
+                    "plan_id": "plan_abc",
+                    "plan_revision": 1,
+                    "frame_id": "frame_0001",
+                    "source_digest": "z" * 64,
+                    "locked_fields": ["visual_goal"],
+                    "visual_goal": "Locked visual goal.",
+                }
+            ],
+        )
+
+
 @pytest.mark.parametrize(
     "legacy_payload",
     [
@@ -325,6 +364,22 @@ def test_video_generate_request_rejects_malformed_frame_overrides(frame_override
         )
 
 
+def test_video_generate_request_rejects_legacy_scene_identity_frame_override():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            frame_overrides=[
+                {
+                    "scene_id": "scene-1",
+                    "snapshot_identity": "snapshot:scene-1",
+                    "locked_fields": ["shot_type"],
+                    "shot_type": "medium_shot",
+                }
+            ],
+        )
+
+
 @pytest.mark.asyncio
 async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monkeypatch, tmp_path):
     class _FakeFrameGenerator:
@@ -378,10 +433,13 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             },
             frame_overrides=[
                 {
-                    "scene_id": "scene-1",
-                    "snapshot_identity": "snapshot:scene-1",
-                    "locked_fields": ["shot_type"],
-                    "shot_type": "medium_shot",
+                    "plan_id": "plan_abc",
+                    "plan_revision": 1,
+                    "frame_id": "frame_0001",
+                    "source_digest": "a" * 64,
+                    "locked_fields": ["visual_goal", "prompt_intent"],
+                    "visual_goal": "Locked visual goal.",
+                    "prompt_intent": "Locked prompt intent.",
                 }
             ],
         ),
@@ -434,10 +492,13 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             },
             "frame_overrides": [
                 {
-                    "scene_id": "scene-1",
-                    "snapshot_identity": "snapshot:scene-1",
-                    "locked_fields": ["shot_type"],
-                    "shot_type": "medium_shot",
+                    "plan_id": "plan_abc",
+                    "plan_revision": 1,
+                    "frame_id": "frame_0001",
+                    "source_digest": "a" * 64,
+                    "locked_fields": ["visual_goal", "prompt_intent"],
+                    "visual_goal": "Locked visual goal.",
+                    "prompt_intent": "Locked prompt intent.",
                 }
             ],
         }
