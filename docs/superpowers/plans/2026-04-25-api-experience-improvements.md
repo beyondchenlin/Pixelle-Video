@@ -17,6 +17,8 @@
 - Additive API changes are preferred. Existing success responses should keep their current shape unless a route is newly introduced.
 - Global error responses can be standardized because they only affect failure payload shape, not route paths or successful responses.
 - Use atomic commits. Each task below ends with a commit step and only stages files owned by that task.
+- Push immediately after every atomic commit. This follows `AGENTS.md`; do not defer pushes until the end unless the user explicitly requests local-only commits.
+- Staged video endpoints are diagnostic/building-block endpoints. They intentionally expose a focused subset of the full `/api/video/generate/*` contract; `/api/video/generate/async` remains the canonical full-generation API.
 
 ## File Structure
 
@@ -24,7 +26,7 @@
 - Modify `api/app.py`: install global exception handlers from `api/schemas/responses.py`.
 - Create `tests/test_api_response_envelope.py`: tests for `HTTPException` and validation error envelopes.
 - Create `api/schemas/tasks.py`: paginated task list response schema.
-- Modify `api/routers/tasks.py`: keep `GET /api/tasks` list behavior and add `page/page_size/offset` support.
+- Modify `api/routers/tasks.py`: keep `GET /api/tasks` list behavior and add `GET /api/tasks/page` with `page/page_size/total`.
 - Modify `api/tasks/store.py`: add offset/count support to the `TaskStore` contract and in-memory implementation.
 - Modify `api/tasks/postgres.py`: add offset/count support to the PostgreSQL task store.
 - Modify `api/tasks/manager.py`: expose paginated list and count methods while preserving legacy fallback behavior.
@@ -57,13 +59,20 @@ Create `tests/test_api_response_envelope.py`:
 ```python
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from api.schemas.responses import install_exception_handlers
 
 
 class DemoPayload(BaseModel):
     name: str
+
+    @field_validator("name")
+    @classmethod
+    def reject_bad_name(cls, value: str) -> str:
+        if value == "bad":
+            raise ValueError("bad name")
+        return value
 
 
 def build_app() -> FastAPI:
@@ -104,6 +113,16 @@ def test_validation_exception_uses_standard_error_envelope():
     assert body["message"] == "validation error"
     assert body["error"]["code"] == "validation_error"
     assert body["error"]["details"][0]["loc"] == ["body", "name"]
+
+
+def test_validation_exception_json_encodes_validator_context():
+    response = TestClient(build_app()).post("/payload", json={"name": "bad"})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["success"] is False
+    assert body["message"] == "validation error"
+    assert body["error"]["code"] == "validation_error"
 ```
 
 - [ ] **Step 2: Run the failing tests**
@@ -125,6 +144,7 @@ from typing import Any, Generic, TypeVar
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -194,7 +214,7 @@ async def validation_exception_handler(
         content=error_envelope(
             code="validation_error",
             message="validation error",
-            details=exc.errors(),
+            details=jsonable_encoder(exc.errors()),
         ),
     )
 
@@ -243,6 +263,7 @@ Expected: pass.
 ```bash
 git add api/schemas/responses.py api/app.py tests/test_api_response_envelope.py
 git commit -m "feat(api): standardize error response envelopes"
+git push
 ```
 
 ---
@@ -273,6 +294,7 @@ async def test_memory_store_lists_tasks_with_offset_and_count():
                 task_id=f"task-{index}",
                 task_type=TaskType.VIDEO_GENERATION,
                 status=TaskStatus.PENDING,
+                created_at=datetime(2026, 1, 1, index, tzinfo=timezone.utc),
             )
         )
 
@@ -280,8 +302,7 @@ async def test_memory_store_lists_tasks_with_offset_and_count():
     total = await store.count_tasks(status=None)
 
     assert total == 3
-    assert len(page) == 2
-    assert {task.task_id for task in page}.issubset({"task-0", "task-1", "task-2"})
+    assert [task.task_id for task in page] == ["task-1", "task-0"]
 ```
 
 - [ ] **Step 2: Write failing router pagination tests**
@@ -289,12 +310,10 @@ async def test_memory_store_lists_tasks_with_offset_and_count():
 Create `tests/test_tasks_api_pagination.py`:
 
 ```python
-from types import SimpleNamespace
-
 import pytest
 
 from api.routers import tasks as tasks_router
-from api.routers.tasks import list_tasks
+from api.routers.tasks import list_tasks_page
 from api.tasks.models import Task, TaskStatus, TaskType
 
 
@@ -317,7 +336,7 @@ class _FakeTaskManager:
 async def test_list_tasks_returns_paginated_response(monkeypatch):
     monkeypatch.setattr(tasks_router, "task_manager", _FakeTaskManager())
 
-    response = await list_tasks(status=None, limit=100, page=2, page_size=2)
+    response = await list_tasks_page(status=None, page=2, page_size=2)
 
     assert response.total == 5
     assert response.page == 2
@@ -334,6 +353,25 @@ uv run pytest tests/test_task_store_memory.py::test_memory_store_lists_tasks_wit
 ```
 
 Expected: fail because `offset`, `count_tasks`, and paginated response are not implemented.
+
+- [ ] **Step 3a: Add PostgreSQL source-level count method coverage**
+
+Modify `tests/test_postgres_task_store_schema.py` so `test_postgres_store_exposes_required_methods` includes `count_tasks`:
+
+```python
+    for name in [
+        "create_task",
+        "get_task",
+        "find_reusable_by_fingerprint",
+        "update_status",
+        "update_progress",
+        "claim_next_pending",
+        "list_tasks",
+        "count_tasks",
+        "cancel_task",
+    ]:
+        assert hasattr(PostgresTaskStore, name)
+```
 
 - [ ] **Step 4: Add task pagination schema**
 
@@ -401,7 +439,7 @@ async def count_tasks(self, status: TaskStatus | None = None) -> int:
 Modify `api/tasks/postgres.py`:
 
 ```python
-from sqlalchemy import asc, count, desc, insert, select, update
+Keep the existing SQLAlchemy imports, including `func`, and do not remove the existing table/constraint imports.
 ```
 
 Replace `PostgresTaskStore.list_tasks`:
@@ -424,7 +462,7 @@ async def list_tasks(
 
 async def count_tasks(self, status: TaskStatus | None = None) -> int:
     async with self.engine.begin() as conn:
-        query = select(count()).select_from(generation_tasks)
+        query = select(func.count()).select_from(generation_tasks)
         if status is not None:
             query = query.where(generation_tasks.c.status == status.value)
         return int((await conn.execute(query)).scalar_one())
@@ -456,15 +494,16 @@ async def list_tasks(
 
 
 async def count_tasks(self, status: Optional[TaskStatus] = None) -> int:
-    store_tasks = await self.store.list_tasks(status=status, limit=100000, offset=0)
-    ids = {task.task_id for task in store_tasks}
-    for task in self._tasks.values():
+    total = await self.store.count_tasks(status=status)
+    legacy_count = 0
+    for task_id, task in self._tasks.items():
         if status is None or task.status == status:
-            ids.add(task.task_id)
-    return len(ids)
+            if await self.store.get_task(task_id) is None:
+                legacy_count += 1
+    return total + legacy_count
 ```
 
-- [ ] **Step 8: Add route page parameters**
+- [ ] **Step 8: Add paginated route while preserving existing list route**
 
 Modify `api/routers/tasks.py`:
 
@@ -472,22 +511,20 @@ Modify `api/routers/tasks.py`:
 from api.schemas.tasks import TaskListResponse
 ```
 
-Replace the list endpoint signature and body:
+Keep the existing `@router.get("", response_model=List[Task])` endpoint returning a list for backward compatibility. Add this new endpoint above `@router.get("/{task_id}")`:
 
 ```python
-@router.get("", response_model=TaskListResponse)
-async def list_tasks(
+@router.get("/page", response_model=TaskListResponse)
+async def list_tasks_page(
     status: Optional[TaskStatus] = Query(None, description="Filter by status"),
-    limit: int = Query(100, ge=1, le=1000, description="Backward-compatible page size alias"),
     page: int = Query(1, ge=1, description="One-based page number"),
-    page_size: Optional[int] = Query(None, ge=1, le=1000, description="Number of tasks per page"),
+    page_size: int = Query(100, ge=1, le=1000, description="Number of tasks per page"),
 ):
     try:
-        effective_page_size = page_size or limit
-        offset = (page - 1) * effective_page_size
+        offset = (page - 1) * page_size
         tasks = await task_manager.list_tasks(
             status=status,
-            limit=effective_page_size,
+            limit=page_size,
             offset=offset,
         )
         total = await task_manager.count_tasks(status=status)
@@ -495,7 +532,7 @@ async def list_tasks(
             tasks=tasks,
             total=total,
             page=page,
-            page_size=effective_page_size,
+            page_size=page_size,
         )
     except Exception as e:
         logger.error(f"List tasks error: {e}")
@@ -507,7 +544,7 @@ async def list_tasks(
 Run:
 
 ```bash
-uv run pytest tests/test_task_store_memory.py tests/test_task_manager_registry_facade.py tests/test_tasks_api_pagination.py -q
+uv run pytest tests/test_task_store_memory.py tests/test_task_manager_registry_facade.py tests/test_tasks_api_pagination.py tests/test_postgres_task_store_schema.py -q
 ```
 
 Expected: pass.
@@ -515,8 +552,9 @@ Expected: pass.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add api/schemas/tasks.py api/routers/tasks.py api/tasks/store.py api/tasks/postgres.py api/tasks/manager.py tests/test_task_store_memory.py tests/test_task_manager_registry_facade.py tests/test_tasks_api_pagination.py
+git add api/schemas/tasks.py api/routers/tasks.py api/tasks/store.py api/tasks/postgres.py api/tasks/manager.py tests/test_task_store_memory.py tests/test_task_manager_registry_facade.py tests/test_tasks_api_pagination.py tests/test_postgres_task_store_schema.py
 git commit -m "feat(api): add paginated task listing"
+git push
 ```
 
 ---
@@ -533,8 +571,6 @@ git commit -m "feat(api): add paginated task listing"
 Append to `tests/test_files_api.py`:
 
 ```python
-from types import SimpleNamespace
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -572,6 +608,38 @@ def test_download_file_uses_attachment_disposition(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert response.headers["content-disposition"] == 'attachment; filename="final.mp4"'
+
+
+def test_stream_file_rejects_malformed_range(monkeypatch, tmp_path):
+    video = tmp_path / "output" / "task-1" / "final.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"video")
+    monkeypatch.chdir(tmp_path)
+    app = FastAPI()
+    app.include_router(files_router)
+
+    response = TestClient(app).get(
+        "/files/stream/task-1/final.mp4",
+        headers={"Range": "bytes=a-b"},
+    )
+
+    assert response.status_code == 416
+
+
+def test_stream_file_rejects_unsatisfiable_range(monkeypatch, tmp_path):
+    video = tmp_path / "output" / "task-1" / "final.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"video")
+    monkeypatch.chdir(tmp_path)
+    app = FastAPI()
+    app.include_router(files_router)
+
+    response = TestClient(app).get(
+        "/files/stream/task-1/final.mp4",
+        headers={"Range": "bytes=99-100"},
+    )
+
+    assert response.status_code == 416
 ```
 
 - [ ] **Step 2: Run file tests to verify failure**
@@ -663,13 +731,16 @@ def parse_range_header(range_header: str | None, file_size: int) -> tuple[int, i
     start_text, _, end_text = value.partition("-")
     if start_text == "" and end_text == "":
         raise HTTPException(status_code=416, detail="Invalid Range header")
-    if start_text == "":
-        suffix_length = int(end_text)
-        start = max(file_size - suffix_length, 0)
-        end = file_size - 1
-    else:
-        start = int(start_text)
-        end = int(end_text) if end_text else file_size - 1
+    try:
+        if start_text == "":
+            suffix_length = int(end_text)
+            start = max(file_size - suffix_length, 0)
+            end = file_size - 1
+        else:
+            start = int(start_text)
+            end = int(end_text) if end_text else file_size - 1
+    except ValueError:
+        raise HTTPException(status_code=416, detail="Invalid Range header")
     if start < 0 or end >= file_size or start > end:
         raise HTTPException(status_code=416, detail="Range not satisfiable")
     return start, end, end - start + 1, 206
@@ -767,6 +838,7 @@ Expected: pass.
 ```bash
 git add api/file_access.py api/routers/files.py tests/test_files_api.py
 git commit -m "feat(api): add file stream and download endpoints"
+git push
 ```
 
 ---
@@ -784,11 +856,10 @@ git commit -m "feat(api): add file stream and download endpoints"
 Create `tests/test_resources_upload_api.py`:
 
 ```python
-from pathlib import Path
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.config import api_config
 from api.routers.resources import router as resources_router
 
 
@@ -841,6 +912,19 @@ def test_upload_bgm_uses_collision_suffix(monkeypatch, tmp_path):
     assert response.json()["path"] == "data/bgm/song_1.mp3"
     assert (tmp_path / "data" / "bgm" / "song.mp3").read_bytes() == b"first"
     assert (tmp_path / "data" / "bgm" / "song_1.mp3").read_bytes() == b"second"
+
+
+def test_upload_rejects_oversized_file_and_removes_partial(monkeypatch, tmp_path):
+    client = build_client(tmp_path, monkeypatch)
+    monkeypatch.setattr(api_config, "max_upload_size", 3)
+
+    response = client.post(
+        "/resources/bgm",
+        files={"file": ("large.mp3", b"too-large", "audio/mpeg")},
+    )
+
+    assert response.status_code == 413
+    assert not list((tmp_path / "data" / "bgm").glob("large*"))
 ```
 
 - [ ] **Step 2: Run upload tests to verify failure**
@@ -898,7 +982,7 @@ def resolve_collision_path(directory: Path, filename: str) -> Path:
 
 - [ ] **Step 5: Implement resource upload endpoints**
 
-Modify `api/routers/resources.py` imports:
+Modify `api/routers/resources.py` imports by adding to the existing imports. Do not replace the existing `PixelleVideoDep`, `BGMInfo`, `TemplateInfo`, `WorkflowInfo`, and response schema imports that current routes need:
 
 ```python
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -909,7 +993,15 @@ from api.file_access import (
     resolve_collision_path,
     sanitize_upload_filename,
 )
-from api.schemas.resources import ResourceUploadResponse
+from api.schemas.resources import (
+    BGMInfo,
+    BGMListResponse,
+    ResourceUploadResponse,
+    TemplateInfo,
+    TemplateListResponse,
+    WorkflowInfo,
+    WorkflowListResponse,
+)
 ```
 
 Add helper and endpoints after `router = APIRouter(...)`:
@@ -991,6 +1083,7 @@ Expected: pass.
 ```bash
 git add api/schemas/resources.py api/routers/resources.py api/file_access.py tests/test_resources_upload_api.py
 git commit -m "feat(api): add resource upload endpoints"
+git push
 ```
 
 ---
@@ -1013,6 +1106,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from api.routers.video_stages import (
     generate_audio_stage,
@@ -1082,7 +1176,7 @@ async def test_audio_stage_synthesizes_each_narration(monkeypatch, tmp_path):
     fake_tts = _FakeTTS(tmp_path / "audio.mp3")
 
     response = await generate_audio_stage(
-        AudioStageRequest(narrations=["scene 1", "scene 2"], workflow="selfhost/tts_edge.json"),
+        AudioStageRequest(narrations=["scene 1", "scene 2"], tts_workflow="selfhost/tts_edge.json"),
         SimpleNamespace(tts=fake_tts),
     )
 
@@ -1106,6 +1200,14 @@ async def test_render_stage_concatenates_segments(monkeypatch, tmp_path):
 
     assert response.video_path == "output/staged/final.mp4"
     assert (tmp_path / response.video_path).read_bytes() == b"video"
+
+
+def test_stage_requests_reject_full_generation_only_controls():
+    with pytest.raises(ValidationError):
+        ScriptStageRequest(text="demo", render_backend="legacy")
+
+    with pytest.raises(ValidationError):
+        AudioStageRequest(narrations=["demo"], tts_split_mode="external_only")
 ```
 
 - [ ] **Step 2: Run staged API tests to verify failure**
@@ -1123,7 +1225,7 @@ Expected: fail because staged API schemas and router do not exist.
 Create `api/schemas/video_stages.py`:
 
 ```python
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -1131,10 +1233,10 @@ from pydantic import BaseModel, ConfigDict, Field
 class ScriptStageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str = Field(..., min_length=1)
-    mode: str = Field("generate")
+    mode: Literal["generate", "fixed"] = Field("generate")
     n_scenes: int = Field(5, ge=1, le=20)
-    min_words: int = Field(5, ge=1, le=100)
-    max_words: int = Field(20, ge=1, le=200)
+    min_narration_words: int = Field(5, ge=1, le=100)
+    max_narration_words: int = Field(20, ge=1, le=200)
     title: Optional[str] = None
 
 
@@ -1148,7 +1250,7 @@ class ScriptStageResponse(BaseModel):
 class AudioStageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     narrations: list[str] = Field(..., min_length=1)
-    workflow: Optional[str] = None
+    tts_workflow: Optional[str] = None
     ref_audio: Optional[str] = None
 
 
@@ -1168,7 +1270,7 @@ class StoryboardStageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str = Field(..., min_length=1)
     frame_template: str = Field("1080x1920/image_default.html")
-    mode: str = Field("generate")
+    mode: Literal["generate", "fixed"] = Field("generate")
     n_scenes: int = Field(5, ge=1, le=20)
     min_narration_words: int = Field(5, ge=1, le=100)
     max_narration_words: int = Field(20, ge=1, le=200)
@@ -1191,7 +1293,7 @@ class RenderStageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     video_segment_paths: list[str] = Field(..., min_length=1)
     output_name: str = Field("final.mp4")
-    method: str = Field("demuxer")
+    method: Literal["demuxer", "filter"] = Field("demuxer")
     bgm_path: Optional[str] = None
     bgm_volume: float = Field(0.3, ge=0.0, le=1.0)
 
@@ -1247,8 +1349,8 @@ async def generate_script_stage(request: ScriptStageRequest, pixelle_video: Pixe
                 llm_service=pixelle_video.llm,
                 topic=request.text,
                 n_scenes=request.n_scenes,
-                min_words=request.min_words,
-                max_words=request.max_words,
+                min_words=request.min_narration_words,
+                max_words=request.max_narration_words,
             )
         title = request.title or await generate_title(
             llm_service=pixelle_video.llm,
@@ -1267,8 +1369,8 @@ async def generate_audio_stage(request: AudioStageRequest, pixelle_video: Pixell
         audio_files = []
         for narration in request.narrations:
             params = {"text": narration}
-            if request.workflow:
-                params["workflow"] = request.workflow
+            if request.tts_workflow:
+                params["workflow"] = request.tts_workflow
             if request.ref_audio:
                 params["ref_audio"] = request.ref_audio
             audio_path = await pixelle_video.tts(**params)
@@ -1293,8 +1395,8 @@ async def generate_storyboard_stage(request: StoryboardStageRequest, pixelle_vid
                 text=request.text,
                 mode=request.mode,
                 n_scenes=request.n_scenes,
-                min_words=request.min_narration_words,
-                max_words=request.max_narration_words,
+                min_narration_words=request.min_narration_words,
+                max_narration_words=request.max_narration_words,
                 title=request.title,
             ),
             pixelle_video,
@@ -1401,6 +1503,7 @@ Expected: pass.
 ```bash
 git add api/schemas/video_stages.py api/routers/video_stages.py api/routers/__init__.py api/app.py tests/test_video_stages_api.py
 git commit -m "feat(api): add staged video generation endpoints"
+git push
 ```
 
 ---
@@ -1451,10 +1554,12 @@ GET /api/tasks/{task_id}
 List with pagination:
 
 ```http
-GET /api/tasks?page=1&page_size=20&status=completed
+GET /api/tasks/page?page=1&page_size=20&status=completed
 ```
 
 ## Staged Video Endpoints
+
+These endpoints are diagnostic building blocks. They expose a focused subset of full video generation controls; use `/api/video/generate/async` for complete production generation.
 
 Generate script:
 
@@ -1509,7 +1614,7 @@ POST /api/resources/materials
 Run:
 
 ```bash
-uv run pytest tests/test_api_response_envelope.py tests/test_tasks_api_pagination.py tests/test_files_api.py tests/test_resources_upload_api.py tests/test_video_stages_api.py tests/test_video_api.py tests/test_task_manager_registry_facade.py tests/test_task_store_memory.py -q
+uv run pytest tests/test_api_response_envelope.py tests/test_tasks_api_pagination.py tests/test_files_api.py tests/test_resources_upload_api.py tests/test_video_stages_api.py tests/test_video_api.py tests/test_task_manager_registry_facade.py tests/test_task_store_memory.py tests/test_postgres_task_store_schema.py -q
 ```
 
 Expected: pass.
@@ -1519,7 +1624,7 @@ Expected: pass.
 Run:
 
 ```bash
-uv run ruff check api tests/test_api_response_envelope.py tests/test_tasks_api_pagination.py tests/test_files_api.py tests/test_resources_upload_api.py tests/test_video_stages_api.py
+uv run ruff check api tests/test_api_response_envelope.py tests/test_tasks_api_pagination.py tests/test_files_api.py tests/test_resources_upload_api.py tests/test_video_stages_api.py tests/test_postgres_task_store_schema.py
 ```
 
 Expected: pass.
@@ -1529,15 +1634,16 @@ Expected: pass.
 ```bash
 git add docs/en/user-guide/api.md
 git commit -m "docs(api): document api experience improvements"
+git push
 ```
 
-- [ ] **Step 5: Push all commits**
+- [ ] **Step 5: Verify branch is pushed**
 
 ```bash
 git push
 ```
 
-Expected: branch pushes successfully to its configured upstream. If the branch has no upstream, use `git push -u origin <current-branch>`.
+Expected: `Everything up-to-date` because each atomic commit has already been pushed. If the branch has no upstream, use `git push -u origin <current-branch>`.
 
 ---
 
