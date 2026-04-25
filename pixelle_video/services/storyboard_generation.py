@@ -13,6 +13,7 @@ from pixelle_video.models.storyboard_plan import (
 
 
 SENTENCE_TERMINATORS = "。！？.!?"
+CLOSING_PUNCTUATION = "”’\"'）)]}》】」』"
 
 
 def _is_unicode_punctuation(char: str) -> bool:
@@ -60,6 +61,53 @@ def _split_with_predicate(
     return segments
 
 
+def _sentence_segments(source_text: str) -> list[tuple[str, int, int]]:
+    cleaned = _normalize_text(source_text)
+    if not cleaned:
+        return []
+
+    segments: list[tuple[str, int, int]] = []
+    current_start: int | None = None
+    index = 0
+    has_text = False
+    while index < len(cleaned):
+        char = cleaned[index]
+        if current_start is None:
+            if char.isspace():
+                index += 1
+                continue
+            current_start = index
+
+        if not char.isspace() and not _is_unicode_punctuation(char):
+            has_text = True
+
+        if has_text and char in SENTENCE_TERMINATORS:
+            end = index + 1
+            while end < len(cleaned) and cleaned[end] in SENTENCE_TERMINATORS:
+                end += 1
+            while end < len(cleaned) and cleaned[end] in CLOSING_PUNCTUATION:
+                end += 1
+            segments.append((cleaned[current_start:end], current_start, end))
+            current_start = None
+            has_text = False
+            index = end
+            continue
+
+        index += 1
+
+    if current_start is not None and has_text:
+        segments.append((cleaned[current_start:], current_start, len(cleaned)))
+
+    return segments
+
+
+def _positive_int_config(config: dict[str, Any] | None, key: str, default: int) -> int:
+    value = (config or {}).get(key, default)
+    if type(value) is not int or value < 1:
+        raise ValueError(f"{key} must be a positive integer")
+    return value
+
+
 @dataclass
 class StoryboardGenerationService:
     config: dict[str, Any] | None = None
@@ -73,6 +121,8 @@ class StoryboardGenerationService:
         storyboard_count_mode: str,
         storyboard_scene_count: int | None,
     ) -> StoryboardPlan:
+        if not _normalize_text(source_text):
+            raise ValueError("source_text must not be empty")
         if storyboard_mode == "punctuation":
             segments = _split_with_predicate(source_text, _is_unicode_punctuation)
             return self._plan_from_segments(
@@ -83,10 +133,7 @@ class StoryboardGenerationService:
                 segments=segments,
             )
         if storyboard_mode == "sentence":
-            segments = _split_with_predicate(
-                source_text,
-                lambda char: char in SENTENCE_TERMINATORS,
-            )
+            segments = _sentence_segments(source_text)
             return self._plan_from_segments(
                 mode="sentence",
                 count_mode=storyboard_count_mode,
@@ -94,7 +141,9 @@ class StoryboardGenerationService:
                 source_text=source_text,
                 segments=segments,
             )
-        raise ValueError("smart storyboard mode is not implemented yet")
+        if storyboard_mode == "smart":
+            raise ValueError("smart storyboard mode is not implemented yet")
+        raise ValueError(f"unsupported storyboard mode: {storyboard_mode}")
 
     def _plan_from_segments(
         self,
@@ -107,7 +156,7 @@ class StoryboardGenerationService:
     ) -> StoryboardPlan:
         normalized_source = _normalize_text(source_text)
         effective_segments = segments or [(normalized_source, 0, len(normalized_source))]
-        max_scene_count = int((self.config or {}).get("max_scene_count", 30))
+        max_scene_count = _positive_int_config(self.config, "max_scene_count", 30)
         if len(effective_segments) > max_scene_count:
             raise ValueError(
                 "too many storyboard frames; use smart storyboard mode or shorten the text"
