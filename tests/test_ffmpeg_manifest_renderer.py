@@ -260,7 +260,12 @@ def test_ffmpeg_manifest_renderer_extracts_clip_audio_for_multiple_images(
         "concat",
         ["segment_000.mp4", "segment_001.mp4"],
         "final.mp4",
-        {"bgm_path": "bgm.mp3", "bgm_volume": 0.35, "bgm_mode": "once"},
+        {
+            "method": "filter",
+            "bgm_path": "bgm.mp3",
+            "bgm_volume": 0.35,
+            "bgm_mode": "once",
+        },
     )
 
 

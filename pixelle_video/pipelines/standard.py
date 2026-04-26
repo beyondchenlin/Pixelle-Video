@@ -70,6 +70,7 @@ from pixelle_video.services.native_prompt_projection import NativePromptProjecti
 from pixelle_video.services.render_capability_resolver import (
     RenderCapabilityInput,
     RenderCapabilityResolver,
+    RenderCapabilityResult,
 )
 from pixelle_video.services.script_generation import ScriptGenerationService
 from pixelle_video.services.storyboard_generation import StoryboardGenerationService
@@ -738,9 +739,10 @@ class StandardPipeline(LinearVideoPipeline):
     def _resolve_render_capability(self, ctx: PipelineContext):
         execution_mode = self._resolve_asset_execution_mode(ctx)
         requested_backend = getattr(ctx.config, "render_backend", LEGACY_RENDER_BACKEND)
-        has_hyperframes_native_template = (
-            self._get_hyperframes_template_unavailable_reason(ctx) is None
+        hyperframes_template_unavailable_reason = (
+            self._get_hyperframes_template_unavailable_reason(ctx)
         )
+        has_hyperframes_native_template = hyperframes_template_unavailable_reason is None
         template_prerendered = (
             execution_mode.template_type == "image"
             and execution_mode.media_domain == "image"
@@ -767,6 +769,31 @@ class StandardPipeline(LinearVideoPipeline):
                 has_hyperframes_native_template=has_hyperframes_native_template,
             )
         )
+
+        fallback_reason = result.fallback_reason
+        if (
+            result.fallback_reason
+            and requested_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND
+            and hyperframes_template_unavailable_reason
+        ):
+            fallback_reason = hyperframes_template_unavailable_reason
+        elif (
+            result.fallback_reason
+            and requested_backend == FFMPEG_MANIFEST_RENDER_BACKEND
+            and element_motion_backend == "hyperframes_canvas"
+            and hyperframes_template_unavailable_reason
+            and result.effective_backend == LEGACY_RENDER_BACKEND
+        ):
+            fallback_reason = (
+                f"{result.fallback_reason}: "
+                f"{hyperframes_template_unavailable_reason}"
+            )
+
+        if fallback_reason != result.fallback_reason:
+            result = RenderCapabilityResult(
+                effective_backend=result.effective_backend,
+                fallback_reason=fallback_reason,
+            )
         setattr(ctx, "render_backend_fallback_reason", result.fallback_reason)
         return result
 
@@ -1647,11 +1674,15 @@ class StandardPipeline(LinearVideoPipeline):
     ) -> RenderExecutionPlan:
         manifest = manifest or self._build_render_manifest_for_current_timeline(ctx)
         visual_clips = list(manifest.visual_clips)
-        template_mode = (
-            "html_prerender"
-            if any(clip.source_kind == "template_frame" for clip in visual_clips)
-            else "none"
-        )
+        effective_backend = self._resolve_effective_render_backend(ctx)
+        if effective_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND:
+            template_mode = "hyperframes_native"
+        else:
+            template_mode = (
+                "html_prerender"
+                if any(clip.source_kind == "template_frame" for clip in visual_clips)
+                else "none"
+            )
         element_motion_mode = "disabled"
         if any(clip.source_kind == "element_motion_video" for clip in visual_clips):
             element_motion_mode = "python_ffmpeg"
@@ -1662,7 +1693,7 @@ class StandardPipeline(LinearVideoPipeline):
 
         return RenderExecutionPlan(
             requested_backend=ctx.config.render_backend,
-            effective_backend=self._resolve_effective_render_backend(ctx),
+            effective_backend=effective_backend,
             fallback_reason=self._get_render_backend_fallback_reason(ctx),
             template_materialization_mode=template_mode,
             element_motion_mode=element_motion_mode,
@@ -1692,6 +1723,147 @@ class StandardPipeline(LinearVideoPipeline):
                 ],
             },
         )
+
+    def _render_execution_plan_for_metadata(
+        self,
+        ctx: PipelineContext,
+    ) -> dict[str, Any]:
+        existing = ctx.observability.get("render_execution_plan")
+        if isinstance(existing, dict):
+            return existing
+        if isinstance(existing, RenderExecutionPlan):
+            plan = existing.to_dict()
+            ctx.observability["render_execution_plan"] = plan
+            return plan
+
+        build_error: Exception | None = None
+        if getattr(ctx, "master_audio_path", None):
+            try:
+                plan = self._build_render_execution_plan(ctx).to_dict()
+            except Exception as exc:
+                build_error = exc
+                plan = self._build_minimal_render_execution_plan_for_metadata(
+                    ctx,
+                    build_error=exc,
+                ).to_dict()
+        else:
+            plan = self._build_minimal_render_execution_plan_for_metadata(
+                ctx,
+            ).to_dict()
+
+        if build_error is not None:
+            logger.debug(
+                "Falling back to minimal render execution plan during persistence: "
+                f"{build_error}"
+            )
+        ctx.observability["render_execution_plan"] = plan
+        return plan
+
+    def _build_minimal_render_execution_plan_for_metadata(
+        self,
+        ctx: PipelineContext,
+        *,
+        build_error: Exception | None = None,
+    ) -> RenderExecutionPlan:
+        requested_backend = str(
+            getattr(ctx.config, "render_backend", LEGACY_RENDER_BACKEND)
+        )
+        try:
+            effective_backend = self._resolve_effective_render_backend(ctx)
+        except Exception as exc:
+            effective_backend = requested_backend
+            build_error = build_error or exc
+
+        try:
+            fallback_reason = self._get_render_backend_fallback_reason(ctx)
+        except Exception as exc:
+            fallback_reason = getattr(ctx, "render_backend_fallback_reason", None)
+            build_error = build_error or exc
+
+        try:
+            audio_strategy = self._resolve_effective_tts_audio_strategy(ctx)
+        except Exception as exc:
+            audio_strategy = str(
+                getattr(ctx.config, "tts_audio_strategy", AUTO_TTS_AUDIO_STRATEGY)
+            )
+            build_error = build_error or exc
+
+        try:
+            subtitle_mode = (
+                "ass" if self._caption_renderer_enabled(ctx, "ass") else "disabled"
+            )
+        except Exception as exc:
+            subtitle_mode = "unknown"
+            build_error = build_error or exc
+
+        artifacts: list[RenderExecutionArtifact] = []
+        for frame in getattr(ctx.storyboard, "frames", []) or []:
+            artifact = self._minimal_render_execution_artifact_for_frame(frame)
+            if artifact is not None:
+                artifacts.append(artifact)
+
+        element_motion_mode = "disabled"
+        if any(artifact.role == "element_motion_video" for artifact in artifacts):
+            element_motion_mode = "python_ffmpeg"
+        elif getattr(ctx.config, "element_animation_enabled", False):
+            element_motion_mode = str(
+                getattr(ctx.config, "element_animation_backend", "manifest")
+            )
+
+        diagnostics: dict[str, Any] = {
+            "plan_scope": "persistence_minimal",
+            "artifact_count": len(artifacts),
+        }
+        if build_error is not None:
+            diagnostics["full_plan_error"] = str(build_error)
+
+        return RenderExecutionPlan(
+            requested_backend=requested_backend,
+            effective_backend=effective_backend,
+            fallback_reason=fallback_reason,
+            template_materialization_mode="unknown",
+            element_motion_mode=element_motion_mode,
+            subtitle_mode=subtitle_mode,
+            audio_strategy=audio_strategy,
+            artifacts=artifacts,
+            diagnostics=diagnostics,
+        )
+
+    def _minimal_render_execution_artifact_for_frame(
+        self,
+        frame: StoryboardFrame,
+    ) -> RenderExecutionArtifact | None:
+        if getattr(frame, "element_motion_video_path", None):
+            return RenderExecutionArtifact(
+                role="element_motion_video",
+                path=frame.element_motion_video_path,
+                frame_index=frame.index,
+            )
+        if getattr(frame, "video_segment_path", None):
+            return RenderExecutionArtifact(
+                role="legacy_segment",
+                path=frame.video_segment_path,
+                frame_index=frame.index,
+            )
+        if getattr(frame, "composed_image_path", None):
+            return RenderExecutionArtifact(
+                role="template_frame",
+                path=frame.composed_image_path,
+                frame_index=frame.index,
+            )
+        if getattr(frame, "video_path", None):
+            return RenderExecutionArtifact(
+                role="raw_media",
+                path=frame.video_path,
+                frame_index=frame.index,
+            )
+        if getattr(frame, "image_path", None):
+            return RenderExecutionArtifact(
+                role="raw_media",
+                path=frame.image_path,
+                frame_index=frame.index,
+            )
+        return None
 
     def _export_ass_for_manifest_if_needed(
         self,
@@ -1835,6 +2007,12 @@ class StandardPipeline(LinearVideoPipeline):
             master_audio_path=master_audio_path,
             master_audio_duration=master_audio_duration,
         )
+        visual_clips = self._build_hyperframes_visual_clips(storyboard, timing_plan)
+        await self._materialize_element_motion_for_hyperframes_visual_clips(
+            ctx,
+            visual_clips,
+        )
+        visual_clips = self._build_hyperframes_visual_clips(storyboard, timing_plan)
 
         manifest = RenderManifest(
             task_id=ctx.task_id,
@@ -1850,7 +2028,7 @@ class StandardPipeline(LinearVideoPipeline):
             audio_tracks=audio_tracks,
             audio_blocks=list(timing_plan.blocks),
             sentence_units=list(timing_plan.sentences),
-            visual_clips=self._build_hyperframes_visual_clips(storyboard, timing_plan),
+            visual_clips=visual_clips,
             caption_rendering_enabled=self._caption_renderer_enabled(ctx, "hyperframes"),
             caption_renderer_targets=list(
                 self._caption_renderer_targets_for_summary(ctx)
@@ -1869,6 +2047,10 @@ class StandardPipeline(LinearVideoPipeline):
                 else "source"
             ),
         )
+        ctx.observability["render_execution_plan"] = self._build_render_execution_plan(
+            ctx,
+            manifest=manifest,
+        ).to_dict()
         self._record_text_layer_summary(
             ctx,
             renderer="hyperframes",
@@ -1919,6 +2101,28 @@ class StandardPipeline(LinearVideoPipeline):
             storyboard.final_video_path = final_video_path
 
         logger.success(f"HyperFrames video generation completed: {ctx.final_video_path}")
+
+    async def _materialize_element_motion_for_hyperframes_visual_clips(
+        self,
+        ctx: PipelineContext,
+        visual_clips: list[VisualClip],
+    ) -> None:
+        if not getattr(ctx.config, "element_animation_enabled", False):
+            return
+        if not visual_clips:
+            return
+
+        frames_by_index = {
+            frame.index: frame
+            for frame in getattr(ctx.storyboard, "frames", []) or []
+        }
+        for clip in visual_clips:
+            frame = frames_by_index.get(clip.frame_index)
+            if frame is None:
+                continue
+
+            frame.duration = max(float(clip.end) - float(clip.start), 0.001)
+            await self._materialize_element_motion_for_frame(ctx, frame)
 
     def _build_hyperframes_audio_tracks(
         self,
@@ -2762,10 +2966,35 @@ class StandardPipeline(LinearVideoPipeline):
             if window is None:
                 continue
 
-            raw_media_path = frame.video_path if frame.media_type == "video" else frame.image_path
-            if not raw_media_path:
+            if frame.media_type == "video":
+                raw_media_path = frame.video_path or frame.image_path
+            else:
+                raw_media_path = frame.image_path or frame.video_path
+            media_path = raw_media_path
+            if frame.media_type:
+                media_type = frame.media_type
+            else:
+                media_type = "video" if raw_media_path == frame.video_path else "image"
+            source_kind = "raw_media"
+            media_role = "foreground"
+            source_media_path = None
+
+            if getattr(frame, "element_motion_video_path", None):
+                media_path = frame.element_motion_video_path
+                media_type = "video"
+                source_kind = "element_motion_video"
+                media_role = "final_frame"
+                source_media_path = raw_media_path
+
+            if not media_path:
+                missing_media_label = (
+                    "media"
+                    if getattr(frame, "element_motion_video_path", None)
+                    else "raw media"
+                )
                 logger.warning(
-                    f"Skipping HyperFrames visual clip for frame {frame.index + 1}: missing raw media"
+                    "Skipping HyperFrames visual clip for frame "
+                    f"{frame.index + 1}: missing {missing_media_label}"
                 )
                 continue
 
@@ -2774,8 +3003,16 @@ class StandardPipeline(LinearVideoPipeline):
                     "frame_index": frame.index,
                     "raw_start": max(float(window.start), 0.0),
                     "raw_end": max(float(window.end), float(window.start)),
-                    "media_path": raw_media_path,
-                    "media_type": frame.media_type or "image",
+                    "media_path": media_path,
+                    "media_type": media_type,
+                    "source_kind": source_kind,
+                    "media_role": media_role,
+                    "element_animation_manifest_path": getattr(
+                        frame,
+                        "element_animation_manifest_path",
+                        None,
+                    ),
+                    "source_media_path": source_media_path,
                 }
             )
 
@@ -2813,6 +3050,12 @@ class StandardPipeline(LinearVideoPipeline):
                     end=clip_end,
                     media_path=spec["media_path"],
                     media_type=spec["media_type"],
+                    source_kind=spec["source_kind"],
+                    media_role=spec["media_role"],
+                    element_animation_manifest_path=spec[
+                        "element_animation_manifest_path"
+                    ],
+                    source_media_path=spec["source_media_path"],
                 )
             )
 
@@ -2877,20 +3120,18 @@ class StandardPipeline(LinearVideoPipeline):
             input_with_title["render_backend"] = effective_backend
             input_with_title["render_backend_requested"] = requested_backend
             input_with_title["render_backend_effective"] = effective_backend
+            render_execution_plan = self._render_execution_plan_for_metadata(ctx)
             result_metadata = {
                 "video_path": result.video_path,
                 "duration": result.duration,
                 "file_size": result.file_size,
                 "n_frames": len(storyboard.frames),
+                "render_execution_plan": render_execution_plan,
                 **build_text_rendering_result_metadata(
                     ctx.observability,
                     text_render_package_path=TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
                 ),
             }
-            if "render_execution_plan" in ctx.observability:
-                result_metadata["render_execution_plan"] = ctx.observability[
-                    "render_execution_plan"
-                ]
             
             metadata = {
                 "task_id": task_id,

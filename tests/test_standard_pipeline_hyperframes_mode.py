@@ -466,6 +466,54 @@ def test_build_hyperframes_visual_clips_splits_shared_sentence_window_between_fr
     ]
 
 
+def test_build_hyperframes_visual_clips_carries_element_motion_artifacts(tmp_path):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(
+        tmp_path,
+        frame_template="1080x1920/image_default.html",
+    )
+
+    ctx.storyboard.total_duration = 3.0
+    first_raw = tmp_path / "00_raw.png"
+    second_raw = tmp_path / "01_raw.png"
+    second_motion = tmp_path / "01_motion.mp4"
+    for path in (first_raw, second_raw, second_motion):
+        path.write_bytes(b"media")
+
+    ctx.storyboard.frames[0].media_type = "image"
+    ctx.storyboard.frames[0].image_path = str(first_raw)
+    ctx.storyboard.frames[0].element_animation_manifest_path = "element/frame_000.json"
+    ctx.storyboard.frames[1].media_type = "image"
+    ctx.storyboard.frames[1].image_path = str(second_raw)
+    ctx.storyboard.frames[1].element_animation_manifest_path = "element/frame_001.json"
+    ctx.storyboard.frames[1].element_motion_video_path = str(second_motion)
+
+    ctx.timing_plan.sentences[0].source_start = 0.0
+    ctx.timing_plan.sentences[0].source_end = 1.2
+    ctx.timing_plan.sentences[1].source_start = 1.2
+    ctx.timing_plan.sentences[1].source_end = 3.0
+    ctx.timing_plan.blocks[0].start = 0.0
+    ctx.timing_plan.blocks[0].end = 1.2
+    ctx.timing_plan.blocks[1].start = 1.2
+    ctx.timing_plan.blocks[1].end = 3.0
+
+    clips = pipeline._build_hyperframes_visual_clips(ctx.storyboard, ctx.timing_plan)
+
+    assert [clip.element_animation_manifest_path for clip in clips] == [
+        "element/frame_000.json",
+        "element/frame_001.json",
+    ]
+    assert clips[0].media_path == str(first_raw)
+    assert clips[0].media_type == "image"
+    assert clips[0].source_kind == "raw_media"
+    assert clips[1].media_path == str(second_motion)
+    assert clips[1].media_type == "video"
+    assert clips[1].source_kind == "element_motion_video"
+    assert clips[1].media_role == "final_frame"
+    assert clips[1].source_media_path == str(second_raw)
+
+
 @pytest.mark.asyncio
 async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths(monkeypatch, tmp_path):
     monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
@@ -552,6 +600,68 @@ async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths
     assert requested_output.exists()
     assert ctx.final_video_path == str(requested_output)
     assert ctx.storyboard.final_video_path == str(requested_output)
+
+
+@pytest.mark.asyncio
+async def test_post_production_materializes_element_motion_after_final_hyperframes_timing(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
+
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(
+        tmp_path,
+        frame_template="1080x1920/image_default.html",
+    )
+    ctx.config.element_animation_enabled = True
+    ctx.config.element_animation_backend = "hyperframes_canvas"
+    ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        Path(frame.image_path).write_bytes(b"raw")
+
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
+        Path(output_path).write_bytes(b"master-audio")
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    def fake_get_audio_duration(audio_path):
+        return 3.0 if str(audio_path).endswith("master_audio.wav") else 1.5
+
+    materialized: list[tuple[int, float]] = []
+
+    async def fake_materialize_element_motion(context, frame):
+        materialized.append((frame.index, frame.duration))
+        frame.element_animation_manifest_path = f"element/frame_{frame.index:03d}.json"
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", fake_get_audio_duration)
+    monkeypatch.setattr(
+        pipeline,
+        "_materialize_element_motion_for_frame",
+        fake_materialize_element_motion,
+    )
+
+    await pipeline.post_production(ctx)
+
+    assert materialized == [
+        (0, pytest.approx(1.6)),
+        (1, pytest.approx(1.4)),
+    ]
+    assert [
+        clip.element_animation_manifest_path
+        for clip in core.hyperframes_project_service.manifest.visual_clips
+    ] == [
+        "element/frame_000.json",
+        "element/frame_001.json",
+    ]
 
 
 @pytest.mark.asyncio
@@ -1122,3 +1232,8 @@ async def test_persist_task_data_records_requested_and_effective_backend_when_hy
     assert metadata["config"]["render_backend"] == "legacy"
     assert metadata["config"]["render_backend_requested"] == "hyperframes_compiled"
     assert metadata["config"]["render_backend_effective"] == "legacy"
+    execution_plan = metadata["result"]["render_execution_plan"]
+    assert execution_plan["requested_backend"] == "hyperframes_compiled"
+    assert execution_plan["effective_backend"] == "legacy"
+    assert "HyperFrames template directory" in execution_plan["fallback_reason"]
+    assert metadata["observability"]["render_execution_plan"] == execution_plan

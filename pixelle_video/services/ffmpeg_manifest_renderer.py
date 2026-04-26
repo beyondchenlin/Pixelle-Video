@@ -138,6 +138,7 @@ class FfmpegManifestRenderer:
         return self.video_service.concat_videos(
             segment_paths,
             output_path,
+            method="filter",
             bgm_path=bgm_path,
             bgm_volume=bgm_volume,
             bgm_mode=bgm_mode,
