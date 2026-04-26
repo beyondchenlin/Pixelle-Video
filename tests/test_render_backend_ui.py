@@ -238,8 +238,8 @@ def test_render_tts_audio_strategy_selector_uses_runtime_default(monkeypatch):
     selected = style_config.render_tts_audio_strategy_selector()
 
     assert selected == "master_track"
-    assert captured["options"] == ["auto", "per_frame", "master_track"]
-    assert captured["index"] == 2
+    assert captured["options"] == ["auto", "master_track"]
+    assert captured["index"] == 1
     assert captured["key"] == "tts_audio_strategy_select"
 
 
@@ -252,6 +252,17 @@ def test_copy_tts_audio_strategy_transfers_supported_value():
     )
 
     assert target["tts_audio_strategy"] == "master_track"
+
+
+def test_copy_tts_audio_strategy_ignores_per_frame_for_standard_requests():
+    target = {}
+
+    tts_audio_strategy_ui.copy_tts_audio_strategy(
+        {"tts_audio_strategy": "per_frame"},
+        target,
+    )
+
+    assert target == {}
 
 
 def test_copy_tts_split_settings_transfers_supported_values():

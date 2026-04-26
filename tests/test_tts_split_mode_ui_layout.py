@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from pixelle_video.tts_audio_strategy import SUPPORTED_TTS_AUDIO_STRATEGIES
+from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
 from web.components import style_config
 
@@ -82,7 +82,7 @@ def test_tts_selectors_render_as_inline_radio_groups(monkeypatch):
     radio_calls_by_key = {call["key"]: call for call in fake_st.radio_calls}
     assert radio_calls_by_key["tts_audio_strategy_select"]["horizontal"] is True
     assert radio_calls_by_key["tts_audio_strategy_select"]["options"] == list(
-        SUPPORTED_TTS_AUDIO_STRATEGIES
+        SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
     )
     assert radio_calls_by_key["tts_split_mode_select"]["horizontal"] is True
     assert radio_calls_by_key["tts_split_mode_select"]["options"] == list(
@@ -136,7 +136,7 @@ def test_tts_selector_functions_route_through_shared_inline_radio(monkeypatch):
     ] == [
         {
             "label": "tts_audio_strategy.label",
-            "options": list(SUPPORTED_TTS_AUDIO_STRATEGIES),
+            "options": list(SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES),
             "index": 0,
             "key": "tts_audio_strategy_select",
             "help_text": "tts_audio_strategy.help",

@@ -65,6 +65,7 @@ import importlib.util
 import sys
 from pathlib import Path
 import streamlit as st
+from pixelle_video.config.schema import PixelleVideoConfig
 import pixelle_video.utils.template_util as template_util
 import pixelle_video.services.frame_html as frame_html
 
@@ -80,28 +81,36 @@ st.session_state['template_requires_media'] = True
 
 style_config.tr = lambda key, **kwargs: key
 style_config.get_language = lambda: 'en_US'
-style_config.config_manager.get_comfyui_config = lambda: {
-    'tts': {
-        'inference_mode': 'local',
-        'local': {'voice': 'zh-CN-YunjianNeural', 'speed': 1.2},
-        'comfyui': {},
-    },
-    'image': {},
-    'video': {},
-}
+class _FakeConfigManager:
+    def __init__(self):
+        self.config = PixelleVideoConfig()
+    def get_comfyui_config(self):
+        return {
+            'tts': {
+                'inference_mode': 'local',
+                'local': {'voice': 'zh-CN-YunjianNeural', 'speed': 1.2},
+                'comfyui': {},
+            },
+            'image': {},
+            'video': {},
+        }
+    def get_storyboard_world_preset_library(self):
+        return {
+            'default_world_preset_id': 'neutral_knowledge_storyboard',
+            'items': [{'preset_id': 'neutral_knowledge_storyboard', 'display_name': 'Neutral'}],
+        }
+    def get_storyboard_shot_preset_library(self):
+        return {
+            'default_shot_preset_id': 'balanced_explainer',
+            'items': [{'preset_id': 'balanced_explainer', 'display_name': 'Balanced'}],
+        }
+
+style_config.config_manager = _FakeConfigManager()
 style_config.render_render_backend_selector = lambda: 'render_backend'
 style_config.render_tts_audio_strategy_selector = lambda: 'auto'
 style_config.render_storyboard_planning_guide = lambda: None
 style_config.render_storyboard_preview = lambda _snapshot: []
 style_config._render_image_prompt_prefix_library = lambda **_kwargs: ''
-style_config.config_manager.get_storyboard_world_preset_library = lambda: {
-    'default_world_preset_id': 'neutral_knowledge_storyboard',
-    'items': [{'preset_id': 'neutral_knowledge_storyboard', 'display_name': 'Neutral'}],
-}
-style_config.config_manager.get_storyboard_shot_preset_library = lambda: {
-    'default_shot_preset_id': 'balanced_explainer',
-    'items': [{'preset_id': 'balanced_explainer', 'display_name': 'Balanced'}],
-}
 
 template_util.get_template_type = lambda _template_name: 'image'
 template_util.get_templates_grouped_by_size_and_type = lambda _template_type: {

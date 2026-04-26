@@ -266,6 +266,27 @@ async def test_core_generate_video_rejects_scene_count_above_configured_limit():
 
 
 @pytest.mark.asyncio
+async def test_core_generate_video_rejects_per_frame_audio_strategy_for_standard_pipeline():
+    class _Pipeline:
+        def __init__(self):
+            self.calls = 0
+
+        async def __call__(self, *, text, **kwargs):
+            self.calls += 1
+            return SimpleNamespace(text=text, kwargs=kwargs)
+
+    core = PixelleVideoCore()
+    pipeline = _Pipeline()
+    core.pipelines = {"standard": pipeline}
+    core.generate_video = core._create_generate_video_wrapper()
+
+    with pytest.raises(ValueError, match="per_frame"):
+        await core.generate_video(text="demo", tts_audio_strategy="per_frame")
+
+    assert pipeline.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_core_initialize_does_not_register_custom_template_pipeline_by_default(monkeypatch):
     import pixelle_video.service as service_module
 

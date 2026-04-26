@@ -11,6 +11,10 @@ SUPPORTED_TTS_AUDIO_STRATEGIES: Final[tuple[TTSAudioStrategy, ...]] = (
     PER_FRAME_TTS_AUDIO_STRATEGY,
     MASTER_TRACK_TTS_AUDIO_STRATEGY,
 )
+SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES: Final[tuple[TTSAudioStrategy, ...]] = (
+    AUTO_TTS_AUDIO_STRATEGY,
+    MASTER_TRACK_TTS_AUDIO_STRATEGY,
+)
 
 
 def validate_tts_audio_strategy(value: str) -> TTSAudioStrategy:

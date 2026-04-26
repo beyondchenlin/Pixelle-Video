@@ -79,8 +79,8 @@ class PixelleVideoCore:
           ├── media (Media service - ComfyKit workflows, supports image & video)
           └── pipelines (video generation pipelines)
               ├── standard (standard workflow)
-              ├── custom (custom workflow template)
-              └── ... (extensible)
+              ├── asset_based (asset-driven workflow)
+              └── ... (explicitly registered private workflows)
     """
     
     def __init__(self, config_path: str = "config.yaml"):

@@ -46,7 +46,7 @@ from pixelle_video.prompts.prompt_prefix_generation import (
     build_prompt_prefix_generation_prompt,
 )
 from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
-from pixelle_video.tts_audio_strategy import SUPPORTED_TTS_AUDIO_STRATEGIES
+from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_prefix_generation import (
@@ -3336,7 +3336,7 @@ def _render_tts_inline_radio(
 
 def render_tts_audio_strategy_selector() -> str:
     """Render the per-task TTS audio strategy selector for Web UI."""
-    options = list(SUPPORTED_TTS_AUDIO_STRATEGIES)
+    options = list(SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES)
     configured_strategy = get_tts_audio_strategy_default(
         config_manager.config.render.timing.tts_audio_strategy
     )

@@ -732,10 +732,14 @@ class StandardPipeline(LinearVideoPipeline):
         return LEGACY_RENDER_BACKEND
 
     def _resolve_effective_tts_audio_strategy(self, ctx: PipelineContext) -> str:
+        requested_strategy = getattr(ctx.config, "tts_audio_strategy", AUTO_TTS_AUDIO_STRATEGY)
+        if requested_strategy == PER_FRAME_TTS_AUDIO_STRATEGY:
+            raise ValueError(
+                "per_frame tts_audio_strategy is not supported in standard video generation"
+            )
         if self._is_hyperframes_render_path(ctx):
             return MASTER_TRACK_TTS_AUDIO_STRATEGY
 
-        requested_strategy = getattr(ctx.config, "tts_audio_strategy", AUTO_TTS_AUDIO_STRATEGY)
         if requested_strategy == AUTO_TTS_AUDIO_STRATEGY:
             return MASTER_TRACK_TTS_AUDIO_STRATEGY
         return requested_strategy

@@ -11,12 +11,13 @@
 # limitations under the License.
 
 """
-Custom Video Generation Pipeline
+Legacy custom video generation pipeline.
 
-Template pipeline for creating your own custom video generation workflows.
-This serves as a reference implementation showing how to extend BasePipeline.
-
-For real projects, copy this file and modify it according to your needs.
+This module remains as an internal extension example for teams that need to
+experiment with BasePipeline directly. It is not registered by default and it
+does not define the standard storyboard contract. New video generation work
+should extend the standard chain instead: source_text -> StoryboardPlan ->
+CaptionSpeechPlan -> ImagePromptComposer -> rendered frames.
 """
 
 from datetime import datetime
@@ -58,12 +59,15 @@ from pixelle_video.utils.prompt_generation_performance import (
 
 class CustomPipeline(BasePipeline):
     """
-    Custom video generation pipeline template
+    Legacy custom video generation pipeline template.
     
-    This is a template showing how to create your own pipeline with custom logic.
+    This is an unregistered BasePipeline example for bespoke workflows that
+    intentionally opt out of the standard storyboard contract. Do not copy this
+    class as a starting point for normal video generation; use StandardPipeline
+    and its StoryboardGenerationService/ImagePromptComposer chain instead.
     You can customize:
     - Content processing logic
-    - Narration generation strategy
+    - Legacy frame text strategy
     - Image prompt generation (conditional based on template)
     - Frame composition
     - Video assembly
@@ -79,18 +83,18 @@ class CustomPipeline(BasePipeline):
     
     Usage patterns:
       1. Text-only videos: Use templates/1080x1920/simple.html
-      2. AI-generated images: Use templates with {{image}} placeholder
+      2. Legacy media experiments: Use templates with {{image}} placeholder
       3. Custom logic: Modify template or override the detection logic in your subclass
     
-    Example usage:
+    Legacy usage:
         # 1. Create your own pipeline by copying this file
         # 2. Modify the __call__ method with your custom logic
-        # 3. Register it in service.py or dynamically
+        # 3. Register it dynamically only for that private workflow
         
         from pixelle_video.pipelines.custom import CustomPipeline
         pixelle_video.pipelines["my_custom"] = CustomPipeline(pixelle_video)
         
-        # 4. Use it
+        # 4. Use it outside the standard storyboard path
         result = await pixelle_video.generate_video(
             text=your_content,
             pipeline="my_custom",
@@ -246,7 +250,7 @@ class CustomPipeline(BasePipeline):
             logger.info("⚡ Static template - skipping media generation pipeline")
             logger.info("   💡 Benefits: Faster generation + Lower cost + No ComfyUI dependency")
         
-        # ========== Step 1: Process content (CUSTOMIZE THIS) ==========
+        # ========== Step 1: Process legacy frame text (CUSTOMIZE THIS) ==========
         self._report_progress(progress_callback, "processing_content", 0.10)
         
         # Example: Generate title using LLM
@@ -254,19 +258,10 @@ class CustomPipeline(BasePipeline):
         title = await generate_title(self.llm, text, strategy="llm")
         logger.info(f"Generated title: '{title}'")
         
-        # Example: Split or generate narrations
-        # Option A: Split by lines (for fixed script)
+        # Legacy example: split fixed text into frame bodies. Standard video
+        # generation must use StoryboardGenerationService and CaptionSpeechPlan
+        # instead of treating these strings as the source of speech/subtitles.
         narrations = [line.strip() for line in text.split('\n') if line.strip()]
-        
-        # Option B: Use LLM to generate narrations (uncomment to use)
-        # from pixelle_video.utils.content_generators import generate_narrations_from_topic
-        # narrations = await generate_narrations_from_topic(
-        #     self.llm,
-        #     topic=text,
-        #     n_scenes=5,
-        #     min_words=20,
-        #     max_words=80
-        # )
         
         logger.info(f"Generated {len(narrations)} narrations")
         text_contract_context = SimpleNamespace(observability={})
@@ -295,7 +290,8 @@ class CustomPipeline(BasePipeline):
         # IMPORTANT: Check if template is image type
         # If your template is static_*.html, you can skip this entire step!
         if template_requires_media:
-            # Template requires media - generate prompts using the shared styled pipeline
+            # Legacy extension path: this helper is kept for private custom
+            # pipelines. Standard videos compose prompts through ImagePromptComposer.
             from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
             
             media_type = "video" if template_type == "video" else "image"
@@ -624,38 +620,32 @@ class CustomPipeline(BasePipeline):
         return response.strip()
 
 
-# ==================== Usage Examples ====================
+# ==================== Legacy Usage Examples ====================
 
 """
-Example 1: Text-only video (no AI image generation)
+Example 1: Private text-only pipeline experiment
 ---------------------------------------------------
 from pixelle_video import pixelle_video
 from pixelle_video.pipelines.custom import CustomPipeline
 
-# Initialize
 await pixelle_video.initialize()
 
-# Register custom pipeline
+# CustomPipeline is not registered by default. Register it only for a private
+# workflow that intentionally opts out of the standard storyboard contract.
 pixelle_video.pipelines["my_custom"] = CustomPipeline(pixelle_video)
 
-# Use text-only template - no image generation!
 result = await pixelle_video.generate_video(
     text="Your content here",
     pipeline="my_custom",
     frame_template="1080x1920/simple.html"  # Template without {{image}}
 )
-# Benefits: ⚡ Fast, 💰 Cheap, 🚀 No ComfyUI needed
 
 
-Example 2: AI-generated image video
+Example 2: Standard storyboard extension path
 ---------------------------------------------------
-# Use template with {{image}} - automatic image generation
-result = await pixelle_video.generate_video(
-    text="Your content here",
-    pipeline="my_custom",
-    frame_template="1080x1920/default.html"  # Template with {{image}}
-)
-# Will automatically generate images via LLM + ComfyUI
+# For normal video generation, keep pipeline="standard" and extend the
+# StoryboardGenerationService/ImagePromptComposer contracts instead of splitting
+# text into narrations inside a custom pipeline.
 
 
 Example 3: Create your own pipeline class
@@ -664,33 +654,7 @@ from pixelle_video.pipelines.custom import CustomPipeline
 
 class MySpecialPipeline(CustomPipeline):
     async def __call__(self, text: str, **kwargs):
-        # Your completely custom logic
+        # Private workflow logic that opts out of the standard storyboard chain.
         logger.info("Running my special pipeline")
-        
-        # You can reuse parts from CustomPipeline or start from scratch
-        # ...
-        
         return result
-
-
-Example 4: Inline custom pipeline
-----------------------------------------
-from pixelle_video.pipelines.base import BasePipeline
-
-class QuickPipeline(BasePipeline):
-    async def __call__(self, text: str, **kwargs):
-        # Quick custom logic
-        narrations = text.split('\\n')
-        
-        for narration in narrations:
-            audio = await self.tts(narration)
-            image = await self.image(prompt=f"illustration of {narration}")
-            # ... process frame
-        
-        # ... concatenate and return
-        return result
-
-# Use immediately
-pixelle_video.pipelines["quick"] = QuickPipeline(pixelle_video)
-result = await pixelle_video.generate_video(text=content, pipeline="quick")
 """
