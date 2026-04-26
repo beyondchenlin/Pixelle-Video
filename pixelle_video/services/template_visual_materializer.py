@@ -16,11 +16,11 @@ VALID_TEMPLATE_TEXT_POLICIES = {
 RESERVED_TEMPLATE_PARAMS = {"title", "text", "image", "index"}
 
 
-def resolve_template_body_text(narration: str, text_policy: str) -> str:
+def resolve_template_body_text(template_body_text: str, text_policy: str) -> str:
     if text_policy not in VALID_TEMPLATE_TEXT_POLICIES:
         raise ValueError(f"Invalid template text policy: {text_policy}")
     if text_policy in {"template_body", "explicit_both"}:
-        return narration
+        return template_body_text
     return ""
 
 
@@ -40,7 +40,7 @@ class TemplateVisualMaterializer:
         self,
         *,
         title: str,
-        narration: str,
+        template_body_text: str,
         media_path: str | None,
         frame_index: int,
         template_path: str | PathLike[str],
@@ -49,7 +49,7 @@ class TemplateVisualMaterializer:
         text_policy: str,
         template_params: Mapping[str, Any] | None = None,
     ) -> TemplateVisualAsset:
-        body_text = resolve_template_body_text(narration, text_policy)
+        body_text = resolve_template_body_text(template_body_text, text_policy)
         validated_template_params = _validate_template_params(template_params)
         generator = HTMLFrameGenerator(str(template_path))
         ext = {"index": int(frame_index) + 1}

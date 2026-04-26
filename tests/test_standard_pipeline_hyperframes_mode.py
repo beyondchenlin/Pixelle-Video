@@ -56,8 +56,8 @@ class _HyperframesFrameProcessor:
         frame.media_type = "image"
         frame.image_path = str(self.tmp_path / f"{frame.index:02d}_raw.png")
 
-    async def _step_compose_frame(self, frame, storyboard, config, *, body_text_override=None):
-        self.calls.append(("compose", frame.index, body_text_override))
+    async def _step_compose_frame(self, frame, storyboard, config, *, template_body_text=None):
+        self.calls.append(("compose", frame.index, template_body_text))
         frame.composed_image_path = str(self.tmp_path / f"{frame.index:02d}_shell.png")
 
     async def _step_create_video_segment(self, frame, config):

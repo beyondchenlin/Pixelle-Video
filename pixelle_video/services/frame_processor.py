@@ -40,14 +40,14 @@ from pixelle_video.utils.template_util import get_template_type
 IMAGE_SEGMENT_MIN_FPS = 90
 
 
-def _resolve_body_text(
-    narration: str,
-    body_text_override: Optional[str] = None,
+def _format_template_body_text(
+    default_body_text: str,
+    template_body_text: Optional[str] = None,
     *,
     punctuation_mode: str = "strip_all",
 ) -> str:
-    """Resolve the burned-in body text, allowing shell-only renders to omit subtitles."""
-    source_text = narration if body_text_override is None else body_text_override
+    """Resolve text explicitly intended for the HTML template body."""
+    source_text = default_body_text if template_body_text is None else template_body_text
     return format_caption_text(source_text, punctuation_mode=punctuation_mode)
 
 
@@ -75,7 +75,7 @@ class FrameProcessor:
         config: StoryboardConfig,
         total_frames: int = 1,
         progress_callback: Optional[Callable[[ProgressEvent], None]] = None,
-        body_text_override: Optional[str] = None,
+        template_body_text: Optional[str] = None,
     ) -> StoryboardFrame:
         """
         Process single frame through complete pipeline
@@ -92,7 +92,9 @@ class FrameProcessor:
             config: Storyboard configuration
             total_frames: Total number of frames in storyboard
             progress_callback: Optional callback for progress updates (receives ProgressEvent)
-            body_text_override: Optional burned-in body text override for shell-only rendering
+            template_body_text: Optional text to render inside the HTML template body.
+                An empty string means shell-only rendering; None lets the configured
+                template text policy choose its legacy default.
             
         Returns:
             Processed frame with all paths filled
@@ -159,7 +161,7 @@ class FrameProcessor:
                 frame,
                 storyboard,
                 config,
-                body_text_override=body_text_override,
+                template_body_text=template_body_text,
             )
             
             # Step 4: Create video segment
@@ -450,7 +452,7 @@ class FrameProcessor:
         storyboard: 'Storyboard',
         config: StoryboardConfig,
         *,
-        body_text_override: Optional[str] = None,
+        template_body_text: Optional[str] = None,
     ):
         """Step 3: Compose frame with subtitle using HTML template"""
         logger.debug(f"  3/4: Composing frame {frame.index}...")
@@ -467,7 +469,7 @@ class FrameProcessor:
             storyboard,
             config,
             output_path,
-            body_text_override=body_text_override,
+            template_body_text=template_body_text,
         )
         
         frame.composed_image_path = composed_path
@@ -481,7 +483,7 @@ class FrameProcessor:
         config: StoryboardConfig,
         output_path: str,
         *,
-        body_text_override: Optional[str] = None,
+        template_body_text: Optional[str] = None,
     ) -> str:
         """Compose frame using HTML template"""
         from pixelle_video.services.template_visual_materializer import TemplateVisualMaterializer
@@ -490,11 +492,11 @@ class FrameProcessor:
         # Resolve template path (handles various input formats)
         template_path = resolve_template_path(config.frame_template)
         text_policy = getattr(config, "template_text_policy", "caption_renderer")
-        if body_text_override is not None:
-            text_policy = "template_body" if body_text_override else "caption_renderer"
-        body_text = _resolve_body_text(
+        if template_body_text is not None:
+            text_policy = "template_body" if template_body_text else "caption_renderer"
+        body_text = _format_template_body_text(
             frame.narration,
-            body_text_override,
+            template_body_text,
             punctuation_mode=config.caption_punctuation_mode,
         )
         
@@ -504,7 +506,7 @@ class FrameProcessor:
         
         asset = await TemplateVisualMaterializer().materialize_frame(
             title=storyboard.title,
-            narration=body_text,
+            template_body_text=body_text,
             media_path=media_path,
             frame_index=frame.index,
             template_path=template_path,

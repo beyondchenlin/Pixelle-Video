@@ -216,7 +216,7 @@ def test_concat_audio_files_applies_pcm_boundary_fade(monkeypatch, tmp_path):
 class _RecordingFrameProcessor:
     def __init__(self, *, fail_on=None):
         self.calls = []
-        self.compose_body_overrides = []
+        self.compose_template_body_texts = []
         self.fail_on = fail_on
 
     async def _step_generate_audio(self, frame, config):
@@ -233,9 +233,9 @@ class _RecordingFrameProcessor:
         frame.media_type = "image"
         frame.image_path = f"image-{frame.index}.png"
 
-    async def _step_compose_frame(self, frame, storyboard, config, *, body_text_override=None):
+    async def _step_compose_frame(self, frame, storyboard, config, *, template_body_text=None):
         self.calls.append(("compose", frame.index))
-        self.compose_body_overrides.append((frame.index, body_text_override))
+        self.compose_template_body_texts.append((frame.index, template_body_text))
         frame.composed_image_path = f"composed-{frame.index}.png"
 
     async def _step_create_video_segment(self, frame, config):
@@ -328,7 +328,7 @@ async def test_produce_assets_staged_omits_burned_frame_text_when_caption_render
 
     await pipeline.produce_assets(ctx)
 
-    assert core.frame_processor.compose_body_overrides == [
+    assert core.frame_processor.compose_template_body_texts == [
         (0, ""),
         (1, ""),
     ]
@@ -344,8 +344,8 @@ async def test_legacy_staged_compose_defaults_to_caption_renderer_text_policy(mo
 
     compose_calls = []
 
-    async def fake_compose(frame, storyboard, config, *, body_text_override=None):
-        compose_calls.append((frame.index, body_text_override))
+    async def fake_compose(frame, storyboard, config, *, template_body_text=None):
+        compose_calls.append((frame.index, template_body_text))
         frame.composed_image_path = f"composed-{frame.index}.png"
 
     monkeypatch.setattr(core.frame_processor, "_step_compose_frame", fake_compose)
@@ -353,6 +353,27 @@ async def test_legacy_staged_compose_defaults_to_caption_renderer_text_policy(mo
     await pipeline.produce_assets(ctx)
 
     assert compose_calls == [(0, ""), (1, "")]
+
+
+@pytest.mark.asyncio
+async def test_legacy_staged_compose_preserves_template_body_text_policy(monkeypatch):
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    ctx.config.template_text_policy = "template_body"
+
+    compose_calls = []
+
+    async def fake_compose(frame, storyboard, config, *, template_body_text=None):
+        compose_calls.append((frame.index, template_body_text))
+        frame.composed_image_path = f"composed-{frame.index}.png"
+
+    monkeypatch.setattr(core.frame_processor, "_step_compose_frame", fake_compose)
+
+    await pipeline.produce_assets(ctx)
+
+    assert compose_calls == [(0, None), (1, None)]
 
 
 @pytest.mark.asyncio
@@ -379,7 +400,7 @@ class _CallableFrameProcessor(_RecordingFrameProcessor):
     def __init__(self):
         super().__init__()
         self.invocations = []
-        self.body_text_overrides = []
+        self.template_body_texts = []
 
     async def __call__(
         self,
@@ -388,10 +409,10 @@ class _CallableFrameProcessor(_RecordingFrameProcessor):
         config,
         total_frames=1,
         progress_callback=None,
-        body_text_override=None,
+        template_body_text=None,
     ):
         self.invocations.append(frame.index)
-        self.body_text_overrides.append(body_text_override)
+        self.template_body_texts.append(template_body_text)
         if progress_callback:
             progress_callback(
                 ProgressEvent(
@@ -421,7 +442,7 @@ class _ConcurrentCallableFrameProcessor(_CallableFrameProcessor):
         config,
         total_frames=1,
         progress_callback=None,
-        body_text_override=None,
+        template_body_text=None,
     ):
         self.active += 1
         self.max_active = max(self.max_active, self.active)
@@ -433,7 +454,7 @@ class _ConcurrentCallableFrameProcessor(_CallableFrameProcessor):
                 config,
                 total_frames=total_frames,
                 progress_callback=progress_callback,
-                body_text_override=body_text_override,
+                template_body_text=template_body_text,
             )
         finally:
             self.active -= 1
@@ -525,7 +546,7 @@ async def test_produce_assets_callable_legacy_omits_burned_frame_text_when_capti
 
     await pipeline.produce_assets(ctx)
 
-    assert core.frame_processor.body_text_overrides == ["", ""]
+    assert core.frame_processor.template_body_texts == ["", ""]
 
 
 @pytest.mark.asyncio

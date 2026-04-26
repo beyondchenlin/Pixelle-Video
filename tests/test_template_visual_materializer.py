@@ -10,10 +10,10 @@ from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 
 
 def test_resolve_template_body_text_defaults_to_caption_renderer():
-    assert resolve_template_body_text("Narration", "caption_renderer") == ""
-    assert resolve_template_body_text("Narration", "none") == ""
-    assert resolve_template_body_text("Narration", "template_body") == "Narration"
-    assert resolve_template_body_text("Narration", "explicit_both") == "Narration"
+    assert resolve_template_body_text("Template body", "caption_renderer") == ""
+    assert resolve_template_body_text("Template body", "none") == ""
+    assert resolve_template_body_text("Template body", "template_body") == "Template body"
+    assert resolve_template_body_text("Template body", "explicit_both") == "Template body"
 
 
 def test_template_visual_asset_is_immutable():
@@ -48,7 +48,7 @@ async def test_template_visual_materializer_rejects_invalid_policy_before_loadin
     with pytest.raises(ValueError, match="Invalid template text policy"):
         await TemplateVisualMaterializer().materialize_frame(
             title="Demo",
-            narration="Narration",
+            template_body_text="Template body",
             media_path=None,
             frame_index=0,
             template_path="missing.html",
@@ -74,7 +74,7 @@ async def test_template_visual_materializer_rejects_reserved_template_params(
     with pytest.raises(ValueError, match="reserved template parameter"):
         await TemplateVisualMaterializer().materialize_frame(
             title="Demo",
-            narration="Narration",
+            template_body_text="Template body",
             media_path="raw.png",
             frame_index=0,
             template_path="templates/1080x1920/image_default.html",
@@ -113,7 +113,7 @@ async def test_template_visual_materializer_renders_html_with_text_policy(tmp_pa
     materializer = TemplateVisualMaterializer()
     result = await materializer.materialize_frame(
         title="Demo",
-        narration="Narration",
+        template_body_text="Template body",
         media_path="raw.png",
         frame_index=0,
         template_path="templates/1080x1920/image_default.html",

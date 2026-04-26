@@ -740,7 +740,10 @@ class StandardPipeline(LinearVideoPipeline):
             return MASTER_TRACK_TTS_AUDIO_STRATEGY
         return requested_strategy
 
-    def _legacy_body_text_override_for_captions(self, ctx: PipelineContext) -> Optional[str]:
+    def _legacy_template_body_text_for_captions(self, ctx: PipelineContext) -> Optional[str]:
+        template_text_policy = getattr(ctx.config, "template_text_policy", "caption_renderer")
+        if template_text_policy in {"template_body", "explicit_both"}:
+            return None
         if self._caption_renderer_enabled(ctx, "ass"):
             return ""
         return None
@@ -934,7 +937,7 @@ class StandardPipeline(LinearVideoPipeline):
         self,
         ctx: PipelineContext,
         *,
-        body_text_override: Optional[str] = None,
+        template_body_text: Optional[str] = None,
     ):
         storyboard = ctx.storyboard
         config = ctx.config
@@ -988,7 +991,7 @@ class StandardPipeline(LinearVideoPipeline):
                 frame,
                 storyboard,
                 config,
-                body_text_override=body_text_override,
+                template_body_text=template_body_text,
             )
 
         for frame in storyboard.frames:
@@ -1017,8 +1020,8 @@ class StandardPipeline(LinearVideoPipeline):
         if effective_tts_audio_strategy == MASTER_TRACK_TTS_AUDIO_STRATEGY:
             await self._prepare_legacy_master_track_audio(ctx)
 
-        body_text_override = (
-            self._legacy_body_text_override_for_captions(ctx)
+        template_body_text = (
+            self._legacy_template_body_text_for_captions(ctx)
             if effective_tts_audio_strategy == MASTER_TRACK_TTS_AUDIO_STRATEGY
             else None
         )
@@ -1030,7 +1033,7 @@ class StandardPipeline(LinearVideoPipeline):
         runninghub_concurrent_limit = config_manager.config.comfyui.runninghub_concurrent_limit or 1
 
         if execution_mode.use_staged_mode:
-            await self._produce_assets_staged(ctx, body_text_override=body_text_override)
+            await self._produce_assets_staged(ctx, template_body_text=template_body_text)
             logger.info(
                 f"All frames processed in staged mode (total duration: {storyboard.total_duration:.2f}s)"
             )
@@ -1078,7 +1081,7 @@ class StandardPipeline(LinearVideoPipeline):
                         config=config,
                         total_frames=len(storyboard.frames),
                         progress_callback=frame_progress_callback,
-                        body_text_override=body_text_override,
+                        template_body_text=template_body_text,
                     )
                     
                     completed_count += 1
@@ -1133,7 +1136,7 @@ class StandardPipeline(LinearVideoPipeline):
                     config=config,
                     total_frames=len(storyboard.frames),
                     progress_callback=frame_progress_callback,
-                    body_text_override=body_text_override,
+                    template_body_text=template_body_text,
                 )
                 storyboard.total_duration += processed_frame.duration
                 logger.info(f"✅ Frame {i+1} completed ({processed_frame.duration:.2f}s)")
@@ -1177,7 +1180,7 @@ class StandardPipeline(LinearVideoPipeline):
                 frame,
                 storyboard,
                 config,
-                body_text_override="",
+                template_body_text="",
             )
 
     async def post_production(self, ctx: PipelineContext):

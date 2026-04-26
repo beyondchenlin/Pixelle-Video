@@ -116,7 +116,7 @@ async def test_compose_frame_html_uses_caption_punctuation_mode_for_subtitle_tex
 
 
 @pytest.mark.asyncio
-async def test_compose_frame_html_allows_blank_body_text_override_for_shell_only_render(monkeypatch, tmp_path):
+async def test_compose_frame_html_allows_blank_template_body_text_for_shell_only_render(monkeypatch, tmp_path):
     captured = {}
 
     class _FakeHTMLFrameGenerator:
@@ -157,7 +157,7 @@ async def test_compose_frame_html_allows_blank_body_text_override_for_shell_only
         storyboard=storyboard,
         config=config,
         output_path=str(tmp_path / "shell-only.png"),
-        body_text_override="",
+        template_body_text="",
     )
 
     assert captured["text"] == ""
@@ -165,7 +165,7 @@ async def test_compose_frame_html_allows_blank_body_text_override_for_shell_only
 
 
 @pytest.mark.asyncio
-async def test_compose_frame_html_uses_nonempty_body_text_override(monkeypatch, tmp_path):
+async def test_compose_frame_html_uses_nonempty_template_body_text(monkeypatch, tmp_path):
     captured = {}
 
     class _FakeHTMLFrameGenerator:
@@ -206,14 +206,14 @@ async def test_compose_frame_html_uses_nonempty_body_text_override(monkeypatch, 
         storyboard=storyboard,
         config=config,
         output_path=str(tmp_path / "override.png"),
-        body_text_override="Override subtitle.",
+        template_body_text="Override subtitle.",
     )
 
     assert captured["text"] == "Override subtitle"
 
 
 @pytest.mark.asyncio
-async def test_frame_processor_call_forwards_body_text_override_to_shell_only_render(monkeypatch, tmp_path):
+async def test_frame_processor_call_forwards_template_body_text_to_shell_only_render(monkeypatch, tmp_path):
     captured = {}
 
     class _FakeCore:
@@ -230,8 +230,8 @@ async def test_frame_processor_call_forwards_body_text_override_to_shell_only_re
         frame.image_path = str(tmp_path / "frame.png")
         frame.media_type = "image"
 
-    async def fake_compose_frame(frame, storyboard, config, *, body_text_override=None):
-        captured["body_text_override"] = body_text_override
+    async def fake_compose_frame(frame, storyboard, config, *, template_body_text=None):
+        captured["template_body_text"] = template_body_text
         frame.composed_image_path = str(tmp_path / "composed.png")
 
     async def fake_create_video_segment(frame, config):
@@ -254,11 +254,11 @@ async def test_frame_processor_call_forwards_body_text_override_to_shell_only_re
         frame=frame,
         storyboard=storyboard,
         config=config,
-        body_text_override="",
+        template_body_text="",
     )
 
     assert result is frame
-    assert captured["body_text_override"] == ""
+    assert captured["template_body_text"] == ""
 
 
 @pytest.mark.asyncio
