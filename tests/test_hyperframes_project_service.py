@@ -601,6 +601,77 @@ def test_write_project_materializes_element_animation_manifest_and_assets(tmp_pa
     )
 
 
+def test_write_project_materializes_clip_level_element_animation_manifest(tmp_path):
+    source_image = tmp_path / "source.png"
+    source_image.write_bytes(b"png")
+    element_manifest_path = tmp_path / "element_manifest.json"
+    element_manifest_path.write_text(
+        json.dumps(
+            {
+                "source_image_path": str(source_image),
+                "canvas": {"width": 1080, "height": 1920},
+                "timeline": {"duration": 1.0, "fps": 30},
+                "background": {
+                    "mode": "source_image_low_motion",
+                    "image_path": str(source_image),
+                },
+                "segmentation": {
+                    "provider": "test",
+                    "workflow": "test.json",
+                    "prompt": None,
+                    "candidate_limit": 1,
+                    "selected_count": 1,
+                },
+                "elements": [],
+                "render": {"backend": "hyperframes_canvas"},
+                "audio_path": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = RenderManifest(
+        task_id="task-clip-element",
+        title="demo",
+        canvas_width=1080,
+        canvas_height=1920,
+        fps=30,
+        template_id="image_default",
+        visual_clips=[
+            VisualClip(
+                id="clip-1",
+                frame_index=0,
+                start=0,
+                end=1,
+                media_path=str(source_image),
+                media_type="image",
+                element_animation_manifest_path=str(element_manifest_path),
+            )
+        ],
+    )
+
+    service = HyperFramesProjectService(output_dir=str(tmp_path))
+    project_paths = service.write_project(manifest, template_params={})
+    render_manifest = json.loads(project_paths.manifest_path.read_text(encoding="utf-8"))
+    localized_manifest_path = (
+        project_paths.data_dir
+        / "element_animation"
+        / "element_animation_clip-1.json"
+    )
+    localized_element_manifest = json.loads(
+        localized_manifest_path.read_text(encoding="utf-8")
+    )
+
+    assert (
+        render_manifest["visual_clips"][0]["element_animation_manifest_path"]
+        == "data/element_animation/element_animation_clip-1.json"
+    )
+    assert localized_manifest_path.exists()
+    assert localized_element_manifest["source_image_path"].startswith(
+        "assets/element_animation/element_animation_clip-1/"
+    )
+
+
 def test_write_project_uses_unique_element_animation_asset_names_for_basename_collisions(tmp_path):
     source_image = tmp_path / "source.png"
     background_image = tmp_path / "background.png"

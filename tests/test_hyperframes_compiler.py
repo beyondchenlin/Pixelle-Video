@@ -106,6 +106,61 @@ def test_compiler_emits_static_index_without_manifest_fetch_or_remote_urls(tmp_p
     assert (project_dir / "runtime" / "fonts" / "phase1_fonts.css").exists()
 
 
+def test_compiler_exposes_clip_level_element_animation_manifest_attribute(
+    tmp_path: Path,
+):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    (template_root / "image_default" / "compositions").mkdir(parents=True)
+    (template_root / "image_default" / "index.template.html").write_text(
+        "__VISUALS__",
+        encoding="utf-8",
+    )
+    (template_root / "image_default" / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    (template_root / "image_default" / "compositions" / "text_layer.template.html").write_text(
+        "__TEXT_CUES__",
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="demo",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        visuals=[
+            VisualClip(
+                id="clip-1",
+                frame_index=0,
+                start=0,
+                end=1,
+                media_path="assets/images/source.png",
+                media_type="image",
+                element_animation_manifest_path='data/element"clip.json',
+            )
+        ],
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert (
+        'data-element-animation-manifest="data/element&quot;clip.json"'
+        in index_html
+    )
+    assert 'data/element"clip.json' not in index_html
+
+
 def test_compiler_emits_declarative_audio_tracks_for_hyperframes_mixer(tmp_path: Path):
     template_root = tmp_path / "templates"
     runtime_root = tmp_path / "runtime"

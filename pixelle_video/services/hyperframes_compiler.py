@@ -115,11 +115,18 @@ class HyperFramesCompiler:
                 media_type=clip.media_type,
                 media_path=clip.media_path,
             )
+            element_manifest_attr = ""
+            if clip.element_animation_manifest_path:
+                element_manifest_attr = (
+                    ' data-element-animation-manifest="'
+                    f'{escape(clip.element_animation_manifest_path, quote=True)}"'
+                )
             rendered.append(
                 (
                     f'<div id="{escape(clip.id, quote=True)}" class="clip visual-clip" '
                     f'data-start="{clip.start}" '
-                    f'data-duration="{duration}" data-track-index="{track_index}">'
+                    f'data-duration="{duration}" data-track-index="{track_index}"'
+                    f"{element_manifest_attr}>"
                     '<div class="visual-frame">'
                     f"{media_tag}"
                     '<div class="corner-mark tl"></div>'

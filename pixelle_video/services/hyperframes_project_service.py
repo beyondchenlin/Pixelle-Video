@@ -299,10 +299,20 @@ class HyperFramesProjectService:
         for clip in manifest.visual_clips:
             source_name = Path(clip.media_path).name
             target_group = "video" if clip.media_type == "video" else "images"
+            element_manifest_name = self._clip_element_animation_manifest_name(clip)
+            localized_element_animation_manifest_path = (
+                self._materialize_element_animation_manifest(
+                    clip.element_animation_manifest_path,
+                    project_dir,
+                    manifest_name=element_manifest_name,
+                    asset_namespace=Path(element_manifest_name).stem,
+                )
+            )
             localized_visuals.append(
                 replace(
                     clip,
                     media_path=materialized[target_group][source_name],
+                    element_animation_manifest_path=localized_element_animation_manifest_path,
                 )
             )
 
@@ -339,6 +349,9 @@ class HyperFramesProjectService:
         self,
         manifest_path: str | None,
         project_dir: Path,
+        *,
+        manifest_name: str = "element_animation_manifest.json",
+        asset_namespace: str | None = None,
     ) -> str | None:
         if not manifest_path:
             return None
@@ -348,9 +361,12 @@ class HyperFramesProjectService:
             return None
 
         payload = json.loads(source_manifest_path.read_text(encoding="utf-8"))
-        asset_dir = project_dir / "assets" / "element_animation"
+        asset_path_prefix = "assets/element_animation"
+        asset_dir = project_dir / asset_path_prefix
+        if asset_namespace:
+            asset_dir = asset_dir / asset_namespace
+            asset_path_prefix = f"{asset_path_prefix}/{asset_namespace}"
         data_dir = project_dir / "data"
-        data_dir.mkdir(parents=True, exist_ok=True)
         localized_assets: dict[str, str] = {}
         localized_filenames: dict[str, str] = {}
 
@@ -359,6 +375,7 @@ class HyperFramesProjectService:
             "source_image_path",
             source_manifest_path=source_manifest_path,
             asset_dir=asset_dir,
+            asset_path_prefix=asset_path_prefix,
             localized_assets=localized_assets,
             localized_filenames=localized_filenames,
         )
@@ -370,6 +387,7 @@ class HyperFramesProjectService:
                 "image_path",
                 source_manifest_path=source_manifest_path,
                 asset_dir=asset_dir,
+                asset_path_prefix=asset_path_prefix,
                 localized_assets=localized_assets,
                 localized_filenames=localized_filenames,
             )
@@ -385,13 +403,20 @@ class HyperFramesProjectService:
                         key,
                         source_manifest_path=source_manifest_path,
                         asset_dir=asset_dir,
+                        asset_path_prefix=asset_path_prefix,
                         localized_assets=localized_assets,
                         localized_filenames=localized_filenames,
                     )
 
-        target_manifest_path = data_dir / "element_animation_manifest.json"
+        if manifest_name == "element_animation_manifest.json":
+            target_manifest_path = data_dir / manifest_name
+            localized_manifest_path = f"data/{manifest_name}"
+        else:
+            target_manifest_path = data_dir / "element_animation" / manifest_name
+            localized_manifest_path = f"data/element_animation/{manifest_name}"
+        target_manifest_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_json(target_manifest_path, payload)
-        return "data/element_animation_manifest.json"
+        return localized_manifest_path
 
     def _localize_element_animation_asset(
         self,
@@ -400,6 +425,7 @@ class HyperFramesProjectService:
         *,
         source_manifest_path: Path,
         asset_dir: Path,
+        asset_path_prefix: str,
         localized_assets: dict[str, str],
         localized_filenames: dict[str, str],
     ) -> None:
@@ -427,9 +453,19 @@ class HyperFramesProjectService:
         )
         target_path = asset_dir / target_filename
         copy2(source_path, target_path)
-        localized_path = f"assets/element_animation/{target_filename}"
+        localized_path = f"{asset_path_prefix}/{target_filename}"
         localized_assets[source_key] = localized_path
         payload[key] = localized_path
+
+    def _clip_element_animation_manifest_name(self, clip: VisualClip) -> str:
+        clip_id = str(clip.id)
+        safe_id = "".join(
+            char if char.isalnum() or char in {"-", "_"} else "_"
+            for char in clip_id
+        ).strip("._")
+        if not safe_id:
+            safe_id = hashlib.sha256(clip_id.encode("utf-8")).hexdigest()[:10]
+        return f"element_animation_{safe_id}.json"
 
     def _resolve_element_animation_asset_filename(
         self,
