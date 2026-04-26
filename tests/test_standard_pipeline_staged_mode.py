@@ -114,6 +114,13 @@ def test_resolve_effective_tts_audio_strategy_uses_master_track_for_legacy_comfy
     assert pipeline._resolve_effective_tts_audio_strategy(ctx) == "master_track"
 
 
+def test_resolve_effective_tts_audio_strategy_uses_master_track_for_legacy_local_auto():
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = _build_storyboard_ctx(tts_inference_mode="local")
+
+    assert pipeline._resolve_effective_tts_audio_strategy(ctx) == "master_track"
+
+
 def test_standard_ai_creation_observability_summary_records_terminal_skip_and_fail_events():
     pipeline = StandardPipeline(_DummyCore())
     ctx = PipelineContext(input_text="demo", params={})
@@ -209,6 +216,7 @@ def test_concat_audio_files_applies_pcm_boundary_fade(monkeypatch, tmp_path):
 class _RecordingFrameProcessor:
     def __init__(self, *, fail_on=None):
         self.calls = []
+        self.compose_body_overrides = []
         self.fail_on = fail_on
 
     async def _step_generate_audio(self, frame, config):
@@ -225,8 +233,9 @@ class _RecordingFrameProcessor:
         frame.media_type = "image"
         frame.image_path = f"image-{frame.index}.png"
 
-    async def _step_compose_frame(self, frame, storyboard, config):
+    async def _step_compose_frame(self, frame, storyboard, config, *, body_text_override=None):
         self.calls.append(("compose", frame.index))
+        self.compose_body_overrides.append((frame.index, body_text_override))
         frame.composed_image_path = f"composed-{frame.index}.png"
 
     async def _step_create_video_segment(self, frame, config):
@@ -304,6 +313,28 @@ async def test_produce_assets_legacy_comfyui_auto_prepares_master_track_audio_fi
 
 
 @pytest.mark.asyncio
+async def test_produce_assets_staged_omits_burned_frame_text_when_caption_renderer_active(monkeypatch):
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx(tts_inference_mode="comfyui")
+
+    async def fake_prepare(context):
+        for frame in context.storyboard.frames:
+            frame.audio_path = f"master-{frame.index}.mp3"
+            frame.duration = 2.0
+
+    monkeypatch.setattr(pipeline, "_prepare_legacy_master_track_audio", fake_prepare, raising=False)
+
+    await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.compose_body_overrides == [
+        (0, ""),
+        (1, ""),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_produce_assets_aborts_immediately_on_staged_image_failure():
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor(fail_on=("media", 1))
@@ -327,6 +358,7 @@ class _CallableFrameProcessor(_RecordingFrameProcessor):
     def __init__(self):
         super().__init__()
         self.invocations = []
+        self.body_text_overrides = []
 
     async def __call__(
         self,
@@ -335,8 +367,10 @@ class _CallableFrameProcessor(_RecordingFrameProcessor):
         config,
         total_frames=1,
         progress_callback=None,
+        body_text_override=None,
     ):
         self.invocations.append(frame.index)
+        self.body_text_overrides.append(body_text_override)
         if progress_callback:
             progress_callback(
                 ProgressEvent(
@@ -366,6 +400,7 @@ class _ConcurrentCallableFrameProcessor(_CallableFrameProcessor):
         config,
         total_frames=1,
         progress_callback=None,
+        body_text_override=None,
     ):
         self.active += 1
         self.max_active = max(self.max_active, self.active)
@@ -377,6 +412,7 @@ class _ConcurrentCallableFrameProcessor(_CallableFrameProcessor):
                 config,
                 total_frames=total_frames,
                 progress_callback=progress_callback,
+                body_text_override=body_text_override,
             )
         finally:
             self.active -= 1
@@ -450,6 +486,25 @@ async def test_produce_assets_keeps_callable_frame_processor_path_for_runninghub
         "legacy-0.mp4",
         "legacy-1.mp4",
     ]
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_callable_legacy_omits_burned_frame_text_when_caption_renderer_active(monkeypatch):
+    core = _DummyCore()
+    core.frame_processor = _CallableFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx(tts_inference_mode="local")
+
+    async def fake_prepare(context):
+        for frame in context.storyboard.frames:
+            frame.audio_path = f"master-{frame.index}.mp3"
+            frame.duration = 2.0
+
+    monkeypatch.setattr(pipeline, "_prepare_legacy_master_track_audio", fake_prepare, raising=False)
+
+    await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.body_text_overrides == ["", ""]
 
 
 @pytest.mark.asyncio

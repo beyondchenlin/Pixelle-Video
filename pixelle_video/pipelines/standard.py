@@ -737,10 +737,13 @@ class StandardPipeline(LinearVideoPipeline):
 
         requested_strategy = getattr(ctx.config, "tts_audio_strategy", AUTO_TTS_AUDIO_STRATEGY)
         if requested_strategy == AUTO_TTS_AUDIO_STRATEGY:
-            if ctx.config.tts_inference_mode == "comfyui":
-                return MASTER_TRACK_TTS_AUDIO_STRATEGY
-            return PER_FRAME_TTS_AUDIO_STRATEGY
+            return MASTER_TRACK_TTS_AUDIO_STRATEGY
         return requested_strategy
+
+    def _legacy_body_text_override_for_captions(self, ctx: PipelineContext) -> Optional[str]:
+        if self._caption_renderer_enabled(ctx, "ass"):
+            return ""
+        return None
 
     def _resolve_effective_timing_plan_settings(
         self,
@@ -927,7 +930,12 @@ class StandardPipeline(LinearVideoPipeline):
             action=action,
         )
 
-    async def _produce_assets_staged(self, ctx: PipelineContext):
+    async def _produce_assets_staged(
+        self,
+        ctx: PipelineContext,
+        *,
+        body_text_override: Optional[str] = None,
+    ):
         storyboard = ctx.storyboard
         config = ctx.config
         total_frames = len(storyboard.frames)
@@ -980,6 +988,7 @@ class StandardPipeline(LinearVideoPipeline):
                 frame,
                 storyboard,
                 config,
+                body_text_override=body_text_override,
             )
 
         for frame in storyboard.frames:
@@ -1004,8 +1013,15 @@ class StandardPipeline(LinearVideoPipeline):
             logger.info("All frames processed in HyperFrames image mode")
             return
 
-        if self._resolve_effective_tts_audio_strategy(ctx) == MASTER_TRACK_TTS_AUDIO_STRATEGY:
+        effective_tts_audio_strategy = self._resolve_effective_tts_audio_strategy(ctx)
+        if effective_tts_audio_strategy == MASTER_TRACK_TTS_AUDIO_STRATEGY:
             await self._prepare_legacy_master_track_audio(ctx)
+
+        body_text_override = (
+            self._legacy_body_text_override_for_captions(ctx)
+            if effective_tts_audio_strategy == MASTER_TRACK_TTS_AUDIO_STRATEGY
+            else None
+        )
 
         execution_mode = self._resolve_asset_execution_mode(ctx)
         
@@ -1014,7 +1030,7 @@ class StandardPipeline(LinearVideoPipeline):
         runninghub_concurrent_limit = config_manager.config.comfyui.runninghub_concurrent_limit or 1
 
         if execution_mode.use_staged_mode:
-            await self._produce_assets_staged(ctx)
+            await self._produce_assets_staged(ctx, body_text_override=body_text_override)
             logger.info(
                 f"All frames processed in staged mode (total duration: {storyboard.total_duration:.2f}s)"
             )
@@ -1061,7 +1077,8 @@ class StandardPipeline(LinearVideoPipeline):
                         storyboard=storyboard,
                         config=config,
                         total_frames=len(storyboard.frames),
-                        progress_callback=frame_progress_callback
+                        progress_callback=frame_progress_callback,
+                        body_text_override=body_text_override,
                     )
                     
                     completed_count += 1
@@ -1115,7 +1132,8 @@ class StandardPipeline(LinearVideoPipeline):
                     storyboard=storyboard,
                     config=config,
                     total_frames=len(storyboard.frames),
-                    progress_callback=frame_progress_callback
+                    progress_callback=frame_progress_callback,
+                    body_text_override=body_text_override,
                 )
                 storyboard.total_duration += processed_frame.duration
                 logger.info(f"✅ Frame {i+1} completed ({processed_frame.duration:.2f}s)")
