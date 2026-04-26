@@ -60,9 +60,9 @@ from pixelle_video.utils.text_splitting import (
 )
 from web.components.storyboard_preview import render_storyboard_preview
 from web.components.text_rendering_config import (
-    DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
-    build_text_rendering_payload,
-    render_text_layer_controls,
+    DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,  # noqa: F401
+    build_text_rendering_payload,  # noqa: F401
+    render_text_layer_controls,  # noqa: F401
     render_text_rendering_controls,
 )
 from web.i18n import get_language, tr
@@ -81,7 +81,7 @@ from web.utils.prompt_prefix_ui import (
     toggle_prompt_prefix_preview_selection,
 )
 from web.utils.render_backend_ui import get_render_backend_default
-from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow, safe_rerun
+from web.utils.streamlit_helpers import safe_rerun
 from web.utils.tts_audio_strategy_ui import get_tts_audio_strategy_default
 from web.utils.tts_split_mode_ui import get_tts_split_mode_default
 from web.utils.tts_ui import resolve_comfyui_tts_speed
@@ -135,6 +135,46 @@ def render_middle_column_detail_section(label: str):
 def resolve_media_generation_section_expanded(template_media_type: str) -> bool:
     """Collapse illustration generation by default while keeping video generation open."""
     return template_media_type == "video"
+
+
+def is_selfhost_workflow(workflow_path: str | None) -> bool:
+    """Return whether a workflow key points at the local ComfyUI folder."""
+    return bool(workflow_path and str(workflow_path).startswith("selfhost/"))
+
+
+def check_and_warn_selfhost_workflow(workflow_path: str | None):
+    """Compatibility shim for older tests and callers; popups are no longer used."""
+    return None
+
+
+def _display_workflow_path(workflow_path: str) -> str:
+    normalized = str(workflow_path).strip()
+    if normalized.startswith("workflows/"):
+        return normalized
+    return f"workflows/{normalized}"
+
+
+def render_selfhost_workflow_notice(workflow_path: str | None, *, expanded: bool) -> bool:
+    """Render the SelfHost preflight guidance inline when the selected workflow needs it."""
+    if not expanded or not is_selfhost_workflow(workflow_path):
+        return False
+
+    workflow_display_path = _display_workflow_path(str(workflow_path))
+    comfyui_config = config_manager.get_comfyui_config()
+    comfyui_url = comfyui_config.get("comfyui_url", "http://127.0.0.1:8188")
+
+    with st.container(border=True):
+        st.markdown(f"**{tr('selfhost.warning.inline_title')}**")
+        st.markdown(f"`{workflow_display_path}`")
+        st.markdown(
+            tr(
+                "selfhost.warning.message",
+                comfyui_url=comfyui_url,
+                workflow_path=workflow_display_path,
+            )
+        )
+        st.warning(tr("selfhost.warning.hint"))
+    return True
 
 
 def _render_template_gallery_preview_placeholder(template_name: str):
@@ -2382,8 +2422,10 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
             else:
                 tts_workflow_key = "selfhost/tts_edge.json"  # fallback
             
-            # Check and warn for selfhost TTS workflow (auto popup if not confirmed)
-            check_and_warn_selfhost_workflow(tts_workflow_key)
+            render_selfhost_workflow_notice(
+                tts_workflow_key,
+                expanded=True,
+            )
             
             # Reference audio upload (optional, for voice cloning)
             ref_audio_file = st.file_uploader(
@@ -3108,8 +3150,10 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
             else:
                 workflow_key = None
             
-            # Check and warn for selfhost media workflow (auto popup if not confirmed)
-            check_and_warn_selfhost_workflow(workflow_key)
+            render_selfhost_workflow_notice(
+                workflow_key,
+                expanded=is_selfhost_workflow(workflow_key),
+            )
         
             # Get media size from template
             media_width = st.session_state.get('template_media_width')

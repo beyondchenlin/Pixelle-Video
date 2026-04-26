@@ -29,6 +29,7 @@ class _FakeStreamlit:
         self.popover_markdowns: list[tuple[str, dict]] = []
         self.caption_calls: list[str] = []
         self.info_calls: list[str] = []
+        self.warning_calls: list[str] = []
         self.expanders: list[tuple[str, bool]] = []
         self.popovers: list[str] = []
         self.container_calls: list[dict] = []
@@ -105,6 +106,8 @@ class _FakeStreamlit:
         return None
 
     def warning(self, *_args, **_kwargs):
+        if _args:
+            self.warning_calls.append(_args[0])
         return None
 
     def success(self, *_args, **_kwargs):
@@ -218,6 +221,186 @@ def test_resolve_media_generation_section_expanded_collapses_image_and_keeps_vid
     assert style_config.resolve_media_generation_section_expanded("image") is False
     assert style_config.resolve_media_generation_section_expanded("video") is True
     assert style_config.resolve_media_generation_section_expanded("static") is False
+
+
+def test_render_selfhost_workflow_notice_uses_inline_container(monkeypatch):
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(style_config, "st", fake_st)
+
+    def _tr(key, **kwargs):
+        if key == "selfhost.warning.message":
+            return f"run {kwargs['workflow_path']} in {kwargs['comfyui_url']}"
+        return key
+
+    monkeypatch.setattr(style_config, "tr", _tr)
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_comfyui_config",
+        lambda: {"comfyui_url": "http://127.0.0.1:8000"},
+    )
+
+    rendered = style_config.render_selfhost_workflow_notice(
+        "selfhost/image_z_image_turbo.json",
+        expanded=True,
+    )
+
+    assert rendered is True
+    assert {"border": True} in fake_st.container_calls
+    inline_markdown = "\n".join(body for body, _kwargs in fake_st.top_level_markdowns)
+    assert "selfhost.warning.inline_title" in inline_markdown
+    assert "workflows/selfhost/image_z_image_turbo.json" in inline_markdown
+    assert fake_st.warning_calls == ["selfhost.warning.hint"]
+
+
+def test_render_selfhost_workflow_notice_stays_folded_for_non_selfhost(monkeypatch):
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(style_config, "st", fake_st)
+
+    rendered = style_config.render_selfhost_workflow_notice(
+        "runninghub/image_flux.json",
+        expanded=True,
+    )
+
+    assert rendered is False
+    assert fake_st.container_calls == []
+
+
+def test_render_style_config_comfyui_tts_shows_inline_selfhost_notice(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["template_type_selector"] = "static"
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key.format(**kwargs) if kwargs else key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_comfyui_config",
+        lambda: {
+            "comfyui_url": "http://127.0.0.1:8000",
+            "tts": {
+                "inference_mode": "comfyui",
+                "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2},
+                "comfyui": {"default_workflow": "selfhost/tts_index2.json"},
+            },
+            "image": {},
+            "video": {},
+        },
+    )
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "render_backend")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
+    monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(
+        style_config,
+        "check_and_warn_selfhost_workflow",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("popup warning should not run")),
+    )
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_storyboard_world_preset_library",
+        lambda: {
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [{"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}],
+        },
+    )
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_storyboard_shot_preset_library",
+        lambda: {
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [{"preset_id": "balanced_explainer", "display_name": "Balanced"}],
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_template_type",
+        lambda _template_name: "static",
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
+        lambda _template_type: {
+            "1080x1920": [
+                type(
+                    "TemplateInfo",
+                    (),
+                    {
+                        "template_path": "1080x1920/static_default.html",
+                        "display_info": type(
+                            "DisplayInfo",
+                            (),
+                            {
+                                "name": "static_default",
+                                "orientation": "portrait",
+                                "width": 1080,
+                                "height": 1920,
+                            },
+                        )(),
+                    },
+                )()
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.parse_template_size",
+        lambda _path: (1080, 1920),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda path: path,
+    )
+
+    class _FakeFrameGenerator:
+        def __init__(self, _template_path):
+            self._template_path = _template_path
+
+        def parse_template_parameters(self):
+            return {}
+
+        def get_media_size(self):
+            return (1080, 1920)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+
+    original_radio = fake_st.radio
+
+    def _radio(label, options, index=0, key=None, **kwargs):
+        if key == "tts_inference_mode":
+            return "comfyui"
+        if key == "template_type_selector":
+            return "static"
+        return original_radio(label, options, index=index, key=key, **kwargs)
+
+    fake_st.radio = _radio
+
+    class _FakeTTS:
+        @staticmethod
+        def list_workflows():
+            return [
+                {
+                    "display_name": "tts_index2.json - Selfhost",
+                    "key": "selfhost/tts_index2.json",
+                }
+            ]
+
+    class _FakeMedia:
+        @staticmethod
+        def list_workflows():
+            return []
+
+    class _FakeVideo:
+        config = {"template": {}}
+        tts = _FakeTTS()
+        media = _FakeMedia()
+
+    result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
+
+    assert result["tts_workflow"] == "selfhost/tts_index2.json"
+    expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
+    assert "selfhost.warning.inline_title" in expander_html
+    assert "workflows/selfhost/tts_index2.json" in expander_html
+    assert fake_st.warning_calls == ["selfhost.warning.hint"]
 
 
 def test_build_storyboard_control_payload_drops_auto_shot_preset_selection():
@@ -689,7 +872,11 @@ def test_render_style_config_shows_expanded_image_notice_when_template_does_not_
     monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
     monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        style_config,
+        "check_and_warn_selfhost_workflow",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("popup warning should not run")),
+    )
     monkeypatch.setattr(
         style_config.config_manager,
         "get_storyboard_world_preset_library",
@@ -1286,6 +1473,8 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
     expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
     assert "**style.image_model_selection_title**" in expander_html
+    assert "selfhost.warning.inline_title" in expander_html
+    assert "workflows/selfhost/image_z_image_turbo.json" in expander_html
     assert "template.what" not in expander_html
     assert "template.how" not in expander_html
     popover_html = "\n".join(body for body, _kwargs in fake_st.popover_markdowns)
