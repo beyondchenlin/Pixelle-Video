@@ -136,14 +136,6 @@ def _repair_prompt(original_prompt: str, reason: str) -> str:
     )
 
 
-def _should_fallback_to_sentence_segments(reason: str) -> bool:
-    return (
-        reason == "smart storyboard frame source_text must be traceable"
-        or "source_span_indices" in reason
-        or "source span" in reason
-    )
-
-
 def _assert_no_meaningful_source_gap(source_text: str, start: int, end: int) -> None:
     gap = source_text[start:end]
     if any(not char.isspace() and not _is_unicode_punctuation(char) for char in gap):
@@ -278,7 +270,7 @@ class StoryboardGenerationService:
         except ValueError as exc:
             if (
                 count_mode != "auto"
-                or not _should_fallback_to_sentence_segments(str(exc))
+                or str(exc) != "smart storyboard frame source_text must be traceable"
             ):
                 raise
             return self._plan_from_segments(
@@ -386,11 +378,17 @@ class StoryboardGenerationService:
         # spans for exact manual counts that cannot be represented as sentences.
         from pixelle_video.prompts.storyboard_generation import _split_into_sentences
 
+        sentences = _split_into_sentences(source_text)
+        should_use_source_spans = (
+            count_mode == "manual"
+            and requested_scene_count is not None
+            and requested_scene_count > len(sentences)
+        )
         has_source_span_indices = any(
             frame.source_span_indices is not None and len(frame.source_span_indices) > 0
             for frame in response.frames
         )
-        if has_source_span_indices:
+        if should_use_source_spans and has_source_span_indices:
             span_count = (
                 requested_scene_count
                 if count_mode == "manual" and requested_scene_count is not None
@@ -407,7 +405,6 @@ class StoryboardGenerationService:
             )
 
         # Next, try to use sentence_indices if available.
-        sentences = _split_into_sentences(source_text)
         has_sentence_indices = any(
             frame.sentence_indices is not None and len(frame.sentence_indices) > 0
             for frame in response.frames

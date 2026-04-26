@@ -724,7 +724,7 @@ async def test_smart_auto_falls_back_to_sentence_segments_after_repair_traceabil
 
 
 @pytest.mark.asyncio
-async def test_smart_auto_falls_back_to_sentence_segments_after_repair_source_span_order_failure():
+async def test_smart_auto_ignores_unrequested_source_span_indices_and_falls_back_on_untraceable_text():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     bad_frames = [
         {
@@ -755,7 +755,7 @@ async def test_smart_auto_falls_back_to_sentence_segments_after_repair_source_sp
     assert plan.count_mode.value == "auto"
     assert plan.diagnostics["strategy"] == "smart_sentence_fallback"
     assert plan.diagnostics["fallback_reason"] == (
-        "source_span_indices must cover source_text in source order"
+        "smart storyboard frame source_text must be traceable"
     )
     assert [frame.source_text for frame in plan.frames] == [
         "First complete idea.",
@@ -765,6 +765,41 @@ async def test_smart_auto_falls_back_to_sentence_segments_after_repair_source_sp
         frame.metadata["strategy"] == "smart_sentence_fallback"
         for frame in plan.frames
     )
+
+
+@pytest.mark.asyncio
+async def test_smart_auto_ignores_unrequested_source_span_indices_when_sentence_indices_are_available():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    frames = [
+        {
+            "source_text": "preview",
+            "visual_goal": "Show first sentence.",
+            "prompt_intent": "A first-sentence visual.",
+            "sentence_indices": [0],
+            "source_span_indices": [1],
+        },
+        {
+            "source_text": "preview",
+            "visual_goal": "Show second sentence.",
+            "prompt_intent": "A second-sentence visual.",
+            "sentence_indices": [1],
+            "source_span_indices": [0],
+        },
+    ]
+
+    plan = await service.generate(
+        llm_service=SmartFakeLLM(frames=frames),
+        source_text="First complete idea. Second complete idea.",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert len(plan.frames) == 2
+    assert plan.diagnostics["strategy"] == "smart"
+    assert "".join(frame.source_text for frame in plan.frames) == plan.source_text
+    assert all(frame.metadata["strategy"] == "smart" for frame in plan.frames)
+    assert all("source_span_indices" not in frame.metadata for frame in plan.frames)
 
 
 @pytest.mark.asyncio
