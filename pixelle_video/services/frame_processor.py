@@ -24,7 +24,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Awaitable, Callable, Optional
 
 import httpx
 from loguru import logger
@@ -76,6 +76,9 @@ class FrameProcessor:
         total_frames: int = 1,
         progress_callback: Optional[Callable[[ProgressEvent], None]] = None,
         template_body_text: Optional[str] = None,
+        element_motion_materializer: Optional[
+            Callable[[StoryboardFrame], Awaitable[None]]
+        ] = None,
     ) -> StoryboardFrame:
         """
         Process single frame through complete pipeline
@@ -163,6 +166,9 @@ class FrameProcessor:
                 config,
                 template_body_text=template_body_text,
             )
+
+            if element_motion_materializer is not None:
+                await element_motion_materializer(frame)
             
             # Step 4: Create video segment
             if progress_callback:
@@ -533,6 +539,19 @@ class FrameProcessor:
         
         from pixelle_video.services.video import VideoService
         video_service = VideoService()
+
+        if frame.element_motion_video_path:
+            logger.debug("  -> Using element motion video as segment source")
+            segment_path = video_service.merge_audio_video(
+                video=frame.element_motion_video_path,
+                audio=frame.audio_path,
+                output=output_path,
+                replace_audio=True,
+                audio_volume=1.0,
+            )
+            frame.video_segment_path = segment_path
+            logger.debug(f"  Video segment created: {segment_path}")
+            return
         
         # Branch based on media type
         if frame.media_type == "video":

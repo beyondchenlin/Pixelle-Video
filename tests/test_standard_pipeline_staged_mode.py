@@ -292,6 +292,56 @@ async def test_produce_assets_runs_staged_selfhost_image_flow_in_phase_order():
 
 
 @pytest.mark.asyncio
+async def test_produce_assets_staged_materializes_element_motion_after_compose_before_segment(monkeypatch):
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    ctx.config.element_animation_enabled = True
+    materialized = []
+
+    async def fake_materialize(context, frame):
+        materialized.append((frame.index, frame.composed_image_path))
+        core.frame_processor.calls.append(("motion", frame.index))
+        frame.element_animation_manifest_path = f"manifest-{frame.index}.json"
+        frame.element_motion_video_path = f"motion-{frame.index}.mp4"
+
+    monkeypatch.setattr(
+        pipeline,
+        "_materialize_element_motion_for_frame",
+        fake_materialize,
+        raising=False,
+    )
+
+    await pipeline.produce_assets(ctx)
+
+    assert materialized == [
+        (0, "composed-0.png"),
+        (1, "composed-1.png"),
+    ]
+    assert core.frame_processor.calls == [
+        ("audio", 0),
+        ("audio", 1),
+        ("media", 0),
+        ("media", 1),
+        ("compose", 0),
+        ("compose", 1),
+        ("motion", 0),
+        ("segment", 0),
+        ("motion", 1),
+        ("segment", 1),
+    ]
+    assert [frame.element_animation_manifest_path for frame in ctx.storyboard.frames] == [
+        "manifest-0.json",
+        "manifest-1.json",
+    ]
+    assert [frame.element_motion_video_path for frame in ctx.storyboard.frames] == [
+        "motion-0.mp4",
+        "motion-1.mp4",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_produce_assets_legacy_comfyui_auto_prepares_master_track_audio_first(monkeypatch):
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor()

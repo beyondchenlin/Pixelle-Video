@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from pixelle_video.models.media import MediaResult
@@ -309,3 +311,54 @@ async def test_step_create_video_segment_uses_high_precision_fps_for_image_frame
     await processor._step_create_video_segment(frame, config)
 
     assert captured["fps"] == expected_fps
+
+
+@pytest.mark.asyncio
+async def test_step_create_video_segment_uses_element_motion_video_when_present(
+    monkeypatch,
+    tmp_path,
+):
+    captured = {}
+
+    class _FakeVideoService:
+        def merge_audio_video(self, **kwargs):
+            captured.update(kwargs)
+            Path(kwargs["output"]).write_text("segment", encoding="utf-8")
+            return kwargs["output"]
+
+        def create_video_from_image(self, **kwargs):
+            raise AssertionError("element motion video should bypass image segment creation")
+
+    monkeypatch.setattr("pixelle_video.services.video.VideoService", _FakeVideoService)
+    monkeypatch.setattr(
+        "pixelle_video.utils.os_util.get_task_frame_path",
+        lambda task_id, index, kind: str(tmp_path / f"{index:02d}_{kind}.mp4"),
+    )
+
+    processor = FrameProcessor(None)
+    config = StoryboardConfig(
+        media_width=1024,
+        media_height=1024,
+        task_id="task-1",
+    )
+    frame = StoryboardFrame(
+        index=0,
+        narration="scene",
+        image_prompt="prompt",
+        audio_path=str(tmp_path / "audio.mp3"),
+        image_path=str(tmp_path / "frame.png"),
+        composed_image_path=str(tmp_path / "composed.png"),
+        element_motion_video_path=str(tmp_path / "motion.mp4"),
+        media_type="image",
+    )
+
+    await processor._step_create_video_segment(frame, config)
+
+    assert captured == {
+        "video": str(tmp_path / "motion.mp4"),
+        "audio": str(tmp_path / "audio.mp3"),
+        "output": str(tmp_path / "00_segment.mp4"),
+        "replace_audio": True,
+        "audio_volume": 1.0,
+    }
+    assert frame.video_segment_path == str(tmp_path / "00_segment.mp4")

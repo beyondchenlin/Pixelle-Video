@@ -1008,8 +1008,52 @@ class StandardPipeline(LinearVideoPipeline):
                 step=4,
                 action="video",
             )
+            await self._materialize_element_motion_for_frame(ctx, frame)
             await self.core.frame_processor._step_create_video_segment(frame, config)
             storyboard.total_duration += frame.duration
+
+    async def _materialize_element_motion_for_frame(
+        self,
+        ctx: PipelineContext,
+        frame: StoryboardFrame,
+    ) -> None:
+        config = ctx.config
+        if not getattr(config, "element_animation_enabled", False):
+            return
+
+        source_image_path = frame.composed_image_path or frame.image_path
+        if not source_image_path:
+            return
+
+        from pixelle_video.services.element_motion_materializer import (
+            ElementMotionMaterializer,
+        )
+        from pixelle_video.services.element_segmentation import ElementSegmentationService
+
+        materializer = ElementMotionMaterializer(
+            segmentation_service=ElementSegmentationService(self.core),
+        )
+        task_id = getattr(ctx, "task_id", None) or config.task_id or ""
+        output_dir = getattr(ctx, "task_dir", None) or Path(source_image_path).parent
+
+        artifact = await materializer.materialize_frame(
+            frame=frame,
+            source_image_path=source_image_path,
+            task_id=task_id,
+            output_dir=output_dir,
+            width=int(config.media_width),
+            height=int(config.media_height),
+            fps=int(config.video_fps),
+            backend=config.element_animation_backend,
+            selected_count=int(config.element_animation_subject_count),
+            candidate_limit=int(config.element_animation_candidate_limit),
+            prompt=config.element_animation_prompt,
+            workflow=config.element_animation_workflow,
+            intensity=config.element_animation_intensity,
+            audio_path=frame.audio_path,
+        )
+        frame.element_animation_manifest_path = artifact.manifest_path
+        frame.element_motion_video_path = artifact.motion_video_path
 
     async def produce_assets(self, ctx: PipelineContext):
         """Step 6: Generate audio, images, and render frames (Core processing)."""
@@ -1042,6 +1086,9 @@ class StandardPipeline(LinearVideoPipeline):
                 f"All frames processed in staged mode (total duration: {storyboard.total_duration:.2f}s)"
             )
             return
+
+        async def element_motion_materializer(frame_to_materialize: StoryboardFrame) -> None:
+            await self._materialize_element_motion_for_frame(ctx, frame_to_materialize)
         
         if execution_mode.use_runninghub_parallel and runninghub_concurrent_limit > 1:
             logger.info(f"🚀 Using parallel processing for RunningHub workflows (max {runninghub_concurrent_limit} concurrent)")
@@ -1079,13 +1126,21 @@ class StandardPipeline(LinearVideoPipeline):
                         frame_total=len(storyboard.frames)
                     )
                     
+                    frame_processor_kwargs = {
+                        "frame": frame,
+                        "storyboard": storyboard,
+                        "config": config,
+                        "total_frames": len(storyboard.frames),
+                        "progress_callback": frame_progress_callback,
+                        "template_body_text": template_body_text,
+                    }
+                    if getattr(config, "element_animation_enabled", False):
+                        frame_processor_kwargs[
+                            "element_motion_materializer"
+                        ] = element_motion_materializer
+
                     processed_frame = await self.core.frame_processor(
-                        frame=frame,
-                        storyboard=storyboard,
-                        config=config,
-                        total_frames=len(storyboard.frames),
-                        progress_callback=frame_progress_callback,
-                        template_body_text=template_body_text,
+                        **frame_processor_kwargs
                     )
                     
                     completed_count += 1
@@ -1134,13 +1189,21 @@ class StandardPipeline(LinearVideoPipeline):
                     frame_total=len(storyboard.frames)
                 )
                 
+                frame_processor_kwargs = {
+                    "frame": frame,
+                    "storyboard": storyboard,
+                    "config": config,
+                    "total_frames": len(storyboard.frames),
+                    "progress_callback": frame_progress_callback,
+                    "template_body_text": template_body_text,
+                }
+                if getattr(config, "element_animation_enabled", False):
+                    frame_processor_kwargs[
+                        "element_motion_materializer"
+                    ] = element_motion_materializer
+
                 processed_frame = await self.core.frame_processor(
-                    frame=frame,
-                    storyboard=storyboard,
-                    config=config,
-                    total_frames=len(storyboard.frames),
-                    progress_callback=frame_progress_callback,
-                    template_body_text=template_body_text,
+                    **frame_processor_kwargs
                 )
                 storyboard.total_duration += processed_frame.duration
                 logger.info(f"✅ Frame {i+1} completed ({processed_frame.duration:.2f}s)")
