@@ -492,6 +492,11 @@ class FrameProcessor:
         text_policy = getattr(config, "template_text_policy", "caption_renderer")
         if body_text_override is not None:
             text_policy = "template_body" if body_text_override else "caption_renderer"
+        body_text = _resolve_body_text(
+            frame.narration,
+            body_text_override,
+            punctuation_mode=config.caption_punctuation_mode,
+        )
         
         # Use video_path for video media, image_path for images
         media_path = frame.video_path if frame.media_type == "video" else frame.image_path
@@ -499,11 +504,7 @@ class FrameProcessor:
         
         asset = await TemplateVisualMaterializer().materialize_frame(
             title=storyboard.title,
-            narration=_resolve_body_text(
-                frame.narration,
-                None,
-                punctuation_mode=config.caption_punctuation_mode,
-            ),
+            narration=body_text,
             media_path=media_path,
             frame_index=frame.index,
             template_path=template_path,

@@ -165,6 +165,54 @@ async def test_compose_frame_html_allows_blank_body_text_override_for_shell_only
 
 
 @pytest.mark.asyncio
+async def test_compose_frame_html_uses_nonempty_body_text_override(monkeypatch, tmp_path):
+    captured = {}
+
+    class _FakeHTMLFrameGenerator:
+        width = 1024
+        height = 1024
+
+        def __init__(self, template_path):
+            captured["template_path"] = template_path
+
+        async def generate_frame(self, **kwargs):
+            captured.update(kwargs)
+            return kwargs["output_path"]
+
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.HTMLFrameGenerator",
+        _FakeHTMLFrameGenerator,
+    )
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
+
+    processor = FrameProcessor(None)
+    config = StoryboardConfig(
+        media_width=1024,
+        media_height=1024,
+        task_id="task-1",
+        frame_template="1080x1920/image_life_insights_light.html",
+    )
+    frame = StoryboardFrame(
+        index=0,
+        narration="Original subtitle text.",
+        image_prompt="prompt",
+        image_path=str(tmp_path / "frame.png"),
+        media_type="image",
+    )
+    storyboard = Storyboard(title="Test title", config=config, frames=[frame])
+
+    await processor._compose_frame_html(
+        frame=frame,
+        storyboard=storyboard,
+        config=config,
+        output_path=str(tmp_path / "override.png"),
+        body_text_override="Override subtitle.",
+    )
+
+    assert captured["text"] == "Override subtitle"
+
+
+@pytest.mark.asyncio
 async def test_frame_processor_call_forwards_body_text_override_to_shell_only_render(monkeypatch, tmp_path):
     captured = {}
 
