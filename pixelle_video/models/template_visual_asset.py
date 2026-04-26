@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 
-@dataclass
+@dataclass(frozen=True)
 class TemplateVisualAsset:
     path: str
     frame_index: int

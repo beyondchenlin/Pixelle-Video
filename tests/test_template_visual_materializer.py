@@ -6,6 +6,7 @@ from pixelle_video.services.template_visual_materializer import (
     TemplateVisualMaterializer,
     resolve_template_body_text,
 )
+from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 
 
 def test_resolve_template_body_text_defaults_to_caption_renderer():
@@ -13,6 +14,22 @@ def test_resolve_template_body_text_defaults_to_caption_renderer():
     assert resolve_template_body_text("Narration", "none") == ""
     assert resolve_template_body_text("Narration", "template_body") == "Narration"
     assert resolve_template_body_text("Narration", "explicit_both") == "Narration"
+
+
+def test_template_visual_asset_is_immutable():
+    asset = TemplateVisualAsset(
+        path="frames/frame.png",
+        frame_index=0,
+        template_id="image_default",
+        template_path="templates/1080x1920/image_default.html",
+        width=1080,
+        height=1920,
+        media_path="raw.png",
+        text_policy="caption_renderer",
+    )
+
+    with pytest.raises(Exception):
+        asset.path = "frames/other.png"
 
 
 @pytest.mark.asyncio
