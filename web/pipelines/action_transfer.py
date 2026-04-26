@@ -12,10 +12,10 @@ from pixelle_video.config import config_manager
 from pixelle_video.utils.os_util import create_task_output_dir
 from web.components.content_input import render_version_info
 from web.components.output_preview import render_scaled_video_preview
+from web.components.selfhost_workflow_notice import render_selfhost_workflow_notice
 from web.i18n import get_language, tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
 from web.utils.async_helpers import run_async
-from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 
 
 class ActionTransferPipelineUI(PipelineUI):
@@ -214,8 +214,7 @@ class ActionTransferPipelineUI(PipelineUI):
             else:
                 workflow_key = None
             
-            # Check and warn for selfhost workflow (auto popup if not confirmed)
-            check_and_warn_selfhost_workflow(workflow_key)
+            render_selfhost_workflow_notice(workflow_key)
             
             return {
                 "image_assets": image_asset_paths,

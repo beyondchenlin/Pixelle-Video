@@ -175,11 +175,6 @@ class DigitalHumanPipelineUI(PipelineUI):
                     st.warning(tr("asset_based.source.selfhost_not_configured"))
                 else:
                     st.info(tr("asset_based.source.selfhost_hint"))
-                    
-                    # Check and warn for selfhost workflows (auto popup if not confirmed)
-                    # Warn for the first workflow as representative
-                    # TODO: need to check if the workflow is valid
-                    # check_and_warn_selfhost_workflow("selfhost/digital_image.json")
             return workflow_config
 
     def render_digital_human_mode(self, character_asset_paths: list) -> dict:

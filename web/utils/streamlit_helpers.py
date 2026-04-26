@@ -51,8 +51,3 @@ def safe_rerun():
         st.rerun()
     else:
         st.experimental_rerun()
-
-
-def check_and_warn_selfhost_workflow(workflow_path: str):
-    """Deprecated no-op: SelfHost guidance is now rendered inline near selectors."""
-    return None

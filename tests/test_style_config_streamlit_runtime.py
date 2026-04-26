@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
-import sys
 
 from streamlit.testing.v1 import AppTest
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STYLE_CONFIG_RELATIVE_PATH = Path("web/components/style_config.py")
@@ -95,7 +94,6 @@ style_config.render_tts_audio_strategy_selector = lambda: 'auto'
 style_config.render_storyboard_planning_guide = lambda: None
 style_config.render_storyboard_preview = lambda _snapshot: []
 style_config._render_image_prompt_prefix_library = lambda **_kwargs: ''
-style_config.check_and_warn_selfhost_workflow = lambda *_args, **_kwargs: None
 style_config.config_manager.get_storyboard_world_preset_library = lambda: {
     'default_world_preset_id': 'neutral_knowledge_storyboard',
     'items': [{'preset_id': 'neutral_knowledge_storyboard', 'display_name': 'Neutral'}],

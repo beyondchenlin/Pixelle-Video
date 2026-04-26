@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import web.components.quick_create_flow as quick_create_flow
+import web.components.selfhost_workflow_notice as selfhost_workflow_notice
 import web.components.style_config as style_config
 import web.components.text_rendering_config as text_rendering_config
 import web.pipelines.standard as standard_pipeline
@@ -223,53 +224,17 @@ def test_resolve_media_generation_section_expanded_collapses_image_and_keeps_vid
     assert style_config.resolve_media_generation_section_expanded("static") is False
 
 
-def test_render_selfhost_workflow_notice_uses_inline_container(monkeypatch):
-    fake_st = _FakeStreamlit()
-    monkeypatch.setattr(style_config, "st", fake_st)
-
-    def _tr(key, **kwargs):
-        if key == "selfhost.warning.message":
-            return f"run {kwargs['workflow_path']} in {kwargs['comfyui_url']}"
-        return key
-
-    monkeypatch.setattr(style_config, "tr", _tr)
-    monkeypatch.setattr(
-        style_config.config_manager,
-        "get_comfyui_config",
-        lambda: {"comfyui_url": "http://127.0.0.1:8000"},
-    )
-
-    rendered = style_config.render_selfhost_workflow_notice(
-        "selfhost/image_z_image_turbo.json",
-        expanded=True,
-    )
-
-    assert rendered is True
-    assert {"border": True} in fake_st.container_calls
-    inline_markdown = "\n".join(body for body, _kwargs in fake_st.top_level_markdowns)
-    assert "selfhost.warning.inline_title" in inline_markdown
-    assert "workflows/selfhost/image_z_image_turbo.json" in inline_markdown
-    assert fake_st.warning_calls == ["selfhost.warning.hint"]
-
-
-def test_render_selfhost_workflow_notice_stays_folded_for_non_selfhost(monkeypatch):
-    fake_st = _FakeStreamlit()
-    monkeypatch.setattr(style_config, "st", fake_st)
-
-    rendered = style_config.render_selfhost_workflow_notice(
-        "runninghub/image_flux.json",
-        expanded=True,
-    )
-
-    assert rendered is False
-    assert fake_st.container_calls == []
-
-
 def test_render_style_config_comfyui_tts_shows_inline_selfhost_notice(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "static"
     monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(selfhost_workflow_notice, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key.format(**kwargs) if kwargs else key)
+    monkeypatch.setattr(
+        selfhost_workflow_notice,
+        "tr",
+        lambda key, **kwargs: key.format(**kwargs) if kwargs else key,
+    )
     monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
     monkeypatch.setattr(
         style_config.config_manager,
@@ -290,11 +255,6 @@ def test_render_style_config_comfyui_tts_shows_inline_selfhost_notice(monkeypatc
     monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
     monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(
-        style_config,
-        "check_and_warn_selfhost_workflow",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("popup warning should not run")),
-    )
     monkeypatch.setattr(
         style_config.config_manager,
         "get_storyboard_world_preset_library",
@@ -746,7 +706,6 @@ def test_render_style_config_disables_storyboard_for_static_templates(monkeypatc
     monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: (_ for _ in ()).throw(AssertionError("guide should not render for static templates")))
     monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         style_config.config_manager,
         "get_storyboard_world_preset_library",
@@ -873,11 +832,6 @@ def test_render_style_config_shows_expanded_image_notice_when_template_does_not_
     monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
     monkeypatch.setattr(
-        style_config,
-        "check_and_warn_selfhost_workflow",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("popup warning should not run")),
-    )
-    monkeypatch.setattr(
         style_config.config_manager,
         "get_storyboard_world_preset_library",
         lambda: {
@@ -996,7 +950,6 @@ def test_render_style_config_defaults_image_text_suppression_to_false(monkeypatc
     monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
     monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         style_config.config_manager,
         "get_storyboard_world_preset_library",
@@ -1122,7 +1075,6 @@ def test_render_style_config_does_not_apply_no_text_override_when_storyboard_dis
     monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
     monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         style_config.config_manager,
         "get_storyboard_world_preset_library",
@@ -1246,7 +1198,6 @@ def test_render_style_config_restores_session_image_text_choice(monkeypatch):
     monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
     monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         style_config.config_manager,
         "get_storyboard_world_preset_library",
@@ -1353,7 +1304,9 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     fake_st.session_state["template_media_type"] = "image"
     fake_st.session_state["template_requires_media"] = True
     monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(selfhost_workflow_notice, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(selfhost_workflow_notice, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
     monkeypatch.setattr(
         style_config.config_manager,
@@ -1373,7 +1326,6 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
     monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         style_config.config_manager,
         "get_storyboard_world_preset_library",
@@ -1511,7 +1463,6 @@ def test_render_style_config_keeps_video_generation_section_expanded_by_default(
     monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
     monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         style_config.config_manager,
         "get_storyboard_world_preset_library",
@@ -1641,7 +1592,6 @@ def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_i
     monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
     monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(style_config, "check_and_warn_selfhost_workflow", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         "pixelle_video.utils.template_util.get_template_type",
         lambda _template_name: "image",

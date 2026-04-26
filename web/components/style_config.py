@@ -58,6 +58,10 @@ from pixelle_video.utils.text_splitting import (
     SUPPORTED_CAPTION_PUNCTUATION_MODES,
     SUPPORTED_TTS_SENTENCE_JOINER_MODES,
 )
+from web.components.selfhost_workflow_notice import (
+    is_selfhost_workflow,
+    render_selfhost_workflow_notice,
+)
 from web.components.storyboard_preview import render_storyboard_preview
 from web.components.text_rendering_config import (
     DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,  # noqa: F401
@@ -135,46 +139,6 @@ def render_middle_column_detail_section(label: str):
 def resolve_media_generation_section_expanded(template_media_type: str) -> bool:
     """Collapse illustration generation by default while keeping video generation open."""
     return template_media_type == "video"
-
-
-def is_selfhost_workflow(workflow_path: str | None) -> bool:
-    """Return whether a workflow key points at the local ComfyUI folder."""
-    return bool(workflow_path and str(workflow_path).startswith("selfhost/"))
-
-
-def check_and_warn_selfhost_workflow(workflow_path: str | None):
-    """Compatibility shim for older tests and callers; popups are no longer used."""
-    return None
-
-
-def _display_workflow_path(workflow_path: str) -> str:
-    normalized = str(workflow_path).strip()
-    if normalized.startswith("workflows/"):
-        return normalized
-    return f"workflows/{normalized}"
-
-
-def render_selfhost_workflow_notice(workflow_path: str | None, *, expanded: bool) -> bool:
-    """Render the SelfHost preflight guidance inline when the selected workflow needs it."""
-    if not expanded or not is_selfhost_workflow(workflow_path):
-        return False
-
-    workflow_display_path = _display_workflow_path(str(workflow_path))
-    comfyui_config = config_manager.get_comfyui_config()
-    comfyui_url = comfyui_config.get("comfyui_url", "http://127.0.0.1:8188")
-
-    with st.container(border=True):
-        st.markdown(f"**{tr('selfhost.warning.inline_title')}**")
-        st.markdown(f"`{workflow_display_path}`")
-        st.markdown(
-            tr(
-                "selfhost.warning.message",
-                comfyui_url=comfyui_url,
-                workflow_path=workflow_display_path,
-            )
-        )
-        st.warning(tr("selfhost.warning.hint"))
-    return True
 
 
 def _render_template_gallery_preview_placeholder(template_name: str):
