@@ -133,23 +133,33 @@ def discover_font_families(
     return _discover_font_families(candidate_dirs or FONT_SEARCH_DIRS)
 
 
-def _font_family_option_for_value(
+def _font_select_labels(font_options: list[FontOption]) -> dict[str, FontOption]:
+    family_counts: dict[str, int] = {}
+    for option in font_options:
+        family_key = option.family.casefold()
+        family_counts[family_key] = family_counts.get(family_key, 0) + 1
+
+    labels: dict[str, FontOption] = {}
+    for option in font_options:
+        if family_counts[option.family.casefold()] > 1:
+            label = f"{option.family} ({option.path.name})"
+        else:
+            label = option.family
+        if label in labels:
+            label = f"{option.family} ({font_path_for_payload(option.path)})"
+        labels[label] = option
+    return labels
+
+
+def _font_option_for_current_value(
     current_value: str,
-    options: list[str],
-) -> str | None:
-    for option in options:
-        if option.casefold() == current_value.casefold():
+    labels_by_option: dict[str, FontOption],
+) -> FontOption | None:
+    if current_value in labels_by_option:
+        return labels_by_option[current_value]
+    for option in labels_by_option.values():
+        if option.family.casefold() == current_value.casefold():
             return option
-    return None
-
-
-def _font_file_for_family(
-    font_family: str,
-    discovered_options: list[FontOption],
-) -> str | None:
-    for option in discovered_options:
-        if option.family.casefold() == font_family.casefold():
-            return font_path_for_payload(option.path)
     return None
 
 
@@ -245,26 +255,47 @@ def _render_text_style_controls(
         _session_value(ui, f"{prefix}_font_family", defaults["font_family"])
     ).strip() or str(defaults["font_family"])
     discovered_font_options = discover_font_options(FONT_SEARCH_DIRS)
-    discovered_font_families = [option.family for option in discovered_font_options]
-    if discovered_font_families:
-        font_family_options = list(discovered_font_families)
-        selected_font_family = _font_family_option_for_value(
-            configured_font_family,
-            font_family_options,
+    font_option = None
+    if discovered_font_options:
+        labels_by_option = _font_select_labels(discovered_font_options)
+        font_option_labels = list(labels_by_option)
+        configured_font_option = str(
+            _session_value(ui, f"{prefix}_font_option", configured_font_family)
+        ).strip()
+        selected_font_option = (
+            _font_option_for_current_value(configured_font_option, labels_by_option)
+            or _font_option_for_current_value(configured_font_family, labels_by_option)
+            or labels_by_option[font_option_labels[0]]
         )
-        if selected_font_family is None:
-            selected_font_family = font_family_options[0]
-            _set_session_value(ui, f"{prefix}_font_family", selected_font_family)
+        selected_font_label = next(
+            label
+            for label, option in labels_by_option.items()
+            if option == selected_font_option
+        )
+        _set_session_value(ui, f"{prefix}_font_family", selected_font_option.family)
+        _set_session_value(
+            ui,
+            f"{prefix}_font_file",
+            font_path_for_payload(selected_font_option.path),
+        )
 
-        font_family = _call_control(
+        selected_label = _call_control(
             ui,
             "selectbox",
-            selected_font_family,
+            selected_font_label,
             translate(f"{prefix}.font_family"),
-            font_family_options,
-            index=font_family_options.index(selected_font_family),
-            key=f"{prefix}_font_family",
+            font_option_labels,
+            index=font_option_labels.index(selected_font_label),
+            key=f"{prefix}_font_option",
             help=translate(f"{prefix}.font_family_help"),
+        )
+        font_option = labels_by_option[str(selected_label)]
+        font_family = font_option.family
+        _set_session_value(ui, f"{prefix}_font_family", font_family)
+        _set_session_value(
+            ui,
+            f"{prefix}_font_file",
+            font_path_for_payload(font_option.path),
         )
     else:
         font_family = _call_control(
@@ -276,7 +307,7 @@ def _render_text_style_controls(
             key=f"{prefix}_font_family",
             help=translate(f"{prefix}.font_family_help"),
         )
-    font_file = _font_file_for_family(str(font_family), discovered_font_options)
+    font_file = font_path_for_payload(font_option.path) if font_option else None
     font_size = _call_control(
         ui,
         "number_input",

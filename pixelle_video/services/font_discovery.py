@@ -39,7 +39,7 @@ def discover_font_options(
     candidate_dirs: Iterable[str | Path] | None = None,
 ) -> list[FontOption]:
     font_dirs = tuple(Path(candidate) for candidate in (candidate_dirs or DEFAULT_FONT_SEARCH_DIRS))
-    options_by_family: dict[str, FontOption] = {}
+    options_by_path: dict[str, FontOption] = {}
     for font_dir in font_dirs:
         if not font_dir.is_dir():
             continue
@@ -49,18 +49,24 @@ def discover_font_options(
             family = font_family_from_file(font_file)
             if not family:
                 continue
-            options_by_family.setdefault(
-                family.casefold(),
+            options_by_path.setdefault(
+                str(font_file.resolve()).casefold(),
                 FontOption(family=family, path=font_file),
             )
 
-    return sorted(options_by_family.values(), key=lambda option: option.family.casefold())
+    return sorted(
+        options_by_path.values(),
+        key=lambda option: (option.family.casefold(), option.path.as_posix().casefold()),
+    )
 
 
 def discover_font_families(
     candidate_dirs: Iterable[str | Path] | None = None,
 ) -> list[str]:
-    return [option.family for option in discover_font_options(candidate_dirs)]
+    families_by_key: dict[str, str] = {}
+    for option in discover_font_options(candidate_dirs):
+        families_by_key.setdefault(option.family.casefold(), option.family)
+    return sorted(families_by_key.values(), key=str.casefold)
 
 
 def font_family_from_file(path: Path) -> str:
