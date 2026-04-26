@@ -342,6 +342,89 @@ async def test_produce_assets_staged_materializes_element_motion_after_compose_b
 
 
 @pytest.mark.asyncio
+async def test_materialize_element_motion_for_frame_forwards_config_and_fallback_output_dir(
+    monkeypatch,
+    tmp_path,
+):
+    captured = {}
+
+    class FakeMaterializer:
+        def __init__(self, *, segmentation_service):
+            captured["segmentation_service"] = segmentation_service
+
+        async def materialize_frame(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                manifest_path="manifest.json",
+                motion_video_path=None,
+            )
+
+    monkeypatch.setattr(
+        "pixelle_video.services.element_motion_materializer.ElementMotionMaterializer",
+        FakeMaterializer,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.element_segmentation.ElementSegmentationService",
+        lambda core: SimpleNamespace(core=core),
+    )
+
+    core = _DummyCore()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    ctx.config.element_animation_enabled = True
+    ctx.config.element_animation_backend = "hyperframes_canvas"
+    ctx.config.element_animation_subject_count = 2
+    ctx.config.element_animation_candidate_limit = 4
+    ctx.config.element_animation_prompt = "main subject"
+    ctx.config.element_animation_workflow = "segment.json"
+    ctx.config.element_animation_intensity = "high"
+    frame = ctx.storyboard.frames[0]
+    frame.composed_image_path = str(tmp_path / "frames" / "composed.png")
+    frame.audio_path = str(tmp_path / "audio.mp3")
+
+    await pipeline._materialize_element_motion_for_frame(ctx, frame)
+
+    assert captured["source_image_path"] == frame.composed_image_path
+    assert captured["task_id"] == "task-1"
+    assert captured["output_dir"] == Path(frame.composed_image_path).parent
+    assert captured["backend"] == "hyperframes_canvas"
+    assert captured["selected_count"] == 2
+    assert captured["candidate_limit"] == 4
+    assert captured["prompt"] == "main subject"
+    assert captured["workflow"] == "segment.json"
+    assert captured["intensity"] == "high"
+    assert captured["audio_path"] == frame.audio_path
+    assert frame.element_animation_manifest_path == "manifest.json"
+    assert frame.element_motion_video_path is None
+
+
+@pytest.mark.asyncio
+async def test_materialize_element_motion_for_frame_skips_disabled_or_missing_source(monkeypatch):
+    def fail_materializer(*args, **kwargs):
+        raise AssertionError("materializer should not be constructed")
+
+    monkeypatch.setattr(
+        "pixelle_video.services.element_motion_materializer.ElementMotionMaterializer",
+        fail_materializer,
+    )
+
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = _build_storyboard_ctx()
+    frame = ctx.storyboard.frames[0]
+
+    await pipeline._materialize_element_motion_for_frame(ctx, frame)
+
+    ctx.config.element_animation_enabled = True
+    frame.composed_image_path = None
+    frame.image_path = None
+
+    await pipeline._materialize_element_motion_for_frame(ctx, frame)
+
+    assert frame.element_animation_manifest_path is None
+    assert frame.element_motion_video_path is None
+
+
+@pytest.mark.asyncio
 async def test_produce_assets_legacy_comfyui_auto_prepares_master_track_audio_first(monkeypatch):
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor()
@@ -469,6 +552,7 @@ class _CallableFrameProcessor(_RecordingFrameProcessor):
         total_frames=1,
         progress_callback=None,
         template_body_text=None,
+        element_motion_materializer=None,
     ):
         self.invocations.append(frame.index)
         self.template_body_texts.append(template_body_text)
@@ -484,6 +568,8 @@ class _CallableFrameProcessor(_RecordingFrameProcessor):
                 )
             )
         frame.duration = 1.0
+        if element_motion_materializer is not None:
+            await element_motion_materializer(frame)
         frame.video_segment_path = f"legacy-{frame.index}.mp4"
         return frame
 
@@ -502,6 +588,7 @@ class _ConcurrentCallableFrameProcessor(_CallableFrameProcessor):
         total_frames=1,
         progress_callback=None,
         template_body_text=None,
+        element_motion_materializer=None,
     ):
         self.active += 1
         self.max_active = max(self.max_active, self.active)
@@ -514,6 +601,7 @@ class _ConcurrentCallableFrameProcessor(_CallableFrameProcessor):
                 total_frames=total_frames,
                 progress_callback=progress_callback,
                 template_body_text=template_body_text,
+                element_motion_materializer=element_motion_materializer,
             )
         finally:
             self.active -= 1
@@ -586,6 +674,77 @@ async def test_produce_assets_keeps_callable_frame_processor_path_for_runninghub
     assert [frame.video_segment_path for frame in ctx.storyboard.frames] == [
         "legacy-0.mp4",
         "legacy-1.mp4",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_callable_legacy_materializes_element_motion(monkeypatch):
+    core = _DummyCore(
+        tts_defaults={"tts": "runninghub/tts_edge.json"},
+        media_defaults={
+            "image": "runninghub/image_flux.json",
+            "video": "runninghub/video_wan2.1_fusionx.json",
+        },
+    )
+    core.frame_processor = _CallableFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    ctx.config.element_animation_enabled = True
+    materialized = []
+    monkeypatch.setattr(config_manager.config.comfyui, "runninghub_concurrent_limit", 1)
+
+    async def fake_materialize(context, frame):
+        materialized.append(frame.index)
+        frame.element_animation_manifest_path = f"manifest-{frame.index}.json"
+
+    monkeypatch.setattr(
+        pipeline,
+        "_materialize_element_motion_for_frame",
+        fake_materialize,
+    )
+
+    await pipeline.produce_assets(ctx)
+
+    assert materialized == [0, 1]
+    assert [frame.element_animation_manifest_path for frame in ctx.storyboard.frames] == [
+        "manifest-0.json",
+        "manifest-1.json",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_parallel_callable_materializes_element_motion(monkeypatch):
+    core = _DummyCore(
+        tts_defaults={"tts": "runninghub/tts_edge.json"},
+        media_defaults={
+            "image": "runninghub/image_flux.json",
+            "video": "runninghub/video_wan2.1_fusionx.json",
+        },
+    )
+    core.frame_processor = _ConcurrentCallableFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    ctx.config.element_animation_enabled = True
+    materialized = []
+    monkeypatch.setattr(config_manager.config.comfyui, "runninghub_concurrent_limit", 2)
+
+    async def fake_materialize(context, frame):
+        materialized.append(frame.index)
+        frame.element_animation_manifest_path = f"manifest-{frame.index}.json"
+
+    monkeypatch.setattr(
+        pipeline,
+        "_materialize_element_motion_for_frame",
+        fake_materialize,
+    )
+
+    await pipeline.produce_assets(ctx)
+
+    assert sorted(materialized) == [0, 1]
+    assert core.frame_processor.max_active == 2
+    assert [frame.element_animation_manifest_path for frame in ctx.storyboard.frames] == [
+        "manifest-0.json",
+        "manifest-1.json",
     ]
 
 

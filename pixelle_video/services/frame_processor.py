@@ -542,13 +542,18 @@ class FrameProcessor:
 
         if frame.element_motion_video_path:
             logger.debug("  -> Using element motion video as segment source")
-            segment_path = video_service.merge_audio_video(
-                video=frame.element_motion_video_path,
-                audio=frame.audio_path,
-                output=output_path,
-                replace_audio=True,
-                audio_volume=1.0,
-            )
+            if frame.audio_path:
+                segment_path = video_service.merge_audio_video(
+                    video=frame.element_motion_video_path,
+                    audio=frame.audio_path,
+                    output=output_path,
+                    replace_audio=True,
+                    audio_volume=1.0,
+                )
+            else:
+                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(frame.element_motion_video_path, output_path)
+                segment_path = output_path
             frame.video_segment_path = segment_path
             logger.debug(f"  Video segment created: {segment_path}")
             return

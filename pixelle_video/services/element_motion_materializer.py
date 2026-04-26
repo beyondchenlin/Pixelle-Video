@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -49,19 +50,20 @@ class ElementMotionMaterializer:
         frame_index = int(getattr(frame, "index"))
         frame_dir = Path(output_dir) / "element_motion" / f"frame_{frame_index:03d}"
         frame_dir.mkdir(parents=True, exist_ok=True)
-        duration = max(float(getattr(frame, "duration", 0.0) or 0.0), 0.1)
+        duration = _positive_float(getattr(frame, "duration", 0.0), default=0.1)
+        safe_fps = _positive_int(fps, default=1)
 
         manifest = await self.segmentation_service.segment_image(
             image_path=source_image_path,
             task_id=task_id,
             frame_index=frame_index,
             output_dir=str(frame_dir),
-            width=width,
-            height=height,
+            width=int(width),
+            height=int(height),
             duration=duration,
-            fps=fps,
-            selected_count=selected_count,
-            candidate_limit=candidate_limit,
+            fps=safe_fps,
+            selected_count=int(selected_count),
+            candidate_limit=int(candidate_limit),
             prompt=prompt,
             workflow=workflow,
             backend=backend,
@@ -71,7 +73,12 @@ class ElementMotionMaterializer:
 
         manifest_path = frame_dir / "element_animation_manifest.json"
         manifest_path.write_text(
-            json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2),
+            json.dumps(
+                manifest.to_dict(),
+                ensure_ascii=False,
+                indent=2,
+                allow_nan=False,
+            ),
             encoding="utf-8",
         )
 
@@ -87,3 +94,23 @@ class ElementMotionMaterializer:
             manifest_path=str(manifest_path),
             motion_video_path=motion_video_path,
         )
+
+
+def _positive_float(value: Any, *, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(number) or number <= 0:
+        return default
+    return number
+
+
+def _positive_int(value: Any, *, default: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if number <= 0:
+        return default
+    return number

@@ -362,3 +362,45 @@ async def test_step_create_video_segment_uses_element_motion_video_when_present(
         "audio_volume": 1.0,
     }
     assert frame.video_segment_path == str(tmp_path / "00_segment.mp4")
+
+
+@pytest.mark.asyncio
+async def test_step_create_video_segment_copies_element_motion_video_without_audio(
+    monkeypatch,
+    tmp_path,
+):
+    class _FakeVideoService:
+        def merge_audio_video(self, **kwargs):
+            raise AssertionError("missing audio should bypass merge_audio_video")
+
+        def create_video_from_image(self, **kwargs):
+            raise AssertionError("element motion video should bypass image segment creation")
+
+    monkeypatch.setattr("pixelle_video.services.video.VideoService", _FakeVideoService)
+    monkeypatch.setattr(
+        "pixelle_video.utils.os_util.get_task_frame_path",
+        lambda task_id, index, kind: str(tmp_path / f"{index:02d}_{kind}.mp4"),
+    )
+
+    motion_path = tmp_path / "motion.mp4"
+    motion_path.write_bytes(b"motion")
+    processor = FrameProcessor(None)
+    config = StoryboardConfig(
+        media_width=1024,
+        media_height=1024,
+        task_id="task-1",
+    )
+    frame = StoryboardFrame(
+        index=0,
+        narration="scene",
+        image_prompt="prompt",
+        image_path=str(tmp_path / "frame.png"),
+        composed_image_path=str(tmp_path / "composed.png"),
+        element_motion_video_path=str(motion_path),
+        media_type="image",
+    )
+
+    await processor._step_create_video_segment(frame, config)
+
+    assert frame.video_segment_path == str(tmp_path / "00_segment.mp4")
+    assert Path(frame.video_segment_path).read_bytes() == b"motion"
