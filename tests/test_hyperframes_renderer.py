@@ -294,7 +294,6 @@ async def test_initialize_wires_hyperframes_services(monkeypatch):
     monkeypatch.setattr(service_module, "PersistenceService", DummyService)
     monkeypatch.setattr(service_module, "HistoryManager", DummyService)
     monkeypatch.setattr(service_module, "StandardPipeline", DummyPipeline)
-    monkeypatch.setattr(service_module, "CustomPipeline", DummyPipeline)
     monkeypatch.setattr(service_module, "AssetBasedPipeline", DummyPipeline)
 
     core = PixelleVideoCore()
@@ -332,7 +331,6 @@ async def test_initialize_wires_hyperframes_project_service_to_pixelle_root(monk
     monkeypatch.setattr(service_module, "PersistenceService", DummyService)
     monkeypatch.setattr(service_module, "HistoryManager", DummyService)
     monkeypatch.setattr(service_module, "StandardPipeline", DummyPipeline)
-    monkeypatch.setattr(service_module, "CustomPipeline", DummyPipeline)
     monkeypatch.setattr(service_module, "AssetBasedPipeline", DummyPipeline)
 
     previous_cwd = Path.cwd()
