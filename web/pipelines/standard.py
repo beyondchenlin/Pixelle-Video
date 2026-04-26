@@ -68,7 +68,7 @@ class StandardPipelineUI(PipelineUI):
             bgm_params = render_bgm_section(collapsible=True)
 
             # Style configuration (TTS, template, workflow, etc.)
-            style_params = render_style_config(pixelle_video, storyboard_default_enabled=True)
+            style_params = render_style_config(pixelle_video, storyboard_default_enabled=False)
             render_quick_create_flow_diagram()
         
         # ====================================================================
