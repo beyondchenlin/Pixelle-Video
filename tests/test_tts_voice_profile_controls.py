@@ -76,6 +76,41 @@ def test_voice_profile_controls_return_selected_saved_profile(monkeypatch):
     assert ref_audio_text == "新的参考文本"
 
 
+def test_voice_profile_controls_default_to_bange_indextts2_when_available(monkeypatch):
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(controls, "st", fake_st)
+    monkeypatch.setattr(
+        controls, "tr", lambda key, **kwargs: key.format(**kwargs) if kwargs else key
+    )
+    monkeypatch.setattr(
+        controls,
+        "list_voice_profiles",
+        lambda workflow_key: [
+            {
+                "name": "\u51ac\u54e5-indextts2",
+                "audio_path": "data/reference_audio/indextts2/\u51ac\u54e5-indextts2.wav",
+                "ref_audio_text": "",
+            },
+            {
+                "name": "\u73ed\u54e5-indextts2",
+                "audio_path": "data/reference_audio/indextts2/\u73ed\u54e5-indextts2.mp3",
+                "ref_audio_text": "",
+            },
+        ],
+    )
+
+    ref_audio_path, ref_audio_text = controls.render_tts_voice_profile_controls(
+        "selfhost/tts_index2.json",
+    )
+
+    selected_option = fake_st.selectbox_calls[-1]["options"][
+        fake_st.selectbox_calls[-1]["kwargs"]["index"]
+    ]
+    assert selected_option == "\u73ed\u54e5-indextts2"
+    assert ref_audio_path == "data/reference_audio/indextts2/\u73ed\u54e5-indextts2.mp3"
+    assert ref_audio_text is None
+
+
 def test_voice_profile_controls_save_uploaded_profile(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.file_uploader_result = _FakeUpload()

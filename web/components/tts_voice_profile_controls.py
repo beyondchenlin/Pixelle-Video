@@ -24,6 +24,7 @@ from pixelle_video.services.tts_voice_profiles import (
 from web.i18n import tr
 
 NO_VOICE_PROFILE = "__none__"
+DEFAULT_INDEXTTS2_VOICE_PROFILE = "\u73ed\u54e5-indextts2"
 
 
 def _profile_by_name(profiles: list[dict], name: str) -> dict | None:
@@ -47,7 +48,12 @@ def render_tts_voice_profile_controls(
     profiles = list_voice_profiles(workflow_key)
     profile_names = [str(profile["name"]) for profile in profiles]
     active_profile_name = st.session_state.get(active_profile_key)
-    default_name = active_profile_name if active_profile_name in profile_names else NO_VOICE_PROFILE
+    if active_profile_name in profile_names:
+        default_name = active_profile_name
+    elif model_slug == "indextts2" and DEFAULT_INDEXTTS2_VOICE_PROFILE in profile_names:
+        default_name = DEFAULT_INDEXTTS2_VOICE_PROFILE
+    else:
+        default_name = NO_VOICE_PROFILE
     select_options = [NO_VOICE_PROFILE, *profile_names]
     select_index = select_options.index(default_name)
     select_revision = int(st.session_state.get(select_revision_key, 0) or 0)

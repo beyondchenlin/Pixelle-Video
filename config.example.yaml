@@ -107,9 +107,10 @@ render:
   # Options:
   #   - legacy: existing non-HyperFrames rendering path
   #   - hyperframes_compiled: new compiled HyperFrames rendering path
-  backend: legacy
+  backend: hyperframes_compiled
   timing:
     tts_batching_mode: paragraph
+    tts_audio_strategy: master_track
     tts_batch_max_sentences: 8
     tts_batch_max_chars: 220
     subtitle_alignment_engine: qwen_forced_aligner

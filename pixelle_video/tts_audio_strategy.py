@@ -5,7 +5,7 @@ TTSAudioStrategy = Literal["auto", "per_frame", "master_track"]
 AUTO_TTS_AUDIO_STRATEGY: Final[TTSAudioStrategy] = "auto"
 PER_FRAME_TTS_AUDIO_STRATEGY: Final[TTSAudioStrategy] = "per_frame"
 MASTER_TRACK_TTS_AUDIO_STRATEGY: Final[TTSAudioStrategy] = "master_track"
-DEFAULT_TTS_AUDIO_STRATEGY: Final[TTSAudioStrategy] = AUTO_TTS_AUDIO_STRATEGY
+DEFAULT_TTS_AUDIO_STRATEGY: Final[TTSAudioStrategy] = MASTER_TRACK_TTS_AUDIO_STRATEGY
 SUPPORTED_TTS_AUDIO_STRATEGIES: Final[tuple[TTSAudioStrategy, ...]] = (
     AUTO_TTS_AUDIO_STRATEGY,
     PER_FRAME_TTS_AUDIO_STRATEGY,

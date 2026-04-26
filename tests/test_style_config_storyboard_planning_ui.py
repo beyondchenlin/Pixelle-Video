@@ -431,7 +431,7 @@ def test_standard_pipeline_ui_passes_storyboard_default_enabled_to_render_style_
     pipeline = standard_pipeline.StandardPipelineUI()
     pipeline.render(object())
 
-    assert captured["storyboard_default_enabled"] is True
+    assert captured["storyboard_default_enabled"] is False
     assert captured["rendered_quick_create_flow"] is True
 
 

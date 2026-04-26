@@ -2,6 +2,14 @@ from web.components import style_config
 from web.utils import render_backend_ui, tts_audio_strategy_ui, tts_split_mode_ui, tts_ui
 
 
+def test_render_backend_default_is_hyperframes_compiled():
+    assert render_backend_ui.get_render_backend_default(None) == "hyperframes_compiled"
+
+
+def test_tts_audio_strategy_default_is_master_track():
+    assert tts_audio_strategy_ui.get_tts_audio_strategy_default(None) == "master_track"
+
+
 def test_get_task_render_backend_prefers_effective_backend_then_requested_backend():
     assert (
         render_backend_ui.get_task_render_backend(
