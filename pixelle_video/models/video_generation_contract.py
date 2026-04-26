@@ -9,6 +9,11 @@ from pixelle_video.models.storyboard_plan import (
     StoryboardGenerationMode,
     StoryboardPlan,
 )
+from pixelle_video.models.storyboard_limits import (
+    DEFAULT_STORYBOARD_GENERATION_LIMITS,
+    StoryboardGenerationLimits,
+    storyboard_generation_limits_from_config,
+)
 
 LEGACY_STANDARD_STORYBOARD_PARAMS = frozenset(
     {
@@ -31,7 +36,6 @@ LEGACY_FRAME_OVERRIDE_IDENTITY_FIELDS = frozenset({"scene_id", "snapshot_identit
 PLAN_FRAME_OVERRIDE_VALUE_FIELDS = frozenset(
     {
         "source_text",
-        "narration_text",
         "visual_goal",
         "prompt_intent",
         "shot_type",
@@ -40,6 +44,7 @@ PLAN_FRAME_OVERRIDE_VALUE_FIELDS = frozenset(
         "secondary_subjects",
         "world_elements",
         "continuity_anchors",
+        "focus_detail",
     }
 )
 PLAN_FRAME_OVERRIDE_METADATA_FIELDS = PLAN_FRAME_OVERRIDE_IDENTITY_FIELDS | frozenset(
@@ -52,11 +57,18 @@ PLAN_FRAME_OVERRIDE_ALLOWED_FIELDS = (
     PLAN_FRAME_OVERRIDE_METADATA_FIELDS | PLAN_FRAME_OVERRIDE_VALUE_FIELDS
 )
 VIDEO_GENERATION_MODES = frozenset({"generate", "fixed"})
-STORYBOARD_SCENE_COUNT_MIN = 1
-STORYBOARD_SCENE_COUNT_MAX = 30
+STORYBOARD_GENERATION_LIMITS = DEFAULT_STORYBOARD_GENERATION_LIMITS
+STORYBOARD_SCENE_COUNT_MIN = STORYBOARD_GENERATION_LIMITS.min_scene_count
+STORYBOARD_SCENE_COUNT_MAX = STORYBOARD_GENERATION_LIMITS.max_scene_count
 
 
-def validate_standard_video_generation_params(params: Mapping[str, Any]) -> None:
+def validate_standard_video_generation_params(
+    params: Mapping[str, Any],
+    *,
+    config: Any | None = None,
+    limits: StoryboardGenerationLimits | None = None,
+) -> None:
+    effective_limits = limits or storyboard_generation_limits_from_config(config)
     legacy_fields = sorted(
         name
         for name in LEGACY_STANDARD_STORYBOARD_PARAMS
@@ -87,11 +99,13 @@ def validate_standard_video_generation_params(params: Mapping[str, Any]) -> None
                 raise ValueError("storyboard_scene_count is required with smart manual mode")
             if (
                 type(scene_count) is not int
-                or not STORYBOARD_SCENE_COUNT_MIN <= scene_count <= STORYBOARD_SCENE_COUNT_MAX
+                or not effective_limits.min_scene_count
+                <= scene_count
+                <= effective_limits.max_scene_count
             ):
                 raise ValueError(
                     "storyboard_scene_count must be between "
-                    f"{STORYBOARD_SCENE_COUNT_MIN} and {STORYBOARD_SCENE_COUNT_MAX}"
+                    f"{effective_limits.min_scene_count} and {effective_limits.max_scene_count}"
                 )
         elif scene_count is not None:
             raise ValueError("storyboard_scene_count is valid only with smart manual mode")

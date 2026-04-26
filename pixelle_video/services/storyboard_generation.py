@@ -11,6 +11,10 @@ from pixelle_video.models.storyboard_plan import (
     StoryboardPlan,
     StoryboardPlanFrame,
 )
+from pixelle_video.models.storyboard_limits import (
+    StoryboardGenerationLimits,
+    storyboard_generation_limits_from_config,
+)
 from pixelle_video.prompts.storyboard_generation import build_smart_storyboard_prompt
 
 
@@ -108,13 +112,6 @@ def _sentence_segments(source_text: str) -> list[tuple[str, int, int]]:
     return segments
 
 
-def _positive_int_config(config: dict[str, Any] | None, key: str, default: int) -> int:
-    value = (config or {}).get(key, default)
-    if type(value) is not int or value < 1:
-        raise ValueError(f"{key} must be a positive integer")
-    return value
-
-
 def _smart_storyboard_max_tokens(max_scene_count: int) -> int:
     requested_tokens = max(
         SMART_STORYBOARD_BASE_MAX_TOKENS,
@@ -139,7 +136,11 @@ def _assert_no_meaningful_source_gap(source_text: str, start: int, end: int) -> 
 
 @dataclass
 class StoryboardGenerationService:
-    config: dict[str, Any] | None = None
+    config: Any | None = None
+
+    @property
+    def limits(self) -> StoryboardGenerationLimits:
+        return storyboard_generation_limits_from_config(self.config)
 
     async def generate(
         self,
@@ -191,10 +192,9 @@ class StoryboardGenerationService:
             raise ValueError("smart storyboard mode requires llm_service")
 
         normalized_source = _normalize_text(source_text)
-        min_scene_count = _positive_int_config(self.config, "min_scene_count", 1)
-        max_scene_count = _positive_int_config(self.config, "max_scene_count", 30)
-        if min_scene_count > max_scene_count:
-            raise ValueError("min_scene_count must not exceed max_scene_count")
+        limits = self.limits
+        min_scene_count = limits.min_scene_count
+        max_scene_count = limits.max_scene_count
 
         if count_mode not in {"auto", "manual"}:
             raise ValueError(f"unsupported storyboard count mode: {count_mode}")
@@ -352,7 +352,6 @@ class StoryboardGenerationService:
                 StoryboardPlanFrame(
                     index=index,
                     source_text=frame.source_text,
-                    narration_text=frame.narration_text,
                     visual_goal=frame.visual_goal,
                     prompt_intent=frame.prompt_intent,
                     source_start=start,
@@ -377,7 +376,7 @@ class StoryboardGenerationService:
     ) -> StoryboardPlan:
         normalized_source = _normalize_text(source_text)
         effective_segments = segments or [(normalized_source, 0, len(normalized_source))]
-        max_scene_count = _positive_int_config(self.config, "max_scene_count", 30)
+        max_scene_count = self.limits.max_scene_count
         if len(effective_segments) > max_scene_count:
             raise ValueError(
                 "too many storyboard frames; use smart storyboard mode or shorten the text"
@@ -387,7 +386,6 @@ class StoryboardGenerationService:
             StoryboardPlanFrame(
                 index=index,
                 source_text=segment,
-                narration_text=segment,
                 visual_goal=f"Visualize storyboard segment {index}.",
                 prompt_intent=f"Create a coherent scene that communicates: {segment}",
                 source_start=start,

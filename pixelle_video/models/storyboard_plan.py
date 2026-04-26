@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import uuid
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -49,7 +48,6 @@ class SourceSpan:
 class StoryboardPlanFrame:
     index: int
     source_text: str
-    narration_text: str
     visual_goal: str
     prompt_intent: str
     frame_id: str = ""
@@ -74,7 +72,6 @@ class StoryboardPlanFrame:
             "frame_id": self.frame_id,
             "index": self.index,
             "source_text": self.source_text,
-            "narration_text": self.narration_text,
             "visual_goal": self.visual_goal,
             "prompt_intent": self.prompt_intent,
             "shot_type": self.shot_type,
@@ -155,12 +152,25 @@ class StoryboardPlan:
         normalized_source = source_text.strip()
         mode_value = StoryboardGenerationMode(mode)
         count_mode_value = StoryboardCountMode(count_mode)
-        stable_plan_id = plan_id or f"plan_{uuid.uuid4().hex}"
+        source_digest = _source_digest(normalized_source)
+        stable_plan_id = plan_id or _stable_plan_id(
+            mode=mode_value,
+            count_mode=count_mode_value,
+            requested_scene_count=requested_scene_count,
+            source_digest=source_digest,
+            frames=frames,
+        )
         frames_with_ids = tuple(
             _copy_frame(
                 frame=frame,
                 source_text=normalized_source,
-                frame_id=frame.frame_id or f"frame_{frame.index:04d}_{uuid.uuid4().hex[:8]}",
+                frame_id=frame.frame_id or _stable_frame_id(
+                    mode=mode_value,
+                    count_mode=count_mode_value,
+                    requested_scene_count=requested_scene_count,
+                    source_digest=source_digest,
+                    frame=frame,
+                ),
             )
             for frame in frames
         )
@@ -173,13 +183,10 @@ class StoryboardPlan:
             requested_scene_count=requested_scene_count,
             resolved_scene_count=len(frames_with_ids),
             source_text=normalized_source,
-            source_digest=_source_digest(normalized_source),
+            source_digest=source_digest,
             frames=frames_with_ids,
             diagnostics=_json_safe_copy(diagnostics or {}),
         )
-
-    def narration_texts(self) -> list[str]:
-        return [frame.narration_text for frame in self.frames]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -195,9 +202,83 @@ class StoryboardPlan:
             "diagnostics": _json_safe_copy(self.diagnostics),
         }
 
+    def source_texts(self) -> list[str]:
+        return [frame.source_text for frame in self.frames]
+
 
 def _source_digest(source_text: str) -> str:
     return hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+
+
+def _stable_plan_id(
+    *,
+    mode: StoryboardGenerationMode,
+    count_mode: StoryboardCountMode,
+    requested_scene_count: int | None,
+    source_digest: str,
+    frames: list[StoryboardPlanFrame],
+) -> str:
+    frame_seeds = [
+        _frame_identity_seed(
+            mode=mode,
+            count_mode=count_mode,
+            requested_scene_count=requested_scene_count,
+            source_digest=source_digest,
+            frame=frame,
+        )
+        for frame in frames
+    ]
+    identity = "|".join(
+        [
+            mode.value,
+            count_mode.value,
+            "" if requested_scene_count is None else str(requested_scene_count),
+            source_digest,
+            str(len(frames)),
+            *frame_seeds,
+        ]
+    )
+    return f"plan_{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _stable_frame_id(
+    *,
+    mode: StoryboardGenerationMode,
+    count_mode: StoryboardCountMode,
+    requested_scene_count: int | None,
+    source_digest: str,
+    frame: StoryboardPlanFrame,
+) -> str:
+    seed = _frame_identity_seed(
+        mode=mode,
+        count_mode=count_mode,
+        requested_scene_count=requested_scene_count,
+        source_digest=source_digest,
+        frame=frame,
+    )
+    return f"frame_{frame.index:04d}_{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
+
+
+def _frame_identity_seed(
+    *,
+    mode: StoryboardGenerationMode,
+    count_mode: StoryboardCountMode,
+    requested_scene_count: int | None,
+    source_digest: str,
+    frame: StoryboardPlanFrame,
+) -> str:
+    return "|".join(
+        [
+            mode.value,
+            count_mode.value,
+            "" if requested_scene_count is None else str(requested_scene_count),
+            source_digest,
+            str(frame.index),
+            "" if frame.source_start is None else str(frame.source_start),
+            "" if frame.source_end is None else str(frame.source_end),
+            _source_digest(frame.source_text),
+        ]
+    )
 
 
 def _validate_count_contract(
@@ -246,8 +327,8 @@ def _copy_frame(
     source_text: str,
     frame_id: str,
 ) -> StoryboardPlanFrame:
-    if not frame.narration_text.strip():
-        raise ValueError("frame narration_text must not be empty")
+    if not frame.source_text.strip():
+        raise ValueError("frame source_text must not be empty")
     if not isinstance(frame.metadata, Mapping):
         raise ValueError("frame metadata must be a dict")
     if frame.source_start is not None or frame.source_end is not None:
@@ -266,7 +347,6 @@ def _copy_frame(
     return StoryboardPlanFrame(
         index=frame.index,
         source_text=frame.source_text,
-        narration_text=frame.narration_text,
         visual_goal=frame.visual_goal,
         prompt_intent=frame.prompt_intent,
         frame_id=frame_id,

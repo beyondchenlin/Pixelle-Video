@@ -316,7 +316,7 @@ class PixelleVideoCore:
                 )
             
             if pipeline == "standard":
-                validate_standard_video_generation_params(kwargs)
+                validate_standard_video_generation_params(kwargs, config=self.config)
 
             pipeline_instance = self.pipelines[pipeline]
             fingerprint = build_generation_fingerprint(

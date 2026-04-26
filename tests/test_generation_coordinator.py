@@ -240,6 +240,32 @@ async def test_core_generate_video_rejects_scene_count_above_contract_limit():
 
 
 @pytest.mark.asyncio
+async def test_core_generate_video_rejects_scene_count_above_configured_limit():
+    class _Pipeline:
+        def __init__(self):
+            self.calls = 0
+
+        async def __call__(self, *, text, **kwargs):
+            self.calls += 1
+            return SimpleNamespace(text=text, kwargs=kwargs)
+
+    core = PixelleVideoCore()
+    core.config = {"storyboard": {"min_scene_count": 1, "max_scene_count": 4}}
+    pipeline = _Pipeline()
+    core.pipelines = {"standard": pipeline}
+    core.generate_video = core._create_generate_video_wrapper()
+
+    with pytest.raises(ValueError, match="storyboard_scene_count"):
+        await core.generate_video(
+            text="demo",
+            storyboard_count_mode="manual",
+            storyboard_scene_count=5,
+        )
+
+    assert pipeline.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_core_initialize_does_not_register_custom_template_pipeline_by_default(monkeypatch):
     import pixelle_video.service as service_module
 

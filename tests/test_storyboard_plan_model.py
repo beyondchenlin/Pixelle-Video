@@ -11,6 +11,7 @@ from pixelle_video.models.storyboard_plan import (
     StoryboardPlan,
     StoryboardPlanFrame,
 )
+from pixelle_video.models.video_generation_contract import normalize_plan_frame_overrides
 
 
 def test_storyboard_plan_assigns_digest_and_serializes_frames():
@@ -23,7 +24,6 @@ def test_storyboard_plan_assigns_digest_and_serializes_frames():
             StoryboardPlanFrame(
                 index=1,
                 source_text="第一句。",
-                narration_text="第一句。",
                 visual_goal="Show the first idea.",
                 prompt_intent="A clear visual metaphor for the first idea.",
                 source_start=0,
@@ -32,7 +32,6 @@ def test_storyboard_plan_assigns_digest_and_serializes_frames():
             StoryboardPlanFrame(
                 index=2,
                 source_text="第二句。",
-                narration_text="第二句。",
                 visual_goal="Show the second idea.",
                 prompt_intent="A clear visual metaphor for the second idea.",
                 source_start=4,
@@ -49,12 +48,80 @@ def test_storyboard_plan_assigns_digest_and_serializes_frames():
     assert payload["frames"][1]["index"] == 2
 
 
+def test_storyboard_plan_builds_stable_generated_identity_for_preview_replay():
+    first_plan = StoryboardPlan.build(
+        mode=StoryboardGenerationMode.PUNCTUATION,
+        count_mode=StoryboardCountMode.AUTO,
+        requested_scene_count=None,
+        source_text="abcdef",
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text="abc",
+                visual_goal="show abc",
+                prompt_intent="show abc",
+                source_start=0,
+                source_end=3,
+            ),
+            StoryboardPlanFrame(
+                index=2,
+                source_text="def",
+                visual_goal="show def",
+                prompt_intent="show def",
+                source_start=3,
+                source_end=6,
+            ),
+        ],
+    )
+    replay_plan = StoryboardPlan.build(
+        mode=StoryboardGenerationMode.PUNCTUATION,
+        count_mode=StoryboardCountMode.AUTO,
+        requested_scene_count=None,
+        source_text="abcdef",
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text="abc",
+                visual_goal="show abc again",
+                prompt_intent="show abc again",
+                source_start=0,
+                source_end=3,
+            ),
+            StoryboardPlanFrame(
+                index=2,
+                source_text="def",
+                visual_goal="show def again",
+                prompt_intent="show def again",
+                source_start=3,
+                source_end=6,
+            ),
+        ],
+    )
+
+    assert replay_plan.plan_id == first_plan.plan_id
+    assert [frame.frame_id for frame in replay_plan.frames] == [
+        frame.frame_id for frame in first_plan.frames
+    ]
+    normalize_plan_frame_overrides(
+        [
+            {
+                "plan_id": first_plan.plan_id,
+                "plan_revision": first_plan.revision,
+                "frame_id": first_plan.frames[0].frame_id,
+                "source_digest": first_plan.source_digest,
+                "locked_fields": ["visual_goal"],
+                "visual_goal": "locked visual",
+            }
+        ],
+        storyboard_plan=replay_plan,
+    )
+
+
 def test_source_spans_index_plan_source_text():
     span = SourceSpan(start=0, end=3, text="abc", reason="primary")
     frame = StoryboardPlanFrame(
         index=1,
         source_text="abc",
-        narration_text="abc",
         visual_goal="show abc",
         prompt_intent="show abc",
         source_start=None,
@@ -83,7 +150,6 @@ def test_storyboard_plan_digest_uses_normalized_source_text():
             StoryboardPlanFrame(
                 index=1,
                 source_text="abc",
-                narration_text="abc",
                 visual_goal="show abc",
                 prompt_intent="show abc",
             )
@@ -98,7 +164,6 @@ def test_storyboard_plan_owns_frames_after_build():
     original_frame = StoryboardPlanFrame(
         index=1,
         source_text="abc",
-        narration_text="abc",
         visual_goal="show abc",
         prompt_intent="show abc",
         metadata={"tags": ["original"]},
@@ -117,20 +182,19 @@ def test_storyboard_plan_owns_frames_after_build():
         StoryboardPlanFrame(
             index=2,
             source_text="def",
-            narration_text="def",
             visual_goal="show def",
             prompt_intent="show def",
         )
     )
     with pytest.raises(FrozenInstanceError):
-        original_frame.narration_text = "changed"
+        original_frame.source_text = "changed"
     with pytest.raises(TypeError):
         original_frame.metadata["tags"] += ("mutated",)
 
     assert plan.resolved_scene_count == 1
     assert len(plan.frames) == 1
     assert plan.frames[0] is not original_frame
-    assert plan.frames[0].narration_text == "abc"
+    assert plan.frames[0].source_text == "abc"
     assert plan.frames[0].metadata["tags"] == ("original",)
 
 
@@ -145,7 +209,6 @@ def test_storyboard_plan_to_dict_deep_copies_nested_payloads():
             StoryboardPlanFrame(
                 index=1,
                 source_text="abc",
-                narration_text="abc",
                 visual_goal="show abc",
                 prompt_intent="show abc",
                 metadata={"source_spans": [{"start": 0, "end": 3, "text": "abc"}]},
@@ -172,7 +235,6 @@ def test_storyboard_plan_rejects_non_contiguous_indices():
                 StoryboardPlanFrame(
                     index=2,
                     source_text="one two",
-                    narration_text="one two",
                     visual_goal="show text",
                     prompt_intent="show text",
                 )
@@ -191,7 +253,6 @@ def test_storyboard_plan_rejects_invalid_source_span_text():
                 StoryboardPlanFrame(
                     index=1,
                     source_text="abc",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                     metadata={"source_spans": [SourceSpan(start=0, end=3, text="wrong").to_dict()]},
@@ -211,7 +272,6 @@ def test_storyboard_plan_rejects_unsorted_source_spans():
                 StoryboardPlanFrame(
                     index=1,
                     source_text="abcdef",
-                    narration_text="abcdef",
                     visual_goal="show abcdef",
                     prompt_intent="show abcdef",
                     metadata={
@@ -236,7 +296,6 @@ def test_storyboard_plan_rejects_manual_count_mismatch():
                 StoryboardPlanFrame(
                     index=1,
                     source_text="abc",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                 )
@@ -255,7 +314,6 @@ def test_storyboard_plan_rejects_requested_count_outside_smart_manual():
                 StoryboardPlanFrame(
                     index=1,
                     source_text="abc",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                 )
@@ -274,7 +332,6 @@ def test_storyboard_plan_rejects_manual_count_mode_outside_smart():
                 StoryboardPlanFrame(
                     index=1,
                     source_text="abc",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                 )
@@ -294,7 +351,6 @@ def test_storyboard_plan_rejects_duplicate_frame_ids():
                     frame_id="frame_duplicate",
                     index=1,
                     source_text="abc",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                 ),
@@ -302,7 +358,6 @@ def test_storyboard_plan_rejects_duplicate_frame_ids():
                     frame_id="frame_duplicate",
                     index=2,
                     source_text="def",
-                    narration_text="def",
                     visual_goal="show def",
                     prompt_intent="show def",
                 ),
@@ -322,7 +377,6 @@ def test_storyboard_plan_rejects_invalid_revision():
                 StoryboardPlanFrame(
                     index=1,
                     source_text="abc",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                 )
@@ -340,7 +394,6 @@ def test_storyboard_plan_serializes_sourcespan_objects_as_json_safe_dicts():
             StoryboardPlanFrame(
                 index=1,
                 source_text="abc",
-                narration_text="abc",
                 visual_goal="show abc",
                 prompt_intent="show abc",
                 metadata={"source_spans": [SourceSpan(start=0, end=3, text="abc")]},
@@ -367,7 +420,6 @@ def test_storyboard_plan_rejects_source_text_that_conflicts_with_source_range():
                 StoryboardPlanFrame(
                     index=1,
                     source_text="zzz",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                     source_start=0,
@@ -393,7 +445,6 @@ def test_storyboard_plan_direct_constructor_enforces_invariants():
                     frame_id="frame_0001",
                     index=1,
                     source_text="abc",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                 ),
@@ -413,7 +464,6 @@ def test_storyboard_plan_is_immutable_after_construction():
             StoryboardPlanFrame(
                 index=1,
                 source_text="abc",
-                narration_text="abc",
                 visual_goal="show abc",
                 prompt_intent="show abc",
                 secondary_subjects=["subject"],
@@ -425,7 +475,7 @@ def test_storyboard_plan_is_immutable_after_construction():
     with pytest.raises(FrozenInstanceError):
         plan.resolved_scene_count = 99
     with pytest.raises(FrozenInstanceError):
-        plan.frames[0].narration_text = ""
+        plan.frames[0].source_text = ""
     with pytest.raises(FrozenInstanceError):
         plan.frames[0].secondary_subjects += ("mutated",)
     with pytest.raises(TypeError):
@@ -434,7 +484,7 @@ def test_storyboard_plan_is_immutable_after_construction():
         plan.diagnostics["warnings"][0]["code"] = "changed"
 
     assert plan.resolved_scene_count == 1
-    assert plan.frames[0].narration_text == "abc"
+    assert plan.frames[0].source_text == "abc"
     assert plan.frames[0].metadata["source_spans"][0]["text"] == "abc"
     assert plan.diagnostics["warnings"][0]["code"] == "demo"
 
@@ -451,7 +501,6 @@ def test_storyboard_plan_rejects_non_strict_manual_scene_counts(requested_scene_
                 StoryboardPlanFrame(
                     index=1,
                     source_text="abc",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                 )
@@ -481,7 +530,6 @@ def test_storyboard_plan_rejects_bool_plan_count_fields(field, value, message):
                 frame_id="frame_0001",
                 index=1,
                 source_text="abc",
-                narration_text="abc",
                 visual_goal="show abc",
                 prompt_intent="show abc",
             ),
@@ -505,7 +553,6 @@ def test_storyboard_plan_rejects_bool_frame_index():
                 StoryboardPlanFrame(
                     index=True,
                     source_text="abc",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                 )
@@ -524,7 +571,6 @@ def test_storyboard_plan_rejects_bool_source_range_offsets():
                 StoryboardPlanFrame(
                     index=1,
                     source_text="abc",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                     source_start=False,
@@ -545,7 +591,6 @@ def test_storyboard_plan_rejects_bool_source_span_offsets():
                 StoryboardPlanFrame(
                     index=1,
                     source_text="abc",
-                    narration_text="abc",
                     visual_goal="show abc",
                     prompt_intent="show abc",
                     metadata={"source_spans": [SourceSpan(start=False, end=3, text="abc")]},

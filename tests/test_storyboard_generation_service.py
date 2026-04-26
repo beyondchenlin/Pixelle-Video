@@ -9,7 +9,6 @@ class SmartFakeLLM:
         self.frames = frames or [
             {
                 "source_text": "开头完整表达。",
-                "narration_text": "开头完整表达。",
                 "visual_goal": "Introduce the main idea.",
                 "prompt_intent": "A calm opening visual.",
                 "source_start": 0,
@@ -17,7 +16,6 @@ class SmartFakeLLM:
             },
             {
                 "source_text": "结尾完整表达。",
-                "narration_text": "结尾完整表达。",
                 "visual_goal": "Close the idea.",
                 "prompt_intent": "A coherent closing visual.",
                 "source_start": 7,
@@ -85,7 +83,7 @@ async def test_punctuation_mode_splits_on_all_unicode_punctuation():
         storyboard_scene_count=None,
     )
 
-    assert [frame.narration_text for frame in plan.frames] == [
+    assert [frame.source_text for frame in plan.frames] == [
         "第一段，",
         "继续；",
         "结束。",
@@ -113,7 +111,7 @@ async def test_sentence_mode_splits_only_sentence_boundaries():
         storyboard_scene_count=None,
     )
 
-    assert [frame.narration_text for frame in plan.frames] == [
+    assert [frame.source_text for frame in plan.frames] == [
         "第一段，继续；结束。",
         "Next: not yet?",
         "Done!",
@@ -134,7 +132,7 @@ async def test_sentence_mode_keeps_closing_punctuation_with_sentence():
         storyboard_scene_count=None,
     )
 
-    assert [frame.narration_text for frame in plan.frames] == [
+    assert [frame.source_text for frame in plan.frames] == [
         "他说：“好。”",
         "然后继续。",
         "Really?)",
@@ -154,7 +152,7 @@ async def test_sentence_mode_keeps_continuous_terminators_together():
         storyboard_scene_count=None,
     )
 
-    assert [frame.narration_text for frame in plan.frames] == [
+    assert [frame.source_text for frame in plan.frames] == [
         "真的吗？！",
         "Yes!!",
         "Next",
@@ -174,7 +172,7 @@ async def test_storyboard_generation_normalizes_whitespace_and_preserves_ranges(
     )
 
     assert plan.source_text == "第一段。 第二段 继续。"
-    assert [frame.narration_text for frame in plan.frames] == ["第一段。", "第二段 继续。"]
+    assert [frame.source_text for frame in plan.frames] == ["第一段。", "第二段 继续。"]
     assert [
         plan.source_text[frame.source_start : frame.source_end]
         for frame in plan.frames
@@ -194,7 +192,7 @@ async def test_punctuation_mode_normalizes_whitespace_and_preserves_ranges():
     )
 
     assert plan.source_text == "第一段， 第二段: 继续！"
-    assert [frame.narration_text for frame in plan.frames] == [
+    assert [frame.source_text for frame in plan.frames] == [
         "第一段，",
         "第二段:",
         "继续！",
@@ -231,7 +229,7 @@ async def test_deterministic_strategy_falls_back_to_one_frame_when_no_text_segme
         storyboard_scene_count=None,
     )
 
-    assert [frame.narration_text for frame in plan.frames] == ["！！！"]
+    assert [frame.source_text for frame in plan.frames] == ["！！！"]
     assert plan.resolved_scene_count == 1
 
 
@@ -337,7 +335,6 @@ async def test_smart_auto_caps_default_max_tokens_for_qwen_compatible_providers(
         frames=[
             {
                 "source_text": "alpha beta",
-                "narration_text": "alpha beta",
                 "visual_goal": "Introduce alpha beta.",
                 "prompt_intent": "A focused simple visual.",
                 "source_start": 0,
@@ -364,13 +361,11 @@ async def test_smart_backfills_source_ranges_from_exact_source_text_matches():
         frames=[
             {
                 "source_text": "开头完整表达。",
-                "narration_text": "开头完整表达。",
                 "visual_goal": "Introduce the main idea.",
                 "prompt_intent": "A calm opening visual.",
             },
             {
                 "source_text": "结尾完整表达。",
-                "narration_text": "结尾完整表达。",
                 "visual_goal": "Close the idea.",
                 "prompt_intent": "A coherent closing visual.",
             },
@@ -400,7 +395,6 @@ async def test_smart_repairs_unlocatable_source_text_once():
             [
                 {
                     "source_text": "不存在的片段。",
-                    "narration_text": "不存在的片段。",
                     "visual_goal": "Bad segment.",
                     "prompt_intent": "Bad segment.",
                 }
@@ -428,13 +422,11 @@ async def test_smart_repairs_backwards_source_ranges_once():
     backwards_frames = [
         {
             "source_text": "结尾完整表达。",
-            "narration_text": "结尾完整表达。",
             "visual_goal": "Close the idea.",
             "prompt_intent": "A coherent closing visual.",
         },
         {
             "source_text": "开头完整表达。",
-            "narration_text": "开头完整表达。",
             "visual_goal": "Introduce the main idea.",
             "prompt_intent": "A calm opening visual.",
         },
@@ -450,7 +442,7 @@ async def test_smart_repairs_backwards_source_ranges_once():
     )
 
     assert len(llm.calls) == 2
-    assert plan.narration_texts() == ["开头完整表达。", "结尾完整表达。"]
+    assert plan.source_texts() == ["开头完整表达。", "结尾完整表达。"]
 
 
 @pytest.mark.asyncio
@@ -459,7 +451,6 @@ async def test_smart_repairs_out_of_bounds_source_range_once():
     out_of_bounds_frames = [
         {
             "source_text": "开头完整表达。结尾完整表达。",
-            "narration_text": "开头完整表达。结尾完整表达。",
             "visual_goal": "Introduce the full idea.",
             "prompt_intent": "A coherent visual.",
             "source_start": 0,
@@ -486,7 +477,6 @@ async def test_smart_repairs_missing_source_coverage_once():
     partial_frames = [
         {
             "source_text": "alpha",
-            "narration_text": "alpha",
             "visual_goal": "Introduce alpha.",
             "prompt_intent": "A focused opening visual.",
             "source_start": 0,
@@ -496,7 +486,6 @@ async def test_smart_repairs_missing_source_coverage_once():
     full_frames = [
         {
             "source_text": "alpha beta",
-            "narration_text": "alpha beta",
             "visual_goal": "Introduce the first connected idea.",
             "prompt_intent": "A coherent opening visual.",
             "source_start": 0,
@@ -504,7 +493,6 @@ async def test_smart_repairs_missing_source_coverage_once():
         },
         {
             "source_text": "gamma",
-            "narration_text": "gamma",
             "visual_goal": "Resolve with gamma.",
             "prompt_intent": "A clear closing visual.",
             "source_start": 11,
@@ -522,7 +510,7 @@ async def test_smart_repairs_missing_source_coverage_once():
     )
 
     assert len(llm.calls) == 2
-    assert plan.narration_texts() == ["alpha beta", "gamma"]
+    assert plan.source_texts() == ["alpha beta", "gamma"]
 
 
 @pytest.mark.asyncio
@@ -531,7 +519,6 @@ async def test_smart_rejects_missing_source_coverage_after_repair():
     partial_frames = [
         {
             "source_text": "alpha",
-            "narration_text": "alpha",
             "visual_goal": "Introduce alpha.",
             "prompt_intent": "A focused opening visual.",
             "source_start": 0,
@@ -558,7 +545,6 @@ async def test_smart_allows_whitespace_only_source_coverage_gaps():
     frames = [
         {
             "source_text": "alpha",
-            "narration_text": "alpha",
             "visual_goal": "Introduce alpha.",
             "prompt_intent": "A focused opening visual.",
             "source_start": 0,
@@ -566,7 +552,6 @@ async def test_smart_allows_whitespace_only_source_coverage_gaps():
         },
         {
             "source_text": "beta",
-            "narration_text": "beta",
             "visual_goal": "Resolve with beta.",
             "prompt_intent": "A clear closing visual.",
             "source_start": 6,
@@ -582,7 +567,7 @@ async def test_smart_allows_whitespace_only_source_coverage_gaps():
         storyboard_scene_count=None,
     )
 
-    assert plan.narration_texts() == ["alpha", "beta"]
+    assert plan.source_texts() == ["alpha", "beta"]
 
 
 def test_smart_storyboard_prompt_requires_complete_source_coverage():
@@ -606,7 +591,6 @@ async def test_smart_rejects_out_of_bounds_source_range_after_repair():
     out_of_bounds_frames = [
         {
             "source_text": "开头完整表达。结尾完整表达。",
-            "narration_text": "开头完整表达。结尾完整表达。",
             "visual_goal": "Introduce the full idea.",
             "prompt_intent": "A coherent visual.",
             "source_start": 0,
@@ -633,13 +617,11 @@ async def test_smart_rejects_backwards_source_ranges_after_repair():
     backwards_frames = [
         {
             "source_text": "结尾完整表达。",
-            "narration_text": "结尾完整表达。",
             "visual_goal": "Close the idea.",
             "prompt_intent": "A coherent closing visual.",
         },
         {
             "source_text": "开头完整表达。",
-            "narration_text": "开头完整表达。",
             "visual_goal": "Introduce the main idea.",
             "prompt_intent": "A calm opening visual.",
         },
@@ -684,7 +666,6 @@ async def test_smart_repairs_manual_count_mismatch_once():
             [
                 {
                     "source_text": "开头完整表达。",
-                    "narration_text": "开头完整表达。",
                     "visual_goal": "Introduce the main idea.",
                     "prompt_intent": "A calm opening visual.",
                 }
@@ -711,7 +692,6 @@ async def test_smart_auto_falls_back_to_sentence_segments_after_repair_traceabil
     bad_frame = [
         {
             "source_text": "不存在的片段。",
-            "narration_text": "不存在的片段。",
             "visual_goal": "Bad segment.",
             "prompt_intent": "Bad segment.",
         }
@@ -749,7 +729,6 @@ async def test_smart_manual_rejects_unlocatable_source_text_after_repair():
     bad_frame = [
         {
             "source_text": "不存在的片段。",
-            "narration_text": "不存在的片段。",
             "visual_goal": "Bad segment.",
             "prompt_intent": "Bad segment.",
         }
@@ -851,7 +830,6 @@ async def test_smart_auto_rejects_too_few_frames():
         frames=[
             {
                 "source_text": "开头完整表达。",
-                "narration_text": "开头完整表达。",
                 "visual_goal": "Introduce the main idea.",
                 "prompt_intent": "A calm opening visual.",
                 "source_start": 0,

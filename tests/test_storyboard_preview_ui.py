@@ -5,7 +5,7 @@ from pathlib import Path
 from pixelle_video.config import config_manager
 from web.components.storyboard_preview import (
     build_frame_override_payload,
-    build_storyboard_preview_snapshot_identity,
+    build_storyboard_preview_rows,
     build_storyboard_preview_state_namespace,
     collect_storyboard_preview_overrides,
 )
@@ -39,8 +39,10 @@ def expected_preset_label(item):
 
 def test_build_frame_override_payload_only_keeps_locked_fields():
     payload = build_frame_override_payload(
-        scene_id="scene-1",
-        snapshot_identity="snapshot:scene-1",
+        plan_id="plan_abc",
+        plan_revision=2,
+        frame_id="frame_0001",
+        source_digest="a" * 64,
         locked_fields=["shot_type", "world_elements"],
         values={
             "shot_type": "medium_shot",
@@ -51,8 +53,10 @@ def test_build_frame_override_payload_only_keeps_locked_fields():
     )
 
     assert payload == {
-        "scene_id": "scene-1",
-        "snapshot_identity": "snapshot:scene-1",
+        "plan_id": "plan_abc",
+        "plan_revision": 2,
+        "frame_id": "frame_0001",
+        "source_digest": "a" * 64,
         "locked_fields": ["shot_type", "world_elements"],
         "shot_type": "medium_shot",
         "world_elements": ["strategy board"],
@@ -61,7 +65,25 @@ def test_build_frame_override_payload_only_keeps_locked_fields():
 
 
 def test_collect_storyboard_preview_overrides_skips_empty_entries():
-    snapshot = {
+    planning_snapshot = {
+        "storyboard_generation": {
+            "plan_id": "plan_abc",
+            "revision": 2,
+            "source_digest": "b" * 64,
+            "frames": [
+                {
+                    "frame_id": "frame_0001",
+                    "index": 1,
+                    "shot_type": "medium_shot",
+                    "shot_purpose": "context",
+                    "primary_subject": "coach",
+                    "world_elements": ["strategy board"],
+                    "continuity_anchors": ["desk"],
+                    "focus_detail": "marker notes",
+                    "prompt_intent": "teach concept A",
+                }
+            ],
+        },
         "frames": [
             {
                 "scene_id": "scene-1",
@@ -75,27 +97,29 @@ def test_collect_storyboard_preview_overrides_skips_empty_entries():
             }
         ]
     }
-    snapshot_identity = build_storyboard_preview_snapshot_identity(snapshot)
+    rows = build_storyboard_preview_rows(planning_snapshot)
     overrides = collect_storyboard_preview_overrides(
         [
             {
-                "scene_id": "scene-1",
+                **rows[0],
                 "locked_fields": ["shot_type"],
                 "values": {"shot_type": "medium_shot"},
             },
             {
-                "scene_id": "scene-2",
+                **rows[0],
+                "frame_id": "frame_0002",
                 "locked_fields": [],
                 "values": {"shot_type": "close_up"},
             },
         ],
-        snapshot_identity=snapshot_identity,
     )
 
     assert overrides == [
         {
-            "scene_id": "scene-1",
-            "snapshot_identity": snapshot_identity,
+            "plan_id": "plan_abc",
+            "plan_revision": 2,
+            "frame_id": "frame_0001",
+            "source_digest": "b" * 64,
             "locked_fields": ["shot_type"],
             "shot_type": "medium_shot",
             "override_source": "user_preview",
@@ -103,8 +127,8 @@ def test_collect_storyboard_preview_overrides_skips_empty_entries():
     ]
 
 
-def test_storyboard_preview_snapshot_identity_hashes_snapshot_frames():
-    snapshot = {
+def test_storyboard_preview_rows_require_plan_identity():
+    planning_snapshot = {
         "frames": [
             {
                 "scene_id": "scene-1",
@@ -119,16 +143,7 @@ def test_storyboard_preview_snapshot_identity_hashes_snapshot_frames():
         ]
     }
 
-    identity = build_storyboard_preview_snapshot_identity(snapshot)
-    payload = build_frame_override_payload(
-        scene_id="scene-1",
-        snapshot_identity=identity,
-        locked_fields=["shot_type"],
-        values={"shot_type": "close_up"},
-    )
-
-    assert payload is not None
-    assert payload["snapshot_identity"] == identity
+    assert build_storyboard_preview_rows(planning_snapshot) == []
 
 
 def test_storyboard_preview_state_namespace_changes_with_snapshot_content():

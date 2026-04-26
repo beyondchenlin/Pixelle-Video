@@ -54,13 +54,12 @@ class SmartStoryboardFrameResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     source_text: str
-    narration_text: str
     visual_goal: str
     prompt_intent: str
     source_start: Optional[int] = None
     source_end: Optional[int] = None
 
-    @field_validator("source_text", "narration_text", "visual_goal", "prompt_intent")
+    @field_validator("source_text", "visual_goal", "prompt_intent")
     @classmethod
     def _validate_text_fields(cls, value: str) -> str:
         stripped = value.strip()

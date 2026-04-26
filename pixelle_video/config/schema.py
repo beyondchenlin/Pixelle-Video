@@ -28,6 +28,7 @@ from pixelle_video.config.storyboard_preset_library import (
     build_builtin_shot_preset_library_dict,
     build_builtin_world_preset_library_dict,
 )
+from pixelle_video.models.storyboard_limits import DEFAULT_STORYBOARD_GENERATION_LIMITS
 from pixelle_video.models.storyboard_planning import ContentMode, ShotOverridePolicy
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, RenderBackend
 from pixelle_video.tts_audio_strategy import DEFAULT_TTS_AUDIO_STRATEGY, TTSAudioStrategy
@@ -371,6 +372,16 @@ class StoryboardShotPresetLibraryConfig(BaseModel):
 class StoryboardSubConfig(BaseModel):
     """Storyboard planning configuration."""
 
+    min_scene_count: int = Field(
+        default=DEFAULT_STORYBOARD_GENERATION_LIMITS.min_scene_count,
+        ge=1,
+        description="Minimum scene count for smart storyboard generation",
+    )
+    max_scene_count: int = Field(
+        default=DEFAULT_STORYBOARD_GENERATION_LIMITS.max_scene_count,
+        ge=1,
+        description="Maximum scene count for storyboard generation",
+    )
     world_preset_library: StoryboardWorldPresetLibraryConfig = Field(
         default_factory=lambda: StoryboardWorldPresetLibraryConfig.model_validate(
             build_builtin_world_preset_library_dict()
@@ -383,6 +394,12 @@ class StoryboardSubConfig(BaseModel):
         ),
         description="Storyboard shot preset library",
     )
+
+    @model_validator(mode="after")
+    def validate_scene_count_limits(self):
+        if self.min_scene_count > self.max_scene_count:
+            raise ValueError("min_scene_count must not exceed max_scene_count")
+        return self
 
 
 def _validate_storyboard_cross_references(world_library: StoryboardWorldPresetLibraryConfig, shot_library: StoryboardShotPresetLibraryConfig) -> None:

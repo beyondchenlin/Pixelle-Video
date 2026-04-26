@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.schemas.text_rendering import TextRenderingRequest
+from pixelle_video.models.storyboard_limits import current_storyboard_generation_limits
 from pixelle_video.models.storyboard_planning import (
     ConsistencyStrength,
     ContentMode,
@@ -37,7 +38,6 @@ from pixelle_video.utils.prompt_generation_performance import (
 
 StoryboardOverrideField = Literal[
     "source_text",
-    "narration_text",
     "visual_goal",
     "prompt_intent",
     "shot_type",
@@ -46,6 +46,7 @@ StoryboardOverrideField = Literal[
     "secondary_subjects",
     "world_elements",
     "continuity_anchors",
+    "focus_detail",
 ]
 
 
@@ -74,7 +75,6 @@ class StoryboardFrameOverride(BaseModel):
         description="Origin of the override payload",
     )
     source_text: Optional[str] = Field(None, description="Locked source text override")
-    narration_text: Optional[str] = Field(None, description="Locked narration text override")
     visual_goal: Optional[str] = Field(None, description="Locked visual goal override")
     prompt_intent: Optional[str] = Field(None, description="Locked prompt intent override")
     shot_type: Optional[str] = Field(None, description="Locked shot type override")
@@ -83,6 +83,7 @@ class StoryboardFrameOverride(BaseModel):
     secondary_subjects: Optional[List[str]] = Field(None, description="Locked secondary subject overrides")
     world_elements: Optional[List[str]] = Field(None, description="Locked world element overrides")
     continuity_anchors: Optional[List[str]] = Field(None, description="Locked continuity anchor overrides")
+    focus_detail: Optional[str] = Field(None, description="Locked focus detail override")
 
     @model_validator(mode="after")
     def validate_locked_field_values(self) -> "StoryboardFrameOverride":
@@ -143,7 +144,6 @@ class VideoGenerateRequest(BaseModel):
     storyboard_scene_count: Optional[int] = Field(
         None,
         ge=1,
-        le=30,
         description="Manual storyboard scene count. Only valid with smart + manual.",
     )
     script_length_mode: Literal["auto", "short", "medium", "long", "custom"] = Field(
@@ -288,6 +288,12 @@ class VideoGenerateRequest(BaseModel):
             if self.storyboard_count_mode == "manual":
                 if self.storyboard_scene_count is None:
                     raise ValueError("storyboard_scene_count is required with smart manual mode")
+                limits = current_storyboard_generation_limits()
+                if not limits.min_scene_count <= self.storyboard_scene_count <= limits.max_scene_count:
+                    raise ValueError(
+                        "storyboard_scene_count must be between "
+                        f"{limits.min_scene_count} and {limits.max_scene_count}"
+                    )
             elif self.storyboard_scene_count is not None:
                 raise ValueError("storyboard_scene_count is valid only with smart manual mode")
         else:

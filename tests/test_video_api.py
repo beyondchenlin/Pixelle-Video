@@ -5,7 +5,9 @@ import pytest
 from pydantic import ValidationError
 
 from api.routers.video import generate_video_async, generate_video_sync
+import api.schemas.video as video_schema_module
 from api.schemas.video import VideoGenerateRequest
+from pixelle_video.models.storyboard_limits import StoryboardGenerationLimits
 
 
 class _FakePixelleVideo:
@@ -151,6 +153,24 @@ def test_video_generate_request_accepts_plan_identity_frame_overrides():
     assert request.frame_overrides[0].locked_fields == ["visual_goal", "prompt_intent"]
 
 
+def test_video_generate_request_rejects_removed_narration_text_frame_override():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            frame_overrides=[
+                {
+                    "plan_id": "plan_abc",
+                    "plan_revision": 1,
+                    "frame_id": "frame_0001",
+                    "source_digest": "a" * 64,
+                    "locked_fields": ["narration_text"],
+                    "narration_text": "This old field must not be accepted.",
+                }
+            ],
+        )
+
+
 def test_video_generate_request_rejects_non_sha256_frame_override_source_digest():
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
@@ -204,6 +224,22 @@ def test_video_generate_request_rejects_invalid_storyboard_contract_combinations
             text="demo",
             frame_template="1080x1920/image_default.html",
             **payload,
+        )
+
+
+def test_video_generate_request_rejects_scene_count_above_configured_limit(monkeypatch):
+    monkeypatch.setattr(
+        video_schema_module,
+        "current_storyboard_generation_limits",
+        lambda: StoryboardGenerationLimits(min_scene_count=1, max_scene_count=4),
+    )
+
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            storyboard_count_mode="manual",
+            storyboard_scene_count=5,
         )
 
 

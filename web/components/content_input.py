@@ -16,11 +16,19 @@ Content input components for web UI (left column)
 
 import streamlit as st
 
+from pixelle_video.models.storyboard_limits import (
+    StoryboardGenerationLimits,
+    current_storyboard_generation_limits,
+)
 from web.components.prompt_generation_performance import (
     render_prompt_generation_performance_controls,
 )
 from web.i18n import tr
 from web.utils.async_helpers import get_project_version
+
+
+def get_storyboard_generation_limits() -> StoryboardGenerationLimits:
+    return current_storyboard_generation_limits()
 
 
 def build_storyboard_generation_payload(
@@ -98,6 +106,7 @@ def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict
         storyboard_count_mode = "auto"
         storyboard_scene_count = None
         if storyboard_mode == "smart":
+            storyboard_limits = get_storyboard_generation_limits()
             storyboard_count_mode = st.radio(
                 "Scene Count",
                 ["auto", "manual"],
@@ -112,9 +121,12 @@ def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict
             if storyboard_count_mode == "manual":
                 storyboard_scene_count = st.slider(
                     tr("video.frames"),
-                    min_value=1,
-                    max_value=30,
-                    value=5,
+                    min_value=storyboard_limits.min_scene_count,
+                    max_value=storyboard_limits.max_scene_count,
+                    value=min(
+                        max(5, storyboard_limits.min_scene_count),
+                        storyboard_limits.max_scene_count,
+                    ),
                     key=f"{key_prefix}_storyboard_scene_count",
                     help=tr("video.frames_help"),
                 )

@@ -80,21 +80,35 @@ def _normalize_override_value(field_name: str, value: Any) -> Any:
 
 def build_frame_override_payload(
     *,
-    scene_id: str,
-    snapshot_identity: str | None,
+    plan_id: str,
+    plan_revision: int,
+    frame_id: str,
+    source_digest: str,
     locked_fields: Sequence[str] | None,
     values: Mapping[str, Any] | None,
     override_source: str = "user_preview",
 ) -> dict[str, Any] | None:
     """Build one frame override payload and keep only explicitly locked fields."""
     normalized_locked_fields = _normalize_locked_fields(locked_fields)
-    normalized_snapshot_identity = str(snapshot_identity or "").strip()
-    if not scene_id or not normalized_snapshot_identity or not normalized_locked_fields:
+    normalized_plan_id = str(plan_id or "").strip()
+    normalized_frame_id = str(frame_id or "").strip()
+    normalized_source_digest = str(source_digest or "").strip()
+    if (
+        not normalized_plan_id
+        or type(plan_revision) is not int
+        or plan_revision < 1
+        or not normalized_frame_id
+        or len(normalized_source_digest) != 64
+        or any(char not in "0123456789abcdef" for char in normalized_source_digest)
+        or not normalized_locked_fields
+    ):
         return None
 
     payload: dict[str, Any] = {
-        "scene_id": scene_id,
-        "snapshot_identity": normalized_snapshot_identity,
+        "plan_id": normalized_plan_id,
+        "plan_revision": plan_revision,
+        "frame_id": normalized_frame_id,
+        "source_digest": normalized_source_digest,
         "locked_fields": normalized_locked_fields,
     }
     if override_source:
@@ -116,15 +130,16 @@ def build_frame_override_payload(
 def collect_storyboard_preview_overrides(
     entries: Sequence[Mapping[str, Any]] | None,
     *,
-    snapshot_identity: str | None,
     override_source: str = "user_preview",
 ) -> list[dict[str, Any]]:
     """Collect non-empty frame overrides from preview state entries."""
     overrides: list[dict[str, Any]] = []
     for entry in entries or ():
         payload = build_frame_override_payload(
-            scene_id=str(entry.get("scene_id", "")).strip(),
-            snapshot_identity=snapshot_identity,
+            plan_id=str(entry.get("plan_id", "")).strip(),
+            plan_revision=entry.get("plan_revision"),
+            frame_id=str(entry.get("frame_id", "")).strip(),
+            source_digest=str(entry.get("source_digest", "")).strip(),
             locked_fields=entry.get("locked_fields"),
             values=entry.get("values"),
             override_source=override_source,
@@ -134,10 +149,44 @@ def collect_storyboard_preview_overrides(
     return overrides
 
 
-def _build_preview_rows(planning_snapshot: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+def build_storyboard_preview_rows(planning_snapshot: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for index, frame in enumerate((planning_snapshot or {}).get("frames") or ()):
-        scene_id = str(frame.get("scene_id") or f"scene-{index + 1}")
+    snapshot = planning_snapshot or {}
+    generation = snapshot.get("storyboard_generation")
+    if not isinstance(generation, Mapping):
+        return rows
+
+    plan_id = str(generation.get("plan_id") or "").strip()
+    plan_revision = generation.get("revision")
+    source_digest = str(generation.get("source_digest") or "").strip()
+    if (
+        not plan_id
+        or type(plan_revision) is not int
+        or plan_revision < 1
+        or len(source_digest) != 64
+        or any(char not in "0123456789abcdef" for char in source_digest)
+    ):
+        return rows
+
+    identity_frames = generation.get("frames") or ()
+    if not isinstance(identity_frames, Sequence) or isinstance(identity_frames, (str, bytes)):
+        return rows
+    display_frames = snapshot.get("frames") or ()
+    if not isinstance(display_frames, Sequence) or isinstance(display_frames, (str, bytes)):
+        display_frames = ()
+    for index, identity_frame in enumerate(identity_frames):
+        if not isinstance(identity_frame, Mapping):
+            continue
+        frame_id = str(identity_frame.get("frame_id") or "").strip()
+        if not frame_id:
+            continue
+        display_frame = (
+            display_frames[index]
+            if index < len(display_frames) and isinstance(display_frames[index], Mapping)
+            else {}
+        )
+        frame = {**dict(identity_frame), **dict(display_frame)}
+        scene_id = str(frame.get("scene_id") or frame.get("index") or index + 1)
         values: dict[str, Any] = {}
         for field_name in EDITABLE_STORYBOARD_FIELDS:
             raw_value = frame.get(field_name)
@@ -147,6 +196,10 @@ def _build_preview_rows(planning_snapshot: Mapping[str, Any] | None) -> list[dic
                 values[field_name] = "" if raw_value is None else str(raw_value)
         rows.append(
             {
+                "plan_id": plan_id,
+                "plan_revision": plan_revision,
+                "frame_id": frame_id,
+                "source_digest": source_digest,
                 "scene_id": scene_id,
                 "locked_fields": list(frame.get("locked_fields") or []),
                 "values": values,
@@ -157,12 +210,11 @@ def _build_preview_rows(planning_snapshot: Mapping[str, Any] | None) -> list[dic
 
 def render_storyboard_preview(planning_snapshot: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     """Render a minimal frame override editor from the latest planning snapshot."""
-    rows = _build_preview_rows(planning_snapshot)
+    rows = build_storyboard_preview_rows(planning_snapshot)
     if not rows:
         st.caption(tr("storyboard.preview.empty"))
         return []
 
-    snapshot_identity = build_storyboard_preview_snapshot_identity(planning_snapshot)
     state_namespace = build_storyboard_preview_state_namespace(planning_snapshot)
     draft_entries: list[dict[str, Any]] = []
     with st.expander(tr("storyboard.preview.title"), expanded=False):
@@ -207,6 +259,10 @@ def render_storyboard_preview(planning_snapshot: Mapping[str, Any] | None) -> li
 
                 draft_entries.append(
                     {
+                        "plan_id": row["plan_id"],
+                        "plan_revision": row["plan_revision"],
+                        "frame_id": row["frame_id"],
+                        "source_digest": row["source_digest"],
                         "scene_id": scene_id,
                         "locked_fields": locked_fields,
                         "values": values,
@@ -215,5 +271,4 @@ def render_storyboard_preview(planning_snapshot: Mapping[str, Any] | None) -> li
 
     return collect_storyboard_preview_overrides(
         draft_entries,
-        snapshot_identity=snapshot_identity,
     )

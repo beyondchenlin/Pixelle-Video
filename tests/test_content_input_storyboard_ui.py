@@ -30,6 +30,8 @@ class _FakeStreamlit:
     def __init__(self) -> None:
         self.expanders: list[dict] = []
         self.markdowns: list[dict] = []
+        self.sliders: list[dict] = []
+        self.radio_values: dict[str, str] = {}
         self._context_stack: list[str] = []
 
     def expander(self, label, expanded=False):
@@ -39,13 +41,14 @@ class _FakeStreamlit:
     def markdown(self, body, **kwargs):
         self.markdowns.append({"body": body, "parent": self._current_parent(), **kwargs})
 
-    def radio(self, _label, options, *, index=0, **_kwargs):
-        return list(options)[index]
+    def radio(self, _label, options, *, index=0, key=None, **_kwargs):
+        return self.radio_values.get(key, list(options)[index])
 
     def selectbox(self, _label, options, *, index=0, **_kwargs):
         return list(options)[index]
 
-    def slider(self, _label, *, value, **_kwargs):
+    def slider(self, label, *, value, **kwargs):
+        self.sliders.append({"label": label, "value": value, **kwargs})
         return value
 
     def number_input(self, _label, *, value, **_kwargs):
@@ -98,3 +101,27 @@ def test_storyboard_generation_controls_are_collapsed_with_nested_explanation(mo
         "script_length_mode": "auto",
         "script_target_words": None,
     }
+
+
+def test_storyboard_generation_manual_slider_uses_configured_limits(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.radio_values["single_video_storyboard_count_mode"] = "manual"
+    monkeypatch.setattr(content_input, "st", fake_st)
+    monkeypatch.setattr(content_input, "tr", _fake_tr)
+    monkeypatch.setattr(
+        content_input,
+        "get_storyboard_generation_limits",
+        lambda: content_input.StoryboardGenerationLimits(
+            min_scene_count=2,
+            max_scene_count=8,
+        ),
+    )
+
+    payload = content_input.render_storyboard_generation_controls(
+        mode="generate",
+        key_prefix="single_video",
+    )
+
+    assert fake_st.sliders[0]["min_value"] == 2
+    assert fake_st.sliders[0]["max_value"] == 8
+    assert payload["storyboard_scene_count"] == 5

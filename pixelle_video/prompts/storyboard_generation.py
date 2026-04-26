@@ -27,12 +27,12 @@ def build_smart_storyboard_prompt(
             "Frames may merge adjacent ideas when one sentence is too small for a visual scene.",
             "Frames may split a long sentence when it naturally contains multiple visual beats.",
             "Maintain continuity of style, subjects, and visual logic across all frames.",
+            "Do not rewrite or summarize voiceover text; speech and captions are planned separately from source_text.",
             "Do not generate final image prompts.",
             "Return JSON only.",
         ],
         "frame_schema": {
             "source_text": "Text covered by this frame.",
-            "narration_text": "Voiceover text for this frame.",
             "visual_goal": "What this frame should communicate visually.",
             "prompt_intent": "Guidance for later image prompt composition.",
             "source_start": "Optional Python string start index into source_text.",
