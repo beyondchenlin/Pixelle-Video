@@ -136,6 +136,14 @@ def _repair_prompt(original_prompt: str, reason: str) -> str:
     )
 
 
+def _should_fallback_to_sentence_segments(reason: str) -> bool:
+    return (
+        reason == "smart storyboard frame source_text must be traceable"
+        or "source_span_indices" in reason
+        or "source span" in reason
+    )
+
+
 def _assert_no_meaningful_source_gap(source_text: str, start: int, end: int) -> None:
     gap = source_text[start:end]
     if any(not char.isspace() and not _is_unicode_punctuation(char) for char in gap):
@@ -270,7 +278,7 @@ class StoryboardGenerationService:
         except ValueError as exc:
             if (
                 count_mode != "auto"
-                or str(exc) != "smart storyboard frame source_text must be traceable"
+                or not _should_fallback_to_sentence_segments(str(exc))
             ):
                 raise
             return self._plan_from_segments(

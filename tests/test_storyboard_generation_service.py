@@ -724,6 +724,50 @@ async def test_smart_auto_falls_back_to_sentence_segments_after_repair_traceabil
 
 
 @pytest.mark.asyncio
+async def test_smart_auto_falls_back_to_sentence_segments_after_repair_source_span_order_failure():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    bad_frames = [
+        {
+            "source_text": "preview",
+            "visual_goal": "Bad second span first.",
+            "prompt_intent": "Bad second span first.",
+            "source_span_indices": [1],
+        },
+        {
+            "source_text": "preview",
+            "visual_goal": "Bad first span second.",
+            "prompt_intent": "Bad first span second.",
+            "source_span_indices": [0],
+        },
+    ]
+    llm = SequencedSmartFakeLLM([bad_frames, bad_frames])
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="First complete idea. Second complete idea.",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert len(llm.calls) == 2
+    assert plan.mode.value == "smart"
+    assert plan.count_mode.value == "auto"
+    assert plan.diagnostics["strategy"] == "smart_sentence_fallback"
+    assert plan.diagnostics["fallback_reason"] == (
+        "source_span_indices must cover source_text in source order"
+    )
+    assert [frame.source_text for frame in plan.frames] == [
+        "First complete idea.",
+        "Second complete idea.",
+    ]
+    assert all(
+        frame.metadata["strategy"] == "smart_sentence_fallback"
+        for frame in plan.frames
+    )
+
+
+@pytest.mark.asyncio
 async def test_smart_manual_rejects_unlocatable_source_text_after_repair():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     bad_frame = [
