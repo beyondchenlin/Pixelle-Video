@@ -21,9 +21,13 @@ from typing import Optional, Type, TypeVar, Union
 from urllib.parse import urlparse
 
 from loguru import logger
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, BadRequestError
 from pydantic import BaseModel
 
+from pixelle_video.services.llm_capabilities import (
+    is_json_object_response_format_unsupported_error,
+    structured_output_capabilities,
+)
 from pixelle_video.utils.json_parsing import parse_llm_json_response
 
 T = TypeVar("T", bound=BaseModel)
@@ -318,14 +322,46 @@ class LLMService:
     ) -> T:
         json_schema_instruction = self._get_json_schema_instruction(response_type)
         enhanced_prompt = f"{prompt}\n\n{json_schema_instruction}"
-
-        response = await client.chat.completions.create(
+        capabilities = structured_output_capabilities(
+            base_url=str(client.base_url or ""),
             model=model,
-            messages=[{"role": "user", "content": enhanced_prompt}],
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs
         )
+
+        request_kwargs = {
+            "model": model,
+            "messages": [{"role": "user", "content": enhanced_prompt}],
+            "temperature": temperature,
+            **kwargs,
+        }
+        json_mode_kwargs = {
+            **request_kwargs,
+            "response_format": {"type": "json_object"},
+        }
+        if not capabilities.omit_max_tokens_with_json_object:
+            json_mode_kwargs["max_tokens"] = max_tokens
+
+        if capabilities.supports_json_object_response_format:
+            try:
+                response = await client.chat.completions.create(**json_mode_kwargs)
+            except (BadRequestError, TypeError) as exc:
+                if (
+                    not capabilities.retry_prompt_schema_when_json_object_unsupported
+                    or not is_json_object_response_format_unsupported_error(exc)
+                ):
+                    raise
+                logger.warning(
+                    "Provider rejected JSON mode for structured output; retrying with prompt-only schema: {}",
+                    exc,
+                )
+                response = await client.chat.completions.create(
+                    **request_kwargs,
+                    max_tokens=max_tokens,
+                )
+        else:
+            response = await client.chat.completions.create(
+                **request_kwargs,
+                max_tokens=max_tokens,
+            )
         content = response.choices[0].message.content
 
         logger.debug(f"Structured output response length: {len(content)} chars")

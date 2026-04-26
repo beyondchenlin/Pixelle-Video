@@ -28,7 +28,6 @@ from pixelle_video.models.video_generation_contract import (
     validate_standard_video_generation_params,
 )
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
-from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.alignment_service import AlignmentService
 from pixelle_video.services.audio_edit_service import AudioEditService
@@ -306,7 +305,7 @@ class PixelleVideoCore:
                     storyboard_count_mode="auto",
                 )
                 
-                # Register CustomPipeline explicitly when building your own workflow.
+                # Register a private BasePipeline subclass explicitly when building your own workflow.
             """
             if pipeline not in self.pipelines:
                 available = ", ".join(self.pipelines.keys())

@@ -130,8 +130,33 @@ def _repair_prompt(original_prompt: str, reason: str) -> str:
 
 
 def _assert_no_meaningful_source_gap(source_text: str, start: int, end: int) -> None:
-    if source_text[start:end].strip():
+    gap = source_text[start:end]
+    if any(not char.isspace() and not _is_unicode_punctuation(char) for char in gap):
         raise ValueError("smart storyboard frames must cover source_text")
+
+
+def _has_punctuation_source_gap(source_text: str, start: int, end: int) -> bool:
+    return any(_is_unicode_punctuation(char) for char in source_text[start:end])
+
+
+def _extend_frame_source(frame: StoryboardPlanFrame, *, source_text: str, end: int) -> StoryboardPlanFrame:
+    start = frame.source_start if frame.source_start is not None else 0
+    return StoryboardPlanFrame(
+        index=frame.index,
+        source_text=source_text[start:end],
+        visual_goal=frame.visual_goal,
+        prompt_intent=frame.prompt_intent,
+        frame_id=frame.frame_id,
+        shot_type=frame.shot_type,
+        shot_purpose=frame.shot_purpose,
+        primary_subject=frame.primary_subject,
+        secondary_subjects=frame.secondary_subjects,
+        continuity_anchors=frame.continuity_anchors,
+        world_elements=frame.world_elements,
+        source_start=frame.source_start,
+        source_end=end,
+        metadata=frame.metadata,
+    )
 
 
 @dataclass
@@ -331,6 +356,7 @@ class StoryboardGenerationService:
         for index, frame in enumerate(response.frames, start=1):
             start = frame.source_start
             end = frame.source_end
+            has_explicit_range = start is not None or end is not None
             if start is None and end is None:
                 start = source_text.find(frame.source_text, search_start)
                 if start < 0:
@@ -345,13 +371,26 @@ class StoryboardGenerationService:
             if start < search_start:
                 raise ValueError("smart storyboard frame source ranges must be ordered")
             _assert_no_meaningful_source_gap(source_text, search_start, start)
-            if source_text[start:end] != frame.source_text:
+            if frames and start > search_start and _has_punctuation_source_gap(
+                source_text,
+                search_start,
+                start,
+            ):
+                frames[-1] = _extend_frame_source(
+                    frames[-1],
+                    source_text=source_text,
+                    end=start,
+                )
+            resolved_source_text = source_text[start:end]
+            if has_explicit_range and not resolved_source_text.strip():
+                raise ValueError("smart storyboard frame source range must cover text")
+            if not has_explicit_range and resolved_source_text != frame.source_text:
                 raise ValueError("smart storyboard frame source_text must be traceable")
             search_start = max(search_start, end)
             frames.append(
                 StoryboardPlanFrame(
                     index=index,
-                    source_text=frame.source_text,
+                    source_text=resolved_source_text,
                     visual_goal=frame.visual_goal,
                     prompt_intent=frame.prompt_intent,
                     source_start=start,
