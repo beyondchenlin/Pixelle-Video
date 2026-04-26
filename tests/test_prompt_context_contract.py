@@ -43,6 +43,9 @@ def test_image_prompt_template_requires_frame_aware_context():
     assert "prompt_intent" in prompt
     assert "Use prompt_contexts as the primary source" in prompt
     assert prompt.count("Full script. It has two connected ideas.") == 1
+    assert '"frame_source_texts"' in prompt
+    assert '"narrations"' not in prompt
+    assert "narration" not in prompt.lower()
 
 
 def test_video_prompt_template_requires_frame_aware_context():
@@ -59,6 +62,9 @@ def test_video_prompt_template_requires_frame_aware_context():
     assert "prompt_intent" in prompt
     assert "Use prompt_contexts as the primary source" in prompt
     assert prompt.count("Full script. It has two connected ideas.") == 1
+    assert '"frame_source_texts"' in prompt
+    assert '"narrations"' not in prompt
+    assert "narration" not in prompt.lower()
 
 
 def test_legacy_prompt_contexts_are_compacted_into_plan_context():

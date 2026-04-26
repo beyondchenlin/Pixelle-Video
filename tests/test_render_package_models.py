@@ -23,7 +23,6 @@ from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanF
 from pixelle_video.models.text_overlay import TextOverlayPlan
 from pixelle_video.models.text_style import TextStyleProfile
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
-from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
@@ -818,91 +817,6 @@ async def test_standard_pipeline_initialize_storyboard_builds_sentence_level_tim
 
 
 @pytest.mark.asyncio
-async def test_custom_pipeline_uses_render_config_defaults_when_building_storyboard_config(
-    monkeypatch,
-    tmp_path,
-):
-    captured = {}
-
-    class _CapturedConfig(Exception):
-        pass
-
-    def _capture_storyboard_config(**kwargs):
-        captured.update(kwargs)
-        raise _CapturedConfig
-
-    async def _fake_generate_title(llm, text, strategy):
-        return "Custom title"
-
-    class _FakeFrameHtmlGenerator:
-        def __init__(self, template_path):
-            self.template_path = template_path
-
-        def get_media_size(self):
-            return 1080, 1920
-
-    monkeypatch.setattr("pixelle_video.pipelines.custom.StoryboardConfig", _capture_storyboard_config)
-    monkeypatch.setattr("pixelle_video.utils.content_generators.generate_title", _fake_generate_title)
-    monkeypatch.setattr(
-        "pixelle_video.utils.os_util.create_task_output_dir",
-        lambda: (str(tmp_path / "task"), "task-1"),
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.os_util.get_task_final_video_path",
-        lambda task_id: str(tmp_path / f"{task_id}.mp4"),
-    )
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameHtmlGenerator,
-    )
-
-    fake_core = type(
-        "FakeCore",
-        (),
-        {
-            "config": {
-                "render": {
-                    "backend": "legacy",
-                    "timing": {
-                        "tts_batching_mode": "sentence",
-                        "tts_batch_max_sentences": 5,
-                        "tts_batch_max_chars": 160,
-                        "subtitle_alignment_engine": "whisperx",
-                        "silence_trim_tool": "ffmpeg",
-                        "silence_trim_margin_ms": 75,
-                    },
-                },
-                "template": {
-                    "default_template": "1080x1920/static_default.html",
-                },
-            },
-            "llm": object(),
-            "tts": object(),
-            "media": object(),
-            "video": object(),
-            "frame_processor": object(),
-            "persistence": object(),
-        },
-    )()
-
-    pipeline = CustomPipeline(fake_core)
-
-    with pytest.raises(_CapturedConfig):
-        await pipeline(
-            text="line one\nline two",
-            frame_template="1080x1920/static_default.html",
-        )
-
-    assert captured["tts_batching_mode"] == "sentence"
-    assert captured["tts_batch_max_sentences"] == 5
-    assert captured["tts_batch_max_chars"] == 160
-    assert captured["subtitle_alignment_engine"] == "whisperx"
-    assert captured["silence_trim_tool"] == "ffmpeg"
-    assert captured["silence_trim_margin_ms"] == 75
-    assert captured["render_backend"] == "legacy"
-
-
-@pytest.mark.asyncio
 async def test_asset_based_pipeline_initialize_storyboard_uses_render_config_defaults(
     monkeypatch,
 ):
@@ -966,72 +880,6 @@ async def test_asset_based_pipeline_initialize_storyboard_uses_render_config_def
     assert captured["silence_trim_tool"] == "ffmpeg"
     assert captured["silence_trim_margin_ms"] == 75
     assert captured["render_backend"] == "legacy"
-
-
-@pytest.mark.asyncio
-async def test_custom_pipeline_persist_task_data_records_render_backend(tmp_path):
-    class _RecordingPersistence:
-        def __init__(self):
-            self.saved_metadata = None
-
-        async def save_task_metadata(self, task_id, metadata):
-            self.saved_metadata = (task_id, metadata)
-
-        async def save_storyboard(self, task_id, storyboard):
-            return None
-
-        def get_task_runtime_log_path(self, task_id):
-            return tmp_path / task_id / "logs" / "runtime.jsonl"
-
-    fake_core = type(
-        "FakeCore",
-        (),
-        {
-            "config": {
-                "llm": {"model": "demo-llm", "base_url": "http://llm"},
-                "comfyui": {"comfyui_url": "http://comfyui", "runninghub_api_key": None},
-            },
-            "llm": object(),
-            "tts": object(),
-            "media": object(),
-            "video": object(),
-            "persistence": _RecordingPersistence(),
-        },
-    )()
-
-    pipeline = CustomPipeline(fake_core)
-    storyboard = Storyboard(
-        title="demo",
-        config=StoryboardConfig(
-            media_width=1080,
-            media_height=1920,
-            task_id="task-1",
-            render_backend="legacy",
-        ),
-    )
-    result = type(
-        "Result",
-        (),
-        {
-            "video_path": str(tmp_path / "final.mp4"),
-            "duration": 2.0,
-            "file_size": 123,
-        },
-    )()
-
-    await pipeline._persist_task_data(
-        storyboard=storyboard,
-        result=result,
-        input_params={"text": "demo"},
-    )
-
-    assert fake_core.persistence.saved_metadata is not None
-    _, metadata = fake_core.persistence.saved_metadata
-    assert metadata["config"]["render_backend"] == "legacy"
-    assert metadata["input"]["render_backend"] == "legacy"
-    assert metadata["observability"]["runtime_log_path"] == str(
-        tmp_path / "task-1" / "logs" / "runtime.jsonl"
-    )
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,6 @@ import pytest
 from pixelle_video.models.asset_script import AssetScriptSceneResponse
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
-from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.services.text_rendering_contract_summary import (
     build_text_rendering_result_metadata,
 )
@@ -80,29 +79,6 @@ def test_build_text_rendering_result_metadata_omits_artifact_path_without_contra
     }
 
 
-def test_custom_pipeline_direct_contract_summary_honors_disabled_reason():
-    pipeline = CustomPipeline(_MinimalCore())
-    ctx = SimpleNamespace(observability={})
-
-    pipeline._record_text_rendering_contract_summary(
-        ctx,
-        text_rendering={
-            "caption_style": {"font_size": 72},
-            "overlay": {"enabled": True, "renderer_targets": ["ass"]},
-        },
-        supported_overlay=False,
-        disabled_reason="custom_pipeline_overlay_not_supported",
-    )
-
-    assert ctx.observability["caption_rendering_summary"]["style_profile_id"] == (
-        "caption-default"
-    )
-    assert ctx.observability["text_layer_summary"]["enabled"] is False
-    assert ctx.observability["text_layer_summary"]["disabled_reason"] == (
-        "custom_pipeline_overlay_not_supported"
-    )
-
-
 def test_asset_based_direct_contract_summary_honors_disabled_reason():
     pipeline = AssetBasedPipeline(_MinimalCore())
     ctx = SimpleNamespace(
@@ -127,130 +103,6 @@ def test_asset_based_direct_contract_summary_honors_disabled_reason():
     assert ctx.observability["text_layer_summary"]["disabled_reason"] == (
         "asset_based_overlay_disabled"
     )
-
-
-@pytest.mark.asyncio
-async def test_custom_pipeline_records_contract_when_overlay_unsupported(
-    monkeypatch,
-    tmp_path,
-):
-    task_dir = tmp_path / "task-custom"
-    task_dir.mkdir()
-    final_path = task_dir / "final.mp4"
-    persistence = _RecordingPersistence(tmp_path)
-
-    class _FakeHTMLFrameGenerator:
-        def __init__(self, template_path):
-            self.template_path = template_path
-
-        def get_media_size(self):
-            return 1080, 1920
-
-    class _FakeVideoService:
-        def concat_videos(self, videos, output, **kwargs):
-            Path(output).write_bytes(b"video")
-            return output
-
-    class _FakeFrameProcessor:
-        async def __call__(
-            self,
-            frame,
-            storyboard,
-            config,
-            total_frames,
-            progress_callback=None,
-        ):
-            frame.duration = 1.0
-            segment_path = task_dir / f"segment_{frame.index}.mp4"
-            segment_path.write_bytes(b"segment")
-            frame.video_segment_path = str(segment_path)
-            return frame
-
-    class _FakeCore:
-        def __init__(self):
-            self.config = {
-                "template": {"default_template": "1080x1920/static_default.html"},
-                "render": {"backend": "legacy"},
-            }
-            self.llm = object()
-            self.tts = object()
-            self.media = object()
-            self.video = object()
-            self.frame_processor = _FakeFrameProcessor()
-            self.persistence = persistence
-
-    async def fake_generate_title(*args, **kwargs):
-        return "Custom Title"
-
-    monkeypatch.setattr(
-        "pixelle_video.utils.os_util.create_task_output_dir",
-        lambda: (str(task_dir), "task-custom"),
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.os_util.get_task_final_video_path",
-        lambda task_id: str(final_path),
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.content_generators.generate_title",
-        fake_generate_title,
-    )
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeHTMLFrameGenerator,
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.template_util.resolve_template_path",
-        lambda path: path,
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.template_util.get_template_type",
-        lambda template_name: "static",
-    )
-    monkeypatch.setattr("pixelle_video.services.video.VideoService", _FakeVideoService)
-
-    pipeline = CustomPipeline(_FakeCore())
-
-    await pipeline(
-        text="line one",
-        text_rendering={
-            "overlay": {"enabled": True, "renderer_targets": ["ass"]},
-            "caption_style": {"primary_color": "#ffff00"},
-            "overlay_style": {"primary_color": "#00ff00"},
-            "image_text": {"suppress_embedded_text": True},
-        },
-    )
-
-    metadata = persistence.saved_metadata
-    assert metadata is not None
-    observability = metadata["observability"]
-    assert observability["caption_rendering_summary"]["style_profile_id"] == (
-        "caption-default"
-    )
-    assert observability["text_layer_summary"] == {
-        "enabled": False,
-        "renderer": "disabled",
-        "track_count": 0,
-        "cue_count": 0,
-        "native_prompt_hint_count": 0,
-        "style_profile_ids": ["overlay-default"],
-        "artifacts": {},
-        "fallbacks": [],
-        "targets": ["ass"],
-        "disabled_reason": "overlay_unsupported",
-    }
-    assert observability["image_text_policy_summary"]["status"] == "not_applicable"
-    assert metadata["result"]["text_layer_summary"] == observability[
-        "text_layer_summary"
-    ]
-    assert metadata["result"]["caption_rendering_summary"] == observability[
-        "caption_rendering_summary"
-    ]
-    assert metadata["result"]["image_text_policy_summary"] == observability[
-        "image_text_policy_summary"
-    ]
-    assert metadata["result"]["text_render_package_path"] == "text_render_package.json"
-    assert "caption_style" not in observability["caption_rendering_summary"]
-    assert "overlay_style" not in observability["text_layer_summary"]
 
 
 @pytest.mark.asyncio
