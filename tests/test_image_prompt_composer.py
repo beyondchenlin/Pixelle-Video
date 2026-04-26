@@ -1,5 +1,6 @@
 import pytest
 
+from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 
@@ -14,7 +15,6 @@ def _plan():
             StoryboardPlanFrame(
                 index=1,
                 source_text="第一句。",
-                narration_text="第一句。",
                 visual_goal="Show idea one.",
                 prompt_intent="Visual metaphor one.",
                 source_start=0,
@@ -23,7 +23,6 @@ def _plan():
             StoryboardPlanFrame(
                 index=2,
                 source_text="第二句。",
-                narration_text="第二句。",
                 visual_goal="Show idea two.",
                 prompt_intent="Visual metaphor two.",
                 source_start=4,
@@ -64,11 +63,14 @@ async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
 
     assert captured["narrations"] == ["第一句。", "第二句。"]
     plan = _plan()
-    assert captured["prompt_contexts"][0]["plan_source_text"] == plan.source_text
-    assert captured["prompt_contexts"][0]["frame_source_text"] == plan.frames[0].source_text
-    assert captured["prompt_contexts"][0]["narration_text"] == plan.frames[0].narration_text
-    assert captured["prompt_contexts"][0]["visual_goal"] == "Show idea one."
-    assert captured["prompt_contexts"][1]["prompt_intent"] == "Visual metaphor two."
+    prompt_contexts = captured["prompt_contexts"]
+    assert isinstance(prompt_contexts, PromptContextEnvelope)
+    assert prompt_contexts.plan_context["plan_source_text"] == plan.source_text
+    assert "plan_source_text" not in prompt_contexts.frame_contexts[0]
+    assert prompt_contexts.frame_contexts[0]["frame_source_text"] == plan.frames[0].source_text
+    assert "narration_text" not in prompt_contexts.frame_contexts[0]
+    assert prompt_contexts.frame_contexts[0]["visual_goal"] == "Show idea one."
+    assert prompt_contexts.frame_contexts[1]["prompt_intent"] == "Visual metaphor two."
     assert result.prompts == ["prompt one", "prompt two"]
     assert result.planning_snapshot["frames"] == [{"scene_id": "1"}, {"scene_id": "2"}]
     assert result.planning_snapshot["storyboard_generation"]["resolved_scene_count"] == 2
@@ -199,9 +201,10 @@ async def test_composer_applies_new_frame_override_identity_to_prompt_context(mo
     )
 
     assert captured["frame_overrides"] is None
-    assert captured["prompt_contexts"][0]["locked_fields"] == ["visual_goal", "prompt_intent"]
-    assert captured["prompt_contexts"][0]["visual_goal"] == "Locked visual goal."
-    assert captured["prompt_contexts"][0]["prompt_intent"] == "Locked prompt intent."
+    frame_context = captured["prompt_contexts"].frame_contexts[0]
+    assert frame_context["locked_fields"] == ["visual_goal", "prompt_intent"]
+    assert frame_context["visual_goal"] == "Locked visual goal."
+    assert frame_context["prompt_intent"] == "Locked prompt intent."
 
 
 @pytest.mark.asyncio
@@ -244,5 +247,7 @@ async def test_composer_applies_source_text_override_to_frame_source_text(monkey
         ],
     )
 
-    assert captured["prompt_contexts"][0]["source_text"] == "Locked source fragment."
-    assert captured["prompt_contexts"][0]["frame_source_text"] == "Locked source fragment."
+    frame_context = captured["prompt_contexts"].frame_contexts[0]
+    assert captured["narrations"][0] == "Locked source fragment."
+    assert frame_context["source_text"] == "Locked source fragment."
+    assert frame_context["frame_source_text"] == "Locked source fragment."

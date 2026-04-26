@@ -1,5 +1,6 @@
 import pytest
 
+from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec, StyleSourceSpec
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
@@ -467,7 +468,6 @@ async def test_generate_styled_image_prompt_batch_passes_prompt_contexts_to_stor
         {
             "plan_source_text": "Full script with connected ideas.",
             "frame_source_text": "First idea in the connected script.",
-            "narration_text": "First idea narration.",
             "visual_goal": "Show the first idea as part of the whole story.",
             "prompt_intent": "Keep continuity with the complete script.",
         }
@@ -518,7 +518,11 @@ async def test_generate_styled_image_prompt_batch_passes_prompt_contexts_to_stor
         world_preset_id="neutral_knowledge_storyboard",
     )
 
-    assert captured["planner_kwargs"]["prompt_contexts"] == prompt_contexts
+    planner_contexts = captured["planner_kwargs"]["prompt_contexts"]
+    assert isinstance(planner_contexts, PromptContextEnvelope)
+    assert planner_contexts.plan_context["plan_source_text"] == "Full script with connected ideas."
+    assert "plan_source_text" not in planner_contexts.frame_contexts[0]
+    assert planner_contexts.frame_contexts[0]["visual_goal"] == "Show the first idea as part of the whole story."
 
 
 @pytest.mark.asyncio
@@ -720,7 +724,6 @@ async def test_generate_styled_image_prompt_batch_forwards_prompt_contexts(monke
         narrations=["第一句。"],
         prompt_contexts=[
             {
-                "narration_text": "第一句。",
                 "visual_goal": "Show idea one.",
                 "prompt_intent": "Visual metaphor one.",
             }
@@ -728,13 +731,13 @@ async def test_generate_styled_image_prompt_batch_forwards_prompt_contexts(monke
         image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
     )
 
-    assert captured["prompt_contexts"] == [
+    assert isinstance(captured["prompt_contexts"], PromptContextEnvelope)
+    assert captured["prompt_contexts"].frame_contexts == (
         {
-            "narration_text": "第一句。",
             "visual_goal": "Show idea one.",
             "prompt_intent": "Visual metaphor one.",
-        }
-    ]
+        },
+    )
     assert result.prompts == ["base scene prompt"]
 
 

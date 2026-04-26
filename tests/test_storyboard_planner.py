@@ -864,7 +864,6 @@ async def test_plan_storyboard_batch_includes_frame_aware_prompt_contexts_in_llm
             {
                 "plan_source_text": "Full script with connected ideas.",
                 "frame_source_text": "First idea in the connected script.",
-                "narration_text": "First idea narration.",
                 "visual_goal": "Show the first idea as part of the whole story.",
                 "prompt_intent": "Keep continuity with the complete script.",
             }

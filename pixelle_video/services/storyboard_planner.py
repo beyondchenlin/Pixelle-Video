@@ -7,6 +7,12 @@ from typing import Any, Mapping, Sequence
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.storyboard_preset_library import load_shot_preset_map, lookup_world_preset
+from pixelle_video.models.prompt_context import (
+    PromptContextEnvelope,
+    PromptContextInput,
+    normalize_prompt_contexts,
+    slice_prompt_contexts,
+)
 from pixelle_video.models.storyboard_planning import (
     FramePlan,
     ResolvedContentMode,
@@ -90,20 +96,14 @@ def _chunk_narrations(narrations: Sequence[str], batch_size: int) -> list[tuple[
 
 
 def _normalize_prompt_contexts(
-    prompt_contexts: Sequence[Mapping[str, Any]] | None,
+    prompt_contexts: PromptContextInput | None,
     expected_count: int,
-) -> list[dict[str, Any]] | None:
-    if prompt_contexts is None:
-        return None
-    if len(prompt_contexts) != expected_count:
-        raise ValueError("storyboard prompt_contexts must match narration count")
-
-    normalized: list[dict[str, Any]] = []
-    for context in prompt_contexts:
-        if not isinstance(context, Mapping):
-            raise ValueError("storyboard prompt_contexts must contain mapping objects")
-        normalized.append(dict(context))
-    return normalized
+) -> PromptContextEnvelope | None:
+    return normalize_prompt_contexts(
+        prompt_contexts,
+        expected_count,
+        error_prefix="storyboard prompt_contexts",
+    )
 
 
 def _storyboard_planning_max_tokens(frame_count: int) -> int:
@@ -311,7 +311,7 @@ async def plan_storyboard_batch(
     role_strategy: str | None = None,
     role_locking_strength: str | None = None,
     shot_strategy: str | None = None,
-    prompt_contexts: Sequence[Mapping[str, Any]] | None = None,
+    prompt_contexts: PromptContextInput | None = None,
     frame_overrides: Sequence[Mapping[str, Any]] | None = None,
     world_preset_library: Any | None = None,
     shot_preset_library: Any | None = None,
@@ -360,10 +360,10 @@ async def plan_storyboard_batch(
 
     async def plan_batch(start_index: int, batch_narrations: list[str]) -> tuple[int, list[FramePlan]]:
         scene_id_start = start_index + 1
-        batch_prompt_contexts = (
-            normalized_prompt_contexts[start_index:start_index + len(batch_narrations)]
-            if normalized_prompt_contexts is not None
-            else None
+        batch_prompt_contexts = slice_prompt_contexts(
+            normalized_prompt_contexts,
+            start_index,
+            len(batch_narrations),
         )
         planner_prompt = build_storyboard_planning_prompt(
             narrations=batch_narrations,

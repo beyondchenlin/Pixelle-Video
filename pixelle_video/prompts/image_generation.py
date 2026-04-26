@@ -13,11 +13,13 @@
 """
 Image prompt generation template
 
-For generating image prompts from narrations.
+For generating image prompts from storyboard frame context.
 """
 
 import json
 from typing import Any, List, Mapping, Optional, Sequence
+
+from pixelle_video.models.prompt_context import PromptContextInput, prompt_context_payload
 
 # ==================== PRESET IMAGE STYLES ====================
 # Predefined visual styles for different use cases
@@ -50,9 +52,9 @@ IMAGE_PROMPT_GENERATION_PROMPT = """# Role Definition
 You are a professional visual creative designer, skilled at creating expressive and symbolic image prompts for video scripts, transforming abstract concepts into concrete visual scenes.
 
 # Core Task
-Based on the existing video script, create corresponding **English** image prompts for each storyboard's "narration content", ensuring visual scenes perfectly match the narrative content and enhance audience understanding and memory.
+Based on the existing video script, create corresponding **English** image prompts for each storyboard frame's source text and visual goal, ensuring visual scenes match the intended content and enhance audience understanding and memory.
 
-**Important: The input contains {narrations_count} narrations. You must generate one corresponding image prompt for each narration, totaling {narrations_count} image prompts.**
+**Important: The input contains {narrations_count} storyboard frame source texts. You must generate one corresponding image prompt for each frame, totaling {narrations_count} image prompts.**
 
 # Input Style Profile
 {style_profile_json}
@@ -63,7 +65,7 @@ Based on the existing video script, create corresponding **English** image promp
 # Frame-Aware Context Contract
 - When `prompt_contexts` is present, Use prompt_contexts as the primary source for image prompt generation.
 - Read `plan_source_text` first to understand the complete script and maintain global meaning.
-- Use each frame's `frame_source_text`, `narration_text`, `visual_goal`, and `prompt_intent` together; do not infer the image from narration_text alone.
+- Use each frame's `frame_source_text`, `visual_goal`, `prompt_intent`, and `focus_detail` together; do not infer the image from an isolated text fragment alone.
 - Preserve continuity across frames by respecting shared subjects, world elements, and any `locked_fields` in the matching prompt_context.
 
 # Output Requirements
@@ -132,7 +134,7 @@ def build_image_prompt_prompt(
     min_words: int,
     max_words: int,
     style_profile: Optional[dict[str, Any]] = None,
-    prompt_contexts: Optional[Sequence[Mapping[str, Any]]] = None,
+    prompt_contexts: Optional[PromptContextInput] = None,
 ) -> str:
     """
     Build image prompt generation prompt
@@ -151,8 +153,9 @@ def build_image_prompt_prompt(
         >>> build_image_prompt_prompt(narrations, 50, 100)
     """
     payload: dict[str, Any] = {"narrations": narrations}
-    if prompt_contexts is not None:
-        payload["prompt_contexts"] = [dict(context) for context in prompt_contexts]
+    context_payload = prompt_context_payload(prompt_contexts, len(narrations))
+    if context_payload is not None:
+        payload.update(context_payload)
     narrations_json = json.dumps(payload, ensure_ascii=False, indent=2)
     style_profile_json = json.dumps(style_profile or None, ensure_ascii=False, indent=2)
     

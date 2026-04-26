@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 
 from pixelle_video.models.native_prompt import NativePromptHint
+from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.models.video_generation_contract import (
@@ -52,7 +53,10 @@ class ImagePromptComposer:
         )
         batch = await generate_styled_image_prompt_batch(
             llm_service=llm_service,
-            narrations=storyboard_plan.narration_texts(),
+            narrations=[
+                str(context["frame_source_text"])
+                for context in prompt_contexts.frame_contexts
+            ],
             prompt_contexts=prompt_contexts,
             image_config=image_config,
             prompt_prefix=prompt_prefix,
@@ -93,20 +97,21 @@ def _build_prompt_contexts(
     *,
     storyboard_plan: StoryboardPlan,
     frame_overrides: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+) -> PromptContextEnvelope:
     overrides_by_frame_id = {override["frame_id"]: override for override in frame_overrides}
-    contexts: list[dict[str, Any]] = []
+    plan_context = {
+        "plan_id": storyboard_plan.plan_id,
+        "plan_revision": storyboard_plan.revision,
+        "source_digest": storyboard_plan.source_digest,
+        "plan_source_text": storyboard_plan.source_text,
+    }
+    frame_contexts: list[dict[str, Any]] = []
     for frame in storyboard_plan.frames:
         context = {
-            "plan_id": storyboard_plan.plan_id,
-            "plan_revision": storyboard_plan.revision,
-            "source_digest": storyboard_plan.source_digest,
             "frame_id": frame.frame_id,
             "frame_index": frame.index,
-            "plan_source_text": storyboard_plan.source_text,
             "frame_source_text": frame.source_text,
             "source_text": frame.source_text,
-            "narration_text": frame.narration_text,
             "visual_goal": frame.visual_goal,
             "prompt_intent": frame.prompt_intent,
             "shot_type": frame.shot_type,
@@ -115,6 +120,7 @@ def _build_prompt_contexts(
             "secondary_subjects": list(frame.secondary_subjects),
             "continuity_anchors": list(frame.continuity_anchors),
             "world_elements": list(frame.world_elements),
+            "focus_detail": frame.metadata.get("focus_detail"),
             "source_start": frame.source_start,
             "source_end": frame.source_end,
             "metadata": dict(frame.metadata),
@@ -129,8 +135,11 @@ def _build_prompt_contexts(
                     context[field_name] = override[field_name]
                     if field_name == "source_text":
                         context["frame_source_text"] = override[field_name]
-        contexts.append(context)
-    return contexts
+        frame_contexts.append(context)
+    return PromptContextEnvelope(
+        plan_context=plan_context,
+        frame_contexts=frame_contexts,
+    )
 
 
 __all__ = ["ImagePromptComposer"]

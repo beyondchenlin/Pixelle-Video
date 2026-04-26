@@ -13,19 +13,21 @@
 """
 Video prompt generation template
 
-For generating video prompts from narrations.
+For generating video prompts from storyboard frame context.
 """
 
 import json
 from typing import Any, List, Mapping, Optional, Sequence
 
+from pixelle_video.models.prompt_context import PromptContextInput, prompt_context_payload
+
 VIDEO_PROMPT_GENERATION_PROMPT = """# Role Definition
 You are a professional video creative designer, skilled at creating dynamic and expressive video generation prompts for video scripts, transforming narrative content into vivid video scenes.
 
 # Core Task
-Based on the existing video script, create corresponding **English** video generation prompts for each storyboard's "narration content", ensuring video scenes perfectly match the narrative content and enhance audience understanding and memory through dynamic visuals.
+Based on the existing video script, create corresponding **English** video generation prompts for each storyboard frame's source text and visual goal, ensuring video scenes match the intended content and enhance audience understanding and memory through dynamic visuals.
 
-**Important: The input contains {narrations_count} narrations. You must generate one corresponding video prompt for each narration, totaling {narrations_count} video prompts.**
+**Important: The input contains {narrations_count} storyboard frame source texts. You must generate one corresponding video prompt for each frame, totaling {narrations_count} video prompts.**
 
 # Input Style Profile
 {style_profile_json}
@@ -36,7 +38,7 @@ Based on the existing video script, create corresponding **English** video gener
 # Frame-Aware Context Contract
 - When `prompt_contexts` is present, Use prompt_contexts as the primary source for video prompt generation.
 - Read `plan_source_text` first to understand the complete script and maintain global meaning.
-- Use each frame's `frame_source_text`, `narration_text`, `visual_goal`, and `prompt_intent` together; do not infer the video from narration_text alone.
+- Use each frame's `frame_source_text`, `visual_goal`, `prompt_intent`, and `focus_detail` together; do not infer the video from an isolated text fragment alone.
 - Preserve continuity across frames by respecting shared subjects, world elements, camera logic, and any `locked_fields` in the matching prompt_context.
 
 # Output Requirements
@@ -50,7 +52,7 @@ Based on the existing video script, create corresponding **English** video gener
 - When `style_kind` is `ip_world`, redesign the subject into the target universe without replacing the subject semantics
 
 ## Visual Creative Requirements
-- Each video must accurately reflect the specific content and emotion of the corresponding narration
+- Each video must accurately reflect the specific content and emotion of the corresponding storyboard frame
 - Highlight visual dynamics: character actions, object movements, camera movements, scene transitions, etc.
 - Use symbolic techniques to visualize abstract concepts (e.g., use flowing water to represent the passage of time, rising stairs to represent progress, etc.)
 - Scenes should express rich emotions and actions to enhance visual impact
@@ -114,7 +116,7 @@ def build_video_prompt_prompt(
     min_words: int,
     max_words: int,
     style_profile: Optional[dict[str, Any]] = None,
-    prompt_contexts: Optional[Sequence[Mapping[str, Any]]] = None,
+    prompt_contexts: Optional[PromptContextInput] = None,
 ) -> str:
     """
     Build video prompt generation prompt
@@ -131,8 +133,9 @@ def build_video_prompt_prompt(
         >>> build_video_prompt_prompt(narrations, 50, 100)
     """
     payload: dict[str, Any] = {"narrations": narrations}
-    if prompt_contexts is not None:
-        payload["prompt_contexts"] = [dict(context) for context in prompt_contexts]
+    context_payload = prompt_context_payload(prompt_contexts, len(narrations))
+    if context_payload is not None:
+        payload.update(context_payload)
     narrations_json = json.dumps(payload, ensure_ascii=False, indent=2)
     style_profile_json = json.dumps(style_profile or None, ensure_ascii=False, indent=2)
     

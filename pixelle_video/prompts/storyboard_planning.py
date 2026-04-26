@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 from pydantic import ValidationError
 
+from pixelle_video.models.prompt_context import PromptContextInput, prompt_context_payload
 from pixelle_video.models.storyboard_planning import FramePlan, StoryboardPlanningResponse
 from pixelle_video.utils.json_parsing import parse_llm_json_response
 
@@ -25,7 +26,7 @@ def _extract_json_payload(raw_response: str) -> Any:
 def build_storyboard_planning_prompt(
     *,
     narrations: list[str],
-    prompt_contexts: list[dict[str, Any]] | None = None,
+    prompt_contexts: PromptContextInput | None = None,
     world_preset: Mapping[str, Any],
     shot_preset: Mapping[str, Any],
     resolved_mode: str,
@@ -61,15 +62,20 @@ def build_storyboard_planning_prompt(
             "Use narration_items as the authoritative input list and keep exactly the same order.",
             "When prompt_contexts is present, use it as the primary source for frame meaning and continuity.",
             "Read plan_source_text before planning individual frames.",
-            "Use frame_source_text, narration_text, visual_goal, and prompt_intent together instead of planning from narration text alone.",
+            "Use frame_source_text, visual_goal, prompt_intent, and focus_detail together instead of planning from isolated text alone.",
             'Return every "scene_id" as the quoted string from narration_items, never a number.',
             "Make every array field contain strings only.",
             "Validate the final payload against required_output before returning it.",
             "Do not wrap the JSON in markdown fences.",
         ],
     }
-    if prompt_contexts is not None:
-        payload["prompt_contexts"] = prompt_contexts
+    context_payload = prompt_context_payload(
+        prompt_contexts,
+        len(narrations),
+        error_prefix="storyboard prompt_contexts",
+    )
+    if context_payload is not None:
+        payload.update(context_payload)
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
