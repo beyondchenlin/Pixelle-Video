@@ -38,6 +38,24 @@ def test_get_task_render_backend_prefers_effective_backend_then_requested_backen
     assert render_backend_ui.get_task_render_backend({}) is None
 
 
+def test_get_task_render_backend_fallback_reason_reads_result_payload():
+    assert (
+        render_backend_ui.get_task_render_backend_fallback_reason(
+            {
+                "result": {
+                    "render_execution_plan": {
+                        "fallback_reason": (
+                            "ffmpeg_manifest requires prerendered template assets"
+                        )
+                    }
+                }
+            }
+        )
+        == "ffmpeg_manifest requires prerendered template assets"
+    )
+    assert render_backend_ui.get_task_render_backend_fallback_reason({}) is None
+
+
 def test_get_task_text_layer_summary_reads_result_payload():
     summary = render_backend_ui.get_task_text_layer_summary(
         {

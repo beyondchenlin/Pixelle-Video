@@ -833,6 +833,8 @@
     "storyboard.preview.field_value.focus_detail": "Focus detail value",
     "storyboard.preview.field_value.prompt_intent": "Prompt intent value",
     "history.detail.render_backend": "Render Backend",
+    "history.detail.render_backend_fallback": "Backend fallback",
+    "history.detail.render_backend_fallback_reason": "Reason: {reason}",
     "history.detail.storyboard_planning": "Storyboard Planning",
     "history.detail.storyboard_world_preset": "World Preset",
     "history.detail.storyboard_shot_preset": "Shot Preset",

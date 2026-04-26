@@ -2877,6 +2877,20 @@ class StandardPipeline(LinearVideoPipeline):
             input_with_title["render_backend"] = effective_backend
             input_with_title["render_backend_requested"] = requested_backend
             input_with_title["render_backend_effective"] = effective_backend
+            result_metadata = {
+                "video_path": result.video_path,
+                "duration": result.duration,
+                "file_size": result.file_size,
+                "n_frames": len(storyboard.frames),
+                **build_text_rendering_result_metadata(
+                    ctx.observability,
+                    text_render_package_path=TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
+                ),
+            }
+            if "render_execution_plan" in ctx.observability:
+                result_metadata["render_execution_plan"] = ctx.observability[
+                    "render_execution_plan"
+                ]
             
             metadata = {
                 "task_id": task_id,
@@ -2886,16 +2900,7 @@ class StandardPipeline(LinearVideoPipeline):
                 
                 "input": input_with_title,
                 
-                "result": {
-                    "video_path": result.video_path,
-                    "duration": result.duration,
-                    "file_size": result.file_size,
-                    "n_frames": len(storyboard.frames),
-                    **build_text_rendering_result_metadata(
-                        ctx.observability,
-                        text_render_package_path=TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
-                    ),
-                },
+                "result": result_metadata,
                 
                 "config": {
                     "llm_model": self.core.config.get("llm", {}).get("model", "unknown"),

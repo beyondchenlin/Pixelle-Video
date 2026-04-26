@@ -833,6 +833,8 @@
     "storyboard.preview.field_value.focus_detail": "聚焦细节值",
     "storyboard.preview.field_value.prompt_intent": "提示意图值",
     "history.detail.render_backend": "渲染后端",
+    "history.detail.render_backend_fallback": "渲染后端回退",
+    "history.detail.render_backend_fallback_reason": "原因：{reason}",
     "history.detail.storyboard_planning": "分镜规划",
     "history.detail.storyboard_world_preset": "世界预设",
     "history.detail.storyboard_shot_preset": "镜头预设",

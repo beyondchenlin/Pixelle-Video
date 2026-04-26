@@ -22,12 +22,25 @@ class _DummyCore:
         self.audio_edit_service = None
         self.hyperframes_project_service = None
         self.hyperframes_renderer = None
+        self.persistence = _RecordingPersistence()
 
 
 class _ResolverService:
     def _resolve_workflow(self, workflow=None, workflow_domain=None):
         key = workflow or "selfhost/image_z_image_turbo.json"
         return {"key": key}
+
+
+class _RecordingPersistence:
+    def __init__(self):
+        self.saved_metadata = None
+        self.saved_storyboard = None
+
+    async def save_task_metadata(self, task_id, metadata):
+        self.saved_metadata = (task_id, metadata)
+
+    async def save_storyboard(self, task_id, storyboard):
+        self.saved_storyboard = (task_id, storyboard)
 
 
 def _build_context(tmp_path: Path) -> PipelineContext:
@@ -189,3 +202,34 @@ def test_resolve_effective_backend_records_ffmpeg_fallback_for_canvas_motion(tmp
 
     assert pipeline._resolve_effective_render_backend(ctx) == "hyperframes_compiled"
     assert "hyperframes_canvas" in pipeline._get_render_backend_fallback_reason(ctx)
+
+
+@pytest.mark.asyncio
+async def test_persist_task_data_records_render_execution_plan(tmp_path):
+    core = _DummyCore()
+    pipeline = StandardPipeline(core)
+    ctx = _build_context(tmp_path)
+    output_path = Path(ctx.final_video_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(b"video")
+    ctx.storyboard.completed_at = ctx.storyboard.created_at
+    ctx.result = SimpleNamespace(
+        video_path=str(output_path),
+        duration=2.5,
+        file_size=output_path.stat().st_size,
+    )
+    ctx.observability["render_execution_plan"] = {
+        "requested_backend": "ffmpeg_manifest",
+        "effective_backend": "legacy",
+        "fallback_reason": "ffmpeg_manifest requires prerendered template assets",
+    }
+
+    await pipeline._persist_task_data(ctx)
+
+    assert core.persistence.saved_metadata is not None
+    _, metadata = core.persistence.saved_metadata
+    assert metadata["result"]["render_execution_plan"] == {
+        "requested_backend": "ffmpeg_manifest",
+        "effective_backend": "legacy",
+        "fallback_reason": "ffmpeg_manifest requires prerendered template assets",
+    }

@@ -39,6 +39,7 @@ from web.utils.render_backend_ui import (
     get_task_caption_rendering_summary,
     get_task_image_text_policy_summary,
     get_task_render_backend,
+    get_task_render_backend_fallback_reason,
     get_task_text_layer_summary,
 )
 from web.utils.storyboard_history import resolve_history_storyboard_scene_count
@@ -454,6 +455,15 @@ def render_task_detail_modal(task_id: str, pixelle_video):
         st.markdown(
             f"**{tr('history.detail.render_backend')}:** {get_task_render_backend(metadata) or 'N/A'}"
         )
+        render_backend_fallback_reason = get_task_render_backend_fallback_reason(metadata)
+        if render_backend_fallback_reason:
+            st.markdown(f"**{tr('history.detail.render_backend_fallback')}**")
+            st.caption(
+                tr(
+                    "history.detail.render_backend_fallback_reason",
+                    reason=render_backend_fallback_reason,
+                )
+            )
         caption_rendering_summary = get_task_caption_rendering_summary(metadata)
         if caption_rendering_summary:
             st.markdown(f"**{tr('history.detail.caption_rendering')}**")

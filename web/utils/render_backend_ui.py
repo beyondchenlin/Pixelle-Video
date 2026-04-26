@@ -33,6 +33,17 @@ def get_task_render_backend(metadata: Mapping[str, Any]) -> Optional[str]:
     return None
 
 
+def get_task_render_backend_fallback_reason(
+    metadata: Mapping[str, Any],
+) -> Optional[str]:
+    """Read the effective backend fallback reason from completed task metadata."""
+    summary = _get_result_summary(metadata, "render_execution_plan")
+    if summary is None:
+        return None
+    reason = summary.get("fallback_reason")
+    return str(reason) if reason else None
+
+
 def get_task_text_layer_summary(metadata: Mapping[str, Any]) -> Optional[dict[str, Any]]:
     """Read the text layer summary from completed task metadata."""
     summary = _get_result_summary(metadata, "text_layer_summary")
