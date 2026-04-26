@@ -51,7 +51,7 @@ class VideoPromptBatchResponse(_StringListResponse):
 
 
 class SmartStoryboardFrameResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="ignore", strict=True)
 
     source_text: str
     visual_goal: str
