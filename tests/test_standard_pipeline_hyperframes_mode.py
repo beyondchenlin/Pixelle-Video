@@ -514,6 +514,56 @@ def test_build_hyperframes_visual_clips_carries_element_motion_artifacts(tmp_pat
     assert clips[1].source_media_path == str(second_raw)
 
 
+def test_ffmpeg_manifest_rejects_frame_audio_as_master_audio_fallback(monkeypatch, tmp_path):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(
+        tmp_path,
+        frame_template="1080x1920/image_default.html",
+    )
+    ctx.config.render_backend = "ffmpeg_manifest"
+
+    for frame in ctx.storyboard.frames:
+        audio_path = tmp_path / f"{frame.index:02d}_audio.wav"
+        audio_path.write_bytes(b"audio")
+        frame.audio_path = str(audio_path)
+
+    def fail_concat(*_args, **_kwargs):
+        raise AssertionError("frame audio must not be promoted to master audio")
+
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fail_concat)
+
+    with pytest.raises(RuntimeError, match="requires master audio"):
+        pipeline._resolve_master_audio_for_manifest(ctx)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tts_audio_strategy", ["per_frame", "bogus"])
+async def test_hyperframes_asset_path_rejects_unsupported_tts_audio_strategy_before_work(
+    monkeypatch,
+    tts_audio_strategy,
+):
+    core = SimpleNamespace(llm=None, tts=None, media=None, video=None)
+    pipeline = StandardPipeline(core)
+    ctx = SimpleNamespace(
+        storyboard=SimpleNamespace(frames=[]),
+        config=SimpleNamespace(tts_audio_strategy=tts_audio_strategy),
+    )
+    calls = []
+
+    async def fail_hyperframes_assets(context):
+        calls.append(context)
+        raise AssertionError("HyperFrames asset work must not start")
+
+    monkeypatch.setattr(pipeline, "_is_hyperframes_render_path", lambda context: True)
+    monkeypatch.setattr(pipeline, "_produce_assets_hyperframes", fail_hyperframes_assets)
+
+    with pytest.raises(ValueError, match="tts_audio_strategy|per_frame"):
+        await pipeline.produce_assets(ctx)
+
+    assert calls == []
+
+
 @pytest.mark.asyncio
 async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths(monkeypatch, tmp_path):
     monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)

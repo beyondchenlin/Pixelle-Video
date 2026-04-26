@@ -14,7 +14,7 @@ from pixelle_video.models.storyboard_limits import (
     StoryboardGenerationLimits,
     storyboard_generation_limits_from_config,
 )
-from pixelle_video.tts_audio_strategy import PER_FRAME_TTS_AUDIO_STRATEGY
+from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
 
 LEGACY_STANDARD_STORYBOARD_PARAMS = frozenset(
     {
@@ -85,9 +85,13 @@ def validate_standard_video_generation_params(
     if mode not in VIDEO_GENERATION_MODES:
         raise ValueError(f"unsupported video generation mode: {mode}")
 
-    if params.get("tts_audio_strategy") == PER_FRAME_TTS_AUDIO_STRATEGY:
+    tts_audio_strategy = params.get("tts_audio_strategy")
+    if (
+        tts_audio_strategy is not None
+        and tts_audio_strategy not in SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
+    ):
         raise ValueError(
-            "per_frame tts_audio_strategy is not supported in standard video generation"
+            f"unsupported standard tts_audio_strategy: {tts_audio_strategy}"
         )
 
     storyboard_mode = params.get("storyboard_mode", StoryboardGenerationMode.SMART.value)

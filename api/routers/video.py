@@ -129,6 +129,9 @@ def build_video_generation_params(
         logger.warning("voice_id parameter is deprecated, please use tts_workflow instead")
         video_params["voice_id"] = request_body.voice_id
 
+    if request_body.tts_audio_strategy is not None:
+        video_params["tts_audio_strategy"] = request_body.tts_audio_strategy
+
     if request_body.template_params:
         video_params["template_params"] = request_body.template_params
 

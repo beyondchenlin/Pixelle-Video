@@ -87,6 +87,7 @@ from pixelle_video.tts_audio_strategy import (
     AUTO_TTS_AUDIO_STRATEGY,
     MASTER_TRACK_TTS_AUDIO_STRATEGY,
     PER_FRAME_TTS_AUDIO_STRATEGY,
+    SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES,
 )
 from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
 from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
@@ -546,7 +547,7 @@ class StandardPipeline(LinearVideoPipeline):
             "preserve_natural_punctuation": bool(config.preserve_natural_punctuation),
             "tts_sentence_joiner_mode": config.tts_sentence_joiner_mode,
             "caption_punctuation_mode": config.caption_punctuation_mode,
-            "split_mode": config.tts_split_mode,
+            "tts_split_mode": config.tts_split_mode,
             "source_frames": [
                 {
                     "frame_index": frame.index,
@@ -813,10 +814,17 @@ class StandardPipeline(LinearVideoPipeline):
         return self._resolve_render_capability(ctx).effective_backend
 
     def _resolve_effective_tts_audio_strategy(self, ctx: PipelineContext) -> str:
-        requested_strategy = getattr(ctx.config, "tts_audio_strategy", AUTO_TTS_AUDIO_STRATEGY)
-        if requested_strategy == PER_FRAME_TTS_AUDIO_STRATEGY:
+        requested_strategy = (
+            getattr(ctx.config, "tts_audio_strategy", AUTO_TTS_AUDIO_STRATEGY)
+            or AUTO_TTS_AUDIO_STRATEGY
+        )
+        if requested_strategy not in SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES:
+            if requested_strategy == PER_FRAME_TTS_AUDIO_STRATEGY:
+                raise ValueError(
+                    "per_frame tts_audio_strategy is not supported in standard video generation"
+                )
             raise ValueError(
-                "per_frame tts_audio_strategy is not supported in standard video generation"
+                f"unsupported standard tts_audio_strategy: {requested_strategy}"
             )
         if self._resolve_effective_render_backend(ctx) in {
             HYPERFRAMES_COMPILED_RENDER_BACKEND,
@@ -872,15 +880,21 @@ class StandardPipeline(LinearVideoPipeline):
         if not storyboard.frames:
             return
         if all(frame.audio_path for frame in storyboard.frames):
-            return
-        if any(frame.audio_path for frame in storyboard.frames):
-            logger.warning(
-                "Skipping legacy master-track audio preparation because some frames already contain audio."
+            if getattr(ctx, "master_audio_path", None):
+                return
+            raise RuntimeError(
+                "master-track audio requires a synthesized master_audio_path; "
+                "frame audio alone is not a valid standard video audio source."
             )
-            return
+        if any(frame.audio_path for frame in storyboard.frames):
+            raise RuntimeError(
+                "master-track audio preparation requires all frame audio to come "
+                "from the same synthesized master track."
+            )
         if ctx.timing_plan is None or not ctx.timing_plan.blocks:
-            logger.warning("Skipping legacy master-track audio preparation: timing plan is empty.")
-            return
+            raise RuntimeError("master-track audio preparation requires a timing plan.")
+        if not getattr(ctx.timing_plan, "sentences", None):
+            raise RuntimeError("master-track audio preparation requires sentence timings.")
 
         master_audio_path, master_audio_duration = await self._synthesize_hyperframes_audio(ctx)
         setattr(ctx, "master_audio_path", master_audio_path)
@@ -913,6 +927,26 @@ class StandardPipeline(LinearVideoPipeline):
             )
             frame.audio_path = output_path
             frame.duration = self._get_audio_duration(output_path)
+
+    def _assert_master_track_audio_prepared(self, ctx: PipelineContext) -> None:
+        frames = list(getattr(ctx.storyboard, "frames", []) or [])
+        if not frames:
+            return
+        missing_audio = [
+            frame.index + 1
+            for frame in frames
+            if not getattr(frame, "audio_path", None)
+        ]
+        if missing_audio:
+            raise RuntimeError(
+                "master-track audio was not prepared for every frame: "
+                + ", ".join(str(index) for index in missing_audio)
+            )
+        if not getattr(ctx, "master_audio_path", None):
+            raise RuntimeError(
+                "master-track audio requires a synthesized master_audio_path; "
+                "standard video generation cannot fall back to per-frame audio."
+            )
 
     def _align_legacy_master_track_timings(self, ctx: PipelineContext) -> None:
         engine = (ctx.config.subtitle_alignment_engine or "qwen_forced_aligner").strip().lower()
@@ -1145,14 +1179,15 @@ class StandardPipeline(LinearVideoPipeline):
         """Step 6: Generate audio, images, and render frames (Core processing)."""
         storyboard = ctx.storyboard
         config = ctx.config
+        effective_tts_audio_strategy = self._resolve_effective_tts_audio_strategy(ctx)
         if self._is_hyperframes_render_path(ctx):
             await self._produce_assets_hyperframes(ctx)
             logger.info("All frames processed in HyperFrames image mode")
             return
 
-        effective_tts_audio_strategy = self._resolve_effective_tts_audio_strategy(ctx)
         if effective_tts_audio_strategy == MASTER_TRACK_TTS_AUDIO_STRATEGY:
             await self._prepare_legacy_master_track_audio(ctx)
+            self._assert_master_track_audio_prepared(ctx)
 
         template_body_text = (
             self._legacy_template_body_text_for_captions(ctx)
@@ -1560,28 +1595,6 @@ class StandardPipeline(LinearVideoPipeline):
                 setattr(ctx, "master_audio_path", str(candidate))
                 setattr(ctx, "master_audio_duration", duration)
                 return str(candidate), duration
-
-        frame_audio_paths = [
-            frame.audio_path
-            for frame in ctx.storyboard.frames
-            if getattr(frame, "audio_path", None)
-        ]
-        if len(frame_audio_paths) == len(ctx.storyboard.frames) and frame_audio_paths:
-            output_path = (
-                Path(ctx.task_dir or Path(ctx.final_video_path).parent)
-                / "audio"
-                / "master_audio.wav"
-            )
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            self._concat_audio_files(
-                frame_audio_paths,
-                str(output_path),
-                fade_ms=ctx.config.tts_audio_boundary_fade_ms,
-            )
-            duration = self._get_audio_duration(str(output_path))
-            setattr(ctx, "master_audio_path", str(output_path))
-            setattr(ctx, "master_audio_duration", duration)
-            return str(output_path), duration
 
         raise RuntimeError("ffmpeg_manifest render path requires master audio")
 

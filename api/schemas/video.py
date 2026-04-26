@@ -36,6 +36,8 @@ from pixelle_video.utils.prompt_generation_performance import (
     PROMPT_BATCH_SIZE_MIN,
 )
 
+StandardTtsAudioStrategy = Literal["auto", "master_track"]
+
 StoryboardOverrideField = Literal[
     "source_text",
     "visual_goal",
@@ -126,7 +128,10 @@ class VideoGenerateRequest(BaseModel):
     # === Processing Mode ===
     mode: Literal["generate", "fixed"] = Field(
         "generate",
-        description="Processing mode: 'generate' (AI generates narrations) or 'fixed' (use text as-is)"
+        description=(
+            "Processing mode: 'generate' creates a complete source_text script; "
+            "'fixed' uses text as the complete source_text."
+        ),
     )
     
     # === Optional Title ===
@@ -169,6 +174,10 @@ class VideoGenerateRequest(BaseModel):
         None, 
         description="(Deprecated) TTS voice ID for legacy compatibility"
     )
+    tts_audio_strategy: Optional[StandardTtsAudioStrategy] = Field(
+        None,
+        description="Standard video TTS audio strategy. Per-frame audio is not supported.",
+    )
     tts_split_mode: Optional[TtsSplitMode] = Field(
         None,
         description="IndexTTS2 text split mode: internal_only or external_only",
@@ -207,7 +216,10 @@ class VideoGenerateRequest(BaseModel):
     )
     preserve_natural_punctuation: Optional[bool] = Field(
         None,
-        description="Ask LLM narration generation to preserve natural punctuation",
+        description=(
+            "Ask complete script generation to preserve natural punctuation "
+            "for downstream speech and captions"
+        ),
     )
     
     # === LLM Parameters ===

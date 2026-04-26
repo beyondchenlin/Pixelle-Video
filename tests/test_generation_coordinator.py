@@ -192,6 +192,7 @@ async def test_core_generate_video_rejects_legacy_storyboard_fields_for_standard
         {"storyboard_count_mode": "bogus"},
         {"script_length_mode": "bogus"},
         {"script_length_mode": "custom", "script_target_words": 0},
+        {"tts_audio_strategy": "bogus"},
     ],
 )
 async def test_core_generate_video_rejects_invalid_contract_enums_for_standard_pipeline(invalid_params):

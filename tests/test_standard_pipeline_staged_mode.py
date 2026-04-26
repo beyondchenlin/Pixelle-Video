@@ -265,18 +265,37 @@ def _build_storyboard_ctx(**kwargs) -> PipelineContext:
     return ctx
 
 
+def _mark_master_track_audio_prepared(ctx: PipelineContext, *, duration: float = 1.5) -> None:
+    ctx.master_audio_path = "master-audio.wav"
+    ctx.master_audio_duration = duration * len(ctx.storyboard.frames)
+    for frame in ctx.storyboard.frames:
+        frame.audio_path = f"master-{frame.index}.wav"
+        frame.duration = duration
+
+
+def _patch_master_track_audio_prepared(monkeypatch, pipeline: StandardPipeline) -> None:
+    async def fake_prepare(context):
+        _mark_master_track_audio_prepared(context)
+
+    monkeypatch.setattr(
+        pipeline,
+        "_prepare_legacy_master_track_audio",
+        fake_prepare,
+        raising=False,
+    )
+
+
 @pytest.mark.asyncio
-async def test_produce_assets_runs_staged_selfhost_image_flow_in_phase_order():
+async def test_produce_assets_runs_staged_selfhost_image_flow_in_phase_order(monkeypatch):
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor()
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
 
     await pipeline.produce_assets(ctx)
 
     assert core.frame_processor.calls == [
-        ("audio", 0),
-        ("audio", 1),
         ("media", 0),
         ("media", 1),
         ("compose", 0),
@@ -299,6 +318,7 @@ async def test_produce_assets_staged_materializes_element_motion_after_compose_b
     ctx = _build_storyboard_ctx()
     ctx.config.element_animation_enabled = True
     materialized = []
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
 
     async def fake_materialize(context, frame):
         materialized.append((frame.index, frame.composed_image_path))
@@ -320,8 +340,6 @@ async def test_produce_assets_staged_materializes_element_motion_after_compose_b
         (1, "composed-1.png"),
     ]
     assert core.frame_processor.calls == [
-        ("audio", 0),
-        ("audio", 1),
         ("media", 0),
         ("media", 1),
         ("compose", 0),
@@ -339,6 +357,33 @@ async def test_produce_assets_staged_materializes_element_motion_after_compose_b
         "motion-0.mp4",
         "motion-1.mp4",
     ]
+
+
+@pytest.mark.asyncio
+async def test_prepare_legacy_master_track_audio_requires_timing_plan():
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = _build_storyboard_ctx(tts_inference_mode="comfyui")
+
+    with pytest.raises(RuntimeError, match="timing plan"):
+        await pipeline._prepare_legacy_master_track_audio(ctx)
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_master_track_does_not_fall_back_to_per_frame_audio(monkeypatch):
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx(tts_inference_mode="comfyui")
+
+    async def fake_prepare(context):
+        return None
+
+    monkeypatch.setattr(pipeline, "_prepare_legacy_master_track_audio", fake_prepare, raising=False)
+
+    with pytest.raises(RuntimeError, match="master-track audio"):
+        await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.calls == []
 
 
 @pytest.mark.asyncio
@@ -434,9 +479,7 @@ async def test_produce_assets_legacy_comfyui_auto_prepares_master_track_audio_fi
 
     async def fake_prepare(context):
         calls.append([frame.index for frame in context.storyboard.frames])
-        for frame in context.storyboard.frames:
-            frame.audio_path = f"master-{frame.index}.mp3"
-            frame.duration = 2.0
+        _mark_master_track_audio_prepared(context)
 
     monkeypatch.setattr(pipeline, "_prepare_legacy_master_track_audio", fake_prepare, raising=False)
 
@@ -451,7 +494,7 @@ async def test_produce_assets_legacy_comfyui_auto_prepares_master_track_audio_fi
         ("segment", 0),
         ("segment", 1),
     ]
-    assert ctx.storyboard.total_duration == 4.0
+    assert ctx.storyboard.total_duration == 3.0
 
 
 @pytest.mark.asyncio
@@ -462,9 +505,7 @@ async def test_produce_assets_staged_omits_burned_frame_text_when_caption_render
     ctx = _build_storyboard_ctx(tts_inference_mode="comfyui")
 
     async def fake_prepare(context):
-        for frame in context.storyboard.frames:
-            frame.audio_path = f"master-{frame.index}.mp3"
-            frame.duration = 2.0
+        _mark_master_track_audio_prepared(context)
 
     monkeypatch.setattr(pipeline, "_prepare_legacy_master_track_audio", fake_prepare, raising=False)
 
@@ -483,6 +524,7 @@ async def test_legacy_staged_compose_defaults_to_caption_renderer_text_policy(mo
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
     ctx.config.template_text_policy = "caption_renderer"
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
 
     compose_calls = []
 
@@ -504,6 +546,7 @@ async def test_legacy_staged_compose_preserves_template_body_text_policy(monkeyp
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
     ctx.config.template_text_policy = "template_body"
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
 
     compose_calls = []
 
@@ -519,18 +562,17 @@ async def test_legacy_staged_compose_preserves_template_body_text_policy(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_produce_assets_aborts_immediately_on_staged_image_failure():
+async def test_produce_assets_aborts_immediately_on_staged_image_failure(monkeypatch):
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor(fail_on=("media", 1))
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
 
     with pytest.raises(RuntimeError, match="media failed for frame 1"):
         await pipeline.produce_assets(ctx)
 
     assert core.frame_processor.calls == [
-        ("audio", 0),
-        ("audio", 1),
         ("media", 0),
         ("media", 1),
     ]
@@ -627,20 +669,19 @@ def test_resolve_asset_execution_mode_disables_runninghub_parallel_for_mixed_sel
 
 
 @pytest.mark.asyncio
-async def test_produce_assets_emits_monotonic_staged_progress():
+async def test_produce_assets_emits_monotonic_staged_progress(monkeypatch):
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor()
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
     events = []
     ctx.progress_callback = events.append
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
 
     await pipeline.produce_assets(ctx)
 
     frame_events = [event for event in events if event.event_type == "frame_step"]
     assert [(event.step, event.frame_current) for event in frame_events] == [
-        (1, 1),
-        (1, 2),
         (2, 1),
         (2, 2),
         (3, 1),
@@ -667,6 +708,7 @@ async def test_produce_assets_keeps_callable_frame_processor_path_for_runninghub
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
     monkeypatch.setattr(config_manager.config.comfyui, "runninghub_concurrent_limit", 1)
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
 
     await pipeline.produce_assets(ctx)
 
@@ -692,6 +734,7 @@ async def test_produce_assets_callable_legacy_materializes_element_motion(monkey
     ctx.config.element_animation_enabled = True
     materialized = []
     monkeypatch.setattr(config_manager.config.comfyui, "runninghub_concurrent_limit", 1)
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
 
     async def fake_materialize(context, frame):
         materialized.append(frame.index)
@@ -727,6 +770,7 @@ async def test_produce_assets_parallel_callable_materializes_element_motion(monk
     ctx.config.element_animation_enabled = True
     materialized = []
     monkeypatch.setattr(config_manager.config.comfyui, "runninghub_concurrent_limit", 2)
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
 
     async def fake_materialize(context, frame):
         materialized.append(frame.index)
@@ -756,9 +800,7 @@ async def test_produce_assets_callable_legacy_omits_burned_frame_text_when_capti
     ctx = _build_storyboard_ctx(tts_inference_mode="local")
 
     async def fake_prepare(context):
-        for frame in context.storyboard.frames:
-            frame.audio_path = f"master-{frame.index}.mp3"
-            frame.duration = 2.0
+        _mark_master_track_audio_prepared(context)
 
     monkeypatch.setattr(pipeline, "_prepare_legacy_master_track_audio", fake_prepare, raising=False)
 
@@ -768,30 +810,43 @@ async def test_produce_assets_callable_legacy_omits_burned_frame_text_when_capti
 
 
 @pytest.mark.asyncio
-async def test_produce_assets_staged_skips_existing_audio_and_media():
+async def test_produce_assets_staged_skips_existing_media_after_master_track_audio(monkeypatch):
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor()
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
-    ctx.storyboard.frames[0].audio_path = "existing-0.mp3"
-    ctx.storyboard.frames[0].duration = 9.0
     ctx.storyboard.frames[1].image_prompt = None
     ctx.storyboard.frames[1].image_path = "existing-1.png"
     ctx.storyboard.frames[1].media_type = "image"
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
 
     await pipeline.produce_assets(ctx)
 
     assert core.frame_processor.calls == [
-        ("audio", 1),
         ("media", 0),
         ("compose", 0),
         ("compose", 1),
         ("segment", 0),
         ("segment", 1),
     ]
-    assert ctx.storyboard.frames[0].audio_path == "existing-0.mp3"
+    assert ctx.storyboard.frames[0].audio_path == "master-0.wav"
     assert ctx.storyboard.frames[1].image_path == "existing-1.png"
-    assert ctx.storyboard.total_duration == 11.0
+    assert ctx.storyboard.total_duration == 3.0
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_rejects_partial_existing_frame_audio_before_asset_work():
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    ctx.storyboard.frames[0].audio_path = "existing-0.mp3"
+    ctx.storyboard.frames[0].duration = 9.0
+
+    with pytest.raises(RuntimeError, match="same synthesized master track"):
+        await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.calls == []
 
 
 @pytest.mark.asyncio
@@ -816,6 +871,20 @@ async def test_produce_assets_rejects_explicit_per_frame_audio_strategy(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_produce_assets_rejects_unknown_tts_audio_strategy_before_asset_work():
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx(tts_inference_mode="comfyui")
+    ctx.config.tts_audio_strategy = "bogus"
+
+    with pytest.raises(ValueError, match="unsupported standard tts_audio_strategy"):
+        await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.calls == []
+
+
+@pytest.mark.asyncio
 async def test_produce_assets_disables_runninghub_parallel_for_mixed_selfhost_media(monkeypatch):
     core = _DummyCore(
         tts_defaults={"tts": "runninghub/tts_edge.json"},
@@ -828,6 +897,7 @@ async def test_produce_assets_disables_runninghub_parallel_for_mixed_selfhost_me
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
     monkeypatch.setattr(config_manager.config.comfyui, "runninghub_concurrent_limit", 2)
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
 
     await pipeline.produce_assets(ctx)
 

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -169,6 +170,14 @@ def test_video_generate_request_rejects_removed_narration_text_frame_override():
                 }
             ],
         )
+
+
+def test_video_generate_request_schema_describes_source_text_contract_not_narration_generation():
+    schema_text = json.dumps(VideoGenerateRequest.model_json_schema())
+
+    assert "AI generates narrations" not in schema_text
+    assert "narration generation" not in schema_text
+    assert "complete source_text" in schema_text
 
 
 def test_video_generate_request_rejects_non_sha256_frame_override_source_digest():
@@ -416,6 +425,34 @@ def test_video_generate_request_rejects_legacy_scene_identity_frame_override():
         )
 
 
+def test_video_generate_request_rejects_narration_text_frame_override():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            frame_overrides=[
+                {
+                    "plan_id": "plan_abc",
+                    "plan_revision": 1,
+                    "frame_id": "frame_0001",
+                    "source_digest": "a" * 64,
+                    "locked_fields": ["narration_text"],
+                    "narration_text": "legacy narration",
+                }
+            ],
+        )
+
+
+@pytest.mark.parametrize("tts_audio_strategy", ["per_frame", "bogus"])
+def test_video_generate_request_rejects_unsupported_tts_audio_strategy(tts_audio_strategy):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            tts_audio_strategy=tts_audio_strategy,
+        )
+
+
 @pytest.mark.asyncio
 async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monkeypatch, tmp_path):
     class _FakeFrameGenerator:
@@ -443,6 +480,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             text="demo",
             frame_template="1080x1920/image_default.html",
             render_backend="hyperframes_compiled",
+            tts_audio_strategy="master_track",
             storyboard_mode="smart",
             storyboard_count_mode="manual",
             storyboard_scene_count=4,
@@ -505,6 +543,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "bgm_volume": 0.3,
             "request_id": "req_test",
             "render_backend": "hyperframes_compiled",
+            "tts_audio_strategy": "master_track",
             "world_preset_id": "neutral_knowledge_storyboard",
             "shot_preset_id": "balanced_explainer",
             "consistency_strength": "strong",
