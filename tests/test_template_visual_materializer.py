@@ -16,6 +16,59 @@ def test_resolve_template_body_text_defaults_to_caption_renderer():
 
 
 @pytest.mark.asyncio
+async def test_template_visual_materializer_rejects_invalid_policy_before_loading_template(
+    monkeypatch,
+    tmp_path,
+):
+    def fail_if_constructed(_template_path):
+        raise AssertionError("generator should not be constructed")
+
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.HTMLFrameGenerator",
+        fail_if_constructed,
+    )
+
+    with pytest.raises(ValueError, match="Invalid template text policy"):
+        await TemplateVisualMaterializer().materialize_frame(
+            title="Demo",
+            narration="Narration",
+            media_path=None,
+            frame_index=0,
+            template_path="missing.html",
+            template_id="image_default",
+            output_path=tmp_path / "frame.png",
+            text_policy="unsafe",
+        )
+
+
+@pytest.mark.asyncio
+async def test_template_visual_materializer_rejects_reserved_template_params(
+    monkeypatch,
+    tmp_path,
+):
+    def fail_if_constructed(_template_path):
+        raise AssertionError("generator should not be constructed")
+
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.HTMLFrameGenerator",
+        fail_if_constructed,
+    )
+
+    with pytest.raises(ValueError, match="reserved template parameter"):
+        await TemplateVisualMaterializer().materialize_frame(
+            title="Demo",
+            narration="Narration",
+            media_path="raw.png",
+            frame_index=0,
+            template_path="templates/1080x1920/image_default.html",
+            template_id="image_default",
+            output_path=tmp_path / "frame.png",
+            text_policy="caption_renderer",
+            template_params={"text": "bypass caption renderer"},
+        )
+
+
+@pytest.mark.asyncio
 async def test_template_visual_materializer_renders_html_with_text_policy(tmp_path, monkeypatch):
     calls = {}
 

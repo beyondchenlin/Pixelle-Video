@@ -13,6 +13,7 @@ VALID_TEMPLATE_TEXT_POLICIES = {
     "none",
     "explicit_both",
 }
+RESERVED_TEMPLATE_PARAMS = {"title", "text", "image", "index"}
 
 
 def resolve_template_body_text(narration: str, text_policy: str) -> str:
@@ -21,6 +22,17 @@ def resolve_template_body_text(narration: str, text_policy: str) -> str:
     if text_policy in {"template_body", "explicit_both"}:
         return narration
     return ""
+
+
+def _validate_template_params(
+    template_params: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    params = dict(template_params or {})
+    reserved = sorted(str(key) for key in params if key in RESERVED_TEMPLATE_PARAMS)
+    if reserved:
+        joined = ", ".join(reserved)
+        raise ValueError(f"reserved template parameter(s) are not allowed: {joined}")
+    return params
 
 
 class TemplateVisualMaterializer:
@@ -37,13 +49,15 @@ class TemplateVisualMaterializer:
         text_policy: str,
         template_params: Mapping[str, Any] | None = None,
     ) -> TemplateVisualAsset:
+        body_text = resolve_template_body_text(narration, text_policy)
+        validated_template_params = _validate_template_params(template_params)
         generator = HTMLFrameGenerator(str(template_path))
         ext = {"index": int(frame_index) + 1}
-        ext.update(dict(template_params or {}))
+        ext.update(validated_template_params)
 
         generated_path = await generator.generate_frame(
             title=title,
-            text=resolve_template_body_text(narration, text_policy),
+            text=body_text,
             image=media_path or "",
             ext=ext,
             output_path=str(output_path),
