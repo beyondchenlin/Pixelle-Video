@@ -40,13 +40,14 @@ class BasePipeline(ABC):
     Example:
         >>> class MyPipeline(BasePipeline):
         ...     async def __call__(self, text: str, **kwargs):
-        ...         # Step 1: Generate content
-        ...         narrations = await some_logic(text)
+        ...         # Step 1: Resolve the complete source text and storyboard plan
+        ...         source_text = await build_source_text(text)
+        ...         storyboard_plan = await build_storyboard_plan(source_text)
         ...         
-        ...         # Step 2: Process frames
-        ...         for narration in narrations:
-        ...             audio = await self.core.tts(narration)
-        ...             # ...
+        ...         # Step 2: Derive speech/caption timing separately from visuals
+        ...         speech_plan = build_caption_speech_plan(source_text, storyboard_plan)
+        ...         master_audio = await synthesize_master_track(speech_plan)
+        ...         # ...
         ...         
         ...         return VideoGenerationResult(...)
     """
@@ -114,4 +115,3 @@ class BasePipeline(ABC):
             logger.debug(f"Progress: {progress*100:.0f}% - {event_type}")
         else:
             logger.debug(f"Progress: {progress*100:.0f}% - {event_type}")
-
