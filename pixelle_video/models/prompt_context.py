@@ -17,7 +17,7 @@ _PLAN_CONTEXT_KEYS = frozenset(
 
 @dataclass(frozen=True)
 class PromptContextEnvelope:
-    """Global plan context plus one frame-aware context per narration."""
+    """Global plan context plus one frame-aware context per storyboard frame."""
 
     plan_context: Mapping[str, Any]
     frame_contexts: tuple[Mapping[str, Any], ...]
@@ -67,7 +67,7 @@ def normalize_prompt_contexts(
         envelope = _compact_legacy_contexts(prompt_contexts, error_prefix=error_prefix)
 
     if len(envelope) != expected_count:
-        raise ValueError(f"{error_prefix} must match narration count")
+        raise ValueError(f"{error_prefix} must match storyboard frame count")
     return envelope
 
 

@@ -24,6 +24,8 @@ def build_smart_storyboard_prompt(
             "Understand the complete source_text before creating frames.",
             "The returned frames must cover the entire source_text in source order.",
             "Do not omit meaningful source_text; only whitespace-only gaps between frames are allowed.",
+            "Always include source_start and source_end for every frame.",
+            "Treat source_start and source_end as the authoritative source coverage.",
             "Frames may merge adjacent ideas when one sentence is too small for a visual scene.",
             "Frames may split a long sentence when it naturally contains multiple visual beats.",
             "Maintain continuity of style, subjects, and visual logic across all frames.",
@@ -32,11 +34,11 @@ def build_smart_storyboard_prompt(
             "Return JSON only.",
         ],
         "frame_schema": {
-            "source_text": "Text covered by this frame.",
+            "source_text": "Text preview covered by this frame; it must correspond to source_start/source_end.",
             "visual_goal": "What this frame should communicate visually.",
             "prompt_intent": "Guidance for later image prompt composition.",
-            "source_start": "Optional Python string start index into source_text.",
-            "source_end": "Optional Python string end index into source_text.",
+            "source_start": "Required Python string start index into source_text.",
+            "source_end": "Required Python string end index into source_text.",
         },
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)

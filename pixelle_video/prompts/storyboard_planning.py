@@ -39,10 +39,16 @@ def build_storyboard_planning_prompt(
     """Build the structured planning prompt sent to the LLM."""
 
     required_frame_fields = list(FramePlan.required_prompt_fields())
-    narration_items = [
-        {"scene_id": str(scene_id_start + index), "text": narration}
-        for index, narration in enumerate(narrations)
+    frame_source_items = [
+        {"scene_id": str(scene_id_start + index), "text": frame_source_text}
+        for index, frame_source_text in enumerate(narrations)
     ]
+    context_payload = prompt_context_payload(
+        prompt_contexts,
+        len(narrations),
+        error_prefix="storyboard prompt_contexts",
+    )
+    uses_frame_context = context_payload is not None
     payload = {
         "task": "plan_storyboard_frames",
         "resolved_mode": resolved_mode,
@@ -50,32 +56,40 @@ def build_storyboard_planning_prompt(
         "role_strategy": role_strategy,
         "role_locking_strength": role_locking_strength,
         "shot_strategy": shot_strategy,
-        "narrations": narrations,
-        "narration_items": narration_items,
         "world_preset": dict(world_preset),
         "shot_preset": dict(shot_preset),
         "required_frame_fields": required_frame_fields,
         "required_output": StoryboardPlanningResponse.model_json_schema(),
-        "instructions": [
+    }
+    if uses_frame_context:
+        payload["frame_source_texts"] = narrations
+        payload["frame_source_items"] = frame_source_items
+        payload.update(context_payload)
+        payload["instructions"] = [
+            "Return JSON only.",
+            "Produce exactly one frame plan per frame_source_item.",
+            "Use frame_source_items as the authoritative input list and keep exactly the same order.",
+            "Use prompt_contexts as the primary source for frame meaning and continuity.",
+            "Read plan_source_text before planning individual frames.",
+            "Use frame_source_text, visual_goal, prompt_intent, and focus_detail together instead of planning from isolated text alone.",
+            'Return every "scene_id" as the quoted string from frame_source_items, never a number.',
+            "Make every array field contain strings only.",
+            "Validate the final payload against required_output before returning it.",
+            "Do not wrap the JSON in markdown fences.",
+        ]
+    else:
+        legacy_narration_items = frame_source_items
+        payload["narrations"] = narrations
+        payload["narration_items"] = legacy_narration_items
+        payload["instructions"] = [
             "Return JSON only.",
             "Produce exactly one frame plan per narration.",
             "Use narration_items as the authoritative input list and keep exactly the same order.",
-            "When prompt_contexts is present, use it as the primary source for frame meaning and continuity.",
-            "Read plan_source_text before planning individual frames.",
-            "Use frame_source_text, visual_goal, prompt_intent, and focus_detail together instead of planning from isolated text alone.",
             'Return every "scene_id" as the quoted string from narration_items, never a number.',
             "Make every array field contain strings only.",
             "Validate the final payload against required_output before returning it.",
             "Do not wrap the JSON in markdown fences.",
-        ],
-    }
-    context_payload = prompt_context_payload(
-        prompt_contexts,
-        len(narrations),
-        error_prefix="storyboard prompt_contexts",
-    )
-    if context_payload is not None:
-        payload.update(context_payload)
+        ]
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 

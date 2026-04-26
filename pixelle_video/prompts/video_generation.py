@@ -99,15 +99,15 @@ Strictly output in the following JSON format, **video prompts must be in English
 # Important Reminders
 1. Only output JSON format content, do not add any explanations
 2. Ensure JSON format is strictly correct and can be directly parsed by the program
-3. Input is {{"narrations": [narration array]}} format, output is {{"video_prompts": [video prompt array]}} format
-4. **The output video_prompts array must contain exactly {narrations_count} elements, corresponding one-to-one with the input narrations array**
+3. Frame-aware input uses {{"frame_source_texts": [source text array]}} format, output is {{"video_prompts": [video prompt array]}} format
+4. **The output video_prompts array must contain exactly {narrations_count} elements, corresponding one-to-one with the input frame source texts**
 5. **Video prompts must use English** (for AI video generation models)
-6. Video prompts must accurately reflect the specific content and emotion of the corresponding narration
+6. Video prompts must accurately reflect the specific content and emotion of the corresponding frame source text
 7. Each video must emphasize dynamics and sense of movement, avoid static descriptions
 8. Appropriately use camera language to enhance expressiveness
 9. Ensure video scenes can enhance the persuasiveness of the copy and audience understanding
 
-Now, please create {narrations_count} corresponding **English** video prompts for the above {narrations_count} narrations. Only output JSON, no other content.
+Now, please create {narrations_count} corresponding **English** video prompts for the above {narrations_count} storyboard frames. Only output JSON, no other content.
 """
 
 
@@ -132,8 +132,12 @@ def build_video_prompt_prompt(
     Example:
         >>> build_video_prompt_prompt(narrations, 50, 100)
     """
-    payload: dict[str, Any] = {"narrations": narrations}
     context_payload = prompt_context_payload(prompt_contexts, len(narrations))
+    payload: dict[str, Any] = (
+        {"frame_source_texts": narrations}
+        if context_payload is not None
+        else {"narrations": narrations}
+    )
     if context_payload is not None:
         payload.update(context_payload)
     narrations_json = json.dumps(payload, ensure_ascii=False, indent=2)

@@ -26,6 +26,12 @@ LLM_PRESETS: List[Dict[str, Any]] = [
         "api_key_url": "https://bailian.console.aliyun.com/?tab=model#/api-key",
     },
     {
+        "name": "Qwen 3.6 Plus",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model": "qwen3.6-plus",
+        "api_key_url": "https://bailian.console.aliyun.com/?tab=model#/api-key",
+    },
+    {
         "name": "OpenAI",
         "base_url": "https://api.openai.com/v1",
         "model": "gpt-4o",
@@ -83,4 +89,3 @@ def find_preset_by_base_url_and_model(base_url: str, model: str) -> str | None:
         if preset["base_url"] == base_url and preset["model"] == model:
             return preset["name"]
     return None
-
