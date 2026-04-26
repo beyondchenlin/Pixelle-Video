@@ -133,13 +133,14 @@ def discover_font_families(
     return _discover_font_families(candidate_dirs or FONT_SEARCH_DIRS)
 
 
-def _font_family_options(current_value: str, discovered_families: list[str]) -> list[str]:
-    options = list(discovered_families)
-    if current_value and current_value.casefold() not in {
-        option.casefold() for option in options
-    }:
-        options.insert(0, current_value)
-    return options
+def _font_family_option_for_value(
+    current_value: str,
+    options: list[str],
+) -> str | None:
+    for option in options:
+        if option.casefold() == current_value.casefold():
+            return option
+    return None
 
 
 def _font_file_for_family(
@@ -245,18 +246,23 @@ def _render_text_style_controls(
     ).strip() or str(defaults["font_family"])
     discovered_font_options = discover_font_options(FONT_SEARCH_DIRS)
     discovered_font_families = [option.family for option in discovered_font_options]
-    font_family_options = _font_family_options(
-        configured_font_family,
-        discovered_font_families,
-    )
     if discovered_font_families:
+        font_family_options = list(discovered_font_families)
+        selected_font_family = _font_family_option_for_value(
+            configured_font_family,
+            font_family_options,
+        )
+        if selected_font_family is None:
+            selected_font_family = font_family_options[0]
+            _set_session_value(ui, f"{prefix}_font_family", selected_font_family)
+
         font_family = _call_control(
             ui,
             "selectbox",
-            configured_font_family,
+            selected_font_family,
             translate(f"{prefix}.font_family"),
             font_family_options,
-            index=font_family_options.index(configured_font_family),
+            index=font_family_options.index(selected_font_family),
             key=f"{prefix}_font_family",
             help=translate(f"{prefix}.font_family_help"),
         )

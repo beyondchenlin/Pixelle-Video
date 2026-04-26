@@ -178,6 +178,16 @@ def test_discover_font_families_reads_project_font_directories(tmp_path):
     ]
 
 
+def test_discover_font_families_includes_ttc_files(tmp_path):
+    from web.components.text_rendering_config import discover_font_families
+
+    fonts_dir = tmp_path / "fonts"
+    fonts_dir.mkdir()
+    (fonts_dir / "STHeitiMedium.ttc").write_bytes(b"not a real font")
+
+    assert discover_font_families(candidate_dirs=(fonts_dir,)) == ["STHeitiMedium"]
+
+
 def test_text_style_font_family_control_uses_dropdown_when_fonts_exist(monkeypatch):
     from web.components import text_rendering_config
     from web.components.text_rendering_config import (
@@ -212,6 +222,41 @@ def test_text_style_font_family_control_uses_dropdown_when_fonts_exist(monkeypat
     assert font_select["help"] == "translated:caption_style.font_family_help"
     assert style["font_family"] == "SimHei"
     assert style["font_file"] == "fonts/simhei.ttf"
+
+
+def test_text_style_font_family_dropdown_uses_first_local_font_when_default_missing(
+    monkeypatch,
+):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import (
+        CAPTION_STYLE_DEFAULTS,
+        _render_text_style_controls,
+    )
+
+    fake_ui = _TextStyleFakeUI()
+    monkeypatch.setattr(
+        text_rendering_config,
+        "discover_font_options",
+        lambda *_args: [
+            SimpleNamespace(family="FZCuHeiSongS-B-GB", path=Path("fonts/fzchsjt.ttf")),
+            SimpleNamespace(family="SimHei", path=Path("fonts/simhei.ttf")),
+        ],
+        raising=False,
+    )
+
+    style = _render_text_style_controls(
+        "caption_style",
+        CAPTION_STYLE_DEFAULTS,
+        ui=fake_ui,
+        translate=lambda key: f"translated:{key}",
+    )
+
+    font_select = fake_ui.selectboxes[0]
+    assert font_select["options"] == ["FZCuHeiSongS-B-GB", "SimHei"]
+    assert font_select["index"] == 0
+    assert style["font_family"] == "FZCuHeiSongS-B-GB"
+    assert style["font_file"] == "fonts/fzchsjt.ttf"
+    assert fake_ui.session_state["caption_style_font_family"] == "FZCuHeiSongS-B-GB"
 
 
 def test_caption_style_control_migrates_legacy_hollow_caption_defaults(monkeypatch):

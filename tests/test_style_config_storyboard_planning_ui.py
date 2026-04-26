@@ -467,6 +467,7 @@ def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monke
 
     monkeypatch.setattr(text_rendering_config, "st", fake_st)
     monkeypatch.setattr(text_rendering_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
     fake_st.checkbox = _checkbox
     fake_st.radio = _radio
     fake_st.selectbox = _selectbox
