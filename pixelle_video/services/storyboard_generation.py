@@ -412,17 +412,20 @@ class StoryboardGenerationService:
 
         # Only use sentence_indices mode if sentences were successfully extracted
         if has_sentence_indices and sentences:
-            return self._frames_from_sentence_indices(
+            frames = self._frames_from_sentence_indices(
                 response=response,
                 source_text=source_text,
                 sentences=sentences,
             )
-        else:
-            # Fall back to legacy char-offset based parsing
-            return self._frames_from_char_offsets(
-                response=response,
-                source_text=source_text,
-            )
+            if frames is not None:
+                return frames
+            # Fall back to char-offset based parsing if sentence_indices are invalid
+
+        # Fall back to legacy char-offset based parsing
+        return self._frames_from_char_offsets(
+            response=response,
+            source_text=source_text,
+        )
 
     def _frames_from_sentence_indices(
         self,
@@ -430,30 +433,33 @@ class StoryboardGenerationService:
         response: SmartStoryboardPlanResponse,
         source_text: str,
         sentences: list[tuple[str, int, int]],
-    ) -> list[StoryboardPlanFrame]:
-        """Build frames from sentence indices - more reliable than char offsets."""
+    ) -> list[StoryboardPlanFrame] | None:
+        """Build frames from sentence indices - more reliable than char offsets.
+
+        Returns None if sentence indices are invalid, allowing fallback to char-offset parsing.
+        """
         frames: list[StoryboardPlanFrame] = []
         covered_indices: set[int] = set()
         next_expected_index = 0
 
         for index, frame in enumerate(response.frames, start=1):
             if frame.sentence_indices is None or len(frame.sentence_indices) == 0:
-                raise ValueError(f"Frame {index} missing sentence_indices")
+                return None
 
             sentence_indices = list(frame.sentence_indices)
             first_idx = min(sentence_indices)
             last_idx = max(sentence_indices)
             if sentence_indices != list(range(first_idx, last_idx + 1)):
-                raise ValueError(f"Frame {index} sentence_indices must be consecutive")
+                return None
             if first_idx != next_expected_index:
-                raise ValueError("sentence_indices must cover source_text in source order")
+                return None
 
             # Validate indices
             for si in sentence_indices:
                 if si < 0 or si >= len(sentences):
-                    raise ValueError(f"Frame {index} has invalid sentence index: {si}")
+                    return None
                 if si in covered_indices:
-                    raise ValueError(f"Frame {index} overlaps: sentence {si} already covered")
+                    return None
                 covered_indices.add(si)
 
             # Calculate source range from sentence indices
@@ -477,8 +483,7 @@ class StoryboardGenerationService:
 
         # Verify all sentences are covered
         if len(covered_indices) != len(sentences):
-            missing = set(range(len(sentences))) - covered_indices
-            raise ValueError(f"Some sentences not covered by any frame: {sorted(missing)}")
+            return None
 
         return frames
 

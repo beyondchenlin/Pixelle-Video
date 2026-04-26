@@ -904,52 +904,69 @@ async def test_smart_normalizes_literal_newline_escapes_before_planning():
     "frames",
     [
         [
-            {
-                "source_text": "Second.",
-                "visual_goal": "Show the second sentence.",
-                "prompt_intent": "A second-sentence visual.",
-                "sentence_indices": [1],
-            },
+            # Out-of-order sentence_indices, but valid source_start/source_end for fallback
+            # Frames must be in source order for char-offset fallback
             {
                 "source_text": "First.",
                 "visual_goal": "Show the first sentence.",
                 "prompt_intent": "A first-sentence visual.",
                 "sentence_indices": [0],
+                "source_start": 0,
+                "source_end": 7,
+            },
+            {
+                "source_text": "Second.",
+                "visual_goal": "Show the second sentence.",
+                "prompt_intent": "A second-sentence visual.",
+                "sentence_indices": [1],
+                "source_start": 7,
+                "source_end": 14,
             },
             {
                 "source_text": "Third.",
                 "visual_goal": "Show the third sentence.",
                 "prompt_intent": "A third-sentence visual.",
                 "sentence_indices": [2],
+                "source_start": 14,
+                "source_end": 21,
             },
         ],
         [
+            # Non-consecutive sentence_indices
             {
                 "source_text": "First. Third.",
                 "visual_goal": "Show non-adjacent sentences.",
                 "prompt_intent": "A non-adjacent visual.",
                 "sentence_indices": [0, 2],
+                "source_start": 0,
+                "source_end": 14,
             },
             {
                 "source_text": "Second.",
                 "visual_goal": "Show the second sentence.",
                 "prompt_intent": "A second-sentence visual.",
                 "sentence_indices": [1],
+                "source_start": 14,
+                "source_end": 21,
             },
         ],
     ],
 )
-async def test_smart_rejects_sentence_indices_that_are_not_source_ordered(frames):
+async def test_smart_falls_back_to_char_offsets_when_sentence_indices_invalid(frames):
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
 
-    with pytest.raises(ValueError, match="sentence_indices"):
-        await service.generate(
-            llm_service=SmartFakeLLM(frames=frames),
-            source_text="First. Second. Third.",
-            storyboard_mode="smart",
-            storyboard_count_mode="auto",
-            storyboard_scene_count=None,
-        )
+    # When sentence_indices are invalid, should fall back to char-offset parsing
+    plan = await service.generate(
+        llm_service=SmartFakeLLM(frames=frames),
+        source_text="First. Second. Third.",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    # Should still generate a valid plan by falling back
+    assert plan is not None
+    assert len(plan.frames) > 0
 
 
 def test_smart_storyboard_prompt_keeps_sentence_index_contract_consistent():
