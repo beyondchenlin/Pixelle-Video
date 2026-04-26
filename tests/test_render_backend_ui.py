@@ -153,9 +153,46 @@ def test_render_render_backend_selector_uses_runtime_default(monkeypatch):
     selected = style_config.render_render_backend_selector()
 
     assert selected == "hyperframes_compiled"
-    assert captured["options"] == ["legacy", "hyperframes_compiled"]
+    assert captured["options"] == ["legacy", "hyperframes_compiled", "ffmpeg_manifest"]
     assert captured["index"] == 1
     assert captured["key"] == "render_backend_select"
+
+
+def test_render_backend_ui_includes_ffmpeg_manifest(monkeypatch):
+    captured = {}
+
+    class FakeStreamlit:
+        def radio(self, label, options, *, index, horizontal, format_func, key, help=None):
+            captured["options"] = options
+            captured["formatted"] = [format_func(option) for option in options]
+            captured["index"] = index
+            return "ffmpeg_manifest"
+
+        def caption(self, body):
+            captured["caption"] = body
+
+    fake_config = type(
+        "ConfigManager",
+        (),
+        {
+            "config": type(
+                "Config",
+                (),
+                {"render": type("Render", (), {"backend": "ffmpeg_manifest"})()},
+            )(),
+        },
+    )()
+
+    monkeypatch.setattr(style_config, "st", FakeStreamlit())
+    monkeypatch.setattr(style_config, "config_manager", fake_config)
+    monkeypatch.setattr("web.components.style_config.tr", lambda key, **kwargs: key)
+
+    selected = style_config.render_render_backend_selector()
+
+    assert selected == "ffmpeg_manifest"
+    assert captured["options"] == ["legacy", "hyperframes_compiled", "ffmpeg_manifest"]
+    assert captured["formatted"][-1] == "render_backend.option.ffmpeg_manifest"
+    assert captured["caption"] == "render_backend.caption.ffmpeg_manifest"
 
 
 def test_render_tts_audio_strategy_selector_uses_runtime_default(monkeypatch):

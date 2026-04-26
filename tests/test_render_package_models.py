@@ -461,6 +461,16 @@ def test_storyboard_config_rejects_removed_hyperframes_alias():
         )
 
 
+def test_storyboard_config_accepts_ffmpeg_manifest_backend():
+    config = StoryboardConfig(
+        media_width=1080,
+        media_height=1920,
+        render_backend="ffmpeg_manifest",
+    )
+
+    assert config.render_backend == "ffmpeg_manifest"
+
+
 def test_persistence_loads_historical_hyperframes_backend_as_compiled(tmp_path):
     config = {
         "task_id": "task-1",
