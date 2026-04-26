@@ -18,7 +18,7 @@ from pixelle_video.models.render_package import (
     VisualClip,
     resolve_render_window,
 )
-from pixelle_video.models.storyboard import Storyboard, StoryboardConfig
+from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.text_overlay import TextOverlayPlan
 from pixelle_video.models.text_style import TextStyleProfile
@@ -131,6 +131,21 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     assert restored.caption_renderer_targets == ["ass"]
     assert restored.audio_blocks[0].end == 4.2
     assert restored.caption_punctuation_mode == "strip_all"
+
+
+def test_storyboard_config_defaults_template_text_policy_to_caption_renderer():
+    config = StoryboardConfig(media_width=1080, media_height=1920)
+
+    assert config.template_text_policy == "caption_renderer"
+
+
+def test_storyboard_config_rejects_invalid_template_text_policy():
+    with pytest.raises(ValueError, match="template_text_policy"):
+        StoryboardConfig(
+            media_width=1080,
+            media_height=1920,
+            template_text_policy="invalid",
+        )
 
 
 def test_render_manifest_preserves_explicit_empty_caption_renderer_targets():
@@ -462,6 +477,7 @@ def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path
         silence_trim_tool="ffmpeg",
         silence_trim_margin_ms=80,
         render_backend="hyperframes_compiled",
+        template_text_policy="template_body",
     )
 
     service = PersistenceService(output_dir=str(tmp_path))
@@ -475,6 +491,25 @@ def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path
     assert restored.silence_trim_tool == "ffmpeg"
     assert restored.silence_trim_margin_ms == 80
     assert restored.render_backend == "hyperframes_compiled"
+    assert restored.template_text_policy == "template_body"
+
+
+def test_storyboard_frame_template_visual_fields_round_trip_through_persistence(tmp_path):
+    frame = StoryboardFrame(
+        index=0,
+        narration="Scene",
+        image_prompt="Prompt",
+        template_visual_path="frames/00_template.png",
+        element_animation_manifest_path="frames/00_elements.json",
+        element_motion_video_path="frames/00_motion.mp4",
+    )
+
+    service = PersistenceService(output_dir=str(tmp_path))
+    restored = service._dict_to_frame(service._frame_to_dict(frame))
+
+    assert restored.template_visual_path == "frames/00_template.png"
+    assert restored.element_animation_manifest_path == "frames/00_elements.json"
+    assert restored.element_motion_video_path == "frames/00_motion.mp4"
 
 
 def test_storyboard_config_rejects_removed_hyperframes_alias():

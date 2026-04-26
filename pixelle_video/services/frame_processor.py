@@ -484,41 +484,37 @@ class FrameProcessor:
         body_text_override: Optional[str] = None,
     ) -> str:
         """Compose frame using HTML template"""
-        from pixelle_video.services.frame_html import HTMLFrameGenerator
+        from pixelle_video.services.template_visual_materializer import TemplateVisualMaterializer
         from pixelle_video.utils.template_util import resolve_template_path
         
         # Resolve template path (handles various input formats)
         template_path = resolve_template_path(config.frame_template)
-        
-        # Build ext data
-        ext = {
-            "index": frame.index + 1,
-        }
-        
-        # Add custom template parameters
-        if config.template_params:
-            ext.update(config.template_params)
-        
-        # Generate frame using HTML (size is auto-parsed from template path)
-        generator = HTMLFrameGenerator(template_path)
+        text_policy = getattr(config, "template_text_policy", "caption_renderer")
+        if body_text_override is not None:
+            text_policy = "template_body" if body_text_override else "caption_renderer"
         
         # Use video_path for video media, image_path for images
         media_path = frame.video_path if frame.media_type == "video" else frame.image_path
         logger.debug(f"Generating frame with media: '{media_path}' (type: {frame.media_type})")
         
-        composed_path = await generator.generate_frame(
+        asset = await TemplateVisualMaterializer().materialize_frame(
             title=storyboard.title,
-            text=_resolve_body_text(
+            narration=_resolve_body_text(
                 frame.narration,
-                body_text_override,
+                None,
                 punctuation_mode=config.caption_punctuation_mode,
             ),
-            image=media_path,  # HTMLFrameGenerator handles both image and video paths
-            ext=ext,
-            output_path=output_path
+            media_path=media_path,
+            frame_index=frame.index,
+            template_path=template_path,
+            template_id=Path(template_path).stem,
+            output_path=output_path,
+            text_policy=text_policy,
+            template_params=config.template_params or {},
         )
         
-        return composed_path
+        frame.template_visual_path = asset.path
+        return asset.path
     
     async def _step_create_video_segment(
         self,

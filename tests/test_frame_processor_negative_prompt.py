@@ -70,6 +70,9 @@ async def test_compose_frame_html_uses_caption_punctuation_mode_for_subtitle_tex
     captured = {}
 
     class _FakeHTMLFrameGenerator:
+        width = 1024
+        height = 1024
+
         def __init__(self, template_path):
             captured["template_path"] = template_path
 
@@ -77,7 +80,10 @@ async def test_compose_frame_html_uses_caption_punctuation_mode_for_subtitle_tex
             captured.update(kwargs)
             return kwargs["output_path"]
 
-    monkeypatch.setattr("pixelle_video.services.frame_html.HTMLFrameGenerator", _FakeHTMLFrameGenerator)
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.HTMLFrameGenerator",
+        _FakeHTMLFrameGenerator,
+    )
     monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
 
     processor = FrameProcessor(None)
@@ -86,6 +92,7 @@ async def test_compose_frame_html_uses_caption_punctuation_mode_for_subtitle_tex
         media_height=1024,
         task_id="task-1",
         frame_template="1080x1920/image_life_insights_light.html",
+        template_text_policy="template_body",
     )
     frame = StoryboardFrame(
         index=0,
@@ -105,6 +112,7 @@ async def test_compose_frame_html_uses_caption_punctuation_mode_for_subtitle_tex
 
     assert result == str(tmp_path / "composed.png")
     assert captured["text"] == "\u4f60\u597d\u4e16\u754c"
+    assert frame.template_visual_path == str(tmp_path / "composed.png")
 
 
 @pytest.mark.asyncio
@@ -112,6 +120,9 @@ async def test_compose_frame_html_allows_blank_body_text_override_for_shell_only
     captured = {}
 
     class _FakeHTMLFrameGenerator:
+        width = 1024
+        height = 1024
+
         def __init__(self, template_path):
             captured["template_path"] = template_path
 
@@ -119,7 +130,10 @@ async def test_compose_frame_html_allows_blank_body_text_override_for_shell_only
             captured.update(kwargs)
             return kwargs["output_path"]
 
-    monkeypatch.setattr("pixelle_video.services.frame_html.HTMLFrameGenerator", _FakeHTMLFrameGenerator)
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.HTMLFrameGenerator",
+        _FakeHTMLFrameGenerator,
+    )
     monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
 
     processor = FrameProcessor(None)
@@ -147,6 +161,7 @@ async def test_compose_frame_html_allows_blank_body_text_override_for_shell_only
     )
 
     assert captured["text"] == ""
+    assert frame.template_visual_path == str(tmp_path / "shell-only.png")
 
 
 @pytest.mark.asyncio

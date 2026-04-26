@@ -335,6 +335,27 @@ async def test_produce_assets_staged_omits_burned_frame_text_when_caption_render
 
 
 @pytest.mark.asyncio
+async def test_legacy_staged_compose_defaults_to_caption_renderer_text_policy(monkeypatch):
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    ctx.config.template_text_policy = "caption_renderer"
+
+    compose_calls = []
+
+    async def fake_compose(frame, storyboard, config, *, body_text_override=None):
+        compose_calls.append((frame.index, body_text_override))
+        frame.composed_image_path = f"composed-{frame.index}.png"
+
+    monkeypatch.setattr(core.frame_processor, "_step_compose_frame", fake_compose)
+
+    await pipeline.produce_assets(ctx)
+
+    assert compose_calls == [(0, ""), (1, "")]
+
+
+@pytest.mark.asyncio
 async def test_produce_assets_aborts_immediately_on_staged_image_failure():
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor(fail_on=("media", 1))

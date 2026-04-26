@@ -34,6 +34,12 @@ from pixelle_video.utils.text_splitting import (
 
 VALID_ELEMENT_ANIMATION_BACKENDS = {"hyperframes_canvas", "python_ffmpeg"}
 VALID_ELEMENT_ANIMATION_INTENSITIES = {"low", "medium", "high"}
+VALID_TEMPLATE_TEXT_POLICIES = {
+    "caption_renderer",
+    "template_body",
+    "none",
+    "explicit_both",
+}
 
 
 @dataclass
@@ -97,6 +103,7 @@ class StoryboardConfig:
     # Frame template (includes size information in path)
     frame_template: str = "1080x1920/default.html"  # Template path with size (e.g., "1080x1920/default.html")
     template_params: Optional[Dict[str, Any]] = None  # Custom template parameters (e.g., {"accent_color": "#ff0000"})
+    template_text_policy: str = "caption_renderer"
     world_preset_id: Optional[str] = None
     shot_preset_id: Optional[str] = None
     content_mode: Optional[str] = None
@@ -136,6 +143,11 @@ class StoryboardConfig:
                 "element_animation_intensity must be one of "
                 f"{sorted(VALID_ELEMENT_ANIMATION_INTENSITIES)}"
             )
+        if self.template_text_policy not in VALID_TEMPLATE_TEXT_POLICIES:
+            raise ValueError(
+                "template_text_policy must be one of "
+                f"{sorted(VALID_TEMPLATE_TEXT_POLICIES)}"
+            )
 
 
 @dataclass
@@ -151,6 +163,9 @@ class StoryboardFrame:
     image_path: Optional[str] = None           # Original image path (for image type)
     video_path: Optional[str] = None           # Original video path (for video type, before composition)
     composed_image_path: Optional[str] = None  # Composed image path (with subtitles, for image type)
+    template_visual_path: Optional[str] = None
+    element_animation_manifest_path: Optional[str] = None
+    element_motion_video_path: Optional[str] = None
     video_segment_path: Optional[str] = None   # Final video segment path
     
     # Metadata
