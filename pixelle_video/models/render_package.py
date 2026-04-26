@@ -40,6 +40,7 @@ class SentenceUnit:
     id: str
     text: str
     frame_indices: List[int] = field(default_factory=list)
+    frame_weights: Dict[int, float] = field(default_factory=dict)
     block_id: Optional[str] = None
     source_start: Optional[float] = None
     source_end: Optional[float] = None
@@ -55,6 +56,10 @@ class SentenceUnit:
             id=data["id"],
             text=data["text"],
             frame_indices=list(data.get("frame_indices", [])),
+            frame_weights={
+                int(key): float(value)
+                for key, value in dict(data.get("frame_weights", {})).items()
+            },
             block_id=data.get("block_id"),
             source_start=data.get("source_start"),
             source_end=data.get("source_end"),

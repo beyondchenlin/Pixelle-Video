@@ -7,11 +7,31 @@ import pytest
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.render_package import SentenceUnit, TextCue, TextTrack
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.text_overlay import TextOverlayCandidate, TextOverlayPlan
 from pixelle_video.models.text_style import DEFAULT_OVERLAY_STYLE_ID
 from pixelle_video.models.text_style import TextStyleProfile
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
+
+
+def _storyboard_plan(text: str) -> StoryboardPlan:
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=text,
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text=text,
+                visual_goal="Show the text.",
+                prompt_intent="Use the text as visual context.",
+                source_start=0,
+                source_end=len(text),
+            )
+        ],
+    )
 
 
 def test_record_caption_rendering_summary_is_independent_from_text_layer():
@@ -105,7 +125,7 @@ def test_text_rendering_result_attaches_contract_to_creation_package(tmp_path):
                 "overlay_style": {"primary_color": "#00ff00"},
             },
         },
-        narrations=["alpha beta gamma"],
+        storyboard_plan=_storyboard_plan("alpha beta gamma"),
         task_id="task-static-contract",
         task_dir=str(tmp_path),
         observability={},

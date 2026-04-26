@@ -38,7 +38,6 @@ async def test_generate_content_routes_complete_script_before_storyboard_plannin
                 StoryboardPlanFrame(
                     index=1,
                     source_text=kwargs["source_text"],
-                    narration_text=kwargs["source_text"],
                     visual_goal="Show the generated source text.",
                     prompt_intent="Use the complete generated script as storyboard source.",
                     source_start=0,
@@ -64,4 +63,7 @@ async def test_generate_content_routes_complete_script_before_storyboard_plannin
     assert captured["script"]["topic"] == "topic"
     assert captured["storyboard"]["source_text"] == "完整文案第一句。完整文案第二句。"
     assert "preserve_natural_punctuation" not in captured["storyboard"]
-    assert ctx.narrations == ["完整文案第一句。完整文案第二句。"]
+    assert [unit.speech_text for unit in ctx.caption_speech_plan.units] == [
+        "完整文案第一句。",
+        "完整文案第二句。",
+    ]

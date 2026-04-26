@@ -24,6 +24,7 @@ from typing import Any, Callable, Dict, List, Optional
 from loguru import logger
 
 from pixelle_video.models.creation_package import CreationPackage
+from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, VideoGenerationResult
 from pixelle_video.models.storyboard_plan import StoryboardPlan
@@ -57,8 +58,8 @@ class PipelineContext:
     # === Content ===
     title: Optional[str] = None
     source_text: Optional[str] = None
+    caption_speech_plan: Optional[CaptionSpeechPlan] = None
     storyboard_plan: Optional[StoryboardPlan] = None
-    narrations: List[str] = field(default_factory=list)
     
     # === Visuals ===
     image_prompts: List[Optional[str]] = field(default_factory=list)

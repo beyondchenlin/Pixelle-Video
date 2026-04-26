@@ -1,5 +1,6 @@
 import pytest
 
+from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch, StyleSourceSpec
@@ -27,7 +28,6 @@ def _storyboard_plan(narration: str = "scene one") -> StoryboardPlan:
             StoryboardPlanFrame(
                 index=1,
                 source_text=narration,
-                narration_text=narration,
                 visual_goal="Show the scene clearly.",
                 prompt_intent="Keep the generated visual aligned with the storyboard.",
                 source_start=0,
@@ -156,13 +156,13 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
     ctx.title = "Storyboard Title"
     ctx.task_id = "task-1"
     ctx.storyboard_plan = _storyboard_plan()
-    ctx.narrations = ctx.storyboard_plan.narration_texts()
 
     await pipeline.plan_visuals(ctx)
     await pipeline.initialize_storyboard(ctx)
 
     assert captured["world_preset_id"] == "neutral_knowledge_storyboard"
-    assert captured["prompt_contexts"][0]["visual_goal"] == "Show the scene clearly."
+    assert isinstance(captured["prompt_contexts"], PromptContextEnvelope)
+    assert captured["prompt_contexts"].frame_contexts[0]["visual_goal"] == "Show the scene clearly."
     assert captured["has_forbid_embedded_text_arg"] is False
     assert captured["text_rendering"] is None
     assert captured["shot_preset_id"] == "balanced_explainer"
@@ -229,7 +229,6 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
         },
     )
     ctx.storyboard_plan = _storyboard_plan()
-    ctx.narrations = ctx.storyboard_plan.narration_texts()
 
     await pipeline.plan_visuals(ctx)
 
@@ -271,7 +270,6 @@ async def test_standard_pipeline_plan_visuals_uses_video_config_and_media_type(m
         params={"frame_template": "1080x1920/video_default.html"},
     )
     ctx.storyboard_plan = _storyboard_plan()
-    ctx.narrations = ctx.storyboard_plan.narration_texts()
 
     await pipeline.plan_visuals(ctx)
 
@@ -328,7 +326,6 @@ async def test_standard_pipeline_plan_visuals_builds_text_package_and_native_hin
     ctx.task_id = "task-1"
     ctx.task_dir = str(tmp_path)
     ctx.storyboard_plan = _storyboard_plan("把品牌名 Pixelle 放在画面中心。")
-    ctx.narrations = ctx.storyboard_plan.narration_texts()
 
     await pipeline.plan_visuals(ctx)
     await pipeline.initialize_storyboard(ctx)
@@ -367,13 +364,13 @@ async def test_standard_pipeline_static_path_does_not_persist_pseudo_resolved_pl
     )
     ctx.title = "Static Storyboard"
     ctx.task_id = "task-static"
-    ctx.narrations = ["scene one"]
+    ctx.storyboard_plan = _storyboard_plan()
 
     await pipeline.plan_visuals(ctx)
     await pipeline.initialize_storyboard(ctx)
 
-    assert ctx.planning_snapshot is None
-    assert ctx.storyboard.planning_snapshot is None
+    assert ctx.planning_snapshot["storyboard_generation"]["resolved_scene_count"] == 1
+    assert ctx.storyboard.planning_snapshot["storyboard_generation"]["resolved_scene_count"] == 1
     assert ctx.storyboard.config.world_preset_id is None
     assert ctx.storyboard.config.shot_preset_id is None
     assert ctx.storyboard.config.content_mode is None

@@ -661,7 +661,6 @@ async def test_determine_title_progress_does_not_regress_after_generate_content(
                 StoryboardPlanFrame(
                     index=1,
                     source_text="scene 1.",
-                    narration_text="scene 1.",
                     visual_goal="Show scene 1.",
                     prompt_intent="Frame scene 1.",
                     source_start=0,
@@ -670,7 +669,6 @@ async def test_determine_title_progress_does_not_regress_after_generate_content(
                 StoryboardPlanFrame(
                     index=2,
                     source_text=" scene 2.",
-                    narration_text="scene 2.",
                     visual_goal="Show scene 2.",
                     prompt_intent="Frame scene 2.",
                     source_start=8,
@@ -679,7 +677,6 @@ async def test_determine_title_progress_does_not_regress_after_generate_content(
                 StoryboardPlanFrame(
                     index=3,
                     source_text=" scene 3.",
-                    narration_text="scene 3.",
                     visual_goal="Show scene 3.",
                     prompt_intent="Frame scene 3.",
                     source_start=17,

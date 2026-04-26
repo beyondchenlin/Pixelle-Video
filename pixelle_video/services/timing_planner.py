@@ -1,6 +1,7 @@
 ﻿from dataclasses import dataclass, field
 from typing import List, Sequence
 
+from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.models.storyboard import StoryboardFrame
 from pixelle_video.utils.text_splitting import (
@@ -39,6 +40,19 @@ class TimingPlanner:
 
     def build(self, frames: Sequence[StoryboardFrame]) -> TimingPlan:
         sentences = self._build_sentence_units(frames)
+        blocks = self._build_audio_blocks(sentences)
+        return TimingPlan(sentences=sentences, blocks=blocks)
+
+    def build_from_caption_speech_plan(self, plan: CaptionSpeechPlan) -> TimingPlan:
+        sentences = [
+            SentenceUnit(
+                id=unit.unit_id,
+                text=unit.speech_text,
+                frame_indices=list(unit.frame_indices),
+                frame_weights=dict(unit.frame_weights),
+            )
+            for unit in plan.units
+        ]
         blocks = self._build_audio_blocks(sentences)
         return TimingPlan(sentences=sentences, blocks=blocks)
 

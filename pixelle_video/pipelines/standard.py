@@ -31,6 +31,7 @@ from typing import Any, Callable, List, Literal, Optional
 from loguru import logger
 
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
+from pixelle_video.models.caption_speech_plan import build_caption_speech_plan
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.render_package import (
@@ -57,6 +58,7 @@ from pixelle_video.render_backend import (
 )
 from pixelle_video.services.ass_text_adapter import AssTextAdapter
 from pixelle_video.services.caption_cue_builder import build_caption_cues_from_sentences
+from pixelle_video.services.frame_timing_allocator import allocate_frame_timing_windows
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
 from pixelle_video.services.script_generation import ScriptGenerationService
@@ -224,15 +226,26 @@ class StandardPipeline(LinearVideoPipeline):
             logger.info("✅ Prepared fixed source text for storyboard planning")
 
         self._report_progress(ctx.progress_callback, "generating_storyboard_plan", 0.08)
-        ctx.storyboard_plan = await StoryboardGenerationService().generate(
+        ctx.storyboard_plan = await StoryboardGenerationService(
+            config=self.core.config,
+        ).generate(
             llm_service=self.llm,
             source_text=ctx.source_text,
             storyboard_mode=ctx.params.get("storyboard_mode", "smart"),
             storyboard_count_mode=ctx.params.get("storyboard_count_mode", "auto"),
             storyboard_scene_count=ctx.params.get("storyboard_scene_count"),
         )
-        ctx.narrations = ctx.storyboard_plan.narration_texts()
-        logger.info(f"✅ Generated storyboard plan with {len(ctx.narrations)} frames")
+        ctx.source_text = ctx.storyboard_plan.source_text
+        ctx.caption_speech_plan = build_caption_speech_plan(
+            ctx.storyboard_plan.source_text,
+            storyboard_plan=ctx.storyboard_plan,
+            punctuation_mode=ctx.params.get("caption_punctuation_mode", "strip_all"),
+        )
+        logger.info(
+            "✅ Generated storyboard plan with "
+            f"{ctx.storyboard_plan.resolved_scene_count} frames and "
+            f"{len(ctx.caption_speech_plan.units)} caption speech units"
+        )
 
     async def determine_title(self, ctx: PipelineContext):
         """Step 3: Determine or generate video title."""
@@ -367,7 +380,8 @@ class StandardPipeline(LinearVideoPipeline):
             logger.info(f"✅ Generated {len(ctx.image_prompts)} image prompts")
         else:
             # Static template - skip image prompt generation entirely
-            ctx.image_prompts = [None] * len(ctx.narrations)
+            frame_count = ctx.storyboard_plan.resolved_scene_count if ctx.storyboard_plan else 0
+            ctx.image_prompts = [None] * frame_count
             ctx.resolved_style = None
             ctx.media_negative_prompt = None
             ctx.planning_snapshot = (
@@ -385,11 +399,11 @@ class StandardPipeline(LinearVideoPipeline):
                 latency_ms=0,
                 llm_call_count=0,
                 retry_count=0,
-                narration_count=len(ctx.narrations),
+                narration_count=frame_count,
                 reason="static template",
             )
             logger.info("⚡ Skipped image prompt generation (static template)")
-            logger.info(f"   💡 Savings: {len(ctx.narrations)} LLM calls + {len(ctx.narrations)} media generations")
+            logger.info(f"   💡 Savings: {frame_count} LLM calls + {frame_count} media generations")
 
         self._emit_ai_creation_total(ctx, status="success")
 
@@ -418,10 +432,21 @@ class StandardPipeline(LinearVideoPipeline):
             final_voice_id = voice_id or tts_voice or "zh-CN-YunjianNeural"
             logger.debug(f"TTS Mode: legacy (voice_id={final_voice_id}, workflow={final_tts_workflow})")
             
+        if ctx.storyboard_plan is None:
+            raise ValueError("storyboard_plan must be generated before storyboard initialization")
+        if ctx.caption_speech_plan is None:
+            ctx.caption_speech_plan = build_caption_speech_plan(
+                ctx.storyboard_plan.source_text,
+                storyboard_plan=ctx.storyboard_plan,
+                punctuation_mode=ctx.params.get("caption_punctuation_mode", "strip_all"),
+            )
+
+        frame_count = ctx.storyboard_plan.resolved_scene_count
+
         # Create config
         ctx.config = StoryboardConfig(
             task_id=ctx.task_id,
-            n_storyboard=len(ctx.narrations), # Use actual length
+            n_storyboard=frame_count,
             min_narration_words=ctx.params.get("min_narration_words", 5),
             max_narration_words=ctx.params.get("max_narration_words", 20),
             min_image_prompt_words=ctx.params.get("min_image_prompt_words", 30),
@@ -453,10 +478,10 @@ class StandardPipeline(LinearVideoPipeline):
         )
         
         # Create frames
-        for i, (narration, image_prompt) in enumerate(zip(ctx.narrations, ctx.image_prompts)):
+        for i, (plan_frame, image_prompt) in enumerate(zip(ctx.storyboard_plan.frames, ctx.image_prompts)):
             frame = StoryboardFrame(
                 index=i,
-                narration=narration,
+                narration=plan_frame.source_text,
                 image_prompt=image_prompt,
                 created_at=datetime.now(),
                 **build_storyboard_frame_planning_kwargs(ctx.planning_snapshot, i),
@@ -474,7 +499,7 @@ class StandardPipeline(LinearVideoPipeline):
             single_audio_block=single_audio_block,
             tts_sentence_joiner_mode=ctx.config.tts_sentence_joiner_mode,
         )
-        ctx.timing_plan = planner.build(ctx.storyboard.frames)
+        ctx.timing_plan = planner.build_from_caption_speech_plan(ctx.caption_speech_plan)
         logger.info(
             "Timing plan prepared: "
             f"{len(ctx.timing_plan.sentences)} sentence units -> {len(ctx.timing_plan.blocks)} audio blocks"
@@ -510,12 +535,16 @@ class StandardPipeline(LinearVideoPipeline):
             "tts_sentence_joiner_mode": config.tts_sentence_joiner_mode,
             "caption_punctuation_mode": config.caption_punctuation_mode,
             "split_mode": config.tts_split_mode,
-            "narrations": [
+            "source_frames": [
                 {
                     "frame_index": frame.index,
-                    "raw_narration": frame.narration,
+                    "source_text": frame.narration,
                 }
                 for frame in ctx.storyboard.frames
+            ],
+            "caption_speech_units": [
+                unit.to_dict()
+                for unit in (ctx.caption_speech_plan.units if ctx.caption_speech_plan else ())
             ],
             "sentence_units": [
                 {
@@ -760,16 +789,17 @@ class StandardPipeline(LinearVideoPipeline):
         master_audio_path, _ = await self._synthesize_hyperframes_audio(ctx)
         self._align_legacy_master_track_timings(ctx)
         self._offset_sentence_timings_to_master_timeline(ctx.timing_plan)
+        frame_timing_windows = {
+            window.frame_index: window
+            for window in allocate_frame_timing_windows(
+                frame_count=len(storyboard.frames),
+                sentence_units=ctx.timing_plan.sentences,
+            )
+        }
 
         for frame in storyboard.frames:
-            sentence_units = [
-                sentence
-                for sentence in ctx.timing_plan.sentences
-                if frame.index in sentence.frame_indices
-            ]
-            clip_start = self._resolve_sentence_time(sentence_units, minimum=True)
-            clip_end = self._resolve_sentence_time(sentence_units, minimum=False)
-            if clip_start is None or clip_end is None or clip_end <= clip_start:
+            window = frame_timing_windows.get(frame.index)
+            if window is None or window.end <= window.start:
                 raise RuntimeError(
                     f"Unable to resolve master-track timing window for frame {frame.index + 1}."
                 )
@@ -779,8 +809,8 @@ class StandardPipeline(LinearVideoPipeline):
             self._extract_audio_clip(
                 master_audio_path,
                 output_path,
-                start_time=clip_start,
-                end_time=clip_end,
+                start_time=window.start,
+                end_time=window.end,
                 fade_ms=ctx.config.tts_audio_boundary_fade_ms,
             )
             frame.audio_path = output_path
@@ -1485,12 +1515,12 @@ class StandardPipeline(LinearVideoPipeline):
         if existing is not None:
             return existing
 
-        narrations = self._text_rendering_narrations(ctx)
+        frame_texts = self._text_rendering_frame_texts(ctx)
         result = TextRenderingOrchestrator().build(
             text_rendering=self._text_rendering_request_for_contract(ctx),
-            narrations=narrations,
+            narrations=frame_texts,
             render_backend=self._resolve_text_rendering_backend_label(ctx),
-            frame_count=len(narrations),
+            frame_count=len(frame_texts),
             task_id=getattr(ctx, "task_id", None),
         )
         setattr(ctx, "text_rendering_result", result)
@@ -1522,11 +1552,10 @@ class StandardPipeline(LinearVideoPipeline):
             return str(config.caption_punctuation_mode)
         return None
 
-    def _text_rendering_narrations(self, ctx: PipelineContext) -> list[str]:
-        narrations = list(getattr(ctx, "narrations", []) or [])
-        if narrations:
-            return narrations
-
+    def _text_rendering_frame_texts(self, ctx: PipelineContext) -> list[str]:
+        storyboard_plan = getattr(ctx, "storyboard_plan", None)
+        if storyboard_plan is not None:
+            return [frame.source_text for frame in storyboard_plan.frames]
         storyboard = getattr(ctx, "storyboard", None)
         return [
             str(getattr(frame, "narration", "") or "")
@@ -2231,16 +2260,17 @@ class StandardPipeline(LinearVideoPipeline):
         timing_plan,
     ) -> List[VisualClip]:
         clip_specs: List[dict] = []
+        frame_timing_windows = {
+            window.frame_index: window
+            for window in allocate_frame_timing_windows(
+                frame_count=len(storyboard.frames),
+                sentence_units=getattr(timing_plan, "sentences", []) or [],
+            )
+        }
 
         for frame in storyboard.frames:
-            sentence_units = [
-                sentence
-                for sentence in timing_plan.sentences
-                if frame.index in sentence.frame_indices
-            ]
-            clip_start = self._resolve_sentence_time(sentence_units, minimum=True)
-            clip_end = self._resolve_sentence_time(sentence_units, minimum=False)
-            if clip_start is None or clip_end is None:
+            window = frame_timing_windows.get(frame.index)
+            if window is None:
                 continue
 
             raw_media_path = frame.video_path if frame.media_type == "video" else frame.image_path
@@ -2253,8 +2283,8 @@ class StandardPipeline(LinearVideoPipeline):
             clip_specs.append(
                 {
                     "frame_index": frame.index,
-                    "raw_start": max(float(clip_start), 0.0),
-                    "raw_end": max(float(clip_end), float(clip_start)),
+                    "raw_start": max(float(window.start), 0.0),
+                    "raw_end": max(float(window.end), float(window.start)),
                     "media_path": raw_media_path,
                     "media_type": frame.media_type or "image",
                 }
@@ -2307,24 +2337,6 @@ class StandardPipeline(LinearVideoPipeline):
                 block.start = remapped_start
             if remapped_end is not None:
                 block.end = remapped_end
-
-    def _resolve_sentence_time(
-        self,
-        sentence_units,
-        *,
-        minimum: bool,
-    ) -> Optional[float]:
-        values = []
-        for sentence in sentence_units:
-            preferred = sentence.remapped_start if minimum else sentence.remapped_end
-            fallback = sentence.source_start if minimum else sentence.source_end
-            value = preferred if preferred is not None else fallback
-            if value is not None:
-                values.append(float(value))
-
-        if not values:
-            return None
-        return min(values) if minimum else max(values)
 
     async def finalize(self, ctx: PipelineContext) -> VideoGenerationResult:
         """Step 8: Create result object and persist metadata."""

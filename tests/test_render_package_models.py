@@ -19,6 +19,7 @@ from pixelle_video.models.render_package import (
     resolve_render_window,
 )
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.text_overlay import TextOverlayPlan
 from pixelle_video.models.text_style import TextStyleProfile
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
@@ -27,6 +28,33 @@ from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.services.persistence import PersistenceService
+
+
+def _storyboard_plan_from_segments(segments: list[str]) -> StoryboardPlan:
+    source_text = "".join(segments)
+    frames = []
+    cursor = 0
+    for index, segment in enumerate(segments, start=1):
+        start = cursor
+        end = start + len(segment)
+        frames.append(
+            StoryboardPlanFrame(
+                index=index,
+                source_text=segment,
+                visual_goal=f"Visualize segment {index}.",
+                prompt_intent=f"Prompt for segment {index}.",
+                source_start=start,
+                source_end=end,
+            )
+        )
+        cursor = end
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=source_text,
+        frames=frames,
+    )
 
 
 def test_render_manifest_round_trip_and_timing_config_defaults():
@@ -643,7 +671,7 @@ async def test_standard_pipeline_initialize_storyboard_uses_render_config_defaul
     )
     ctx.task_id = "task-1"
     ctx.title = "demo"
-    ctx.narrations = ["Sentence 1."]
+    ctx.storyboard_plan = _storyboard_plan_from_segments(["Sentence 1."])
     ctx.image_prompts = ["prompt"]
 
     await pipeline.initialize_storyboard(ctx)
@@ -700,7 +728,7 @@ async def test_standard_pipeline_initialize_storyboard_builds_sentence_level_tim
     )
     ctx.task_id = "task-2"
     ctx.title = "demo"
-    ctx.narrations = ["Sentence 1. Sentence 2!"]
+    ctx.storyboard_plan = _storyboard_plan_from_segments(["Sentence 1. Sentence 2!"])
     ctx.image_prompts = ["prompt"]
 
     await pipeline.initialize_storyboard(ctx)

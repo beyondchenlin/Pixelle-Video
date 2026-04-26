@@ -2,6 +2,7 @@ import pytest
 
 from pixelle_video.models.render_package import AudioBlock
 from pixelle_video.models.storyboard import StoryboardConfig
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.timing_planner import TimingPlan
@@ -28,6 +29,37 @@ class _FakeCore:
         self.video = None
 
 
+def _storyboard_plan_from_segments(segments: list[str]) -> StoryboardPlan:
+    source_text = "".join(
+        segment if segment[-1:] in ".!?。！？" else f"{segment}。"
+        for segment in segments
+    )
+    frames = []
+    cursor = 0
+    for index, segment in enumerate(segments, start=1):
+        frame_text = segment if segment[-1:] in ".!?。！？" else f"{segment}。"
+        start = cursor
+        end = start + len(frame_text)
+        frames.append(
+            StoryboardPlanFrame(
+                index=index,
+                source_text=frame_text,
+                visual_goal=f"Visualize segment {index}.",
+                prompt_intent=f"Prompt for segment {index}.",
+                source_start=start,
+                source_end=end,
+            )
+        )
+        cursor = end
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=source_text,
+        frames=frames,
+    )
+
+
 @pytest.mark.asyncio
 async def test_standard_pipeline_uses_internal_only_index_tts2_default_without_phrase_regroup():
     pipeline = StandardPipeline(_FakeCore())
@@ -42,13 +74,14 @@ async def test_standard_pipeline_uses_internal_only_index_tts2_default_without_p
     )
     ctx.task_id = "task-index-tts2"
     ctx.title = "demo"
-    ctx.narrations = [
+    segments = [
         "先练呼吸控制",
         "再练水中漂浮",
         "保持身体平直",
         "手臂划水流畅",
         "坚持练习进步",
     ]
+    ctx.storyboard_plan = _storyboard_plan_from_segments(segments)
     ctx.image_prompts = ["p1", "p2", "p3", "p4", "p5"]
 
     await pipeline.initialize_storyboard(ctx)
@@ -81,7 +114,9 @@ async def test_standard_pipeline_index_tts2_respects_space_joiner_option():
     )
     ctx.task_id = "task-index-tts2-space"
     ctx.title = "demo"
-    ctx.narrations = ["First sentence.", "Second sentence?"]
+    ctx.storyboard_plan = _storyboard_plan_from_segments(
+        ["First sentence.", "Second sentence?"]
+    )
     ctx.image_prompts = ["p1", "p2"]
 
     await pipeline.initialize_storyboard(ctx)

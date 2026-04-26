@@ -1,5 +1,6 @@
 import pytest
 
+from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.pipelines.linear import PipelineContext
@@ -25,7 +26,6 @@ def _plan(source_text="第一句。第二句。", mode="smart"):
             StoryboardPlanFrame(
                 index=1,
                 source_text="第一句。",
-                narration_text="第一句。",
                 visual_goal="Show idea one.",
                 prompt_intent="Visual metaphor one.",
                 source_start=0,
@@ -34,7 +34,6 @@ def _plan(source_text="第一句。第二句。", mode="smart"):
             StoryboardPlanFrame(
                 index=2,
                 source_text="第二句。",
-                narration_text="第二句。",
                 visual_goal="Show idea two.",
                 prompt_intent="Visual metaphor two.",
                 source_start=4,
@@ -63,7 +62,11 @@ async def test_generate_content_fixed_defaults_to_smart_storyboard(monkeypatch):
 
     assert ctx.source_text == "第一句。第二句。"
     assert ctx.storyboard_plan is plan
-    assert ctx.narrations == ["第一句。", "第二句。"]
+    assert isinstance(ctx.caption_speech_plan, CaptionSpeechPlan)
+    assert [unit.speech_text for unit in ctx.caption_speech_plan.units] == [
+        "第一句。",
+        "第二句。",
+    ]
     assert captured["source_text"] == "第一句。第二句。"
     assert captured["storyboard_mode"] == "smart"
     assert captured["storyboard_count_mode"] == "auto"
@@ -81,7 +84,28 @@ async def test_generate_content_fixed_punctuation_uses_storyboard_generation_ser
 
     assert ctx.source_text == "第一段，继续；结束。"
     assert ctx.storyboard_plan.mode.value == "punctuation"
-    assert ctx.narrations == ["第一段，", "继续；", "结束。"]
+    assert [unit.speech_text for unit in ctx.caption_speech_plan.units] == [
+        "第一段，",
+        "继续；",
+        "结束。",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generate_content_uses_core_storyboard_limits_config():
+    ctx = PipelineContext(
+        input_text="first, second.",
+        params={"mode": "fixed", "storyboard_mode": "punctuation"},
+    )
+    core = _DummyCore(
+        {
+            "storyboard": {"min_scene_count": 1, "max_scene_count": 1},
+            "comfyui": {"image": {}, "video": {}},
+        }
+    )
+
+    with pytest.raises(ValueError, match="too many storyboard frames"):
+        await StandardPipeline(core).generate_content(ctx)
 
 
 @pytest.mark.asyncio
@@ -94,7 +118,10 @@ async def test_generate_content_fixed_sentence_uses_storyboard_generation_servic
     await StandardPipeline(_DummyCore()).generate_content(ctx)
 
     assert ctx.storyboard_plan.mode.value == "sentence"
-    assert ctx.narrations == ["第一句。", "第二句！"]
+    assert [unit.speech_text for unit in ctx.caption_speech_plan.units] == [
+        "第一句。",
+        "第二句！",
+    ]
 
 
 @pytest.mark.asyncio
@@ -127,7 +154,10 @@ async def test_generate_content_generate_mode_uses_complete_source_text(monkeypa
 
     assert ctx.source_text == "第一句。第二句。"
     assert ctx.storyboard_plan is plan
-    assert ctx.narrations == ["第一句。", "第二句。"]
+    assert [unit.speech_text for unit in ctx.caption_speech_plan.units] == [
+        "第一句。",
+        "第二句。",
+    ]
     assert captured["script"]["topic"] == "自律主题"
     assert captured["script"]["script_length_mode"] == "custom"
     assert captured["script"]["script_target_words"] == 180
@@ -158,7 +188,6 @@ async def test_plan_visuals_uses_image_prompt_composer(monkeypatch):
     )
     ctx.task_id = "task-1"
     ctx.storyboard_plan = _plan()
-    ctx.narrations = ctx.storyboard_plan.narration_texts()
 
     await StandardPipeline(_DummyCore()).plan_visuals(ctx)
 
@@ -178,9 +207,54 @@ async def test_static_template_skips_media_but_keeps_storyboard_plan(monkeypatch
     )
     ctx.task_id = "task-static"
     ctx.storyboard_plan = _plan()
-    ctx.narrations = ctx.storyboard_plan.narration_texts()
 
     await StandardPipeline(_DummyCore()).plan_visuals(ctx)
 
     assert ctx.image_prompts == [None, None]
     assert ctx.planning_snapshot["storyboard_generation"]["resolved_scene_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_content_builds_caption_speech_plan_from_source_not_storyboard_frames(monkeypatch):
+    source_text = "Original wording, untouched."
+    storyboard_plan = StoryboardPlan.build(
+        mode="smart",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=source_text,
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text=source_text,
+                visual_goal="Show the original idea.",
+                prompt_intent="Visualize the unchanged script.",
+                source_start=0,
+                source_end=len(source_text),
+            )
+        ],
+    )
+
+    async def fake_script_generate(self, **kwargs):
+        return source_text
+
+    async def fake_storyboard_generate(self, **kwargs):
+        return storyboard_plan
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.ScriptGenerationService.generate",
+        fake_script_generate,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.StoryboardGenerationService.generate",
+        fake_storyboard_generate,
+    )
+
+    ctx = PipelineContext(input_text="topic", params={"mode": "generate"})
+    await StandardPipeline(_DummyCore()).generate_content(ctx)
+
+    assert ctx.caption_speech_plan.source_text == source_text
+    assert [unit.speech_text for unit in ctx.caption_speech_plan.units] == [
+        "Original wording,",
+        "untouched.",
+    ]
+    assert not hasattr(ctx.storyboard_plan.frames[0], "narration_text")
