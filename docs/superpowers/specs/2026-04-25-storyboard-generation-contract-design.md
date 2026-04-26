@@ -24,7 +24,7 @@ source_text
 - 图片提示词编排只负责合成 `StoryboardPlan + prompt_prefix + style profile + storyboard controls`。
 - TTS 拆分、字幕拆分、文本渲染不参与分镜数量决策。
 
-这不是给现有 `split_mode` 增加选项，而是把当前隐含在 `ctx.narrations` 里的分镜事实正式建模。`ctx.narrations` 后续应由 `StoryboardPlan.frames[*].narration_text` 派生，而不是作为分镜的上游事实源。
+这不是给现有 `split_mode` 增加选项，而是把当前隐含在 `ctx.narrations` 里的分镜事实正式建模。新链路不再使用 `narration_text` 作为分镜字段：画面事实源是 `StoryboardPlan.frames[*].source_text + visual_goal + prompt_intent`，字幕和声音事实源是从完整 `source_text` 派生的 `CaptionSpeechPlan`。
 
 ## 2. 背景依据
 
@@ -244,7 +244,6 @@ class StoryboardPlanFrame:
     frame_id: str
     index: int
     source_text: str
-    narration_text: str
     visual_goal: str
     prompt_intent: str
     shot_type: str | None
@@ -279,7 +278,7 @@ class StoryboardPlan:
 - `plan_id` 在一次分镜生成中稳定不变。
 - `revision` 从 1 开始；任何重分镜、用户锁定字段重放或手动编辑都会递增。
 - `frame.frame_id` 在同一个 `plan_id + revision` 内唯一。
-- `frame.narration_text` 不为空。
+- `frame.source_text` 不为空；它是画面侧的帧文本事实源，不是 TTS/字幕切分单元。
 - `frame.source_text` 是完整文案中的片段摘录，不是 source range 的索引基准。
 - `source_start/source_end` 永远索引 `StoryboardPlan.source_text`，使用 Python 字符串切片语义：start 包含，end 不包含。
 - `source_start/source_end` 都有值时必须满足 `0 <= source_start <= source_end <= len(StoryboardPlan.source_text)`。
@@ -373,7 +372,7 @@ class StoryboardFrameOverride(BaseModel):
     locked_fields: list[StoryboardOverrideField]
     override_source: FrameOverrideSource | None = None
 
-    narration_text: str | None = None
+    source_text: str | None = None
     visual_goal: str | None = None
     prompt_intent: str | None = None
     shot_type: str | None = None
@@ -389,7 +388,7 @@ class StoryboardFrameOverride(BaseModel):
 `StoryboardOverrideField` 只允许锁定 `StoryboardPlanFrame` 或增强后 frame plan 的字段：
 
 ```text
-narration_text
+source_text
 visual_goal
 prompt_intent
 shot_type
@@ -398,8 +397,7 @@ primary_subject
 secondary_subjects
 world_elements
 continuity_anchors
-source_start
-source_end
+focus_detail
 ```
 
 规则：
@@ -506,10 +504,11 @@ plan_visuals(ctx.storyboard_plan) -> ctx.image_prompts
 initialize_storyboard(ctx.storyboard_plan, ctx.image_prompts)
 ```
 
-`ctx.narrations` 可以继续存在，但应成为派生字段：
+`ctx.narrations` 不再属于新链路合同。若为了旧内部工具临时保留，只能作为只读兼容视图从 frame source 派生，且不能参与 TTS、字幕、图片提示词或分镜数量决策：
 
 ```text
-ctx.narrations = [frame.narration_text for frame in ctx.storyboard_plan.frames]
+ctx.narrations = [frame.source_text for frame in ctx.storyboard_plan.frames]
+CaptionSpeechPlan = split_for_speech_and_captions(ctx.source_text)
 ```
 
 ### 8.2 Generate 内容模式
@@ -646,7 +645,6 @@ POST /content/storyboard-plan
       "frame_id": "frame_01_...",
       "index": 1,
       "source_text": "...",
-      "narration_text": "...",
       "source_start": 0,
       "source_end": 24,
       "visual_goal": "...",
