@@ -32,9 +32,25 @@ Just input a **topic**, and Pixelle-Video will automatically:
 
 ## 📋 Recent Updates
 
-- ✅ **2026-01-26**: Added the Motion Transfer pipeline — upload a reference video and an image to transfer motion.
+> 📖 [View Full Changelog](CHANGELOG.md) - Contains 738+ commits and detailed feature descriptions
+
+### 2026-04-26 Latest Features
+- ✅ **Storyboard Generation Contract** - Introduced automated storyboard planning system, supporting script generation from topic to complete video ([Details](CHANGELOG.md#2026-04-26-updates))
+- ✅ **Video Render Backend Architecture** - Added ffmpeg render backend option for more flexible rendering ([Details](CHANGELOG.md#1-video-render-backend-architecture-design))
+- ✅ **Template Visual Materializer** - Converts visual templates to renderable actual assets, supporting dynamic elements ([Details](CHANGELOG.md#4-template-visual-materializer))
+- ✅ **Standard Speech Timing Contract** - Enforces precise synchronization between audio and video content ([Details](CHANGELOG.md#6-standard-speech-timing-contract))
+
+### 2026-04-25 Important Updates
+- ✅ **API File Stream and Download Endpoints** - Supports efficient large file transfer with enhanced security ([Details](CHANGELOG.md#2026-04-25-updates))
+- ✅ **Task Pagination Listing** - Implements task pagination browsing, supporting large-scale task management ([Details](CHANGELOG.md#4-task-pagination-listing))
+- ✅ **Text Rendering Safety Contracts** - Introduces text rendering safety mechanisms, supporting custom subtitle styles ([Details](CHANGELOG.md#3-text-rendering-safety-contracts))
+
+### 2026-01 Updates
+- ✅ **2026-01-26**: Added the Motion Transfer pipeline — upload a reference video and an image to transfer motion
 - ✅ **2026-01-14**: Added "Digital Human" and "Image-to-Video" pipelines, multi-language TTS voices support
 - ✅ **2026-01-06**: Added RunningHub 48G VRAM machine support
+
+### 2025-12 Updates
 - ✅ **2025-12-28**: Configurable RunningHub concurrency limit, improved LLM structured data response handling
 - ✅ **2025-12-17**: Added ComfyUI API Key configuration, Nano Banana model support, API template custom parameters
 - ✅ **2025-12-10**: Built-in FAQ in sidebar, fixed edge-tts version to resolve TTS service instability
@@ -42,7 +58,11 @@ Just input a **topic**, and Pixelle-Video will automatically:
 - ✅ **2025-12-06**: Fixed video generation API URL path handling with cross-platform compatibility
 - ✅ **2025-12-05**: Added Windows all-in-one package download, optimized image and video analysis workflows
 - ✅ **2025-12-04**: New "Custom Media" feature - upload your photos/videos with AI-powered analysis and script generation
-- ✅ **2025-11-18**: Parallel processing for RunningHub, added history page, batch video task creation support
+
+### 2025-11 Updates (Early Stage)
+- ✅ **2025-11-18**: Parallel processing for RunningHub, added history page, batch video task creation support ([Details](CHANGELOG.md#2025-11-18--2025-11-19-updates))
+- ✅ **2025-11-12**: Storyboard templates support video features, WebUI adapted for video functionality ([Details](CHANGELOG.md#2025-11-12--2025-11-17-updates))
+- ✅ **2025-11-07**: Project initialization, core architecture setup, Capability layer refactoring ([Details](CHANGELOG.md#2025-11-07--2025-11-11-updates))
 
 
 ## ✨ Key Features
