@@ -134,17 +134,9 @@ def discover_font_families(
 
 
 def _font_select_labels(font_options: list[FontOption]) -> dict[str, FontOption]:
-    family_counts: dict[str, int] = {}
-    for option in font_options:
-        family_key = option.family.casefold()
-        family_counts[family_key] = family_counts.get(family_key, 0) + 1
-
     labels: dict[str, FontOption] = {}
     for option in font_options:
-        if family_counts[option.family.casefold()] > 1:
-            label = f"{option.family} ({option.path.name})"
-        else:
-            label = option.family
+        label = f"{option.family} ({option.path.name})"
         if label in labels:
             label = f"{option.family} ({font_path_for_payload(option.path)})"
         labels[label] = option
@@ -158,6 +150,8 @@ def _font_option_for_current_value(
     if current_value in labels_by_option:
         return labels_by_option[current_value]
     for option in labels_by_option.values():
+        if font_path_for_payload(option.path).casefold() == current_value.casefold():
+            return option
         if option.family.casefold() == current_value.casefold():
             return option
     return None
@@ -262,8 +256,12 @@ def _render_text_style_controls(
         configured_font_option = str(
             _session_value(ui, f"{prefix}_font_option", configured_font_family)
         ).strip()
+        configured_font_file = str(
+            _session_value(ui, f"{prefix}_font_file", "")
+        ).strip()
         selected_font_option = (
-            _font_option_for_current_value(configured_font_option, labels_by_option)
+            _font_option_for_current_value(configured_font_file, labels_by_option)
+            or _font_option_for_current_value(configured_font_option, labels_by_option)
             or _font_option_for_current_value(configured_font_family, labels_by_option)
             or labels_by_option[font_option_labels[0]]
         )

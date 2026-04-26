@@ -240,7 +240,10 @@ def test_text_style_font_family_control_uses_dropdown_when_fonts_exist(monkeypat
     font_select = fake_ui.selectboxes[0]
     assert fake_ui.text_inputs == []
     assert font_select["label"] == "translated:caption_style.font_family"
-    assert font_select["options"] == ["FZCuHeiSongS-B-GB", "SimHei"]
+    assert font_select["options"] == [
+        "FZCuHeiSongS-B-GB (fzchsjt.ttf)",
+        "SimHei (simhei.ttf)",
+    ]
     assert font_select["index"] == 1
     assert font_select["help"] == "translated:caption_style.font_family_help"
     assert style["font_family"] == "SimHei"
@@ -275,7 +278,10 @@ def test_text_style_font_family_dropdown_uses_first_local_font_when_default_miss
     )
 
     font_select = fake_ui.selectboxes[0]
-    assert font_select["options"] == ["FZCuHeiSongS-B-GB", "SimHei"]
+    assert font_select["options"] == [
+        "FZCuHeiSongS-B-GB (fzchsjt.ttf)",
+        "SimHei (simhei.ttf)",
+    ]
     assert font_select["index"] == 0
     assert style["font_family"] == "FZCuHeiSongS-B-GB"
     assert style["font_file"] == "fonts/fzchsjt.ttf"
@@ -318,6 +324,43 @@ def test_text_style_font_family_dropdown_disambiguates_duplicate_family_files(
     assert font_select["index"] == 0
     assert style["font_family"] == "SimHei"
     assert style["font_file"] == "fonts/simhei.ttf"
+
+
+def test_text_style_font_family_dropdown_preserves_duplicate_family_by_font_file(
+    monkeypatch,
+):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import (
+        CAPTION_STYLE_DEFAULTS,
+        _render_text_style_controls,
+    )
+
+    fake_ui = _TextStyleFakeUI()
+    fake_ui.session_state = {
+        "caption_style_font_family": "SimHei",
+        "caption_style_font_file": "fonts/STHeitiMedium.ttc",
+    }
+    monkeypatch.setattr(
+        text_rendering_config,
+        "discover_font_options",
+        lambda *_args: [
+            SimpleNamespace(family="SimHei", path=Path("fonts/simhei.ttf")),
+            SimpleNamespace(family="SimHei", path=Path("fonts/STHeitiMedium.ttc")),
+        ],
+        raising=False,
+    )
+
+    style = _render_text_style_controls(
+        "caption_style",
+        CAPTION_STYLE_DEFAULTS,
+        ui=fake_ui,
+        translate=lambda key: f"translated:{key}",
+    )
+
+    font_select = fake_ui.selectboxes[0]
+    assert font_select["index"] == 1
+    assert style["font_family"] == "SimHei"
+    assert style["font_file"] == "fonts/STHeitiMedium.ttc"
 
 
 def test_caption_style_control_migrates_legacy_hollow_caption_defaults(monkeypatch):
