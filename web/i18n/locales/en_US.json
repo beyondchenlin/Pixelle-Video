@@ -388,7 +388,7 @@
     "tts.voice_profile_select": "Saved Voice",
     "tts.voice_profile_none": "Do not use a saved voice",
     "tts.voice_profile_name": "Voice Name",
-    "tts.voice_profile_name_placeholder": "Example: Chen Lin (the model suffix is added automatically)",
+    "tts.voice_profile_name_placeholder": "Example: Ban Ge (the model suffix is added automatically)",
     "tts.voice_profile_save": "Save Voice",
     "tts.voice_profile_saved": "Saved voice: {name}",
     "tts.voice_profile_name_required": "Enter a voice name first.",

@@ -389,7 +389,7 @@
     "tts.voice_profile_select": "已保存音色",
     "tts.voice_profile_none": "不使用保存音色",
     "tts.voice_profile_name": "音色名称",
-    "tts.voice_profile_name_placeholder": "例如：陈林（系统会自动追加模型后缀）",
+    "tts.voice_profile_name_placeholder": "例如：班哥（系统会自动追加模型后缀）",
     "tts.voice_profile_save": "保存音色",
     "tts.voice_profile_saved": "已保存音色：{name}",
     "tts.voice_profile_name_required": "请先填写音色名称。",

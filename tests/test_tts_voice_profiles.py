@@ -17,30 +17,30 @@ class _FakeUpload:
 
 def test_build_voice_profile_name_appends_model_suffix():
     assert (
-        tts_voice_profiles.build_voice_profile_name("陈林", "selfhost/tts_index2.json")
-        == "陈林-indextts2"
+        tts_voice_profiles.build_voice_profile_name("班哥", "selfhost/tts_index2.json")
+        == "班哥-indextts2"
     )
     assert (
-        tts_voice_profiles.build_voice_profile_name("陈林", "selfhost/tts_voxcpm2_saganaki.json")
-        == "陈林-voxcpm2"
+        tts_voice_profiles.build_voice_profile_name("班哥", "selfhost/tts_voxcpm2_saganaki.json")
+        == "班哥-voxcpm2"
     )
     assert (
-        tts_voice_profiles.build_voice_profile_name("陈林-indextts2", "selfhost/tts_index2.json")
-        == "陈林-indextts2"
+        tts_voice_profiles.build_voice_profile_name("班哥-indextts2", "selfhost/tts_index2.json")
+        == "班哥-indextts2"
     )
 
 
 def test_save_voice_profile_writes_audio_and_manifest(tmp_path):
     profile = tts_voice_profiles.save_voice_profile(
         upload=_FakeUpload(),
-        base_name="陈林",
+        base_name="班哥",
         workflow_key="selfhost/tts_index2.json",
         ref_audio_text="大家好",
         root_dir=tmp_path / "reference_audio",
         manifest_path=tmp_path / "reference_audio" / "voice_profiles.json",
     )
 
-    assert profile["name"] == "陈林-indextts2"
+    assert profile["name"] == "班哥-indextts2"
     assert profile["model_slug"] == "indextts2"
     assert profile["workflow_key"] == "selfhost/tts_index2.json"
     audio_path = tmp_path / profile["audio_path"]
@@ -50,7 +50,7 @@ def test_save_voice_profile_writes_audio_and_manifest(tmp_path):
         (tmp_path / "reference_audio" / "voice_profiles.json").read_text(encoding="utf-8")
     )
     assert manifest["version"] == 1
-    assert manifest["profiles"][0]["name"] == "陈林-indextts2"
+    assert manifest["profiles"][0]["name"] == "班哥-indextts2"
     assert manifest["profiles"][0]["ref_audio_text"] == "大家好"
 
 
@@ -64,18 +64,18 @@ def test_list_voice_profiles_filters_by_tts_model(tmp_path):
                 "profiles": [
                     {
                         "id": "a",
-                        "name": "陈林-indextts2",
+                        "name": "班哥-indextts2",
                         "model_slug": "indextts2",
                         "workflow_key": "selfhost/tts_index2.json",
-                        "audio_path": "reference_audio/indextts2/chenlin.wav",
+                        "audio_path": "reference_audio/indextts2/bange.wav",
                         "ref_audio_text": "大家好",
                     },
                     {
                         "id": "b",
-                        "name": "陈林-voxcpm2",
+                        "name": "班哥-voxcpm2",
                         "model_slug": "voxcpm2",
                         "workflow_key": "selfhost/tts_voxcpm2_saganaki.json",
-                        "audio_path": "reference_audio/voxcpm2/chenlin.wav",
+                        "audio_path": "reference_audio/voxcpm2/bange.wav",
                         "ref_audio_text": "",
                     },
                 ],
@@ -90,12 +90,12 @@ def test_list_voice_profiles_filters_by_tts_model(tmp_path):
         manifest_path=manifest_path,
     )
 
-    assert [profile["name"] for profile in profiles] == ["陈林-indextts2"]
+    assert [profile["name"] for profile in profiles] == ["班哥-indextts2"]
 
 
 def test_save_voice_profile_replaces_same_name_for_same_model(tmp_path):
     kwargs = {
-        "base_name": "陈林",
+        "base_name": "班哥",
         "workflow_key": "selfhost/tts_index2.json",
         "root_dir": tmp_path / "reference_audio",
         "manifest_path": tmp_path / "reference_audio" / "voice_profiles.json",
@@ -120,7 +120,7 @@ def test_save_voice_profile_replaces_same_name_for_same_model(tmp_path):
 
 def test_replacing_voice_profile_removes_previous_audio_file(tmp_path):
     kwargs = {
-        "base_name": "陈林",
+        "base_name": "班哥",
         "workflow_key": "selfhost/tts_index2.json",
         "root_dir": tmp_path / "reference_audio",
         "manifest_path": tmp_path / "reference_audio" / "voice_profiles.json",
@@ -146,7 +146,7 @@ def test_save_voice_profile_rejects_non_audio_suffix(tmp_path):
     with pytest.raises(ValueError, match="unsupported reference audio file type"):
         tts_voice_profiles.save_voice_profile(
             upload=_FakeUpload(name="voice.txt"),
-            base_name="陈林",
+            base_name="班哥",
             workflow_key="selfhost/tts_index2.json",
             root_dir=tmp_path / "reference_audio",
             manifest_path=tmp_path / "reference_audio" / "voice_profiles.json",
@@ -161,7 +161,7 @@ def test_corrupt_manifest_is_backed_up_before_saving_new_profile(tmp_path):
 
     profile = tts_voice_profiles.save_voice_profile(
         upload=_FakeUpload(),
-        base_name="陈林",
+        base_name="班哥",
         workflow_key="selfhost/tts_index2.json",
         root_dir=root_dir,
         manifest_path=manifest_path,

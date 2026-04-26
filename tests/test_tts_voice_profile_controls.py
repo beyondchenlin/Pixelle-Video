@@ -50,7 +50,7 @@ class _FakeStreamlit:
 
 def test_voice_profile_controls_return_selected_saved_profile(monkeypatch):
     fake_st = _FakeStreamlit()
-    fake_st.selectbox_result = "陈林-indextts2"
+    fake_st.selectbox_result = "班哥-indextts2"
     fake_st.text_area_result = "新的参考文本"
     monkeypatch.setattr(controls, "st", fake_st)
     monkeypatch.setattr(
@@ -61,8 +61,8 @@ def test_voice_profile_controls_return_selected_saved_profile(monkeypatch):
         "list_voice_profiles",
         lambda workflow_key: [
             {
-                "name": "陈林-indextts2",
-                "audio_path": "data/reference_audio/indextts2/陈林-indextts2.wav",
+                "name": "班哥-indextts2",
+                "audio_path": "data/reference_audio/indextts2/班哥-indextts2.wav",
                 "ref_audio_text": "旧文本",
             }
         ],
@@ -72,14 +72,14 @@ def test_voice_profile_controls_return_selected_saved_profile(monkeypatch):
         "selfhost/tts_index2.json",
     )
 
-    assert ref_audio_path == "data/reference_audio/indextts2/陈林-indextts2.wav"
+    assert ref_audio_path == "data/reference_audio/indextts2/班哥-indextts2.wav"
     assert ref_audio_text == "新的参考文本"
 
 
 def test_voice_profile_controls_save_uploaded_profile(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.file_uploader_result = _FakeUpload()
-    fake_st.text_input_result = "陈林"
+    fake_st.text_input_result = "班哥"
     fake_st.text_area_result = "参考文本"
     fake_st.button_result = True
     monkeypatch.setattr(controls, "st", fake_st)
@@ -93,8 +93,8 @@ def test_voice_profile_controls_save_uploaded_profile(monkeypatch):
     def _save_voice_profile(**kwargs):
         captured.update(kwargs)
         return {
-            "name": "陈林-indextts2",
-            "audio_path": "data/reference_audio/indextts2/陈林-indextts2.wav",
+            "name": "班哥-indextts2",
+            "audio_path": "data/reference_audio/indextts2/班哥-indextts2.wav",
             "ref_audio_text": kwargs["ref_audio_text"],
         }
 
@@ -105,10 +105,10 @@ def test_voice_profile_controls_save_uploaded_profile(monkeypatch):
     )
 
     assert captured["upload"] is fake_st.file_uploader_result
-    assert captured["base_name"] == "陈林"
+    assert captured["base_name"] == "班哥"
     assert captured["workflow_key"] == "selfhost/tts_index2.json"
     assert captured["ref_audio_text"] == "参考文本"
-    assert ref_audio_path == "data/reference_audio/indextts2/陈林-indextts2.wav"
+    assert ref_audio_path == "data/reference_audio/indextts2/班哥-indextts2.wav"
     assert ref_audio_text == "参考文本"
     assert fake_st.success_calls == ["tts.voice_profile_saved"]
 
@@ -116,7 +116,7 @@ def test_voice_profile_controls_save_uploaded_profile(monkeypatch):
 def test_voice_profile_controls_make_saved_profile_default_on_next_render(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.file_uploader_result = _FakeUpload()
-    fake_st.text_input_result = "陈林"
+    fake_st.text_input_result = "班哥"
     fake_st.text_area_result = "参考文本"
     fake_st.button_result = True
     monkeypatch.setattr(controls, "st", fake_st)
@@ -128,8 +128,8 @@ def test_voice_profile_controls_make_saved_profile_default_on_next_render(monkey
 
     def _save_voice_profile(**_kwargs):
         saved = {
-            "name": "陈林-indextts2",
-            "audio_path": "data/reference_audio/indextts2/陈林-indextts2.wav",
+            "name": "班哥-indextts2",
+            "audio_path": "data/reference_audio/indextts2/班哥-indextts2.wav",
             "ref_audio_text": "参考文本",
         }
         profiles.append(saved)
@@ -147,9 +147,9 @@ def test_voice_profile_controls_make_saved_profile_default_on_next_render(monkey
     )
 
     assert fake_st.selectbox_calls[-1]["options"][fake_st.selectbox_calls[-1]["kwargs"]["index"]] == (
-        "陈林-indextts2"
+        "班哥-indextts2"
     )
-    assert ref_audio_path == "data/reference_audio/indextts2/陈林-indextts2.wav"
+    assert ref_audio_path == "data/reference_audio/indextts2/班哥-indextts2.wav"
     assert ref_audio_text == "参考文本"
 
 
@@ -164,9 +164,9 @@ def test_voice_profile_controls_use_profile_specific_reference_text_key(monkeypa
         "list_voice_profiles",
         lambda workflow_key: [
             {
-                "name": "陈林-indextts2",
-                "audio_path": "data/reference_audio/indextts2/陈林-indextts2.wav",
-                "ref_audio_text": "陈林文本",
+                "name": "班哥-indextts2",
+                "audio_path": "data/reference_audio/indextts2/班哥-indextts2.wav",
+                "ref_audio_text": "班哥文本",
             },
             {
                 "name": "王明-indextts2",
@@ -176,7 +176,7 @@ def test_voice_profile_controls_use_profile_specific_reference_text_key(monkeypa
         ],
     )
 
-    fake_st.selectbox_result = "陈林-indextts2"
+    fake_st.selectbox_result = "班哥-indextts2"
     controls.render_tts_voice_profile_controls("selfhost/tts_index2.json")
     first_text_area = fake_st.text_area_calls[-1]
 
@@ -185,5 +185,5 @@ def test_voice_profile_controls_use_profile_specific_reference_text_key(monkeypa
     second_text_area = fake_st.text_area_calls[-1]
 
     assert first_text_area["kwargs"]["key"] != second_text_area["kwargs"]["key"]
-    assert first_text_area["value"] == "陈林文本"
+    assert first_text_area["value"] == "班哥文本"
     assert second_text_area["value"] == "王明文本"
