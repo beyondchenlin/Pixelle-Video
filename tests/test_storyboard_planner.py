@@ -3,6 +3,7 @@ import json
 import pytest
 
 import pixelle_video.services.storyboard_planner as storyboard_planner_module
+from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_planning import (
     FramePlan,
     StoryboardPlanningFrameResponse,
@@ -513,6 +514,34 @@ def test_build_storyboard_planning_prompt_can_use_absolute_scene_ids_for_batches
         {"scene_id": "13", "text": "ending"},
     ]
     assert any("narration_items" in instruction for instruction in prompt["instructions"])
+
+
+def test_build_storyboard_planning_prompt_uses_frame_source_inputs_with_prompt_contexts():
+    prompt = json.loads(
+        build_storyboard_planning_prompt(
+            narrations=["intro"],
+            prompt_contexts=PromptContextEnvelope(
+                plan_context={"plan_source_text": "Full connected source text."},
+                frame_contexts=[
+                    {
+                        "frame_source_text": "intro",
+                        "visual_goal": "Introduce the topic.",
+                        "prompt_intent": "Open with continuity.",
+                    }
+                ],
+            ),
+            world_preset=_neutral_world(),
+            shot_preset={"preset_id": "balanced_explainer"},
+            resolved_mode="concept_explainer",
+            consistency_strength="standard",
+        )
+    )
+
+    assert prompt["frame_source_texts"] == ["intro"]
+    assert prompt["frame_source_items"] == [{"scene_id": "1", "text": "intro"}]
+    assert "narrations" not in prompt
+    assert "narration_items" not in prompt
+    assert any("frame_source_items" in instruction for instruction in prompt["instructions"])
 
 
 @pytest.mark.asyncio

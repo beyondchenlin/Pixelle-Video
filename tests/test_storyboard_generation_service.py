@@ -748,6 +748,80 @@ async def test_smart_manual_rejects_unlocatable_source_text_after_repair():
 
 
 @pytest.mark.asyncio
+async def test_smart_uses_source_ranges_as_authoritative_text():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    frames = [
+        {
+            "source_text": "model copied this differently",
+            "visual_goal": "Introduce alpha.",
+            "prompt_intent": "A focused opening visual.",
+            "source_start": 0,
+            "source_end": 5,
+        },
+        {
+            "source_text": "model copied this differently too",
+            "visual_goal": "Resolve with beta.",
+            "prompt_intent": "A clear closing visual.",
+            "source_start": 5,
+            "source_end": 10,
+        },
+    ]
+    llm = SmartFakeLLM(frames=frames)
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="alpha beta",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert len(llm.calls) == 1
+    assert plan.source_texts() == ["alpha", " beta"]
+    assert [
+        plan.source_text[frame.source_start : frame.source_end]
+        for frame in plan.frames
+    ] == [frame.source_text for frame in plan.frames]
+
+
+@pytest.mark.asyncio
+async def test_smart_attaches_punctuation_only_gaps_to_previous_frame():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    frames = [
+        {
+            "source_text": "model copied this differently",
+            "visual_goal": "Introduce alpha.",
+            "prompt_intent": "A focused opening visual.",
+            "source_start": 0,
+            "source_end": 5,
+        },
+        {
+            "source_text": "model copied this differently too",
+            "visual_goal": "Resolve with beta.",
+            "prompt_intent": "A clear closing visual.",
+            "source_start": 6,
+            "source_end": 10,
+        },
+    ]
+    llm = SmartFakeLLM(frames=frames)
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="alpha,beta",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert len(llm.calls) == 1
+    assert plan.source_texts() == ["alpha,", "beta"]
+    assert [(frame.source_start, frame.source_end) for frame in plan.frames] == [
+        (0, 6),
+        (6, 10),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_smart_manual_requires_exact_scene_count():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
 
