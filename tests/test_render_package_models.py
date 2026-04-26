@@ -204,6 +204,31 @@ def test_render_audio_track_rejects_invalid_timing_and_volume():
         )
 
 
+def test_visual_clip_round_trips_template_and_motion_metadata():
+    clip = VisualClip(
+        id="clip-1",
+        frame_index=0,
+        start=0.0,
+        end=2.0,
+        media_path="frames/frame_000.png",
+        media_type="image",
+        source_kind="template_frame",
+        media_role="final_frame",
+        template_id="image_default",
+        template_path="1080x1920/image_default.html",
+        text_policy="caption_renderer",
+        element_animation_manifest_path="element/frame_000.json",
+        source_media_path="raw/frame_000.png",
+        diagnostics={"template_has_text_slot": True},
+    )
+    restored = VisualClip.from_dict(clip.to_dict())
+    assert restored.source_kind == "template_frame"
+    assert restored.media_role == "final_frame"
+    assert restored.template_id == "image_default"
+    assert restored.element_animation_manifest_path == "element/frame_000.json"
+    assert restored.diagnostics["template_has_text_slot"] is True
+
+
 def test_text_track_and_text_cue_round_trip_with_immutable_layout_and_source():
     cue = TextCue(
         id="cue-1",

@@ -142,20 +142,59 @@ class VisualClip:
     media_path: str
     media_type: str
     track_index: int = 0
+    source_kind: str = "raw_media"
+    media_role: str = "foreground"
+    template_id: Optional[str] = None
+    template_path: Optional[str] = None
+    text_policy: str = "caption_renderer"
+    element_animation_manifest_path: Optional[str] = None
+    source_media_path: Optional[str] = None
+    diagnostics: Mapping[str, FrozenJSONValue] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.frame_index = int(self.frame_index)
+        self.start = float(self.start)
+        self.end = float(self.end)
+        self.track_index = int(self.track_index)
+        self.diagnostics = _freeze_json_mapping(self.diagnostics)
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return {
+            "id": self.id,
+            "frame_index": self.frame_index,
+            "start": self.start,
+            "end": self.end,
+            "media_path": self.media_path,
+            "media_type": self.media_type,
+            "track_index": self.track_index,
+            "source_kind": self.source_kind,
+            "media_role": self.media_role,
+            "template_id": self.template_id,
+            "template_path": self.template_path,
+            "text_policy": self.text_policy,
+            "element_animation_manifest_path": self.element_animation_manifest_path,
+            "source_media_path": self.source_media_path,
+            "diagnostics": thaw_json_value(self.diagnostics),
+        }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "VisualClip":
         return cls(
             id=data["id"],
-            frame_index=data["frame_index"],
-            start=data["start"],
-            end=data["end"],
+            frame_index=int(data["frame_index"]),
+            start=float(data["start"]),
+            end=float(data["end"]),
             media_path=data["media_path"],
             media_type=data["media_type"],
-            track_index=data.get("track_index", 0),
+            track_index=int(data.get("track_index", 0)),
+            source_kind=str(data.get("source_kind", "raw_media")),
+            media_role=str(data.get("media_role", "foreground")),
+            template_id=data.get("template_id"),
+            template_path=data.get("template_path"),
+            text_policy=str(data.get("text_policy", "caption_renderer")),
+            element_animation_manifest_path=data.get("element_animation_manifest_path"),
+            source_media_path=data.get("source_media_path"),
+            diagnostics=data.get("diagnostics", {}),
         )
 
 
