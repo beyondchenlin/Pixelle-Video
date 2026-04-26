@@ -62,15 +62,48 @@ class TTSLocalConfig(BaseModel):
 
 class TTSComfyUIConfig(BaseModel):
     """ComfyUI TTS configuration"""
-    default_workflow: Optional[str] = Field(default=None, description="Default TTS workflow (optional)")
+    default_workflow: Optional[str] = Field(
+        default="selfhost/tts_index2.json",
+        description="Default TTS workflow (optional)",
+    )
 
 
 class TTSSubConfig(BaseModel):
     """TTS-specific configuration (under comfyui.tts)"""
-    inference_mode: str = Field(default="local", description="TTS inference mode: 'local' or 'comfyui'")
+    inference_mode: str = Field(default="comfyui", description="TTS inference mode: 'local' or 'comfyui'")
     local: TTSLocalConfig = Field(default_factory=TTSLocalConfig, description="Local TTS (Edge TTS) configuration")
     comfyui: TTSComfyUIConfig = Field(default_factory=TTSComfyUIConfig, description="ComfyUI TTS configuration")
-    
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_default_workflow(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+
+        legacy_default_workflow = data.get("default_workflow")
+        if not isinstance(legacy_default_workflow, str) or not legacy_default_workflow.strip():
+            return data
+
+        comfyui_data = data.get("comfyui")
+        comfyui_default_workflow = None
+        if isinstance(comfyui_data, dict):
+            comfyui_default_workflow = comfyui_data.get("default_workflow")
+        elif hasattr(comfyui_data, "default_workflow"):
+            comfyui_default_workflow = getattr(comfyui_data, "default_workflow")
+        if comfyui_default_workflow:
+            return data
+
+        migrated = dict(data)
+        if isinstance(comfyui_data, dict):
+            migrated_comfyui = dict(comfyui_data)
+        elif hasattr(comfyui_data, "model_dump"):
+            migrated_comfyui = comfyui_data.model_dump()
+        else:
+            migrated_comfyui = {}
+        migrated_comfyui["default_workflow"] = legacy_default_workflow
+        migrated["comfyui"] = migrated_comfyui
+        return migrated
+
     # Backward compatibility: keep default_workflow at top level
     @property
     def default_workflow(self) -> Optional[str]:

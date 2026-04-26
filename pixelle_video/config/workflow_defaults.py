@@ -5,7 +5,7 @@ from typing import Mapping, Optional, Sequence
 BUILTIN_DEFAULT_WORKFLOWS = {
     "image": "selfhost/image_z_image_turbo.json",
     "video": "runninghub/video_wan2.1_fusionx.json",
-    "tts": "selfhost/tts_edge.json",
+    "tts": "selfhost/tts_index2.json",
 }
 
 WORKFLOW_DOMAIN_PREFIXES = {

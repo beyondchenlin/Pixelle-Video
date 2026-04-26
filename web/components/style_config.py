@@ -69,6 +69,7 @@ from web.components.text_rendering_config import (
     render_text_layer_controls,  # noqa: F401
     render_text_rendering_controls,
 )
+from web.components.tts_voice_profile_controls import render_tts_voice_profile_controls
 from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
 from web.utils.preview_media import load_preview_media
@@ -2384,42 +2385,13 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
                 tts_selected_index = tts_workflow_options.index(tts_workflow_display)
                 tts_workflow_key = tts_workflow_keys[tts_selected_index]
             else:
-                tts_workflow_key = "selfhost/tts_edge.json"  # fallback
+                tts_workflow_key = "selfhost/tts_index2.json"
             
             render_selfhost_workflow_notice(
                 tts_workflow_key,
                 expanded=True,
             )
-            
-            # Reference audio upload (optional, for voice cloning)
-            ref_audio_file = st.file_uploader(
-                tr("tts.ref_audio"),
-                type=["mp3", "wav", "flac", "m4a", "aac", "ogg"],
-                help=tr("tts.ref_audio_help"),
-                key="ref_audio_upload"
-            )
-            
-            # Save uploaded ref_audio to temp file if provided
-            ref_audio_path = None
-            if ref_audio_file is not None:
-                # Audio preview player (directly play uploaded file)
-                st.audio(ref_audio_file)
-                
-                # Save to temp directory
-                temp_dir = Path("temp")
-                temp_dir.mkdir(exist_ok=True)
-                ref_audio_path = temp_dir / f"ref_audio_{ref_audio_file.name}"
-                with open(ref_audio_path, "wb") as f:
-                    f.write(ref_audio_file.getbuffer())
-
-            ref_audio_text = st.text_area(
-                tr("tts.ref_audio_text"),
-                value="",
-                placeholder=tr("tts.ref_audio_text_placeholder"),
-                help=tr("tts.ref_audio_text_help"),
-                key="ref_audio_text",
-                height=90,
-            )
+            ref_audio_path, ref_audio_text = render_tts_voice_profile_controls(tts_workflow_key)
             
             # Variables for video generation
             selected_voice = None

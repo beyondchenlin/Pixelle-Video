@@ -42,7 +42,12 @@ comfyui:
   
   # TTS-specific configuration
   tts:
-    default_workflow: selfhost/tts_edge.json  # TTS workflow to use
+    inference_mode: comfyui  # Options: local, comfyui
+    local:
+      voice: zh-CN-YunjianNeural
+      speed: 1.2
+    comfyui:
+      default_workflow: selfhost/tts_index2.json  # Default ComfyUI TTS workflow
   
   # Image-specific configuration
   image:

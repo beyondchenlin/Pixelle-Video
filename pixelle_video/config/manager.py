@@ -149,6 +149,9 @@ class ConfigManager:
             "runninghub_instance_type": self.config.comfyui.runninghub_instance_type,
             "tts": {
                 "default_workflow": self.config.comfyui.tts.default_workflow,
+                "inference_mode": self.config.comfyui.tts.inference_mode,
+                "local": self.config.comfyui.tts.local.model_dump(),
+                "comfyui": self.config.comfyui.tts.comfyui.model_dump(),
             },
             "image": {
                 "default_workflow": self.config.comfyui.image.default_workflow,
