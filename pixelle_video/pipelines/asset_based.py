@@ -37,6 +37,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from loguru import logger
 
+from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.models.asset_script import AssetCatalogEntry, AssetScriptResponse
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
@@ -490,6 +491,25 @@ class AssetBasedPipeline(LinearVideoPipeline):
             media_width = 1080
             media_height = 1920
         
+        requested_tts_inference_mode = context.params.get("tts_inference_mode")
+        if (
+            not requested_tts_inference_mode
+            and (context.params.get("voice_id") or context.params.get("tts_voice"))
+            and not context.params.get("tts_workflow")
+        ):
+            requested_tts_inference_mode = "local"
+        resolved_tts_inference_mode = resolve_tts_inference_mode(
+            self.core.config,
+            requested_tts_inference_mode,
+        )
+        voice_id = None
+        if resolved_tts_inference_mode == "local":
+            voice_id = (
+                context.params.get("tts_voice")
+                or context.params.get("voice_id")
+                or "zh-CN-YunjianNeural"
+            )
+
         # Create StoryboardConfig
         context.config = StoryboardConfig(
             task_id=context.task_id,
@@ -497,8 +517,11 @@ class AssetBasedPipeline(LinearVideoPipeline):
             min_narration_words=5,
             max_narration_words=50,
             video_fps=30,
-            tts_inference_mode="local",
-            voice_id=context.params.get("voice_id", "zh-CN-YunjianNeural"),
+            tts_inference_mode=resolved_tts_inference_mode,
+            voice_id=voice_id,
+            tts_workflow=context.params.get("tts_workflow"),
+            ref_audio=context.params.get("ref_audio"),
+            ref_audio_text=context.params.get("ref_audio_text"),
             tts_speed=context.params.get("tts_speed", 1.2),
             **resolve_storyboard_render_kwargs(self.core.config, context.params),
             media_width=media_width,

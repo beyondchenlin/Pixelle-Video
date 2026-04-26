@@ -21,6 +21,7 @@ from typing import Optional
 from comfykit.comfyui.workflow_parser import WorkflowParser
 from loguru import logger
 
+from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.tts_voices import speed_to_rate
 from pixelle_video.tts_workflow_contract import build_ref_audio_text_params
@@ -112,7 +113,7 @@ class TTSService(ComfyBaseService):
             )
         """
         # Determine inference mode (param > config)
-        mode = inference_mode or self.config.get("inference_mode", "local")
+        mode = resolve_tts_inference_mode({"comfyui": {"tts": self.config}}, inference_mode)
         
         # Route to appropriate implementation
         if mode == "local":

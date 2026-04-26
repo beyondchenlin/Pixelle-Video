@@ -30,6 +30,7 @@ from typing import Any, Callable, List, Literal, Optional
 
 from loguru import logger
 
+from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.models.caption_speech_plan import build_caption_speech_plan
 from pixelle_video.models.creation_package import CreationPackage
@@ -414,23 +415,24 @@ class StandardPipeline(LinearVideoPipeline):
         tts_voice = ctx.params.get("tts_voice")
         voice_id = ctx.params.get("voice_id")
         tts_workflow = ctx.params.get("tts_workflow")
+        requested_tts_inference_mode = tts_inference_mode
+        if not requested_tts_inference_mode and (voice_id or tts_voice) and not tts_workflow:
+            requested_tts_inference_mode = "local"
+        resolved_tts_inference_mode = resolve_tts_inference_mode(
+            self.core.config,
+            requested_tts_inference_mode,
+        )
         
         final_voice_id = None
         final_tts_workflow = tts_workflow
         
-        if tts_inference_mode:
-            # New API from web UI
-            if tts_inference_mode == "local":
-                final_voice_id = tts_voice or "zh-CN-YunjianNeural"
-                final_tts_workflow = None
-                logger.debug(f"TTS Mode: local (voice={final_voice_id})")
-            elif tts_inference_mode == "comfyui":
-                final_voice_id = None
-                logger.debug(f"TTS Mode: comfyui (workflow={final_tts_workflow})")
-        else:
-            # Old API
-            final_voice_id = voice_id or tts_voice or "zh-CN-YunjianNeural"
-            logger.debug(f"TTS Mode: legacy (voice_id={final_voice_id}, workflow={final_tts_workflow})")
+        if resolved_tts_inference_mode == "local":
+            final_voice_id = tts_voice or voice_id or "zh-CN-YunjianNeural"
+            final_tts_workflow = None
+            logger.debug(f"TTS Mode: local (voice={final_voice_id})")
+        elif resolved_tts_inference_mode == "comfyui":
+            final_voice_id = None
+            logger.debug(f"TTS Mode: comfyui (workflow={final_tts_workflow})")
             
         if ctx.storyboard_plan is None:
             raise ValueError("storyboard_plan must be generated before storyboard initialization")
@@ -452,7 +454,7 @@ class StandardPipeline(LinearVideoPipeline):
             min_image_prompt_words=ctx.params.get("min_image_prompt_words", 30),
             max_image_prompt_words=ctx.params.get("max_image_prompt_words", 60),
             video_fps=ctx.params.get("video_fps", 30),
-            tts_inference_mode=tts_inference_mode or "local",
+            tts_inference_mode=resolved_tts_inference_mode,
             voice_id=final_voice_id,
             tts_workflow=final_tts_workflow,
             tts_speed=ctx.params.get("tts_speed", 1.2),

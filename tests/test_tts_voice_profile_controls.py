@@ -10,6 +10,8 @@ class _FakeStreamlit:
         self.success_calls = []
         self.warning_calls = []
         self.audio_calls = []
+        self.selectbox_calls = []
+        self.text_area_calls = []
         self.session_state = {}
         self.selectbox_result = None
         self.text_area_result = ""
@@ -17,12 +19,14 @@ class _FakeStreamlit:
         self.file_uploader_result = None
         self.button_result = False
 
-    def selectbox(self, _label, options, **_kwargs):
+    def selectbox(self, _label, options, **kwargs):
+        self.selectbox_calls.append({"options": options, "kwargs": kwargs})
         if self.selectbox_result is not None:
             return self.selectbox_result
-        return options[0]
+        return options[kwargs.get("index", 0)]
 
-    def text_area(self, _label, value="", **_kwargs):
+    def text_area(self, _label, value="", **kwargs):
+        self.text_area_calls.append({"value": value, "kwargs": kwargs})
         return self.text_area_result if self.text_area_result else value
 
     def file_uploader(self, *_args, **_kwargs):
@@ -107,3 +111,79 @@ def test_voice_profile_controls_save_uploaded_profile(monkeypatch):
     assert ref_audio_path == "data/reference_audio/indextts2/陈林-indextts2.wav"
     assert ref_audio_text == "参考文本"
     assert fake_st.success_calls == ["tts.voice_profile_saved"]
+
+
+def test_voice_profile_controls_make_saved_profile_default_on_next_render(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.file_uploader_result = _FakeUpload()
+    fake_st.text_input_result = "陈林"
+    fake_st.text_area_result = "参考文本"
+    fake_st.button_result = True
+    monkeypatch.setattr(controls, "st", fake_st)
+    monkeypatch.setattr(
+        controls, "tr", lambda key, **kwargs: key.format(**kwargs) if kwargs else key
+    )
+    profiles = []
+    monkeypatch.setattr(controls, "list_voice_profiles", lambda workflow_key: profiles)
+
+    def _save_voice_profile(**_kwargs):
+        saved = {
+            "name": "陈林-indextts2",
+            "audio_path": "data/reference_audio/indextts2/陈林-indextts2.wav",
+            "ref_audio_text": "参考文本",
+        }
+        profiles.append(saved)
+        return saved
+
+    monkeypatch.setattr(controls, "save_voice_profile", _save_voice_profile)
+
+    controls.render_tts_voice_profile_controls("selfhost/tts_index2.json")
+
+    fake_st.button_result = False
+    fake_st.file_uploader_result = None
+    fake_st.text_area_result = ""
+    ref_audio_path, ref_audio_text = controls.render_tts_voice_profile_controls(
+        "selfhost/tts_index2.json",
+    )
+
+    assert fake_st.selectbox_calls[-1]["options"][fake_st.selectbox_calls[-1]["kwargs"]["index"]] == (
+        "陈林-indextts2"
+    )
+    assert ref_audio_path == "data/reference_audio/indextts2/陈林-indextts2.wav"
+    assert ref_audio_text == "参考文本"
+
+
+def test_voice_profile_controls_use_profile_specific_reference_text_key(monkeypatch):
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(controls, "st", fake_st)
+    monkeypatch.setattr(
+        controls, "tr", lambda key, **kwargs: key.format(**kwargs) if kwargs else key
+    )
+    monkeypatch.setattr(
+        controls,
+        "list_voice_profiles",
+        lambda workflow_key: [
+            {
+                "name": "陈林-indextts2",
+                "audio_path": "data/reference_audio/indextts2/陈林-indextts2.wav",
+                "ref_audio_text": "陈林文本",
+            },
+            {
+                "name": "王明-indextts2",
+                "audio_path": "data/reference_audio/indextts2/王明-indextts2.wav",
+                "ref_audio_text": "王明文本",
+            },
+        ],
+    )
+
+    fake_st.selectbox_result = "陈林-indextts2"
+    controls.render_tts_voice_profile_controls("selfhost/tts_index2.json")
+    first_text_area = fake_st.text_area_calls[-1]
+
+    fake_st.selectbox_result = "王明-indextts2"
+    controls.render_tts_voice_profile_controls("selfhost/tts_index2.json")
+    second_text_area = fake_st.text_area_calls[-1]
+
+    assert first_text_area["kwargs"]["key"] != second_text_area["kwargs"]["key"]
+    assert first_text_area["value"] == "陈林文本"
+    assert second_text_area["value"] == "王明文本"

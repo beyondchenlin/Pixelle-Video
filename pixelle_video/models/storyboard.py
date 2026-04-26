@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, validate_render_backend
 from pixelle_video.tts_audio_strategy import (
     DEFAULT_TTS_AUDIO_STRATEGY,
@@ -56,7 +57,7 @@ class StoryboardConfig:
     video_fps: int = 30                        # Frame rate
     
     # Audio parameters
-    tts_inference_mode: str = "local"          # TTS inference mode: "local" or "comfyui"
+    tts_inference_mode: str = DEFAULT_TTS_INFERENCE_MODE  # TTS inference mode: "local" or "comfyui"
     voice_id: Optional[str] = None             # Voice ID (for local: Edge TTS voice ID; for comfyui: workflow-specific)
     tts_workflow: Optional[str] = None         # TTS workflow filename (for ComfyUI mode, None = use default)
     tts_speed: Optional[float] = None          # TTS speed multiplier (0.5-2.0, 1.0 = normal)

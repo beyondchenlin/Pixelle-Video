@@ -28,6 +28,7 @@ from pixelle_video.config.storyboard_preset_library import (
     build_builtin_shot_preset_library_dict,
     build_builtin_world_preset_library_dict,
 )
+from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
 from pixelle_video.models.storyboard_limits import DEFAULT_STORYBOARD_GENERATION_LIMITS
 from pixelle_video.models.storyboard_planning import ContentMode, ShotOverridePolicy
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, RenderBackend
@@ -70,7 +71,10 @@ class TTSComfyUIConfig(BaseModel):
 
 class TTSSubConfig(BaseModel):
     """TTS-specific configuration (under comfyui.tts)"""
-    inference_mode: str = Field(default="comfyui", description="TTS inference mode: 'local' or 'comfyui'")
+    inference_mode: str = Field(
+        default=DEFAULT_TTS_INFERENCE_MODE,
+        description="TTS inference mode: 'local' or 'comfyui'",
+    )
     local: TTSLocalConfig = Field(default_factory=TTSLocalConfig, description="Local TTS (Edge TTS) configuration")
     comfyui: TTSComfyUIConfig = Field(default_factory=TTSComfyUIConfig, description="ComfyUI TTS configuration")
 

@@ -151,3 +151,24 @@ def test_save_voice_profile_rejects_non_audio_suffix(tmp_path):
             root_dir=tmp_path / "reference_audio",
             manifest_path=tmp_path / "reference_audio" / "voice_profiles.json",
         )
+
+
+def test_corrupt_manifest_is_backed_up_before_saving_new_profile(tmp_path):
+    root_dir = tmp_path / "reference_audio"
+    manifest_path = root_dir / "voice_profiles.json"
+    root_dir.mkdir()
+    manifest_path.write_text("{not-json", encoding="utf-8")
+
+    profile = tts_voice_profiles.save_voice_profile(
+        upload=_FakeUpload(),
+        base_name="陈林",
+        workflow_key="selfhost/tts_index2.json",
+        root_dir=root_dir,
+        manifest_path=manifest_path,
+    )
+
+    backups = list(root_dir.glob("voice_profiles.json.corrupt-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == "{not-json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["profiles"][0]["name"] == profile["name"]

@@ -1,6 +1,41 @@
+import pytest
+
 from pixelle_video.config import config_manager
 from pixelle_video.config.schema import PixelleVideoConfig
 from pixelle_video.config.workflow_defaults import BUILTIN_DEFAULT_WORKFLOWS
+from pixelle_video.models.storyboard import StoryboardConfig
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
+from pixelle_video.pipelines.linear import PipelineContext
+from pixelle_video.pipelines.standard import StandardPipeline
+
+
+class _FakeCore:
+    def __init__(self):
+        self.config = {
+            "comfyui": {"tts": {"inference_mode": "comfyui"}},
+            "render": {"backend": "legacy", "timing": {}},
+        }
+        self.llm = None
+        self.tts = None
+        self.media = None
+        self.video = None
+
+
+def _single_frame_plan() -> StoryboardPlan:
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="测试文本。",
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text="测试文本。",
+                visual_goal="Visualize test text.",
+                prompt_intent="Prompt for test text.",
+            )
+        ],
+    )
 
 
 def test_tts_defaults_to_comfyui_indextts2_workflow():
@@ -53,3 +88,21 @@ def test_nested_tts_default_workflow_takes_priority_over_legacy_field():
 
     assert config.comfyui.tts.comfyui.default_workflow == "selfhost/tts_voxcpm2_saganaki.json"
     assert config.comfyui.tts.default_workflow == "selfhost/tts_voxcpm2_saganaki.json"
+
+
+def test_storyboard_tts_default_matches_config_default():
+    assert StoryboardConfig(media_width=1080, media_height=1920).tts_inference_mode == "comfyui"
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_tts_mode_falls_back_to_configured_default():
+    pipeline = StandardPipeline(_FakeCore())
+    ctx = PipelineContext(input_text="测试文本。", params={"media_width": 1080, "media_height": 1920})
+    ctx.task_id = "task-tts-default"
+    ctx.title = "TTS Default"
+    ctx.storyboard_plan = _single_frame_plan()
+    ctx.image_prompts = ["prompt"]
+
+    await pipeline.initialize_storyboard(ctx)
+
+    assert ctx.config.tts_inference_mode == "comfyui"

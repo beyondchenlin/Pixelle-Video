@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from loguru import logger
+
 VOICE_PROFILE_ROOT = Path("data/reference_audio")
 VOICE_PROFILE_MANIFEST = VOICE_PROFILE_ROOT / "voice_profiles.json"
 ALLOWED_AUDIO_SUFFIXES = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"}
@@ -65,18 +67,38 @@ def _upload_suffix(upload: object) -> str:
     return suffix
 
 
+def _backup_malformed_manifest(manifest_path: Path, reason: str) -> Path:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    backup_path = manifest_path.with_name(f"{manifest_path.name}.corrupt-{timestamp}")
+    index = 1
+    while backup_path.exists():
+        backup_path = manifest_path.with_name(f"{manifest_path.name}.corrupt-{timestamp}-{index}")
+        index += 1
+    manifest_path.replace(backup_path)
+    logger.warning(
+        f"TTS voice profile manifest is malformed ({reason}); backed it up to {backup_path}"
+    )
+    return backup_path
+
+
 def _load_manifest(manifest_path: Path) -> dict:
     if not manifest_path.exists():
         return {"version": 1, "profiles": []}
 
     try:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        _backup_malformed_manifest(manifest_path, f"invalid JSON: {exc}")
+        return {"version": 1, "profiles": []}
+
+    if not isinstance(data, dict):
+        _backup_malformed_manifest(manifest_path, "top-level value is not an object")
         return {"version": 1, "profiles": []}
 
     profiles = data.get("profiles")
     if not isinstance(profiles, list):
-        profiles = []
+        _backup_malformed_manifest(manifest_path, "profiles is not a list")
+        return {"version": 1, "profiles": []}
     return {"version": 1, "profiles": profiles}
 
 

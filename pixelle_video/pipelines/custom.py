@@ -26,6 +26,7 @@ from typing import Callable, Optional
 
 from loguru import logger
 
+from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import (
     ContentMetadata,
@@ -175,26 +176,23 @@ class CustomPipeline(BasePipeline):
         
         # === Handle TTS parameter compatibility ===
         # Support both old API (voice_id) and new API (tts_inference_mode + tts_voice)
+        requested_tts_inference_mode = tts_inference_mode
+        if not requested_tts_inference_mode and (voice_id or tts_voice) and not tts_workflow:
+            requested_tts_inference_mode = "local"
+        resolved_tts_inference_mode = resolve_tts_inference_mode(
+            self.core.config,
+            requested_tts_inference_mode,
+        )
         final_voice_id = None
         final_tts_workflow = tts_workflow
         
-        if tts_inference_mode:
-            # New API from web UI
-            if tts_inference_mode == "local":
-                # Local Edge TTS mode - use tts_voice
-                final_voice_id = tts_voice or "zh-CN-YunjianNeural"
-                final_tts_workflow = None  # Don't use workflow in local mode
-                logger.debug(f"TTS Mode: local (voice={final_voice_id})")
-            elif tts_inference_mode == "comfyui":
-                # ComfyUI workflow mode
-                final_voice_id = None  # Don't use voice_id in ComfyUI mode
-                # tts_workflow already set from parameter
-                logger.debug(f"TTS Mode: comfyui (workflow={final_tts_workflow})")
-        else:
-            # Old API (backward compatibility)
-            final_voice_id = voice_id or tts_voice or "zh-CN-YunjianNeural"
-            # tts_workflow already set from parameter
-            logger.debug(f"TTS Mode: legacy (voice_id={final_voice_id}, workflow={final_tts_workflow})")
+        if resolved_tts_inference_mode == "local":
+            final_voice_id = tts_voice or voice_id or "zh-CN-YunjianNeural"
+            final_tts_workflow = None
+            logger.debug(f"TTS Mode: local (voice={final_voice_id})")
+        elif resolved_tts_inference_mode == "comfyui":
+            final_voice_id = None
+            logger.debug(f"TTS Mode: comfyui (workflow={final_tts_workflow})")
         
         # ========== Step 0: Setup ==========
         self._report_progress(progress_callback, "initializing", 0.05)
@@ -347,7 +345,7 @@ class CustomPipeline(BasePipeline):
             min_image_prompt_words=30,
             max_image_prompt_words=60,
             video_fps=video_fps,
-            tts_inference_mode=tts_inference_mode or "local",  # TTS inference mode (CRITICAL FIX)
+            tts_inference_mode=resolved_tts_inference_mode,
             voice_id=final_voice_id,  # Use processed voice_id
             tts_workflow=final_tts_workflow,  # Use processed workflow
             tts_speed=tts_speed,

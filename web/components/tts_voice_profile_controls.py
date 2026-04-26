@@ -12,9 +12,12 @@
 
 """Streamlit controls for reusable ComfyUI TTS reference voices."""
 
+from hashlib import sha1
+
 import streamlit as st
 
 from pixelle_video.services.tts_voice_profiles import (
+    infer_tts_model_slug,
     list_voice_profiles,
     save_voice_profile,
 )
@@ -27,22 +30,37 @@ def _profile_by_name(profiles: list[dict], name: str) -> dict | None:
     return next((profile for profile in profiles if profile.get("name") == name), None)
 
 
+def _stable_widget_token(value: object) -> str:
+    return sha1(str(value or "").encode("utf-8")).hexdigest()[:12]
+
+
 def render_tts_voice_profile_controls(
     workflow_key: str | None,
     *,
     key_prefix: str = "tts",
 ) -> tuple[str | None, str | None]:
     """Render saved voice selection plus upload-and-save controls."""
+    model_slug = infer_tts_model_slug(workflow_key)
+    active_profile_key = f"{key_prefix}_active_voice_profile_{model_slug}"
+    select_revision_key = f"{key_prefix}_voice_profile_select_revision_{model_slug}"
+
     profiles = list_voice_profiles(workflow_key)
     profile_names = [str(profile["name"]) for profile in profiles]
+    active_profile_name = st.session_state.get(active_profile_key)
+    default_name = active_profile_name if active_profile_name in profile_names else NO_VOICE_PROFILE
+    select_options = [NO_VOICE_PROFILE, *profile_names]
+    select_index = select_options.index(default_name)
+    select_revision = int(st.session_state.get(select_revision_key, 0) or 0)
     selected_name = st.selectbox(
         tr("tts.voice_profile_select"),
-        [NO_VOICE_PROFILE, *profile_names],
-        key=f"{key_prefix}_voice_profile_select",
+        select_options,
+        index=select_index,
+        key=f"{key_prefix}_voice_profile_select_{model_slug}_{select_revision}",
         format_func=lambda value: (
             tr("tts.voice_profile_none") if value == NO_VOICE_PROFILE else value
         ),
     )
+    st.session_state[active_profile_key] = selected_name
     selected_profile = (
         None if selected_name == NO_VOICE_PROFILE else _profile_by_name(profiles, selected_name)
     )
@@ -50,12 +68,15 @@ def render_tts_voice_profile_controls(
     default_ref_audio_text = (
         str(selected_profile.get("ref_audio_text") or "") if selected_profile else ""
     )
+    ref_text_token = _stable_widget_token(
+        (selected_profile.get("id") or selected_name) if selected_profile else selected_name
+    )
     ref_audio_text = st.text_area(
         tr("tts.ref_audio_text"),
         value=default_ref_audio_text,
         placeholder=tr("tts.ref_audio_text_placeholder"),
         help=tr("tts.ref_audio_text_help"),
-        key=f"{key_prefix}_ref_audio_text",
+        key=f"{key_prefix}_ref_audio_text_{model_slug}_{ref_text_token}",
         height=90,
     )
 
@@ -87,6 +108,8 @@ def render_tts_voice_profile_controls(
                 workflow_key=workflow_key,
                 ref_audio_text=ref_audio_text,
             )
+            st.session_state[active_profile_key] = saved_profile["name"]
+            st.session_state[select_revision_key] = select_revision + 1
             st.success(tr("tts.voice_profile_saved", name=saved_profile["name"]))
             return str(saved_profile["audio_path"]), ref_audio_text or None
 
