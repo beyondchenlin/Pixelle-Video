@@ -27,8 +27,58 @@ from web.i18n import tr
 from web.utils.async_helpers import get_project_version
 
 
+SCRIPT_TARGET_WORDS_MIN = 50
+SCRIPT_TARGET_WORDS_MAX = 2000
+SCRIPT_TARGET_WORDS_DEFAULT = 200
+SCRIPT_TARGET_WORDS_STEP = 50
+
+
 def get_storyboard_generation_limits() -> StoryboardGenerationLimits:
     return current_storyboard_generation_limits()
+
+
+def _clamp_script_target_words(value: int | float | None) -> int:
+    if value is None:
+        return SCRIPT_TARGET_WORDS_DEFAULT
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = SCRIPT_TARGET_WORDS_DEFAULT
+    return min(max(parsed, SCRIPT_TARGET_WORDS_MIN), SCRIPT_TARGET_WORDS_MAX)
+
+
+def _initialize_script_target_words_state(*, slider_key: str, input_key: str) -> int:
+    stored_value = st.session_state.get(
+        input_key,
+        st.session_state.get(slider_key, SCRIPT_TARGET_WORDS_DEFAULT),
+    )
+    target_words = _clamp_script_target_words(stored_value)
+    st.session_state[slider_key] = target_words
+    st.session_state[input_key] = target_words
+    return target_words
+
+
+def _sync_script_target_words_state(*, source_key: str, target_key: str) -> None:
+    st.session_state[target_key] = _clamp_script_target_words(
+        st.session_state.get(source_key)
+    )
+
+
+def build_script_generation_payload(
+    *,
+    mode: str,
+    script_target_words: int | None,
+) -> dict:
+    """Normalize source script-generation controls into the video request contract."""
+    if mode != "generate":
+        return {
+            "script_length_mode": "auto",
+            "script_target_words": None,
+        }
+    return {
+        "script_length_mode": "custom",
+        "script_target_words": _clamp_script_target_words(script_target_words),
+    }
 
 
 def build_storyboard_generation_payload(
@@ -36,8 +86,6 @@ def build_storyboard_generation_payload(
     storyboard_mode: str,
     storyboard_count_mode: str,
     storyboard_scene_count: int | None,
-    script_length_mode: str,
-    script_target_words: int | None,
 ) -> dict:
     """Normalize UI storyboard generation controls into the video request contract."""
     if storyboard_mode != "smart":
@@ -47,15 +95,10 @@ def build_storyboard_generation_payload(
         storyboard_count_mode = "auto"
         storyboard_scene_count = None
 
-    if script_length_mode != "custom":
-        script_target_words = None
-
     return {
         "storyboard_mode": storyboard_mode,
         "storyboard_count_mode": storyboard_count_mode,
         "storyboard_scene_count": storyboard_scene_count,
-        "script_length_mode": script_length_mode,
-        "script_target_words": script_target_words,
     }
 
 
@@ -76,7 +119,6 @@ def render_storyboard_generation_explanation() -> None:
                     "**按句末标点（。.!?！？）**：只按句子结束位置切分，节奏更稳。\n\n"
                     "**自动**：AI 在 1-30 个分镜里自己选择合适数量；"
                     "**分镜数**：手动指定要生成多少个分镜。\n\n"
-                    "**Script Length**：控制 AI 先写多长的脚本，不是单个分镜的时长。\n\n"
                     "**max_tokens**：这是模型最多能输出多少 JSON 内容，不是分镜数量；"
                     "本地会使用 Qwen 能接受的上限，避免请求被 400 拒绝。"
                 ),
@@ -133,43 +175,61 @@ def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict
         else:
             st.caption(tr("video.frames_fixed_mode_hint"))
 
-        script_length_mode = "auto"
-        script_target_words = None
-        if mode == "generate":
-            script_length_mode = st.selectbox(
-                "Script Length",
-                ["auto", "short", "medium", "long", "custom"],
-                index=0,
-                key=f"{key_prefix}_script_length_mode",
-                format_func=lambda value: {
-                    "auto": tr("storyboard.option.content_mode.auto"),
-                    "short": "Short",
-                    "medium": "Medium",
-                    "long": "Long",
-                    "custom": tr("style.custom"),
-                }[value],
-            )
-            if script_length_mode == "custom":
-                script_target_words = int(
-                    st.number_input(
-                        "Target Words",
-                        min_value=1,
-                        max_value=5000,
-                        value=240,
-                        step=10,
-                        key=f"{key_prefix}_script_target_words",
-                    )
-                )
-
         render_storyboard_generation_explanation()
 
         return build_storyboard_generation_payload(
             storyboard_mode=storyboard_mode,
             storyboard_count_mode=storyboard_count_mode,
             storyboard_scene_count=storyboard_scene_count,
-            script_length_mode=script_length_mode,
-            script_target_words=script_target_words,
         )
+
+
+def render_script_generation_controls(*, mode: str, key_prefix: str) -> dict:
+    """Render source script-generation controls for AI creation mode."""
+    if mode != "generate":
+        return build_script_generation_payload(
+            mode=mode,
+            script_target_words=None,
+        )
+
+    slider_key = f"{key_prefix}_script_target_words_slider"
+    input_key = f"{key_prefix}_script_target_words_input"
+    target_words = _initialize_script_target_words_state(
+        slider_key=slider_key,
+        input_key=input_key,
+    )
+
+    slider_col, input_col = st.columns([4, 1])
+    with slider_col:
+        st.slider(
+            tr("script.target_words"),
+            min_value=SCRIPT_TARGET_WORDS_MIN,
+            max_value=SCRIPT_TARGET_WORDS_MAX,
+            step=SCRIPT_TARGET_WORDS_STEP,
+            key=slider_key,
+            help=tr("script.target_words_help"),
+            on_change=_sync_script_target_words_state,
+            kwargs={"source_key": slider_key, "target_key": input_key},
+        )
+    with input_col:
+        st.number_input(
+            tr("script.target_words_input"),
+            min_value=SCRIPT_TARGET_WORDS_MIN,
+            max_value=SCRIPT_TARGET_WORDS_MAX,
+            step=SCRIPT_TARGET_WORDS_STEP,
+            key=input_key,
+            label_visibility="collapsed",
+            on_change=_sync_script_target_words_state,
+            kwargs={"source_key": input_key, "target_key": slider_key},
+        )
+    target_words = _clamp_script_target_words(
+        st.session_state.get(input_key, target_words)
+    )
+
+    return build_script_generation_payload(
+        mode=mode,
+        script_target_words=target_words,
+    )
 
 
 def render_content_input():
@@ -217,6 +277,11 @@ def render_content_input():
                 placeholder=tr("input.title_placeholder"),
                 help=tr("input.title_help")
             )
+
+            script_generation = render_script_generation_controls(
+                mode=mode,
+                key_prefix="single_video",
+            )
             
             storyboard_generation = render_storyboard_generation_controls(
                 mode=mode,
@@ -232,6 +297,7 @@ def render_content_input():
                 "mode": mode,
                 "text": text,
                 "title": title,
+                **script_generation,
                 **storyboard_generation,
                 **prompt_generation_performance,
             }
@@ -292,6 +358,11 @@ def render_content_input():
                 placeholder=tr("batch.title_prefix_placeholder"),
                 help=tr("batch.title_prefix_help")
             )
+
+            script_generation = render_script_generation_controls(
+                mode="generate",
+                key_prefix="batch_video",
+            )
             
             storyboard_generation = render_storyboard_generation_controls(
                 mode="generate",
@@ -310,6 +381,7 @@ def render_content_input():
                 "topics": topics,
                 "mode": "generate",  # Fixed to AI generate content
                 "title_prefix": title_prefix,
+                **script_generation,
                 **storyboard_generation,
                 **prompt_generation_performance,
             }
