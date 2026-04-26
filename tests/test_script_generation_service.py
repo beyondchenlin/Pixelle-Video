@@ -47,7 +47,9 @@ def test_script_generation_prompt_loads_editable_markdown_strategy():
     )
 
     assert "script_generation_strategy" in prompt
-    assert "你是一名短视频文案策划" in prompt
+    assert "短视频编导" in prompt
+    assert "第一句话必须是强 Hook" in prompt
+    assert "完整口播文案" in prompt
     assert "Return JSON only" in prompt
     assert '"source_text"' in prompt
 
