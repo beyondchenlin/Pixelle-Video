@@ -20,6 +20,7 @@ import streamlit as st
 from loguru import logger
 
 from pixelle_video.config import config_manager
+from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.video_generation_contract import is_plan_frame_override_payload
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
@@ -39,6 +40,12 @@ from web.utils.tts_split_mode_ui import TTS_SPLIT_SETTING_KEYS, copy_tts_split_s
 
 VIDEO_PREVIEW_CONTAINER_KEY = "output_video_preview"
 VIDEO_PREVIEW_WIDTH = "50%"
+
+
+def _resolve_video_tts_mode(video_params):
+    return resolve_tts_inference_mode(None, video_params.get("tts_inference_mode"))
+
+
 ELEMENT_ANIMATION_OPTION_KEYS = (
     "element_animation_enabled",
     "element_animation_backend",
@@ -168,7 +175,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "progress_callback": progress_callback,
         "media_width": session_state.get("template_media_width"),
         "media_height": session_state.get("template_media_height"),
-        "tts_inference_mode": video_params.get("tts_inference_mode", "local"),
+        "tts_inference_mode": _resolve_video_tts_mode(video_params),
         "world_preset_id": video_params.get("world_preset_id"),
         "shot_preset_id": video_params.get("shot_preset_id"),
         "consistency_strength": video_params.get("consistency_strength") or "standard",
@@ -225,7 +232,7 @@ def build_batch_shared_config(video_params):
         "prompt_prefix": video_params.get("prompt_prefix") or "",
         "bgm_path": video_params.get("bgm_path"),
         "bgm_volume": video_params.get("bgm_volume") or 0.2,
-        "tts_inference_mode": video_params.get("tts_inference_mode") or "local",
+        "tts_inference_mode": _resolve_video_tts_mode(video_params),
         "media_width": video_params.get("media_width"),
         "media_height": video_params.get("media_height"),
         "world_preset_id": video_params.get("world_preset_id"),
@@ -285,7 +292,7 @@ def render_single_output(pixelle_video, video_params):
     bgm_path = video_params.get("bgm_path")
     bgm_volume = video_params.get("bgm_volume", 0.2)
 
-    tts_mode = video_params.get("tts_inference_mode", "local")
+    tts_mode = _resolve_video_tts_mode(video_params)
     selected_voice = video_params.get("tts_voice")
     tts_speed = video_params.get("tts_speed")
     tts_workflow_key = video_params.get("tts_workflow")

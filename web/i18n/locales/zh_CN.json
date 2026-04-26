@@ -634,10 +634,8 @@
     "faq.load_error": "无法加载常见问题内容",
     "faq.more_help": "需要更多帮助？",
 
-    "selfhost.warning.title": "您选择了 SelfHost（本地）工作流，请务必先确认以下事项：",
     "selfhost.warning.message": "1. 请先在您的 ComfyUI 环境（{comfyui_url}）中**单独加载并运行** `{workflow_path}` 工作流\n2. 确保该工作流**能够正常运行完成**，没有节点缺失或模型缺失等错误\n3. 工作流调试通过后，再回到本项目使用",
     "selfhost.warning.hint": "⚠️ 如果您没有在 ComfyUI 中跑通该工作流，后续运行**一定会失败**（通常报 400 错误）！请勿跳过此步骤。",
-    "selfhost.warning.confirm": "我已了解，继续使用",
     "selfhost.warning.inline_title": "SelfHost 工作流运行前检查",
     "render_backend.label": "渲染后端",
     "render_backend.help": "选择当前任务要走的渲染链路。",

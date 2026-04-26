@@ -633,10 +633,8 @@
     "faq.load_error": "Failed to load FAQ content",
     "faq.more_help": "Need more help?",
 
-    "selfhost.warning.title": "You have selected a SelfHost (local) workflow. Please confirm the following:",
     "selfhost.warning.message": "1. First, **load and run** `{workflow_path}` workflow in your ComfyUI environment ({comfyui_url})\n2. Ensure the workflow **runs successfully** without missing nodes or models\n3. After the workflow is verified, return to this project to use it",
     "selfhost.warning.hint": "⚠️ If you haven't verified this workflow in ComfyUI, subsequent runs **will definitely fail** (usually 400 error)! Do not skip this step.",
-    "selfhost.warning.confirm": "I understand, continue",
     "selfhost.warning.inline_title": "SelfHost workflow preflight check",
     "section.render_backend": "Render Backend",
     "render_backend.label": "Render backend",

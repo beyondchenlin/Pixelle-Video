@@ -24,7 +24,7 @@ from web.components.selfhost_workflow_notice import render_selfhost_workflow_not
 from web.components.tts_voice_profile_controls import render_tts_voice_profile_controls
 from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
-from web.utils.tts_ui import resolve_comfyui_tts_speed
+from web.utils.tts_ui import resolve_comfyui_tts_speed, resolve_configured_tts_mode
 
 
 def render_style_config(pixelle_video):
@@ -50,7 +50,7 @@ def render_style_config(pixelle_video):
             ["local", "comfyui"],
             horizontal=True,
             format_func=lambda x: tr(f"tts.mode.{x}"),
-            index=0 if tts_config.get("inference_mode", "local") == "local" else 1,
+            index=0 if resolve_configured_tts_mode(tts_config) == "local" else 1,
             key="digital_tts_inference_mode"
         )
         

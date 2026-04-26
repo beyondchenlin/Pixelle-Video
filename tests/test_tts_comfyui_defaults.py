@@ -7,6 +7,9 @@ from pixelle_video.models.storyboard import StoryboardConfig
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
+from pixelle_video.services.persistence import PersistenceService
+from web.pipelines.digital_human import build_tts_generation_kwargs
+from web.utils.tts_ui import resolve_configured_tts_mode
 
 
 class _FakeCore:
@@ -92,6 +95,32 @@ def test_nested_tts_default_workflow_takes_priority_over_legacy_field():
 
 def test_storyboard_tts_default_matches_config_default():
     assert StoryboardConfig(media_width=1080, media_height=1920).tts_inference_mode == "comfyui"
+
+
+def test_web_tts_mode_default_helper_matches_config_default():
+    assert resolve_configured_tts_mode({}) == "comfyui"
+
+
+def test_persistence_config_load_defaults_to_comfyui_tts_mode(tmp_path):
+    service = PersistenceService(str(tmp_path))
+
+    config = service._dict_to_config({"media_width": 1080, "media_height": 1920})
+
+    assert config.tts_inference_mode == "comfyui"
+
+
+def test_digital_human_tts_kwargs_default_to_comfyui_mode():
+    kwargs = build_tts_generation_kwargs(
+        {},
+        text="测试文本。",
+        output_path="output/narration.mp3",
+    )
+
+    assert kwargs == {
+        "text": "测试文本。",
+        "output_path": "output/narration.mp3",
+        "inference_mode": "comfyui",
+    }
 
 
 @pytest.mark.asyncio

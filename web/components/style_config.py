@@ -89,7 +89,7 @@ from web.utils.render_backend_ui import get_render_backend_default
 from web.utils.streamlit_helpers import safe_rerun
 from web.utils.tts_audio_strategy_ui import get_tts_audio_strategy_default
 from web.utils.tts_split_mode_ui import get_tts_split_mode_default
-from web.utils.tts_ui import resolve_comfyui_tts_speed
+from web.utils.tts_ui import resolve_comfyui_tts_speed, resolve_configured_tts_mode
 from web.utils.workflow_defaults import resolve_selectbox_default_index
 
 STORYBOARD_SHOT_PRESET_AUTO_VALUE = "__auto__"
@@ -2284,7 +2284,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
             ["local", "comfyui"],
             horizontal=True,
             format_func=lambda x: tr(f"tts.mode.{x}"),
-            index=0 if tts_config.get("inference_mode", "local") == "local" else 1,
+            index=0 if resolve_configured_tts_mode(tts_config) == "local" else 1,
             key="tts_inference_mode"
         )
         

@@ -153,7 +153,7 @@ class HistoryManager:
                 "mode": "generate",
                 "title": "...",
                 "n_scenes": 5,
-                "tts_inference_mode": "local",
+                "tts_inference_mode": "comfyui",
                 "tts_voice": "...",
                 ...
             }

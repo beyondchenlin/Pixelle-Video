@@ -129,6 +129,27 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["progress_callback"] is _progress
 
 
+def test_build_single_generation_request_defaults_to_comfyui_tts_mode():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {"text": "demo", "mode": "generate"},
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["tts_inference_mode"] == "comfyui"
+    assert "tts_voice" not in request
+
+
+def test_build_batch_shared_config_defaults_to_comfyui_tts_mode():
+    shared_config = output_preview.build_batch_shared_config({"title_prefix": "Series"})
+
+    assert shared_config["tts_inference_mode"] == "comfyui"
+    assert "tts_voice" not in shared_config
+
+
 def test_build_single_generation_request_uses_storyboard_generation_contract_fields():
     def _progress(_event):
         return None

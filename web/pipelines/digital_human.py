@@ -8,6 +8,7 @@ import streamlit as st
 from loguru import logger
 
 from pixelle_video.config import config_manager
+from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.utils.os_util import create_task_output_dir
 from web.components.content_input import render_version_info
 from web.components.digital_tts_config import render_style_config
@@ -15,6 +16,36 @@ from web.components.output_preview import render_scaled_video_preview
 from web.i18n import get_language, tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
 from web.utils.async_helpers import run_async
+
+
+def build_tts_generation_kwargs(
+    video_params: dict[str, Any],
+    *,
+    text: str,
+    output_path: str,
+) -> dict[str, Any]:
+    tts_mode = resolve_tts_inference_mode(None, video_params.get("tts_inference_mode"))
+    tts_kwargs = {
+        "text": text,
+        "output_path": output_path,
+        "inference_mode": tts_mode,
+    }
+
+    if tts_mode == "local":
+        tts_kwargs["voice"] = video_params.get("tts_voice")
+        tts_kwargs["speed"] = video_params.get("tts_speed")
+    elif tts_mode == "comfyui":
+        tts_workflow = video_params.get("tts_workflow")
+        ref_audio = video_params.get("ref_audio")
+        ref_audio_text = video_params.get("ref_audio_text")
+        if tts_workflow:
+            tts_kwargs["workflow"] = tts_workflow
+        if ref_audio:
+            tts_kwargs["ref_audio"] = ref_audio
+        if ref_audio_text:
+            tts_kwargs["ref_audio_text"] = ref_audio_text
+
+    return tts_kwargs
 
 
 class DigitalHumanPipelineUI(PipelineUI):
@@ -381,28 +412,11 @@ class DigitalHumanPipelineUI(PipelineUI):
 
                             # TTS
                             audio_path = os.path.join(task_dir, "narration.mp3")
-                            tts_inference_mode = video_params.get("tts_inference_mode", "local")
-                            tts_voice = video_params.get("tts_voice")
-                            tts_speed = video_params.get("tts_speed")
-                            tts_workflow = video_params.get("tts_workflow")
-                            ref_audio = video_params.get("ref_audio")
-                            ref_audio_text = video_params.get("ref_audio_text")
-
-                            tts_kwargs = {
-                                "text": generated_text,
-                                "output_path": audio_path,
-                                "inference_mode": tts_inference_mode
-                            }
-                            if tts_inference_mode == "local":
-                                tts_kwargs["voice"] = tts_voice
-                                tts_kwargs["speed"] = tts_speed
-                            elif tts_inference_mode == "comfyui":
-                                if tts_workflow:
-                                    tts_kwargs["workflow"] = tts_workflow
-                                if ref_audio:
-                                    tts_kwargs["ref_audio"] = ref_audio
-                                if ref_audio_text:
-                                    tts_kwargs["ref_audio_text"] = ref_audio_text
+                            tts_kwargs = build_tts_generation_kwargs(
+                                video_params,
+                                text=generated_text,
+                                output_path=audio_path,
+                            )
 
                             await pixelle_video.tts(**tts_kwargs)
                             progress_bar.progress(65)
@@ -478,28 +492,11 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 generated_image_url = getattr(combine_image, "images", [None])[0]
                                 status_text.text(tr("progress.step_audio"))
                                 audio_path = os.path.join(task_dir, "narration.mp3")
-                                tts_inference_mode = video_params.get("tts_inference_mode", "local")
-                                tts_voice = video_params.get("tts_voice")
-                                tts_speed = video_params.get("tts_speed")
-                                tts_workflow = video_params.get("tts_workflow")
-                                ref_audio = video_params.get("ref_audio")
-                                ref_audio_text = video_params.get("ref_audio_text")
-
-                                tts_kwargs = {
-                                    "text": generated_text,
-                                    "output_path": audio_path,
-                                    "inference_mode": tts_inference_mode
-                                }
-                                if tts_inference_mode == "local":
-                                    tts_kwargs["voice"] = tts_voice
-                                    tts_kwargs["speed"] = tts_speed
-                                elif tts_inference_mode == "comfyui":
-                                    if tts_workflow:
-                                        tts_kwargs["workflow"] = tts_workflow
-                                    if ref_audio:
-                                        tts_kwargs["ref_audio"] = ref_audio
-                                    if ref_audio_text:
-                                        tts_kwargs["ref_audio_text"] = ref_audio_text
+                                tts_kwargs = build_tts_generation_kwargs(
+                                    video_params,
+                                    text=generated_text,
+                                    output_path=audio_path,
+                                )
 
                                 await pixelle_video.tts(**tts_kwargs)
                                 progress_bar.progress(65)
@@ -562,28 +559,11 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 
                                 status_text.text(tr("progress.step_audio"))
                                 audio_path = os.path.join(task_dir, "narration.mp3")
-                                tts_inference_mode = video_params.get("tts_inference_mode", "local")
-                                tts_voice = video_params.get("tts_voice")
-                                tts_speed = video_params.get("tts_speed")
-                                tts_workflow = video_params.get("tts_workflow")
-                                ref_audio = video_params.get("ref_audio")
-                                ref_audio_text = video_params.get("ref_audio_text")
-
-                                tts_kwargs = {
-                                    "text": generated_text,
-                                    "output_path": audio_path,
-                                    "inference_mode": tts_inference_mode
-                                }
-                                if tts_inference_mode == "local":
-                                    tts_kwargs["voice"] = tts_voice
-                                    tts_kwargs["speed"] = tts_speed
-                                elif tts_inference_mode == "comfyui":
-                                    if tts_workflow:
-                                        tts_kwargs["workflow"] = tts_workflow
-                                    if ref_audio:
-                                        tts_kwargs["ref_audio"] = ref_audio
-                                    if ref_audio_text:
-                                        tts_kwargs["ref_audio_text"] = ref_audio_text
+                                tts_kwargs = build_tts_generation_kwargs(
+                                    video_params,
+                                    text=generated_text,
+                                    output_path=audio_path,
+                                )
 
                                 await pixelle_video.tts(**tts_kwargs)
                                 progress_bar.progress(65)

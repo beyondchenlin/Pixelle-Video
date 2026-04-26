@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
+from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.models.storyboard import (
     ContentMetadata,
     Storyboard,
@@ -435,7 +436,10 @@ class PersistenceService:
             min_image_prompt_words=data.get("min_image_prompt_words", 30),
             max_image_prompt_words=data.get("max_image_prompt_words", 60),
             video_fps=data.get("video_fps", 30),
-            tts_inference_mode=data.get("tts_inference_mode", "local"),
+            tts_inference_mode=resolve_tts_inference_mode(
+                None,
+                data.get("tts_inference_mode"),
+            ),
             voice_id=data.get("voice_id"),
             tts_workflow=data.get("tts_workflow"),
             tts_speed=data.get("tts_speed"),
