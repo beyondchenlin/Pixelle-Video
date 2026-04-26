@@ -38,6 +38,20 @@ async def test_script_generation_returns_complete_source_text_from_topic():
     assert "complete source_text" in llm.calls[0]["prompt"]
 
 
+def test_script_generation_prompt_loads_editable_markdown_strategy():
+    from pixelle_video.prompts.script_generation import build_script_generation_prompt
+
+    prompt = build_script_generation_prompt(
+        topic="强者思维",
+        length_instruction="Write about 200 words.",
+    )
+
+    assert "script_generation_strategy" in prompt
+    assert "你是一名短视频文案策划" in prompt
+    assert "Return JSON only" in prompt
+    assert '"source_text"' in prompt
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("mode", "expected_fragment"),

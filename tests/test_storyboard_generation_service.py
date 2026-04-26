@@ -785,6 +785,110 @@ async def test_smart_uses_source_ranges_as_authoritative_text():
 
 
 @pytest.mark.asyncio
+async def test_smart_normalizes_literal_newline_escapes_before_planning():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    llm = SmartFakeLLM(
+        frames=[
+            {
+                "source_text": "Intro.",
+                "visual_goal": "Introduce the idea.",
+                "prompt_intent": "A focused opening visual.",
+            },
+            {
+                "source_text": "First point.",
+                "visual_goal": "Show the first point.",
+                "prompt_intent": "A clear first-point visual.",
+            },
+            {
+                "source_text": "Second point.",
+                "visual_goal": "Show the second point.",
+                "prompt_intent": "A clear second-point visual.",
+            },
+        ]
+    )
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="Intro.\\nFirst point.\\\\\\nSecond point.",
+        storyboard_mode="smart",
+        storyboard_count_mode="manual",
+        storyboard_scene_count=3,
+    )
+
+    assert "\\n" not in plan.source_text
+    assert "\\n" not in "".join(plan.source_texts())
+    assert plan.source_texts() == ["Intro.", "First point.", "Second point."]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "frames",
+    [
+        [
+            {
+                "source_text": "Second.",
+                "visual_goal": "Show the second sentence.",
+                "prompt_intent": "A second-sentence visual.",
+                "sentence_indices": [1],
+            },
+            {
+                "source_text": "First.",
+                "visual_goal": "Show the first sentence.",
+                "prompt_intent": "A first-sentence visual.",
+                "sentence_indices": [0],
+            },
+            {
+                "source_text": "Third.",
+                "visual_goal": "Show the third sentence.",
+                "prompt_intent": "A third-sentence visual.",
+                "sentence_indices": [2],
+            },
+        ],
+        [
+            {
+                "source_text": "First. Third.",
+                "visual_goal": "Show non-adjacent sentences.",
+                "prompt_intent": "A non-adjacent visual.",
+                "sentence_indices": [0, 2],
+            },
+            {
+                "source_text": "Second.",
+                "visual_goal": "Show the second sentence.",
+                "prompt_intent": "A second-sentence visual.",
+                "sentence_indices": [1],
+            },
+        ],
+    ],
+)
+async def test_smart_rejects_sentence_indices_that_are_not_source_ordered(frames):
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+
+    with pytest.raises(ValueError, match="sentence_indices"):
+        await service.generate(
+            llm_service=SmartFakeLLM(frames=frames),
+            source_text="First. Second. Third.",
+            storyboard_mode="smart",
+            storyboard_count_mode="auto",
+            storyboard_scene_count=None,
+        )
+
+
+def test_smart_storyboard_prompt_keeps_sentence_index_contract_consistent():
+    from pixelle_video.prompts.storyboard_generation import build_smart_storyboard_prompt
+
+    prompt = build_smart_storyboard_prompt(
+        source_text="First. Second.",
+        count_mode="auto",
+        requested_scene_count=None,
+        min_scene_count=1,
+        max_scene_count=10,
+    )
+
+    assert "Do not split one sentence across multiple frames when using sentence_indices" in prompt
+    assert "part of a sentence" not in prompt
+
+
+@pytest.mark.asyncio
 async def test_smart_attaches_punctuation_only_gaps_to_previous_frame():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     frames = [
@@ -819,6 +923,78 @@ async def test_smart_attaches_punctuation_only_gaps_to_previous_frame():
         (0, 6),
         (6, 10),
     ]
+
+
+@pytest.mark.asyncio
+async def test_smart_attaches_boundary_punctuation_gaps_to_adjacent_frames():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    frames = [
+        {
+            "source_text": "model copied this differently",
+            "visual_goal": "Introduce alpha.",
+            "prompt_intent": "A focused opening visual.",
+            "source_start": 1,
+            "source_end": 6,
+        },
+    ]
+
+    plan = await service.generate(
+        llm_service=SmartFakeLLM(frames=frames),
+        source_text="“alpha?!”",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert plan.source_texts() == ["“alpha?!”"]
+    assert [(frame.source_start, frame.source_end) for frame in plan.frames] == [
+        (0, 9),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_smart_manual_uses_source_span_indices_when_scene_count_exceeds_sentence_count():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    frames = [
+        {
+            "source_text": "preview",
+            "visual_goal": f"Visual {index}.",
+            "prompt_intent": f"Intent {index}.",
+            "source_span_indices": [index],
+        }
+        for index in range(5)
+    ]
+
+    plan = await service.generate(
+        llm_service=SmartFakeLLM(frames=frames),
+        source_text="First sentence. Second sentence. Third sentence.",
+        storyboard_mode="smart",
+        storyboard_count_mode="manual",
+        storyboard_scene_count=5,
+    )
+
+    assert plan.resolved_scene_count == 5
+    assert "".join(plan.source_texts()) == plan.source_text
+    assert all(
+        frame.metadata["strategy"] == "smart_source_spans"
+        for frame in plan.frames
+    )
+
+
+def test_smart_storyboard_prompt_switches_to_source_spans_for_impossible_sentence_count():
+    from pixelle_video.prompts.storyboard_generation import build_smart_storyboard_prompt
+
+    prompt = build_smart_storyboard_prompt(
+        source_text="First sentence. Second sentence. Third sentence.",
+        count_mode="manual",
+        requested_scene_count=5,
+        min_scene_count=1,
+        max_scene_count=10,
+    )
+
+    assert "source_spans" in prompt
+    assert "source_span_indices" in prompt
+    assert "Use source_span_indices" in prompt
 
 
 @pytest.mark.asyncio

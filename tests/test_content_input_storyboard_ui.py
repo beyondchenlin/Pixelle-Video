@@ -26,12 +26,25 @@ class _FakeExpander:
         return False
 
 
+class _FakeColumn:
+    def __init__(self, fake_st):
+        self._fake_st = fake_st
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
 class _FakeStreamlit:
     def __init__(self) -> None:
         self.expanders: list[dict] = []
         self.markdowns: list[dict] = []
         self.sliders: list[dict] = []
+        self.number_inputs: list[dict] = []
         self.radio_values: dict[str, str] = {}
+        self.session_state: dict[str, int] = {}
         self._context_stack: list[str] = []
 
     def expander(self, label, expanded=False):
@@ -47,12 +60,22 @@ class _FakeStreamlit:
     def selectbox(self, _label, options, *, index=0, **_kwargs):
         return list(options)[index]
 
-    def slider(self, label, *, value, **kwargs):
+    def slider(self, label, *, value=None, **kwargs):
         self.sliders.append({"label": label, "value": value, **kwargs})
+        key = kwargs.get("key")
+        if key is not None and key in self.session_state:
+            return self.session_state[key]
         return value
 
-    def number_input(self, _label, *, value, **_kwargs):
+    def number_input(self, label, *, value=None, **kwargs):
+        self.number_inputs.append({"label": label, "value": value, **kwargs})
+        key = kwargs.get("key")
+        if key is not None and key in self.session_state:
+            return self.session_state[key]
         return value
+
+    def columns(self, spec):
+        return [_FakeColumn(self) for _ in spec]
 
     def caption(self, *_args, **_kwargs):
         return None
@@ -98,8 +121,6 @@ def test_storyboard_generation_controls_are_collapsed_with_nested_explanation(mo
         "storyboard_mode": "smart",
         "storyboard_count_mode": "auto",
         "storyboard_scene_count": None,
-        "script_length_mode": "auto",
-        "script_target_words": None,
     }
 
 
@@ -125,3 +146,73 @@ def test_storyboard_generation_manual_slider_uses_configured_limits(monkeypatch)
     assert fake_st.sliders[0]["min_value"] == 2
     assert fake_st.sliders[0]["max_value"] == 8
     assert payload["storyboard_scene_count"] == 5
+
+
+def test_script_generation_target_words_control_uses_default_range_and_custom_payload(monkeypatch):
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(content_input, "st", fake_st)
+    monkeypatch.setattr(content_input, "tr", _fake_tr)
+
+    payload = content_input.render_script_generation_controls(
+        mode="generate",
+        key_prefix="single_video",
+    )
+
+    assert fake_st.sliders == [
+        {
+            "label": "script.target_words",
+            "value": None,
+            "min_value": 50,
+            "max_value": 2000,
+            "step": 50,
+            "key": "single_video_script_target_words_slider",
+            "help": "script.target_words_help",
+            "on_change": content_input._sync_script_target_words_state,
+            "kwargs": {
+                "source_key": "single_video_script_target_words_slider",
+                "target_key": "single_video_script_target_words_input",
+            },
+        }
+    ]
+    assert fake_st.number_inputs == [
+        {
+            "label": "script.target_words_input",
+            "value": None,
+            "min_value": 50,
+            "max_value": 2000,
+            "step": 50,
+            "key": "single_video_script_target_words_input",
+            "label_visibility": "collapsed",
+            "on_change": content_input._sync_script_target_words_state,
+            "kwargs": {
+                "source_key": "single_video_script_target_words_input",
+                "target_key": "single_video_script_target_words_slider",
+            },
+        }
+    ]
+    assert fake_st.session_state == {
+        "single_video_script_target_words_slider": 200,
+        "single_video_script_target_words_input": 200,
+    }
+    assert payload == {
+        "script_length_mode": "custom",
+        "script_target_words": 200,
+    }
+
+
+def test_script_generation_target_words_control_is_hidden_for_fixed_mode(monkeypatch):
+    fake_st = _FakeStreamlit()
+    monkeypatch.setattr(content_input, "st", fake_st)
+    monkeypatch.setattr(content_input, "tr", _fake_tr)
+
+    payload = content_input.render_script_generation_controls(
+        mode="fixed",
+        key_prefix="single_video",
+    )
+
+    assert fake_st.sliders == []
+    assert fake_st.number_inputs == []
+    assert payload == {
+        "script_length_mode": "auto",
+        "script_target_words": None,
+    }

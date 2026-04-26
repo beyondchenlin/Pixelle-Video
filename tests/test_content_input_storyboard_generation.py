@@ -6,16 +6,12 @@ def test_storyboard_generation_payload_defaults_to_smart_auto():
         storyboard_mode="smart",
         storyboard_count_mode="auto",
         storyboard_scene_count=5,
-        script_length_mode="auto",
-        script_target_words=180,
     )
 
     assert payload == {
         "storyboard_mode": "smart",
         "storyboard_count_mode": "auto",
         "storyboard_scene_count": None,
-        "script_length_mode": "auto",
-        "script_target_words": None,
     }
 
 
@@ -24,16 +20,12 @@ def test_storyboard_generation_payload_keeps_manual_count_for_smart_mode():
         storyboard_mode="smart",
         storyboard_count_mode="manual",
         storyboard_scene_count=6,
-        script_length_mode="custom",
-        script_target_words=220,
     )
 
     assert payload == {
         "storyboard_mode": "smart",
         "storyboard_count_mode": "manual",
         "storyboard_scene_count": 6,
-        "script_length_mode": "custom",
-        "script_target_words": 220,
     }
 
 
@@ -42,14 +34,45 @@ def test_storyboard_generation_payload_for_deterministic_modes_uses_auto_count()
         storyboard_mode="sentence",
         storyboard_count_mode="manual",
         storyboard_scene_count=6,
-        script_length_mode="short",
-        script_target_words=220,
     )
 
     assert payload == {
         "storyboard_mode": "sentence",
         "storyboard_count_mode": "auto",
         "storyboard_scene_count": None,
-        "script_length_mode": "short",
+    }
+
+
+def test_script_generation_payload_uses_custom_target_words_for_generate_mode():
+    payload = content_input.build_script_generation_payload(
+        mode="generate",
+        script_target_words=200,
+    )
+
+    assert payload == {
+        "script_length_mode": "custom",
+        "script_target_words": 200,
+    }
+
+
+def test_script_generation_payload_omits_target_words_for_fixed_mode():
+    payload = content_input.build_script_generation_payload(
+        mode="fixed",
+        script_target_words=200,
+    )
+
+    assert payload == {
+        "script_length_mode": "auto",
         "script_target_words": None,
     }
+
+
+def test_script_generation_target_words_are_clamped_to_supported_ui_range():
+    assert content_input.build_script_generation_payload(
+        mode="generate",
+        script_target_words=1,
+    )["script_target_words"] == 50
+    assert content_input.build_script_generation_payload(
+        mode="generate",
+        script_target_words=3000,
+    )["script_target_words"] == 2000
