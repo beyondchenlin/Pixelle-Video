@@ -19,6 +19,7 @@ from pixelle_video.prompts.storyboard_generation import (
     _split_into_source_spans,
     build_smart_storyboard_prompt,
 )
+from pixelle_video.utils.text_normalization import normalize_generated_source_text
 
 SMART_STORYBOARD_BASE_MAX_TOKENS = 2000
 SMART_STORYBOARD_MAX_TOKENS_PER_SCENE = 350
@@ -38,8 +39,7 @@ def _is_unicode_punctuation(char: str) -> bool:
 
 
 def _normalize_text(text: str) -> str:
-    text = _LITERAL_CONTROL_ESCAPE_PATTERN.sub(r"\1 ", text)
-    return re.sub(r"\s+", " ", text.strip())
+    return normalize_generated_source_text(text)
 
 
 def _split_with_predicate(

@@ -45,6 +45,16 @@ def build_script_generation_prompt(
             "Do not generate image prompts.",
             "Return JSON only.",
         ],
+        "output_contract": {
+            "type": "json_object",
+            "must_return_json_only": True,
+            "allowed_top_level_keys": ["source_text"],
+            "forbidden_output": [
+                "markdown fences",
+                "explanatory text outside the JSON object",
+                "section headings inside source_text",
+            ],
+        },
         "output_schema": {
             "source_text": "The complete source_text script for the video.",
         },

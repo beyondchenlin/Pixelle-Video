@@ -23,7 +23,7 @@ class ScriptFakeLLM:
 
 @pytest.mark.asyncio
 async def test_script_generation_returns_complete_source_text_from_topic():
-    llm = ScriptFakeLLM("  完整文案第一句。完整文案第二句。  ")
+    llm = ScriptFakeLLM("  完整文案第一句。完整文案第二句。 ")
 
     source_text = await ScriptGenerationService().generate(
         llm_service=llm,
@@ -38,20 +38,31 @@ async def test_script_generation_returns_complete_source_text_from_topic():
     assert "complete source_text" in llm.calls[0]["prompt"]
 
 
-def test_script_generation_prompt_loads_editable_markdown_strategy():
+def test_script_generation_prompt_loads_plain_narration_strategy():
     from pixelle_video.prompts.script_generation import build_script_generation_prompt
+    import json
 
     prompt = build_script_generation_prompt(
         topic="强者思维",
         length_instruction="Write about 200 words.",
     )
+    payload = json.loads(prompt)
 
-    assert "script_generation_strategy" in prompt
-    assert "短视频编导" in prompt
-    assert "第一句话必须是强 Hook" in prompt
-    assert "完整口播文案" in prompt
-    assert "Return JSON only" in prompt
-    assert '"source_text"' in prompt
+    assert payload["task"] == "generate_complete_video_script_source_text"
+    assert "短视频编导" in payload["script_generation_strategy"]
+    assert "第一句话必须是强 Hook" in payload["script_generation_strategy"]
+    assert "然后只生成一段最终可直接用于分镜和口播的完整文案。" in payload["script_generation_strategy"]
+    assert "【目标用户】" not in payload["script_generation_strategy"]
+    assert "【推荐标题】" not in payload["script_generation_strategy"]
+    assert "【完整口播文案】" not in payload["script_generation_strategy"]
+    assert "Return JSON only." in payload["requirements"]
+    assert payload["output_contract"]["type"] == "json_object"
+    assert payload["output_contract"]["must_return_json_only"] is True
+    assert payload["output_contract"]["allowed_top_level_keys"] == ["source_text"]
+    assert "section headings" in " ".join(payload["output_contract"]["forbidden_output"])
+    assert payload["output_schema"] == {
+        "source_text": "The complete source_text script for the video.",
+    }
 
 
 @pytest.mark.asyncio
@@ -111,3 +122,17 @@ async def test_script_generation_rejects_empty_structured_output():
             script_length_mode="auto",
             script_target_words=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_script_generation_preserves_plain_text_without_semantic_section_filtering():
+    llm = ScriptFakeLLM("【完整口播文案】这个短语本身就在被讨论。")
+
+    source_text = await ScriptGenerationService().generate(
+        llm_service=llm,
+        topic="讨论文案标签本身",
+        script_length_mode="auto",
+        script_target_words=None,
+    )
+
+    assert source_text == "【完整口播文案】这个短语本身就在被讨论。"

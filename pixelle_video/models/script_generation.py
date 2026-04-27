@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, field_validator
+from pixelle_video.utils.text_normalization import normalize_generated_source_text
 
 
 class ScriptGenerationResponse(BaseModel):
@@ -11,10 +12,10 @@ class ScriptGenerationResponse(BaseModel):
     @field_validator("source_text")
     @classmethod
     def _validate_source_text(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
+        normalized = normalize_generated_source_text(value)
+        if not normalized:
             raise ValueError("source_text must not be empty")
-        return stripped
+        return normalized
 
 
 __all__ = ["ScriptGenerationResponse"]
