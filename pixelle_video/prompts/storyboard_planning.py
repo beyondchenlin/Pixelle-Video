@@ -9,6 +9,12 @@ from pydantic import ValidationError
 
 from pixelle_video.models.prompt_context import PromptContextInput, prompt_context_payload
 from pixelle_video.models.storyboard_planning import FramePlan, StoryboardPlanningResponse
+from pixelle_video.prompt_language import (
+    CHINESE_PROMPT_LANGUAGE,
+    DEFAULT_PROMPT_LANGUAGE,
+    PromptLanguage,
+    normalize_prompt_language,
+)
 from pixelle_video.utils.json_parsing import parse_llm_json_response
 
 
@@ -35,6 +41,7 @@ def build_storyboard_planning_prompt(
     role_locking_strength: str = "standard",
     shot_strategy: str = "adaptive",
     scene_id_start: int = 1,
+    prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
 ) -> str:
     """Build the structured planning prompt sent to the LLM."""
 
@@ -49,9 +56,11 @@ def build_storyboard_planning_prompt(
         error_prefix="storyboard prompt_contexts",
     )
     uses_frame_context = context_payload is not None
+    resolved_prompt_language = normalize_prompt_language(prompt_language)
     payload = {
         "task": "plan_storyboard_frames",
         "resolved_mode": resolved_mode,
+        "prompt_language": resolved_prompt_language,
         "consistency_strength": consistency_strength,
         "role_strategy": role_strategy,
         "role_locking_strength": role_locking_strength,
@@ -90,6 +99,10 @@ def build_storyboard_planning_prompt(
             "Validate the final payload against required_output before returning it.",
             "Do not wrap the JSON in markdown fences.",
         ]
+    if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE:
+        payload["instructions"].append(
+            "Write narration_fragment, knowledge_goal, focus_detail, and prompt_intent in Chinese."
+        )
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 

@@ -20,12 +20,18 @@ import json
 from typing import Any, List, Mapping, Optional, Sequence
 
 from pixelle_video.models.prompt_context import PromptContextInput, prompt_context_payload
+from pixelle_video.prompt_language import (
+    CHINESE_PROMPT_LANGUAGE,
+    DEFAULT_PROMPT_LANGUAGE,
+    PromptLanguage,
+    normalize_prompt_language,
+)
 
 VIDEO_PROMPT_GENERATION_PROMPT = """# Role Definition
 You are a professional video creative designer, skilled at creating dynamic and expressive video generation prompts for video scripts, transforming narrative content into vivid video scenes.
 
 # Core Task
-Based on the existing video script, create corresponding **English** video generation prompts for each storyboard frame's source text and visual goal, ensuring video scenes match the intended content and enhance audience understanding and memory through dynamic visuals.
+Based on the existing video script, create corresponding **{output_language_label}** video generation prompts for each storyboard frame's source text and visual goal, ensuring video scenes match the intended content and enhance audience understanding and memory through dynamic visuals.
 
 **Important: The input contains {narrations_count} storyboard frame source texts. You must generate one corresponding video prompt for each frame, totaling {narrations_count} video prompts.**
 
@@ -44,9 +50,9 @@ Based on the existing video script, create corresponding **English** video gener
 # Output Requirements
 
 ## Video Prompt Specifications
-- Language: **Must use English** (for AI video generation models)
+- Language: **{language_requirement}**
 - Description structure: scene + character action + camera movement + emotion + atmosphere
-- Description length: Ensure clear, complete, and creative descriptions (recommended {min_words}-{max_words} English words)
+- Description length: {description_length_guidance}
 - Dynamic elements: Emphasize actions, movements, changes, and other dynamic effects
 - If a style profile is provided, subject design, material, palette, lighting, world elements, and consistency must obey that style profile first
 - When `style_kind` is `ip_world`, redesign the subject into the target universe without replacing the subject semantics
@@ -85,13 +91,13 @@ Based on the existing video script, create corresponding **English** video gener
 - Fluidity: Pay attention to the fluidity and naturalness of actions
 
 # Output Format
-Strictly output in the following JSON format, **video prompts must be in English**:
+Strictly output in the following JSON format, **video prompts must be in {output_language_label}**:
 
 ```json
 {{
   "video_prompts": [
-    "[detailed English video prompt with dynamic elements and camera movements]",
-    "[detailed English video prompt with dynamic elements and camera movements]"
+    "{example_prompt}",
+    "{example_prompt}"
   ]
 }}
 ```
@@ -101,13 +107,13 @@ Strictly output in the following JSON format, **video prompts must be in English
 2. Ensure JSON format is strictly correct and can be directly parsed by the program
 3. Frame-aware input uses {{"frame_source_texts": [source text array]}} format, output is {{"video_prompts": [video prompt array]}} format
 4. **The output video_prompts array must contain exactly {narrations_count} elements, corresponding one-to-one with the input frame source texts**
-5. **Video prompts must use English** (for AI video generation models)
+5. **{language_requirement}**
 6. Video prompts must accurately reflect the specific content and emotion of the corresponding frame source text
 7. Each video must emphasize dynamics and sense of movement, avoid static descriptions
 8. Appropriately use camera language to enhance expressiveness
 9. Ensure video scenes can enhance the persuasiveness of the copy and audience understanding
 
-Now, please create {narrations_count} corresponding **English** video prompts for the above {narrations_count} storyboard frames. Only output JSON, no other content.
+Now, please create {narrations_count} corresponding **{output_language_label}** video prompts for the above {narrations_count} storyboard frames. Only output JSON, no other content.
 """
 
 
@@ -117,6 +123,7 @@ def build_video_prompt_prompt(
     max_words: int,
     style_profile: Optional[dict[str, Any]] = None,
     prompt_contexts: Optional[PromptContextInput] = None,
+    prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
 ) -> str:
     """
     Build video prompt generation prompt
@@ -142,6 +149,22 @@ def build_video_prompt_prompt(
         payload.update(context_payload)
     narrations_json = json.dumps(payload, ensure_ascii=False, indent=2)
     style_profile_json = json.dumps(style_profile or None, ensure_ascii=False, indent=2)
+    resolved_prompt_language = normalize_prompt_language(prompt_language)
+    if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE:
+        output_language_label = "Chinese"
+        language_requirement = "Video prompts must use Chinese"
+        description_length_guidance = (
+            "Ensure clear, complete, and creative descriptions "
+            f"(roughly equivalent in detail density to {min_words}-{max_words} English words)"
+        )
+        example_prompt = "[detailed Chinese video prompt with dynamic elements and camera movements]"
+    else:
+        output_language_label = "English"
+        language_requirement = "Video prompts must use English"
+        description_length_guidance = (
+            f"Ensure clear, complete, and creative descriptions (recommended {min_words}-{max_words} English words)"
+        )
+        example_prompt = "[detailed English video prompt with dynamic elements and camera movements]"
     
     return VIDEO_PROMPT_GENERATION_PROMPT.format(
         style_profile_json=style_profile_json,
@@ -149,4 +172,9 @@ def build_video_prompt_prompt(
         narrations_count=len(narrations),
         min_words=min_words,
         max_words=max_words
+        ,
+        output_language_label=output_language_label,
+        language_requirement=language_requirement,
+        description_length_guidance=description_length_guidance,
+        example_prompt=example_prompt,
     )

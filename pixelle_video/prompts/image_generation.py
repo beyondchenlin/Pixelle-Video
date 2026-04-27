@@ -20,6 +20,12 @@ import json
 from typing import Any, List, Mapping, Optional, Sequence
 
 from pixelle_video.models.prompt_context import PromptContextInput, prompt_context_payload
+from pixelle_video.prompt_language import (
+    CHINESE_PROMPT_LANGUAGE,
+    DEFAULT_PROMPT_LANGUAGE,
+    PromptLanguage,
+    normalize_prompt_language,
+)
 
 # ==================== PRESET IMAGE STYLES ====================
 # Predefined visual styles for different use cases
@@ -52,7 +58,7 @@ IMAGE_PROMPT_GENERATION_PROMPT = """# Role Definition
 You are a professional visual creative designer, skilled at creating expressive and symbolic image prompts for video scripts, transforming abstract concepts into concrete visual scenes.
 
 # Core Task
-Based on the existing video script, create corresponding **English** image prompts for each storyboard frame's source text and visual goal, ensuring visual scenes match the intended content and enhance audience understanding and memory.
+Based on the existing video script, create corresponding **{output_language_label}** image prompts for each storyboard frame's source text and visual goal, ensuring visual scenes match the intended content and enhance audience understanding and memory.
 
 **Important: The input contains {narrations_count} storyboard frame source texts. You must generate one corresponding image prompt for each frame, totaling {narrations_count} image prompts.**
 
@@ -71,9 +77,9 @@ Based on the existing video script, create corresponding **English** image promp
 # Output Requirements
 
 ## Image Prompt Specifications
-- Language: **Must use English** (for AI image generation models)
+- Language: **{language_requirement}**
 - Description structure: scene + character action + emotion + symbolic elements
-- Description length: Ensure clear, complete, and creative descriptions (recommended 50-100 English words)
+- Description length: {description_length_guidance}
 - If a style profile is provided, subject design, material, palette, lighting, world elements, and consistency must obey that style profile first
 - When `style_kind` is `ip_world`, redesign the subject into the target universe without replacing the subject semantics
 
@@ -104,13 +110,13 @@ Based on the existing video script, create corresponding **English** image promp
 5. **Conclusion Inspiration Copy**: Use open-ended scenes or guiding elements to represent inspiration
 
 # Output Format
-Strictly output in the following JSON format, **image prompts must be in English**:
+Strictly output in the following JSON format, **image prompts must be in {output_language_label}**:
 
 ```json
 {{
   "image_prompts": [
-    "[detailed English image prompt following the style requirements]",
-    "[detailed English image prompt following the style requirements]"
+    "{example_prompt}",
+    "{example_prompt}"
   ]
 }}
 ```
@@ -120,12 +126,12 @@ Strictly output in the following JSON format, **image prompts must be in English
 2. Ensure JSON format is strictly correct and can be directly parsed by the program
 3. Frame-aware input uses {{"frame_source_texts": [source text array]}} format, output is {{"image_prompts": [image prompt array]}} format
 4. **The output image_prompts array must contain exactly {narrations_count} elements, corresponding one-to-one with the input frame source texts**
-5. **Image prompts must use English** (for AI image generation models)
+5. **{language_requirement}**
 6. Image prompts must accurately reflect the specific content and emotion of the corresponding frame source text
 7. Each image must be creative and visually impactful, avoid being monotonous
 8. Ensure visual scenes can enhance the persuasiveness of the copy and audience understanding
 
-Now, please create {narrations_count} corresponding **English** image prompts for the above {narrations_count} storyboard frames. Only output JSON, no other content.
+Now, please create {narrations_count} corresponding **{output_language_label}** image prompts for the above {narrations_count} storyboard frames. Only output JSON, no other content.
 """
 
 
@@ -135,6 +141,7 @@ def build_image_prompt_prompt(
     max_words: int,
     style_profile: Optional[dict[str, Any]] = None,
     prompt_contexts: Optional[PromptContextInput] = None,
+    prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
 ) -> str:
     """
     Build image prompt generation prompt
@@ -162,11 +169,30 @@ def build_image_prompt_prompt(
         payload.update(context_payload)
     narrations_json = json.dumps(payload, ensure_ascii=False, indent=2)
     style_profile_json = json.dumps(style_profile or None, ensure_ascii=False, indent=2)
+    resolved_prompt_language = normalize_prompt_language(prompt_language)
+    if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE:
+        output_language_label = "Chinese"
+        language_requirement = "必须使用中文"
+        description_length_guidance = (
+            "确保描述清晰、完整且有创意，篇幅与 50-100 个英文单词的细节密度相当。"
+        )
+        example_prompt = "[详细中文图片提示词，遵循风格要求]"
+    else:
+        output_language_label = "English"
+        language_requirement = "Image prompts must use English"
+        description_length_guidance = (
+            "Ensure clear, complete, and creative descriptions (recommended 50-100 English words)"
+        )
+        example_prompt = "[detailed English image prompt following the style requirements]"
     
     return IMAGE_PROMPT_GENERATION_PROMPT.format(
         style_profile_json=style_profile_json,
         narrations_json=narrations_json,
         narrations_count=len(narrations),
         min_words=min_words,
-        max_words=max_words
+        max_words=max_words,
+        output_language_label=output_language_label,
+        language_requirement=language_requirement,
+        description_length_guidance=description_length_guidance,
+        example_prompt=example_prompt,
     )

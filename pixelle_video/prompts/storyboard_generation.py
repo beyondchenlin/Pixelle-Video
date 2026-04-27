@@ -3,6 +3,13 @@ from __future__ import annotations
 import json
 import unicodedata
 
+from pixelle_video.prompt_language import (
+    CHINESE_PROMPT_LANGUAGE,
+    DEFAULT_PROMPT_LANGUAGE,
+    PromptLanguage,
+    normalize_prompt_language,
+)
+
 
 def _split_into_sentences(text: str) -> list[tuple[str, int, int]]:
     """Split text into sentences and return (sentence, start_idx, end_idx) tuples."""
@@ -93,6 +100,7 @@ def build_smart_storyboard_prompt(
     requested_scene_count: int | None,
     min_scene_count: int,
     max_scene_count: int,
+    prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
 ) -> str:
     count_instruction = (
         f"Create exactly {requested_scene_count} storyboard frames."
@@ -116,8 +124,10 @@ def build_smart_storyboard_prompt(
         else []
     )
 
+    resolved_prompt_language = normalize_prompt_language(prompt_language)
     payload = {
         "task": "create_storyboard_plan_from_complete_source_text",
+        "prompt_language": resolved_prompt_language,
         "source_text": source_text,
         "sentences": sentence_list,
         "count_instruction": count_instruction,
@@ -137,11 +147,19 @@ def build_smart_storyboard_prompt(
         ],
         "frame_schema": {
             "source_text": "Text preview covered by this frame (for reference).",
-            "visual_goal": "What this frame should communicate visually.",
+            "visual_goal": (
+                "这一帧需要传达的视觉重点"
+                if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE
+                else "What this frame should communicate visually."
+            ),
             "prompt_intent": "Guidance for later image prompt composition.",
             "sentence_indices": "Required: consecutive sentence indices covered by this frame (e.g., [0, 1] or [3]).",
         },
     }
+    if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE:
+        payload["requirements"].append(
+            "Write visual_goal and prompt_intent in Chinese."
+        )
     if use_source_spans:
         payload["source_spans"] = [
             {
