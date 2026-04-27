@@ -25,6 +25,45 @@ from pixelle_video.models.media import MediaResult
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 
 
+def _looks_like_memory_exhaustion(error_message: str) -> bool:
+    lowered = error_message.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "not enough memory",
+            "out of memory",
+            "defaultcpuallocator",
+            "std::bad_alloc",
+        )
+    )
+
+
+def _build_media_generation_error_message(
+    *,
+    error_message: str,
+    workflow_key: str,
+    media_type: str,
+) -> str:
+    cleaned = (error_message or "Unknown error").strip()
+    if not _looks_like_memory_exhaustion(cleaned):
+        return f"Media generation failed: {cleaned}"
+
+    guidance = [
+        f"{media_type.title()} generation ran out of memory in workflow '{workflow_key}'.",
+        "Try restarting the self-hosted ComfyUI backend, reducing the image size, or using a lighter workflow.",
+    ]
+    if media_type == "image" and workflow_key != "selfhost/image_z_image_turbo_gguf.json":
+        guidance.append(
+            "Recommended lighter default: 'selfhost/image_z_image_turbo_gguf.json'."
+        )
+    return f"{' '.join(guidance)} Backend error: {cleaned}"
+
+
+def _is_already_formatted_media_error(message: str) -> bool:
+    stripped = (message or "").strip()
+    return stripped.startswith("Media generation failed:") or "generation ran out of memory in workflow" in stripped
+
+
 class MediaService(ComfyBaseService):
     """
     Media generation service - Workflow-based
@@ -33,7 +72,7 @@ class MediaService(ComfyBaseService):
     Supports both image_ and video_ workflow prefixes.
     
     Usage:
-        # Use default workflow (workflows/selfhost/image_z_image_turbo.json)
+        # Use default workflow (workflows/selfhost/image_z_image_turbo_gguf.json)
         media = await pixelle_video.media(prompt="a cat")
         if media.is_image:
             print(f"Generated image: {media.url}")
@@ -43,7 +82,7 @@ class MediaService(ComfyBaseService):
         # Use specific workflow
         media = await pixelle_video.media(
             prompt="a cat",
-            workflow="selfhost/image_z_image_turbo.json"
+            workflow="selfhost/image_z_image_turbo_gguf.json"
         )
         
         # List available workflows
@@ -139,7 +178,7 @@ class MediaService(ComfyBaseService):
         
         Args:
             prompt: Media generation prompt
-            workflow: Workflow filename (default: from config or "selfhost/image_z_image_turbo.json")
+            workflow: Workflow filename (default: from config or "selfhost/image_z_image_turbo_gguf.json")
             media_type: Type of media to generate - "image" or "video" (default: "image")
             comfyui_url: ComfyUI URL (optional, overrides config)
             runninghub_api_key: RunningHub API key (optional, overrides config)
@@ -157,7 +196,7 @@ class MediaService(ComfyBaseService):
             MediaResult object with media_type ("image" or "video") and url
         
         Examples:
-            # Simplest: use default workflow (workflows/selfhost/image_z_image_turbo.json)
+            # Simplest: use default workflow (workflows/selfhost/image_z_image_turbo_gguf.json)
             media = await pixelle_video.media(prompt="a beautiful cat")
             if media.is_image:
                 print(f"Image: {media.url}")
@@ -165,7 +204,7 @@ class MediaService(ComfyBaseService):
             # Use specific workflow
             media = await pixelle_video.media(
                 prompt="a cat",
-                workflow="selfhost/image_z_image_turbo.json"
+                workflow="selfhost/image_z_image_turbo_gguf.json"
             )
             
             # Video workflow
@@ -179,7 +218,7 @@ class MediaService(ComfyBaseService):
             # With additional parameters
             media = await pixelle_video.media(
                 prompt="a cat",
-                workflow="selfhost/image_z_image_turbo.json",
+                workflow="selfhost/image_z_image_turbo_gguf.json",
                 width=1024,
                 height=1024,
                 steps=20,
@@ -252,15 +291,13 @@ class MediaService(ComfyBaseService):
             # 5. Handle result based on specified media_type
             if result.status != "completed":
                 error_msg = result.msg or "Unknown error"
-                logger.error(f"Media generation failed: {error_msg}")
-                raise Exception(f"Media generation failed: {error_msg}")
+                raise RuntimeError(error_msg)
             
             # Extract media based on specified type
             if media_type == "video":
                 # Video workflow - get video from result
                 if not result.videos:
-                    logger.error("No video generated (workflow returned no videos)")
-                    raise Exception("No video generated")
+                    raise RuntimeError("No video generated")
                 
                 video_url = result.videos[0]
                 logger.info(f"✅ Generated video: {video_url}")
@@ -278,8 +315,7 @@ class MediaService(ComfyBaseService):
             else:  # image
                 # Image workflow - get image from result
                 if not result.images:
-                    logger.error("No image generated (workflow returned no images)")
-                    raise Exception("No image generated")
+                    raise RuntimeError("No image generated")
                 
                 image_url = result.images[0]
                 logger.info(f"✅ Generated image: {image_url}")
@@ -290,5 +326,15 @@ class MediaService(ComfyBaseService):
                 )
         
         except Exception as e:
-            logger.error(f"Media generation error: {e}")
-            raise
+            message = str(e)
+            formatted_error = (
+                message
+                if _is_already_formatted_media_error(message)
+                else _build_media_generation_error_message(
+                    error_message=message,
+                    workflow_key=workflow_info["key"],
+                    media_type=media_type,
+                )
+            )
+            logger.error(f"Media generation error: {formatted_error}")
+            raise RuntimeError(formatted_error) from e

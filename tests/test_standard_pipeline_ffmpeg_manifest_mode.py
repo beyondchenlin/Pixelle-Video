@@ -27,7 +27,7 @@ class _DummyCore:
 
 class _ResolverService:
     def _resolve_workflow(self, workflow=None, workflow_domain=None):
-        key = workflow or "selfhost/image_z_image_turbo.json"
+        key = workflow or "selfhost/image_z_image_turbo_gguf.json"
         return {"key": key}
 
 

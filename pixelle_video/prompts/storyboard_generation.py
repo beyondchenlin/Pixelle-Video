@@ -129,6 +129,7 @@ def build_smart_storyboard_prompt(
             "Frames may cover multiple consecutive sentences (e.g., [0, 1, 2]).",
             "Do not split one sentence across multiple frames when using sentence_indices.",
             "All sentence indices must be covered by exactly one frame (no gaps, no overlaps).",
+            "When using sentence_indices, omit source_start and source_end entirely unless you can provide both integers together.",
             "Maintain continuity of style, subjects, and visual logic across all frames.",
             "Do not rewrite or summarize voiceover text; speech and captions are planned separately from source_text.",
             "Do not generate final image prompts.",
@@ -162,6 +163,7 @@ def build_smart_storyboard_prompt(
                 "Use source_span_indices, not sentence_indices, because the requested frame count exceeds the sentence count.",
                 "Each frame must cover one or more consecutive source_spans.",
                 "All source_span_indices must be covered by exactly one frame in source order (no gaps, no overlaps).",
+                "When using source_span_indices, omit source_start and source_end entirely unless you can provide both integers together.",
             ]
         )
         payload["frame_schema"].pop("sentence_indices", None)

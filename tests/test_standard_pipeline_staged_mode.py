@@ -45,7 +45,7 @@ class _DummyCore:
         self.media = _ResolverService(
             media_defaults
             or {
-                "image": "selfhost/image_z_image_turbo.json",
+                "image": "selfhost/image_z_image_turbo_gguf.json",
                 "video": "runninghub/video_wan2.1_fusionx.json",
             }
         )
@@ -79,7 +79,7 @@ def test_resolve_asset_execution_mode_uses_staged_mode_for_default_selfhost_imag
 
     assert execution_mode.template_type == "image"
     assert execution_mode.tts_workflow_key == "selfhost/tts_edge.json"
-    assert execution_mode.media_workflow_key == "selfhost/image_z_image_turbo.json"
+    assert execution_mode.media_workflow_key == "selfhost/image_z_image_turbo_gguf.json"
     assert execution_mode.media_domain == "image"
     assert execution_mode.is_runninghub is False
     assert execution_mode.use_staged_mode is True
@@ -654,7 +654,7 @@ def test_resolve_asset_execution_mode_disables_runninghub_parallel_for_mixed_sel
         _DummyCore(
             tts_defaults={"tts": "runninghub/tts_edge.json"},
             media_defaults={
-                "image": "selfhost/image_z_image_turbo.json",
+                "image": "selfhost/image_z_image_turbo_gguf.json",
                 "video": "runninghub/video_wan2.1_fusionx.json",
             },
         )
@@ -889,7 +889,7 @@ async def test_produce_assets_disables_runninghub_parallel_for_mixed_selfhost_me
     core = _DummyCore(
         tts_defaults={"tts": "runninghub/tts_edge.json"},
         media_defaults={
-            "image": "selfhost/image_z_image_turbo.json",
+                "image": "selfhost/image_z_image_turbo_gguf.json",
             "video": "runninghub/video_wan2.1_fusionx.json",
         },
     )

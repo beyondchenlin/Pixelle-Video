@@ -170,7 +170,7 @@ class PromptPrefixLibraryConfig(BaseModel):
 class ImageSubConfig(BaseModel):
     """Image-specific configuration (under comfyui.image)"""
     default_workflow: Optional[str] = Field(
-        default="selfhost/image_z_image_turbo.json",
+        default="selfhost/image_z_image_turbo_gguf.json",
         description="Default image workflow (optional)",
     )
     prompt_prefix: str = Field(

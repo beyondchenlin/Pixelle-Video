@@ -268,7 +268,7 @@ class _DummyCore:
         self.llm = object()
         self.video = object()
         self.tts = _FakeTTS()
-        self.media = _ResolverService({"image": "selfhost/image_z_image_turbo.json"})
+        self.media = _ResolverService({"image": "selfhost/image_z_image_turbo_gguf.json"})
         self.frame_processor = _HyperframesFrameProcessor(tmp_path)
         self.alignment_service = _FakeAlignmentService()
         self.audio_edit_service = _FakeAudioEditService()

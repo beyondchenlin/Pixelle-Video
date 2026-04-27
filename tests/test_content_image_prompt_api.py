@@ -125,7 +125,13 @@ def test_image_prompt_generate_request_rejects_legacy_text_fields():
         ImagePromptGenerateRequest(
             narrations=["scene one"],
             text_layer={"enabled": True},
-        )
+    )
+
+
+def test_image_prompt_generate_request_example_uses_gguf_default_workflow():
+    example = ImagePromptGenerateRequest.model_config["json_schema_extra"]["example"]
+
+    assert example["workflow"] == "selfhost/image_z_image_turbo_gguf.json"
 
 
 @pytest.mark.parametrize(

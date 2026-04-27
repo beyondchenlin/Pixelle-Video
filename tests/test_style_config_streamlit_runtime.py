@@ -142,7 +142,7 @@ frame_html.HTMLFrameGenerator = _FakeFrameGenerator
 class _FakeMedia:
     @staticmethod
     def list_workflows():
-        return [{'display_name': 'Image Default', 'key': 'selfhost/image_z_image_turbo.json'}]
+        return [{'display_name': 'Image Default', 'key': 'selfhost/image_z_image_turbo_gguf.json'}]
 
 class _FakeVideo:
     config = {'template': {}}

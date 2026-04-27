@@ -121,7 +121,7 @@ class ImagePromptGenerateRequest(BaseModel):
                 "min_words": 30,
                 "max_words": 60,
                 "prompt_prefix": "angry birds world",
-                "workflow": "selfhost/image_z_image_turbo.json",
+                "workflow": "selfhost/image_z_image_turbo_gguf.json",
             }
         }
     )

@@ -388,6 +388,40 @@ async def test_smart_backfills_source_ranges_from_exact_source_text_matches():
 
 
 @pytest.mark.asyncio
+async def test_smart_accepts_sentence_indices_with_stray_partial_legacy_offsets():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+    llm = SmartFakeLLM(
+        frames=[
+            {
+                "source_text": "第一句。",
+                "visual_goal": "Show the first claim.",
+                "prompt_intent": "A focused opening visual.",
+                "sentence_indices": 0,
+                "source_end": 3,
+            },
+            {
+                "source_text": "第二句。",
+                "visual_goal": "Show the second claim.",
+                "prompt_intent": "A focused closing visual.",
+                "sentence_indices": 1,
+                "source_end": 6,
+            },
+        ]
+    )
+
+    plan = await service.generate(
+        llm_service=llm,
+        source_text="第一句。第二句。",
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+    )
+
+    assert [frame.source_text for frame in plan.frames] == ["第一句。", "第二句。"]
+    assert [tuple(frame.metadata["sentence_indices"]) for frame in plan.frames] == [(0,), (1,)]
+
+
+@pytest.mark.asyncio
 async def test_smart_repairs_unlocatable_source_text_once():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
     llm = SequencedSmartFakeLLM(

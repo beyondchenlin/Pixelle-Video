@@ -349,7 +349,7 @@ uv run streamlit run web/app.py
 **ComfyUI 工作流**  
 - 从下拉菜单选择图像生成工作流
 - 支持本地部署（selfhost）和云端（RunningHub）工作流
-- 默认使用 `selfhost/image_z_image_turbo.json`
+- 默认使用 `selfhost/image_z_image_turbo_gguf.json`
 - 如果你已经保存过自己的工作流配置，会优先使用你保存的配置
 - 如果懂 ComfyUI，可以放自己的工作流到 `workflows/` 文件夹
 

@@ -789,7 +789,7 @@ def test_render_style_config_disables_storyboard_for_static_templates(monkeypatc
             return [
                 {
                     "display_name": "Image Default",
-                    "key": "selfhost/image_z_image_turbo.json",
+                    "key": "selfhost/image_z_image_turbo_gguf.json",
                 }
             ]
 
@@ -1030,12 +1030,12 @@ def test_render_style_config_defaults_image_text_suppression_to_false(monkeypatc
     class _FakeMedia:
         @staticmethod
         def list_workflows():
-            return [
-                {
-                    "display_name": "Image Default",
-                    "key": "selfhost/image_z_image_turbo.json",
-                }
-            ]
+                return [
+                    {
+                        "display_name": "Image Default",
+                        "key": "selfhost/image_z_image_turbo_gguf.json",
+                    }
+                ]
 
     class _FakeVideo:
         config = {"template": {}}
@@ -1158,7 +1158,7 @@ def test_render_style_config_does_not_apply_no_text_override_when_storyboard_dis
             return [
                 {
                     "display_name": "Image Default",
-                    "key": "selfhost/image_z_image_turbo.json",
+                    "key": "selfhost/image_z_image_turbo_gguf.json",
                 }
             ]
 
@@ -1281,7 +1281,7 @@ def test_render_style_config_restores_session_image_text_choice(monkeypatch):
             return [
                 {
                     "display_name": "Image Default",
-                    "key": "selfhost/image_z_image_turbo.json",
+                    "key": "selfhost/image_z_image_turbo_gguf.json",
                 }
             ]
 
@@ -1409,7 +1409,7 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
             return [
                 {
                     "display_name": "Image Default",
-                    "key": "selfhost/image_z_image_turbo.json",
+                    "key": "selfhost/image_z_image_turbo_gguf.json",
                 }
             ]
 
@@ -1419,14 +1419,14 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
 
     result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
 
-    assert result["media_workflow"] == "selfhost/image_z_image_turbo.json"
+    assert result["media_workflow"] == "selfhost/image_z_image_turbo_gguf.json"
     assert ("section.image", False) in fake_st.expanders
     assert fake_st.nested_expanders == []
     assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
     expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
     assert "**style.image_model_selection_title**" in expander_html
     assert "selfhost.warning.inline_title" in expander_html
-    assert "workflows/selfhost/image_z_image_turbo.json" in expander_html
+    assert "workflows/selfhost/image_z_image_turbo_gguf.json" in expander_html
     assert "template.what" not in expander_html
     assert "template.how" not in expander_html
     popover_html = "\n".join(body for body, _kwargs in fake_st.popover_markdowns)
@@ -1659,7 +1659,7 @@ def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_i
             return [
                 {
                     "display_name": "Image Default",
-                    "key": "selfhost/image_z_image_turbo.json",
+                    "key": "selfhost/image_z_image_turbo_gguf.json",
                 }
             ]
 
@@ -1729,7 +1729,7 @@ def test_render_image_prompt_prefix_library_renders_filter_panel_without_nested_
 
     style_config._render_image_prompt_prefix_library(
         pixelle_video=object(),
-        workflow_key="selfhost/image_z_image_turbo.json",
+        workflow_key="selfhost/image_z_image_turbo_gguf.json",
         media_width=1024,
         media_height=1024,
         workflow_display_map={},

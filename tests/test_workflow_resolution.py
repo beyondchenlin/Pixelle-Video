@@ -14,7 +14,7 @@ from web.utils.workflow_defaults import resolve_selectbox_default_index
 def test_resolve_default_workflow_uses_builtin_image_default_when_config_missing():
     available_keys = [
         "runninghub/image_flux.json",
-        "selfhost/image_z_image_turbo.json",
+        "selfhost/image_z_image_turbo_gguf.json",
     ]
 
     assert (
@@ -23,14 +23,14 @@ def test_resolve_default_workflow_uses_builtin_image_default_when_config_missing
             available_keys=available_keys,
             configured_workflow=None,
         )
-        == "selfhost/image_z_image_turbo.json"
+        == "selfhost/image_z_image_turbo_gguf.json"
     )
 
 
 def test_resolve_default_workflow_prefers_saved_value_when_available():
     available_keys = [
         "runninghub/image_flux.json",
-        "selfhost/image_z_image_turbo.json",
+        "selfhost/image_z_image_turbo_gguf.json",
     ]
 
     assert (
@@ -113,7 +113,7 @@ def test_get_configured_default_workflow_normalizes_nested_tts_shape():
     }
 
     assert get_configured_default_workflow(comfyui_config, "tts") == "selfhost/tts_edge.json"
-    assert BUILTIN_DEFAULT_WORKFLOWS["image"] == "selfhost/image_z_image_turbo.json"
+    assert BUILTIN_DEFAULT_WORKFLOWS["image"] == "selfhost/image_z_image_turbo_gguf.json"
 
 
 def _workflow_info(key: str) -> dict:
@@ -142,11 +142,11 @@ def test_base_service_uses_builtin_default_when_config_is_unset(monkeypatch):
         "_scan_workflows",
         lambda: [
             _workflow_info("runninghub/image_flux.json"),
-            _workflow_info("selfhost/image_z_image_turbo.json"),
+            _workflow_info("selfhost/image_z_image_turbo_gguf.json"),
         ],
     )
 
-    assert service._resolve_workflow()["key"] == "selfhost/image_z_image_turbo.json"
+    assert service._resolve_workflow()["key"] == "selfhost/image_z_image_turbo_gguf.json"
 
 
 def test_media_service_uses_video_domain_default_for_video_requests(monkeypatch):
@@ -163,7 +163,7 @@ def test_media_service_uses_video_domain_default_for_video_requests(monkeypatch)
         service,
         "_scan_workflows",
         lambda: [
-            _workflow_info("selfhost/image_z_image_turbo.json"),
+            _workflow_info("selfhost/image_z_image_turbo_gguf.json"),
             _workflow_info("runninghub/video_wan2.1_fusionx.json"),
         ],
     )
@@ -208,7 +208,7 @@ def test_media_service_raises_for_explicit_incompatible_workflow(monkeypatch):
         service,
         "_scan_workflows",
         lambda: [
-            _workflow_info("selfhost/image_z_image_turbo.json"),
+            _workflow_info("selfhost/image_z_image_turbo_gguf.json"),
             _workflow_info("runninghub/video_wan2.1_fusionx.json"),
         ],
     )
@@ -229,7 +229,7 @@ def test_base_service_still_raises_for_explicit_missing_workflow(monkeypatch):
     monkeypatch.setattr(
         service,
         "_scan_workflows",
-        lambda: [_workflow_info("selfhost/image_z_image_turbo.json")],
+        lambda: [_workflow_info("selfhost/image_z_image_turbo_gguf.json")],
     )
 
     with pytest.raises(ValueError, match="Workflow 'selfhost/missing.json' not found"):
@@ -239,7 +239,7 @@ def test_base_service_still_raises_for_explicit_missing_workflow(monkeypatch):
 def test_resolve_selectbox_default_index_uses_shared_image_default():
     workflow_keys = [
         "runninghub/image_flux.json",
-        "selfhost/image_z_image_turbo.json",
+        "selfhost/image_z_image_turbo_gguf.json",
     ]
 
     assert (
@@ -266,5 +266,67 @@ def test_resolve_selectbox_default_index_returns_zero_when_no_workflows_exist():
 def test_schema_bootstrap_defaults_match_the_new_image_workflow():
     config = PixelleVideoConfig()
 
-    assert config.comfyui.image.default_workflow == "selfhost/image_z_image_turbo.json"
+    assert config.comfyui.image.default_workflow == "selfhost/image_z_image_turbo_gguf.json"
     assert config.comfyui.video.default_workflow == "runninghub/video_wan2.1_fusionx.json"
+
+
+@pytest.mark.asyncio
+async def test_media_service_surfaces_actionable_oom_guidance(monkeypatch):
+    class _FailedResult:
+        status = "failed"
+        msg = (
+            "[enforce fail at alloc_cpu.cpp:117] data. "
+            "DefaultCPUAllocator: not enough memory: you tried to allocate 911360 bytes."
+        )
+
+    class _FakeKit:
+        async def execute(self, workflow_input, workflow_params):
+            return _FailedResult()
+
+    class _FakeCore:
+        async def _get_or_create_comfykit(self):
+            return _FakeKit()
+
+    service = MediaService(
+        {"comfyui": {"image": {"default_workflow": None}}},
+        core=_FakeCore(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_resolve_workflow",
+        lambda workflow=None, workflow_domain=None: _workflow_info(
+            "selfhost/image_z_image_turbo_gguf.json"
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="ran out of memory"):
+        await service(prompt="a cat", media_type="image")
+
+
+@pytest.mark.asyncio
+async def test_media_service_formats_direct_execute_oom_exceptions(monkeypatch):
+    class _ExplodingKit:
+        async def execute(self, workflow_input, workflow_params):
+            raise RuntimeError(
+                "[enforce fail at alloc_cpu.cpp:117] data. "
+                "DefaultCPUAllocator: not enough memory: you tried to allocate 911360 bytes."
+            )
+
+    class _FakeCore:
+        async def _get_or_create_comfykit(self):
+            return _ExplodingKit()
+
+    service = MediaService(
+        {"comfyui": {"image": {"default_workflow": None}}},
+        core=_FakeCore(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_resolve_workflow",
+        lambda workflow=None, workflow_domain=None: _workflow_info(
+            "selfhost/image_z_image_turbo_gguf.json"
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="ran out of memory"):
+        await service(prompt="a cat", media_type="image")

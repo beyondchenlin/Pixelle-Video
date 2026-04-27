@@ -52,9 +52,9 @@ comfyui:
   # Image-specific configuration
   image:
     # Required: Default workflow to use
-    # Options: selfhost/image_z_image_turbo.json (recommended default illustration flow)
+    # Options: selfhost/image_z_image_turbo_gguf.json (recommended default illustration flow)
     #          runninghub/image_flux.json (cloud alternative)
-    default_workflow: selfhost/image_z_image_turbo.json
+    default_workflow: selfhost/image_z_image_turbo_gguf.json
     
     # Image prompt prefix (optional)
     prompt_prefix: "Minimalist black-and-white matchstick figure style illustration, clean lines, simple sketch style"

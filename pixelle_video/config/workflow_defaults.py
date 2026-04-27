@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Mapping, Optional, Sequence
 
 BUILTIN_DEFAULT_WORKFLOWS = {
-    "image": "selfhost/image_z_image_turbo.json",
+    "image": "selfhost/image_z_image_turbo_gguf.json",
     "video": "runninghub/video_wan2.1_fusionx.json",
     "tts": "selfhost/tts_index2.json",
 }

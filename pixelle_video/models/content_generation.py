@@ -65,6 +65,24 @@ class SmartStoryboardFrameResponse(BaseModel):
     # inside long sentences. Spans are deterministic server-provided source ranges.
     source_span_indices: Optional[list[int] | int] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_partial_legacy_ranges_when_indices_present(cls, data):
+        if not isinstance(data, dict):
+            return data
+
+        has_sentence_indices = data.get("sentence_indices") is not None
+        has_source_span_indices = data.get("source_span_indices") is not None
+        has_partial_range = (data.get("source_start") is None) != (data.get("source_end") is None)
+
+        if (has_sentence_indices or has_source_span_indices) and has_partial_range:
+            normalized = dict(data)
+            normalized.pop("source_start", None)
+            normalized.pop("source_end", None)
+            return normalized
+
+        return data
+
     @field_validator("source_text", "visual_goal", "prompt_intent")
     @classmethod
     def _validate_text_fields(cls, value: str) -> str:
