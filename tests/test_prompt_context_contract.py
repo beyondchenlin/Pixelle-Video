@@ -77,3 +77,15 @@ def test_legacy_prompt_contexts_are_compacted_into_plan_context():
 
     assert "plan_context" in prompt
     assert prompt.count("Full script. It has two connected ideas.") == 1
+
+
+def test_image_prompt_template_can_request_chinese_output():
+    prompt = build_image_prompt_prompt(
+        narrations=["Small habits compound."],
+        min_words=30,
+        max_words=60,
+        prompt_language="zh_CN",
+    )
+
+    assert "必须使用中文" in prompt
+    assert "Image prompts must use English" not in prompt

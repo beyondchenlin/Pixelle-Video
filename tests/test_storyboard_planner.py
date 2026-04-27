@@ -544,6 +544,22 @@ def test_build_storyboard_planning_prompt_uses_frame_source_inputs_with_prompt_c
     assert any("frame_source_items" in instruction for instruction in prompt["instructions"])
 
 
+def test_build_storyboard_planning_prompt_can_request_chinese_output():
+    prompt = json.loads(
+        build_storyboard_planning_prompt(
+            narrations=["intro"],
+            world_preset=_neutral_world(),
+            shot_preset={"preset_id": "balanced_explainer"},
+            resolved_mode="concept_explainer",
+            consistency_strength="standard",
+            prompt_language="zh_CN",
+        )
+    )
+
+    assert prompt["prompt_language"] == "zh_CN"
+    assert any("in Chinese" in instruction for instruction in prompt["instructions"])
+
+
 @pytest.mark.asyncio
 async def test_plan_storyboard_batch_normalizes_numeric_scene_ids_from_llm():
     class FakeLLM:

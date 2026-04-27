@@ -124,6 +124,26 @@ async def test_generate_image_prompts_uses_structured_output():
 
 
 @pytest.mark.asyncio
+async def test_generate_image_prompts_can_request_chinese_output():
+    captured_prompt: list[str] = []
+
+    class FakeLLM:
+        async def __call__(self, prompt, **kwargs):
+            captured_prompt.append(prompt)
+            return content_generators.ImagePromptBatchResponse(image_prompts=["中文提示词"])
+
+    prompts = await content_generators.generate_image_prompts(
+        FakeLLM(),
+        narrations=["small habits compound"],
+        batch_size=10,
+        prompt_language="zh_CN",
+    )
+
+    assert "必须使用中文" in captured_prompt[0]
+    assert prompts == ["中文提示词"]
+
+
+@pytest.mark.asyncio
 async def test_generate_image_prompts_runs_batches_concurrently_and_preserves_order():
     class FakeLLM:
         def __init__(self):

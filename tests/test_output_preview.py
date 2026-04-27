@@ -180,6 +180,10 @@ def test_build_single_generation_request_uses_storyboard_generation_contract_fie
     assert "split_mode" not in request
 
 
+def test_storyboard_generation_option_keys_include_prompt_language():
+    assert "storyboard_prompt_language" in output_preview.STORYBOARD_GENERATION_OPTION_KEYS
+
+
 def test_build_single_generation_request_passes_request_and_session_ids():
     def _progress(_event):
         return None
@@ -213,6 +217,7 @@ def test_build_single_generation_request_includes_storyboard_controls_and_frame_
             "tts_inference_mode": "local",
             "world_preset_id": "neutral_knowledge_storyboard",
             "shot_preset_id": "balanced_explainer",
+            "storyboard_prompt_language": "zh_CN",
             "consistency_strength": "strong",
             "content_mode": "concept_explainer",
             "role_strategy": "auto",
@@ -235,6 +240,7 @@ def test_build_single_generation_request_includes_storyboard_controls_and_frame_
 
     assert request["world_preset_id"] == "neutral_knowledge_storyboard"
     assert request["shot_preset_id"] == "balanced_explainer"
+    assert request["storyboard_prompt_language"] == "zh_CN"
     assert request["consistency_strength"] == "strong"
     assert request["content_mode"] == "concept_explainer"
     assert request["role_strategy"] == "auto"
@@ -485,6 +491,7 @@ def test_build_batch_shared_config_includes_storyboard_controls_and_frame_overri
             "tts_inference_mode": "local",
             "world_preset_id": "neutral_knowledge_storyboard",
             "shot_preset_id": "balanced_explainer",
+            "storyboard_prompt_language": "zh_CN",
             "consistency_strength": "strong",
             "content_mode": "concept_explainer",
             "role_strategy": "auto",
@@ -505,6 +512,7 @@ def test_build_batch_shared_config_includes_storyboard_controls_and_frame_overri
 
     assert shared_config["world_preset_id"] == "neutral_knowledge_storyboard"
     assert shared_config["shot_preset_id"] == "balanced_explainer"
+    assert shared_config["storyboard_prompt_language"] == "zh_CN"
     assert shared_config["consistency_strength"] == "strong"
     assert shared_config["content_mode"] == "concept_explainer"
     assert shared_config["role_strategy"] == "auto"

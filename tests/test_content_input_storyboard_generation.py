@@ -12,6 +12,7 @@ def test_storyboard_generation_payload_defaults_to_smart_auto():
         "storyboard_mode": "smart",
         "storyboard_count_mode": "auto",
         "storyboard_scene_count": None,
+        "storyboard_prompt_language": "zh_CN",
     }
 
 
@@ -26,6 +27,7 @@ def test_storyboard_generation_payload_keeps_manual_count_for_smart_mode():
         "storyboard_mode": "smart",
         "storyboard_count_mode": "manual",
         "storyboard_scene_count": 6,
+        "storyboard_prompt_language": "zh_CN",
     }
 
 
@@ -40,7 +42,30 @@ def test_storyboard_generation_payload_for_deterministic_modes_uses_auto_count()
         "storyboard_mode": "sentence",
         "storyboard_count_mode": "auto",
         "storyboard_scene_count": None,
+        "storyboard_prompt_language": "zh_CN",
     }
+
+
+def test_storyboard_generation_payload_keeps_prompt_language_for_basic_controls():
+    payload = content_input.build_storyboard_generation_payload(
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+        storyboard_prompt_language="zh_CN",
+    )
+
+    assert payload["storyboard_prompt_language"] == "zh_CN"
+
+
+def test_storyboard_generation_payload_normalizes_unknown_prompt_language_to_chinese_default():
+    payload = content_input.build_storyboard_generation_payload(
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+        storyboard_prompt_language="unexpected",
+    )
+
+    assert payload["storyboard_prompt_language"] == "zh_CN"
 
 
 def test_script_generation_payload_uses_custom_target_words_for_generate_mode():

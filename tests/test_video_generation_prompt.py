@@ -11,3 +11,15 @@ def test_build_video_prompt_prompt_uses_requested_word_range():
 
     assert "recommended 12-34 English words" in prompt
     assert "recommended 50-100 English words" not in prompt
+
+
+def test_build_video_prompt_prompt_can_request_chinese_output():
+    prompt = build_video_prompt_prompt(
+        narrations=["Small habits compound."],
+        min_words=30,
+        max_words=60,
+        prompt_language="zh_CN",
+    )
+
+    assert "Video prompts must use Chinese" in prompt
+    assert "Video prompts must use English" not in prompt

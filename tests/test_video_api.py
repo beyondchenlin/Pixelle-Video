@@ -122,6 +122,7 @@ def test_video_generate_request_accepts_storyboard_generation_contract_fields():
         storyboard_mode="smart",
         storyboard_count_mode="manual",
         storyboard_scene_count=4,
+        storyboard_prompt_language="zh_CN",
         script_length_mode="custom",
         script_target_words=180,
     )
@@ -129,8 +130,18 @@ def test_video_generate_request_accepts_storyboard_generation_contract_fields():
     assert request.storyboard_mode == "smart"
     assert request.storyboard_count_mode == "manual"
     assert request.storyboard_scene_count == 4
+    assert request.storyboard_prompt_language == "zh_CN"
     assert request.script_length_mode == "custom"
     assert request.script_target_words == 180
+
+
+def test_video_generate_request_defaults_storyboard_prompt_language_to_english_for_api_compatibility():
+    request = VideoGenerateRequest(
+        text="demo",
+        frame_template="1080x1920/image_default.html",
+    )
+
+    assert request.storyboard_prompt_language == "en_US"
 
 
 def test_video_generate_request_accepts_plan_identity_frame_overrides():
@@ -484,6 +495,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             storyboard_mode="smart",
             storyboard_count_mode="manual",
             storyboard_scene_count=4,
+            storyboard_prompt_language="zh_CN",
             script_length_mode="custom",
             script_target_words=180,
             world_preset_id="neutral_knowledge_storyboard",
@@ -529,6 +541,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "storyboard_mode": "smart",
             "storyboard_count_mode": "manual",
             "storyboard_scene_count": 4,
+            "storyboard_prompt_language": "zh_CN",
             "script_length_mode": "custom",
             "script_target_words": 180,
             "min_image_prompt_words": 30,

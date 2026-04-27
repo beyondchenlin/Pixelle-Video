@@ -309,6 +309,7 @@ async def test_generate_styled_image_prompt_batch_uses_video_prompt_generator_fo
 
     async def fake_generate_video_prompts(*args, **kwargs):
         captured["style_profile"] = kwargs["style_profile"]
+        captured["prompt_language"] = kwargs["prompt_language"]
         return ["dynamic dog sprinting through playful wooden obstacles"]
 
     monkeypatch.setattr(
@@ -344,11 +345,13 @@ async def test_generate_styled_image_prompt_batch_uses_video_prompt_generator_fo
         image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
         media_service=None,
         media_type="video",
+        prompt_language="zh_CN",
         prompt_prefix="Angry Birds style",
         text_rendering=_suppress_image_text(),
     )
 
     assert captured["style_profile"]["style_kind"] == "ip_world"
+    assert captured["prompt_language"] == "zh_CN"
     assert result.prompts == [
         apply_no_text_policy(
             "dynamic dog sprinting through playful wooden obstacles, same playful bird-universe silhouette"
@@ -362,6 +365,7 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
 
     async def fake_generate_image_prompts(*args, **kwargs):
         captured["style_profile"] = kwargs["style_profile"]
+        captured["prompt_language"] = kwargs["prompt_language"]
         return ["base scene prompt"]
 
     async def fake_plan_storyboard_batch(**kwargs):
@@ -420,6 +424,7 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
         llm_service=object(),
         narrations=["scene one"],
         image_config={"prompt_prefix": "", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+        prompt_language="zh_CN",
         world_preset_id="neutral_knowledge_storyboard",
         shot_preset_id="balanced_explainer",
         consistency_strength="strong",
@@ -433,7 +438,9 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
 
     assert captured["planner_kwargs"]["world_preset_id"] == "neutral_knowledge_storyboard"
     assert captured["planner_kwargs"]["shot_preset_id"] == "balanced_explainer"
+    assert captured["planner_kwargs"]["prompt_language"] == "zh_CN"
     assert captured["planner_kwargs"]["shot_strategy"] == "strict"
+    assert captured["prompt_language"] == "zh_CN"
     assert captured["style_profile"]["style_kind"] == "visual_only"
     assert result.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
     assert result.planning_snapshot["frames"] == [

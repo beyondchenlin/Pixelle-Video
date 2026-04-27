@@ -51,6 +51,19 @@ def test_quick_create_renders_bgm_before_style_config_in_middle_column():
     assert call_names.index("render_bgm_section") < call_names.index("render_style_config")
 
 
+def test_quick_create_passes_storyboard_prompt_language_to_style_config():
+    tree = _read_module_ast("web/pipelines/standard.py")
+    render_style_call = next(
+        call
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "render_style_config"
+    )
+
+    assert any(keyword.arg == "storyboard_prompt_language" for keyword in render_style_call.keywords)
+
+
 def test_collapsed_bgm_section_renders_without_nested_expanders():
     script = """
 import pixelle_video.utils.os_util as os_util

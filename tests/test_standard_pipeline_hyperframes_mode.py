@@ -370,6 +370,35 @@ def test_hyperframes_default_template_alias_resolves_to_supported_template(tmp_p
     assert pipeline._get_hyperframes_fallback_reason(ctx) is None
 
 
+@pytest.mark.parametrize(
+    "frame_template, expected_template_id",
+    [
+        ("1080x1920/default.html", "image_default"),
+        ("1920x1080/image_landscape_full.html", "image_landscape_full"),
+        ("1920x1080/image_landscape_minimal.html", "image_landscape_minimal"),
+    ],
+)
+def test_hyperframes_template_id_resolution_and_fallback_contract(tmp_path, frame_template, expected_template_id):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, frame_template=frame_template)
+
+    assert pipeline._resolve_hyperframes_template_id(ctx.config) == expected_template_id
+    assert pipeline._get_hyperframes_fallback_reason(ctx) is None
+
+
+def test_hyperframes_legacy_image_full_template_falls_back_without_native_template(tmp_path):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(
+        tmp_path,
+        frame_template="1920x1080/image_full.html",
+    )
+
+    assert pipeline._resolve_hyperframes_template_id(ctx.config) == "image_full"
+    assert "HyperFrames template directory" in pipeline._get_hyperframes_fallback_reason(ctx)
+
+
 def test_build_hyperframes_visual_clips_cover_master_audio_without_gaps(tmp_path):
     core = _DummyCore(tmp_path)
     pipeline = StandardPipeline(core)
@@ -933,6 +962,47 @@ async def test_post_production_uses_template_canvas_size_instead_of_square_media
             "expect_audio": True,
         }
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "frame_template",
+    ["1920x1080/image_landscape_full.html", "1920x1080/image_landscape_minimal.html"],
+)
+async def test_post_production_uses_landscape_template_canvas_size(monkeypatch, tmp_path, frame_template):
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, frame_template=frame_template)
+    ctx.config.media_width = 768
+    ctx.config.media_height = 768
+    ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        Path(frame.image_path).write_text("raw", encoding="utf-8")
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
+        Path(output_path).write_bytes(b"master-audio")
+
+    def fake_get_audio_duration(audio_path):
+        return 4.0
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", fake_get_audio_duration)
+
+    await pipeline.post_production(ctx)
+
+    manifest = core.hyperframes_project_service.manifest
+    assert (manifest.canvas_width, manifest.canvas_height) == (1920, 1080)
+    assert core.hyperframes_renderer.calls[0]["width"] == 1920
+    assert core.hyperframes_renderer.calls[0]["height"] == 1080
 
 
 @pytest.mark.asyncio

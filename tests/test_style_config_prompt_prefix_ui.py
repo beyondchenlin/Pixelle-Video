@@ -1085,6 +1085,7 @@ def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatc
     async def fake_generate_styled_image_prompt_batch(**kwargs):
         captured["media_type"] = kwargs["media_type"]
         captured["prompt_prefix"] = kwargs["prompt_prefix"]
+        captured["prompt_language"] = kwargs["prompt_language"]
         return StyledImagePromptBatch(
             prompts=["video preview final prompt"],
             negative_prompt="avoid blur",
@@ -1117,8 +1118,10 @@ def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatc
         test_prompt="a dog running in the park",
         prompt_prefix="angry birds world",
         media_type="video",
+        prompt_language="zh_CN",
     )
 
     assert preview["final_prompt"] == "video preview final prompt"
     assert captured["media_type"] == "video"
+    assert captured["prompt_language"] == "zh_CN"
     assert captured["media_kwargs"]["negative_prompt"] == "avoid blur"

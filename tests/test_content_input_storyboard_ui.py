@@ -44,6 +44,8 @@ class _FakeStreamlit:
         self.sliders: list[dict] = []
         self.number_inputs: list[dict] = []
         self.radio_values: dict[str, str] = {}
+        self.checkbox_values: dict[str, bool] = {}
+        self.checkbox_calls: list[dict] = []
         self.session_state: dict[str, int] = {}
         self._context_stack: list[str] = []
 
@@ -56,6 +58,10 @@ class _FakeStreamlit:
 
     def radio(self, _label, options, *, index=0, key=None, **_kwargs):
         return self.radio_values.get(key, list(options)[index])
+
+    def checkbox(self, label, value=False, *, key=None, **kwargs):
+        self.checkbox_calls.append({"label": label, "value": value, "key": key, **kwargs})
+        return self.checkbox_values.get(key, value)
 
     def selectbox(self, _label, options, *, index=0, **_kwargs):
         return list(options)[index]
@@ -121,6 +127,7 @@ def test_storyboard_generation_controls_are_collapsed_with_nested_explanation(mo
         "storyboard_mode": "smart",
         "storyboard_count_mode": "auto",
         "storyboard_scene_count": None,
+        "storyboard_prompt_language": "zh_CN",
     }
 
 
@@ -146,6 +153,22 @@ def test_storyboard_generation_manual_slider_uses_configured_limits(monkeypatch)
     assert fake_st.sliders[0]["min_value"] == 2
     assert fake_st.sliders[0]["max_value"] == 8
     assert payload["storyboard_scene_count"] == 5
+
+
+def test_storyboard_generation_controls_include_prompt_language_in_base_payload(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.radio_values["single_video_storyboard_prompt_language"] = "en_US"
+    monkeypatch.setattr(content_input, "st", fake_st)
+    monkeypatch.setattr(content_input, "tr", _fake_tr)
+
+    payload = content_input.render_storyboard_generation_controls(
+        mode="generate",
+        key_prefix="single_video",
+    )
+
+    assert payload["storyboard_prompt_language"] == "en_US"
+    assert "world_preset_id" not in payload
+    assert any(call["label"] == "storyboard.advanced_enabled" for call in fake_st.checkbox_calls)
 
 
 def test_script_generation_target_words_control_uses_default_range_and_custom_payload(monkeypatch):

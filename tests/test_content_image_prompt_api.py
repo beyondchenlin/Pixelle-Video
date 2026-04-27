@@ -2,7 +2,12 @@ import pytest
 from pydantic import ValidationError
 
 from api.routers.content import generate_image_prompt
-from api.schemas.content import ImagePromptGenerateRequest
+from api.schemas.content import (
+    ImagePromptGenerateRequest,
+    StoryboardFrameOverride as ContentStoryboardFrameOverride,
+)
+from api.schemas.video import StoryboardFrameOverride as VideoStoryboardFrameOverride
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 
 
@@ -18,6 +23,33 @@ class _FakePixelleVideo:
                 }
             }
         }
+
+
+def _storyboard_plan() -> StoryboardPlan:
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="第一句。第二句。",
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text="第一句。",
+                visual_goal="Show idea one.",
+                prompt_intent="Visual metaphor one.",
+                source_start=0,
+                source_end=4,
+            ),
+            StoryboardPlanFrame(
+                index=2,
+                source_text="第二句。",
+                visual_goal="Show idea two.",
+                prompt_intent="Visual metaphor two.",
+                source_start=4,
+                source_end=8,
+            ),
+        ],
+    )
 
 
 @pytest.mark.parametrize(
@@ -59,6 +91,10 @@ def test_image_prompt_generate_request_rejects_malformed_frame_overrides(frame_o
             narrations=["scene one"],
             frame_overrides=frame_overrides,
         )
+
+
+def test_content_and_video_api_share_storyboard_frame_override_contract():
+    assert ContentStoryboardFrameOverride is VideoStoryboardFrameOverride
 
 
 def test_image_prompt_generate_request_accepts_text_rendering_policy():
@@ -149,11 +185,14 @@ def test_image_prompt_generate_request_rejects_unknown_text_rendering_keys(text_
 
 @pytest.mark.asyncio
 async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypatch):
-    async def fake_generate_styled_image_prompt_batch(**kwargs):
+    plan = _storyboard_plan()
+
+    async def fake_compose(self, **kwargs):
         assert kwargs["prompt_prefix"] == "angry birds world"
         assert kwargs["workflow"] == "selfhost/image_z_image_turbo.json"
         assert kwargs["batch_size"] == 8
         assert kwargs["max_concurrency"] == 3
+        assert kwargs["prompt_language"] == "zh_CN"
         assert kwargs["world_preset_id"] == "neutral_knowledge_storyboard"
         assert kwargs["shot_preset_id"] == "balanced_explainer"
         assert kwargs["consistency_strength"] == "strong"
@@ -161,10 +200,13 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
         assert kwargs["role_strategy"] == "auto"
         assert kwargs["role_locking_strength"] == "strong"
         assert kwargs["shot_strategy"] == "strict"
+        assert kwargs["storyboard_plan"].plan_id == plan.plan_id
         assert kwargs["frame_overrides"] == [
             {
-                "scene_id": "scene-1",
-                "snapshot_identity": "snapshot:scene-1",
+                "plan_id": plan.plan_id,
+                "plan_revision": plan.revision,
+                "frame_id": plan.frames[0].frame_id,
+                "source_digest": plan.source_digest,
                 "locked_fields": ["shot_type"],
                 "shot_type": "medium_shot",
             }
@@ -176,17 +218,18 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
         )
 
     monkeypatch.setattr(
-        "api.routers.content.generate_styled_image_prompt_batch",
-        fake_generate_styled_image_prompt_batch,
+        "api.routers.content.ImagePromptComposer.compose",
+        fake_compose,
     )
 
     response = await generate_image_prompt(
         ImagePromptGenerateRequest(
-            narrations=["scene one"],
+            narrations=plan.source_texts(),
             prompt_prefix="angry birds world",
             workflow="selfhost/image_z_image_turbo.json",
             llm_prompt_batch_size=8,
             llm_prompt_batch_concurrent_limit=3,
+            storyboard_prompt_language="zh_CN",
             world_preset_id="neutral_knowledge_storyboard",
             shot_preset_id="balanced_explainer",
             consistency_strength="strong",
@@ -194,10 +237,13 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
             role_strategy="auto",
             role_locking_strength="strong",
             shot_strategy="strict",
+            storyboard_generation=plan.to_dict(),
             frame_overrides=[
                 {
-                    "scene_id": "scene-1",
-                    "snapshot_identity": "snapshot:scene-1",
+                    "plan_id": plan.plan_id,
+                    "plan_revision": plan.revision,
+                    "frame_id": plan.frames[0].frame_id,
+                    "source_digest": plan.source_digest,
                     "locked_fields": ["shot_type"],
                     "shot_type": "medium_shot",
                 }
@@ -207,6 +253,45 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
     )
 
     assert response.image_prompts == ["styled prompt"]
+
+
+def test_image_prompt_generate_request_accepts_storyboard_prompt_language():
+    request = ImagePromptGenerateRequest(
+        narrations=["scene one"],
+        storyboard_prompt_language="en_US",
+    )
+
+    assert request.storyboard_prompt_language == "en_US"
+
+
+def test_image_prompt_generate_request_defaults_storyboard_prompt_language_to_english_for_api_compatibility():
+    request = ImagePromptGenerateRequest(
+        narrations=["scene one"],
+    )
+
+    assert request.storyboard_prompt_language == "en_US"
+
+
+def test_image_prompt_generate_request_accepts_storyboard_generation_contract():
+    plan = _storyboard_plan()
+
+    request = ImagePromptGenerateRequest(
+        narrations=plan.source_texts(),
+        storyboard_generation=plan.to_dict(),
+        frame_overrides=[
+            {
+                "plan_id": plan.plan_id,
+                "plan_revision": plan.revision,
+                "frame_id": plan.frames[0].frame_id,
+                "source_digest": plan.source_digest,
+                "locked_fields": ["shot_type"],
+                "shot_type": "medium_shot",
+            }
+        ],
+    )
+
+    assert request.storyboard_generation.plan_id == plan.plan_id
+    assert request.frame_overrides[0].frame_id == plan.frames[0].frame_id
 
 
 @pytest.mark.asyncio

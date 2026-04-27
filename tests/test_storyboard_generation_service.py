@@ -619,6 +619,39 @@ def test_smart_storyboard_prompt_requires_complete_source_coverage():
     assert "Do not omit" in prompt
 
 
+def test_smart_storyboard_prompt_can_request_chinese_output():
+    from pixelle_video.prompts.storyboard_generation import build_smart_storyboard_prompt
+
+    prompt = build_smart_storyboard_prompt(
+        source_text="先解释概念，再给出结论。",
+        count_mode="auto",
+        requested_scene_count=None,
+        min_scene_count=1,
+        max_scene_count=10,
+        prompt_language="zh_CN",
+    )
+
+    assert '"prompt_language": "zh_CN"' in prompt
+    assert "这一帧需要传达的视觉重点" in prompt
+
+
+@pytest.mark.asyncio
+async def test_punctuation_storyboard_generation_uses_chinese_defaults_when_requested():
+    service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})
+
+    plan = await service.generate(
+        llm_service=None,
+        source_text="第一句。第二句。",
+        storyboard_mode="punctuation",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+        prompt_language="zh_CN",
+    )
+
+    assert plan.frames[0].visual_goal == "用画面表达第 1 个分镜段落。"
+    assert plan.frames[0].prompt_intent == "创建一个连贯的画面来传达：第一句。"
+
+
 @pytest.mark.asyncio
 async def test_smart_rejects_out_of_bounds_source_range_after_repair():
     service = StoryboardGenerationService(config={"min_scene_count": 1, "max_scene_count": 10})

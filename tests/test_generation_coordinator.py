@@ -136,6 +136,39 @@ async def test_core_generate_video_releases_fingerprint_after_completion():
 
 
 @pytest.mark.asyncio
+async def test_core_generate_video_normalizes_storyboard_contract_for_standard_pipeline():
+    captured = {}
+
+    class _Pipeline:
+        async def __call__(self, *, text, **kwargs):
+            captured["text"] = text
+            captured["kwargs"] = dict(kwargs)
+            return SimpleNamespace(ok=True)
+
+    core = PixelleVideoCore()
+    core.pipelines = {"standard": _Pipeline()}
+    core.generate_video = core._create_generate_video_wrapper()
+
+    await core.generate_video(
+        text="demo",
+        storyboard_mode="sentence",
+        storyboard_count_mode="manual",
+        storyboard_scene_count=6,
+        storyboard_prompt_language="  unexpected  ",
+        world_preset_id="  neutral_knowledge_storyboard  ",
+        shot_preset_id="  balanced_explainer  ",
+    )
+
+    assert captured["text"] == "demo"
+    assert captured["kwargs"]["storyboard_mode"] == "sentence"
+    assert captured["kwargs"]["storyboard_count_mode"] == "auto"
+    assert captured["kwargs"]["storyboard_scene_count"] is None
+    assert captured["kwargs"]["storyboard_prompt_language"] == "en_US"
+    assert captured["kwargs"]["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert captured["kwargs"]["shot_preset_id"] == "balanced_explainer"
+
+
+@pytest.mark.asyncio
 async def test_core_generate_video_releases_fingerprint_after_failure():
     class _FlakyPipeline:
         def __init__(self):

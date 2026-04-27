@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -26,6 +27,7 @@ from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
+from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE
 from pixelle_video.services.persistence import PersistenceService
 
 
@@ -477,6 +479,7 @@ def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path
         silence_trim_margin_ms=80,
         render_backend="hyperframes_compiled",
         template_text_policy="template_body",
+        storyboard_prompt_language="zh_CN",
     )
 
     service = PersistenceService(output_dir=str(tmp_path))
@@ -491,6 +494,7 @@ def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path
     assert restored.silence_trim_margin_ms == 80
     assert restored.render_backend == "hyperframes_compiled"
     assert restored.template_text_policy == "template_body"
+    assert restored.storyboard_prompt_language == "zh_CN"
 
 
 def test_storyboard_frame_template_visual_fields_round_trip_through_persistence(tmp_path):
@@ -759,6 +763,171 @@ async def test_standard_pipeline_initialize_storyboard_uses_render_config_defaul
     assert [block.text for block in ctx.timing_plan.blocks] == [
         "Sentence 1.",
     ]
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_generate_content_defaults_prompt_language_to_english_for_internal_callers(
+    monkeypatch,
+):
+    captured = {}
+
+    class _FakeStoryboardGenerationService:
+        def __init__(self, config):
+            self.config = config
+
+        async def generate(self, **kwargs):
+            captured["prompt_language"] = kwargs["prompt_language"]
+            return _storyboard_plan_from_segments(["Sentence 1."])
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.StoryboardGenerationService",
+        _FakeStoryboardGenerationService,
+    )
+
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {},
+            "llm": None,
+            "tts": None,
+            "media": None,
+            "video": None,
+        },
+    )()
+    pipeline = StandardPipeline(fake_core)
+    ctx = PipelineContext(
+        input_text="Sentence 1.",
+        params={"mode": "fixed"},
+    )
+
+    await pipeline.generate_content(ctx)
+
+    assert captured["prompt_language"] == DEFAULT_PROMPT_LANGUAGE
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_plan_visuals_defaults_prompt_language_to_english_for_internal_callers(
+    monkeypatch,
+):
+    captured = {}
+
+    class _FakeImagePromptComposer:
+        async def compose(self, **kwargs):
+            captured["prompt_language"] = kwargs["prompt_language"]
+            return SimpleNamespace(
+                prompts=["prompt"],
+                resolved_style=None,
+                negative_prompt=None,
+                planning_snapshot={},
+            )
+
+    class _FakeNativePromptProjection:
+        def project(self, plan, policy):
+            return None
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.ImagePromptComposer",
+        _FakeImagePromptComposer,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.NativePromptProjection",
+        _FakeNativePromptProjection,
+    )
+
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {"comfyui": {"image": {}}},
+            "llm": None,
+            "tts": None,
+            "media": object(),
+            "video": None,
+        },
+    )()
+    pipeline = StandardPipeline(fake_core)
+    monkeypatch.setattr(
+        pipeline,
+        "_get_text_rendering_result",
+        lambda _ctx: SimpleNamespace(overlay_plan=None, overlay_policy=None),
+    )
+    ctx = PipelineContext(
+        input_text="demo",
+        params={"frame_template": "1080x1920/image_default.html"},
+    )
+    ctx.storyboard_plan = _storyboard_plan_from_segments(["Sentence 1."])
+
+    await pipeline.plan_visuals(ctx)
+
+    assert captured["prompt_language"] == DEFAULT_PROMPT_LANGUAGE
+    assert ctx.image_prompts == ["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_initialize_storyboard_defaults_prompt_language_to_english_when_missing():
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {},
+            "llm": None,
+            "tts": None,
+            "media": None,
+            "video": None,
+        },
+    )()
+
+    pipeline = StandardPipeline(fake_core)
+    ctx = PipelineContext(
+        input_text="demo",
+        params={
+            "media_width": 1080,
+            "media_height": 1920,
+        },
+    )
+    ctx.task_id = "task-1"
+    ctx.title = "demo"
+    ctx.storyboard_plan = _storyboard_plan_from_segments(["Sentence 1."])
+    ctx.image_prompts = ["prompt"]
+
+    await pipeline.initialize_storyboard(ctx)
+
+    assert ctx.config.storyboard_prompt_language == DEFAULT_PROMPT_LANGUAGE
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_initialize_storyboard_preserves_prompt_language_when_snapshot_and_params_both_define_it():
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {},
+            "llm": None,
+            "tts": None,
+            "media": None,
+            "video": None,
+        },
+    )()
+
+    pipeline = StandardPipeline(fake_core)
+    ctx = PipelineContext(
+        input_text="demo",
+        params={
+            "media_width": 1080,
+            "media_height": 1920,
+            "storyboard_prompt_language": "zh_CN",
+        },
+    )
+    ctx.task_id = "task-1"
+    ctx.title = "demo"
+    ctx.storyboard_plan = _storyboard_plan_from_segments(["Sentence 1."])
+    ctx.image_prompts = ["prompt"]
+    ctx.planning_snapshot = {"storyboard_prompt_language": "zh_CN"}
+
+    await pipeline.initialize_storyboard(ctx)
+
+    assert ctx.config.storyboard_prompt_language == "zh_CN"
 
 
 @pytest.mark.asyncio

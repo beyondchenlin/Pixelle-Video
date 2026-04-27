@@ -59,9 +59,11 @@ async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
         storyboard_plan=_plan(),
         image_config={},
         prompt_prefix="clean style",
+        prompt_language="zh_CN",
     )
 
     assert captured["narrations"] == ["第一句。", "第二句。"]
+    assert captured["prompt_language"] == "zh_CN"
     plan = _plan()
     prompt_contexts = captured["prompt_contexts"]
     assert isinstance(prompt_contexts, PromptContextEnvelope)
@@ -174,7 +176,9 @@ async def test_composer_applies_new_frame_override_identity_to_prompt_context(mo
                 "prompts": ["prompt one", "prompt two"],
                 "resolved_style": None,
                 "negative_prompt": None,
-                "planning_snapshot": {},
+                "planning_snapshot": {
+                    "frame_overrides": list(kwargs["frame_overrides"] or []),
+                },
             },
         )()
 
@@ -200,7 +204,17 @@ async def test_composer_applies_new_frame_override_identity_to_prompt_context(mo
         ],
     )
 
-    assert captured["frame_overrides"] is None
+    assert captured["frame_overrides"] == [
+        {
+            "plan_id": plan.plan_id,
+            "plan_revision": plan.revision,
+            "frame_id": first_frame.frame_id,
+            "source_digest": plan.source_digest,
+            "locked_fields": ["visual_goal", "prompt_intent"],
+            "visual_goal": "Locked visual goal.",
+            "prompt_intent": "Locked prompt intent.",
+        }
+    ]
     frame_context = captured["prompt_contexts"].frame_contexts[0]
     assert frame_context["locked_fields"] == ["visual_goal", "prompt_intent"]
     assert frame_context["visual_goal"] == "Locked visual goal."
