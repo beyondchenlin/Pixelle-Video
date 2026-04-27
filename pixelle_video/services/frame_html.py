@@ -314,6 +314,26 @@ class HTMLFrameGenerator:
         
         return re.sub(PARAM_PATTERN, replacer, html)
 
+    def _prepare_html_for_render(self, html: str) -> str:
+        """Inject a template-root base href so relative assets resolve from the template directory."""
+        if re.search(r"<base\b", html, flags=re.IGNORECASE):
+            return html
+
+        template_root = Path(self.template_path).resolve().parent.as_uri().rstrip("/") + "/"
+        base_tag = f'<base href="{template_root}">'
+
+        head_match = re.search(r"<head[^>]*>", html, flags=re.IGNORECASE)
+        if head_match:
+            insert_at = head_match.end()
+            return f"{html[:insert_at]}{base_tag}{html[insert_at:]}"
+
+        html_match = re.search(r"<html[^>]*>", html, flags=re.IGNORECASE)
+        if html_match:
+            insert_at = html_match.end()
+            return f"{html[:insert_at]}<head>{base_tag}</head>{html[insert_at:]}"
+
+        return f"{base_tag}{html}"
+
     @classmethod
     def _get_browser_lock(cls, loop: asyncio.AbstractEventLoop) -> asyncio.Lock:
         loop_id = id(loop)
@@ -453,6 +473,7 @@ class HTMLFrameGenerator:
             context.update(ext)
         
         html = self._replace_parameters(self.template, context)
+        html = self._prepare_html_for_render(html)
 
         if output_path is None:
             from pixelle_video.utils.os_util import get_output_path

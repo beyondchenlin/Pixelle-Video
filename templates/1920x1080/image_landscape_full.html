@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="template:media-width" content="768">
+    <meta name="template:media-height" content="768">
+    <meta name="viewport" content="width=1920, height=1080">
+    <title>横屏大图全铺 - 1920x1080</title>
+    <style>
+        @font-face {
+            font-family: 'PixelleNotoSansSC';
+            src: url('../../resources/hyperframes/runtime/fonts/assets/NotoSansSC-wght.ttf') format('truetype');
+            font-style: normal;
+            font-weight: 100 900;
+            font-display: swap;
+        }
+
+        @font-face {
+            font-family: 'PixelleBrushSC';
+            src: url('../../resources/hyperframes/runtime/fonts/assets/MaShanZheng-Regular.ttf') format('truetype');
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            width: 1920px;
+            height: 1080px;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: 'PixelleNotoSansSC', 'PingFang SC', 'Source Han Sans', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: #fff;
+            position: relative;
+            background-image: url("{{image}}");
+            background-size: cover;
+            background-position: center;
+        }
+
+        .title {
+            position: absolute;
+            top: 84px;
+            left: 120px;
+            right: 120px;
+            text-align: center;
+            font-size: 80px;
+            font-weight: 700;
+            line-height: 1.2;
+            letter-spacing: 4px;
+            font-family: 'PixelleBrushSC', 'KaiTi', 'STKaiti', 'FangSong', cursive;
+            text-shadow: 0 10px 32px rgba(0, 0, 0, 0.45),
+                -2px -2px 0 rgba(0, 0, 0, 0.85),
+                2px -2px 0 rgba(0, 0, 0, 0.85),
+                -2px 2px 0 rgba(0, 0, 0, 0.85),
+                2px 2px 0 rgba(0, 0, 0, 0.85);
+        }
+
+        .subtitle {
+            position: absolute;
+            left: 120px;
+            right: 120px;
+            bottom: 190px;
+            text-align: center;
+            font-size: 54px;
+            font-weight: 700;
+            line-height: 1.35;
+            color: #ffffff;
+            font-family: 'PixelleNotoSansSC', 'PingFang SC', 'Source Han Sans', 'Microsoft YaHei', sans-serif;
+            text-shadow: 0 10px 30px rgba(0, 0, 0, 0.48),
+                -2px -2px 0 rgba(0, 0, 0, 0.92),
+                2px -2px 0 rgba(0, 0, 0, 0.92),
+                -2px 2px 0 rgba(0, 0, 0, 0.92),
+                2px 2px 0 rgba(0, 0, 0, 0.92);
+        }
+
+        .info-cluster {
+            position: absolute;
+            left: 72px;
+            bottom: 44px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            text-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+        }
+
+        .info-brand {
+            font-size: 22px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+        }
+
+        .info-author {
+            font-size: 28px;
+            font-weight: 700;
+        }
+
+        .info-desc {
+            font-size: 20px;
+            font-weight: 400;
+            opacity: 0.92;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="title">{{title}}</div>
+    <div class="subtitle">{{text}}</div>
+    <div class="info-cluster">
+        <div class="info-brand">{{brand=LanRen}}</div>
+        <div class="info-author">{{author=LanRen.AI}}</div>
+        <div class="info-desc">{{describe=LanRen}}</div>
+    </div>
+</body>
+
+</html>

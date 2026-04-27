@@ -1,5 +1,7 @@
 # Pixelle HyperFrames 横屏 B/D 模板设计
 
+> 2026-04-27 命名修订：为避免复用既有 `image_full.html` 入口造成语义漂移，`B` 方向的最终模板 id 与普通模板入口统一调整为 `image_landscape_full`。本文后续若仍出现 `image_full`，均应以 `image_landscape_full` 为准；既有 `templates/1920x1080/image_full.html` 继续保留 legacy 语义，在 `HyperFrames Compiled` 下不再作为新增横屏 B 模板入口。
+
 ## 1. 结论
 
 本次设计为 Pixelle 的 `HyperFrames Compiled` 路径补齐两个横屏原生模板，并保持和现有模板库的选择链路一致：
@@ -147,6 +149,14 @@
 - `author`
 - `footer`
 - `template_params`
+
+其中本轮角落信息组的字段映射约定为：
+
+- `作者` -> `author`
+- `描述` -> `template_params.author_desc`
+- `品牌` -> `footer`
+
+当前编译器可直接替换的壳层占位符仍然只有 `__AUTHOR__`、`__AUTHOR_DESC__`、`__FOOTER__`，因此本轮不新增独立 `brand` 字段，也不扩展编译器占位符集合。
 
 模板差异通过 HTML/CSS 结构与现有字段的布局消费来表达，不通过扩充 context 模型来表达。
 

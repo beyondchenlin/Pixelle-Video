@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Pixelle HyperFrames - Image Landscape Minimal Text Layer</title>
+    <link rel="stylesheet" href="../runtime/fonts/phase1_fonts.css" />
+    <script src="../runtime/vendor/gsap.min.js"></script>
+    <style>
+      html, body, #text-layer-root { margin: 0; width: __CANVAS_WIDTH__px; height: __CANVAS_HEIGHT__px; overflow: hidden; }
+      .text-cue { position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%); opacity: 0; visibility: hidden; max-width: 1080px; text-align: center; }
+      .text-cue[data-slot="lower_third"] { top: 63%; }
+      .text-cue__content { display: inline-block; padding: 0; border-radius: 0; background: transparent; color: #171410; font-size: 42px; line-height: 1.45; font-weight: 500; box-shadow: none; text-shadow: 0 3px 12px rgba(255,255,255,0.28); }
+    </style>
+  </head>
+  <body>
+    <div id="text-layer-root" data-composition-id="text-layer" data-width="__CANVAS_WIDTH__" data-height="__CANVAS_HEIGHT__" data-start="0" data-duration="__DURATION__">
+      __TEXT_CUES__
+    </div>
+    <script>
+      function padTimelineToDuration(timeline, duration) {
+        const resolvedDuration = Math.max(Number(duration) || 0, 0);
+        const currentDuration = Math.max(Number(timeline.duration()) || 0, 0);
+        if (resolvedDuration > currentDuration) {
+          timeline.to({}, { duration: resolvedDuration - currentDuration });
+        }
+        return timeline;
+      }
+
+      (function bootstrapTextLayerTimeline() {
+        __TEXT_TIMELINE__
+      })();
+    </script>
+  </body>
+</html>

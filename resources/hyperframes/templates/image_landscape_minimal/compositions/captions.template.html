@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Pixelle HyperFrames - Image Landscape Minimal Captions</title>
+    <link rel="stylesheet" href="../runtime/fonts/phase1_fonts.css" />
+    <script src="../runtime/vendor/gsap.min.js"></script>
+    <style>
+      html, body, [data-composition-id="captions"] { margin: 0; width: __CANVAS_WIDTH__px; height: __CANVAS_HEIGHT__px; overflow: hidden; }
+      #captions-shell { position: absolute; inset: 154px 180px 116px 180px; display: flex; justify-content: center; align-items: flex-end; }
+      #captions-container { position: relative; width: min(860px, 100%); min-height: 120px; display: flex; justify-content: center; align-items: center; }
+      .caption-group { position: absolute; inset: 0; display: flex; justify-content: center; align-items: center; opacity: 0; visibility: hidden; }
+      .caption-text { width: 100%; padding: 0; font-size: 44px; line-height: 1.45; font-weight: 500; color: #171410; text-align: center; text-shadow: 0 3px 12px rgba(255,255,255,0.28); }
+    </style>
+  </head>
+  <body>
+    <div id="captions-root" data-composition-id="captions" data-width="__CANVAS_WIDTH__" data-height="__CANVAS_HEIGHT__" data-start="0" data-duration="__DURATION__">
+      <div id="captions-shell"><div id="captions-container">__CAPTIONS__</div></div>
+    </div>
+    <script>
+      function padTimelineToDuration(timeline, duration) {
+        const resolvedDuration = Math.max(Number(duration) || 0, 0);
+        const currentDuration = Math.max(Number(timeline.duration()) || 0, 0);
+        if (resolvedDuration > currentDuration) {
+          timeline.to({}, { duration: resolvedDuration - currentDuration });
+        }
+        return timeline;
+      }
+
+      (function bootstrapCaptionsTimeline() {
+        const root = document.getElementById("captions-root");
+        const duration = Math.max(Number(root?.dataset?.duration || 0), 0);
+        const captions = Array.from(document.querySelectorAll(".caption-group"));
+        const tl = gsap.timeline({ paused: true });
+
+        gsap.set(captions, { autoAlpha: 0, y: 0 });
+        captions.forEach((caption) => {
+          const start = Number(caption.dataset.start || 0);
+          const clipDuration = Math.max(Number(caption.dataset.duration || 0), 0.1);
+          tl.set(caption, { autoAlpha: 1, y: 0, visibility: "visible" }, start);
+          tl.set(
+            caption,
+            { autoAlpha: 0, y: 0, visibility: "hidden" },
+            start + clipDuration,
+          );
+        });
+
+        padTimelineToDuration(tl, duration);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["captions"] = tl;
+      })();
+    </script>
+  </body>
+</html>

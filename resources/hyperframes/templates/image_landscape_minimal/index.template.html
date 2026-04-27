@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=__CANVAS_WIDTH__, height=__CANVAS_HEIGHT__" />
+    <title>Pixelle HyperFrames - Image Landscape Minimal</title>
+    <link rel="stylesheet" href="./runtime/fonts/phase1_fonts.css" />
+    <script src="./runtime/vendor/gsap.min.js"></script>
+    <style>
+      html, body, #main-comp { margin: 0; width: __CANVAS_WIDTH__px; height: __CANVAS_HEIGHT__px; overflow: hidden; }
+      body { font-family: var(--hf-font-sans); background: #f8f5ef; color: #171410; }
+      .bg-decoration { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+      .minimal-line { position: absolute; background: linear-gradient(90deg, transparent, #171410, transparent); opacity: 0.04; }
+      .line-1 { width: 500px; height: 1px; top: 22%; left: 120px; transform: rotate(-2deg); }
+      .line-2 { width: 450px; height: 1px; bottom: 28%; right: 180px; transform: rotate(3deg); }
+      .circle { position: absolute; border-radius: 50%; border: 1px solid #171410; opacity: 0.04; }
+      .circle-1 { width: 350px; height: 350px; top: -150px; right: 250px; }
+      .circle-2 { width: 300px; height: 300px; bottom: -120px; left: 350px; }
+      .header { position: absolute; top: 92px; left: 110px; width: fit-content; max-width: min(840px, calc(100% - 220px)); z-index: 3; }
+      .title { display: inline-block; font-size: 76px; line-height: 1.12; font-weight: 900; letter-spacing: 0.02em; color: #171410; background: linear-gradient(135deg, #1a1611 0%, #2c2416 50%, #1a1611 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; filter: contrast(1.08) brightness(0.94); }
+      .content-stage { position: absolute; inset: 154px 180px 116px 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 56px; z-index: 2; }
+      .visual-shell { position: relative; width: min(560px, 100%); height: min(560px, calc(100% - 180px)); display: flex; align-items: center; justify-content: center; }
+      .visual-shell .visual-clip { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; will-change: transform, opacity; }
+      .visual-shell .visual-frame { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+      .visual-shell .visual-clip__media { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; display: block; background: #fff; box-shadow: 0 4px 24px rgba(0,0,0,0.06); }
+      .visual-shell .corner-mark, .visual-shell .side-dots { display: none; }
+      .signature { position: absolute; right: 72px; bottom: 48px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 3; }
+      .signature-brand { font-size: 22px; font-weight: 600; letter-spacing: 0.08em; }
+      .signature-author { font-size: 24px; font-weight: 500; }
+      .signature-desc { font-size: 18px; opacity: 0.8; }
+      #text-layer, #captions-layer { position: absolute; inset: 0; pointer-events: none; }
+      #text-layer { z-index: 4; }
+      #captions-layer { z-index: 5; }
+    </style>
+  </head>
+  <body>
+    <div id="main-comp" data-composition-id="main-comp" data-width="__CANVAS_WIDTH__" data-height="__CANVAS_HEIGHT__" data-start="0" data-duration="__DURATION__" data-style-profile="__STYLE_PROFILE__">
+      <div class="bg-decoration">
+        <div class="minimal-line line-1"></div>
+        <div class="minimal-line line-2"></div>
+        <div class="circle circle-1"></div>
+        <div class="circle circle-2"></div>
+      </div>
+      <div class="header"><div class="title">__TITLE__</div></div>
+      <div class="content-stage">
+        <div class="visual-shell">__VISUALS__</div>
+      </div>
+      <div class="signature">
+        <div class="signature-brand">__FOOTER__</div>
+        <div class="signature-author">__AUTHOR__</div>
+        <div class="signature-desc">__AUTHOR_DESC__</div>
+      </div>
+      <div id="text-layer" data-composition-id="text-layer" data-composition-src="compositions/text_layer.html" data-start="0" data-track-index="2" data-duration="__DURATION__"></div>
+      <div id="captions-layer" data-composition-id="captions" data-composition-src="compositions/captions.html" data-start="0" data-track-index="3" data-duration="__DURATION__"></div>
+      __AUDIO__
+    </div>
+    <script>
+      function padTimelineToDuration(timeline, duration) {
+        const resolvedDuration = Math.max(Number(duration) || 0, 0);
+        const currentDuration = Math.max(Number(timeline.duration()) || 0, 0);
+        if (resolvedDuration > currentDuration) {
+          timeline.to({}, { duration: resolvedDuration - currentDuration });
+        }
+        return timeline;
+      }
+
+      (function bootstrapMainTimeline() {
+        const root = document.getElementById("main-comp");
+        const duration = Math.max(Number(root?.dataset?.duration || 0), 0);
+        const tl = gsap.timeline({ paused: true });
+
+        padTimelineToDuration(tl, duration);
+        window.__timelines = window.__timelines || {};
+        window.__timelines["main-comp"] = tl;
+      })();
+    </script>
+  </body>
+</html>

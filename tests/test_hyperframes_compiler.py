@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from pixelle_video.models.render_package import CaptionCue, TextCue, TextTrack, VisualClip
-from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
+from pixelle_video.models.template_render_context import PHASE1_TEMPLATE_FIELD_INVENTORY, TemplateAudioRef, TemplateRenderContext
 from pixelle_video.models.text_style import TextStyleProfile
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 
@@ -684,11 +684,19 @@ def test_phase1_templates_do_not_depend_on_remote_fonts_or_cdn_scripts():
     template_paths = [
         Path("resources/hyperframes/templates/image_default/index.template.html"),
         Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_full/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"),
         Path(
             "resources/hyperframes/templates/image_default/compositions/captions.template.html"
         ),
         Path(
             "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_full/compositions/captions.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_minimal/compositions/captions.template.html"
         ),
     ]
 
@@ -702,11 +710,19 @@ def test_phase1_templates_reference_local_font_entrypoint():
     template_paths = [
         Path("resources/hyperframes/templates/image_default/index.template.html"),
         Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_full/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"),
         Path(
             "resources/hyperframes/templates/image_default/compositions/captions.template.html"
         ),
         Path(
             "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_full/compositions/captions.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_minimal/compositions/captions.template.html"
         ),
     ]
 
@@ -716,7 +732,7 @@ def test_phase1_templates_reference_local_font_entrypoint():
 
 
 def test_phase1_templates_mount_static_text_layer_composition():
-    template_ids = ["image_default", "image_life_insights_light"]
+    template_ids = ["image_default", "image_life_insights_light", "image_landscape_full", "image_landscape_minimal"]
 
     for template_id in template_ids:
         template_dir = Path("resources/hyperframes/templates") / template_id
@@ -751,6 +767,16 @@ def test_phase1_templates_reference_local_gsap_vendor_and_register_timelines():
             "./runtime/vendor/gsap.min.js",
             'window.__timelines["main-comp"]',
         ),
+        Path("resources/hyperframes/templates/image_landscape_full/index.template.html"): (
+            "./runtime/vendor/gsap.min.js",
+            'window.__timelines["main-comp"]',
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_minimal/index.template.html"
+        ): (
+            "./runtime/vendor/gsap.min.js",
+            'window.__timelines["main-comp"]',
+        ),
         Path(
             "resources/hyperframes/templates/image_default/compositions/captions.template.html"
         ): (
@@ -759,6 +785,18 @@ def test_phase1_templates_reference_local_gsap_vendor_and_register_timelines():
         ),
         Path(
             "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
+        ): (
+            "../runtime/vendor/gsap.min.js",
+            'window.__timelines["captions"]',
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_full/compositions/captions.template.html"
+        ): (
+            "../runtime/vendor/gsap.min.js",
+            'window.__timelines["captions"]',
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_minimal/compositions/captions.template.html"
         ): (
             "../runtime/vendor/gsap.min.js",
             'window.__timelines["captions"]',
@@ -775,6 +813,8 @@ def test_phase1_main_templates_keep_visual_materials_as_hard_cuts():
     template_paths = [
         Path("resources/hyperframes/templates/image_default/index.template.html"),
         Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_full/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"),
     ]
 
     for path in template_paths:
@@ -788,6 +828,8 @@ def test_phase1_main_templates_show_shell_immediately_without_fade_motion():
     template_paths = [
         Path("resources/hyperframes/templates/image_default/index.template.html"),
         Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_full/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"),
     ]
 
     for path in template_paths:
@@ -807,6 +849,12 @@ def test_phase1_caption_templates_use_hard_visibility_switches_without_fades():
         Path(
             "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
         ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_full/compositions/captions.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_minimal/compositions/captions.template.html"
+        ),
     ]
 
     for path in template_paths:
@@ -818,7 +866,7 @@ def test_phase1_caption_templates_use_hard_visibility_switches_without_fades():
 
 @pytest.mark.parametrize(
     "template_id",
-    ["image_default", "image_life_insights_light"],
+    ["image_default", "image_life_insights_light", "image_landscape_full", "image_landscape_minimal"],
 )
 def test_phase1_caption_templates_compile_with_context_canvas_dimensions(
     tmp_path: Path,
@@ -883,3 +931,183 @@ def test_phase1_templates_preserve_source_shell_regions():
     assert "content" in content
     assert "bottom-section" in content
     assert "author" in content
+
+
+def test_landscape_template_assets_and_inventory_exist():
+    assert Path("templates/1920x1080/image_landscape_full.html").exists()
+    assert Path("templates/1920x1080/image_landscape_minimal.html").exists()
+    assert "image_landscape_full" in PHASE1_TEMPLATE_FIELD_INVENTORY
+    assert "image_landscape_minimal" in PHASE1_TEMPLATE_FIELD_INVENTORY
+    assert Path("resources/hyperframes/templates/image_landscape_full/text_capabilities.json").exists()
+    assert Path("resources/hyperframes/templates/image_landscape_minimal/text_capabilities.json").exists()
+
+
+def test_landscape_entry_templates_use_repo_local_font_assets():
+    full_template = Path("templates/1920x1080/image_landscape_full.html").read_text(
+        encoding="utf-8"
+    )
+    minimal_template = Path("templates/1920x1080/image_landscape_minimal.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "@font-face" in full_template
+    assert "@font-face" in minimal_template
+    assert (
+        "../../resources/hyperframes/runtime/fonts/assets/MaShanZheng-Regular.ttf"
+        in full_template
+    )
+    assert (
+        "../../resources/hyperframes/runtime/fonts/assets/NotoSansSC-wght.ttf"
+        in full_template
+    )
+    assert (
+        "../../resources/hyperframes/runtime/fonts/assets/NotoSansSC-wght.ttf"
+        in minimal_template
+    )
+    assert "fonts.googleapis.com" not in full_template
+    assert "fonts.gstatic.com" not in full_template
+    assert "Noto Serif SC" not in minimal_template
+    assert ".content-stage" in minimal_template
+    assert ".subtitle-shell" in minimal_template
+    assert "width: fit-content;" in minimal_template
+    assert "max-width: min(840px, calc(100% - 220px));" in minimal_template
+    assert "max-width: 520px;" not in minimal_template
+    assert "font-weight: 900;" in minimal_template
+    assert "background: linear-gradient(135deg" in minimal_template
+    assert "width: min(560px, 100%);" in minimal_template
+    assert "height: min(560px, calc(100% - 180px));" in minimal_template
+    assert "width: min(860px, 100%);" in minimal_template
+
+
+def test_image_landscape_full_template_uses_local_assets_and_raised_text_without_backplates():
+    index_content = Path(
+        "resources/hyperframes/templates/image_landscape_full/index.template.html"
+    ).read_text(encoding="utf-8")
+    captions_content = Path(
+        "resources/hyperframes/templates/image_landscape_full/compositions/captions.template.html"
+    ).read_text(encoding="utf-8")
+    text_layer_content = Path(
+        "resources/hyperframes/templates/image_landscape_full/compositions/text_layer.template.html"
+    ).read_text(encoding="utf-8")
+
+    assert "./runtime/fonts/phase1_fonts.css" in index_content
+    assert "../runtime/fonts/phase1_fonts.css" in captions_content
+    assert "./runtime/vendor/gsap.min.js" in index_content
+    assert "../runtime/vendor/gsap.min.js" in captions_content
+    assert "https://fonts.googleapis.com" not in index_content
+    assert "https://cdnjs.cloudflare.com" not in captions_content
+    assert 'window.__timelines["main-comp"]' in index_content
+    assert "padTimelineToDuration(tl, duration);" in index_content
+    assert "font-family: var(--hf-font-brush);" in index_content
+    assert ".info-cluster" in index_content
+    assert "left: 72px;" in index_content
+    assert "bottom: 44px;" in index_content
+    assert "__FOOTER__" in index_content
+    assert "__AUTHOR__" in index_content
+    assert "__AUTHOR_DESC__" in index_content
+    assert "bottom: 260px" not in captions_content
+    assert "bottom: 190px" in captions_content
+    assert "background: rgba(26, 37, 47, 0.78)" not in text_layer_content
+    assert "top: 74%" not in text_layer_content
+
+
+def test_image_landscape_minimal_template_uses_local_assets_and_raised_text_without_backplates():
+    index_content = Path(
+        "resources/hyperframes/templates/image_landscape_minimal/index.template.html"
+    ).read_text(encoding="utf-8")
+    captions_content = Path(
+        "resources/hyperframes/templates/image_landscape_minimal/compositions/captions.template.html"
+    ).read_text(encoding="utf-8")
+    text_layer_content = Path(
+        "resources/hyperframes/templates/image_landscape_minimal/compositions/text_layer.template.html"
+    ).read_text(encoding="utf-8")
+
+    assert "./runtime/fonts/phase1_fonts.css" in index_content
+    assert "../runtime/fonts/phase1_fonts.css" in captions_content
+    assert "./runtime/vendor/gsap.min.js" in index_content
+    assert "../runtime/vendor/gsap.min.js" in captions_content
+    assert "https://fonts.googleapis.com" not in index_content
+    assert "https://cdnjs.cloudflare.com" not in captions_content
+    assert 'window.__timelines["main-comp"]' in index_content
+    assert "padTimelineToDuration(tl, duration);" in index_content
+    assert ".minimal-line" in index_content
+    assert ".circle" in index_content
+    assert 'class="minimal-line line-1"' in index_content
+    assert 'class="circle circle-2"' in index_content
+    assert ".content-stage" in index_content
+    assert "width: fit-content;" in index_content
+    assert "max-width: min(840px, calc(100% - 220px));" in index_content
+    assert "font-weight: 900;" in index_content
+    assert "background: linear-gradient(135deg" in index_content
+    assert "width: min(560px, 100%);" in index_content
+    assert "height: min(560px, calc(100% - 180px));" in index_content
+    assert ".signature" in index_content
+    assert "right: 72px;" in index_content
+    assert "bottom: 48px;" in index_content
+    assert "__FOOTER__" in index_content
+    assert "__AUTHOR__" in index_content
+    assert "__AUTHOR_DESC__" in index_content
+    assert "left: 520px;" not in captions_content
+    assert "right: 280px;" not in captions_content
+    assert "inset: 154px 180px 116px 180px;" in captions_content
+    assert "justify-content: center;" in captions_content
+    assert "align-items: flex-end;" in captions_content
+    assert "width: min(860px, 100%);" in captions_content
+    assert "background: rgba(26, 37, 47, 0.78)" not in text_layer_content
+    assert "top: 74%" not in text_layer_content
+
+
+def test_image_landscape_full_template_compiles_with_1920x1080_canvas(tmp_path: Path):
+    compiler = HyperFramesCompiler()
+    context = TemplateRenderContext(
+        template_id="image_landscape_full",
+        canvas_width=1920,
+        canvas_height=1080,
+        duration=6.0,
+        fps=30,
+        title="横屏示例",
+        author="LanRen.AI",
+        footer="LanRen",
+        theme=None,
+        style_profile="image_landscape_full",
+        template_params={"author_desc": "Landscape"},
+        visuals=[VisualClip(id="v1", frame_index=0, start=0.0, end=6.0, media_path="assets/images/01.png", media_type="image")],
+        captions=[CaptionCue(id="c1", text="横屏字幕", start=0.0, end=2.0, frame_indices=[0], style_profile="image_landscape_full")],
+    )
+
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    captions_html = (tmp_path / "project" / "compositions" / "captions.html").read_text(encoding="utf-8")
+    text_layer_html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(encoding="utf-8")
+    assert 'data-width="1920"' in captions_html
+    assert 'data-height="1080"' in captions_html
+    assert "width: 1920px;" in text_layer_html
+    assert "height: 1080px;" in text_layer_html
+
+
+def test_image_landscape_minimal_template_compiles_with_1920x1080_canvas(tmp_path: Path):
+    compiler = HyperFramesCompiler()
+    context = TemplateRenderContext(
+        template_id="image_landscape_minimal",
+        canvas_width=1920,
+        canvas_height=1080,
+        duration=6.0,
+        fps=30,
+        title="横屏示例",
+        author="LanRen.AI",
+        footer="LanRen",
+        theme=None,
+        style_profile="image_landscape_minimal",
+        template_params={"author_desc": "Landscape"},
+        visuals=[VisualClip(id="v1", frame_index=0, start=0.0, end=6.0, media_path="assets/images/01.png", media_type="image")],
+        captions=[CaptionCue(id="c1", text="横屏字幕", start=0.0, end=2.0, frame_indices=[0], style_profile="image_landscape_minimal")],
+    )
+
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    captions_html = (tmp_path / "project" / "compositions" / "captions.html").read_text(encoding="utf-8")
+    text_layer_html = (tmp_path / "project" / "compositions" / "text_layer.html").read_text(encoding="utf-8")
+    assert 'data-width="1920"' in captions_html
+    assert 'data-height="1080"' in captions_html
+    assert "width: 1920px;" in text_layer_html
+    assert "height: 1080px;" in text_layer_html

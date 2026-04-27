@@ -1,0 +1,19 @@
+{
+  "template_id": "image_landscape_full",
+  "slots": [
+    {
+      "slot": "center",
+      "roles": ["keyword", "title", "label"],
+      "style_profiles": ["image_landscape_full", "default"],
+      "layer_min": 0,
+      "layer_max": 20
+    },
+    {
+      "slot": "lower_third",
+      "roles": ["subtitle", "keyword"],
+      "style_profiles": ["image_landscape_full", "default"],
+      "layer_min": 0,
+      "layer_max": 20
+    }
+  ]
+}

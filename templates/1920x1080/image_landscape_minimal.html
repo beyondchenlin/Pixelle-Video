@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="template:media-width" content="768">
+  <meta name="template:media-height" content="768">
+  <meta name="viewport" content="width=1920, height=1080">
+  <title>横屏极简留白 - 1920x1080</title>
+  <style>
+    @font-face {
+      font-family: 'PixelleNotoSansSC';
+      src: url('../../resources/hyperframes/runtime/fonts/assets/NotoSansSC-wght.ttf') format('truetype');
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+    }
+
+    body {
+      font-family: 'PixelleNotoSansSC', 'PingFang SC', 'Source Han Sans', 'Microsoft YaHei', sans-serif;
+      background: #f8f5ef;
+      color: #171410;
+      position: relative;
+    }
+
+    /* 背景装饰 */
+    .bg-decoration {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .minimal-line {
+      position: absolute;
+      background: linear-gradient(90deg, transparent, #171410, transparent);
+      opacity: 0.04;
+    }
+
+    .line-1 {
+      width: 500px;
+      height: 1px;
+      top: 22%;
+      left: 120px;
+      transform: rotate(-2deg);
+    }
+
+    .line-2 {
+      width: 450px;
+      height: 1px;
+      bottom: 28%;
+      right: 180px;
+      transform: rotate(3deg);
+    }
+
+    .circle {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px solid #171410;
+      opacity: 0.04;
+    }
+
+    .circle-1 {
+      width: 350px;
+      height: 350px;
+      top: -150px;
+      right: 250px;
+    }
+
+    .circle-2 {
+      width: 300px;
+      height: 300px;
+      bottom: -120px;
+      left: 350px;
+    }
+
+    /* 左侧标题区 */
+    .header {
+      position: absolute;
+      top: 92px;
+      left: 110px;
+      width: fit-content;
+      max-width: min(840px, calc(100% - 220px));
+      z-index: 3;
+    }
+
+    .title {
+      display: inline-block;
+      font-size: 76px;
+      line-height: 1.12;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+      color: #171410;
+      background: linear-gradient(135deg, #1a1611 0%, #2c2416 50%, #1a1611 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      filter: contrast(1.08) brightness(0.94);
+    }
+
+    .content-stage {
+      position: absolute;
+      inset: 154px 180px 116px 180px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 56px;
+      z-index: 2;
+    }
+
+    .visual-shell {
+      width: min(560px, 100%);
+      height: min(560px, calc(100% - 180px));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .visual-shell img {
+      width: auto;
+      height: auto;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
+      background: #fff;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+    }
+
+    .subtitle-shell {
+      width: min(860px, 100%);
+      min-height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .subtitle {
+      width: 100%;
+      text-align: center;
+      font-size: 44px;
+      line-height: 1.45;
+      font-weight: 500;
+      color: #171410;
+      text-shadow: 0 3px 12px rgba(255,255,255,0.28);
+    }
+
+    /* 右下角签名区 */
+    .signature {
+      position: absolute;
+      right: 72px;
+      bottom: 48px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      z-index: 3;
+    }
+
+    .signature-brand {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: #171410;
+    }
+
+    .signature-author {
+      font-size: 24px;
+      font-weight: 500;
+      color: #171410;
+    }
+
+    .signature-desc {
+      font-size: 18px;
+      color: #171410;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-decoration">
+    <div class="minimal-line line-1"></div>
+    <div class="minimal-line line-2"></div>
+    <div class="circle circle-1"></div>
+    <div class="circle circle-2"></div>
+  </div>
+
+  <!-- 左侧标题 -->
+  <div class="header">
+    <div class="title">{{title}}</div>
+  </div>
+
+  <div class="content-stage">
+    <!-- 中间图片 -->
+    <div class="visual-shell">
+      <img src="{{image}}" alt="内容图片">
+    </div>
+
+    <!-- 字幕 -->
+    <div class="subtitle-shell">
+      <div class="subtitle">{{text}}</div>
+    </div>
+  </div>
+
+  <!-- 右下角签名 -->
+  <div class="signature">
+    <div class="signature-brand">{{brand=LanRen}}</div>
+    <div class="signature-author">{{author=LanRen.AI}}</div>
+    <div class="signature-desc">{{describe=LanRen}}</div>
+  </div>
+</body>
+</html>

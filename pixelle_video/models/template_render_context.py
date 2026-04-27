@@ -23,6 +23,22 @@ PHASE1_TEMPLATE_FIELD_INVENTORY: Dict[str, Dict[str, str]] = {
         "decorative_background": "Warm paper-like background with dot/grid textures and soft decorative circles.",
         "style_profile": "image_life_insights_light",
     },
+    "image_landscape_full": {
+        "title_region": "Centered title band across the upper safe area of a 1920x1080 full-bleed image shell.",
+        "media_slot": "Single full-bleed landscape visual that occupies the whole frame behind title and subtitle overlays.",
+        "subtitle_safe_area": "Raised centered subtitle band above the footer zone with no background panel.",
+        "author_footer_region": "Compact lower-left info cluster consuming author, author_desc, and footer away from captions.",
+        "decorative_background": "No separate paper shell; readability comes from outline and shadow over the full-bleed visual.",
+        "style_profile": "image_landscape_full",
+    },
+    "image_landscape_minimal": {
+        "title_region": "Small left-aligned title block in the upper-left safe area of a 1920x1080 white composition.",
+        "media_slot": "Centered framed landscape illustration with generous whitespace around it.",
+        "subtitle_safe_area": "Raised centered subtitle line below the media frame with no card or panel background.",
+        "author_footer_region": "Lightweight lower-right signature cluster consuming author, author_desc, and footer.",
+        "decorative_background": "White paper-like background with restrained line and circle accents.",
+        "style_profile": "image_landscape_minimal",
+    },
 }
 
 
