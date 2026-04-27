@@ -105,6 +105,7 @@ def build_video_generation_params(
         "prompt_prefix": request_body.prompt_prefix,
         "world_preset_id": request_body.world_preset_id,
         "shot_preset_id": request_body.shot_preset_id,
+        "storyboard_prompt_language": request_body.storyboard_prompt_language,
         "consistency_strength": request_body.consistency_strength or "standard",
         "content_mode": request_body.content_mode,
         "role_strategy": request_body.role_strategy,

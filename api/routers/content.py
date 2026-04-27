@@ -16,7 +16,7 @@ Content generation endpoints
 Endpoints for generating narrations, image prompts, and titles.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 from loguru import logger
 
 from api.dependencies import PixelleVideoDep
@@ -28,6 +28,7 @@ from api.schemas.content import (
     TitleGenerateRequest,
     TitleGenerateResponse,
 )
+from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 from pixelle_video.utils.content_generators import (
     generate_narrations_from_topic,
     generate_styled_image_prompt_batch,
@@ -105,36 +106,81 @@ async def generate_image_prompt(
         logger.info(f"Generating image prompts for {len(request.narrations)} narrations")
 
         image_config = pixelle_video.config.get("comfyui", {}).get("image", {})
-        batch = await generate_styled_image_prompt_batch(
-            llm_service=pixelle_video.llm,
-            narrations=request.narrations,
-            image_config=image_config,
-            prompt_prefix=request.prompt_prefix,
-            workflow=request.workflow,
-            media_service=pixelle_video.media,
-            min_words=request.min_words,
-            max_words=request.max_words,
-            batch_size=getattr(request, LLM_PROMPT_BATCH_SIZE_PARAM),
-            max_concurrency=getattr(request, LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM),
-            world_preset_id=request.world_preset_id,
-            shot_preset_id=request.shot_preset_id,
-            consistency_strength=request.consistency_strength or "standard",
-            content_mode=request.content_mode,
-            role_strategy=request.role_strategy,
-            role_locking_strength=request.role_locking_strength,
-            shot_strategy=request.shot_strategy,
-            frame_overrides=_serialize_frame_overrides(request.frame_overrides),
-            text_rendering=(
-                request.text_rendering.model_dump(exclude_none=True)
-                if request.text_rendering is not None
-                else None
-            ),
+        storyboard_plan = (
+            request.storyboard_generation.to_storyboard_plan()
+            if request.storyboard_generation is not None
+            else None
         )
+        text_rendering = (
+            request.text_rendering.model_dump(exclude_none=True)
+            if request.text_rendering is not None
+            else None
+        )
+        if storyboard_plan is not None:
+            batch = await ImagePromptComposer().compose(
+                llm_service=pixelle_video.llm,
+                storyboard_plan=storyboard_plan,
+                image_config=image_config,
+                prompt_prefix=request.prompt_prefix,
+                prompt_language=request.storyboard_prompt_language,
+                workflow=request.workflow,
+                media_service=pixelle_video.media,
+                min_words=request.min_words,
+                max_words=request.max_words,
+                batch_size=getattr(request, LLM_PROMPT_BATCH_SIZE_PARAM),
+                max_concurrency=getattr(request, LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM),
+                world_preset_id=request.world_preset_id,
+                shot_preset_id=request.shot_preset_id,
+                consistency_strength=request.consistency_strength or "standard",
+                content_mode=request.content_mode,
+                role_strategy=request.role_strategy,
+                role_locking_strength=request.role_locking_strength,
+                shot_strategy=request.shot_strategy,
+                frame_overrides=_serialize_frame_overrides(request.frame_overrides),
+                text_rendering=text_rendering,
+            )
+        else:
+            batch = await generate_styled_image_prompt_batch(
+                llm_service=pixelle_video.llm,
+                narrations=request.narrations,
+                image_config=image_config,
+                prompt_prefix=request.prompt_prefix,
+                workflow=request.workflow,
+                media_service=pixelle_video.media,
+                min_words=request.min_words,
+                max_words=request.max_words,
+                batch_size=getattr(request, LLM_PROMPT_BATCH_SIZE_PARAM),
+                max_concurrency=getattr(request, LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM),
+                prompt_language=request.storyboard_prompt_language,
+                world_preset_id=request.world_preset_id,
+                shot_preset_id=request.shot_preset_id,
+                consistency_strength=request.consistency_strength or "standard",
+                content_mode=request.content_mode,
+                role_strategy=request.role_strategy,
+                role_locking_strength=request.role_locking_strength,
+                shot_strategy=request.shot_strategy,
+                frame_overrides=_serialize_frame_overrides(request.frame_overrides),
+                text_rendering=text_rendering,
+            )
 
         return ImagePromptGenerateResponse(
             image_prompts=batch.prompts
         )
-        
+
+    except ValueError as e:
+        # Validation errors from normalize_plan_frame_overrides or other validation
+        # These are client errors (4xx), not server errors (5xx)
+        error_msg = str(e)
+        logger.warning(f"Image prompt validation error: {error_msg}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error_msg
+        )
+
+    except HTTPException:
+        # Re-raise HTTPExceptions as-is (e.g., from dependencies)
+        raise
+
     except Exception as e:
         logger.error(f"Image prompt generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
