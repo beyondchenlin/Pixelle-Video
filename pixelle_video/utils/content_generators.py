@@ -43,6 +43,7 @@ from pixelle_video.models.text_overlay import (
     build_text_rendering_policy,
     build_text_rendering_settings,
 )
+from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
 from pixelle_video.utils.prompt_batching import (
@@ -631,6 +632,7 @@ async def generate_image_prompts(
     narrations: List[str],
     min_words: int = 30,
     max_words: int = 60,
+    prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
     batch_size: Optional[int] = None,
     max_concurrency: Optional[int] = None,
     max_retries: int = 3,
@@ -699,6 +701,7 @@ async def generate_image_prompts(
                 batch.start_index,
                 len(batch.items),
             ),
+            prompt_language=prompt_language,
         )
 
         response: ImagePromptBatchResponse = await llm_service(
@@ -797,6 +800,7 @@ async def generate_styled_image_prompt_batch(
     narrations: List[str],
     image_config,
     prompt_contexts: Optional[PromptContextInput] = None,
+    prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
     prompt_prefix: Optional[str] = None,
     workflow: Optional[str] = None,
     media_service=None,
@@ -939,6 +943,7 @@ async def generate_styled_image_prompt_batch(
             planning = await plan_storyboard_batch(
                 llm_service=llm_service,
                 narrations=narrations,
+                prompt_language=prompt_language,
                 image_config=image_config,
                 prompt_prefix=prompt_prefix,
                 world_preset_id=world_preset_id,
@@ -1005,20 +1010,36 @@ async def generate_styled_image_prompt_batch(
             reason="storyboard controls disabled",
         )
 
-    prompt_generator = generate_video_prompts if media_type == "video" else generate_image_prompts
-    base_prompts = await prompt_generator(
-        llm_service=llm_service,
-        narrations=narrations,
-        min_words=min_words,
-        max_words=max_words,
-        batch_size=batch_size,
-        max_concurrency=max_concurrency,
-        max_retries=max_retries,
-        progress_callback=progress_callback,
-        style_profile=style_profile,
-        prompt_contexts=normalized_prompt_contexts,
-        stage_callback=stage_callback,
-    )
+    if media_type == "video":
+        base_prompts = await generate_video_prompts(
+            llm_service=llm_service,
+            narrations=narrations,
+            min_words=min_words,
+            max_words=max_words,
+            prompt_language=prompt_language,
+            batch_size=batch_size,
+            max_concurrency=max_concurrency,
+            max_retries=max_retries,
+            progress_callback=progress_callback,
+            style_profile=style_profile,
+            prompt_contexts=normalized_prompt_contexts,
+            stage_callback=stage_callback,
+        )
+    else:
+        base_prompts = await generate_image_prompts(
+            llm_service=llm_service,
+            narrations=narrations,
+            min_words=min_words,
+            max_words=max_words,
+            prompt_language=prompt_language,
+            batch_size=batch_size,
+            max_concurrency=max_concurrency,
+            max_retries=max_retries,
+            progress_callback=progress_callback,
+            style_profile=style_profile,
+            prompt_contexts=normalized_prompt_contexts,
+            stage_callback=stage_callback,
+        )
 
     capabilities = WorkflowCapabilities()
     if media_service is not None:
@@ -1168,6 +1189,7 @@ async def generate_video_prompts(
     narrations: List[str],
     min_words: int = 30,
     max_words: int = 60,
+    prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
     batch_size: Optional[int] = None,
     max_concurrency: Optional[int] = None,
     max_retries: int = 3,
@@ -1236,6 +1258,7 @@ async def generate_video_prompts(
                 batch.start_index,
                 len(batch.items),
             ),
+            prompt_language=prompt_language,
         )
 
         response: VideoPromptBatchResponse = await llm_service(

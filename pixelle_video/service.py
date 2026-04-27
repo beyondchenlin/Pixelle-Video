@@ -25,6 +25,7 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.models.video_generation_contract import (
+    normalize_standard_video_generation_params,
     validate_standard_video_generation_params,
 )
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
@@ -313,19 +314,24 @@ class PixelleVideoCore:
                     f"Unknown pipeline: '{pipeline}'. "
                     f"Available pipelines: {available}"
                 )
-            
+
+            normalized_kwargs = dict(kwargs)
             if pipeline == "standard":
-                validate_standard_video_generation_params(kwargs, config=self.config)
+                normalized_kwargs = normalize_standard_video_generation_params(kwargs)
+                validate_standard_video_generation_params(
+                    normalized_kwargs,
+                    config=self.config,
+                )
 
             pipeline_instance = self.pipelines[pipeline]
             fingerprint = build_generation_fingerprint(
                 text=text,
                 pipeline=pipeline,
-                params=kwargs,
+                params=normalized_kwargs,
             )
 
             async def execute_generation():
-                return await pipeline_instance(text=text, **kwargs)
+                return await pipeline_instance(text=text, **normalized_kwargs)
 
             return await self.generation_coordinator.run(fingerprint, execute_generation)
         

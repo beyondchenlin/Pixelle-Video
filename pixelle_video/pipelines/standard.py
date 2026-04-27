@@ -55,6 +55,8 @@ from pixelle_video.models.storyboard import (
     build_storyboard_config_planning_kwargs,
     build_storyboard_frame_planning_kwargs,
 )
+from pixelle_video.models.video_generation_contract import StoryboardControlsContract
+from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
 from pixelle_video.render_backend import (
@@ -201,7 +203,11 @@ class StandardPipeline(LinearVideoPipeline):
         """Step 2: Generate or process script/narrations."""
         mode = ctx.params.get("mode", "generate")
         text = ctx.input_text
-        requested_scene_count = ctx.params.get("storyboard_scene_count")
+        storyboard_contract = StoryboardControlsContract.from_mapping(
+            ctx.params,
+            default_prompt_language=DEFAULT_PROMPT_LANGUAGE,
+        )
+        requested_scene_count = storyboard_contract.storyboard_scene_count
         stage_callback = self._ai_stage_callback(ctx)
 
         summary = ctx.observability.setdefault("ai_creation", {})
@@ -243,9 +249,10 @@ class StandardPipeline(LinearVideoPipeline):
         ).generate(
             llm_service=self.llm,
             source_text=ctx.source_text,
-            storyboard_mode=ctx.params.get("storyboard_mode", "smart"),
-            storyboard_count_mode=ctx.params.get("storyboard_count_mode", "auto"),
-            storyboard_scene_count=ctx.params.get("storyboard_scene_count"),
+            storyboard_mode=storyboard_contract.storyboard_mode,
+            storyboard_count_mode=storyboard_contract.storyboard_count_mode,
+            storyboard_scene_count=storyboard_contract.storyboard_scene_count,
+            prompt_language=storyboard_contract.storyboard_prompt_language,
         )
         ctx.source_text = ctx.storyboard_plan.source_text
         ctx.caption_speech_plan = build_caption_speech_plan(
@@ -307,6 +314,10 @@ class StandardPipeline(LinearVideoPipeline):
 
     async def plan_visuals(self, ctx: PipelineContext):
         """Step 4: Generate image prompts or visual descriptions."""
+        storyboard_contract = StoryboardControlsContract.from_mapping(
+            ctx.params,
+            default_prompt_language=DEFAULT_PROMPT_LANGUAGE,
+        )
         # Detect template type to determine if media generation is needed
         frame_template = ctx.params.get("frame_template") or "1080x1920/default.html"
         
@@ -362,6 +373,7 @@ class StandardPipeline(LinearVideoPipeline):
                 llm_service=self.llm,
                 storyboard_plan=ctx.storyboard_plan,
                 image_config=image_config,
+                prompt_language=storyboard_contract.storyboard_prompt_language,
                 prompt_prefix=prompt_prefix,
                 workflow=ctx.params.get("media_workflow"),
                 media_service=self.core.media,
@@ -371,14 +383,14 @@ class StandardPipeline(LinearVideoPipeline):
                 batch_size=ctx.params.get(LLM_PROMPT_BATCH_SIZE_PARAM),
                 max_concurrency=ctx.params.get(LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM),
                 progress_callback=image_prompt_progress,
-                world_preset_id=ctx.params.get("world_preset_id"),
-                shot_preset_id=ctx.params.get("shot_preset_id"),
-                consistency_strength=ctx.params.get("consistency_strength", "standard"),
-                content_mode=ctx.params.get("content_mode"),
-                role_strategy=ctx.params.get("role_strategy"),
-                role_locking_strength=ctx.params.get("role_locking_strength"),
-                shot_strategy=ctx.params.get("shot_strategy"),
-                frame_overrides=ctx.params.get("frame_overrides"),
+                world_preset_id=storyboard_contract.world_preset_id,
+                shot_preset_id=storyboard_contract.shot_preset_id,
+                consistency_strength=storyboard_contract.consistency_strength or "standard",
+                content_mode=storyboard_contract.content_mode,
+                role_strategy=storyboard_contract.role_strategy,
+                role_locking_strength=storyboard_contract.role_locking_strength,
+                shot_strategy=storyboard_contract.shot_strategy,
+                frame_overrides=list(storyboard_contract.frame_overrides),
                 text_rendering=ctx.params.get("text_rendering"),
                 native_prompt_hints_by_frame=native_hints,
                 stage_callback=stage_callback,
