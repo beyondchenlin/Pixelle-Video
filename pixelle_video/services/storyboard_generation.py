@@ -15,6 +15,12 @@ from pixelle_video.models.storyboard_plan import (
     StoryboardPlan,
     StoryboardPlanFrame,
 )
+from pixelle_video.prompt_language import (
+    CHINESE_PROMPT_LANGUAGE,
+    DEFAULT_PROMPT_LANGUAGE,
+    PromptLanguage,
+    normalize_prompt_language,
+)
 from pixelle_video.prompts.storyboard_generation import (
     _split_into_source_spans,
     build_smart_storyboard_prompt,
@@ -194,6 +200,7 @@ class StoryboardGenerationService:
         storyboard_mode: str,
         storyboard_count_mode: str,
         storyboard_scene_count: int | None,
+        prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
     ) -> StoryboardPlan:
         if not _normalize_text(source_text):
             raise ValueError("source_text must not be empty")
@@ -205,6 +212,7 @@ class StoryboardGenerationService:
                 requested_scene_count=storyboard_scene_count,
                 source_text=source_text,
                 segments=segments,
+                prompt_language=prompt_language,
             )
         if storyboard_mode == "sentence":
             segments = _sentence_segments(source_text)
@@ -214,6 +222,7 @@ class StoryboardGenerationService:
                 requested_scene_count=storyboard_scene_count,
                 source_text=source_text,
                 segments=segments,
+                prompt_language=prompt_language,
             )
         if storyboard_mode == "smart":
             return await self._generate_smart(
@@ -221,6 +230,7 @@ class StoryboardGenerationService:
                 source_text=source_text,
                 count_mode=storyboard_count_mode,
                 requested_scene_count=storyboard_scene_count,
+                prompt_language=prompt_language,
             )
         raise ValueError(f"unsupported storyboard mode: {storyboard_mode}")
 
@@ -231,6 +241,7 @@ class StoryboardGenerationService:
         source_text: str,
         count_mode: str,
         requested_scene_count: int | None,
+        prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
     ) -> StoryboardPlan:
         if llm_service is None:
             raise ValueError("smart storyboard mode requires llm_service")
@@ -256,6 +267,7 @@ class StoryboardGenerationService:
             requested_scene_count=requested_scene_count,
             min_scene_count=min_scene_count,
             max_scene_count=max_scene_count,
+            prompt_language=prompt_language,
         )
         try:
             frames = await self._generate_smart_frames_with_repair(
@@ -279,6 +291,7 @@ class StoryboardGenerationService:
                 requested_scene_count=requested_scene_count,
                 source_text=normalized_source,
                 segments=_sentence_segments(normalized_source),
+                prompt_language=prompt_language,
                 frame_strategy="smart_sentence_fallback",
                 diagnostics_strategy="smart_sentence_fallback",
                 extra_diagnostics={
@@ -621,11 +634,13 @@ class StoryboardGenerationService:
         requested_scene_count: int | None,
         source_text: str,
         segments: list[tuple[str, int, int]],
+        prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
         frame_strategy: str | None = None,
         diagnostics_strategy: str | None = None,
         extra_diagnostics: dict[str, Any] | None = None,
     ) -> StoryboardPlan:
         normalized_source = _normalize_text(source_text)
+        resolved_prompt_language = normalize_prompt_language(prompt_language)
         effective_segments = segments or [(normalized_source, 0, len(normalized_source))]
         max_scene_count = self.limits.max_scene_count
         if len(effective_segments) > max_scene_count:
@@ -637,8 +652,16 @@ class StoryboardGenerationService:
             StoryboardPlanFrame(
                 index=index,
                 source_text=segment,
-                visual_goal=f"Visualize storyboard segment {index}.",
-                prompt_intent=f"Create a coherent scene that communicates: {segment}",
+                visual_goal=(
+                    f"用画面表达第 {index} 个分镜段落。"
+                    if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE
+                    else f"Visualize storyboard segment {index}."
+                ),
+                prompt_intent=(
+                    f"创建一个连贯的画面来传达：{segment}"
+                    if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE
+                    else f"Create a coherent scene that communicates: {segment}"
+                ),
                 source_start=start,
                 source_end=end,
                 metadata={"strategy": frame_strategy or mode},

@@ -11,6 +11,7 @@ from pixelle_video.models.video_generation_contract import (
     PLAN_FRAME_OVERRIDE_VALUE_FIELDS,
     normalize_plan_frame_overrides,
 )
+from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 
 
@@ -23,6 +24,7 @@ class ImagePromptComposer:
         storyboard_plan: StoryboardPlan,
         image_config,
         prompt_prefix: Optional[str] = None,
+        prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
         workflow: Optional[str] = None,
         media_service=None,
         media_type: Literal["image", "video"] = "image",
@@ -59,6 +61,7 @@ class ImagePromptComposer:
             ],
             prompt_contexts=prompt_contexts,
             image_config=image_config,
+            prompt_language=prompt_language,
             prompt_prefix=prompt_prefix,
             workflow=workflow,
             media_service=media_service,
@@ -75,7 +78,7 @@ class ImagePromptComposer:
             role_strategy=role_strategy,
             role_locking_strength=role_locking_strength,
             shot_strategy=shot_strategy,
-            frame_overrides=None,
+            frame_overrides=normalized_overrides,
             text_rendering=text_rendering,
             native_prompt_hints_by_frame=native_prompt_hints_by_frame,
             stage_callback=stage_callback,

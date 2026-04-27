@@ -20,6 +20,7 @@ from pixelle_video.models.storyboard_planning import (
     StoryboardPlanningResponse,
     StoryboardPlanningResult,
 )
+from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, normalize_prompt_language
 from pixelle_video.prompts.storyboard_planning import (
     build_storyboard_planning_prompt,
     parse_storyboard_frames,
@@ -299,6 +300,7 @@ async def plan_storyboard_batch(
     *,
     llm_service,
     narrations: Sequence[str],
+    prompt_language: str = DEFAULT_PROMPT_LANGUAGE,
     image_config: Any | None = None,
     prompt_prefix: str | None = None,
     world_preset_id: str | None = None,
@@ -350,6 +352,10 @@ async def plan_storyboard_batch(
     )
     selected_role_locking_strength = role_locking_strength or consistency_strength
     selected_shot_strategy = shot_strategy or resolved_shot_preset.override_policy
+    resolved_prompt_language = normalize_prompt_language(
+        prompt_language,
+        default=DEFAULT_PROMPT_LANGUAGE,
+    )
     normalized_prompt_contexts = _normalize_prompt_contexts(
         prompt_contexts,
         len(narrations),
@@ -376,6 +382,7 @@ async def plan_storyboard_batch(
             role_locking_strength=selected_role_locking_strength,
             shot_strategy=selected_shot_strategy,
             scene_id_start=scene_id_start,
+            prompt_language=resolved_prompt_language,
         )
         async with planning_semaphore:
             llm_response = await llm_service(
@@ -403,6 +410,7 @@ async def plan_storyboard_batch(
     applied_overrides = apply_frame_overrides(
         frame_plans=frame_plans,
         frame_overrides=frame_overrides or [],
+        prompt_contexts=normalized_prompt_contexts,
     )
     repaired_frame_plans = repair_frame_plan_shots(
         frame_plans=applied_overrides,
@@ -415,6 +423,7 @@ async def plan_storyboard_batch(
         "requested_shot_preset_id": shot_preset_id,
         "effective_final_shot_preset": resolved_shot_preset.preset_id,
         "resolved_content_mode": resolved_mode.mode,
+        "storyboard_prompt_language": resolved_prompt_language,
         "resolved_mode_selection_source": resolved_mode_source,
         "selected_consistency_strength": consistency_strength,
         "resolved_role_strategy": resolved_role_strategy,
