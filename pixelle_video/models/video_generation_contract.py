@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -13,6 +14,11 @@ from pixelle_video.models.storyboard_limits import (
     DEFAULT_STORYBOARD_GENERATION_LIMITS,
     StoryboardGenerationLimits,
     storyboard_generation_limits_from_config,
+)
+from pixelle_video.prompt_language import (
+    DEFAULT_PROMPT_LANGUAGE,
+    PromptLanguage,
+    normalize_prompt_language,
 )
 from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
 
@@ -61,6 +67,147 @@ VIDEO_GENERATION_MODES = frozenset({"generate", "fixed"})
 STORYBOARD_GENERATION_LIMITS = DEFAULT_STORYBOARD_GENERATION_LIMITS
 STORYBOARD_SCENE_COUNT_MIN = STORYBOARD_GENERATION_LIMITS.min_scene_count
 STORYBOARD_SCENE_COUNT_MAX = STORYBOARD_GENERATION_LIMITS.max_scene_count
+STORYBOARD_GENERATION_OPTION_KEYS = (
+    "storyboard_mode",
+    "storyboard_count_mode",
+    "storyboard_scene_count",
+    "storyboard_prompt_language",
+)
+STORYBOARD_PLANNING_OPTION_KEYS = (
+    "world_preset_id",
+    "shot_preset_id",
+    "consistency_strength",
+    "content_mode",
+    "role_strategy",
+    "role_locking_strength",
+    "shot_strategy",
+    "frame_overrides",
+)
+
+
+def _normalize_optional_contract_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+@dataclass(frozen=True)
+class StoryboardControlsContract:
+    storyboard_mode: str = StoryboardGenerationMode.SMART.value
+    storyboard_count_mode: str = StoryboardCountMode.AUTO.value
+    storyboard_scene_count: Any = None
+    storyboard_prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE
+    world_preset_id: str | None = None
+    shot_preset_id: str | None = None
+    consistency_strength: str | None = None
+    content_mode: str | None = None
+    role_strategy: str | None = None
+    role_locking_strength: str | None = None
+    shot_strategy: str | None = None
+    frame_overrides: tuple[dict[str, Any], ...] = ()
+
+    @classmethod
+    def from_mapping(
+        cls,
+        params: Mapping[str, Any] | None,
+        *,
+        default_prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
+    ) -> "StoryboardControlsContract":
+        mapping = params or {}
+        storyboard_mode = (
+            _normalize_optional_contract_string(mapping.get("storyboard_mode"))
+            or StoryboardGenerationMode.SMART.value
+        )
+        storyboard_count_mode = (
+            _normalize_optional_contract_string(mapping.get("storyboard_count_mode"))
+            or StoryboardCountMode.AUTO.value
+        )
+        storyboard_scene_count = mapping.get("storyboard_scene_count")
+
+        if storyboard_mode == StoryboardGenerationMode.SMART.value:
+            if storyboard_count_mode == StoryboardCountMode.AUTO.value:
+                storyboard_count_mode = StoryboardCountMode.AUTO.value
+                storyboard_scene_count = None
+        elif storyboard_mode in {
+            StoryboardGenerationMode.PUNCTUATION.value,
+            StoryboardGenerationMode.SENTENCE.value,
+        }:
+            if storyboard_count_mode in {
+                StoryboardCountMode.AUTO.value,
+                StoryboardCountMode.MANUAL.value,
+            }:
+                storyboard_count_mode = StoryboardCountMode.AUTO.value
+                storyboard_scene_count = None
+
+        frame_overrides = ()
+        if mapping.get("frame_overrides") is not None:
+            frame_overrides = tuple(normalize_plan_frame_overrides(mapping.get("frame_overrides")))
+
+        return cls(
+            storyboard_mode=storyboard_mode,
+            storyboard_count_mode=storyboard_count_mode,
+            storyboard_scene_count=storyboard_scene_count,
+            storyboard_prompt_language=normalize_prompt_language(
+                mapping.get("storyboard_prompt_language"),
+                default=default_prompt_language,
+            ),
+            world_preset_id=_normalize_optional_contract_string(mapping.get("world_preset_id")),
+            shot_preset_id=_normalize_optional_contract_string(mapping.get("shot_preset_id")),
+            consistency_strength=_normalize_optional_contract_string(mapping.get("consistency_strength")),
+            content_mode=_normalize_optional_contract_string(mapping.get("content_mode")),
+            role_strategy=_normalize_optional_contract_string(mapping.get("role_strategy")),
+            role_locking_strength=_normalize_optional_contract_string(
+                mapping.get("role_locking_strength")
+            ),
+            shot_strategy=_normalize_optional_contract_string(mapping.get("shot_strategy")),
+            frame_overrides=frame_overrides,
+        )
+
+    def to_generation_dict(self) -> dict[str, Any]:
+        return {
+            "storyboard_mode": self.storyboard_mode,
+            "storyboard_count_mode": self.storyboard_count_mode,
+            "storyboard_scene_count": self.storyboard_scene_count,
+            "storyboard_prompt_language": self.storyboard_prompt_language,
+        }
+
+    def to_planning_dict(self, *, include_prompt_language: bool = False) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if include_prompt_language:
+            payload["storyboard_prompt_language"] = self.storyboard_prompt_language
+        for key in (
+            "world_preset_id",
+            "shot_preset_id",
+            "consistency_strength",
+            "content_mode",
+            "role_strategy",
+            "role_locking_strength",
+            "shot_strategy",
+        ):
+            value = getattr(self, key)
+            if value is not None:
+                payload[key] = value
+        if self.frame_overrides:
+            payload["frame_overrides"] = [dict(override) for override in self.frame_overrides]
+        return payload
+
+
+def normalize_standard_video_generation_params(
+    params: Mapping[str, Any] | None,
+    *,
+    default_prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
+) -> dict[str, Any]:
+    normalized = dict(params or {})
+    storyboard_contract = StoryboardControlsContract.from_mapping(
+        normalized,
+        default_prompt_language=default_prompt_language,
+    )
+    for key in (*STORYBOARD_GENERATION_OPTION_KEYS, *STORYBOARD_PLANNING_OPTION_KEYS):
+        normalized.pop(key, None)
+    normalized.update(storyboard_contract.to_generation_dict())
+    normalized.update(storyboard_contract.to_planning_dict(include_prompt_language=True))
+    return normalized
 
 
 def validate_standard_video_generation_params(

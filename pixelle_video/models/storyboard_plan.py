@@ -188,6 +188,48 @@ class StoryboardPlan:
             diagnostics=_json_safe_copy(diagnostics or {}),
         )
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "StoryboardPlan":
+        if not isinstance(payload, Mapping):
+            raise ValueError("StoryboardPlan payload must be a mapping")
+
+        frames_payload = payload.get("frames")
+        if not isinstance(frames_payload, (list, tuple)) or not frames_payload:
+            raise ValueError("StoryboardPlan payload must include a non-empty frames list")
+
+        frames = [
+            StoryboardPlanFrame(
+                index=frame_payload["index"],
+                source_text=frame_payload["source_text"],
+                visual_goal=frame_payload["visual_goal"],
+                prompt_intent=frame_payload["prompt_intent"],
+                frame_id=frame_payload.get("frame_id", ""),
+                shot_type=frame_payload.get("shot_type"),
+                shot_purpose=frame_payload.get("shot_purpose"),
+                primary_subject=frame_payload.get("primary_subject"),
+                secondary_subjects=frame_payload.get("secondary_subjects", ()),
+                continuity_anchors=frame_payload.get("continuity_anchors", ()),
+                world_elements=frame_payload.get("world_elements", ()),
+                source_start=frame_payload.get("source_start"),
+                source_end=frame_payload.get("source_end"),
+                metadata=frame_payload.get("metadata") or {},
+            )
+            for frame_payload in frames_payload
+        ]
+
+        return cls(
+            plan_id=payload["plan_id"],
+            revision=payload["revision"],
+            mode=payload["mode"],
+            count_mode=payload["count_mode"],
+            requested_scene_count=payload.get("requested_scene_count"),
+            resolved_scene_count=payload["resolved_scene_count"],
+            source_text=payload["source_text"],
+            source_digest=payload["source_digest"],
+            frames=frames,
+            diagnostics=payload.get("diagnostics") or {},
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "plan_id": self.plan_id,

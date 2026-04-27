@@ -19,12 +19,14 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
+from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, normalize_prompt_language
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, validate_render_backend
 from pixelle_video.tts_audio_strategy import (
     DEFAULT_TTS_AUDIO_STRATEGY,
     validate_tts_audio_strategy,
 )
 from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, validate_tts_split_mode
+from pixelle_video.models.video_generation_contract import StoryboardControlsContract
 from pixelle_video.utils.text_splitting import (
     DEFAULT_CAPTION_PUNCTUATION_MODE,
     DEFAULT_TTS_SENTENCE_JOINER_MODE,
@@ -106,6 +108,7 @@ class StoryboardConfig:
     template_text_policy: str = "caption_renderer"
     world_preset_id: Optional[str] = None
     shot_preset_id: Optional[str] = None
+    storyboard_prompt_language: Optional[str] = None
     content_mode: Optional[str] = None
     consistency_strength: Optional[str] = None
     role_strategy: Optional[str] = None
@@ -263,36 +266,52 @@ def build_storyboard_config_planning_kwargs(
     params: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     snapshot = planning_snapshot or {}
-    if not snapshot:
-        return {}
+    storyboard_contract = StoryboardControlsContract.from_mapping(
+        params or {},
+        default_prompt_language=DEFAULT_PROMPT_LANGUAGE,
+    )
 
     return {
         "world_preset_id": _first_non_none(
             snapshot.get("world_preset_id"),
+            storyboard_contract.world_preset_id,
         ),
         "shot_preset_id": _first_non_none(
             snapshot.get("shot_preset_id"),
             snapshot.get("effective_final_shot_preset"),
+            storyboard_contract.shot_preset_id,
+        ),
+        "storyboard_prompt_language": normalize_prompt_language(
+            _first_non_none(
+                snapshot.get("storyboard_prompt_language"),
+                storyboard_contract.storyboard_prompt_language,
+            ),
+            default=DEFAULT_PROMPT_LANGUAGE,
         ),
         "content_mode": _first_non_none(
             snapshot.get("content_mode"),
             snapshot.get("resolved_content_mode"),
+            storyboard_contract.content_mode,
         ),
         "consistency_strength": _first_non_none(
             snapshot.get("consistency_strength"),
             snapshot.get("selected_consistency_strength"),
+            storyboard_contract.consistency_strength,
         ),
         "role_strategy": _first_non_none(
             snapshot.get("role_strategy"),
             snapshot.get("resolved_role_strategy"),
+            storyboard_contract.role_strategy,
         ),
         "role_locking_strength": _first_non_none(
             snapshot.get("role_locking_strength"),
             snapshot.get("selected_role_locking_strength"),
+            storyboard_contract.role_locking_strength,
         ),
         "shot_strategy": _first_non_none(
             snapshot.get("shot_strategy"),
             snapshot.get("selected_shot_strategy"),
+            storyboard_contract.shot_strategy,
         ),
     }
 
