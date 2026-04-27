@@ -213,7 +213,7 @@ class VideoGenerateRequest(BaseModel):
     world_preset_id: Optional[str] = Field(None, description="Storyboard world preset id")
     shot_preset_id: Optional[str] = Field(None, description="Storyboard shot preset id")
     storyboard_prompt_language: StoryboardPromptLanguage = Field(
-        "en_US",
+        "zh_CN",
         description="Language used for storyboard planning fields and generated image prompts",
     )
     consistency_strength: Optional[ConsistencyStrength] = Field(

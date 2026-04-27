@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
-from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, normalize_prompt_language
+from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage, normalize_prompt_language
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, validate_render_backend
 from pixelle_video.tts_audio_strategy import (
     DEFAULT_TTS_AUDIO_STRATEGY,
@@ -108,7 +108,7 @@ class StoryboardConfig:
     template_text_policy: str = "caption_renderer"
     world_preset_id: Optional[str] = None
     shot_preset_id: Optional[str] = None
-    storyboard_prompt_language: Optional[str] = None
+    storyboard_prompt_language: Optional[PromptLanguage] = None
     content_mode: Optional[str] = None
     consistency_strength: Optional[str] = None
     role_strategy: Optional[str] = None

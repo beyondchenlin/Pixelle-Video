@@ -113,7 +113,7 @@ class ImagePromptGenerateRequest(BaseModel):
         description="Workflow key used for capability-gated optional fields",
     )
     storyboard_prompt_language: StoryboardPromptLanguage = Field(
-        "en_US",
+        "zh_CN",
         description="Language used for storyboard planning fields and generated image prompts",
     )
     storyboard_generation: Optional[StoryboardPlanPayload] = Field(
