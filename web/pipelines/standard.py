@@ -20,6 +20,8 @@ from typing import Any
 
 import streamlit as st
 
+from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
+
 # Import components
 from web.components.bgm_config import render_bgm_section
 from web.components.content_input import render_content_input, render_version_info
@@ -68,7 +70,14 @@ class StandardPipelineUI(PipelineUI):
             bgm_params = render_bgm_section(collapsible=True)
 
             # Style configuration (TTS, template, workflow, etc.)
-            style_params = render_style_config(pixelle_video, storyboard_default_enabled=False)
+            style_params = render_style_config(
+                pixelle_video,
+                storyboard_default_enabled=False,
+                storyboard_prompt_language=content_params.get(
+                    "storyboard_prompt_language",
+                    CHINESE_PROMPT_LANGUAGE,
+                ),
+            )
             render_quick_create_flow_diagram()
         
         # ====================================================================

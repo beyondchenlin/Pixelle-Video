@@ -202,6 +202,13 @@ def summarize_storyboard_planning_snapshot(snapshot: dict) -> list[tuple[str, st
             ),
         ),
         (
+            "history.detail.storyboard_prompt_language",
+            _translate_storyboard_option(
+                "prompt_language",
+                snapshot.get("storyboard_prompt_language"),
+            ),
+        ),
+        (
             "history.detail.storyboard_consistency",
             _translate_storyboard_option(
                 "consistency",
