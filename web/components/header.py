@@ -33,7 +33,10 @@ def render_language_selector():
     """Render language selector at the top"""
     languages = get_available_languages()
     lang_options = [f"{code} - {name}" for code, name in languages.items()]
-    
+
+    if not lang_options:
+        return
+
     current_lang = st.session_state.get("language", "zh_CN")
     current_index = list(languages.keys()).index(current_lang) if current_lang in languages else 0
     
@@ -43,6 +46,9 @@ def render_language_selector():
         index=current_index,
         label_visibility="collapsed"
     )
+    
+    if selected is None:
+        return
     
     selected_code = selected.split(" - ")[0]
     if selected_code != current_lang:

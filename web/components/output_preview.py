@@ -22,7 +22,12 @@ from loguru import logger
 from pixelle_video.config import config_manager
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.models.progress import ProgressEvent
-from pixelle_video.models.video_generation_contract import is_plan_frame_override_payload
+from pixelle_video.models.video_generation_contract import (
+    STORYBOARD_GENERATION_OPTION_KEYS as CONTRACT_STORYBOARD_GENERATION_OPTION_KEYS,
+    StoryboardControlsContract,
+    is_plan_frame_override_payload,
+)
+from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from web.components.prompt_generation_performance import (
     copy_prompt_generation_performance_params,
@@ -56,9 +61,7 @@ ELEMENT_ANIMATION_OPTION_KEYS = (
     "element_animation_workflow",
 )
 STORYBOARD_GENERATION_OPTION_KEYS = (
-    "storyboard_mode",
-    "storyboard_count_mode",
-    "storyboard_scene_count",
+    *CONTRACT_STORYBOARD_GENERATION_OPTION_KEYS,
     "script_length_mode",
     "script_target_words",
 )
@@ -74,6 +77,23 @@ def _plan_identity_frame_overrides(video_params):
         for override in video_params.get("frame_overrides") or []
         if isinstance(override, dict) and is_plan_frame_override_payload(override)
     ]
+
+
+def _storyboard_controls_contract(
+    source,
+    *,
+    default_prompt_language: str = CHINESE_PROMPT_LANGUAGE,
+):
+    contract_source = dict(source)
+    plan_frame_overrides = _plan_identity_frame_overrides(source)
+    if plan_frame_overrides:
+        contract_source["frame_overrides"] = plan_frame_overrides
+    else:
+        contract_source.pop("frame_overrides", None)
+    return StoryboardControlsContract.from_mapping(
+        contract_source,
+        default_prompt_language=default_prompt_language,
+    )
 
 
 def _get_or_create_log_session_id(session_state) -> str:
@@ -134,16 +154,14 @@ def copy_element_animation_options(source, target):
 
 def copy_storyboard_generation_options(source, target):
     """Copy storyboard generation contract params into a generation request dict."""
-    defaults = {
-        "storyboard_mode": "smart",
-        "storyboard_count_mode": "auto",
-        "script_length_mode": "auto",
-    }
-    for key, default in defaults.items():
-        target[key] = source.get(key) or default
-    for key in ("storyboard_scene_count", "script_target_words"):
-        if source.get(key) is not None:
-            target[key] = source[key]
+    storyboard_contract = _storyboard_controls_contract(source)
+    target.update(storyboard_contract.to_generation_dict())
+    script_length_mode = source.get("script_length_mode")
+    target["script_length_mode"] = (
+        script_length_mode if script_length_mode not in (None, "") else "auto"
+    )
+    if source.get("script_target_words") is not None:
+        target["script_target_words"] = source["script_target_words"]
 
 
 def render_output_preview(pixelle_video, video_params):
@@ -161,6 +179,7 @@ def render_output_preview(pixelle_video, video_params):
 
 def build_single_generation_request(video_params, *, progress_callback, session_state):
     """Build a single generate_video() request from UI params."""
+    storyboard_contract = _storyboard_controls_contract(video_params)
     request = {
         "text": video_params.get("text", ""),
         "mode": video_params.get("mode", "generate"),
@@ -176,17 +195,18 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "media_width": session_state.get("template_media_width"),
         "media_height": session_state.get("template_media_height"),
         "tts_inference_mode": _resolve_video_tts_mode(video_params),
-        "world_preset_id": video_params.get("world_preset_id"),
-        "shot_preset_id": video_params.get("shot_preset_id"),
-        "consistency_strength": video_params.get("consistency_strength") or "standard",
-        "content_mode": video_params.get("content_mode"),
-        "role_strategy": video_params.get("role_strategy"),
-        "role_locking_strength": video_params.get("role_locking_strength"),
-        "shot_strategy": video_params.get("shot_strategy"),
+        "world_preset_id": storyboard_contract.world_preset_id,
+        "shot_preset_id": storyboard_contract.shot_preset_id,
+        "consistency_strength": storyboard_contract.consistency_strength or "standard",
+        "content_mode": storyboard_contract.content_mode,
+        "role_strategy": storyboard_contract.role_strategy,
+        "role_locking_strength": storyboard_contract.role_locking_strength,
+        "shot_strategy": storyboard_contract.shot_strategy,
     }
-    plan_frame_overrides = _plan_identity_frame_overrides(video_params)
-    if plan_frame_overrides:
-        request["frame_overrides"] = plan_frame_overrides
+    if storyboard_contract.frame_overrides:
+        request["frame_overrides"] = [
+            dict(override) for override in storyboard_contract.frame_overrides
+        ]
 
     if request["tts_inference_mode"] == "local":
         request["tts_voice"] = video_params.get("tts_voice")
@@ -225,6 +245,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
 
 def build_batch_shared_config(video_params):
     """Build batch shared_config from Web UI params."""
+    storyboard_contract = _storyboard_controls_contract(video_params)
     shared_config = {
         "title_prefix": video_params.get("title_prefix"),
         "media_workflow": video_params.get("media_workflow"),
@@ -235,17 +256,18 @@ def build_batch_shared_config(video_params):
         "tts_inference_mode": _resolve_video_tts_mode(video_params),
         "media_width": video_params.get("media_width"),
         "media_height": video_params.get("media_height"),
-        "world_preset_id": video_params.get("world_preset_id"),
-        "shot_preset_id": video_params.get("shot_preset_id"),
-        "consistency_strength": video_params.get("consistency_strength") or "standard",
-        "content_mode": video_params.get("content_mode"),
-        "role_strategy": video_params.get("role_strategy"),
-        "role_locking_strength": video_params.get("role_locking_strength"),
-        "shot_strategy": video_params.get("shot_strategy"),
+        "world_preset_id": storyboard_contract.world_preset_id,
+        "shot_preset_id": storyboard_contract.shot_preset_id,
+        "consistency_strength": storyboard_contract.consistency_strength or "standard",
+        "content_mode": storyboard_contract.content_mode,
+        "role_strategy": storyboard_contract.role_strategy,
+        "role_locking_strength": storyboard_contract.role_locking_strength,
+        "shot_strategy": storyboard_contract.shot_strategy,
     }
-    plan_frame_overrides = _plan_identity_frame_overrides(video_params)
-    if plan_frame_overrides:
-        shared_config["frame_overrides"] = plan_frame_overrides
+    if storyboard_contract.frame_overrides:
+        shared_config["frame_overrides"] = [
+            dict(override) for override in storyboard_contract.frame_overrides
+        ]
 
     tts_speed = video_params.get("tts_speed")
     if tts_speed is not None:
@@ -430,15 +452,15 @@ def render_single_output(pixelle_video, video_params):
                         status_text.text(message)
                         progress_bar.progress(min(int(event.progress * 100), 99))  # Cap at 99% until complete
 
+                    storyboard_contract = _storyboard_controls_contract(video_params)
                     generation_request = build_single_generation_request(
                         {
                             "text": text,
                             "mode": mode,
                             "title": title,
-                            **{
-                                key: video_params.get(key)
-                                for key in STORYBOARD_GENERATION_OPTION_KEYS
-                            },
+                            **storyboard_contract.to_generation_dict(),
+                            "script_length_mode": video_params.get("script_length_mode"),
+                            "script_target_words": video_params.get("script_target_words"),
                             "media_workflow": workflow_key,
                             "frame_template": frame_template,
                             "prompt_prefix": prompt_prefix,
@@ -455,14 +477,7 @@ def render_single_output(pixelle_video, video_params):
                             "session_id": session_id,
                             "render_backend": video_params.get("render_backend"),
                             "tts_audio_strategy": video_params.get("tts_audio_strategy"),
-                            "world_preset_id": video_params.get("world_preset_id"),
-                            "shot_preset_id": video_params.get("shot_preset_id"),
-                            "consistency_strength": video_params.get("consistency_strength"),
-                            "content_mode": video_params.get("content_mode"),
-                            "role_strategy": video_params.get("role_strategy"),
-                            "role_locking_strength": video_params.get("role_locking_strength"),
-                            "shot_strategy": video_params.get("shot_strategy"),
-                            "frame_overrides": video_params.get("frame_overrides"),
+                            **storyboard_contract.to_planning_dict(),
                             "text_rendering": video_params.get("text_rendering"),
                             **{
                                 key: video_params.get(key)

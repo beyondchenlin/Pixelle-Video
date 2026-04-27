@@ -20,8 +20,16 @@ from pixelle_video.models.storyboard_limits import (
     StoryboardGenerationLimits,
     current_storyboard_generation_limits,
 )
+from pixelle_video.models.video_generation_contract import StoryboardControlsContract
+from pixelle_video.prompt_language import (
+    CHINESE_PROMPT_LANGUAGE,
+    ENGLISH_PROMPT_LANGUAGE,
+)
 from web.components.prompt_generation_performance import (
     render_prompt_generation_performance_controls,
+)
+from web.components.storyboard_planning_controls import (
+    render_storyboard_advanced_controls,
 )
 from web.i18n import tr
 from web.utils.async_helpers import get_project_version
@@ -86,20 +94,18 @@ def build_storyboard_generation_payload(
     storyboard_mode: str,
     storyboard_count_mode: str,
     storyboard_scene_count: int | None,
+    storyboard_prompt_language: str = CHINESE_PROMPT_LANGUAGE,
 ) -> dict:
     """Normalize UI storyboard generation controls into the video request contract."""
-    if storyboard_mode != "smart":
-        storyboard_count_mode = "auto"
-        storyboard_scene_count = None
-    elif storyboard_count_mode != "manual":
-        storyboard_count_mode = "auto"
-        storyboard_scene_count = None
-
-    return {
-        "storyboard_mode": storyboard_mode,
-        "storyboard_count_mode": storyboard_count_mode,
-        "storyboard_scene_count": storyboard_scene_count,
-    }
+    return StoryboardControlsContract.from_mapping(
+        {
+            "storyboard_mode": storyboard_mode,
+            "storyboard_count_mode": storyboard_count_mode,
+            "storyboard_scene_count": storyboard_scene_count,
+            "storyboard_prompt_language": storyboard_prompt_language,
+        },
+        default_prompt_language=CHINESE_PROMPT_LANGUAGE,
+    ).to_generation_dict()
 
 
 def render_storyboard_generation_explanation() -> None:
@@ -175,13 +181,37 @@ def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict
         else:
             st.caption(tr("video.frames_fixed_mode_hint"))
 
-        render_storyboard_generation_explanation()
-
-        return build_storyboard_generation_payload(
-            storyboard_mode=storyboard_mode,
-            storyboard_count_mode=storyboard_count_mode,
-            storyboard_scene_count=storyboard_scene_count,
+        selected_template_type_for_storyboard = st.session_state.get("template_type_selector")
+        storyboard_prompt_language = st.radio(
+            tr("storyboard.prompt_language"),
+            options=[CHINESE_PROMPT_LANGUAGE, ENGLISH_PROMPT_LANGUAGE],
+            index=0,
+            horizontal=True,
+            key=f"{key_prefix}_storyboard_prompt_language",
+            format_func=lambda value: tr(f"storyboard.option.prompt_language.{value}"),
+            help=tr("storyboard.prompt_language_help"),
+            disabled=selected_template_type_for_storyboard == "static",
         )
+
+        render_storyboard_generation_explanation()
+        advanced_storyboard_payload = render_storyboard_advanced_controls(
+            ui=st,
+            translate=tr,
+            session_state=st.session_state,
+            storyboard_default_enabled=False,
+            selected_template_type=selected_template_type_for_storyboard,
+            preview_snapshot=st.session_state.get("storyboard_preview_snapshot"),
+        )
+
+        return {
+            **build_storyboard_generation_payload(
+                storyboard_mode=storyboard_mode,
+                storyboard_count_mode=storyboard_count_mode,
+                storyboard_scene_count=storyboard_scene_count,
+                storyboard_prompt_language=storyboard_prompt_language,
+            ),
+            **advanced_storyboard_payload,
+        }
 
 
 def render_script_generation_controls(*, mode: str, key_prefix: str) -> dict:

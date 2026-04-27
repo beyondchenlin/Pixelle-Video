@@ -37,11 +37,9 @@ from pixelle_video.config.prompt_prefix_library import (
     get_prompt_prefix_workflow_preview_asset_path,
     resolve_prompt_prefix_gallery_cover,
 )
-from pixelle_video.config.storyboard_preset_library import (
-    BUILTIN_SHOT_PRESETS,
-    BUILTIN_WORLD_PRESETS,
+from pixelle_video.prompt_language import (
+    CHINESE_PROMPT_LANGUAGE,
 )
-from pixelle_video.models.video_generation_contract import is_plan_frame_override_payload
 from pixelle_video.prompts.prompt_prefix_generation import (
     build_prompt_prefix_generation_prompt,
 )
@@ -62,7 +60,8 @@ from web.components.selfhost_workflow_notice import (
     is_selfhost_workflow,
     render_selfhost_workflow_notice,
 )
-from web.components.storyboard_preview import render_storyboard_preview
+from web.components import storyboard_planning_controls
+from web.components.storyboard_preview import render_storyboard_preview  # noqa: F401
 from web.components.text_rendering_config import (
     DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,  # noqa: F401
     build_text_rendering_payload,  # noqa: F401
@@ -92,7 +91,7 @@ from web.utils.tts_split_mode_ui import get_tts_split_mode_default
 from web.utils.tts_ui import resolve_comfyui_tts_speed, resolve_configured_tts_mode
 from web.utils.workflow_defaults import resolve_selectbox_default_index
 
-STORYBOARD_SHOT_PRESET_AUTO_VALUE = "__auto__"
+STORYBOARD_SHOT_PRESET_AUTO_VALUE = storyboard_planning_controls.STORYBOARD_SHOT_PRESET_AUTO_VALUE
 
 
 def _call_with_streamlit_fragment(func, *args, **kwargs):
@@ -188,6 +187,7 @@ def build_storyboard_control_payload(
     *,
     world_preset_id: str | None = None,
     shot_preset_id: str | None = None,
+    storyboard_prompt_language: str | None = None,
     consistency_strength: str | None = None,
     content_mode: str | None = None,
     role_strategy: str | None = None,
@@ -195,39 +195,18 @@ def build_storyboard_control_payload(
     shot_strategy: str | None = None,
     frame_overrides: list[dict] | None = None,
 ) -> dict:
-    """Build a normalized storyboard control payload from UI selections."""
-    if shot_preset_id == STORYBOARD_SHOT_PRESET_AUTO_VALUE:
-        shot_preset_id = None
-
-    payload = {
-        "world_preset_id": world_preset_id,
-        "shot_preset_id": shot_preset_id,
-        "consistency_strength": consistency_strength,
-        "content_mode": content_mode,
-        "role_strategy": role_strategy,
-        "role_locking_strength": role_locking_strength,
-        "shot_strategy": shot_strategy,
-    }
-
-    normalized_payload: dict = {}
-    for key, value in payload.items():
-        if value is None:
-            continue
-        if isinstance(value, str):
-            value = value.strip()
-            if not value:
-                continue
-        normalized_payload[key] = value
-
-    if frame_overrides:
-        plan_identity_overrides = [
-            dict(override)
-            for override in frame_overrides
-            if isinstance(override, dict) and is_plan_frame_override_payload(override)
-        ]
-        if plan_identity_overrides:
-            normalized_payload["frame_overrides"] = plan_identity_overrides
-    return normalized_payload
+    """Compatibility wrapper for shared storyboard payload normalization."""
+    return storyboard_planning_controls.build_storyboard_control_payload(
+        world_preset_id=world_preset_id,
+        shot_preset_id=shot_preset_id,
+        storyboard_prompt_language=storyboard_prompt_language,
+        consistency_strength=consistency_strength,
+        content_mode=content_mode,
+        role_strategy=role_strategy,
+        role_locking_strength=role_locking_strength,
+        shot_strategy=shot_strategy,
+        frame_overrides=frame_overrides,
+    )
 
 
 def resolve_storyboard_toggle_default(
@@ -236,327 +215,29 @@ def resolve_storyboard_toggle_default(
     preview_snapshot,
     template_type: str | None = None,
 ):
-    """Resolve the storyboard checkbox default from session state, preview state, then caller default."""
-    if template_type == "static":
-        return False
-    if session_state is not None and "storyboard_planning_enabled" in session_state:
-        return bool(session_state.get("storyboard_planning_enabled"))
-    if preview_snapshot is not None:
-        return bool(preview_snapshot)
-    return bool(storyboard_default_enabled)
+    """Compatibility wrapper for shared advanced-storyboard toggle defaults."""
+    return storyboard_planning_controls.resolve_storyboard_toggle_default(
+        session_state,
+        storyboard_default_enabled=storyboard_default_enabled,
+        preview_snapshot=preview_snapshot,
+        template_type=template_type,
+    )
 
 
 def resolve_storyboard_preset_label(item) -> str:
-    """Resolve a localized storyboard preset label with a display-name fallback."""
-    if isinstance(item, dict):
-        translation_key = item.get("display_name_key") or item.get("translation_key")
-        display_name = item.get("display_name")
-        preset_id = item.get("preset_id")
-    else:
-        translation_key = getattr(item, "display_name_key", None) or getattr(item, "translation_key", None)
-        display_name = getattr(item, "display_name", None)
-        preset_id = getattr(item, "preset_id", None)
-
-    if translation_key:
-        localized_label = tr(translation_key)
-        if localized_label != translation_key:
-            return localized_label
-    if display_name:
-        return display_name
-    return str(preset_id or "")
-
-
-STORYBOARD_GUIDE_FIELD_SPECS: tuple[tuple[str, str], ...] = (
-    ("storyboard.world_preset", "storyboard.guide.field.world_preset"),
-    ("storyboard.shot_preset", "storyboard.guide.field.shot_preset"),
-    ("storyboard.consistency_strength", "storyboard.guide.field.consistency_strength"),
-    ("storyboard.content_mode", "storyboard.guide.field.content_mode"),
-    ("storyboard.role_strategy", "storyboard.guide.field.role_strategy"),
-    ("storyboard.role_locking_strength", "storyboard.guide.field.role_locking_strength"),
-    ("storyboard.shot_strategy", "storyboard.guide.field.shot_strategy"),
-)
-
-STORYBOARD_GUIDE_PRESET_PICKER_SPECS: tuple[dict[str, object], ...] = (
-    {
-        "title_key": "storyboard.guide.preset_picker.world.title",
-        "body_key": "storyboard.guide.preset_picker.world.body",
-        "item_key_prefix": "storyboard.guide.preset_picker.world.item",
-        "presets": BUILTIN_WORLD_PRESETS,
-        "accent_color": "#6d28d9",
-        "background_color": "rgba(250, 245, 255, 0.96)",
-        "border_color": "rgba(167, 139, 250, 0.22)",
-    },
-    {
-        "title_key": "storyboard.guide.preset_picker.shot.title",
-        "body_key": "storyboard.guide.preset_picker.shot.body",
-        "item_key_prefix": "storyboard.guide.preset_picker.shot.item",
-        "presets": BUILTIN_SHOT_PRESETS,
-        "accent_color": "#0369a1",
-        "background_color": "rgba(240, 249, 255, 0.96)",
-        "border_color": "rgba(56, 189, 248, 0.22)",
-    },
-)
-
-STORYBOARD_GUIDE_COMBO_SPECS: tuple[tuple[str, str, str, str], ...] = (
-    (
-        "storyboard.guide.combo.explainer.title",
-        "storyboard.guide.combo.explainer.body",
-        "#b45309",
-        "rgba(255, 247, 237, 0.96)",
-    ),
-    (
-        "storyboard.guide.combo.theme_mapping.title",
-        "storyboard.guide.combo.theme_mapping.body",
-        "#0f766e",
-        "rgba(240, 253, 250, 0.96)",
-    ),
-    (
-        "storyboard.guide.combo.iteration.title",
-        "storyboard.guide.combo.iteration.body",
-        "#1d4ed8",
-        "rgba(239, 246, 255, 0.96)",
-    ),
-)
-
-STORYBOARD_GUIDE_NOTE_SPECS: tuple[dict[str, str], ...] = (
-    {
-        "title_key": "storyboard.guide.default_on_title",
-        "body_key": "storyboard.guide.default_on_body",
-        "accent_color": "#c2410c",
-        "background_color": "linear-gradient(135deg, rgba(255, 247, 237, 0.98), rgba(255, 251, 235, 0.94))",
-        "border_color": "rgba(245, 158, 11, 0.24)",
-        "title_size": "12px",
-        "body_color": "#44403c",
-    },
-    {
-        "title_key": "storyboard.guide.when_to_turn_off.title",
-        "body_key": "storyboard.guide.when_to_turn_off.body",
-        "accent_color": "#7c2d12",
-        "background_color": "rgba(248, 250, 252, 0.92)",
-        "border_color": "rgba(148, 163, 184, 0.18)",
-        "title_size": "12px",
-        "body_color": "#44403c",
-    },
-)
-
-
-def _normalize_storyboard_guide_html(html: str) -> str:
-    return "\n".join(
-        line.lstrip() if line.strip() else ""
-        for line in dedent(html).strip().splitlines()
-    )
-
-
-def _build_storyboard_guide_note_html(note_spec: dict[str, str]) -> str:
-    return _normalize_storyboard_guide_html(
-        f"""
-    <div style="
-        padding: 12px 14px;
-        border-radius: 14px;
-        border: 1px solid {note_spec["border_color"]};
-        background: {note_spec["background_color"]};
-        margin-bottom: 10px;
-    ">
-        <div style="
-            font-size: {note_spec["title_size"]};
-            font-weight: 700;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: {note_spec["accent_color"]};
-            margin-bottom: 6px;
-        ">{escape(tr(note_spec["title_key"]))}</div>
-        <div style="
-            font-size: 13px;
-            line-height: 1.65;
-            color: {note_spec["body_color"]};
-        ">{escape(tr(note_spec["body_key"]))}</div>
-    </div>
-    """
-    )
-
-
-def _build_storyboard_guide_combo_html(
-    title_key: str,
-    body_key: str,
-    accent_color: str,
-    background_color: str,
-) -> str:
-    return _normalize_storyboard_guide_html(
-        f"""
-    <div style="
-        padding: 12px 14px;
-        border-radius: 14px;
-        border: 1px solid rgba(148, 163, 184, 0.18);
-        background: {background_color};
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
-        margin-bottom: 10px;
-    ">
-        <div style="
-            font-size: 13px;
-            font-weight: 700;
-            color: {accent_color};
-            margin-bottom: 6px;
-        ">{escape(tr(title_key))}</div>
-        <div style="
-            font-size: 13px;
-            line-height: 1.65;
-            color: #334155;
-        ">{escape(tr(body_key))}</div>
-    </div>
-    """
-    )
-
-
-def _build_storyboard_guide_preset_picker_html(section_spec: dict[str, object]) -> str:
-    preset_items_html = "\n".join(
-        _normalize_storyboard_guide_html(
-            f"""
-        <li style="margin-bottom: 10px;">
-            <span style="font-weight: 700; color: #1f2937;">{escape(resolve_storyboard_preset_label(preset))}</span><br/>
-            <span style="color: #475569;">{escape(tr(f"{section_spec['item_key_prefix']}.{preset.preset_id}"))}</span>
-        </li>
-        """
-        )
-        for preset in section_spec["presets"]
-    )
-    return _normalize_storyboard_guide_html(
-        f"""
-    <div style="
-        margin-top: 12px;
-        padding: 14px 16px;
-        border-radius: 16px;
-        border: 1px solid {section_spec["border_color"]};
-        background: {section_spec["background_color"]};
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-    ">
-        <div style="
-            font-size: 13px;
-            font-weight: 700;
-            color: {section_spec["accent_color"]};
-            margin-bottom: 6px;
-        ">{escape(tr(section_spec["title_key"]))}</div>
-        <div style="
-            font-size: 13px;
-            line-height: 1.65;
-            color: #334155;
-            margin-bottom: 10px;
-        ">{escape(tr(section_spec["body_key"]))}</div>
-        <ul style="
-            margin: 0;
-            padding-left: 18px;
-            font-size: 13px;
-            line-height: 1.65;
-        ">
-            {preset_items_html}
-        </ul>
-    </div>
-    """
+    """Compatibility wrapper for shared storyboard preset labels."""
+    return storyboard_planning_controls.resolve_storyboard_preset_label(
+        item,
+        translate=tr,
     )
 
 
 def render_storyboard_planning_guide():
-    """Render a mixed quick-start + deep-dive guide for storyboard planning."""
-    guide_notes_html = "".join(
-        _build_storyboard_guide_note_html(note_spec) for note_spec in STORYBOARD_GUIDE_NOTE_SPECS
+    """Compatibility wrapper for the shared storyboard planning guide."""
+    return storyboard_planning_controls.render_storyboard_planning_guide(
+        ui=st,
+        translate=tr,
     )
-    st.markdown(guide_notes_html, unsafe_allow_html=True)
-
-    combo_cards_html = "".join(
-        _build_storyboard_guide_combo_html(title_key, body_key, accent_color, background_color)
-        for title_key, body_key, accent_color, background_color in STORYBOARD_GUIDE_COMBO_SPECS
-    )
-    field_items_html = "\n".join(
-        _normalize_storyboard_guide_html(
-            f"""
-        <li style="margin-bottom: 10px;">
-            <span style="font-weight: 700; color: #1f2937;">{escape(tr(label_key))}</span><br/>
-            <span style="color: #475569;">{escape(tr(description_key))}</span>
-        </li>
-        """
-        )
-        for label_key, description_key in STORYBOARD_GUIDE_FIELD_SPECS
-    )
-    preset_picker_html = "".join(
-        _build_storyboard_guide_preset_picker_html(section_spec)
-        for section_spec in STORYBOARD_GUIDE_PRESET_PICKER_SPECS
-    )
-
-    with render_middle_column_collapsible_section(
-        tr("storyboard.guide.title"),
-        expanded=False,
-    ):
-        st.markdown(
-            _normalize_storyboard_guide_html(
-                f"""
-            <div style="margin-top: 12px;">
-                <div style="
-                    font-size: 12px;
-                    font-weight: 700;
-                    letter-spacing: 0.08em;
-                    text-transform: uppercase;
-                    color: #92400e;
-                    margin-bottom: 8px;
-                ">{escape(tr("storyboard.guide.recommended_title"))}</div>
-                {combo_cards_html}
-            </div>
-            <div style="
-                margin-top: 14px;
-                padding: 14px 16px;
-                border-radius: 16px;
-                border: 1px solid rgba(148, 163, 184, 0.18);
-                background: rgba(255, 255, 255, 0.96);
-            ">
-                <div style="
-                    font-size: 12px;
-                    font-weight: 700;
-                    letter-spacing: 0.08em;
-                    text-transform: uppercase;
-                    color: #475569;
-                    margin-bottom: 10px;
-                ">{escape(tr("storyboard.guide.fields_title"))}</div>
-                <ul style="
-                    margin: 0;
-                    padding-left: 18px;
-                    font-size: 13px;
-                    line-height: 1.65;
-                ">
-                    {field_items_html}
-                </ul>
-            </div>
-            <div style="margin-top: 12px;">
-                <div style="
-                    font-size: 12px;
-                    font-weight: 700;
-                    letter-spacing: 0.08em;
-                    text-transform: uppercase;
-                    color: #475569;
-                    margin-bottom: 8px;
-                ">{escape(tr("storyboard.guide.preset_picker_title"))}</div>
-                {preset_picker_html}
-            </div>
-            <div style="
-                margin-top: 12px;
-                padding: 12px 14px;
-                border-radius: 14px;
-                border: 1px solid rgba(59, 130, 246, 0.18);
-                background: rgba(239, 246, 255, 0.92);
-            ">
-                <div style="
-                    font-size: 13px;
-                    font-weight: 700;
-                    color: #1d4ed8;
-                    margin-bottom: 6px;
-                ">{escape(tr("storyboard.guide.override_title"))}</div>
-                <div style="
-                    font-size: 13px;
-                    line-height: 1.65;
-                    color: #334155;
-                ">{escape(tr("storyboard.guide.override_body"))}</div>
-            </div>
-            """,
-            ),
-            unsafe_allow_html=True,
-        )
 
 
 def _save_image_prompt_prefix_library(library: dict):
@@ -645,7 +326,13 @@ def _prepare_prompt_prefix_item_for_library_save(
     return prepared_item
 
 
-def _render_image_prompt_prefix_library_legacy(pixelle_video, workflow_key: str, media_width: int, media_height: int) -> str:
+def _render_image_prompt_prefix_library_legacy(
+    pixelle_video,
+    workflow_key: str,
+    media_width: int,
+    media_height: int,
+    prompt_language: str = CHINESE_PROMPT_LANGUAGE,
+) -> str:
     """Render the image-only prompt prefix library UI and return effective prefix content."""
     language = get_language()
     image_config = config_manager.config.comfyui.image
@@ -988,6 +675,7 @@ def _render_image_prompt_prefix_library_legacy(pixelle_video, workflow_key: str,
                             media_width=int(media_width),
                             media_height=int(media_height),
                             test_prompt=test_prompt,
+                            prompt_language=prompt_language,
                             items=preview_items,
                         )
                     except Exception as e:
@@ -1485,6 +1173,7 @@ def _render_prompt_prefix_ai_panel(
     language: str,
     library_items: list[dict],
     selected_preview_ids: list[str],
+    prompt_language: str = CHINESE_PROMPT_LANGUAGE,
 ) -> None:
     """Render the AI-generated prompt-prefix workflow below the gallery."""
     generated_candidates = st.session_state.get("prompt_prefix_generated_candidates", [])
@@ -1560,6 +1249,7 @@ def _render_prompt_prefix_ai_panel(
                         media_width=media_width,
                         media_height=media_height,
                         test_prompt=candidate_preview_prompt,
+                        prompt_language=prompt_language,
                         items=generated_candidates,
                     )
                     safe_rerun()
@@ -1665,6 +1355,7 @@ def _generate_prompt_prefix_preview_results(
     media_height: int,
     test_prompt: str,
     items: list[dict],
+    prompt_language: str = CHINESE_PROMPT_LANGUAGE,
 ) -> list[dict]:
     """Generate prompt-prefix previews sequentially for the current workflow."""
     preview_results: list[dict] = []
@@ -1677,6 +1368,7 @@ def _generate_prompt_prefix_preview_results(
             test_prompt=test_prompt,
             prompt_prefix=item["content"],
             media_type="image",
+            prompt_language=prompt_language,
         )
         if preview_result["preview_media_path"]:
             preview_results.append(
@@ -1700,6 +1392,7 @@ def _generate_single_style_preview_result(
     test_prompt: str,
     prompt_prefix: str,
     media_type: str,
+    prompt_language: str = CHINESE_PROMPT_LANGUAGE,
 ) -> dict[str, str | None]:
     media_config = pixelle_video.config.get("comfyui", {}).get(media_type, {})
     styled_batch = run_async(
@@ -1707,6 +1400,7 @@ def _generate_single_style_preview_result(
             llm_service=pixelle_video.llm,
             narrations=[test_prompt],
             image_config=media_config,
+            prompt_language=prompt_language,
             prompt_prefix=prompt_prefix,
             workflow=workflow_key,
             media_service=pixelle_video.media,
@@ -1805,6 +1499,7 @@ def _render_prompt_prefix_library_action_toolbar(
     filtered_items: list[dict],
     thumbnail_reference_prompt: str,
     on_open_panel=None,
+    prompt_language: str = CHINESE_PROMPT_LANGUAGE,
 ) -> None:
     with st.container():
         if st.button(
@@ -1838,6 +1533,7 @@ def _render_prompt_prefix_library_action_toolbar(
                             media_width=media_width,
                             media_height=media_height,
                             test_prompt=thumbnail_reference_prompt,
+                            prompt_language=prompt_language,
                             items=[item],
                         )
                         if not preview_results:
@@ -1880,6 +1576,7 @@ def _render_image_prompt_prefix_library(
     workflow_key: str,
     media_width: int,
     media_height: int,
+    prompt_language: str = CHINESE_PROMPT_LANGUAGE,
     workflow_display_map: dict[str, str] | None = None,
 ) -> str:
     """Render the gallery-style image prompt prefix library UI and return effective prefix content."""
@@ -2168,6 +1865,7 @@ def _render_image_prompt_prefix_library(
                         workflow_key=workflow_key,
                         media_width=media_width,
                         media_height=media_height,
+                        prompt_language=prompt_language,
                         language=language,
                         library_items=library_items,
                         selected_preview_ids=selected_preview_ids,
@@ -2179,6 +1877,7 @@ def _render_image_prompt_prefix_library(
             workflow_key=workflow_key,
             media_width=media_width,
             media_height=media_height,
+            prompt_language=prompt_language,
             filtered_items=filtered_items,
             thumbnail_reference_prompt=thumbnail_reference_prompt,
             on_open_panel=lambda mode: _set_prompt_prefix_panel_state(mode),
@@ -2219,6 +1918,7 @@ def _render_image_prompt_prefix_library(
                             media_width=media_width,
                             media_height=media_height,
                             test_prompt=test_prompt,
+                            prompt_language=prompt_language,
                             items=preview_items,
                         )
                     except Exception as e:
@@ -2260,7 +1960,11 @@ def _render_image_prompt_prefix_library(
     return effective_prefix
 
 
-def render_style_config(pixelle_video, storyboard_default_enabled: bool = False):
+def render_style_config(
+    pixelle_video,
+    storyboard_default_enabled: bool = False,
+    storyboard_prompt_language: str = CHINESE_PROMPT_LANGUAGE,
+):
     """Render style configuration section (middle column)"""
     # TTS Section (moved from left column)
     # ====================================================================
@@ -2465,128 +2169,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         translate=tr,
     )
 
-    storyboard_world_preset_id = None
-    storyboard_shot_preset_id = None
-    storyboard_consistency_strength = None
-    storyboard_content_mode = None
-    storyboard_role_strategy = None
-    storyboard_role_locking_strength = None
-    storyboard_shot_strategy = None
-    storyboard_frame_overrides: list[dict] = []
-    selected_template_type_for_storyboard = st.session_state.get("template_type_selector")
-    storyboard_controls_disabled = selected_template_type_for_storyboard == "static"
-    storyboard_checkbox_key = (
-        "storyboard_planning_enabled_static"
-        if storyboard_controls_disabled
-        else "storyboard_planning_enabled"
-    )
-
-    with render_middle_column_collapsible_section(
-        tr("section.storyboard_planning"),
-        expanded=False,
-    ):
-        storyboard_enabled = st.checkbox(
-            tr("storyboard.enabled"),
-            value=resolve_storyboard_toggle_default(
-                st.session_state,
-                storyboard_default_enabled=storyboard_default_enabled,
-                preview_snapshot=st.session_state.get("storyboard_preview_snapshot"),
-                template_type=selected_template_type_for_storyboard,
-            ),
-            key=storyboard_checkbox_key,
-            help=tr("storyboard.enabled_help"),
-            disabled=storyboard_controls_disabled,
-        )
-
-        if storyboard_controls_disabled:
-            st.caption(tr("template.type.static_hint"))
-        elif storyboard_enabled:
-            render_storyboard_planning_guide()
-            world_library = config_manager.get_storyboard_world_preset_library()
-            shot_library = config_manager.get_storyboard_shot_preset_library()
-            world_items = world_library.get("items", [])
-            shot_items = shot_library.get("items", [])
-            world_ids = [item["preset_id"] for item in world_items]
-            shot_ids = [item["preset_id"] for item in shot_items]
-            world_label_map = {item["preset_id"]: resolve_storyboard_preset_label(item) for item in world_items}
-            shot_label_map = {item["preset_id"]: resolve_storyboard_preset_label(item) for item in shot_items}
-
-            default_world_id = world_library.get("default_world_preset_id")
-            if default_world_id not in world_ids and world_ids:
-                default_world_id = world_ids[0]
-            storyboard_col1, storyboard_col2 = st.columns(2)
-            with storyboard_col1:
-                if world_ids:
-                    storyboard_world_preset_id = st.selectbox(
-                        tr("storyboard.world_preset"),
-                        options=world_ids,
-                        index=world_ids.index(default_world_id),
-                        format_func=lambda value: world_label_map.get(value, value),
-                        key="storyboard_world_preset_id",
-                    )
-                storyboard_consistency_strength = st.radio(
-                    tr("storyboard.consistency_strength"),
-                    options=["standard", "strong"],
-                    index=0,
-                    horizontal=True,
-                    format_func=lambda value: tr(f"storyboard.option.consistency.{value}"),
-                    key="storyboard_consistency_strength",
-                )
-                content_mode_selection = st.selectbox(
-                    tr("storyboard.content_mode"),
-                    options=["auto", "concept_explainer", "theme_mapping"],
-                    index=0,
-                    format_func=lambda value: tr(f"storyboard.option.content_mode.{value}"),
-                    key="storyboard_content_mode",
-                )
-                storyboard_content_mode = (
-                    None if content_mode_selection == "auto" else content_mode_selection
-                )
-
-            with storyboard_col2:
-                if shot_ids:
-                    storyboard_shot_preset_id = st.selectbox(
-                        tr("storyboard.shot_preset"),
-                        options=[STORYBOARD_SHOT_PRESET_AUTO_VALUE, *shot_ids],
-                        index=0,
-                        format_func=lambda value: (
-                            tr("storyboard.option.content_mode.auto")
-                            if value == STORYBOARD_SHOT_PRESET_AUTO_VALUE
-                            else shot_label_map.get(value, value)
-                        ),
-                        key="storyboard_shot_preset_id",
-                    )
-                    if storyboard_shot_preset_id == STORYBOARD_SHOT_PRESET_AUTO_VALUE:
-                        storyboard_shot_preset_id = None
-                storyboard_role_strategy = st.selectbox(
-                    tr("storyboard.role_strategy"),
-                    options=["auto", "stable_explainer_cast", "theme_mapping"],
-                    index=0,
-                    format_func=lambda value: tr(f"storyboard.option.role_strategy.{value}"),
-                    key="storyboard_role_strategy",
-                )
-                storyboard_role_locking_strength = st.radio(
-                    tr("storyboard.role_locking_strength"),
-                    options=["standard", "strong"],
-                    index=0,
-                    horizontal=True,
-                    format_func=lambda value: tr(f"storyboard.option.consistency.{value}"),
-                    key="storyboard_role_locking_strength",
-                )
-                storyboard_shot_strategy = st.radio(
-                    tr("storyboard.shot_strategy"),
-                    options=["adaptive", "strict"],
-                    index=0,
-                    horizontal=True,
-                    format_func=lambda value: tr(f"storyboard.option.shot_strategy.{value}"),
-                    key="storyboard_shot_strategy",
-                )
-            storyboard_frame_overrides = render_storyboard_preview(
-                st.session_state.get("storyboard_preview_snapshot")
-            )
-        else:
-            st.caption(tr("storyboard.preview.empty"))
-    
     # ====================================================================
     # Storyboard Template Section
     # ====================================================================
@@ -3133,6 +2715,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
                                     test_prompt=test_prompt,
                                     prompt_prefix=prompt_prefix,
                                     media_type=template_media_type,
+                                    prompt_language=storyboard_prompt_language,
                                 )
                                 final_prompt = preview_result["final_prompt"]
                                 preview_media_path = preview_result["preview_media_path"]
@@ -3154,6 +2737,7 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
                     workflow_key=workflow_key,
                     media_width=int(media_width),
                     media_height=int(media_height),
+                    prompt_language=storyboard_prompt_language,
                     workflow_display_map=workflow_display_map,
                 )
                 prompt_prefix = st.session_state.get("prompt_prefix_effective_value", "")
@@ -3176,17 +2760,6 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
             workflow_key = None
             prompt_prefix = ""
     
-    storyboard_payload = build_storyboard_control_payload(
-        world_preset_id=storyboard_world_preset_id,
-        shot_preset_id=storyboard_shot_preset_id,
-        consistency_strength=storyboard_consistency_strength,
-        content_mode=storyboard_content_mode,
-        role_strategy=storyboard_role_strategy,
-        role_locking_strength=storyboard_role_locking_strength,
-        shot_strategy=storyboard_shot_strategy,
-        frame_overrides=storyboard_frame_overrides,
-    )
-
     # Return all style configuration parameters
     result = {
         "tts_inference_mode": tts_mode,
@@ -3201,12 +2774,12 @@ def render_style_config(pixelle_video, storyboard_default_enabled: bool = False)
         "frame_template": frame_template,
         "template_params": custom_values_for_video if custom_values_for_video else None,
         "media_workflow": workflow_key,
+        "storyboard_prompt_language": storyboard_prompt_language,
         "prompt_prefix": prompt_prefix if prompt_prefix else "",
         "media_width": media_width,
         "media_height": media_height,
         "text_rendering": text_rendering,
         **element_animation_settings,
-        **storyboard_payload,
     }
     return result
 
