@@ -18,12 +18,15 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from api.schemas.storyboard_contract import (
+    StoryboardFrameOverride,
+    StoryboardPromptLanguage,
+)
 from api.schemas.text_rendering import TextRenderingRequest
 from pixelle_video.models.storyboard_limits import current_storyboard_generation_limits
 from pixelle_video.models.storyboard_planning import (
     ConsistencyStrength,
     ContentMode,
-    FrameOverrideSource,
     RoleStrategy,
     ShotOverridePolicy,
 )
@@ -37,67 +40,6 @@ from pixelle_video.utils.prompt_generation_performance import (
 )
 
 StandardTtsAudioStrategy = Literal["auto", "master_track"]
-
-StoryboardOverrideField = Literal[
-    "source_text",
-    "visual_goal",
-    "prompt_intent",
-    "shot_type",
-    "shot_purpose",
-    "primary_subject",
-    "secondary_subjects",
-    "world_elements",
-    "continuity_anchors",
-    "focus_detail",
-]
-
-
-class StoryboardFrameOverride(BaseModel):
-    """Structured per-frame storyboard override payload bound to StoryboardPlan identity."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    plan_id: str = Field(..., min_length=1, description="Storyboard plan id")
-    plan_revision: int = Field(..., ge=1, description="Storyboard plan revision")
-    frame_id: str = Field(..., min_length=1, description="Storyboard plan frame id")
-    source_digest: str = Field(
-        ...,
-        min_length=64,
-        max_length=64,
-        pattern=r"^[0-9a-f]{64}$",
-        description="SHA-256 digest of the plan source text",
-    )
-    locked_fields: List[StoryboardOverrideField] = Field(
-        ...,
-        min_length=1,
-        description="Editable frame fields that should stay locked on replay",
-    )
-    override_source: Optional[FrameOverrideSource] = Field(
-        None,
-        description="Origin of the override payload",
-    )
-    source_text: Optional[str] = Field(None, description="Locked source text override")
-    visual_goal: Optional[str] = Field(None, description="Locked visual goal override")
-    prompt_intent: Optional[str] = Field(None, description="Locked prompt intent override")
-    shot_type: Optional[str] = Field(None, description="Locked shot type override")
-    shot_purpose: Optional[str] = Field(None, description="Locked shot purpose override")
-    primary_subject: Optional[str] = Field(None, description="Locked primary subject override")
-    secondary_subjects: Optional[List[str]] = Field(None, description="Locked secondary subject overrides")
-    world_elements: Optional[List[str]] = Field(None, description="Locked world element overrides")
-    continuity_anchors: Optional[List[str]] = Field(None, description="Locked continuity anchor overrides")
-    focus_detail: Optional[str] = Field(None, description="Locked focus detail override")
-
-    @model_validator(mode="after")
-    def validate_locked_field_values(self) -> "StoryboardFrameOverride":
-        provided_fields = [
-            field_name
-            for field_name in StoryboardOverrideField.__args__
-            if getattr(self, field_name) is not None
-        ]
-        for field_name in provided_fields:
-            if field_name not in self.locked_fields:
-                raise ValueError(f"{field_name} must be listed in locked_fields")
-        return self
 
 
 class VideoGenerateRequest(BaseModel):
@@ -270,6 +212,10 @@ class VideoGenerateRequest(BaseModel):
     # === Storyboard Planning ===
     world_preset_id: Optional[str] = Field(None, description="Storyboard world preset id")
     shot_preset_id: Optional[str] = Field(None, description="Storyboard shot preset id")
+    storyboard_prompt_language: StoryboardPromptLanguage = Field(
+        "en_US",
+        description="Language used for storyboard planning fields and generated image prompts",
+    )
     consistency_strength: Optional[ConsistencyStrength] = Field(
         None,
         description="Storyboard consistency strength",

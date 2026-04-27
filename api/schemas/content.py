@@ -14,15 +14,19 @@
 Content generation API schemas
 """
 
-from typing import List, Literal, Optional
+from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from api.schemas.storyboard_contract import (
+    StoryboardFrameOverride,
+    StoryboardPlanPayload,
+    StoryboardPromptLanguage,
+)
 from api.schemas.text_rendering import TextRenderingRequest
 from pixelle_video.models.storyboard_planning import (
     ConsistencyStrength,
     ContentMode,
-    FrameOverrideSource,
     RoleStrategy,
     ShotOverridePolicy,
 )
@@ -32,47 +36,6 @@ from pixelle_video.utils.prompt_generation_performance import (
     PROMPT_BATCH_SIZE_MAX,
     PROMPT_BATCH_SIZE_MIN,
 )
-
-StoryboardOverrideField = Literal[
-    "narration_fragment",
-    "knowledge_goal",
-    "shot_type",
-    "shot_purpose",
-    "primary_subject",
-    "secondary_subjects",
-    "world_elements",
-    "continuity_anchors",
-    "focus_detail",
-    "prompt_intent",
-]
-
-
-class StoryboardFrameOverride(BaseModel):
-    """Structured per-frame storyboard override payload."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    scene_id: str = Field(..., min_length=1, description="Storyboard scene id")
-    snapshot_identity: str = Field(..., min_length=1, description="Identity of the preview snapshot that produced this override")
-    locked_fields: List[StoryboardOverrideField] = Field(
-        ...,
-        min_length=1,
-        description="Editable frame fields that should stay locked on replay",
-    )
-    override_source: Optional[FrameOverrideSource] = Field(
-        None,
-        description="Origin of the override payload",
-    )
-    narration_fragment: Optional[str] = Field(None, description="Locked narration fragment override")
-    knowledge_goal: Optional[str] = Field(None, description="Locked knowledge goal override")
-    shot_type: Optional[str] = Field(None, description="Locked shot type override")
-    shot_purpose: Optional[str] = Field(None, description="Locked shot purpose override")
-    primary_subject: Optional[str] = Field(None, description="Locked primary subject override")
-    secondary_subjects: Optional[List[str]] = Field(None, description="Locked secondary subject overrides")
-    world_elements: Optional[List[str]] = Field(None, description="Locked world element overrides")
-    continuity_anchors: Optional[List[str]] = Field(None, description="Locked continuity anchor overrides")
-    focus_detail: Optional[str] = Field(None, description="Locked focus detail override")
-    prompt_intent: Optional[str] = Field(None, description="Locked prompt intent override")
 
 # ============================================================================
 # Narration Generation
@@ -149,6 +112,14 @@ class ImagePromptGenerateRequest(BaseModel):
         None,
         description="Workflow key used for capability-gated optional fields",
     )
+    storyboard_prompt_language: StoryboardPromptLanguage = Field(
+        "en_US",
+        description="Language used for storyboard planning fields and generated image prompts",
+    )
+    storyboard_generation: Optional[StoryboardPlanPayload] = Field(
+        None,
+        description="Replayable storyboard plan contract used to validate plan-aware prompt overrides",
+    )
     world_preset_id: Optional[str] = Field(None, description="Storyboard world preset id")
     shot_preset_id: Optional[str] = Field(None, description="Storyboard shot preset id")
     consistency_strength: Optional[ConsistencyStrength] = Field(
@@ -170,6 +141,46 @@ class ImagePromptGenerateRequest(BaseModel):
         None,
         description="Unified text rendering and generated-image text policy",
     )
+
+    @model_validator(mode="after")
+    def validate_storyboard_contract(self) -> "ImagePromptGenerateRequest":
+        if self.frame_overrides and self.storyboard_generation is None:
+            raise ValueError("storyboard_generation is required when frame_overrides are provided")
+        if self.storyboard_generation is not None:
+            original_source_texts = self.storyboard_generation.source_texts()
+            effective_source_texts = self._compute_effective_source_texts()
+            if self.narrations != effective_source_texts:
+                raise ValueError(
+                    "narrations must match storyboard_generation frame source_text order "
+                    "(after applying source_text overrides if any)"
+                )
+        return self
+
+    def _compute_effective_source_texts(self) -> list[str]:
+        """Compute effective source texts after applying source_text overrides."""
+        if self.storyboard_generation is None:
+            return list(self.narrations)
+
+        original_texts = self.storyboard_generation.source_texts()
+        if not self.frame_overrides:
+            return original_texts
+
+        # Build override lookup by frame_id
+        overrides_by_frame_id: dict[str, str] = {}
+        for override in self.frame_overrides:
+            if override.source_text is not None and "source_text" in override.locked_fields:
+                overrides_by_frame_id[override.frame_id] = override.source_text
+
+        # Apply overrides to compute effective texts
+        effective_texts: list[str] = []
+        for i, frame in enumerate(self.storyboard_generation.frames):
+            frame_id = frame.get("frame_id", "")
+            if frame_id in overrides_by_frame_id:
+                effective_texts.append(overrides_by_frame_id[frame_id])
+            else:
+                effective_texts.append(original_texts[i])
+
+        return effective_texts
 
 
 class ImagePromptGenerateResponse(BaseModel):
