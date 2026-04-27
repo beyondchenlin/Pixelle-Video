@@ -163,7 +163,7 @@ async def test_core_generate_video_normalizes_storyboard_contract_for_standard_p
     assert captured["kwargs"]["storyboard_mode"] == "sentence"
     assert captured["kwargs"]["storyboard_count_mode"] == "auto"
     assert captured["kwargs"]["storyboard_scene_count"] is None
-    assert captured["kwargs"]["storyboard_prompt_language"] == "en_US"
+    assert captured["kwargs"]["storyboard_prompt_language"] == "zh_CN"
     assert captured["kwargs"]["world_preset_id"] == "neutral_knowledge_storyboard"
     assert captured["kwargs"]["shot_preset_id"] == "balanced_explainer"
 

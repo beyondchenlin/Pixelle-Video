@@ -141,7 +141,7 @@ def test_video_generate_request_defaults_storyboard_prompt_language_to_english_f
         frame_template="1080x1920/image_default.html",
     )
 
-    assert request.storyboard_prompt_language == "en_US"
+    assert request.storyboard_prompt_language == "zh_CN"
 
 
 def test_video_generate_request_accepts_plan_identity_frame_overrides():

@@ -264,12 +264,12 @@ def test_image_prompt_generate_request_accepts_storyboard_prompt_language():
     assert request.storyboard_prompt_language == "en_US"
 
 
-def test_image_prompt_generate_request_defaults_storyboard_prompt_language_to_english_for_api_compatibility():
+def test_image_prompt_generate_request_defaults_storyboard_prompt_language_to_chinese_for_api_compatibility():
     request = ImagePromptGenerateRequest(
         narrations=["scene one"],
     )
 
-    assert request.storyboard_prompt_language == "en_US"
+    assert request.storyboard_prompt_language == "zh_CN"
 
 
 def test_image_prompt_generate_request_accepts_storyboard_generation_contract():

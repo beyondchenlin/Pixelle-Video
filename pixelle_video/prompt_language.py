@@ -4,7 +4,7 @@ from typing import Literal
 
 PromptLanguage = Literal["zh_CN", "en_US"]
 
-DEFAULT_PROMPT_LANGUAGE: PromptLanguage = "en_US"
+DEFAULT_PROMPT_LANGUAGE: PromptLanguage = "zh_CN"
 CHINESE_PROMPT_LANGUAGE: PromptLanguage = "zh_CN"
 ENGLISH_PROMPT_LANGUAGE: PromptLanguage = "en_US"
 
