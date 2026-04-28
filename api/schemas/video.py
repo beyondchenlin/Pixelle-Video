@@ -25,8 +25,8 @@ from api.schemas.storyboard_contract import (
 from api.schemas.text_rendering import TextRenderingRequest
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
 from pixelle_video.models.size_contract import (
-    GenerationSizeContract,
     STANDARD_VIDEO_SIZE_PRESETS,
+    GenerationSizeContract,
 )
 from pixelle_video.models.storyboard_limits import (
     DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,

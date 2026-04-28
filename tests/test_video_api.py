@@ -18,10 +18,10 @@ from api.schemas.video import (
     VideoResolutionPreset,
 )
 from pixelle_video.models.size_contract import (
-    GenerationSizeContract,
     STANDARD_VIDEO_SIZE_PRESETS,
     VALID_MEDIA_RESOLUTION_PRESETS,
     VALID_VIDEO_RESOLUTION_PRESETS,
+    GenerationSizeContract,
 )
 from pixelle_video.models.storyboard_limits import StoryboardGenerationLimits
 
