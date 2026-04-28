@@ -400,6 +400,169 @@ async def test_core_execute_local_comfy_workflows_serialize_cleanup_boundary():
 
 
 @pytest.mark.asyncio
+async def test_local_comfyui_workflow_session_keeps_lifecycle_open_across_batch():
+    events = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(("execute", workflow_input, workflow_params))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append(("prepare",))
+
+    async def _release():
+        events.append(("release",))
+
+    async def _get_kit():
+        events.append(("get_kit",))
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core._get_or_create_comfykit = _get_kit
+
+    async with core.local_comfyui_workflow_session():
+        first = await core.execute_comfykit_workflow(
+            "first.json",
+            {"prompt": "first"},
+            workflow_source="selfhost",
+        )
+        second = await core.execute_comfykit_workflow(
+            "second.json",
+            {"prompt": "second"},
+            workflow_source="selfhost",
+        )
+
+    assert first.status == "completed"
+    assert second.status == "completed"
+    assert events == [
+        ("prepare",),
+        ("get_kit",),
+        ("execute", "first.json", {"prompt": "first"}),
+        ("get_kit",),
+        ("execute", "second.json", {"prompt": "second"}),
+        ("release",),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_local_comfyui_workflow_session_serializes_concurrent_workflows():
+    events = []
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(f"{workflow_input}:start")
+            if workflow_input == "first":
+                first_started.set()
+                await release_first.wait()
+            events.append(f"{workflow_input}:end")
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append("prepare")
+
+    async def _release():
+        events.append("release")
+
+    async def _get_kit():
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core._get_or_create_comfykit = _get_kit
+
+    async with core.local_comfyui_workflow_session():
+        first_task = asyncio.create_task(
+            core.execute_comfykit_workflow(
+                "first",
+                {},
+                workflow_source="selfhost",
+            )
+        )
+        await first_started.wait()
+        second_task = asyncio.create_task(
+            core.execute_comfykit_workflow(
+                "second",
+                {},
+                workflow_source="selfhost",
+            )
+        )
+        await asyncio.sleep(0.01)
+
+        assert events == ["prepare", "first:start"]
+
+        release_first.set()
+        await asyncio.gather(first_task, second_task)
+
+    assert events == [
+        "prepare",
+        "first:start",
+        "first:end",
+        "second:start",
+        "second:end",
+        "release",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_local_comfyui_workflow_session_is_scoped_to_core_instance():
+    events = []
+
+    def configure_core(name: str) -> PixelleVideoCore:
+        class _Kit:
+            async def execute(self, workflow_input, workflow_params):
+                events.append((name, "execute", workflow_input))
+                return SimpleNamespace(status="completed")
+
+        core = PixelleVideoCore()
+
+        async def _prepare():
+            events.append((name, "prepare"))
+
+        async def _release():
+            events.append((name, "release"))
+
+        async def _get_kit():
+            return _Kit()
+
+        core.prepare_comfyui_for_local_workflow = _prepare
+        core.release_comfyui_after_local_workflow = _release
+        core._get_or_create_comfykit = _get_kit
+        return core
+
+    first_core = configure_core("first_core")
+    second_core = configure_core("second_core")
+
+    async with first_core.local_comfyui_workflow_session():
+        await first_core.execute_comfykit_workflow(
+            "first-session-workflow",
+            {},
+            workflow_source="selfhost",
+        )
+        await second_core.execute_comfykit_workflow(
+            "second-core-workflow",
+            {},
+            workflow_source="selfhost",
+        )
+
+    assert events == [
+        ("first_core", "prepare"),
+        ("first_core", "execute", "first-session-workflow"),
+        ("second_core", "prepare"),
+        ("second_core", "execute", "second-core-workflow"),
+        ("second_core", "release"),
+        ("first_core", "release"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_core_execute_workflow_file_resolves_runninghub_and_selfhost_inputs(tmp_path):
     calls = []
     core = PixelleVideoCore()

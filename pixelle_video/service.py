@@ -19,6 +19,8 @@ Provides unified access to all capabilities (LLM, TTS, Image, etc.)
 import asyncio
 import hashlib
 import json
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Optional
 
@@ -51,6 +53,14 @@ from pixelle_video.services.tts_service import TTSService
 from pixelle_video.services.video import VideoService
 from pixelle_video.services.video_analysis import VideoAnalysisService
 from pixelle_video.utils.os_util import get_output_path
+
+
+class _LocalComfyUIWorkflowSession:
+    def __init__(self) -> None:
+        self.init_lock = asyncio.Lock()
+        self.execute_lock = asyncio.Lock()
+        self.lock_acquired = False
+        self.prepared = False
 
 
 class PixelleVideoCore:
@@ -118,6 +128,9 @@ class PixelleVideoCore:
         self.pipelines = {}
         self.generation_coordinator = GenerationCoordinator()
         self._local_comfyui_execution_lock = asyncio.Lock()
+        self._local_comfyui_workflow_session: ContextVar[_LocalComfyUIWorkflowSession | None] = (
+            ContextVar("local_comfyui_workflow_session", default=None)
+        )
         
         # Default pipeline callable (for backward compatibility)
         self.generate_video = None
@@ -320,6 +333,51 @@ class PixelleVideoCore:
         except Exception as e:
             logger.warning(f"ComfyUI post-workflow memory release failed, continuing: {e}")
 
+    async def _execute_local_comfykit_workflow(self, workflow_input, workflow_params: dict):
+        kit = await self._get_or_create_comfykit()
+        return await kit.execute(workflow_input, workflow_params)
+
+    async def _execute_scoped_local_comfykit_workflow(self, workflow_input, workflow_params: dict):
+        session = self._local_comfyui_workflow_session.get()
+        if session is None:
+            return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
+
+        async with session.init_lock:
+            if not session.lock_acquired:
+                await self._local_comfyui_execution_lock.acquire()
+                session.lock_acquired = True
+                try:
+                    await self.prepare_comfyui_for_local_workflow()
+                    session.prepared = True
+                except Exception:
+                    session.lock_acquired = False
+                    self._local_comfyui_execution_lock.release()
+                    raise
+
+        async with session.execute_lock:
+            return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
+
+    @asynccontextmanager
+    async def local_comfyui_workflow_session(self):
+        """Keep local ComfyUI prepared across a deliberate batch of selfhost workflows."""
+        existing_session = self._local_comfyui_workflow_session.get()
+        if existing_session is not None:
+            yield
+            return
+
+        session = _LocalComfyUIWorkflowSession()
+        token = self._local_comfyui_workflow_session.set(session)
+        try:
+            yield
+        finally:
+            try:
+                if session.prepared:
+                    await self.release_comfyui_after_local_workflow()
+            finally:
+                if session.lock_acquired:
+                    self._local_comfyui_execution_lock.release()
+                self._local_comfyui_workflow_session.reset(token)
+
     async def execute_comfykit_workflow(
         self,
         workflow_input,
@@ -332,11 +390,16 @@ class PixelleVideoCore:
             kit = await self._get_or_create_comfykit()
             return await kit.execute(workflow_input, workflow_params)
 
+        if self._local_comfyui_workflow_session.get() is not None:
+            return await self._execute_scoped_local_comfykit_workflow(
+                workflow_input,
+                workflow_params,
+            )
+
         async with self._local_comfyui_execution_lock:
             await self.prepare_comfyui_for_local_workflow()
             try:
-                kit = await self._get_or_create_comfykit()
-                return await kit.execute(workflow_input, workflow_params)
+                return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
             finally:
                 await self.release_comfyui_after_local_workflow()
 

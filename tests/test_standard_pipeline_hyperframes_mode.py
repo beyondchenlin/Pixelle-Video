@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -265,6 +266,7 @@ class _RecordingPersistence:
 class _DummyCore:
     def __init__(self, tmp_path: Path):
         self.config = {}
+        self.local_comfyui_sessions = []
         self.llm = object()
         self.video = object()
         self.tts = _FakeTTS()
@@ -277,6 +279,14 @@ class _DummyCore:
         )
         self.hyperframes_renderer = _FakeHyperFramesRenderer()
         self.persistence = _RecordingPersistence()
+
+    @asynccontextmanager
+    async def local_comfyui_workflow_session(self):
+        self.local_comfyui_sessions.append("enter")
+        try:
+            yield
+        finally:
+            self.local_comfyui_sessions.append("exit")
 
 
 def _build_storyboard_context(
@@ -347,10 +357,11 @@ async def test_produce_assets_uses_shell_only_hyperframes_path_without_segments(
 
     assert core.frame_processor.calls == [
         ("media", 0),
-        ("compose", 0, ""),
         ("media", 1),
+        ("compose", 0, ""),
         ("compose", 1, ""),
     ]
+    assert core.local_comfyui_sessions == ["enter", "exit"]
     assert [frame.composed_image_path for frame in ctx.storyboard.frames] == [
         str(tmp_path / "00_shell.png"),
         str(tmp_path / "01_shell.png"),

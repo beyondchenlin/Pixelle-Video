@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,6 +39,7 @@ class _ResolverService:
 class _DummyCore:
     def __init__(self, *, tts_defaults=None, media_defaults=None):
         self.config = {}
+        self.local_comfyui_sessions = []
         self.llm = object()
         self.video = object()
         self.frame_processor = SimpleNamespace()
@@ -49,6 +51,14 @@ class _DummyCore:
                 "video": "runninghub/video_wan2.1_fusionx.json",
             }
         )
+
+    @asynccontextmanager
+    async def local_comfyui_workflow_session(self):
+        self.local_comfyui_sessions.append("enter")
+        try:
+            yield
+        finally:
+            self.local_comfyui_sessions.append("exit")
 
 
 def _build_ctx(
@@ -99,14 +109,15 @@ def test_resolve_asset_execution_mode_disables_staged_mode_for_explicit_video_wo
     assert execution_mode.use_staged_mode is False
 
 
-def test_resolve_asset_execution_mode_disables_staged_mode_for_local_tts():
+def test_resolve_asset_execution_mode_uses_staged_mode_for_local_tts_with_selfhost_media():
     pipeline = StandardPipeline(_DummyCore())
     ctx = _build_ctx(tts_inference_mode="local")
 
     execution_mode = pipeline._resolve_asset_execution_mode(ctx)
 
     assert execution_mode.tts_workflow_key is None
-    assert execution_mode.use_staged_mode is False
+    assert execution_mode.media_workflow_key == "selfhost/image_z_image_turbo_gguf.json"
+    assert execution_mode.use_staged_mode is True
 
 
 def test_resolve_effective_tts_audio_strategy_uses_master_track_for_legacy_comfyui_auto():
@@ -309,6 +320,12 @@ async def test_produce_assets_runs_staged_selfhost_image_flow_in_phase_order(mon
     assert [frame.video_segment_path for frame in ctx.storyboard.frames] == [
         "segment-0.mp4",
         "segment-1.mp4",
+    ]
+    assert core.local_comfyui_sessions == [
+        "enter",
+        "exit",
+        "enter",
+        "exit",
     ]
 
 
@@ -657,7 +674,7 @@ class _ConcurrentCallableFrameProcessor(_CallableFrameProcessor):
             self.active -= 1
 
 
-def test_resolve_asset_execution_mode_disables_runninghub_parallel_for_mixed_selfhost_media():
+def test_resolve_asset_execution_mode_stages_mixed_runninghub_tts_and_selfhost_media():
     pipeline = StandardPipeline(
         _DummyCore(
             tts_defaults={"tts": "runninghub/tts_edge.json"},
@@ -672,7 +689,7 @@ def test_resolve_asset_execution_mode_disables_runninghub_parallel_for_mixed_sel
     execution_mode = pipeline._resolve_asset_execution_mode(ctx)
 
     assert execution_mode.is_runninghub is True
-    assert execution_mode.use_staged_mode is False
+    assert execution_mode.use_staged_mode is True
     assert execution_mode.use_runninghub_parallel is False
 
 
@@ -801,9 +818,9 @@ async def test_produce_assets_parallel_callable_materializes_element_motion(monk
 
 
 @pytest.mark.asyncio
-async def test_produce_assets_callable_legacy_omits_burned_frame_text_when_caption_renderer_active(monkeypatch):
+async def test_produce_assets_staged_local_tts_omits_burned_frame_text_when_caption_renderer_active(monkeypatch):
     core = _DummyCore()
-    core.frame_processor = _CallableFrameProcessor()
+    core.frame_processor = _RecordingFrameProcessor()
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx(tts_inference_mode="local")
 
@@ -814,7 +831,7 @@ async def test_produce_assets_callable_legacy_omits_burned_frame_text_when_capti
 
     await pipeline.produce_assets(ctx)
 
-    assert core.frame_processor.template_body_texts == ["", ""]
+    assert core.frame_processor.compose_template_body_texts == [(0, ""), (1, "")]
 
 
 @pytest.mark.asyncio
@@ -893,15 +910,15 @@ async def test_produce_assets_rejects_unknown_tts_audio_strategy_before_asset_wo
 
 
 @pytest.mark.asyncio
-async def test_produce_assets_disables_runninghub_parallel_for_mixed_selfhost_media(monkeypatch):
+async def test_produce_assets_stages_mixed_runninghub_tts_and_selfhost_media(monkeypatch):
     core = _DummyCore(
         tts_defaults={"tts": "runninghub/tts_edge.json"},
         media_defaults={
-                "image": "selfhost/image_z_image_turbo_gguf.json",
+            "image": "selfhost/image_z_image_turbo_gguf.json",
             "video": "runninghub/video_wan2.1_fusionx.json",
         },
     )
-    core.frame_processor = _ConcurrentCallableFrameProcessor()
+    core.frame_processor = _RecordingFrameProcessor()
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
     monkeypatch.setattr(config_manager.config.comfyui, "runninghub_concurrent_limit", 2)
@@ -909,8 +926,20 @@ async def test_produce_assets_disables_runninghub_parallel_for_mixed_selfhost_me
 
     await pipeline.produce_assets(ctx)
 
-    assert core.frame_processor.invocations == [0, 1]
-    assert core.frame_processor.max_active == 1
+    assert core.frame_processor.calls == [
+        ("media", 0),
+        ("media", 1),
+        ("compose", 0),
+        ("compose", 1),
+        ("segment", 0),
+        ("segment", 1),
+    ]
+    assert core.local_comfyui_sessions == [
+        "enter",
+        "exit",
+        "enter",
+        "exit",
+    ]
 
 
 @pytest.mark.asyncio

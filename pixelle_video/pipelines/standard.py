@@ -708,8 +708,6 @@ class StandardPipeline(LinearVideoPipeline):
         use_staged_mode = (
             template_type == "image"
             and media_domain == "image"
-            and config.tts_inference_mode == "comfyui"
-            and bool(tts_workflow_key and tts_workflow_key.startswith("selfhost/"))
             and bool(media_workflow_key and media_workflow_key.startswith("selfhost/"))
         )
 
@@ -1114,37 +1112,39 @@ class StandardPipeline(LinearVideoPipeline):
 
         logger.info("Using staged selfhost image processing")
 
-        for frame in storyboard.frames:
-            if not frame.audio_path:
-                self._report_staged_frame_progress(
-                    ctx.progress_callback,
-                    stage_start=0.20,
-                    stage_end=0.35,
-                    frame_current=frame.index + 1,
-                    frame_total=total_frames,
-                    step=1,
-                    action=ProgressFrameAction.AUDIO,
-                )
-                await self.core.frame_processor._step_generate_audio(frame, config)
+        async with self.core.local_comfyui_workflow_session():
+            for frame in storyboard.frames:
+                if not frame.audio_path:
+                    self._report_staged_frame_progress(
+                        ctx.progress_callback,
+                        stage_start=0.20,
+                        stage_end=0.35,
+                        frame_current=frame.index + 1,
+                        frame_total=total_frames,
+                        step=1,
+                        action=ProgressFrameAction.AUDIO,
+                    )
+                    await self.core.frame_processor._step_generate_audio(frame, config)
 
-        for frame in storyboard.frames:
-            has_existing_media = frame.image_path is not None or frame.video_path is not None
-            needs_generation = frame.image_prompt is not None
+        async with self.core.local_comfyui_workflow_session():
+            for frame in storyboard.frames:
+                has_existing_media = frame.image_path is not None or frame.video_path is not None
+                needs_generation = frame.image_prompt is not None
 
-            if needs_generation:
-                self._report_staged_frame_progress(
-                    ctx.progress_callback,
-                    stage_start=0.35,
-                    stage_end=0.50,
-                    frame_current=frame.index + 1,
-                    frame_total=total_frames,
-                    step=2,
-                    action=ProgressFrameAction.MEDIA,
-                )
-                await self.core.frame_processor._step_generate_media(frame, config)
-            elif not has_existing_media:
-                frame.image_path = None
-                frame.media_type = None
+                if needs_generation:
+                    self._report_staged_frame_progress(
+                        ctx.progress_callback,
+                        stage_start=0.35,
+                        stage_end=0.50,
+                        frame_current=frame.index + 1,
+                        frame_total=total_frames,
+                        step=2,
+                        action=ProgressFrameAction.MEDIA,
+                    )
+                    await self.core.frame_processor._step_generate_media(frame, config)
+                elif not has_existing_media:
+                    frame.image_path = None
+                    frame.media_type = None
 
         for frame in storyboard.frames:
             self._report_staged_frame_progress(
@@ -1382,25 +1382,27 @@ class StandardPipeline(LinearVideoPipeline):
 
         logger.info("Using HyperFrames image asset production path")
 
+        async with self.core.local_comfyui_workflow_session():
+            for frame in storyboard.frames:
+                has_existing_media = frame.image_path is not None or frame.video_path is not None
+                needs_generation = frame.image_prompt is not None
+
+                if needs_generation:
+                    self._report_staged_frame_progress(
+                        ctx.progress_callback,
+                        stage_start=0.25,
+                        stage_end=0.55,
+                        frame_current=frame.index + 1,
+                        frame_total=total_frames,
+                        step=2,
+                        action=ProgressFrameAction.MEDIA,
+                    )
+                    await self.core.frame_processor._step_generate_media(frame, config)
+                elif not has_existing_media:
+                    frame.image_path = None
+                    frame.media_type = None
+
         for frame in storyboard.frames:
-            has_existing_media = frame.image_path is not None or frame.video_path is not None
-            needs_generation = frame.image_prompt is not None
-
-            if needs_generation:
-                self._report_staged_frame_progress(
-                    ctx.progress_callback,
-                    stage_start=0.25,
-                    stage_end=0.55,
-                    frame_current=frame.index + 1,
-                    frame_total=total_frames,
-                    step=2,
-                    action=ProgressFrameAction.MEDIA,
-                )
-                await self.core.frame_processor._step_generate_media(frame, config)
-            elif not has_existing_media:
-                frame.image_path = None
-                frame.media_type = None
-
             self._report_staged_frame_progress(
                 ctx.progress_callback,
                 stage_start=0.55,
@@ -2705,21 +2707,22 @@ class StandardPipeline(LinearVideoPipeline):
         block_paths: List[str] = []
         cursor = 0.0
 
-        for block in ctx.timing_plan.blocks:
-            block_output_path = task_audio_dir / f"{block.id}.wav"
-            normalized_audio_path = await self._synthesize_audio_block(
-                ctx,
-                block_id=block.id,
-                block_text=block.text,
-                task_audio_dir=task_audio_dir,
-                block_output_path=block_output_path,
-            )
-            block.audio_path = normalized_audio_path
-            duration = self._get_audio_duration(block.audio_path)
-            block.start = cursor
-            block.end = cursor + duration
-            cursor = block.end
-            block_paths.append(block.audio_path)
+        async with self.core.local_comfyui_workflow_session():
+            for block in ctx.timing_plan.blocks:
+                block_output_path = task_audio_dir / f"{block.id}.wav"
+                normalized_audio_path = await self._synthesize_audio_block(
+                    ctx,
+                    block_id=block.id,
+                    block_text=block.text,
+                    task_audio_dir=task_audio_dir,
+                    block_output_path=block_output_path,
+                )
+                block.audio_path = normalized_audio_path
+                duration = self._get_audio_duration(block.audio_path)
+                block.start = cursor
+                block.end = cursor + duration
+                cursor = block.end
+                block_paths.append(block.audio_path)
 
         master_audio_path = task_audio_dir / "master_audio.wav"
         self._concat_audio_files(
