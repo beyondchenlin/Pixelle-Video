@@ -4,13 +4,6 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 VALID_ORIENTATIONS = ("landscape", "portrait", "square")
-VALID_VIDEO_RESOLUTION_PRESETS = ("1k", "2k", "4k")
-VALID_MEDIA_RESOLUTION_PRESETS = ("768", "1k", "2k", "4k")
-
-DEFAULT_VIDEO_ORIENTATION = "landscape"
-DEFAULT_VIDEO_RESOLUTION_PRESET = "1k"
-DEFAULT_MEDIA_ORIENTATION = "square"
-DEFAULT_MEDIA_RESOLUTION_PRESET = "768"
 
 
 @dataclass(frozen=True)
@@ -28,16 +21,32 @@ class SizeSpec:
 
 DEFAULT_MEDIA_SIZE = SizeSpec(768, 768)
 
-VIDEO_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
+STANDARD_VIDEO_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
     "landscape": {
-        "1k": SizeSpec(1280, 720),
-        "2k": SizeSpec(1920, 1080),
-        "4k": SizeSpec(3840, 2160),
+        "landscape_hd": SizeSpec(1280, 720),
+        "landscape_full_hd": SizeSpec(1920, 1080),
+        "landscape_4k": SizeSpec(3840, 2160),
     },
     "portrait": {
-        "1k": SizeSpec(720, 1280),
-        "2k": SizeSpec(1080, 1920),
-        "4k": SizeSpec(2160, 3840),
+        "portrait_hd": SizeSpec(720, 1280),
+        "portrait_full_hd": SizeSpec(1080, 1920),
+        "portrait_4k": SizeSpec(2160, 3840),
+    },
+    "square": {
+        "square_standard": SizeSpec(1080, 1080),
+    },
+}
+
+LEGACY_VIDEO_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
+    "landscape": {
+        "1k": STANDARD_VIDEO_SIZE_PRESETS["landscape"]["landscape_hd"],
+        "2k": STANDARD_VIDEO_SIZE_PRESETS["landscape"]["landscape_full_hd"],
+        "4k": STANDARD_VIDEO_SIZE_PRESETS["landscape"]["landscape_4k"],
+    },
+    "portrait": {
+        "1k": STANDARD_VIDEO_SIZE_PRESETS["portrait"]["portrait_hd"],
+        "2k": STANDARD_VIDEO_SIZE_PRESETS["portrait"]["portrait_full_hd"],
+        "4k": STANDARD_VIDEO_SIZE_PRESETS["portrait"]["portrait_4k"],
     },
     "square": {
         "1k": SizeSpec(1024, 1024),
@@ -45,6 +54,34 @@ VIDEO_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
         "4k": SizeSpec(4096, 4096),
     },
 }
+
+VIDEO_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
+    orientation: {
+        **STANDARD_VIDEO_SIZE_PRESETS[orientation],
+        **LEGACY_VIDEO_SIZE_PRESETS[orientation],
+    }
+    for orientation in VALID_ORIENTATIONS
+}
+
+VALID_VIDEO_RESOLUTION_PRESETS = tuple(
+    preset
+    for presets in VIDEO_SIZE_PRESETS.values()
+    for preset in presets
+)
+
+VALID_MEDIA_RESOLUTION_PRESETS = ("768", "1k", "2k", "4k")
+
+DEFAULT_VIDEO_ORIENTATION = "landscape"
+DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION = {
+    "landscape": "landscape_hd",
+    "portrait": "portrait_hd",
+    "square": "square_standard",
+}
+DEFAULT_VIDEO_RESOLUTION_PRESET = DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION[
+    DEFAULT_VIDEO_ORIENTATION
+]
+DEFAULT_MEDIA_ORIENTATION = "square"
+DEFAULT_MEDIA_RESOLUTION_PRESET = "768"
 
 MEDIA_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
     "landscape": VIDEO_SIZE_PRESETS["landscape"],
@@ -55,7 +92,27 @@ MEDIA_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
     },
 }
 
-_VIDEO_PRESET_ALIASES = {
+_VIDEO_PRESET_ALIASES_BY_ORIENTATION = {
+    "landscape": {
+        "1280x720": "landscape_hd",
+        "1920x1080": "landscape_full_hd",
+        "3840x2160": "landscape_4k",
+    },
+    "portrait": {
+        "720x1280": "portrait_hd",
+        "1080x1920": "portrait_full_hd",
+        "2160x3840": "portrait_4k",
+    },
+    "square": {
+        "1080x1080": "square_standard",
+        "1024x1024": "1k",
+        "2048x2048": "2k",
+        "4096x4096": "4k",
+    },
+}
+
+_MEDIA_PRESET_ALIASES = {
+    "768x768": "768",
     "1280x720": "1k",
     "720x1280": "1k",
     "1024x1024": "1k",
@@ -65,11 +122,6 @@ _VIDEO_PRESET_ALIASES = {
     "3840x2160": "4k",
     "2160x3840": "4k",
     "4096x4096": "4k",
-}
-
-_MEDIA_PRESET_ALIASES = {
-    "768x768": "768",
-    **_VIDEO_PRESET_ALIASES,
 }
 
 
@@ -108,10 +160,19 @@ def normalize_media_orientation(value: Any = None) -> str:
     )
 
 
-def normalize_video_resolution_preset(value: Any = None) -> str:
-    preset = _normalize_optional_string(value, DEFAULT_VIDEO_RESOLUTION_PRESET)
-    preset = _VIDEO_PRESET_ALIASES.get(preset, preset)
-    if preset not in VALID_VIDEO_RESOLUTION_PRESETS:
+def normalize_video_resolution_preset(
+    value: Any = None,
+    *,
+    orientation: str | None = None,
+) -> str:
+    normalized_orientation = normalize_video_orientation(orientation)
+    default = DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION[normalized_orientation]
+    preset = _normalize_optional_string(value, default)
+    preset = _VIDEO_PRESET_ALIASES_BY_ORIENTATION[normalized_orientation].get(
+        preset,
+        preset,
+    )
+    if preset not in VIDEO_SIZE_PRESETS[normalized_orientation]:
         raise ValueError(f"unsupported video resolution preset: {preset}")
     return preset
 
@@ -125,7 +186,7 @@ def normalize_media_resolution_preset(
     default = (
         DEFAULT_MEDIA_RESOLUTION_PRESET
         if normalized_orientation == DEFAULT_MEDIA_ORIENTATION
-        else DEFAULT_VIDEO_RESOLUTION_PRESET
+        else "1k"
     )
     preset = _normalize_optional_string(value, default)
     preset = _MEDIA_PRESET_ALIASES.get(preset, preset)
@@ -141,7 +202,10 @@ def normalize_media_resolution_preset(
 
 def resolve_canvas_size(orientation: Any = None, preset: Any = None) -> SizeSpec:
     normalized_orientation = normalize_video_orientation(orientation)
-    normalized_preset = normalize_video_resolution_preset(preset)
+    normalized_preset = normalize_video_resolution_preset(
+        preset,
+        orientation=normalized_orientation,
+    )
     return VIDEO_SIZE_PRESETS[normalized_orientation][normalized_preset]
 
 
@@ -205,7 +269,8 @@ class GenerationSizeContract:
             source.get("video_orientation")
         )
         video_preset = normalize_video_resolution_preset(
-            source.get("video_resolution_preset")
+            source.get("video_resolution_preset"),
+            orientation=video_orientation,
         )
         media_orientation = normalize_media_orientation(
             source.get("media_orientation")

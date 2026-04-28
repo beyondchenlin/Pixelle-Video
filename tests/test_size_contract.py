@@ -15,21 +15,46 @@ def test_default_generation_size_contract_keeps_video_and_media_independent():
     assert (contract.canvas_width, contract.canvas_height) == (1280, 720)
     assert (contract.media_width, contract.media_height) == (768, 768)
     assert contract.video_orientation == "landscape"
-    assert contract.video_resolution_preset == "1k"
+    assert contract.video_resolution_preset == "landscape_hd"
     assert contract.media_orientation == "square"
     assert contract.media_resolution_preset == "768"
     assert contract.sync_media_size_to_canvas is False
 
 
+def test_standard_video_presets_exclude_non_common_delivery_sizes():
+    from pixelle_video.models.size_contract import STANDARD_VIDEO_SIZE_PRESETS
+
+    all_standard_sizes = {
+        spec.as_tuple()
+        for presets in STANDARD_VIDEO_SIZE_PRESETS.values()
+        for spec in presets.values()
+    }
+
+    assert (1280, 720) in all_standard_sizes
+    assert (1920, 1080) in all_standard_sizes
+    assert (3840, 2160) in all_standard_sizes
+    assert (720, 1280) in all_standard_sizes
+    assert (1080, 1920) in all_standard_sizes
+    assert (2160, 3840) in all_standard_sizes
+    assert (1080, 1080) in all_standard_sizes
+    assert (1920, 720) not in all_standard_sizes
+    assert (1024, 1024) not in all_standard_sizes
+    assert (2048, 2048) not in all_standard_sizes
+
+
 @pytest.mark.parametrize(
     ("orientation", "preset", "expected"),
     [
+        ("landscape", "landscape_hd", SizeSpec(1280, 720)),
+        ("landscape", "landscape_full_hd", SizeSpec(1920, 1080)),
+        ("landscape", "landscape_4k", SizeSpec(3840, 2160)),
+        ("portrait", "portrait_hd", SizeSpec(720, 1280)),
+        ("portrait", "portrait_full_hd", SizeSpec(1080, 1920)),
+        ("portrait", "portrait_4k", SizeSpec(2160, 3840)),
+        ("square", "square_standard", SizeSpec(1080, 1080)),
         ("landscape", "1k", SizeSpec(1280, 720)),
         ("landscape", "2k", SizeSpec(1920, 1080)),
-        ("landscape", "4k", SizeSpec(3840, 2160)),
-        ("portrait", "1k", SizeSpec(720, 1280)),
         ("portrait", "2k", SizeSpec(1080, 1920)),
-        ("portrait", "4k", SizeSpec(2160, 3840)),
         ("square", "1k", SizeSpec(1024, 1024)),
         ("square", "2k", SizeSpec(2048, 2048)),
         ("square", "4k", SizeSpec(4096, 4096)),
@@ -37,6 +62,24 @@ def test_default_generation_size_contract_keeps_video_and_media_independent():
 )
 def test_resolve_canvas_size_for_orientation_presets(orientation, preset, expected):
     assert resolve_canvas_size(orientation, preset) == expected
+
+
+def test_default_generation_size_contract_uses_common_landscape_hd_output():
+    contract = GenerationSizeContract.default()
+
+    assert (contract.canvas_width, contract.canvas_height) == (1280, 720)
+    assert contract.video_orientation == "landscape"
+    assert contract.video_resolution_preset == "landscape_hd"
+
+
+def test_non_standard_output_size_alias_is_rejected():
+    with pytest.raises(ValueError, match="unsupported video resolution preset"):
+        GenerationSizeContract.from_params(
+            {
+                "video_orientation": "landscape",
+                "video_resolution_preset": "1920x720",
+            }
+        )
 
 
 @pytest.mark.parametrize(
