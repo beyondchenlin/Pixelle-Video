@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from web.components import style_config
 
@@ -13,6 +14,33 @@ def test_landscape_template_gallery_preview_assets_exist():
 
     for preview_asset in preview_assets:
         assert preview_asset.exists(), f"missing template gallery preview: {preview_asset}"
+
+
+def test_template_gallery_tab_label_uses_orientation_without_base_size():
+    orientation_labels = {
+        "portrait": "竖屏",
+        "landscape": "横屏",
+        "square": "方形",
+    }
+
+    labels = [
+        style_config._build_template_gallery_tab_label(
+            SimpleNamespace(orientation="portrait", width=1080, height=1920),
+            orientation_labels,
+        ),
+        style_config._build_template_gallery_tab_label(
+            SimpleNamespace(orientation="landscape", width=1920, height=1080),
+            orientation_labels,
+        ),
+        style_config._build_template_gallery_tab_label(
+            SimpleNamespace(orientation="square", width=1080, height=1080),
+            orientation_labels,
+        ),
+    ]
+
+    assert labels == ["竖屏", "横屏", "方形"]
+    assert all("1080" not in label for label in labels)
+    assert all("1920" not in label for label in labels)
 
 
 def test_render_generation_size_controls_returns_independent_image_size(monkeypatch):

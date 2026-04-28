@@ -193,6 +193,11 @@ def _render_size_segmented_control(
     return str(selected or default_value)
 
 
+def _build_template_gallery_tab_label(display_info, orientation_labels: dict[str, str]) -> str:
+    orientation = getattr(display_info, "orientation", "")
+    return orientation_labels.get(orientation, orientation)
+
+
 def _render_generation_size_controls() -> GenerationSizeContract:
     orientation_labels = {
         "landscape": tr("orientation.landscape"),
@@ -2491,16 +2496,10 @@ def render_style_config(
             # Combine: templates with preview first, then without preview
             all_templates = templates_with_preview + templates_without_preview
             
-            # Get orientation from first template in group
-            orientation = ORIENTATION_I18N.get(
-                all_templates[0].display_info.orientation, 
-                all_templates[0].display_info.orientation
+            tab_label = _build_template_gallery_tab_label(
+                all_templates[0].display_info,
+                ORIENTATION_I18N,
             )
-            width = all_templates[0].display_info.width
-            height = all_templates[0].display_info.height
-            
-            # Create tab label
-            tab_label = f"{orientation} {width}×{height}"
             size_labels.append(tab_label)
             size_groups.append(all_templates)
         

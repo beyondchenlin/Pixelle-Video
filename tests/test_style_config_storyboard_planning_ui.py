@@ -36,6 +36,7 @@ class _FakeStreamlit:
         self.container_calls: list[dict] = []
         self.nested_expanders: list[tuple[str, bool]] = []
         self.checkbox_calls: list[dict] = []
+        self.tab_label_sets: list[list[str]] = []
         self.session_state = {
             "template_type_selector": "static",
             "storyboard_planning_enabled": True,
@@ -165,6 +166,7 @@ class _FakeStreamlit:
         return _FakeContext()
 
     def tabs(self, labels):
+        self.tab_label_sets.append(list(labels))
         return [_FakeContext() for _ in labels]
 
     def stop(self):
@@ -500,7 +502,8 @@ def test_style_config_source_keeps_expected_ui_glyphs_and_separators():
     assert 'f"· {get_prompt_prefix_category_label(active_item[\'style_category_id\'], \'style\', language)} "' in source
     assert 'f"· {get_prompt_prefix_category_label(active_item[\'scene_category_id\'], \'scene\', language)}"' in source
     assert 'st.caption(f"📁 {audio_path}")' in source
-    assert 'tab_label = f"{orientation} {width}×{height}"' in source
+    assert "_build_template_gallery_tab_label(" in source
+    assert 'tab_label = f"{orientation} {width}' not in source
     assert 'st.info(f"📋 {tr(\'template.selected_template\')}: **{selected_template_name}**")' in source
     assert 'st.markdown("📝 " + tr("template.custom_parameters"))' in source
     assert '"size.final_video_info"' in source
@@ -1583,6 +1586,7 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     assert result["media_workflow"] == "selfhost/image_z_image_turbo_gguf.json"
     assert ("section.image", False) in fake_st.expanders
     assert fake_st.nested_expanders == []
+    assert fake_st.tab_label_sets == [["orientation.portrait"]]
     assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
     expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
     assert "**style.image_model_selection_title**" in expander_html
