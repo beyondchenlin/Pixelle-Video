@@ -61,6 +61,24 @@ VideoResolutionPreset = Literal[
 ]
 MediaResolutionPreset = Literal["768", "1k", "2k", "4k"]
 
+_STANDARD_VIDEO_PRESET_ORIENTATIONS: dict[str, VideoOrientation] = {
+    "landscape_hd": "landscape",
+    "landscape_full_hd": "landscape",
+    "landscape_4k": "landscape",
+    "portrait_hd": "portrait",
+    "portrait_full_hd": "portrait",
+    "portrait_4k": "portrait",
+    "square_standard": "square",
+}
+
+
+def _infer_video_orientation_from_standard_preset(
+    preset: VideoResolutionPreset | None,
+) -> VideoOrientation | None:
+    if preset is None:
+        return None
+    return _STANDARD_VIDEO_PRESET_ORIENTATIONS.get(preset)
+
 
 class VideoGenerateRequest(BaseModel):
     """Video generation request"""
@@ -316,6 +334,11 @@ class VideoGenerateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_storyboard_generation_contract(self) -> "VideoGenerateRequest":
+        if self.video_orientation is None:
+            self.video_orientation = _infer_video_orientation_from_standard_preset(
+                self.video_resolution_preset
+            )
+
         if self.storyboard_mode == "smart":
             if self.storyboard_count_mode == "manual":
                 if self.storyboard_scene_count is None:

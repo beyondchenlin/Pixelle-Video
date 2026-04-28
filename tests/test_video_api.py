@@ -158,6 +158,29 @@ def test_video_generate_request_accepts_new_full_hd_preset():
     assert params["video_resolution_preset"] == "landscape_full_hd"
 
 
+def test_video_generate_request_infers_portrait_orientation_from_standard_preset():
+    request = VideoGenerateRequest(text="demo", video_resolution_preset="portrait_hd")
+
+    assert request.video_orientation == "portrait"
+    assert request.video_resolution_preset == "portrait_hd"
+
+
+def test_video_generate_request_infers_square_orientation_from_standard_preset():
+    request = VideoGenerateRequest(text="demo", video_resolution_preset="square_standard")
+
+    assert request.video_orientation == "square"
+    assert request.video_resolution_preset == "square_standard"
+
+
+def test_video_generate_request_rejects_conflicting_standard_preset_orientation():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            video_orientation="landscape",
+            video_resolution_preset="portrait_hd",
+        )
+
+
 def test_video_generate_request_rejects_non_standard_1920x720_output():
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
