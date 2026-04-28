@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import os
 import random
 import re
 import shutil
@@ -10,7 +11,6 @@ from pathlib import Path
 import edge_tts
 from aiohttp import ClientConnectorError, ClientResponseError, WSServerHandshakeError
 from edge_tts.exceptions import NoAudioReceived
-
 
 VOICE_ID_PATTERN = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z0-9]+)+Neural$")
 DEFAULT_SAMPLE_RATE = 24000
@@ -25,6 +25,15 @@ RETRYABLE_EDGE_TTS_ERRORS = (
     ConnectionResetError,
     asyncio.TimeoutError,
 )
+
+
+def _runtime_temp_dir() -> str | None:
+    runtime_root = os.environ.get("PIXELLE_VIDEO_RUNTIME_ROOT")
+    if not runtime_root:
+        return None
+    temp_dir = Path(runtime_root) / "temp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    return str(temp_dir)
 
 
 def speed_multiplier_to_rate(speed: float) -> str:
@@ -134,7 +143,11 @@ class PixelleEdgeTTS:
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg was not found in PATH")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".mp3",
+            dir=_runtime_temp_dir(),
+        ) as temp_file:
             temp_file.write(audio_bytes)
             temp_path = Path(temp_file.name)
 
