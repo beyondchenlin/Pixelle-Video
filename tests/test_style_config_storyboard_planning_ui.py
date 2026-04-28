@@ -503,7 +503,8 @@ def test_style_config_source_keeps_expected_ui_glyphs_and_separators():
     assert 'tab_label = f"{orientation} {width}×{height}"' in source
     assert 'st.info(f"📋 {tr(\'template.selected_template\')}: **{selected_template_name}**")' in source
     assert 'st.markdown("📝 " + tr("template.custom_parameters"))' in source
-    assert 'st.info(f"📐 {tr(\'template.size_info\')}: {template_width} × {template_height}")' in source
+    assert '"size.final_video_info"' in source
+    assert '"size.template_base_info"' in source
     assert 'st.info(f"📐 {size_info_text}")' in source
     assert 'st.info("ℹ️ " + tr("image.not_required"))' in source
 

@@ -37,6 +37,15 @@ from pixelle_video.config.prompt_prefix_library import (
     get_prompt_prefix_workflow_preview_asset_path,
     resolve_prompt_prefix_gallery_cover,
 )
+from pixelle_video.models.size_contract import (
+    DEFAULT_MEDIA_ORIENTATION,
+    DEFAULT_MEDIA_RESOLUTION_PRESET,
+    DEFAULT_VIDEO_ORIENTATION,
+    DEFAULT_VIDEO_RESOLUTION_PRESET,
+    MEDIA_SIZE_PRESETS,
+    VIDEO_SIZE_PRESETS,
+    GenerationSizeContract,
+)
 from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
 )
@@ -56,11 +65,11 @@ from pixelle_video.utils.text_splitting import (
     SUPPORTED_CAPTION_PUNCTUATION_MODES,
     SUPPORTED_TTS_SENTENCE_JOINER_MODES,
 )
+from web.components import storyboard_planning_controls
 from web.components.selfhost_workflow_notice import (
     is_selfhost_workflow,
     render_selfhost_workflow_notice,
 )
-from web.components import storyboard_planning_controls
 from web.components.storyboard_preview import render_storyboard_preview  # noqa: F401
 from web.components.text_rendering_config import (
     DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,  # noqa: F401
@@ -139,6 +148,137 @@ def render_middle_column_detail_section(label: str):
 def resolve_media_generation_section_expanded(template_media_type: str) -> bool:
     """Collapse illustration generation by default while keeping video generation open."""
     return template_media_type == "video"
+
+
+def _ensure_session_option(key: str, options: Sequence[str], default: str) -> str:
+    value = st.session_state.get(key)
+    if value not in options:
+        st.session_state[key] = default
+        return default
+    return str(value)
+
+
+def _render_size_segmented_control(
+    *,
+    label: str,
+    options: Sequence[str],
+    labels: dict[str, str],
+    key: str,
+    default: str,
+) -> str:
+    default_value = _ensure_session_option(key, options, default)
+    option_list = list(options)
+
+    def format_func(value: str) -> str:
+        return labels.get(value, value)
+
+    segmented_control = getattr(st, "segmented_control", None)
+    if segmented_control is not None:
+        selected = segmented_control(
+            label,
+            option_list,
+            format_func=format_func,
+            default=default_value,
+            key=key,
+        )
+    else:
+        selected = st.radio(
+            label,
+            option_list,
+            index=option_list.index(default_value),
+            format_func=format_func,
+            horizontal=True,
+            key=key,
+        )
+    return str(selected or default_value)
+
+
+def _render_generation_size_controls() -> GenerationSizeContract:
+    orientation_labels = {
+        "landscape": tr("orientation.landscape"),
+        "portrait": tr("orientation.portrait"),
+        "square": tr("orientation.square"),
+    }
+
+    video_orientation = _render_size_segmented_control(
+        label=tr("size.video_orientation"),
+        options=list(VIDEO_SIZE_PRESETS.keys()),
+        labels=orientation_labels,
+        key="video_orientation",
+        default=DEFAULT_VIDEO_ORIENTATION,
+    )
+    video_preset_labels = {
+        preset: (
+            f"{preset.upper()} "
+            f"({spec.width}×{spec.height})"
+        )
+        for preset, spec in VIDEO_SIZE_PRESETS[video_orientation].items()
+    }
+    video_resolution_preset = _render_size_segmented_control(
+        label=tr("size.video_resolution"),
+        options=list(VIDEO_SIZE_PRESETS[video_orientation].keys()),
+        labels=video_preset_labels,
+        key="video_resolution_preset",
+        default=DEFAULT_VIDEO_RESOLUTION_PRESET,
+    )
+
+    media_orientation = _render_size_segmented_control(
+        label=tr("size.media_orientation"),
+        options=list(MEDIA_SIZE_PRESETS.keys()),
+        labels=orientation_labels,
+        key="media_orientation",
+        default=DEFAULT_MEDIA_ORIENTATION,
+    )
+    media_default_preset = (
+        DEFAULT_MEDIA_RESOLUTION_PRESET
+        if media_orientation == DEFAULT_MEDIA_ORIENTATION
+        else DEFAULT_VIDEO_RESOLUTION_PRESET
+    )
+    media_preset_labels = {
+        preset: (
+            f"{preset.upper()} "
+            f"({spec.width}×{spec.height})"
+        )
+        for preset, spec in MEDIA_SIZE_PRESETS[media_orientation].items()
+    }
+    media_resolution_preset = _render_size_segmented_control(
+        label=tr("size.media_resolution"),
+        options=list(MEDIA_SIZE_PRESETS[media_orientation].keys()),
+        labels=media_preset_labels,
+        key="media_resolution_preset",
+        default=media_default_preset,
+    )
+
+    sync = st.toggle(
+        tr("size.sync_media_to_canvas"),
+        value=bool(st.session_state.get("sync_media_size_to_canvas", False)),
+        help=tr("size.sync_media_to_canvas_help"),
+        key="sync_media_size_to_canvas",
+    )
+    contract = GenerationSizeContract.from_params(
+        {
+            "video_orientation": video_orientation,
+            "video_resolution_preset": video_resolution_preset,
+            "media_orientation": media_orientation,
+            "media_resolution_preset": media_resolution_preset,
+            "sync_media_size_to_canvas": sync,
+        }
+    )
+    st.info(
+        tr(
+            "size.final_video_info",
+            width=contract.canvas_width,
+            height=contract.canvas_height,
+        )
+    )
+    st.info(
+        tr(
+            "size.media_generation_info",
+            width=contract.media_width,
+            height=contract.media_height,
+        )
+    )
+    return contract
 
 
 def _render_template_gallery_preview_placeholder(template_name: str):
@@ -2229,6 +2369,7 @@ def render_style_config(
         from pixelle_video.utils.template_util import (
             get_template_type,
             get_templates_grouped_by_size_and_type,
+            resolve_compatible_template_for_orientation,
         )
         
         # Template type selector
@@ -2258,7 +2399,10 @@ def render_style_config(
             st.info(tr('template.type.image_hint'))
         elif selected_template_type == 'video':
             st.info(tr('template.type.video_hint'))
-        
+
+        with render_middle_column_detail_section(tr("size.final_video_title")):
+            size_contract = _render_generation_size_controls()
+
         # Get templates grouped by size, filtered by selected type
         grouped_templates = get_templates_grouped_by_size_and_type(selected_template_type)
         
@@ -2299,7 +2443,16 @@ def render_style_config(
             # Template type changed, reset to type-specific default
             st.session_state['selected_template'] = type_specific_default
             st.session_state['last_template_type'] = selected_template_type
-        
+
+        resolved_template = resolve_compatible_template_for_orientation(
+            current_template=st.session_state["selected_template"],
+            template_type=selected_template_type,
+            orientation=size_contract.video_orientation,
+        )
+        if resolved_template != st.session_state["selected_template"]:
+            st.session_state["selected_template"] = resolved_template
+            safe_rerun()
+
         # Collect size groups and prepare tabs
         size_groups = []
         size_labels = []
@@ -2407,10 +2560,23 @@ def render_style_config(
             st.info(f"📋 {tr('template.selected_template')}: **{selected_template_name}**")
         
 
-        # Display video size from template
+        # Display final canvas and template base coordinate size separately
         from pixelle_video.utils.template_util import parse_template_size
-        video_width, video_height = parse_template_size(frame_template)
-        st.caption(tr("template.video_size_info", width=video_width, height=video_height))
+        template_width, template_height = parse_template_size(frame_template)
+        st.caption(
+            tr(
+                "size.final_video_info",
+                width=size_contract.canvas_width,
+                height=size_contract.canvas_height,
+            )
+        )
+        st.caption(
+            tr(
+                "size.template_base_info",
+                width=template_width,
+                height=template_height,
+            )
+        )
         
         # Custom template parameters (for video generation)
         from pixelle_video.services.frame_html import HTMLFrameGenerator
@@ -2421,10 +2587,12 @@ def render_style_config(
         generator_for_params = HTMLFrameGenerator(template_path_for_params)
         custom_params_for_video = generator_for_params.parse_template_parameters()
         
-        # Get media size from template (for image/video generation)
-        media_width, media_height = generator_for_params.get_media_size()
-        st.session_state['template_media_width'] = media_width
-        st.session_state['template_media_height'] = media_height
+        # Keep template media meta for compatibility/recommendation only.
+        template_media_width, template_media_height = generator_for_params.get_media_size()
+        st.session_state['template_media_width'] = template_media_width
+        st.session_state['template_media_height'] = template_media_height
+        media_width = size_contract.media_width
+        media_height = size_contract.media_height
         
         # Detect template media type
         
@@ -2538,10 +2706,23 @@ def render_style_config(
                     key="preview_text"
                 )
             
-            # Info: Size is auto-determined from template
+            # Info: final output canvas is controlled by the explicit size contract.
             from pixelle_video.utils.template_util import parse_template_size, resolve_template_path
             template_width, template_height = parse_template_size(resolve_template_path(frame_template))
-            st.info(f"📐 {tr('template.size_info')}: {template_width} × {template_height}")
+            st.info(
+                tr(
+                    "size.final_video_info",
+                    width=size_contract.canvas_width,
+                    height=size_contract.canvas_height,
+                )
+            )
+            st.caption(
+                tr(
+                    "size.template_base_info",
+                    width=template_width,
+                    height=template_height,
+                )
+            )
             
             # Preview button
             if st.button(tr("template.preview_button"), key="btn_preview_template", width="stretch"):
@@ -2552,7 +2733,11 @@ def render_style_config(
                         # Use the currently selected template (size is auto-parsed)
                         from pixelle_video.utils.template_util import resolve_template_path
                         template_path = resolve_template_path(frame_template)
-                        generator = HTMLFrameGenerator(template_path)
+                        generator = HTMLFrameGenerator(
+                            template_path,
+                            canvas_width=size_contract.canvas_width,
+                            canvas_height=size_contract.canvas_height,
+                        )
                         
                         # Build ext dict with auto-injected parameters (same as FrameProcessor)
                         ext = {
@@ -2673,9 +2858,8 @@ def render_style_config(
                 expanded=is_selfhost_workflow(workflow_key),
             )
         
-            # Get media size from template
-            media_width = st.session_state.get('template_media_width')
-            media_height = st.session_state.get('template_media_height')
+            media_width = size_contract.media_width
+            media_height = size_contract.media_height
             
             # Display media size info (read-only)
             if template_media_type == "video":
@@ -2752,9 +2936,8 @@ def render_style_config(
             st.info("ℹ️ " + tr("image.not_required"))
             st.caption(tr("image.not_required_hint"))
             
-            # Get media size from template (even though not used, for consistency)
-            media_width = st.session_state.get('template_media_width')
-            media_height = st.session_state.get('template_media_height')
+            media_width = size_contract.media_width
+            media_height = size_contract.media_height
             
             # Set default values for later use
             workflow_key = None
@@ -2776,8 +2959,7 @@ def render_style_config(
         "media_workflow": workflow_key,
         "storyboard_prompt_language": storyboard_prompt_language,
         "prompt_prefix": prompt_prefix if prompt_prefix else "",
-        "media_width": media_width,
-        "media_height": media_height,
+        **size_contract.to_params(),
         "text_rendering": text_rendering,
         **element_animation_settings,
     }

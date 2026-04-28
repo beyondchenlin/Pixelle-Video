@@ -494,3 +494,42 @@ def get_templates_grouped_by_size_and_type(
     
     return sorted_grouped
 
+
+def get_template_orientation(template_path: str) -> Literal["portrait", "landscape", "square"]:
+    width, height = parse_template_size(template_path)
+    if width > height:
+        return "landscape"
+    if height > width:
+        return "portrait"
+    return "square"
+
+
+def resolve_compatible_template_for_orientation(
+    *,
+    current_template: str,
+    template_type: Literal["static", "image", "video"],
+    orientation: Literal["landscape", "portrait", "square"],
+) -> str:
+    if get_template_orientation(current_template) == orientation:
+        return current_template
+
+    grouped = get_templates_grouped_by_size_and_type(template_type)
+    candidates = [
+        template
+        for templates in grouped.values()
+        for template in templates
+        if template.display_info.orientation == orientation
+    ]
+    if not candidates:
+        return current_template
+
+    current_name = Path(current_template).name
+    same_name = [
+        template
+        for template in candidates
+        if Path(template.template_path).name == current_name
+    ]
+    if same_name:
+        return same_name[0].template_path
+
+    return sorted(candidates, key=lambda template: template.display_info.name)[0].template_path
