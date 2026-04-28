@@ -16,8 +16,10 @@ Pixelle-Video Core - Service Layer
 Provides unified access to all capabilities (LLM, TTS, Image, etc.)
 """
 
+import asyncio
 import hashlib
 import json
+from pathlib import Path
 from typing import Optional
 
 from comfykit import ComfyKit
@@ -32,6 +34,7 @@ from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.alignment_service import AlignmentService
 from pixelle_video.services.audio_edit_service import AudioEditService
+from pixelle_video.services.comfyui_maintenance import ComfyUIMaintenanceClient
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.generation_coordinator import (
     GenerationCoordinator,
@@ -114,6 +117,7 @@ class PixelleVideoCore:
         # Video generation pipelines (dictionary of pipeline_name -> pipeline_instance)
         self.pipelines = {}
         self.generation_coordinator = GenerationCoordinator()
+        self._local_comfyui_execution_lock = asyncio.Lock()
         
         # Default pipeline callable (for backward compatibility)
         self.generate_video = None
@@ -259,13 +263,112 @@ class PixelleVideoCore:
         if self._comfykit:
             logger.info("🧹 Closing ComfyKit session...")
             try:
-                await self._comfykit.close()
+                await self._close_comfykit_instance()
                 logger.info("✅ ComfyKit session closed")
             except Exception as e:
                 logger.error(f"Failed to close ComfyKit: {e}")
             finally:
                 self._comfykit = None
                 self._comfykit_config_hash = None
+
+    async def _close_comfykit_instance(self) -> None:
+        if self._comfykit is None:
+            return
+
+        for attr_name in ("_runninghub_executor", "_http_executor", "_websocket_executor"):
+            executor = getattr(self._comfykit, attr_name, None)
+            close = getattr(executor, "close", None)
+            if callable(close):
+                await close()
+
+    async def prepare_comfyui_for_local_workflow(self) -> None:
+        """Prepare self-hosted ComfyUI before a local workflow execution."""
+        self.config = config_manager.config.to_dict()
+        comfyui_config = self.config.get("comfyui", {})
+        base_url = comfyui_config.get("comfyui_url")
+        if not base_url:
+            return
+
+        mode = (comfyui_config.get("pre_generation_cleanup_mode") or "force").lower()
+        if mode not in {"force", "conservative"}:
+            logger.warning(f"Unsupported ComfyUI pre-generation cleanup mode: {mode}")
+            return
+
+        client = ComfyUIMaintenanceClient(
+            base_url,
+            api_key=comfyui_config.get("comfyui_api_key"),
+        )
+        try:
+            await client.cleanup_before_generation(mode)
+        except Exception as e:
+            raise RuntimeError(f"ComfyUI pre-workflow cleanup failed: {e}") from e
+
+    async def release_comfyui_after_local_workflow(self) -> None:
+        """Release self-hosted ComfyUI model/cache state after a local workflow."""
+        self.config = config_manager.config.to_dict()
+        comfyui_config = self.config.get("comfyui", {})
+        base_url = comfyui_config.get("comfyui_url")
+        if not base_url:
+            return
+
+        client = ComfyUIMaintenanceClient(
+            base_url,
+            api_key=comfyui_config.get("comfyui_api_key"),
+        )
+        try:
+            await client.free_memory()
+        except Exception as e:
+            logger.warning(f"ComfyUI post-workflow memory release failed, continuing: {e}")
+
+    async def execute_comfykit_workflow(
+        self,
+        workflow_input,
+        workflow_params: dict,
+        *,
+        workflow_source: str,
+    ):
+        normalized_source = str(workflow_source or "selfhost").lower()
+        if normalized_source == "runninghub":
+            kit = await self._get_or_create_comfykit()
+            return await kit.execute(workflow_input, workflow_params)
+
+        async with self._local_comfyui_execution_lock:
+            await self.prepare_comfyui_for_local_workflow()
+            try:
+                kit = await self._get_or_create_comfykit()
+                return await kit.execute(workflow_input, workflow_params)
+            finally:
+                await self.release_comfyui_after_local_workflow()
+
+    async def execute_comfykit_workflow_file(
+        self,
+        workflow_path: str | Path,
+        workflow_params: dict,
+    ):
+        path = Path(workflow_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Workflow file does not exist: {path}")
+
+        with path.open("r", encoding="utf-8") as f:
+            workflow_config = json.load(f)
+
+        if not isinstance(workflow_config, dict):
+            raise ValueError(f"Workflow file must contain a JSON object: {path}")
+
+        workflow_source = str(workflow_config.get("source") or "selfhost").lower()
+        if workflow_source == "runninghub":
+            workflow_id = workflow_config.get("workflow_id")
+            if not workflow_id:
+                raise ValueError(f"RunningHub workflow missing workflow_id: {path}")
+            workflow_input = workflow_id
+        else:
+            workflow_input = str(path)
+
+        return await self.execute_comfykit_workflow(
+            workflow_input,
+            workflow_params,
+            workflow_source=workflow_source,
+        )
     
     async def __aenter__(self):
         """Async context manager entry"""

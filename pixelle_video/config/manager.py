@@ -135,6 +135,7 @@ class ConfigManager:
         return {
             "comfyui_url": self.config.comfyui.comfyui_url,
             "executor_type": self.config.comfyui.executor_type,
+            "pre_generation_cleanup_mode": self.config.comfyui.pre_generation_cleanup_mode,
             "comfyui_api_key": self.config.comfyui.comfyui_api_key,
             "runninghub_api_key": self.config.comfyui.runninghub_api_key,
             "runninghub_concurrent_limit": self.config.comfyui.runninghub_concurrent_limit,
@@ -182,6 +183,7 @@ class ConfigManager:
         self, 
         comfyui_url: Optional[str] = None,
         executor_type: Optional[str] = None,
+        pre_generation_cleanup_mode: Optional[str] = None,
         comfyui_api_key: Optional[str] = None,
         runninghub_api_key: Optional[str] = None,
         runninghub_concurrent_limit: Optional[int] = None,
@@ -193,6 +195,8 @@ class ConfigManager:
             updates["comfyui_url"] = comfyui_url
         if executor_type is not None:
             updates["executor_type"] = executor_type if executor_type else None
+        if pre_generation_cleanup_mode is not None:
+            updates["pre_generation_cleanup_mode"] = pre_generation_cleanup_mode
         if comfyui_api_key is not None:
             updates["comfyui_api_key"] = comfyui_api_key
         if runninghub_api_key is not None:

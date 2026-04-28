@@ -398,11 +398,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                     # Define async generation function
                     async def generate_digital_human_video():
                         task_dir, task_id = create_task_output_dir()
-                        kit = await pixelle_video._get_or_create_comfykit()
                         workflow_path = video_params["workflow_path"]
-
-                        import json
-                        from pathlib import Path
 
                         if mode == "customize":
                             status_text.text(tr("progress.step_audio"))
@@ -426,17 +422,14 @@ class DigitalHumanPipelineUI(PipelineUI):
                             second_workflow_path = Path(workflow_path.get("second_workflow_path"))
                             if not second_workflow_path.exists():
                                 raise Exception(f"The second step workflow file does not exist:{second_workflow_path}")
-                            with open(second_workflow_path, 'r', encoding='utf-8') as f:
-                                second_workflow_config = json.load(f)
                             second_workflow_params = {
                                 "videoimage": generated_image_path,
                                 "audio": audio_path
                             }
-                            if second_workflow_config.get("source") == "runninghub" and "workflow_id" in second_workflow_config:
-                                workflow_input = second_workflow_config["workflow_id"]
-                            else:
-                                workflow_input = str(second_workflow_config)
-                            second_result = await kit.execute(workflow_input, second_workflow_params)
+                            second_result = await pixelle_video.execute_comfykit_workflow_file(
+                                second_workflow_path,
+                                second_workflow_params,
+                            )
                             # Video Link Extraction
                             generated_video_url = None
                             if hasattr(second_result, 'videos') and second_result.videos:
@@ -480,13 +473,10 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 generated_text = goods_text
 
                                 status_text.text(tr("progress.step_image"))
-                                kit = await pixelle_video._get_or_create_comfykit()
-                                workflow_config = json.load(open(workflow_path, 'r', encoding='utf8'))
-                                if workflow_config.get("source") == "runninghub" and "workflow_id" in workflow_config:
-                                    workflow_input = workflow_config["workflow_id"]
-                                else:
-                                    workflow_input = str(workflow_config)
-                                combine_image = await kit.execute(workflow_input, workflow_params)
+                                combine_image = await pixelle_video.execute_comfykit_workflow_file(
+                                    workflow_path,
+                                    workflow_params,
+                                )
                                 if combine_image.status != "completed":
                                     raise Exception(f"workflow execution failed: {combine_image.msg}")
                                 generated_image_url = getattr(combine_image, "images", [None])[0]
@@ -504,17 +494,14 @@ class DigitalHumanPipelineUI(PipelineUI):
 
                                 if not second_workflow_path.exists():
                                     raise Exception(f"The second step workflow file does not exist:{second_workflow_path}")
-                                with open(second_workflow_path, 'r', encoding='utf-8') as f:
-                                    second_workflow_config = json.load(f)
                                 second_workflow_params = {
                                     "videoimage": generated_image_url,
                                     "audio": audio_path
                                 }
-                                if second_workflow_config.get("source") == "runninghub" and "workflow_id" in second_workflow_config:
-                                    workflow_input = second_workflow_config["workflow_id"]
-                                else:
-                                    workflow_input = str(second_workflow_config)
-                                second_result = await kit.execute(workflow_input, second_workflow_params)
+                                second_result = await pixelle_video.execute_comfykit_workflow_file(
+                                    second_workflow_path,
+                                    second_workflow_params,
+                                )
                                 # Video Link Extraction
                                 generated_video_url = None
                                 if hasattr(second_result, 'videos') and second_result.videos:
@@ -545,13 +532,10 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 workflow_params = {"firstimage": character_assets[0], "secondimage": goods_assets[0], "goodstype": goods_title}
                                 
                                 status_text.text(tr("progress.step_image"))
-                                kit = await pixelle_video._get_or_create_comfykit()
-                                workflow_config = json.load(open(workflow_path, 'r', encoding='utf8'))
-                                if workflow_config.get("source") == "runninghub" and "workflow_id" in workflow_config:
-                                    workflow_input = workflow_config["workflow_id"]
-                                else:
-                                    workflow_input = str(workflow_config)
-                                synthesis_result = await kit.execute(workflow_input, workflow_params)
+                                synthesis_result = await pixelle_video.execute_comfykit_workflow_file(
+                                    workflow_path,
+                                    workflow_params,
+                                )
                                 if synthesis_result.status != "completed":
                                     raise Exception(f"workflow execution failed: {synthesis_result.msg}")
                                 generated_image_url = getattr(synthesis_result, "images", [None])[0]
@@ -571,17 +555,14 @@ class DigitalHumanPipelineUI(PipelineUI):
 
                                 if not second_workflow_path.exists():
                                     raise Exception(f"The second step workflow file does not exist:{second_workflow_path}")
-                                with open(second_workflow_path, 'r', encoding='utf-8') as f:
-                                    second_workflow_config = json.load(f)
                                 second_workflow_params = {
                                     "videoimage": generated_image_url,
                                     "audio": audio_path
                                 }
-                                if second_workflow_config.get("source") == "runninghub" and "workflow_id" in second_workflow_config:
-                                    workflow_input = second_workflow_config["workflow_id"]
-                                else:
-                                    workflow_input = str(second_workflow_config)
-                                second_result = await kit.execute(workflow_input, second_workflow_params)
+                                second_result = await pixelle_video.execute_comfykit_workflow_file(
+                                    second_workflow_path,
+                                    second_workflow_params,
+                                )
                                 # Video Link Extraction
                                 generated_video_url = None
                                 if hasattr(second_result, 'videos') and second_result.videos:

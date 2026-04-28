@@ -64,8 +64,16 @@ class ElementSegmentationService:
             "height": height,
         }
 
-        kit = await self.core._get_or_create_comfykit()
-        result = await kit.execute(workflow, workflow_params)
+        execute_workflow = getattr(self.core, "execute_comfykit_workflow", None)
+        if callable(execute_workflow):
+            result = await execute_workflow(
+                workflow,
+                workflow_params,
+                workflow_source="selfhost",
+            )
+        else:
+            kit = await self.core._get_or_create_comfykit()
+            result = await kit.execute(workflow, workflow_params)
 
         stable_dir = Path(output_dir) / "element_animation" / f"frame_{frame_index:03d}"
         stable_dir.mkdir(parents=True, exist_ok=True)

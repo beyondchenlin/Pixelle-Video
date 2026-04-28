@@ -223,11 +223,18 @@ def render_advanced_settings():
                     "websocket": "WebSocket",
                     "http": "HTTP",
                 }
+                cleanup_mode_labels = {
+                    "force": tr("settings.comfyui.cleanup_force"),
+                    "conservative": tr("settings.comfyui.cleanup_conservative"),
+                }
                 current_executor_type = comfyui_config.get("executor_type")
                 if current_executor_type in executor_labels:
                     default_executor_type = current_executor_type
                 else:
                     default_executor_type = "auto"
+                current_cleanup_mode = comfyui_config.get("pre_generation_cleanup_mode", "force")
+                if current_cleanup_mode not in cleanup_mode_labels:
+                    current_cleanup_mode = "force"
 
                 url_col, key_col, executor_col = st.columns(3)
                 with url_col:
@@ -259,7 +266,16 @@ def render_advanced_settings():
                         ),
                         key="comfyui_executor_type_input"
                     )
-                
+
+                cleanup_mode = st.selectbox(
+                    tr("settings.comfyui.pre_generation_cleanup_mode"),
+                    options=list(cleanup_mode_labels.keys()),
+                    index=list(cleanup_mode_labels.keys()).index(current_cleanup_mode),
+                    format_func=lambda key: cleanup_mode_labels[key],
+                    help=tr("settings.comfyui.pre_generation_cleanup_mode_help"),
+                    key="comfyui_cleanup_mode_input",
+                )
+
                 # Test connection button
                 if st.button(tr("btn.test_connection"), key="test_comfyui", width="stretch"):
                     try:
@@ -344,6 +360,7 @@ def render_advanced_settings():
                     config_manager.set_comfyui_config(
                         comfyui_url=comfyui_url if comfyui_url else None,
                         executor_type="" if executor_type == "auto" else executor_type,
+                        pre_generation_cleanup_mode=cleanup_mode,
                         comfyui_api_key=comfyui_api_key if comfyui_api_key else None,
                         runninghub_api_key=runninghub_api_key if runninghub_api_key else None,
                         runninghub_concurrent_limit=int(runninghub_concurrent_limit),

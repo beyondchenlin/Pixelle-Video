@@ -1,4 +1,5 @@
 import asyncio
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -192,6 +193,272 @@ async def test_core_generate_video_releases_fingerprint_after_failure():
 
     assert result.call_number == 2
     assert pipeline.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_core_execute_local_comfy_workflow_runs_cleanup_around_execute():
+    calls = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            calls.append(("execute", workflow_input, workflow_params))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        calls.append(("prepare",))
+
+    async def _release():
+        calls.append(("release",))
+
+    async def _get_kit():
+        calls.append(("get_kit",))
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core._get_or_create_comfykit = _get_kit
+
+    result = await core.execute_comfykit_workflow(
+        "workflow.json",
+        {"prompt": "demo"},
+        workflow_source="selfhost",
+    )
+
+    assert result.status == "completed"
+    assert calls == [
+        ("prepare",),
+        ("get_kit",),
+        ("execute", "workflow.json", {"prompt": "demo"}),
+        ("release",),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_core_execute_local_comfy_workflow_releases_after_failure():
+    calls = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            calls.append("execute")
+            raise RuntimeError("workflow failed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        calls.append("prepare")
+
+    async def _release():
+        calls.append("release")
+
+    async def _get_kit():
+        calls.append("get_kit")
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core._get_or_create_comfykit = _get_kit
+
+    with pytest.raises(RuntimeError, match="workflow failed"):
+        await core.execute_comfykit_workflow(
+            "workflow.json",
+            {"prompt": "demo"},
+            workflow_source="selfhost",
+        )
+
+    assert calls == ["prepare", "get_kit", "execute", "release"]
+
+
+@pytest.mark.asyncio
+async def test_core_execute_local_comfy_workflow_stops_when_cleanup_fails():
+    calls = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            calls.append("execute")
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        calls.append("prepare")
+        raise RuntimeError("cleanup failed")
+
+    async def _release():
+        calls.append("release")
+
+    async def _get_kit():
+        calls.append("get_kit")
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core._get_or_create_comfykit = _get_kit
+
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        await core.execute_comfykit_workflow(
+            "workflow.json",
+            {"prompt": "demo"},
+            workflow_source="selfhost",
+        )
+
+    assert calls == ["prepare"]
+
+
+@pytest.mark.asyncio
+async def test_core_execute_runninghub_workflow_bypasses_local_comfy_cleanup():
+    calls = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            calls.append(("execute", workflow_input, workflow_params))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        raise AssertionError("RunningHub workflow should not prepare local ComfyUI")
+
+    async def _release():
+        raise AssertionError("RunningHub workflow should not release local ComfyUI")
+
+    async def _get_kit():
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core._get_or_create_comfykit = _get_kit
+
+    result = await core.execute_comfykit_workflow(
+        "runninghub-workflow-id",
+        {"prompt": "demo"},
+        workflow_source="runninghub",
+    )
+
+    assert result.status == "completed"
+    assert calls == [
+        ("execute", "runninghub-workflow-id", {"prompt": "demo"}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_core_execute_local_comfy_workflows_serialize_cleanup_boundary():
+    events = []
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(f"{workflow_input}:start")
+            if workflow_input == "first":
+                first_started.set()
+                await release_first.wait()
+            events.append(f"{workflow_input}:end")
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append("prepare")
+
+    async def _release():
+        events.append("release")
+
+    async def _get_kit():
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core._get_or_create_comfykit = _get_kit
+
+    first_task = asyncio.create_task(
+        core.execute_comfykit_workflow("first", {}, workflow_source="selfhost")
+    )
+    await first_started.wait()
+
+    second_task = asyncio.create_task(
+        core.execute_comfykit_workflow("second", {}, workflow_source="selfhost")
+    )
+    await asyncio.sleep(0.01)
+
+    assert events == ["prepare", "first:start"]
+
+    release_first.set()
+    await asyncio.gather(first_task, second_task)
+
+    assert events == [
+        "prepare",
+        "first:start",
+        "first:end",
+        "release",
+        "prepare",
+        "second:start",
+        "second:end",
+        "release",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_core_execute_workflow_file_resolves_runninghub_and_selfhost_inputs(tmp_path):
+    calls = []
+    core = PixelleVideoCore()
+
+    async def _execute(workflow_input, workflow_params, *, workflow_source):
+        calls.append((workflow_input, workflow_params, workflow_source))
+        return SimpleNamespace(status="completed")
+
+    core.execute_comfykit_workflow = _execute
+
+    selfhost_workflow = tmp_path / "selfhost.json"
+    selfhost_workflow.write_text(json.dumps({"source": "selfhost"}), encoding="utf-8")
+    await core.execute_comfykit_workflow_file(selfhost_workflow, {"prompt": "local"})
+
+    runninghub_workflow = tmp_path / "runninghub.json"
+    runninghub_workflow.write_text(
+        json.dumps({"source": "runninghub", "workflow_id": "rh-123"}),
+        encoding="utf-8",
+    )
+    await core.execute_comfykit_workflow_file(runninghub_workflow, {"prompt": "cloud"})
+
+    assert calls == [
+        (str(selfhost_workflow), {"prompt": "local"}, "selfhost"),
+        ("rh-123", {"prompt": "cloud"}, "runninghub"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_core_execute_workflow_file_rejects_non_object_json(tmp_path):
+    core = PixelleVideoCore()
+    workflow = tmp_path / "workflow.json"
+    workflow.write_text(json.dumps(["not", "a", "workflow"]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must contain a JSON object"):
+        await core.execute_comfykit_workflow_file(workflow, {})
+
+
+@pytest.mark.asyncio
+async def test_core_cleanup_skips_comfykit_executors_without_close():
+    closed = []
+
+    class _CloseableExecutor:
+        async def close(self):
+            closed.append("runninghub")
+
+    class _ComfyKit:
+        _runninghub_executor = _CloseableExecutor()
+        _http_executor = object()
+        _websocket_executor = object()
+
+    core = PixelleVideoCore()
+    core._comfykit = _ComfyKit()
+    core._comfykit_config_hash = "configured"
+
+    await core.cleanup()
+
+    assert closed == ["runninghub"]
+    assert core._comfykit is None
+    assert core._comfykit_config_hash is None
 
 
 @pytest.mark.asyncio

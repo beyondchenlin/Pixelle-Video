@@ -273,9 +273,6 @@ class MediaService(ComfyBaseService):
         
         # 4. Execute workflow using shared ComfyKit instance from core
         try:
-            # Get shared ComfyKit instance (lazy initialization + config hot-reload)
-            kit = await self.core._get_or_create_comfykit()
-            
             # Determine what to pass to ComfyKit based on source
             if workflow_info["source"] == "runninghub" and "workflow_id" in workflow_info:
                 # RunningHub: pass workflow_id (ComfyKit will use runninghub backend)
@@ -286,7 +283,7 @@ class MediaService(ComfyBaseService):
                 workflow_input = workflow_info["path"]
                 logger.info(f"Executing selfhost workflow: {workflow_input}")
             
-            result = await kit.execute(workflow_input, workflow_params)
+            result = await self._execute_workflow(workflow_input, workflow_params, workflow_info)
             
             # 5. Handle result based on specified media_type
             if result.status != "completed":

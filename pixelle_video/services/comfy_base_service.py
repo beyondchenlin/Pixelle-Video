@@ -307,6 +307,24 @@ class ComfyBaseService:
         
         logger.debug(f"ComfyKit config: {kit_config}")
         return kit_config
+
+    async def _execute_workflow(
+        self,
+        workflow_input: Any,
+        workflow_params: Dict[str, Any],
+        workflow_info: Dict[str, Any],
+    ):
+        """Execute a workflow through the core so local ComfyUI lifecycle is centralized."""
+        execute_workflow = getattr(self.core, "execute_comfykit_workflow", None)
+        if callable(execute_workflow):
+            return await execute_workflow(
+                workflow_input,
+                workflow_params,
+                workflow_source=workflow_info.get("source", "selfhost"),
+            )
+
+        kit = await self.core._get_or_create_comfykit()
+        return await kit.execute(workflow_input, workflow_params)
     
     def list_workflows(self) -> List[Dict[str, Any]]:
         """

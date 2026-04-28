@@ -454,6 +454,10 @@ class ComfyUIConfig(BaseModel):
         default=None,
         description="Optional ComfyUI executor override for selfhost workflows",
     )
+    pre_generation_cleanup_mode: Literal["force", "conservative"] = Field(
+        default="force",
+        description="ComfyUI cleanup mode before video generation",
+    )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")
     runninghub_concurrent_limit: int = Field(default=1, ge=1, le=10, description="RunningHub concurrent execution limit (1-10)")

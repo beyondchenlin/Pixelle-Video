@@ -204,10 +204,6 @@ class ImageToVideoPipelineUI(PipelineUI):
                     async def generate_audio_visual_video():
                         task_dir, task_id = create_task_output_dir()
                         logger.info(f"[Initialization] Task Directory: {task_dir}")
-                        kit = await pixelle_video._get_or_create_comfykit()
-                        
-                        import json
-                        from pathlib import Path
 
                         status_text.text(tr("progress.generation"))
                         progress_bar.progress(10)
@@ -219,20 +215,15 @@ class ImageToVideoPipelineUI(PipelineUI):
                         if not workflow_path.exists():
                             raise Exception(f"The workflow file does not exist: {workflow_path}")
 
-                        with open(workflow_path, 'r', encoding='utf-8') as f:
-                            workflow_config = json.load(f)
-
                         workflow_params = {
                             "image": image_path,
                             "prompt": prompt
                         }
 
-                        if workflow_config.get("source") == "runninghub" and "workflow_id" in workflow_config:
-                            workflow_input = workflow_config["workflow_id"]
-                        else:
-                            workflow_input = str(workflow_path)
-
-                        video_result = await kit.execute(workflow_input, workflow_params)
+                        video_result = await pixelle_video.execute_comfykit_workflow_file(
+                            workflow_path,
+                            workflow_params,
+                        )
 
                         generated_video_url = None
                         if hasattr(video_result, 'videos') and video_result.videos:
