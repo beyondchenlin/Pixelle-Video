@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 
 from pixelle_video.models.native_prompt import NativePromptHint
+from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
@@ -32,7 +33,7 @@ class ImagePromptComposer:
         max_words: int = 60,
         batch_size: Optional[int] = None,
         max_concurrency: Optional[int] = None,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        progress_callback: Optional[Callable[[int, int, ProgressI18nMessage], None]] = None,
         world_preset_id: Optional[str] = None,
         shot_preset_id: Optional[str] = None,
         consistency_strength: str = "standard",

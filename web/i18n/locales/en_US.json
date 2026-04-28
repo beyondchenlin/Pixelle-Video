@@ -292,6 +292,7 @@
     "progress.finalizing": "Finalizing...",
     "progress.generation": "Video is being synthesized...",
     "progress.completed": "✅ Completed",
+    "progress.batch_completed": "Batch {current}/{total} completed",
     "error.input_required": "❌ Please provide topic or content",
     "error.api_key_required": "❌ Please enter API Key",
     "error.missing_field": "Please enter {field}",

@@ -293,6 +293,7 @@
     "progress.generation": "正在合成视频...",
     "progress.finalizing": "完成中...",
     "progress.completed": "✅ 生成完成",
+    "progress.batch_completed": "批次 {current}/{total} 已完成",
     "error.input_required": "❌ 请提供主题或内容",
     "error.api_key_required": "❌ 请填写 API Key",
     "error.missing_field": "请填写 {field}",

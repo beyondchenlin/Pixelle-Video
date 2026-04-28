@@ -34,7 +34,7 @@ from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.models.caption_speech_plan import build_caption_speech_plan
 from pixelle_video.models.creation_package import CreationPackage
-from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.progress import ProgressEvent, ProgressI18nMessage
 from pixelle_video.models.render_execution_plan import (
     RenderExecutionArtifact,
     RenderExecutionPlan,
@@ -354,7 +354,11 @@ class StandardPipeline(LinearVideoPipeline):
                 ).info("custom prompt prefix received")
 
             # Create progress callback wrapper for image prompt generation
-            def image_prompt_progress(completed: int, total: int, message: str):
+            def image_prompt_progress(
+                completed: int,
+                total: int,
+                message: ProgressI18nMessage,
+            ):
                 batch_progress = completed / total if total > 0 else 0
                 overall_progress = 0.15 + (batch_progress * 0.15)
                 self._report_progress(

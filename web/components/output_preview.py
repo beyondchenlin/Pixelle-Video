@@ -21,7 +21,7 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
-from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.progress import ProgressEvent, ProgressI18nMessage
 from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.video_generation_contract import (
     STORYBOARD_GENERATION_OPTION_KEYS as CONTRACT_STORYBOARD_GENERATION_OPTION_KEYS,
@@ -52,6 +52,23 @@ VIDEO_PREVIEW_WIDTH = "50%"
 
 def _resolve_video_tts_mode(video_params):
     return resolve_tts_inference_mode(None, video_params.get("tts_inference_mode"))
+
+
+def _localize_progress_extra_info(extra_info) -> str:
+    if extra_info is None:
+        return ""
+
+    if isinstance(extra_info, ProgressI18nMessage):
+        return tr(
+            extra_info.key,
+            fallback=extra_info.fallback,
+            **dict(extra_info.params),
+        )
+
+    text = str(extra_info).strip()
+    if not text:
+        return ""
+    return tr(text, fallback=text)
 
 
 ELEMENT_ANIMATION_OPTION_KEYS = (
@@ -508,7 +525,9 @@ def render_single_output(pixelle_video, video_params):
 
                         # Append extra_info if available (e.g., batch progress)
                         if event.extra_info:
-                            message = f"{message} - {tr(event.extra_info)}"
+                            localized_extra_info = _localize_progress_extra_info(event.extra_info)
+                            if localized_extra_info:
+                                message = f"{message} - {localized_extra_info}"
 
                         status_text.text(message)
                         progress_bar.progress(min(int(event.progress * 100), 99))  # Cap at 99% until complete
@@ -683,7 +702,9 @@ def render_batch_output(pixelle_video, video_params):
                         message = tr(f"progress.{event.event_type}")
 
                     if event.extra_info:
-                        message = f"{message} - {tr(event.extra_info)}"
+                        localized_extra_info = _localize_progress_extra_info(event.extra_info)
+                        if localized_extra_info:
+                            message = f"{message} - {localized_extra_info}"
 
                     current_task_progress.progress(event.progress)
                     current_task_status.text(message)

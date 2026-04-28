@@ -32,6 +32,7 @@ from pixelle_video.models.content_generation import (
     VideoPromptBatchResponse,
 )
 from pixelle_video.models.native_prompt import NativePromptHint
+from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.prompt_context import (
     PromptContextEnvelope,
     PromptContextInput,
@@ -636,7 +637,7 @@ async def generate_image_prompts(
     batch_size: Optional[int] = None,
     max_concurrency: Optional[int] = None,
     max_retries: int = 3,
-    progress_callback: Optional[callable] = None,
+    progress_callback: Optional[Callable[[int, int, ProgressI18nMessage], None]] = None,
     style_profile: Optional[dict] = None,
     prompt_contexts: Optional[PromptContextInput] = None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
@@ -652,7 +653,7 @@ async def generate_image_prompts(
         batch_size: Max narrations per batch (default: 10)
         max_concurrency: Max concurrent LLM prompt batches (default: config llm.prompt_batch_concurrent_limit)
         max_retries: Max retry attempts per batch (default: 3)
-        progress_callback: Optional callback(completed, total, message) for progress updates
+        progress_callback: Optional callback(completed, total, message_token) for progress updates
     
     Returns:
         List of image prompts (base prompts, without prefix applied)
@@ -810,7 +811,7 @@ async def generate_styled_image_prompt_batch(
     batch_size: Optional[int] = None,
     max_concurrency: Optional[int] = None,
     max_retries: int = 3,
-    progress_callback: Optional[callable] = None,
+    progress_callback: Optional[Callable[[int, int, ProgressI18nMessage], None]] = None,
     world_preset_id: Optional[str] = None,
     shot_preset_id: Optional[str] = None,
     consistency_strength: str = "standard",
@@ -856,7 +857,14 @@ async def generate_styled_image_prompt_batch(
     if source is not None:
         try:
             if progress_callback:
-                progress_callback(0, progress_total, "progress.detail.style_resolution")
+                progress_callback(
+                    0,
+                    progress_total,
+                    ProgressI18nMessage(
+                        key="progress.detail.style_resolution",
+                        fallback="resolving style profile",
+                    ),
+                )
             style_resolution_start = perf_counter()
             emit_stage_event(
                 channel="ai_creation",
@@ -918,7 +926,14 @@ async def generate_styled_image_prompt_batch(
     frame_plans: list[Any] = []
     if storyboard_enabled:
         if progress_callback:
-            progress_callback(0, progress_total, "progress.detail.storyboard_planning")
+            progress_callback(
+                0,
+                progress_total,
+                ProgressI18nMessage(
+                    key="progress.detail.storyboard_planning",
+                    fallback="planning storyboard",
+                ),
+            )
         storyboard_world_preset = lookup_world_preset(
             config_manager.get_storyboard_world_preset_library(),
             world_preset_id,
@@ -1116,7 +1131,14 @@ async def generate_styled_image_prompt_batch(
         ]
 
     if progress_callback:
-        progress_callback(progress_total, progress_total, "progress.detail.prompt_assembly")
+        progress_callback(
+            progress_total,
+            progress_total,
+            ProgressI18nMessage(
+                key="progress.detail.prompt_assembly",
+                fallback="assembling final prompts",
+            ),
+        )
 
     has_any_native_hints = any(native_hints.values())
     native_text_allowed = resolved_text_policy.allow_native_text_in_image
@@ -1193,7 +1215,7 @@ async def generate_video_prompts(
     batch_size: Optional[int] = None,
     max_concurrency: Optional[int] = None,
     max_retries: int = 3,
-    progress_callback: Optional[callable] = None,
+    progress_callback: Optional[Callable[[int, int, ProgressI18nMessage], None]] = None,
     style_profile: Optional[dict] = None,
     prompt_contexts: Optional[PromptContextInput] = None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
@@ -1209,7 +1231,7 @@ async def generate_video_prompts(
         batch_size: Max narrations per batch (default: 10)
         max_concurrency: Max concurrent LLM prompt batches (default: config llm.prompt_batch_concurrent_limit)
         max_retries: Max retry attempts per batch (default: 3)
-        progress_callback: Optional callback(completed, total, message) for progress updates
+        progress_callback: Optional callback(completed, total, message_token) for progress updates
     
     Returns:
         List of video prompts (base prompts, without prefix applied)

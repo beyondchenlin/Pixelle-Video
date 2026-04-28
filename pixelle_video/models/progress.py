@@ -16,8 +16,26 @@ Progress event models for video generation
 Provides structured progress events for UI layer to consume and translate.
 """
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Optional, Union
+
+
+@dataclass(frozen=True)
+class ProgressI18nMessage:
+    """Localized message token carried by progress callbacks.
+
+    Attributes:
+        key: i18n translation key to resolve in the UI layer.
+        params: Named interpolation values for that key.
+        fallback: Optional fallback plain text when key is not available.
+    """
+
+    key: str
+    params: Mapping[str, Any] = field(default_factory=dict)
+    fallback: Optional[str] = None
+
+
+ProgressExtraInfo = Union[str, ProgressI18nMessage]
 
 
 @dataclass
@@ -55,10 +73,9 @@ class ProgressEvent:
     frame_total: Optional[int] = None
     step: Optional[int] = None  # 1-4 for frame processing steps
     action: Optional[str] = None  # "audio", "image", "compose", "video"
-    extra_info: Optional[str] = None  # Additional information (e.g., batch progress)
+    extra_info: Optional[ProgressExtraInfo] = None
     
     def __post_init__(self):
         """Validate progress value"""
         if not 0.0 <= self.progress <= 1.0:
             raise ValueError(f"Progress must be between 0.0 and 1.0, got {self.progress}")
-

@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Generic, Sequence, TypeVar
+from typing import Any, Awaitable, Callable, Generic, Sequence, TypeVar
 
 from loguru import logger
+
+from pixelle_video.models.progress import ProgressI18nMessage
 
 TInput = TypeVar("TInput")
 TOutput = TypeVar("TOutput")
@@ -63,7 +65,26 @@ class PromptBatchRunError(RuntimeError):
 
 
 BatchRunner = Callable[[PromptBatch[TInput], int], Awaitable[Sequence[TOutput]]]
-ProgressCallback = Callable[[int, int, str], None]
+ProgressCallback = Callable[[int, int, ProgressI18nMessage], None]
+ProgressMessageFactory = Callable[[int, int], ProgressI18nMessage]
+
+
+def _default_progress_message(batch_index: int, batch_total: int) -> ProgressI18nMessage:
+    return ProgressI18nMessage(
+        key="progress.batch_completed",
+        params={"current": batch_index, "total": batch_total},
+        fallback=f"Batch {batch_index}/{batch_total} completed",
+    )
+
+
+def _normalize_progress_message(message: Any) -> ProgressI18nMessage:
+    if isinstance(message, ProgressI18nMessage):
+        return message
+
+    text = str(message or "").strip()
+    if not text:
+        return ProgressI18nMessage(key="", fallback="")
+    return ProgressI18nMessage(key=text, fallback=text)
 
 
 def chunk_prompt_batches(items: Sequence[TInput], batch_size: int) -> list[PromptBatch[TInput]]:
@@ -100,7 +121,7 @@ async def run_prompt_batches(
     max_retries: int,
     run_batch: BatchRunner[TInput, TOutput],
     progress_callback: ProgressCallback | None = None,
-    progress_message: Callable[[int, int], str] | None = None,
+    progress_message: ProgressMessageFactory | None = None,
 ) -> PromptBatchRunResult[TOutput]:
     """Run prompt batches with bounded concurrency, retry, cancellation, and stable output order."""
     if max_retries < 1:
@@ -138,10 +159,12 @@ async def run_prompt_batches(
                     completed_items += len(outputs)
                     completed_count = completed_items
                 if progress_callback is not None:
-                    message = f"Batch {batch.index}/{len(batches)} completed"
+                    message = _default_progress_message(batch.index, len(batches))
                     if progress_message is not None:
                         try:
-                            message = progress_message(batch.index, len(batches))
+                            message = _normalize_progress_message(
+                                progress_message(batch.index, len(batches))
+                            )
                         except Exception as exc:
                             logger.warning(f"Prompt batch progress message failed: {exc}")
                     try:

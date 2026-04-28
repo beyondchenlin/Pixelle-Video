@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+from pixelle_video.models.progress import ProgressI18nMessage
 from web.components import output_preview
 from web.components.prompt_generation_performance import (
     LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM,
@@ -51,6 +52,28 @@ def test_build_video_preview_css_overrides_streamlit_inline_width():
     assert "max-width: 100% !important;" in css
     assert "margin-inline: auto;" in css
     assert "display: block;" in css
+
+
+def test_localize_progress_extra_info_supports_structured_i18n_message(monkeypatch):
+    monkeypatch.setattr(
+        output_preview,
+        "tr",
+        lambda key, fallback=None, **kwargs: (
+            f"批次 {kwargs.get('current')}/{kwargs.get('total')} 已完成"
+            if key == "progress.batch_completed"
+            else (fallback or key)
+        ),
+    )
+
+    message = output_preview._localize_progress_extra_info(
+        ProgressI18nMessage(
+            key="progress.batch_completed",
+            params={"current": 2, "total": 3},
+            fallback="Batch 2/3 completed",
+        )
+    )
+
+    assert message == "批次 2/3 已完成"
 
 
 def test_render_scaled_video_preview_uses_scoped_container(monkeypatch):
