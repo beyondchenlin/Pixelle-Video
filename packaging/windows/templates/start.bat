@@ -20,6 +20,17 @@ set "PYTHONPATH=%PROJECT_ROOT%"
 
 :: Set PIXELLE_VIDEO_ROOT environment variable for reliable path resolution
 set "PIXELLE_VIDEO_ROOT=%PROJECT_ROOT%"
+set "PIXELLE_VIDEO_RUNTIME_ROOT=%PROJECT_ROOT%\_runtime"
+set "TMP=%PIXELLE_VIDEO_RUNTIME_ROOT%\tmp"
+set "TEMP=%PIXELLE_VIDEO_RUNTIME_ROOT%\tmp"
+set "TMPDIR=%PIXELLE_VIDEO_RUNTIME_ROOT%\tmp"
+set "UV_CACHE_DIR=%PIXELLE_VIDEO_RUNTIME_ROOT%\uv-cache"
+set "RUFF_CACHE_DIR=%PIXELLE_VIDEO_RUNTIME_ROOT%\ruff-cache"
+
+if not exist "%PIXELLE_VIDEO_RUNTIME_ROOT%" mkdir "%PIXELLE_VIDEO_RUNTIME_ROOT%"
+if not exist "%TMP%" mkdir "%TMP%"
+if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%"
+if not exist "%RUFF_CACHE_DIR%" mkdir "%RUFF_CACHE_DIR%"
 
 :: Start Web UI
 echo [Starting] Launching Pixelle-Video Web UI...
@@ -40,4 +51,3 @@ if errorlevel 1 (
     echo.
     pause
 )
-

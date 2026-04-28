@@ -39,6 +39,7 @@ build:
     - ".DS_Store"
     - "output/*"  # Don't include output files
     - "temp/*"
+    - "_runtime/*"
     - "plans/*"  # Don't include planning docs
     - "repositories/*"  # Don't include referenced repos
     - "docs/en/*"  # Don't include English docs
@@ -71,6 +72,7 @@ build:
   create_empty_dirs:
     - "data"
     - "output"
+    - "_runtime"
 
 # Download cache
 cache:
@@ -81,4 +83,3 @@ cache:
 mirrors:
   use_cn_mirror: false  # Set to true for faster downloads in China
   pypi_mirror: "https://pypi.tuna.tsinghua.edu.cn/simple"
-
