@@ -433,6 +433,25 @@ def test_render_manifest_distinguishes_canvas_from_media_dimensions():
     assert data["media_width"] == 768
 
 
+def test_render_manifest_serializes_canvas_size_from_size_contract():
+    manifest = RenderManifest(
+        task_id="task-size",
+        title="Size Demo",
+        fps=30,
+        template_id="image_landscape_minimal",
+        canvas_width=1920,
+        canvas_height=1080,
+        media_width=768,
+        media_height=768,
+    )
+
+    data = manifest.to_dict()
+
+    assert (data["canvas_width"], data["canvas_height"]) == (1920, 1080)
+    assert (data["width"], data["height"]) == (1920, 1080)
+    assert (data["media_width"], data["media_height"]) == (768, 768)
+
+
 def test_sentence_unit_round_trip_preserves_remapped_times():
     sentence = SentenceUnit(
         id="s1",

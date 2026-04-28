@@ -208,6 +208,29 @@ def test_build_single_generation_request_uses_size_contract_not_template_session
     assert request["sync_media_size_to_canvas"] is False
 
 
+def test_build_single_generation_request_uses_full_hd_standard_preset():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "video_orientation": "landscape",
+            "video_resolution_preset": "landscape_full_hd",
+            "media_orientation": "square",
+            "media_resolution_preset": "768",
+            "sync_media_size_to_canvas": False,
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1920, "template_media_height": 1080},
+    )
+
+    assert (request["canvas_width"], request["canvas_height"]) == (1920, 1080)
+    assert (request["media_width"], request["media_height"]) == (768, 768)
+    assert request["video_resolution_preset"] == "landscape_full_hd"
+
+
 def test_build_single_generation_request_syncs_media_size_to_canvas():
     def _progress(_event):
         return None
@@ -575,6 +598,24 @@ def test_build_batch_shared_config_uses_size_contract_defaults_and_overrides():
     assert shared_config["media_orientation"] == "portrait"
     assert shared_config["media_resolution_preset"] == "4k"
     assert shared_config["sync_media_size_to_canvas"] is False
+
+
+def test_build_batch_shared_config_uses_standard_video_preset():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "title_prefix": "Series",
+            "video_orientation": "portrait",
+            "video_resolution_preset": "portrait_full_hd",
+            "media_orientation": "square",
+            "media_resolution_preset": "768",
+        }
+    )
+
+    assert (shared_config["canvas_width"], shared_config["canvas_height"]) == (
+        1080,
+        1920,
+    )
+    assert shared_config["video_resolution_preset"] == "portrait_full_hd"
 
 
 def test_build_batch_shared_config_uses_storyboard_generation_contract_fields():
