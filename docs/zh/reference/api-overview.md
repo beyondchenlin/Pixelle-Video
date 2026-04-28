@@ -27,8 +27,10 @@ await pixelle.initialize()
 - `mode` (str): 生成模式，`"generate"` 或 `"fixed"`
 - `storyboard_mode` (str): 分镜模式，`"smart"`、`"punctuation"` 或 `"sentence"`
 - `storyboard_count_mode` (str): 分镜数量模式，`"auto"` 或 `"manual"`
-- `storyboard_scene_count` (int, optional): 手动分镜数量，仅在 `smart + manual` 时有效
+- `storyboard_scene_count` (int, optional): 手动分镜数量，仅在 `smart + manual` 时有效，并受部署分镜配置限制
+- `storyboard_max_scene_count` (int, optional): 确定性切分模式下的最大分镜，仅在 `punctuation` 或 `sentence` 时有效；默认 60，受部署配置限制，绝对上限 200
 - `script_length_mode` (str): `generate` 模式下的完整文案长度模式
+- `script_target_words` (int, optional): `generate` 模式下的自定义文案目标字数；仅在 `script_length_mode="custom"` 时必填，支持 50-10000
 - `title` (str, optional): 视频标题
 - `tts_workflow` (str): TTS 工作流
 - `media_workflow` (str): 媒体生成工作流（图片或视频）
@@ -129,9 +131,10 @@ uv run uvicorn api.app:app --host 0.0.0.0 --port 8000
 | `mode` | string | 否 | `"generate"`（AI 生成完整文案）或 `"fixed"`（使用输入文案） |
 | `storyboard_mode` | string | 否 | `"smart"`（大模型理解完整文案规划分镜）、`"punctuation"` 或 `"sentence"` |
 | `storyboard_count_mode` | string | 否 | `"auto"` 或 `"manual"`；手动数量只适用于 `storyboard_mode="smart"` |
-| `storyboard_scene_count` | int | 否 | 手动分镜数量 (1-30)，仅适用于 smart/manual |
+| `storyboard_scene_count` | int | 否 | `smart/manual` 下的手动分镜数量，受部署分镜配置限制 |
+| `storyboard_max_scene_count` | int | 否 | `punctuation` 或 `sentence` 下的最大分镜；默认 60，受部署配置限制，绝对上限 200 |
 | `script_length_mode` | string | 否 | `generate` 模式下的文案长度：`"auto"`、`"short"`、`"medium"`、`"long"` 或 `"custom"` |
-| `script_target_words` | int | 否 | 仅在 `script_length_mode="custom"` 时必填 |
+| `script_target_words` | int | 否 | 仅在 `script_length_mode="custom"` 时必填，支持范围 50-10000 |
 | `title` | string | 否 | 视频标题，不填则自动生成 |
 | `frame_template` | string | 否 | 模板路径，如 `1080x1920/image_default.html` |
 | `template_params` | object | 否 | 模板自定义参数，如颜色、背景等 |

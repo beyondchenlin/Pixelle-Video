@@ -27,8 +27,10 @@ Primary method for generating videos.
 - `mode` (str): Generation mode ("generate" or "fixed")
 - `storyboard_mode` (str): Storyboard mode ("smart", "punctuation", or "sentence")
 - `storyboard_count_mode` (str): Count mode ("auto" or "manual")
-- `storyboard_scene_count` (int, optional): Manual scene count, only valid with `smart` + `manual`
+- `storyboard_scene_count` (int, optional): Manual scene count, only valid with `smart` + `manual` and subject to deployment storyboard limits
+- `storyboard_max_scene_count` (int, optional): Deterministic storyboard cap, only valid with `punctuation` or `sentence`; defaults to 60 and is capped by deployment settings with an absolute maximum of 200
 - `script_length_mode` (str): Complete script length mode for `generate`
+- `script_target_words` (int, optional): Custom script target words for `generate`; required when `script_length_mode="custom"` and supports 50-10000
 - `title` (str, optional): Video title
 - `tts_workflow` (str): TTS workflow
 - `media_workflow` (str): Media generation workflow (image or video)
@@ -129,9 +131,10 @@ Generate video asynchronously, returns task ID immediately. Suitable for large v
 | `mode` | string | No | `"generate"` (AI generates) or `"fixed"` (use text as-is) |
 | `storyboard_mode` | string | No | `"smart"` (LLM plans from the full script), `"punctuation"`, or `"sentence"` |
 | `storyboard_count_mode` | string | No | `"auto"` or `"manual"`; manual is only valid with `storyboard_mode="smart"` |
-| `storyboard_scene_count` | int | No | Manual storyboard count (1-30), only valid with smart/manual |
+| `storyboard_scene_count` | int | No | Manual storyboard count for `smart/manual`, subject to deployment storyboard limits |
+| `storyboard_max_scene_count` | int | No | Max deterministic storyboard frames for `punctuation` or `sentence`; defaults to 60 and is capped by deployment settings with an absolute maximum of 200 |
 | `script_length_mode` | string | No | `"auto"`, `"short"`, `"medium"`, `"long"`, or `"custom"` for generate mode |
-| `script_target_words` | int | No | Required only when `script_length_mode="custom"` |
+| `script_target_words` | int | No | Required only when `script_length_mode="custom"`; supported range is 50-10000 |
 | `title` | string | No | Video title (auto-generated if not provided) |
 | `frame_template` | string | No | Template path, e.g., `1080x1920/image_default.html` |
 | `template_params` | object | No | Custom template parameters (colors, backgrounds, etc.) |
