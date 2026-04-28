@@ -52,6 +52,10 @@ from pixelle_video.utils.prompt_batching import (
     PromptBatchRunError,
     run_prompt_batches,
 )
+from pixelle_video.utils.prompt_generation_performance import (
+    DEFAULT_PROMPT_BATCH_CONCURRENT_LIMIT,
+    DEFAULT_PROMPT_BATCH_SIZE,
+)
 from pixelle_video.utils.prompt_helper import (
     apply_image_text_policy,
     apply_text_rendering_policy,
@@ -77,13 +81,13 @@ from pixelle_video.utils.workflow_capabilities import (
 def _resolve_llm_prompt_batch_size(batch_size: Optional[int]) -> int:
     if batch_size is not None:
         return max(1, int(batch_size))
-    return max(1, int(getattr(config_manager.config.llm, "prompt_batch_size", 10) or 10))
+    return DEFAULT_PROMPT_BATCH_SIZE
 
 
 def _resolve_llm_prompt_batch_concurrency(max_concurrency: Optional[int]) -> int:
     if max_concurrency is not None:
         return max(1, int(max_concurrency))
-    return max(1, int(getattr(config_manager.config.llm, "prompt_batch_concurrent_limit", 1) or 1))
+    return DEFAULT_PROMPT_BATCH_CONCURRENT_LIMIT
 
 
 def _serialize_storyboard_frame_plan(frame_plan: Any) -> dict[str, Any]:
@@ -651,7 +655,7 @@ async def generate_image_prompts(
         min_words: Min image prompt length
         max_words: Max image prompt length
         batch_size: Max narrations per batch (default: 10)
-        max_concurrency: Max concurrent LLM prompt batches (default: config llm.prompt_batch_concurrent_limit)
+        max_concurrency: Max concurrent LLM prompt batches (default: prompt performance default)
         max_retries: Max retry attempts per batch (default: 3)
         progress_callback: Optional callback(completed, total, message_token) for progress updates
     
@@ -1229,7 +1233,7 @@ async def generate_video_prompts(
         min_words: Min video prompt length
         max_words: Max video prompt length
         batch_size: Max narrations per batch (default: 10)
-        max_concurrency: Max concurrent LLM prompt batches (default: config llm.prompt_batch_concurrent_limit)
+        max_concurrency: Max concurrent LLM prompt batches (default: prompt performance default)
         max_retries: Max retry attempts per batch (default: 3)
         progress_callback: Optional callback(completed, total, message_token) for progress updates
     

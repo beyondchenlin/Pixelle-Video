@@ -21,8 +21,6 @@ llm:
   api_key: ""
   base_url: ""
   model: ""
-  prompt_batch_size: 10  # Narrations per LLM prompt-generation request
-  prompt_batch_concurrent_limit: 1  # Concurrent LLM prompt-generation batches (raise carefully to avoid provider rate limits)
 
 # Popular presets:
 # Qwen Max:        base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"  model: "qwen-max"

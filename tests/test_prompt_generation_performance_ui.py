@@ -39,5 +39,19 @@ def test_prompt_generation_performance_ui_uses_plain_title_without_gear_icon():
     ).read_text(encoding="utf-8")
 
     assert 'tr("prompt_generation_performance.title")' in source
-    assert "⚙" not in source
-    assert "齿轮" not in source
+    assert "\u26a1" not in source
+    assert "\u2699" not in source
+
+
+def test_system_settings_do_not_render_llm_prompt_generation_performance_controls():
+    source = (PROJECT_ROOT / "web" / "components" / "settings.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "settings.llm.default_performance_title" not in source
+    assert "settings.llm.prompt_batch_size" not in source
+    assert "settings.llm.prompt_batch_concurrent_limit" not in source
+    assert "llm_prompt_batch_size_input" not in source
+    assert "llm_prompt_batch_concurrent_limit_input" not in source
+    assert "prompt_batch_size=int" not in source
+    assert "prompt_batch_concurrent_limit=int" not in source

@@ -44,18 +44,6 @@ class LLMConfig(BaseModel):
     api_key: str = Field(default="", description="LLM API Key")
     base_url: str = Field(default="", description="LLM API Base URL")
     model: str = Field(default="", description="LLM Model Name")
-    prompt_batch_size: int = Field(
-        default=10,
-        ge=1,
-        le=50,
-        description="Max narrations per LLM prompt-generation request",
-    )
-    prompt_batch_concurrent_limit: int = Field(
-        default=1,
-        ge=1,
-        le=10,
-        description="Max concurrent LLM prompt-generation batch requests",
-    )
 
 
 class TTSLocalConfig(BaseModel):

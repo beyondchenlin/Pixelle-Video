@@ -2,8 +2,9 @@
 
 import streamlit as st
 
-from pixelle_video.config import config_manager
 from pixelle_video.utils.prompt_generation_performance import (
+    DEFAULT_PROMPT_BATCH_CONCURRENT_LIMIT,
+    DEFAULT_PROMPT_BATCH_SIZE,
     LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM,
     LLM_PROMPT_BATCH_SIZE_PARAM,
     PROMPT_BATCH_CONCURRENT_LIMIT_MAX,
@@ -22,17 +23,10 @@ __all__ = [
 ]
 
 
-def _read_llm_prompt_defaults() -> tuple[int, int]:
-    llm_config = config_manager.get_llm_config()
-    return (
-        int(llm_config.get("prompt_batch_size", 10) or 10),
-        int(llm_config.get("prompt_batch_concurrent_limit", 1) or 1),
-    )
-
-
 def render_prompt_generation_performance_controls(*, key_prefix: str) -> dict[str, int]:
     """Render request-scoped prompt generation controls and return enabled overrides."""
-    default_batch_size, default_concurrency = _read_llm_prompt_defaults()
+    default_batch_size = DEFAULT_PROMPT_BATCH_SIZE
+    default_concurrency = DEFAULT_PROMPT_BATCH_CONCURRENT_LIMIT
 
     with st.expander(tr("prompt_generation_performance.title"), expanded=False):
         st.caption(

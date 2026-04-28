@@ -114,8 +114,6 @@ class ConfigManager:
             "api_key": self.config.llm.api_key,
             "base_url": self.config.llm.base_url,
             "model": self.config.llm.model,
-            "prompt_batch_size": self.config.llm.prompt_batch_size,
-            "prompt_batch_concurrent_limit": self.config.llm.prompt_batch_concurrent_limit,
         }
     
     def set_llm_config(
@@ -123,8 +121,6 @@ class ConfigManager:
         api_key: str,
         base_url: str,
         model: str,
-        prompt_batch_size: Optional[int] = None,
-        prompt_batch_concurrent_limit: Optional[int] = None,
     ):
         """Set LLM configuration"""
         updates = {
@@ -132,10 +128,6 @@ class ConfigManager:
             "base_url": base_url,
             "model": model,
         }
-        if prompt_batch_size is not None:
-            updates["prompt_batch_size"] = prompt_batch_size
-        if prompt_batch_concurrent_limit is not None:
-            updates["prompt_batch_concurrent_limit"] = prompt_batch_concurrent_limit
         self.update({"llm": updates})
     
     def get_comfyui_config(self) -> dict:
