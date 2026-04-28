@@ -18,6 +18,7 @@ This is the entry point for the Streamlit multi-page application.
 Uses st.navigation to define pages and set the default page to Home.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -26,6 +27,7 @@ _script_dir = Path(__file__).resolve().parent
 _project_root = _script_dir.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
+os.environ.setdefault("PIXELLE_VIDEO_ROOT", str(_project_root))
 
 from pixelle_video.config import config_manager
 from pixelle_video.utils.logging_util import setup_logging

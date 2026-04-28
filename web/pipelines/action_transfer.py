@@ -9,7 +9,7 @@ from loguru import logger
 from moviepy.editor import VideoFileClip
 
 from pixelle_video.config import config_manager
-from pixelle_video.utils.os_util import create_task_output_dir
+from pixelle_video.utils.os_util import create_task_output_dir, get_temp_path
 from web.components.content_input import render_version_info
 from web.components.output_preview import render_scaled_video_preview
 from web.components.selfhost_workflow_notice import render_selfhost_workflow_notice
@@ -87,7 +87,7 @@ class ActionTransferPipelineUI(PipelineUI):
             if uploaded_files:
                 import uuid
                 session_id = str(uuid.uuid4()).replace('-', '')[:12]
-                temp_dir = Path(f"temp/assets_{session_id}")
+                temp_dir = Path(get_temp_path(f"assets_{session_id}"))
                 temp_dir.mkdir(parents=True, exist_ok=True)
                 
                 for uploaded_file in uploaded_files:
@@ -148,7 +148,7 @@ class ActionTransferPipelineUI(PipelineUI):
             if uploaded_files:
                 import uuid
                 session_id = str(uuid.uuid4()).replace('-', '')[:12]
-                temp_dir = Path(f"temp/assets_{session_id}")
+                temp_dir = Path(get_temp_path(f"assets_{session_id}"))
                 temp_dir.mkdir(parents=True, exist_ok=True)
                 
                 for uploaded_file in uploaded_files:

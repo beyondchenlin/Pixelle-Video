@@ -26,6 +26,7 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.utils.os_util import get_temp_path
 from web.components.bgm_config import render_bgm_section
 from web.components.content_input import render_version_info
 from web.components.output_preview import render_scaled_video_preview
@@ -108,7 +109,7 @@ class AssetBasedPipelineUI(PipelineUI):
             if uploaded_files:
                 import uuid
                 session_id = str(uuid.uuid4()).replace('-', '')[:12]
-                temp_dir = Path(f"temp/assets_{session_id}")
+                temp_dir = Path(get_temp_path(f"assets_{session_id}"))
                 temp_dir.mkdir(parents=True, exist_ok=True)
                 
                 for uploaded_file in uploaded_files:
