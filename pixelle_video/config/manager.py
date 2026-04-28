@@ -137,6 +137,7 @@ class ConfigManager:
             "executor_type": self.config.comfyui.executor_type,
             "pre_generation_cleanup_mode": self.config.comfyui.pre_generation_cleanup_mode,
             "post_generation_cleanup_mode": self.config.comfyui.post_generation_cleanup_mode,
+            "post_generation_cleanup_intensity": self.config.comfyui.post_generation_cleanup_intensity,
             "comfyui_api_key": self.config.comfyui.comfyui_api_key,
             "runninghub_api_key": self.config.comfyui.runninghub_api_key,
             "runninghub_concurrent_limit": self.config.comfyui.runninghub_concurrent_limit,
@@ -186,6 +187,7 @@ class ConfigManager:
         executor_type: Optional[str] = None,
         pre_generation_cleanup_mode: Optional[str] = None,
         post_generation_cleanup_mode: Optional[str] = None,
+        post_generation_cleanup_intensity: Optional[str] = None,
         comfyui_api_key: Optional[str] = None,
         runninghub_api_key: Optional[str] = None,
         runninghub_concurrent_limit: Optional[int] = None,
@@ -201,6 +203,8 @@ class ConfigManager:
             updates["pre_generation_cleanup_mode"] = pre_generation_cleanup_mode
         if post_generation_cleanup_mode is not None:
             updates["post_generation_cleanup_mode"] = post_generation_cleanup_mode
+        if post_generation_cleanup_intensity is not None:
+            updates["post_generation_cleanup_intensity"] = post_generation_cleanup_intensity
         if comfyui_api_key is not None:
             updates["comfyui_api_key"] = comfyui_api_key
         if runninghub_api_key is not None:

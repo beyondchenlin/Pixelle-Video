@@ -16,6 +16,7 @@ comfyui:
   comfyui_url: "http://127.0.0.1:8188"
   pre_generation_cleanup_mode: "force"
   post_generation_cleanup_mode: "idle"
+  post_generation_cleanup_intensity: "high"
   comfyui_api_key: ""  # ComfyUI API key (optional)
   runninghub_api_key: ""
   runninghub_concurrent_limit: 1  # Concurrent limit (1-10)
@@ -54,9 +55,12 @@ template:
 - `pre_generation_cleanup_mode`: Cleanup before a local generation batch
   - `"force"`: Interrupt, clear queue, and request memory release before Pixelle starts
   - `"conservative"`: Only request memory release when the ComfyUI queue is idle
-- `post_generation_cleanup_mode`: Cleanup after a full local video task
-  - `"idle"`: Request memory release after the task finishes and the ComfyUI queue is idle
+- `post_generation_cleanup_mode`: Cleanup after each local workflow batch
+  - `"idle"`: Request memory release after the batch finishes and the ComfyUI queue is idle
   - `"disabled"`: Keep models loaded and leave cleanup to the user
+- `post_generation_cleanup_intensity`: Cleanup strength after each local workflow batch
+  - `"high"`: Unload models and clear memory (default)
+  - `"low"`: Unload models without forcing the full memory reset
 - `comfyui_api_key`: ComfyUI API key (optional, for [Comfy Platform](https://platform.comfy.org/profile/api-keys))
 
 ### RunningHub Cloud Configuration

@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import subprocess
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -130,6 +131,17 @@ class AssetExecutionMode:
     is_runninghub: bool
     use_runninghub_parallel: bool
     use_staged_mode: bool
+
+
+@asynccontextmanager
+async def _maybe_local_comfyui_workflow_session(core: Any):
+    session_factory = getattr(core, "local_comfyui_workflow_session", None)
+    if callable(session_factory):
+        async with session_factory():
+            yield
+        return
+
+    yield
 
 
 
@@ -1112,7 +1124,7 @@ class StandardPipeline(LinearVideoPipeline):
 
         logger.info("Using staged selfhost image processing")
 
-        async with self.core.local_comfyui_workflow_session():
+        async with _maybe_local_comfyui_workflow_session(self.core):
             for frame in storyboard.frames:
                 if not frame.audio_path:
                     self._report_staged_frame_progress(
@@ -1126,7 +1138,7 @@ class StandardPipeline(LinearVideoPipeline):
                     )
                     await self.core.frame_processor._step_generate_audio(frame, config)
 
-        async with self.core.local_comfyui_workflow_session():
+        async with _maybe_local_comfyui_workflow_session(self.core):
             for frame in storyboard.frames:
                 has_existing_media = frame.image_path is not None or frame.video_path is not None
                 needs_generation = frame.image_prompt is not None
@@ -1382,7 +1394,7 @@ class StandardPipeline(LinearVideoPipeline):
 
         logger.info("Using HyperFrames image asset production path")
 
-        async with self.core.local_comfyui_workflow_session():
+        async with _maybe_local_comfyui_workflow_session(self.core):
             for frame in storyboard.frames:
                 has_existing_media = frame.image_path is not None or frame.video_path is not None
                 needs_generation = frame.image_prompt is not None
@@ -2707,7 +2719,7 @@ class StandardPipeline(LinearVideoPipeline):
         block_paths: List[str] = []
         cursor = 0.0
 
-        async with self.core.local_comfyui_workflow_session():
+        async with _maybe_local_comfyui_workflow_session(self.core):
             for block in ctx.timing_plan.blocks:
                 block_output_path = task_audio_dir / f"{block.id}.wav"
                 normalized_audio_path = await self._synthesize_audio_block(

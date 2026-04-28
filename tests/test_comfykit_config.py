@@ -87,6 +87,7 @@ def test_comfyui_post_generation_cleanup_defaults_to_idle():
     config = PixelleVideoConfig()
 
     assert config.comfyui.post_generation_cleanup_mode == "idle"
+    assert config.comfyui.post_generation_cleanup_intensity == "high"
 
 
 def test_comfyui_config_exposes_pre_generation_cleanup_mode(monkeypatch):
@@ -112,8 +113,10 @@ def test_comfyui_config_exposes_post_generation_cleanup_mode(monkeypatch):
             comfyui=ComfyUIConfig(
                 comfyui_url="http://127.0.0.1:8000",
                 post_generation_cleanup_mode="disabled",
+                post_generation_cleanup_intensity="low",
             )
         ),
     )
 
     assert config_manager.get_comfyui_config()["post_generation_cleanup_mode"] == "disabled"
+    assert config_manager.get_comfyui_config()["post_generation_cleanup_intensity"] == "low"

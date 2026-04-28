@@ -6,6 +6,13 @@ import httpx
 from loguru import logger
 
 ComfyUICleanupMode = Literal["force", "conservative"]
+ComfyUIReleaseIntensity = Literal["high", "low"]
+
+
+_FREE_MEMORY_PAYLOADS: dict[ComfyUIReleaseIntensity, dict[str, bool]] = {
+    "high": {"unload_models": True, "free_memory": True},
+    "low": {"unload_models": True, "free_memory": False},
+}
 
 
 class ComfyUIMaintenanceClient:
@@ -53,10 +60,17 @@ class ComfyUIMaintenanceClient:
         logger.info("Running conservative ComfyUI cleanup before video generation")
         await self.free_memory()
 
-    async def free_memory(self) -> None:
-        await self._post("/free", {"unload_models": True, "free_memory": True})
+    async def free_memory(self, intensity: ComfyUIReleaseIntensity = "high") -> None:
+        payload = _FREE_MEMORY_PAYLOADS.get(intensity)
+        if payload is None:
+            raise ValueError(f"Unsupported ComfyUI release intensity: {intensity}")
+        await self._post("/free", dict(payload))
 
-    async def free_memory_when_idle(self) -> bool:
+    async def free_memory_when_idle(
+        self,
+        *,
+        intensity: ComfyUIReleaseIntensity = "high",
+    ) -> bool:
         queue = await self._get_queue()
         running = queue.get("queue_running") or []
         pending = queue.get("queue_pending") or []
@@ -67,8 +81,8 @@ class ComfyUIMaintenanceClient:
             )
             return False
 
-        logger.info("Releasing ComfyUI memory after idle workflow completion")
-        await self.free_memory()
+        logger.info(f"Releasing ComfyUI memory after idle workflow completion ({intensity})")
+        await self.free_memory(intensity)
         return True
 
     async def _get_queue(self) -> dict:

@@ -460,7 +460,11 @@ class ComfyUIConfig(BaseModel):
     )
     post_generation_cleanup_mode: Literal["idle", "disabled"] = Field(
         default="idle",
-        description="ComfyUI memory release mode after a local video generation task",
+        description="ComfyUI memory release mode after a local workflow batch",
+    )
+    post_generation_cleanup_intensity: Literal["high", "low"] = Field(
+        default="high",
+        description="ComfyUI memory release intensity after a local workflow batch",
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")

@@ -74,6 +74,20 @@ async def test_free_memory_when_idle_checks_queue_before_freeing():
 
 
 @pytest.mark.asyncio
+async def test_free_memory_when_idle_supports_low_intensity_release():
+    transport = _RecordingTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    released = await client.free_memory_when_idle(intensity="low")
+
+    assert released is True
+    assert transport.calls == [
+        ("GET", "/queue", None),
+        ("POST", "/free", {"unload_models": True, "free_memory": False}),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_free_memory_when_idle_skips_when_queue_is_busy():
     transport = _RecordingTransport(
         queue_payload={"queue_running": [], "queue_pending": [["pending"]]}
