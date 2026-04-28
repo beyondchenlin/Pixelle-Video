@@ -522,6 +522,7 @@ class FrameProcessor:
             template_params=config.template_params or {},
             canvas_width=getattr(config, "canvas_width", None),
             canvas_height=getattr(config, "canvas_height", None),
+            media_layout_mode=getattr(config, "media_layout_mode", "template"),
         )
         
         frame.template_visual_path = asset.path

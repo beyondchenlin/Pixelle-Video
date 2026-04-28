@@ -1002,8 +1002,9 @@ async def test_post_production_uses_landscape_canvas_contract(monkeypatch, tmp_p
     ctx = _build_storyboard_context(tmp_path, frame_template=frame_template)
     ctx.config.canvas_width = 1920
     ctx.config.canvas_height = 1080
-    ctx.config.media_width = 768
-    ctx.config.media_height = 768
+    ctx.config.media_width = 1920
+    ctx.config.media_height = 1080
+    ctx.config.sync_media_size_to_canvas = True
     ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
 
     for frame in ctx.storyboard.frames:
@@ -1029,6 +1030,7 @@ async def test_post_production_uses_landscape_canvas_contract(monkeypatch, tmp_p
 
     manifest = core.hyperframes_project_service.manifest
     assert (manifest.canvas_width, manifest.canvas_height) == (1920, 1080)
+    assert manifest.media_layout_mode == "canvas"
     assert core.hyperframes_renderer.calls[0]["width"] == 1920
     assert core.hyperframes_renderer.calls[0]["height"] == 1080
 

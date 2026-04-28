@@ -63,6 +63,7 @@ class HyperFramesCompiler:
             "__FOOTER__": escape(context.footer or ""),
             "__THEME__": escape(context.theme or ""),
             "__STYLE_PROFILE__": escape(context.style_profile),
+            "__MEDIA_LAYOUT_MODE__": escape(context.media_layout_mode, quote=True),
             "__VISUALS__": self._render_visuals(context),
             "__AUDIO__": self._render_audio(context),
             "__CAPTIONS__": self._render_captions(context),

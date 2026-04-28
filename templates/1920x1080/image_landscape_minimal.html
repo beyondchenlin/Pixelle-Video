@@ -139,6 +139,36 @@
       box-shadow: 0 4px 24px rgba(0,0,0,0.06);
     }
 
+    body[data-media-layout-mode="canvas"] .content-stage {
+      inset: 0;
+      display: block;
+      gap: 0;
+    }
+
+    body[data-media-layout-mode="canvas"] .visual-shell {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    body[data-media-layout-mode="canvas"] .visual-shell img {
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      max-height: none;
+      object-fit: contain;
+      box-shadow: none;
+    }
+
+    body[data-media-layout-mode="canvas"] .subtitle-shell {
+      position: absolute;
+      left: 50%;
+      bottom: 116px;
+      transform: translateX(-50%);
+      width: min(860px, calc(100% - 360px));
+    }
+
     .subtitle-shell {
       width: min(860px, 100%);
       min-height: 120px;
@@ -189,7 +219,7 @@
     }
   </style>
 </head>
-<body>
+<body data-media-layout-mode="{{media_layout_mode=template}}">
   <div class="bg-decoration">
     <div class="minimal-line line-1"></div>
     <div class="minimal-line line-2"></div>

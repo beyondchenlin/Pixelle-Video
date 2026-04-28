@@ -1057,6 +1057,16 @@ def test_image_landscape_minimal_template_uses_local_assets_and_raised_text_with
     assert "top: 74%" not in text_layer_content
 
 
+def test_legacy_image_landscape_minimal_template_expands_visual_for_canvas_media_layout():
+    legacy_content = Path("templates/1920x1080/image_landscape_minimal.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'data-media-layout-mode="{{media_layout_mode=template}}"' in legacy_content
+    assert '[data-media-layout-mode="canvas"] .content-stage' in legacy_content
+    assert '[data-media-layout-mode="canvas"] .visual-shell' in legacy_content
+
+
 def test_image_landscape_full_template_compiles_with_1920x1080_canvas(tmp_path: Path):
     compiler = HyperFramesCompiler()
     context = TemplateRenderContext(
@@ -1111,3 +1121,41 @@ def test_image_landscape_minimal_template_compiles_with_1920x1080_canvas(tmp_pat
     assert 'data-height="1080"' in captions_html
     assert "width: 1920px;" in text_layer_html
     assert "height: 1080px;" in text_layer_html
+
+
+def test_image_landscape_minimal_template_expands_visual_when_media_syncs_to_canvas(tmp_path: Path):
+    compiler = HyperFramesCompiler()
+    context = TemplateRenderContext(
+        template_id="image_landscape_minimal",
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=1280,
+        media_height=720,
+        sync_media_size_to_canvas=True,
+        media_layout_mode="canvas",
+        duration=6.0,
+        fps=30,
+        title="Landscape",
+        author="LanRen.AI",
+        footer="LanRen",
+        theme=None,
+        style_profile="image_landscape_minimal",
+        template_params={"author_desc": "Landscape"},
+        visuals=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0.0,
+                end=6.0,
+                media_path="assets/images/01.png",
+                media_type="image",
+            )
+        ],
+    )
+
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert 'data-media-layout-mode="canvas"' in index_html
+    assert '[data-media-layout-mode="canvas"] .content-stage' in index_html
+    assert '[data-media-layout-mode="canvas"] .visual-shell' in index_html

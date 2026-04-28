@@ -3,6 +3,7 @@ from __future__ import annotations
 from os import PathLike
 from typing import Any, Mapping
 
+from pixelle_video.models.render_package import resolve_media_layout_mode
 from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 from pixelle_video.services.frame_html import HTMLFrameGenerator
 
@@ -12,7 +13,7 @@ VALID_TEMPLATE_TEXT_POLICIES = {
     "none",
     "explicit_both",
 }
-RESERVED_TEMPLATE_PARAMS = {"title", "text", "image", "index"}
+RESERVED_TEMPLATE_PARAMS = {"title", "text", "image", "index", "media_layout_mode"}
 
 
 def resolve_template_body_text(template_body_text: str, text_policy: str) -> str:
@@ -49,15 +50,20 @@ class TemplateVisualMaterializer:
         template_params: Mapping[str, Any] | None = None,
         canvas_width: int | None = None,
         canvas_height: int | None = None,
+        media_layout_mode: str | None = None,
     ) -> TemplateVisualAsset:
         body_text = resolve_template_body_text(template_body_text, text_policy)
         validated_template_params = _validate_template_params(template_params)
+        resolved_media_layout_mode = resolve_media_layout_mode(media_layout_mode)
         generator = HTMLFrameGenerator(
             str(template_path),
             canvas_width=canvas_width,
             canvas_height=canvas_height,
         )
-        ext = {"index": int(frame_index) + 1}
+        ext = {
+            "index": int(frame_index) + 1,
+            "media_layout_mode": resolved_media_layout_mode,
+        }
         ext.update(validated_template_params)
 
         generated_path = await generator.generate_frame(

@@ -184,6 +184,10 @@ class StoryboardConfig:
                 f"{sorted(VALID_TEMPLATE_TEXT_POLICIES)}"
             )
 
+    @property
+    def media_layout_mode(self) -> str:
+        return "canvas" if self.sync_media_size_to_canvas else "template"
+
 
 @dataclass
 class StoryboardFrame:

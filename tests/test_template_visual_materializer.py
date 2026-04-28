@@ -127,7 +127,11 @@ async def test_template_visual_materializer_renders_html_with_text_policy(tmp_pa
     assert result.path == str(tmp_path / "frame.png")
     assert result.text_policy == "caption_renderer"
     assert calls["text"] == ""
-    assert calls["ext"] == {"index": 1, "accent": "#fff"}
+    assert calls["ext"] == {
+        "index": 1,
+        "media_layout_mode": "template",
+        "accent": "#fff",
+    }
 
 
 @pytest.mark.asyncio
@@ -171,3 +175,43 @@ async def test_template_visual_materializer_forwards_canvas_dimensions(
     assert calls["canvas_width"] == 1280
     assert calls["canvas_height"] == 720
     assert (result.width, result.height) == (1280, 720)
+
+
+@pytest.mark.asyncio
+async def test_template_visual_materializer_forwards_media_layout_mode(
+    tmp_path,
+    monkeypatch,
+):
+    calls = {}
+
+    class FakeGenerator:
+        width = 1280
+        height = 720
+
+        def __init__(self, template_path, canvas_width=None, canvas_height=None):
+            calls["template_path"] = template_path
+
+        async def generate_frame(self, *, title, text, image, ext, output_path):
+            calls["ext"] = dict(ext)
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(output_path).write_bytes(b"png")
+            return output_path
+
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.HTMLFrameGenerator",
+        FakeGenerator,
+    )
+
+    await TemplateVisualMaterializer().materialize_frame(
+        title="Demo",
+        template_body_text="Template body",
+        media_path="raw.png",
+        frame_index=0,
+        template_path="templates/1920x1080/image_landscape_minimal.html",
+        template_id="image_landscape_minimal",
+        output_path=tmp_path / "frame.png",
+        text_policy="caption_renderer",
+        media_layout_mode="canvas",
+    )
+
+    assert calls["ext"]["media_layout_mode"] == "canvas"

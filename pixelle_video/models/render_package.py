@@ -25,6 +25,8 @@ from pixelle_video.models.text_overlay import (
 )
 from pixelle_video.models.text_style import TextStyleProfile
 
+VALID_MEDIA_LAYOUT_MODES = {"template", "canvas"}
+
 
 def _freeze_json_mapping(
     value: Mapping[str, Any] | None,
@@ -33,6 +35,23 @@ def _freeze_json_mapping(
     if not isinstance(frozen, Mapping):
         raise TypeError("Expected a JSON object mapping.")
     return frozen
+
+
+def resolve_media_layout_mode(
+    media_layout_mode: Optional[str] = None,
+    *,
+    sync_media_size_to_canvas: bool = False,
+) -> str:
+    if media_layout_mode is None:
+        return "canvas" if sync_media_size_to_canvas else "template"
+
+    normalized = str(media_layout_mode).strip().lower()
+    if normalized not in VALID_MEDIA_LAYOUT_MODES:
+        raise ValueError(
+            "media_layout_mode must be one of "
+            f"{sorted(VALID_MEDIA_LAYOUT_MODES)}"
+        )
+    return normalized
 
 
 @dataclass
@@ -354,6 +373,8 @@ class RenderManifest:
     canvas_height: int
     media_width: Optional[int]
     media_height: Optional[int]
+    sync_media_size_to_canvas: bool = False
+    media_layout_mode: str = "template"
     fps: int
     template_id: str
     master_audio_path: Optional[str] = None
@@ -386,6 +407,8 @@ class RenderManifest:
         canvas_height: Optional[int] = None,
         media_width: Optional[int] = None,
         media_height: Optional[int] = None,
+        sync_media_size_to_canvas: bool = False,
+        media_layout_mode: Optional[str] = None,
         master_audio_path: Optional[str] = None,
         master_audio_duration: Optional[float] = None,
         audio_tracks: Optional[List[RenderAudioTrack]] = None,
@@ -419,6 +442,11 @@ class RenderManifest:
         )
         self.media_height = (
             int(media_height) if media_height is not None else self.canvas_height
+        )
+        self.sync_media_size_to_canvas = bool(sync_media_size_to_canvas)
+        self.media_layout_mode = resolve_media_layout_mode(
+            media_layout_mode,
+            sync_media_size_to_canvas=self.sync_media_size_to_canvas,
         )
         self.fps = int(fps)
         self.template_id = template_id
@@ -473,6 +501,8 @@ class RenderManifest:
             "canvas_height": self.canvas_height,
             "media_width": self.media_width,
             "media_height": self.media_height,
+            "sync_media_size_to_canvas": self.sync_media_size_to_canvas,
+            "media_layout_mode": self.media_layout_mode,
             # Compatibility fields for the current runtime-manifest templates.
             "width": self.canvas_width,
             "height": self.canvas_height,
@@ -509,6 +539,8 @@ class RenderManifest:
             canvas_height=data.get("canvas_height", data.get("height")),
             media_width=data.get("media_width"),
             media_height=data.get("media_height"),
+            sync_media_size_to_canvas=bool(data.get("sync_media_size_to_canvas", False)),
+            media_layout_mode=data.get("media_layout_mode"),
             fps=data["fps"],
             template_id=data["template_id"],
             master_audio_path=data.get("master_audio_path"),

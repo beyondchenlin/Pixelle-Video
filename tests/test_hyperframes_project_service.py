@@ -91,6 +91,26 @@ def test_write_project_data_writes_manifest_and_captions_files(tmp_path):
     assert not (project_paths.data_dir / "render-manifest.json").exists()
 
 
+def test_template_render_context_preserves_media_sync_contract():
+    manifest = RenderManifest(
+        task_id="task-sync",
+        title="demo",
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=1280,
+        media_height=720,
+        sync_media_size_to_canvas=True,
+        fps=30,
+        template_id="image_landscape_minimal",
+    )
+
+    context = build_template_render_context(manifest, template_params={})
+
+    assert (context.media_width, context.media_height) == (1280, 720)
+    assert context.sync_media_size_to_canvas is True
+    assert context.media_layout_mode == "canvas"
+
+
 def test_write_project_data_writes_text_tracks_diagnostic_payload(tmp_path):
     manifest = RenderManifest(
         task_id="task-text",

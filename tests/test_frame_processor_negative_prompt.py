@@ -124,6 +124,56 @@ async def test_compose_frame_html_uses_caption_punctuation_mode_for_subtitle_tex
 
 
 @pytest.mark.asyncio
+async def test_compose_frame_html_uses_canvas_media_layout_when_media_syncs(monkeypatch, tmp_path):
+    captured = {}
+
+    class _FakeHTMLFrameGenerator:
+        width = 1280
+        height = 720
+
+        def __init__(self, template_path, canvas_width=None, canvas_height=None):
+            captured["template_path"] = template_path
+
+        async def generate_frame(self, **kwargs):
+            captured.update(kwargs)
+            return kwargs["output_path"]
+
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.HTMLFrameGenerator",
+        _FakeHTMLFrameGenerator,
+    )
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
+
+    processor = FrameProcessor(None)
+    config = StoryboardConfig(
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=1280,
+        media_height=720,
+        sync_media_size_to_canvas=True,
+        task_id="task-1",
+        frame_template="1920x1080/image_landscape_minimal.html",
+    )
+    frame = StoryboardFrame(
+        index=0,
+        narration="text",
+        image_prompt="prompt",
+        image_path=str(tmp_path / "frame.png"),
+        media_type="image",
+    )
+    storyboard = Storyboard(title="Test title", config=config, frames=[frame])
+
+    await processor._compose_frame_html(
+        frame=frame,
+        storyboard=storyboard,
+        config=config,
+        output_path=str(tmp_path / "composed.png"),
+    )
+
+    assert captured["ext"]["media_layout_mode"] == "canvas"
+
+
+@pytest.mark.asyncio
 async def test_compose_frame_html_allows_blank_template_body_text_for_shell_only_render(monkeypatch, tmp_path):
     captured = {}
 

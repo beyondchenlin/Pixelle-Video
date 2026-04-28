@@ -1,3 +1,5 @@
+import pytest
+
 from pixelle_video.models.render_package import CaptionCue, TextCue, TextTrack, VisualClip
 from pixelle_video.models.template_render_context import (
     PHASE1_TEMPLATE_FIELD_INVENTORY,
@@ -88,6 +90,41 @@ def test_template_render_context_exposes_phase1_shell_fields():
     assert "footer" in field_names
     assert "style_profile" in field_names
     assert "template_params" in field_names
+
+
+def test_template_render_context_derives_canvas_media_layout_from_sync_flag():
+    context = TemplateRenderContext(
+        template_id="image_landscape_minimal",
+        canvas_width=1280,
+        canvas_height=720,
+        duration=2.0,
+        fps=30,
+        title="demo",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_landscape_minimal",
+        sync_media_size_to_canvas=True,
+    )
+
+    assert context.media_layout_mode == "canvas"
+
+
+def test_template_render_context_rejects_invalid_media_layout_mode():
+    with pytest.raises(ValueError, match="media_layout_mode"):
+        TemplateRenderContext(
+            template_id="image_landscape_minimal",
+            canvas_width=1280,
+            canvas_height=720,
+            duration=2.0,
+            fps=30,
+            title="demo",
+            author=None,
+            footer=None,
+            theme=None,
+            style_profile="image_landscape_minimal",
+            media_layout_mode="stretch",
+        )
 
 
 def test_phase1_field_inventory_covers_required_shell_regions():

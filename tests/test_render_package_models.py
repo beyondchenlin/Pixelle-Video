@@ -452,6 +452,27 @@ def test_render_manifest_serializes_canvas_size_from_size_contract():
     assert (data["media_width"], data["media_height"]) == (768, 768)
 
 
+def test_render_manifest_derives_canvas_media_layout_from_synced_media():
+    manifest = RenderManifest(
+        task_id="task-size",
+        title="Size Demo",
+        fps=30,
+        template_id="image_landscape_minimal",
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=1280,
+        media_height=720,
+        sync_media_size_to_canvas=True,
+    )
+
+    data = manifest.to_dict()
+    restored = RenderManifest.from_dict(data)
+
+    assert data["media_layout_mode"] == "canvas"
+    assert restored.media_layout_mode == "canvas"
+    assert restored.sync_media_size_to_canvas is True
+
+
 def test_sentence_unit_round_trip_preserves_remapped_times():
     sentence = SentenceUnit(
         id="s1",

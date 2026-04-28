@@ -1,7 +1,13 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from pixelle_video.models.render_package import CaptionCue, TextCue, TextTrack, VisualClip
+from pixelle_video.models.render_package import (
+    CaptionCue,
+    TextCue,
+    TextTrack,
+    VisualClip,
+    resolve_media_layout_mode,
+)
 from pixelle_video.models.text_style import TextStyleProfile
 
 # Phase-1 field inventory maps the legacy Pixelle source templates onto the
@@ -74,6 +80,10 @@ class TemplateRenderContext:
     footer: Optional[str]
     theme: Optional[str]
     style_profile: str
+    media_width: Optional[int] = None
+    media_height: Optional[int] = None
+    sync_media_size_to_canvas: bool = False
+    media_layout_mode: Optional[str] = None
     template_params: Dict[str, Any] = field(default_factory=dict)
     visuals: List[VisualClip] = field(default_factory=list)
     captions: List[CaptionCue] = field(default_factory=list)
@@ -83,3 +93,10 @@ class TemplateRenderContext:
     audio_tracks: List[TemplateAudioRef] = field(default_factory=list)
     element_animation_manifest_path: Optional[str] = None
     audio: Optional[TemplateAudioRef] = None
+
+    def __post_init__(self) -> None:
+        self.sync_media_size_to_canvas = bool(self.sync_media_size_to_canvas)
+        self.media_layout_mode = resolve_media_layout_mode(
+            self.media_layout_mode,
+            sync_media_size_to_canvas=self.sync_media_size_to_canvas,
+        )
