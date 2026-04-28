@@ -482,11 +482,11 @@ async def test_generate_video_sync_passes_explicit_size_contract_without_templat
     output_path = tmp_path / "task-size-contract" / "final.mp4"
     fake_pixelle_video = _FakePixelleVideo(output_path)
 
-    def fail_template_size_lookup(_frame_template):
+    def fail_template_size_lookup(*args, **kwargs):
         raise AssertionError("API must not derive size from frame_template")
 
     monkeypatch.setattr(
-        "api.routers.video.resolve_video_media_size",
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
         fail_template_size_lookup,
     )
     monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")

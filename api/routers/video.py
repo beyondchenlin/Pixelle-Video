@@ -63,21 +63,6 @@ def _copy_tts_text_policy_params(request_body: VideoGenerateRequest, video_param
             video_params[name] = value
 
 
-def resolve_video_media_size(frame_template: str | None) -> tuple[int, int]:
-    """Resolve video dimensions from the selected frame template."""
-    if not frame_template:
-        raise ValueError("frame_template is required to determine media size")
-
-    from pixelle_video.services.frame_html import HTMLFrameGenerator
-    from pixelle_video.utils.template_util import resolve_template_path
-
-    template_path = resolve_template_path(frame_template)
-    generator = HTMLFrameGenerator(template_path)
-    media_width, media_height = generator.get_media_size()
-    logger.debug(f"Auto-determined media size from template: {media_width}x{media_height}")
-    return media_width, media_height
-
-
 def build_video_generation_params(
     request_body: VideoGenerateRequest,
     *,
