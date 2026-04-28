@@ -69,6 +69,7 @@ SINGLE_VIDEO_GENERATING_KEY = "single_video_is_generating"
 SINGLE_VIDEO_REQUESTED_KEY = "single_video_generation_requested"
 SINGLE_VIDEO_DUPLICATE_CLICK_KEY = "single_video_duplicate_click"
 SINGLE_VIDEO_BUTTON_KEY = "single_video_generate_button"
+SINGLE_VIDEO_RESULT_SUMMARY_KEY = "single_video_result_summary"
 
 
 def _plan_identity_frame_overrides(video_params):
@@ -117,6 +118,53 @@ def _request_single_video_generation() -> None:
 def _reset_single_video_generation_state() -> None:
     st.session_state[SINGLE_VIDEO_GENERATING_KEY] = False
     st.session_state[SINGLE_VIDEO_REQUESTED_KEY] = False
+
+
+def _clear_single_video_result_summary(session_state) -> None:
+    session_state.pop(SINGLE_VIDEO_RESULT_SUMMARY_KEY, None)
+
+
+def _get_single_video_result_summary(session_state):
+    summary = session_state.get(SINGLE_VIDEO_RESULT_SUMMARY_KEY)
+    if not summary:
+        return None
+
+    video_path = summary.get("video_path")
+    if not video_path or not os.path.exists(video_path):
+        _clear_single_video_result_summary(session_state)
+        return None
+
+    return summary
+
+
+def _build_single_video_result_summary(result, *, total_generation_time: float):
+    from pixelle_video.utils.template_util import (
+        parse_template_size,
+        resolve_template_path,
+    )
+
+    template_path = resolve_template_path(result.storyboard.config.frame_template)
+    video_width, video_height = parse_template_size(template_path)
+    return {
+        "video_path": str(result.video_path),
+        "generation_time_sec": float(total_generation_time),
+        "file_size_mb": float(result.file_size) / (1024 * 1024),
+        "frame_count": len(result.storyboard.frames),
+        "video_width": int(video_width),
+        "video_height": int(video_height),
+    }
+
+
+def _render_single_video_result_summary(summary) -> None:
+    st.success(tr("status.video_generated", path=summary["video_path"]))
+    st.markdown("---")
+    info_text = (
+        f"{tr('info.generation_time')} {summary['generation_time_sec']:.1f}s   "
+        f"{tr('info.file_size')} {summary['file_size_mb']:.2f}MB   "
+        f"{tr('info.frames')} {summary['frame_count']}{tr('info.scenes_unit')}   "
+        f"{tr('info.resolution')} {summary['video_width']}x{summary['video_height']}"
+    )
+    st.caption(info_text)
 
 
 def build_video_preview_css(
@@ -369,6 +417,11 @@ def render_single_output(pixelle_video, video_params):
         gallery_slot = None
         gallery_rendered = False
 
+        def render_result_summary() -> None:
+            summary = _get_single_video_result_summary(st.session_state)
+            if summary:
+                _render_single_video_result_summary(summary)
+
         def render_gallery(*, refresh: bool = False) -> None:
             nonlocal gallery_rendered
 
@@ -386,6 +439,8 @@ def render_single_output(pixelle_video, video_params):
             )
             gallery_rendered = True
 
+        render_result_summary()
+
         if generation_requested:
             can_generate = True
             # Validate system configuration
@@ -399,6 +454,9 @@ def render_single_output(pixelle_video, video_params):
                 can_generate = False
 
             if can_generate:
+                _clear_single_video_result_summary(st.session_state)
+                render_result_summary()
+
                 # Show progress
                 progress_bar = st.progress(0)
                 status_text = st.empty()
@@ -505,34 +563,19 @@ def render_single_output(pixelle_video, video_params):
                     progress_bar.progress(100)
                     status_text.text(tr("status.success"))
 
-                    # Display success message
-                    st.success(tr("status.video_generated", path=result.video_path))
-
-                    st.markdown("---")
-
-                    # Video information (compact display)
-                    file_size_mb = result.file_size / (1024 * 1024)
-
-                    # Parse video size from template path
-                    from pixelle_video.utils.template_util import (
-                        parse_template_size,
-                        resolve_template_path,
-                    )
-                    template_path = resolve_template_path(result.storyboard.config.frame_template)
-                    video_width, video_height = parse_template_size(template_path)
-
-                    info_text = (
-                        f"⏱️ {tr('info.generation_time')} {total_generation_time:.1f}s   "
-                        f"📦 {file_size_mb:.2f}MB   "
-                        f"🎬 {len(result.storyboard.frames)}{tr('info.scenes_unit')}   "
-                        f"📐 {video_width}x{video_height}"
-                    )
-                    st.caption(info_text)
-
                     if os.path.exists(result.video_path):
+                        st.session_state[SINGLE_VIDEO_RESULT_SUMMARY_KEY] = (
+                            _build_single_video_result_summary(
+                                result,
+                                total_generation_time=total_generation_time,
+                            )
+                        )
+                        render_result_summary()
                         store_recent_generated_video(result, st.session_state)
                         render_gallery(refresh=True)
                     else:
+                        _clear_single_video_result_summary(st.session_state)
+                        render_result_summary()
                         st.error(tr("status.video_not_found", path=result.video_path))
 
                 except Exception as e:
