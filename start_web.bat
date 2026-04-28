@@ -1,7 +1,24 @@
 @echo off
 chcp 65001 >nul 2>&1
+setlocal
 
-echo 🚀 Starting Pixelle-Video Web UI...
+set "PROJECT_ROOT=%~dp0"
+cd /d "%PROJECT_ROOT%"
+
+set "PIXELLE_VIDEO_ROOT=%CD%"
+set "PIXELLE_VIDEO_RUNTIME_ROOT=%CD%\_runtime"
+set "TMP=%PIXELLE_VIDEO_RUNTIME_ROOT%\tmp"
+set "TEMP=%PIXELLE_VIDEO_RUNTIME_ROOT%\tmp"
+set "TMPDIR=%PIXELLE_VIDEO_RUNTIME_ROOT%\tmp"
+set "UV_CACHE_DIR=%PIXELLE_VIDEO_RUNTIME_ROOT%\uv-cache"
+set "RUFF_CACHE_DIR=%PIXELLE_VIDEO_RUNTIME_ROOT%\ruff-cache"
+
+if not exist "%PIXELLE_VIDEO_RUNTIME_ROOT%" mkdir "%PIXELLE_VIDEO_RUNTIME_ROOT%"
+if not exist "%TMP%" mkdir "%TMP%"
+if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%"
+if not exist "%RUFF_CACHE_DIR%" mkdir "%RUFF_CACHE_DIR%"
+
+echo Starting Pixelle-Video Web UI...
 echo.
 
 uv run streamlit run web/app.py
@@ -21,10 +38,10 @@ if errorlevel 1 (
     echo https://github.com/AIDC-AI/Pixelle-Video/releases
     echo.
     echo The one-click package includes:
-    echo   ✓ Pre-configured Python environment
-    echo   ✓ All required dependencies
-    echo   ✓ FFmpeg tools
-    echo   ✓ Ready to use, no setup needed
+    echo   - Pre-configured Python environment
+    echo   - All required dependencies
+    echo   - FFmpeg tools
+    echo   - Ready to use, no setup needed
     echo.
     echo ========================================
     echo   For Developers:
@@ -38,5 +55,3 @@ if errorlevel 1 (
     echo.
     pause
 )
-
-
