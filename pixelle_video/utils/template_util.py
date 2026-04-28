@@ -83,6 +83,53 @@ def parse_template_size(template_path: str) -> Tuple[int, int]:
         )
 
 
+class TemplateContract(BaseModel):
+    """
+    Template design-coordinate metadata parsed from the template path.
+
+    This contract describes the template layout coordinate system only. It does
+    not define the final output, media, or canvas size.
+    """
+
+    template_path: str = Field(..., description="Template path as provided by the caller")
+    template_design_width: int = Field(
+        ...,
+        description="Template design-coordinate width parsed from the template directory",
+    )
+    template_design_height: int = Field(
+        ...,
+        description="Template design-coordinate height parsed from the template directory",
+    )
+    template_orientation: Literal["portrait", "landscape", "square"] = Field(
+        ...,
+        description="Template design-coordinate orientation; does not imply final output orientation",
+    )
+
+
+def parse_template_contract(template_path: str) -> TemplateContract:
+    """
+    Parse template design-coordinate metadata from a template path.
+
+    The WIDTHxHEIGHT directory in a template path defines the template design
+    coordinate system and layout orientation only. Final output, media, and
+    canvas size are defined elsewhere.
+    """
+    width, height = parse_template_size(template_path)
+    if width > height:
+        orientation = "landscape"
+    elif height > width:
+        orientation = "portrait"
+    else:
+        orientation = "square"
+
+    return TemplateContract(
+        template_path=template_path,
+        template_design_width=width,
+        template_design_height=height,
+        template_orientation=orientation,
+    )
+
+
 def list_available_sizes() -> List[str]:
     """
     List all available video sizes (merged from templates/ and data/templates/)
