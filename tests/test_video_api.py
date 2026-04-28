@@ -12,6 +12,7 @@ from api.routers.video import (
     generate_video_sync,
 )
 from api.schemas.video import VideoGenerateRequest
+from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.storyboard_limits import StoryboardGenerationLimits
 
 
@@ -126,7 +127,7 @@ def test_video_generate_request_accepts_size_contract_controls():
         media_width=768,
         media_height=768,
         video_orientation="landscape",
-        video_resolution_preset="1k",
+        video_resolution_preset="landscape_hd",
         media_orientation="square",
         media_resolution_preset="768",
         sync_media_size_to_canvas=False,
@@ -137,10 +138,39 @@ def test_video_generate_request_accepts_size_contract_controls():
     assert request.media_width == 768
     assert request.media_height == 768
     assert request.video_orientation == "landscape"
-    assert request.video_resolution_preset == "1k"
+    assert request.video_resolution_preset == "landscape_hd"
     assert request.media_orientation == "square"
     assert request.media_resolution_preset == "768"
     assert request.sync_media_size_to_canvas is False
+
+
+def test_video_generate_request_accepts_new_full_hd_preset():
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            video_orientation="landscape",
+            video_resolution_preset="landscape_full_hd",
+        ),
+        request_id="req_test",
+    )
+
+    assert (params["canvas_width"], params["canvas_height"]) == (1920, 1080)
+    assert params["video_resolution_preset"] == "landscape_full_hd"
+
+
+def test_video_generate_request_rejects_non_standard_1920x720_output():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            video_resolution_preset="1920x720",
+        )
+
+
+def test_video_generate_request_accepts_size_contract_default_params():
+    params = GenerationSizeContract.default().to_params()
+    request = VideoGenerateRequest(text="demo", **params)
+
+    assert request.video_resolution_preset == "landscape_hd"
 
 
 def test_build_video_generation_params_preserves_legacy_media_only_canvas_size():
@@ -163,6 +193,14 @@ def test_video_generate_request_rejects_invalid_size_contract_controls():
             text="demo",
             media_orientation="landscape",
             media_resolution_preset="768",
+        )
+
+
+def test_video_generate_request_rejects_video_preset_for_media_resolution():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            media_resolution_preset="landscape_hd",
         )
 
 
@@ -711,7 +749,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "media_width": 768,
             "media_height": 768,
             "video_orientation": "landscape",
-            "video_resolution_preset": "1k",
+            "video_resolution_preset": "landscape_hd",
             "media_orientation": "square",
             "media_resolution_preset": "768",
             "sync_media_size_to_canvas": False,

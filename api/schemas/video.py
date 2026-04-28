@@ -47,7 +47,18 @@ from pixelle_video.utils.prompt_generation_performance import (
 
 StandardTtsAudioStrategy = Literal["auto", "master_track"]
 VideoOrientation = Literal["landscape", "portrait", "square"]
-VideoResolutionPreset = Literal["1k", "2k", "4k"]
+VideoResolutionPreset = Literal[
+    "landscape_hd",
+    "landscape_full_hd",
+    "landscape_4k",
+    "portrait_hd",
+    "portrait_full_hd",
+    "portrait_4k",
+    "square_standard",
+    "1k",
+    "2k",
+    "4k",
+]
 MediaResolutionPreset = Literal["768", "1k", "2k", "4k"]
 
 
@@ -246,10 +257,14 @@ class VideoGenerateRequest(BaseModel):
     # === Video Parameters ===
     video_fps: int = Field(30, ge=15, le=60, description="Video FPS")
     
-    # === Frame Template (determines video size) ===
+    # === Frame Template ===
     frame_template: Optional[str] = Field(
         None, 
-        description="HTML template path with size (e.g., '1080x1920/default.html'). Video size is auto-determined from template."
+        description=(
+            "HTML template path with template design coordinates/layout "
+            "(e.g., '1080x1920/default.html'). Final video output size is "
+            "controlled by explicit canvas fields or the selected video preset."
+        ),
     )
     
     # === Template Custom Parameters ===
