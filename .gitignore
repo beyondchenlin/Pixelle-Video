@@ -51,6 +51,12 @@ config.yaml.bak
 
 # Pytest temp directory
 .pytest_tmp/
+.pytest-basetemp/
+.pytest_review_tmp/
+.pytest_tmp_*/
+_pytest_tmp/
+.pytest_cache/
+.ruff_cache/
 logs/
 
 # Test outputs
@@ -66,7 +72,15 @@ test_*.py
 # Temp files
 temp/
 tmp/
+tmp_review/
+tmp_pytest/
+tmp_codex_pytest_*/
+tmp[a-z0-9]*/
+.tmp/
 .cache/
+.uv-cache/
+_runtime/*
+!_runtime/.gitkeep
 
 # MkDocs build output
 site/

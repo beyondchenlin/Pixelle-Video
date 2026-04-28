@@ -23,6 +23,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional, Tuple
 
+_RUNTIME_CACHE_DIRS = {
+    "UV_CACHE_DIR": "uv-cache",
+    "RUFF_CACHE_DIR": "ruff-cache",
+}
+_TEMP_ENV_VARS = ("TMP", "TEMP", "TMPDIR")
+_PROJECT_ROOT_MARKERS = ("pyproject.toml", "config.example.yaml", "pixelle_video")
+
+
+def _looks_like_project_root(path: Path) -> bool:
+    return all((path / marker).exists() for marker in _PROJECT_ROOT_MARKERS)
+
+
+def _discover_project_root_from_module() -> Path | None:
+    module_path = Path(__file__).resolve()
+    for candidate in module_path.parents:
+        if _looks_like_project_root(candidate):
+            return candidate
+    return None
+
 
 def get_pixelle_video_root_path() -> str:
     """
@@ -39,8 +58,11 @@ def get_pixelle_video_root_path() -> str:
     if env_root and Path(env_root).exists():
         return str(Path(env_root).resolve())
     
-    # Fallback to current working directory if environment variable not set
-    # (for development environments where env var might not be set)
+    discovered_root = _discover_project_root_from_module()
+    if discovered_root is not None:
+        return str(discovered_root)
+
+    # Last-resort fallback for non-editable installs without an application root.
     return str(Path.cwd())
 
 
@@ -57,6 +79,99 @@ def ensure_pixelle_video_root_path() -> str:
     output_dir.mkdir(parents=True, exist_ok=True)
     
     return root_path
+
+
+def get_runtime_root_path() -> str:
+    """
+    Get runtime working directory for temporary/cached files.
+
+    Priority:
+      1. PIXELLE_VIDEO_RUNTIME_ROOT (if set)
+      2. <project_root>/_runtime
+
+    Returns:
+        Runtime root path as string
+    """
+    env_runtime_root = os.environ.get("PIXELLE_VIDEO_RUNTIME_ROOT")
+    if env_runtime_root:
+        runtime_path = Path(env_runtime_root)
+        if runtime_path.is_absolute():
+            return str(runtime_path.resolve())
+        return str((Path(get_pixelle_video_root_path()) / runtime_path).resolve())
+
+    return str((Path(get_pixelle_video_root_path()) / "_runtime").resolve())
+
+
+def ensure_runtime_root_path() -> str:
+    """
+    Ensure runtime root path exists and return the path.
+
+    Returns:
+        Runtime root path as string
+    """
+    runtime_root = Path(get_runtime_root_path())
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    return str(runtime_root)
+
+
+def get_runtime_path(*paths: str) -> str:
+    """
+    Get path relative to runtime root.
+
+    Args:
+        *paths: Path components to join
+
+    Returns:
+        Absolute path as string
+    """
+    runtime_root = ensure_runtime_root_path()
+    if paths:
+        return os.path.join(runtime_root, *paths)
+    return runtime_root
+
+
+def configure_runtime_environment(
+    *,
+    override_temp_env: bool = True,
+    override_cache_env: bool = True,
+) -> dict[str, str]:
+    """
+    Configure process-level runtime directories for temp files and tool caches.
+
+    Application code should still pass explicit directories to tempfile APIs, but
+    setting these variables keeps subprocesses and third-party libraries aligned
+    with Pixelle's runtime workspace.
+
+    Args:
+        override_temp_env: Replace TMP/TEMP/TMPDIR with Pixelle's temp directory.
+        override_cache_env: Replace supported tool cache variables with runtime cache paths.
+
+    Returns:
+        Mapping of runtime-related environment variables to their configured paths.
+    """
+    import tempfile
+
+    runtime_root = Path(ensure_runtime_root_path()).resolve()
+    temp_dir = runtime_root / "temp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    os.environ["PIXELLE_VIDEO_RUNTIME_ROOT"] = str(runtime_root)
+    for env_name in _TEMP_ENV_VARS:
+        if override_temp_env or not os.environ.get(env_name):
+            os.environ[env_name] = str(temp_dir)
+    tempfile.tempdir = str(temp_dir)
+
+    configured = {"PIXELLE_VIDEO_RUNTIME_ROOT": str(runtime_root)}
+    configured.update({env_name: os.environ[env_name] for env_name in _TEMP_ENV_VARS})
+
+    for env_name, dirname in _RUNTIME_CACHE_DIRS.items():
+        cache_dir = runtime_root / dirname
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        if override_cache_env or not os.environ.get(env_name):
+            os.environ[env_name] = str(cache_dir)
+        configured[env_name] = os.environ[env_name]
+
+    return configured
 
 
 def get_root_path(*paths: str) -> str:
@@ -81,7 +196,7 @@ def get_root_path(*paths: str) -> str:
 
 def get_temp_path(*paths: str) -> str:
     """
-    Get path relative to Pixelle-Video temp folder
+    Get path relative to Pixelle-Video runtime temp folder.
     
     Ensures temp directory exists before returning path.
     
@@ -93,9 +208,9 @@ def get_temp_path(*paths: str) -> str:
     
     Example:
         get_temp_path("audio.mp3")
-        # Returns: "/path/to/project/temp/audio.mp3"
+        # Returns: "/path/to/project/_runtime/temp/audio.mp3"
     """
-    temp_path = get_root_path("temp")
+    temp_path = get_runtime_path("temp")
     
     # Ensure temp directory exists
     os.makedirs(temp_path, exist_ok=True)
@@ -490,4 +605,3 @@ def resource_exists(resource_type: Literal["bgm", "templates", "workflows"], *pa
     default_path = get_root_path(resource_type, *paths)
     
     return os.path.exists(custom_path) or os.path.exists(default_path)
-

@@ -30,8 +30,8 @@ from pixelle_video.config.storyboard_preset_library import (
 )
 from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
 from pixelle_video.models.storyboard_limits import (
-    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
     DEFAULT_STORYBOARD_GENERATION_LIMITS,
+    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
 )
 from pixelle_video.models.storyboard_planning import ContentMode, ShotOverridePolicy
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, RenderBackend
@@ -562,7 +562,7 @@ class LoggingConfig(BaseModel):
 
     enabled: bool = Field(default=True)
     level: str = Field(default="INFO")
-    log_dir: str = Field(default="logs")
+    log_dir: str = Field(default="_runtime/logs")
     rotation_mb: int = Field(default=50, ge=1)
     retention_days: int = Field(default=14, ge=1)
     task_logs_enabled: bool = Field(default=True)

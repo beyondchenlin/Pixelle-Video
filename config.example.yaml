@@ -8,7 +8,7 @@ project_name: Pixelle-Video
 logging:
   enabled: true
   level: INFO
-  log_dir: logs
+  log_dir: _runtime/logs
   rotation_mb: 50
   retention_days: 14
   task_logs_enabled: true

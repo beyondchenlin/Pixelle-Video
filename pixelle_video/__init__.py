@@ -17,6 +17,10 @@ import os
 if not os.environ.get("HF_ENDPOINT"):
     os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
+from pixelle_video.utils.os_util import configure_runtime_environment
+
+configure_runtime_environment()
+
 """
 Pixelle-Video - AI-powered video generator
 

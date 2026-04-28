@@ -12,6 +12,8 @@ from typing import Any, Callable, Iterator
 
 from loguru import logger
 
+from pixelle_video.utils.os_util import get_runtime_path
+
 _SENSITIVE_TOKENS = ("api_key", "authorization", "bearer", "token", "secret", "password")
 _REQUIRED_FIELDS = (
     "timestamp",
@@ -110,14 +112,20 @@ def _resolve_logging_config(config: dict[str, Any] | None) -> dict[str, Any]:
     defaults = {
         "enabled": True,
         "level": "INFO",
-        "log_dir": "logs",
+        "log_dir": "_runtime/logs",
         "rotation_mb": 50,
         "retention_days": 14,
         "task_logs_enabled": True,
         "ai_creation_logs_enabled": True,
         "preview_chars": 120,
     }
-    return {**defaults, **(config or {})}
+    resolved = {**defaults, **(config or {})}
+    log_dir = str(resolved.get("log_dir", "")).replace("\\", "/").rstrip("/")
+    if log_dir == "logs":
+        resolved["log_dir"] = get_runtime_path("logs")
+    elif log_dir == "_runtime/logs" or log_dir.startswith("_runtime/"):
+        resolved["log_dir"] = get_runtime_path(*log_dir.split("/")[1:])
+    return resolved
 
 
 def _patch_record(service_name: str) -> Any:
