@@ -237,7 +237,7 @@ def _render_generation_size_controls() -> GenerationSizeContract:
     media_default_preset = (
         DEFAULT_MEDIA_RESOLUTION_PRESET
         if media_orientation == DEFAULT_MEDIA_ORIENTATION
-        else DEFAULT_VIDEO_RESOLUTION_PRESET
+        else "1k"
     )
     media_preset_labels = {
         preset: (

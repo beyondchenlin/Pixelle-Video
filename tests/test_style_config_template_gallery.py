@@ -83,6 +83,49 @@ def test_render_generation_size_controls_returns_independent_image_size(monkeypa
     assert contract.media_resolution_preset == "4k"
 
 
+def test_render_generation_size_controls_uses_valid_non_square_media_default(
+    monkeypatch,
+):
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "video_orientation": "landscape",
+                "video_resolution_preset": "landscape_hd",
+                "media_orientation": "landscape",
+                "media_resolution_preset": "landscape_hd",
+                "sync_media_size_to_canvas": False,
+            }
+            self.media_resolution_default = None
+
+        def segmented_control(self, _label, options, *, format_func, default, key):
+            assert default in options
+            if key == "media_resolution_preset":
+                self.media_resolution_default = default
+            return self.session_state[key]
+
+        def toggle(self, _label, *, value, help, key):
+            assert value is False
+            assert help
+            return self.session_state[key]
+
+        def info(self, _message):
+            return None
+
+    fake_st = FakeStreamlit()
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(
+        style_config,
+        "tr",
+        lambda key, **kwargs: key.format(**kwargs) if kwargs else key,
+    )
+
+    contract = style_config._render_generation_size_controls()
+
+    assert fake_st.media_resolution_default == "1k"
+    assert contract.media_orientation == "landscape"
+    assert contract.media_resolution_preset == "1k"
+
+
 def test_render_generation_size_controls_syncs_image_size_to_canvas(monkeypatch):
     class FakeStreamlit:
         def __init__(self):
