@@ -1,13 +1,11 @@
 import sys
-from shutil import rmtree
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 
-from web.state.async_runtime import AsyncRuntime
-from web.state.async_runtime import shutdown_all_async_runtimes
 from pixelle_video.services.frame_html import HTMLFrameGenerator
+from web.state.async_runtime import AsyncRuntime, shutdown_all_async_runtimes
 from web.utils.async_helpers import run_async
 
 
@@ -119,10 +117,8 @@ def test_all_image_templates_use_768_square_media_defaults(template_path):
     assert generator.get_media_size() == (768, 768)
 
 
-def test_prepare_html_for_render_injects_template_base_href():
-    test_root = Path("tmp_review/test_frame_html_base_href")
-    if test_root.exists():
-        rmtree(test_root)
+def test_prepare_html_for_render_injects_template_base_href(tmp_path):
+    test_root = tmp_path / "test_frame_html_base_href"
     template_dir = test_root / "templates" / "1920x1080"
     template_dir.mkdir(parents=True)
     template = template_dir / "image_sample.html"
@@ -131,12 +127,7 @@ def test_prepare_html_for_render_injects_template_base_href():
         encoding="utf-8",
     )
 
-    try:
-        generator = HTMLFrameGenerator(str(template))
+    generator = HTMLFrameGenerator(str(template))
+    prepared_html = generator._prepare_html_for_render(generator.template)
 
-        prepared_html = generator._prepare_html_for_render(generator.template)
-
-        assert f'<base href="{template_dir.resolve().as_uri()}/">' in prepared_html
-    finally:
-        if test_root.exists():
-            rmtree(test_root)
+    assert f'<base href="{template_dir.resolve().as_uri()}/">' in prepared_html
