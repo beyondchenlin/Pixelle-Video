@@ -223,9 +223,9 @@ class TemplateDisplayInfo(BaseModel):
     size: str = Field(..., description="Size string like '1080x1920'")
     width: int = Field(..., description="Width in pixels")
     height: int = Field(..., description="Height in pixels")
-    orientation: Literal['portrait', 'landscape', 'square'] = Field(
+    orientation: TemplateOrientation = Field(
         ..., 
-        description="Video orientation"
+        description="Template layout orientation"
     )
     is_standard: bool = Field(
         ..., 
@@ -272,13 +272,7 @@ def format_template_display_info(template_name: str, size: str) -> TemplateDispl
     # Parse size
     width, height = map(int, size.split('x'))
     
-    # Detect orientation
-    if height > width:
-        orientation = 'portrait'
-    elif width > height:
-        orientation = 'landscape'
-    else:
-        orientation = 'square'
+    orientation = _template_orientation_from_dimensions(width, height)
     
     # Check if it's a standard size (only these three)
     is_standard = (width, height) in [(1080, 1920), (1920, 1080), (1080, 1080)]
