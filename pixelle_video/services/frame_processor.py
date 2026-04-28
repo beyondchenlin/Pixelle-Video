@@ -34,8 +34,8 @@ from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, Storyb
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
 from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
-from pixelle_video.utils.text_splitting import format_caption_text
 from pixelle_video.utils.template_util import get_template_type
+from pixelle_video.utils.text_splitting import format_caption_text
 
 IMAGE_SEGMENT_MIN_FPS = 90
 
@@ -520,6 +520,8 @@ class FrameProcessor:
             output_path=output_path,
             text_policy=text_policy,
             template_params=config.template_params or {},
+            canvas_width=getattr(config, "canvas_width", None),
+            canvas_height=getattr(config, "canvas_height", None),
         )
         
         frame.template_visual_path = asset.path

@@ -194,6 +194,20 @@ def test_resolve_effective_backend_uses_capability_resolver_for_ffmpeg(tmp_path)
     assert pipeline._get_render_backend_fallback_reason(ctx) is None
 
 
+def test_build_render_manifest_uses_canvas_contract_separately_from_media(tmp_path):
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = _build_context(tmp_path)
+    ctx.config.canvas_width = 1280
+    ctx.config.canvas_height = 720
+    ctx.config.media_width = 768
+    ctx.config.media_height = 768
+
+    manifest = pipeline._build_render_manifest_for_current_timeline(ctx)
+
+    assert (manifest.canvas_width, manifest.canvas_height) == (1280, 720)
+    assert (manifest.media_width, manifest.media_height) == (768, 768)
+
+
 def test_resolve_effective_backend_records_ffmpeg_fallback_for_canvas_motion(tmp_path):
     pipeline = StandardPipeline(_DummyCore())
     ctx = _build_context(tmp_path)

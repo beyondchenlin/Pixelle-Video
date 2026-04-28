@@ -720,10 +720,23 @@ class StandardPipeline(LinearVideoPipeline):
             return "image_default"
         return template_id
 
+    @staticmethod
+    def _resolve_storyboard_canvas_size(config: StoryboardConfig) -> tuple[int, int]:
+        canvas_width = getattr(config, "canvas_width", None)
+        canvas_height = getattr(config, "canvas_height", None)
+        if canvas_width is not None and canvas_height is not None:
+            return int(canvas_width), int(canvas_height)
+        return int(config.media_width), int(config.media_height)
+
     def _resolve_hyperframes_canvas_size(
         self,
         config: StoryboardConfig,
     ) -> tuple[int, int]:
+        canvas_width = getattr(config, "canvas_width", None)
+        canvas_height = getattr(config, "canvas_height", None)
+        if canvas_width is not None and canvas_height is not None:
+            return int(canvas_width), int(canvas_height)
+
         try:
             return parse_template_size(config.frame_template)
         except ValueError as exc:
@@ -1178,14 +1191,15 @@ class StandardPipeline(LinearVideoPipeline):
         )
         task_id = getattr(ctx, "task_id", None) or config.task_id or ""
         output_dir = getattr(ctx, "task_dir", None) or Path(source_image_path).parent
+        canvas_width, canvas_height = self._resolve_storyboard_canvas_size(config)
 
         artifact = await materializer.materialize_frame(
             frame=frame,
             source_image_path=source_image_path,
             task_id=task_id,
             output_dir=output_dir,
-            width=int(config.media_width),
-            height=int(config.media_height),
+            width=canvas_width,
+            height=canvas_height,
             fps=int(config.video_fps),
             backend=config.element_animation_backend,
             selected_count=int(config.element_animation_subject_count),
@@ -1460,11 +1474,16 @@ class StandardPipeline(LinearVideoPipeline):
         ass_outputs = None
         if ass_cues:
             ass_dir = Path(ctx.task_dir or Path(final_video_path).parent) / "text_layer"
+            canvas_width, canvas_height = self._resolve_storyboard_canvas_size(
+                storyboard.config
+            )
             manifest = RenderManifest(
                 task_id=ctx.task_id or storyboard.config.task_id or "",
                 title=storyboard.title,
-                width=storyboard.config.media_width,
-                height=storyboard.config.media_height,
+                canvas_width=canvas_width,
+                canvas_height=canvas_height,
+                media_width=storyboard.config.media_width,
+                media_height=storyboard.config.media_height,
                 fps=storyboard.config.video_fps,
                 template_id="legacy",
                 caption_rendering_enabled=self._caption_renderer_enabled(ctx, "ass"),
@@ -1575,11 +1594,12 @@ class StandardPipeline(LinearVideoPipeline):
             if self._caption_renderer_enabled(ctx, "ass")
             else []
         )
+        canvas_width, canvas_height = self._resolve_storyboard_canvas_size(config)
         return RenderManifest(
             task_id=ctx.task_id or config.task_id or "",
             title=storyboard.title,
-            canvas_width=config.media_width,
-            canvas_height=config.media_height,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
             media_width=config.media_width,
             media_height=config.media_height,
             fps=config.video_fps,

@@ -399,6 +399,21 @@ def test_hyperframes_legacy_image_full_template_falls_back_without_native_templa
     assert "HyperFrames template directory" in pipeline._get_hyperframes_fallback_reason(ctx)
 
 
+def test_hyperframes_canvas_size_prefers_explicit_canvas_contract(tmp_path):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(
+        tmp_path,
+        frame_template="1080x1920/image_default.html",
+    )
+    ctx.config.canvas_width = 1280
+    ctx.config.canvas_height = 720
+    ctx.config.media_width = 768
+    ctx.config.media_height = 768
+
+    assert pipeline._resolve_hyperframes_canvas_size(ctx.config) == (1280, 720)
+
+
 def test_build_hyperframes_visual_clips_cover_master_audio_without_gaps(tmp_path):
     core = _DummyCore(tmp_path)
     pipeline = StandardPipeline(core)
@@ -969,11 +984,13 @@ async def test_post_production_uses_template_canvas_size_instead_of_square_media
     "frame_template",
     ["1920x1080/image_landscape_full.html", "1920x1080/image_landscape_minimal.html"],
 )
-async def test_post_production_uses_landscape_template_canvas_size(monkeypatch, tmp_path, frame_template):
+async def test_post_production_uses_landscape_canvas_contract(monkeypatch, tmp_path, frame_template):
     monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
     core = _DummyCore(tmp_path)
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_context(tmp_path, frame_template=frame_template)
+    ctx.config.canvas_width = 1920
+    ctx.config.canvas_height = 1080
     ctx.config.media_width = 768
     ctx.config.media_height = 768
     ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")

@@ -75,8 +75,10 @@ async def test_compose_frame_html_uses_caption_punctuation_mode_for_subtitle_tex
         width = 1024
         height = 1024
 
-        def __init__(self, template_path):
+        def __init__(self, template_path, canvas_width=None, canvas_height=None):
             captured["template_path"] = template_path
+            captured["canvas_width"] = canvas_width
+            captured["canvas_height"] = canvas_height
 
         async def generate_frame(self, **kwargs):
             captured.update(kwargs)
@@ -90,8 +92,10 @@ async def test_compose_frame_html_uses_caption_punctuation_mode_for_subtitle_tex
 
     processor = FrameProcessor(None)
     config = StoryboardConfig(
-        media_width=1024,
-        media_height=1024,
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=768,
+        media_height=768,
         task_id="task-1",
         frame_template="1080x1920/image_life_insights_light.html",
         template_text_policy="template_body",
@@ -114,6 +118,8 @@ async def test_compose_frame_html_uses_caption_punctuation_mode_for_subtitle_tex
 
     assert result == str(tmp_path / "composed.png")
     assert captured["text"] == "\u4f60\u597d\u4e16\u754c"
+    assert captured["canvas_width"] == 1280
+    assert captured["canvas_height"] == 720
     assert frame.template_visual_path == str(tmp_path / "composed.png")
 
 
@@ -125,7 +131,7 @@ async def test_compose_frame_html_allows_blank_template_body_text_for_shell_only
         width = 1024
         height = 1024
 
-        def __init__(self, template_path):
+        def __init__(self, template_path, canvas_width=None, canvas_height=None):
             captured["template_path"] = template_path
 
         async def generate_frame(self, **kwargs):
@@ -174,7 +180,7 @@ async def test_compose_frame_html_uses_nonempty_template_body_text(monkeypatch, 
         width = 1024
         height = 1024
 
-        def __init__(self, template_path):
+        def __init__(self, template_path, canvas_width=None, canvas_height=None):
             captured["template_path"] = template_path
 
         async def generate_frame(self, **kwargs):

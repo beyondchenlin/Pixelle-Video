@@ -57,12 +57,14 @@ def _build_ctx(
     tts_inference_mode: str = "comfyui",
     tts_workflow: str | None = None,
     media_workflow: str | None = None,
+    render_backend: str = "legacy",
 ) -> PipelineContext:
     ctx = PipelineContext(input_text="topic", params={})
     ctx.config = StoryboardConfig(
         media_width=1080,
         media_height=1920,
         task_id="task-1",
+        render_backend=render_backend,
         tts_inference_mode=tts_inference_mode,
         tts_workflow=tts_workflow,
         media_workflow=media_workflow,
@@ -416,6 +418,10 @@ async def test_materialize_element_motion_for_frame_forwards_config_and_fallback
     core = _DummyCore()
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_ctx()
+    ctx.config.canvas_width = 1280
+    ctx.config.canvas_height = 720
+    ctx.config.media_width = 768
+    ctx.config.media_height = 768
     ctx.config.element_animation_enabled = True
     ctx.config.element_animation_backend = "hyperframes_canvas"
     ctx.config.element_animation_subject_count = 2
@@ -432,6 +438,8 @@ async def test_materialize_element_motion_for_frame_forwards_config_and_fallback
     assert captured["source_image_path"] == frame.composed_image_path
     assert captured["task_id"] == "task-1"
     assert captured["output_dir"] == Path(frame.composed_image_path).parent
+    assert captured["width"] == 1280
+    assert captured["height"] == 720
     assert captured["backend"] == "hyperframes_canvas"
     assert captured["selected_count"] == 2
     assert captured["candidate_limit"] == 4
