@@ -61,7 +61,7 @@ def _storyboard_plan_from_segments(segments: list[str]) -> StoryboardPlan:
 
 
 @pytest.mark.asyncio
-async def test_standard_pipeline_uses_internal_only_index_tts2_default_without_phrase_regroup():
+async def test_standard_pipeline_uses_single_index_tts2_audio_block_without_phrase_regroup():
     pipeline = StandardPipeline(_FakeCore())
     ctx = PipelineContext(
         input_text="demo",

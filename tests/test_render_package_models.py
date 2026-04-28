@@ -62,7 +62,7 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     config = StoryboardConfig(media_width=1080, media_height=1920)
     assert config.tts_batching_mode == "paragraph"
     assert config.tts_audio_strategy == "master_track"
-    assert config.tts_split_mode == "internal_only"
+    assert config.tts_split_mode == "external_only"
     assert config.tts_sentence_joiner_mode == "direct"
     assert config.caption_punctuation_mode == "strip_all"
     assert config.preserve_natural_punctuation is True

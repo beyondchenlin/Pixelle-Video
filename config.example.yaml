@@ -112,6 +112,7 @@ render:
   timing:
     tts_batching_mode: paragraph
     tts_audio_strategy: master_track
+    tts_split_mode: external_only
     tts_batch_max_sentences: 8
     tts_batch_max_chars: 220
     subtitle_alignment_engine: qwen_forced_aligner
