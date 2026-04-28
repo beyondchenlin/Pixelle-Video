@@ -43,7 +43,7 @@ from pixelle_video.models.size_contract import (
     DEFAULT_VIDEO_ORIENTATION,
     DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION,
     MEDIA_SIZE_PRESETS,
-    VIDEO_SIZE_PRESETS,
+    STANDARD_VIDEO_SIZE_PRESETS,
     GenerationSizeContract,
 )
 from pixelle_video.prompt_language import (
@@ -207,21 +207,21 @@ def _render_generation_size_controls() -> GenerationSizeContract:
 
     video_orientation = _render_size_segmented_control(
         label=tr("size.video_orientation"),
-        options=list(VIDEO_SIZE_PRESETS.keys()),
+        options=list(STANDARD_VIDEO_SIZE_PRESETS.keys()),
         labels=orientation_labels,
         key="video_orientation",
         default=DEFAULT_VIDEO_ORIENTATION,
     )
     video_preset_labels = {
         preset: (
-            f"{preset.upper()} "
+            f"{tr(f'size.preset.{preset}')} "
             f"({spec.width}×{spec.height})"
         )
-        for preset, spec in VIDEO_SIZE_PRESETS[video_orientation].items()
+        for preset, spec in STANDARD_VIDEO_SIZE_PRESETS[video_orientation].items()
     }
     video_resolution_preset = _render_size_segmented_control(
         label=tr("size.video_resolution"),
-        options=list(VIDEO_SIZE_PRESETS[video_orientation].keys()),
+        options=list(STANDARD_VIDEO_SIZE_PRESETS[video_orientation].keys()),
         labels=video_preset_labels,
         key="video_resolution_preset",
         default=DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION[video_orientation],
