@@ -135,6 +135,46 @@ def test_video_generate_request_accepts_storyboard_generation_contract_fields():
     assert request.script_target_words == 180
 
 
+def test_video_generate_request_defaults_punctuation_max_scene_count_for_punctuation_mode():
+    request = VideoGenerateRequest(
+        text="demo",
+        frame_template="1080x1920/image_default.html",
+        storyboard_mode="punctuation",
+    )
+
+    assert request.storyboard_max_scene_count == 60
+
+
+def test_video_generate_request_defaults_deterministic_max_scene_count_for_sentence_mode():
+    request = VideoGenerateRequest(
+        text="demo",
+        frame_template="1080x1920/image_default.html",
+        storyboard_mode="sentence",
+    )
+
+    assert request.storyboard_max_scene_count == 60
+
+
+def test_video_generate_request_clamps_deterministic_default_to_configured_limit(monkeypatch):
+    monkeypatch.setattr(
+        video_schema_module,
+        "current_storyboard_generation_limits",
+        lambda: StoryboardGenerationLimits(
+            min_scene_count=1,
+            max_scene_count=4,
+            deterministic_max_scene_count_limit=40,
+        ),
+    )
+
+    request = VideoGenerateRequest(
+        text="demo",
+        frame_template="1080x1920/image_default.html",
+        storyboard_mode="punctuation",
+    )
+
+    assert request.storyboard_max_scene_count == 40
+
+
 def test_video_generate_request_defaults_storyboard_prompt_language_to_english_for_api_compatibility():
     request = VideoGenerateRequest(
         text="demo",
@@ -230,8 +270,11 @@ def test_video_generate_request_rejects_legacy_storyboard_fields(legacy_payload)
     [
         {"storyboard_mode": "smart", "storyboard_count_mode": "auto", "storyboard_scene_count": 4},
         {"storyboard_mode": "smart", "storyboard_count_mode": "manual"},
+        {"storyboard_mode": "smart", "storyboard_max_scene_count": 60},
         {"storyboard_mode": "sentence", "storyboard_count_mode": "manual", "storyboard_scene_count": 2},
         {"storyboard_mode": "punctuation", "storyboard_count_mode": "auto", "storyboard_scene_count": 2},
+        {"storyboard_mode": "punctuation", "storyboard_max_scene_count": 201},
+        {"storyboard_mode": "sentence", "storyboard_max_scene_count": 201},
         {"mode": "fixed", "script_length_mode": "short"},
         {"mode": "fixed", "script_target_words": 120},
         {"mode": "generate", "script_length_mode": "custom"},
@@ -244,6 +287,26 @@ def test_video_generate_request_rejects_invalid_storyboard_contract_combinations
             text="demo",
             frame_template="1080x1920/image_default.html",
             **payload,
+        )
+
+
+def test_video_generate_request_rejects_deterministic_scene_limit_above_configured_cap(monkeypatch):
+    monkeypatch.setattr(
+        video_schema_module,
+        "current_storyboard_generation_limits",
+        lambda: StoryboardGenerationLimits(
+            min_scene_count=1,
+            max_scene_count=4,
+            deterministic_max_scene_count_limit=40,
+        ),
+    )
+
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            storyboard_mode="sentence",
+            storyboard_max_scene_count=41,
         )
 
 
@@ -541,6 +604,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "storyboard_mode": "smart",
             "storyboard_count_mode": "manual",
             "storyboard_scene_count": 4,
+            "storyboard_max_scene_count": None,
             "storyboard_prompt_language": "zh_CN",
             "script_length_mode": "custom",
             "script_target_words": 180,

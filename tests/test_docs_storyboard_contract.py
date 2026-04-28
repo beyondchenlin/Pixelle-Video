@@ -14,6 +14,8 @@ def test_reference_api_docs_use_storyboard_generation_contract():
         assert "split_mode" not in content
         assert "storyboard_mode" in content
         assert "storyboard_count_mode" in content
+        assert "storyboard_max_scene_count" in content
+        assert "10000" in content
 
 
 def test_storyboard_contract_doc_does_not_model_narration_text_as_frame_field():

@@ -100,6 +100,79 @@ async def test_punctuation_mode_splits_on_all_unicode_punctuation():
 
 
 @pytest.mark.asyncio
+async def test_punctuation_mode_preserves_percent_and_book_title_marks():
+    service = StoryboardGenerationService(config={"max_scene_count": 10})
+
+    plan = await service.generate(
+        llm_service=None,
+        source_text="增长20%，《人工智能》继续，Done!",
+        storyboard_mode="punctuation",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+        storyboard_max_scene_count=60,
+    )
+
+    assert [frame.source_text for frame in plan.frames] == [
+        "增长20%，",
+        "《人工智能》继续，",
+        "Done!",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_punctuation_mode_uses_request_max_scene_count_override():
+    service = StoryboardGenerationService(config={"max_scene_count": 10})
+
+    with pytest.raises(ValueError, match="too many storyboard frames"):
+        await service.generate(
+            llm_service=None,
+            source_text="一，二，三，",
+            storyboard_mode="punctuation",
+            storyboard_count_mode="auto",
+            storyboard_scene_count=None,
+            storyboard_max_scene_count=2,
+        )
+
+
+@pytest.mark.asyncio
+async def test_sentence_mode_uses_request_max_scene_count_override():
+    service = StoryboardGenerationService(config={"max_scene_count": 10})
+
+    with pytest.raises(ValueError, match="too many storyboard frames"):
+        await service.generate(
+            llm_service=None,
+            source_text="一。二。三。",
+            storyboard_mode="sentence",
+            storyboard_count_mode="auto",
+            storyboard_scene_count=None,
+            storyboard_max_scene_count=2,
+        )
+
+
+@pytest.mark.asyncio
+async def test_deterministic_modes_use_dedicated_config_limit_when_request_omits_override():
+    service = StoryboardGenerationService(
+        config={
+            "min_scene_count": 1,
+            "max_scene_count": 4,
+            "deterministic_max_scene_count_limit": 80,
+        }
+    )
+
+    plan = await service.generate(
+        llm_service=None,
+        source_text="一。二。三。四。五。",
+        storyboard_mode="sentence",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+        storyboard_max_scene_count=None,
+    )
+
+    assert [frame.source_text for frame in plan.frames] == ["一。", "二。", "三。", "四。", "五。"]
+    assert plan.diagnostics["max_scene_count"] == 60
+
+
+@pytest.mark.asyncio
 async def test_sentence_mode_splits_only_sentence_boundaries():
     service = StoryboardGenerationService(config={"max_scene_count": 10})
 
@@ -205,7 +278,9 @@ async def test_punctuation_mode_normalizes_whitespace_and_preserves_ranges():
 
 @pytest.mark.asyncio
 async def test_deterministic_strategy_rejects_over_max_scene_count():
-    service = StoryboardGenerationService(config={"max_scene_count": 2})
+    service = StoryboardGenerationService(
+        config={"max_scene_count": 2, "deterministic_max_scene_count_limit": 2}
+    )
 
     with pytest.raises(ValueError, match="too many storyboard frames"):
         await service.generate(

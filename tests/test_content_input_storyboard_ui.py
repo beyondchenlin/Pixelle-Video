@@ -101,8 +101,11 @@ def test_storyboard_generation_explanation_has_locale_entries():
     assert en["storyboard.generation.explanation.title"] == "Settings guide"
     assert "max_tokens" in en["storyboard.generation.explanation.body"]
     assert "not the storyboard frame count" in en["storyboard.generation.explanation.body"]
+    assert "deployment cap" in en["storyboard.generation.explanation.body"]
+    assert "up to 200 to avoid errors" not in en["storyboard.generation.explanation.body"]
     assert "max_tokens" in zh["storyboard.generation.explanation.body"]
     assert "不是分镜数量" in zh["storyboard.generation.explanation.body"]
+    assert "部署" in zh["storyboard.generation.explanation.body"]
 
 
 def test_storyboard_generation_controls_are_collapsed_with_nested_explanation(monkeypatch):
@@ -127,6 +130,7 @@ def test_storyboard_generation_controls_are_collapsed_with_nested_explanation(mo
         "storyboard_mode": "smart",
         "storyboard_count_mode": "auto",
         "storyboard_scene_count": None,
+        "storyboard_max_scene_count": None,
         "storyboard_prompt_language": "zh_CN",
     }
 
@@ -171,6 +175,68 @@ def test_storyboard_generation_controls_include_prompt_language_in_base_payload(
     assert any(call["label"] == "storyboard.advanced_enabled" for call in fake_st.checkbox_calls)
 
 
+def test_punctuation_storyboard_generation_controls_show_max_scene_slider(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.radio_values["single_video_storyboard_mode"] = "punctuation"
+    monkeypatch.setattr(content_input, "st", fake_st)
+    monkeypatch.setattr(content_input, "tr", _fake_tr)
+
+    payload = content_input.render_storyboard_generation_controls(
+        mode="generate",
+        key_prefix="single_video",
+    )
+
+    assert fake_st.sliders[0]["key"] == "single_video_storyboard_max_scene_count"
+    assert fake_st.sliders[0]["min_value"] == 1
+    assert fake_st.sliders[0]["max_value"] == 200
+    assert fake_st.sliders[0]["value"] == 60
+    assert payload["storyboard_max_scene_count"] == 60
+
+
+def test_sentence_storyboard_generation_controls_show_max_scene_slider(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.radio_values["single_video_storyboard_mode"] = "sentence"
+    monkeypatch.setattr(content_input, "st", fake_st)
+    monkeypatch.setattr(content_input, "tr", _fake_tr)
+
+    payload = content_input.render_storyboard_generation_controls(
+        mode="generate",
+        key_prefix="single_video",
+    )
+
+    assert fake_st.sliders[0]["key"] == "single_video_storyboard_max_scene_count"
+    assert fake_st.sliders[0]["min_value"] == 1
+    assert fake_st.sliders[0]["max_value"] == 200
+    assert fake_st.sliders[0]["value"] == 60
+    assert payload["storyboard_max_scene_count"] == 60
+
+
+def test_deterministic_storyboard_slider_uses_configured_limit_cap(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.radio_values["single_video_storyboard_mode"] = "punctuation"
+    monkeypatch.setattr(content_input, "st", fake_st)
+    monkeypatch.setattr(content_input, "tr", _fake_tr)
+    monkeypatch.setattr(
+        content_input,
+        "get_storyboard_generation_limits",
+        lambda: content_input.StoryboardGenerationLimits(
+            min_scene_count=1,
+            max_scene_count=4,
+            deterministic_max_scene_count_limit=80,
+        ),
+    )
+
+    payload = content_input.render_storyboard_generation_controls(
+        mode="generate",
+        key_prefix="single_video",
+    )
+
+    assert fake_st.sliders[0]["min_value"] == 1
+    assert fake_st.sliders[0]["max_value"] == 80
+    assert fake_st.sliders[0]["value"] == 60
+    assert payload["storyboard_max_scene_count"] == 60
+
+
 def test_script_generation_target_words_control_uses_default_range_and_custom_payload(monkeypatch):
     fake_st = _FakeStreamlit()
     monkeypatch.setattr(content_input, "st", fake_st)
@@ -186,7 +252,7 @@ def test_script_generation_target_words_control_uses_default_range_and_custom_pa
             "label": "script.target_words",
             "value": None,
             "min_value": 50,
-            "max_value": 2000,
+            "max_value": 10000,
             "step": 50,
             "key": "single_video_script_target_words_slider",
             "help": "script.target_words_help",
@@ -202,7 +268,7 @@ def test_script_generation_target_words_control_uses_default_range_and_custom_pa
             "label": "script.target_words_input",
             "value": None,
             "min_value": 50,
-            "max_value": 2000,
+            "max_value": 10000,
             "step": 50,
             "key": "single_video_script_target_words_input",
             "label_visibility": "collapsed",

@@ -100,6 +100,21 @@ async def test_script_generation_custom_word_count_shapes_prompt():
     )
 
     assert "about 180 words" in llm.calls[0]["prompt"]
+    assert llm.calls[0]["max_tokens"] == 1200
+
+
+@pytest.mark.asyncio
+async def test_script_generation_caps_custom_word_count_tokens_to_structured_output_budget():
+    llm = ScriptFakeLLM()
+
+    await ScriptGenerationService().generate(
+        llm_service=llm,
+        topic="Long-form documentary script",
+        script_length_mode="custom",
+        script_target_words=10000,
+    )
+
+    assert llm.calls[0]["max_tokens"] == 32000
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,7 @@ def test_storyboard_generation_payload_defaults_to_smart_auto():
         "storyboard_mode": "smart",
         "storyboard_count_mode": "auto",
         "storyboard_scene_count": None,
+        "storyboard_max_scene_count": None,
         "storyboard_prompt_language": "zh_CN",
     }
 
@@ -27,6 +28,7 @@ def test_storyboard_generation_payload_keeps_manual_count_for_smart_mode():
         "storyboard_mode": "smart",
         "storyboard_count_mode": "manual",
         "storyboard_scene_count": 6,
+        "storyboard_max_scene_count": None,
         "storyboard_prompt_language": "zh_CN",
     }
 
@@ -42,6 +44,58 @@ def test_storyboard_generation_payload_for_deterministic_modes_uses_auto_count()
         "storyboard_mode": "sentence",
         "storyboard_count_mode": "auto",
         "storyboard_scene_count": None,
+        "storyboard_max_scene_count": 60,
+        "storyboard_prompt_language": "zh_CN",
+    }
+
+
+def test_storyboard_generation_payload_defaults_deterministic_max_scene_count():
+    payload = content_input.build_storyboard_generation_payload(
+        storyboard_mode="punctuation",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+        storyboard_max_scene_count=None,
+    )
+
+    assert payload == {
+        "storyboard_mode": "punctuation",
+        "storyboard_count_mode": "auto",
+        "storyboard_scene_count": None,
+        "storyboard_max_scene_count": 60,
+        "storyboard_prompt_language": "zh_CN",
+    }
+
+
+def test_storyboard_generation_payload_keeps_deterministic_max_scene_count_for_sentence_mode():
+    payload = content_input.build_storyboard_generation_payload(
+        storyboard_mode="sentence",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+        storyboard_max_scene_count=120,
+    )
+
+    assert payload == {
+        "storyboard_mode": "sentence",
+        "storyboard_count_mode": "auto",
+        "storyboard_scene_count": None,
+        "storyboard_max_scene_count": 120,
+        "storyboard_prompt_language": "zh_CN",
+    }
+
+
+def test_storyboard_generation_payload_ignores_deterministic_max_scene_count_for_smart_mode():
+    payload = content_input.build_storyboard_generation_payload(
+        storyboard_mode="smart",
+        storyboard_count_mode="auto",
+        storyboard_scene_count=None,
+        storyboard_max_scene_count=120,
+    )
+
+    assert payload == {
+        "storyboard_mode": "smart",
+        "storyboard_count_mode": "auto",
+        "storyboard_scene_count": None,
+        "storyboard_max_scene_count": None,
         "storyboard_prompt_language": "zh_CN",
     }
 
@@ -99,5 +153,5 @@ def test_script_generation_target_words_are_clamped_to_supported_ui_range():
     )["script_target_words"] == 50
     assert content_input.build_script_generation_payload(
         mode="generate",
-        script_target_words=3000,
-    )["script_target_words"] == 2000
+        script_target_words=12000,
+    )["script_target_words"] == 10000

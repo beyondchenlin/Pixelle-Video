@@ -180,8 +180,31 @@ def test_build_single_generation_request_uses_storyboard_generation_contract_fie
     assert "split_mode" not in request
 
 
+def test_build_single_generation_request_includes_punctuation_max_scene_count():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "storyboard_mode": "punctuation",
+            "storyboard_count_mode": "auto",
+            "storyboard_max_scene_count": 90,
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["storyboard_mode"] == "punctuation"
+    assert request["storyboard_max_scene_count"] == 90
+
+
 def test_storyboard_generation_option_keys_include_prompt_language():
     assert "storyboard_prompt_language" in output_preview.STORYBOARD_GENERATION_OPTION_KEYS
+    assert "storyboard_max_scene_count" in output_preview.STORYBOARD_GENERATION_OPTION_KEYS
 
 
 def test_build_single_generation_request_passes_request_and_session_ids():

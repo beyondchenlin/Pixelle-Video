@@ -92,7 +92,7 @@ async def test_generate_content_fixed_punctuation_uses_storyboard_generation_ser
 
 
 @pytest.mark.asyncio
-async def test_generate_content_uses_core_storyboard_limits_config():
+async def test_generate_content_deterministic_modes_default_to_request_level_max_scene_count():
     ctx = PipelineContext(
         input_text="first, second.",
         params={"mode": "fixed", "storyboard_mode": "punctuation"},
@@ -104,8 +104,28 @@ async def test_generate_content_uses_core_storyboard_limits_config():
         }
     )
 
+    await StandardPipeline(core).generate_content(ctx)
+
+    assert ctx.storyboard_plan.mode.value == "punctuation"
+    assert [frame.source_text for frame in ctx.storyboard_plan.frames] == [
+        "first,",
+        "second.",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generate_content_respects_explicit_deterministic_max_scene_count():
+    ctx = PipelineContext(
+        input_text="first, second.",
+        params={
+            "mode": "fixed",
+            "storyboard_mode": "punctuation",
+            "storyboard_max_scene_count": 1,
+        },
+    )
+
     with pytest.raises(ValueError, match="too many storyboard frames"):
-        await StandardPipeline(core).generate_content(ctx)
+        await StandardPipeline(_DummyCore()).generate_content(ctx)
 
 
 @pytest.mark.asyncio
