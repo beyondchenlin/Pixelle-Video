@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from api.routers.video import generate_video_async, generate_video_sync
 import api.schemas.video as video_schema_module
+from api.routers.video import generate_video_async, generate_video_sync
 from api.schemas.video import VideoGenerateRequest
 from pixelle_video.models.storyboard_limits import StoryboardGenerationLimits
 
@@ -112,6 +112,40 @@ def test_video_generate_request_accepts_prompt_generation_performance_controls()
 
     assert request.llm_prompt_batch_size == 8
     assert request.llm_prompt_batch_concurrent_limit == 3
+
+
+def test_video_generate_request_accepts_size_contract_controls():
+    request = VideoGenerateRequest(
+        text="demo",
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=768,
+        media_height=768,
+        video_orientation="landscape",
+        video_resolution_preset="1k",
+        media_orientation="square",
+        media_resolution_preset="768",
+        sync_media_size_to_canvas=False,
+    )
+
+    assert request.canvas_width == 1280
+    assert request.canvas_height == 720
+    assert request.media_width == 768
+    assert request.media_height == 768
+    assert request.video_orientation == "landscape"
+    assert request.video_resolution_preset == "1k"
+    assert request.media_orientation == "square"
+    assert request.media_resolution_preset == "768"
+    assert request.sync_media_size_to_canvas is False
+
+
+def test_video_generate_request_rejects_invalid_size_contract_controls():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            media_orientation="landscape",
+            media_resolution_preset="768",
+        )
 
 
 def test_video_generate_request_accepts_storyboard_generation_contract_fields():
@@ -440,6 +474,50 @@ async def test_generate_video_sync_passes_prompt_generation_performance_controls
     assert call["llm_prompt_batch_concurrent_limit"] == 3
 
 
+@pytest.mark.asyncio
+async def test_generate_video_sync_passes_explicit_size_contract_without_template_lookup(
+    monkeypatch,
+    tmp_path,
+):
+    output_path = tmp_path / "task-size-contract" / "final.mp4"
+    fake_pixelle_video = _FakePixelleVideo(output_path)
+
+    def fail_template_size_lookup(_frame_template):
+        raise AssertionError("API must not derive size from frame_template")
+
+    monkeypatch.setattr(
+        "api.routers.video.resolve_video_media_size",
+        fail_template_size_lookup,
+    )
+    monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
+
+    await generate_video_sync(
+        VideoGenerateRequest(
+            text="demo",
+            canvas_width=1280,
+            canvas_height=720,
+            media_width=768,
+            media_height=768,
+            video_orientation="landscape",
+            video_resolution_preset="1k",
+            media_orientation="square",
+            media_resolution_preset="768",
+            sync_media_size_to_canvas=False,
+        ),
+        fake_pixelle_video,
+        SimpleNamespace(base_url="http://testserver/"),
+    )
+
+    call = fake_pixelle_video.calls[0]
+    assert (call["canvas_width"], call["canvas_height"]) == (1280, 720)
+    assert (call["media_width"], call["media_height"]) == (768, 768)
+    assert call["video_orientation"] == "landscape"
+    assert call["video_resolution_preset"] == "1k"
+    assert call["media_orientation"] == "square"
+    assert call["media_resolution_preset"] == "768"
+    assert call["sync_media_size_to_canvas"] is False
+
+
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [
@@ -610,8 +688,15 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "script_target_words": 180,
             "min_image_prompt_words": 30,
             "max_image_prompt_words": 60,
-            "media_width": 1080,
-            "media_height": 1920,
+            "canvas_width": 1280,
+            "canvas_height": 720,
+            "media_width": 768,
+            "media_height": 768,
+            "video_orientation": "landscape",
+            "video_resolution_preset": "1k",
+            "media_orientation": "square",
+            "media_resolution_preset": "768",
+            "sync_media_size_to_canvas": False,
             "media_workflow": None,
             "video_fps": 30,
             "frame_template": "1080x1920/image_default.html",

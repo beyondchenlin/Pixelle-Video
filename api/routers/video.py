@@ -28,6 +28,7 @@ from api.schemas.video import (
     VideoGenerateResponse,
 )
 from api.tasks import TaskType, task_manager
+from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.services.generation_coordinator import build_generation_fingerprint
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from pixelle_video.utils.prompt_generation_performance import (
@@ -81,11 +82,10 @@ def build_video_generation_params(
     request_body: VideoGenerateRequest,
     *,
     request_id: str,
-    media_width: int,
-    media_height: int,
     api_task_id: str | None = None,
 ) -> dict:
     """Build PixelleVideoCore.generate_video kwargs from an API request."""
+    size_contract = GenerationSizeContract.from_params(request_body.model_dump())
     video_params = {
         "text": request_body.text,
         "mode": request_body.mode,
@@ -98,8 +98,7 @@ def build_video_generation_params(
         "script_target_words": request_body.script_target_words,
         "min_image_prompt_words": request_body.min_image_prompt_words,
         "max_image_prompt_words": request_body.max_image_prompt_words,
-        "media_width": media_width,
-        "media_height": media_height,
+        **size_contract.to_params(),
         "media_workflow": request_body.media_workflow,
         "video_fps": request_body.video_fps,
         "frame_template": request_body.frame_template,
@@ -224,13 +223,10 @@ async def generate_video_sync(
             request_id=request_id,
             content=build_content_observability(request_body.text),
         ).info("sync video generation request received")
-        
-        media_width, media_height = resolve_video_media_size(request_body.frame_template)
+
         video_params = build_video_generation_params(
             request_body,
             request_id=request_id,
-            media_width=media_width,
-            media_height=media_height,
         )
         
         # Call video generator service
@@ -315,12 +311,9 @@ async def generate_video_async(
         # Define async execution function
         async def execute_video_generation():
             """Execute video generation in background"""
-            media_width, media_height = resolve_video_media_size(request_body.frame_template)
             video_params = build_video_generation_params(
                 request_body,
                 request_id=request_id,
-                media_width=media_width,
-                media_height=media_height,
                 api_task_id=task.task_id,
             )
             

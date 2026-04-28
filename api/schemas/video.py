@@ -24,6 +24,7 @@ from api.schemas.storyboard_contract import (
 )
 from api.schemas.text_rendering import TextRenderingRequest
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
+from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.storyboard_limits import (
     DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
     DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
@@ -45,6 +46,9 @@ from pixelle_video.utils.prompt_generation_performance import (
 )
 
 StandardTtsAudioStrategy = Literal["auto", "master_track"]
+VideoOrientation = Literal["landscape", "portrait", "square"]
+VideoResolutionPreset = Literal["1k", "2k", "4k"]
+MediaResolutionPreset = Literal["768", "1k", "2k", "4k"]
 
 
 class VideoGenerateRequest(BaseModel):
@@ -194,8 +198,49 @@ class VideoGenerateRequest(BaseModel):
         description="Request-scoped LLM prompt batch concurrency override",
     )
     
+    # === Size Parameters ===
+    canvas_width: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Final video canvas width. Defaults to the selected video preset.",
+    )
+    canvas_height: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Final video canvas height. Defaults to the selected video preset.",
+    )
+    media_width: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Generated image/media width. Defaults to the selected media preset.",
+    )
+    media_height: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Generated image/media height. Defaults to the selected media preset.",
+    )
+    video_orientation: Optional[VideoOrientation] = Field(
+        None,
+        description="Final video orientation preset group.",
+    )
+    video_resolution_preset: Optional[VideoResolutionPreset] = Field(
+        None,
+        description="Final video resolution preset.",
+    )
+    media_orientation: Optional[VideoOrientation] = Field(
+        None,
+        description="Generated image/media orientation preset group.",
+    )
+    media_resolution_preset: Optional[MediaResolutionPreset] = Field(
+        None,
+        description="Generated image/media resolution preset.",
+    )
+    sync_media_size_to_canvas: bool = Field(
+        False,
+        description="When true, generated image/media dimensions follow the final video canvas.",
+    )
+
     # === Media Parameters ===
-    # Note: media_width and media_height are auto-determined from template meta tags
     media_workflow: Optional[str] = Field(None, description="Custom media workflow (image or video)")
     
     # === Video Parameters ===
@@ -299,6 +344,20 @@ class VideoGenerateRequest(BaseModel):
                 raise ValueError("script_target_words is required with custom script length mode")
         elif self.script_target_words is not None:
             raise ValueError("script_target_words is only valid with custom script length mode")
+
+        GenerationSizeContract.from_params(
+            {
+                "canvas_width": self.canvas_width,
+                "canvas_height": self.canvas_height,
+                "media_width": self.media_width,
+                "media_height": self.media_height,
+                "video_orientation": self.video_orientation,
+                "video_resolution_preset": self.video_resolution_preset,
+                "media_orientation": self.media_orientation,
+                "media_resolution_preset": self.media_resolution_preset,
+                "sync_media_size_to_canvas": self.sync_media_size_to_canvas,
+            }
+        )
 
         return self
 
