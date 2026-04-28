@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
@@ -11,10 +12,16 @@ from api.routers.video import (
     generate_video_async,
     generate_video_sync,
 )
-from api.schemas.video import VideoGenerateRequest
+from api.schemas.video import (
+    MediaResolutionPreset,
+    VideoGenerateRequest,
+    VideoResolutionPreset,
+)
 from pixelle_video.models.size_contract import (
     GenerationSizeContract,
     STANDARD_VIDEO_SIZE_PRESETS,
+    VALID_MEDIA_RESOLUTION_PRESETS,
+    VALID_VIDEO_RESOLUTION_PRESETS,
 )
 from pixelle_video.models.storyboard_limits import StoryboardGenerationLimits
 
@@ -32,6 +39,14 @@ class _FakePixelleVideo:
             video_path=str(self.output_path),
             duration=2.5,
         )
+
+
+def test_api_video_preset_literals_match_size_contract():
+    assert set(get_args(VideoResolutionPreset)) == set(VALID_VIDEO_RESOLUTION_PRESETS)
+
+
+def test_api_media_preset_literals_match_size_contract():
+    assert set(get_args(MediaResolutionPreset)) == set(VALID_MEDIA_RESOLUTION_PRESETS)
 
 
 def test_video_generate_request_rejects_removed_hyperframes_alias():
