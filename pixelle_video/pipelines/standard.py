@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, List, Literal, Optional
+from typing import Any, Callable, List, Literal, Mapping, Optional
 
 from loguru import logger
 
@@ -119,7 +119,12 @@ from pixelle_video.utils.prompt_generation_performance import (
     LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM,
     LLM_PROMPT_BATCH_SIZE_PARAM,
 )
-from pixelle_video.utils.template_util import get_template_type, parse_template_size
+from pixelle_video.utils.template_util import (
+    DEFAULT_IMAGE_TEMPLATE,
+    get_template_type,
+    parse_template_size,
+    resolve_compatible_template_for_orientation,
+)
 
 
 @dataclass(frozen=True)
@@ -142,6 +147,21 @@ async def _maybe_local_comfyui_workflow_session(core: Any):
         return
 
     yield
+
+
+def _resolve_frame_template_for_size_contract(
+    params: Mapping[str, Any],
+    size_contract: GenerationSizeContract,
+) -> str:
+    frame_template = params.get("frame_template")
+    if frame_template:
+        return str(frame_template)
+
+    return resolve_compatible_template_for_orientation(
+        current_template=DEFAULT_IMAGE_TEMPLATE,
+        template_type="image",
+        orientation=size_contract.video_orientation,
+    )
 
 
 
@@ -339,7 +359,8 @@ class StandardPipeline(LinearVideoPipeline):
             default_prompt_language=DEFAULT_PROMPT_LANGUAGE,
         )
         # Detect template type to determine if media generation is needed
-        frame_template = ctx.params.get("frame_template") or "1080x1920/default.html"
+        size_contract = GenerationSizeContract.from_params(ctx.params)
+        frame_template = _resolve_frame_template_for_size_contract(ctx.params, size_contract)
         
         template_name = Path(frame_template).name
         template_type = get_template_type(template_name)
@@ -492,6 +513,7 @@ class StandardPipeline(LinearVideoPipeline):
 
         frame_count = ctx.storyboard_plan.resolved_scene_count
         size_contract = GenerationSizeContract.from_params(ctx.params)
+        frame_template = _resolve_frame_template_for_size_contract(ctx.params, size_contract)
 
         # Create config
         ctx.config = StoryboardConfig(
@@ -520,7 +542,7 @@ class StandardPipeline(LinearVideoPipeline):
             sync_media_size_to_canvas=size_contract.sync_media_size_to_canvas,
             media_workflow=ctx.params.get("media_workflow"),
             media_negative_prompt=ctx.media_negative_prompt,
-            frame_template=ctx.params.get("frame_template") or "1080x1920/default.html",
+            frame_template=frame_template,
             template_params=ctx.params.get("template_params"),
             **build_storyboard_config_planning_kwargs(ctx.planning_snapshot, ctx.params),
         )

@@ -40,6 +40,7 @@ from pixelle_video.render_backend import (
     DEFAULT_RENDER_BACKEND,
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
 )
+from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
 
 
 class PersistenceService:
@@ -503,7 +504,7 @@ class PersistenceService:
             sync_media_size_to_canvas=data.get("sync_media_size_to_canvas", False),
             media_workflow=data.get("media_workflow", data.get("image_workflow")),  # Backward compatibility
             media_negative_prompt=data.get("media_negative_prompt"),
-            frame_template=data.get("frame_template", "1080x1920/default.html"),
+            frame_template=data.get("frame_template", DEFAULT_IMAGE_TEMPLATE),
             template_params=data.get("template_params"),
             template_text_policy=data.get("template_text_policy", "caption_renderer"),
             world_preset_id=data.get("world_preset_id"),

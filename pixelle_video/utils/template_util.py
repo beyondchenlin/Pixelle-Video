@@ -25,24 +25,35 @@ from pixelle_video.utils.os_util import get_resource_path, list_resource_dirs, l
 logger = logging.getLogger(__name__)
 
 TemplateOrientation = Literal["portrait", "landscape", "square"]
+TemplateType = Literal["static", "image", "video"]
+
+DEFAULT_STATIC_TEMPLATE = "1080x1920/static_default.html"
+DEFAULT_IMAGE_TEMPLATE = "1080x1920/image_default.html"
+DEFAULT_VIDEO_TEMPLATE = "1080x1920/video_default.html"
+LEGACY_DEFAULT_TEMPLATE = "1080x1920/default.html"
+DEFAULT_TEMPLATE_BY_TYPE: dict[TemplateType, str] = {
+    "static": DEFAULT_STATIC_TEMPLATE,
+    "image": DEFAULT_IMAGE_TEMPLATE,
+    "video": DEFAULT_VIDEO_TEMPLATE,
+}
 
 
 def parse_template_size(template_path: str) -> Tuple[int, int]:
     """
-    Parse video size from template path
+    Parse the template design-coordinate size from a template path.
     
     Args:
-        template_path: Template path like "templates/1080x1920/default.html"
-                      or "1080x1920/default.html"
+        template_path: Template path like "templates/1080x1920/image_default.html"
+                      or "1080x1920/image_default.html"
     
     Returns:
-        Tuple of (width, height) in pixels
+        Tuple of (width, height) in template design-coordinate pixels
     
     Raises:
         ValueError: If template path format is invalid
     
     Examples:
-        >>> parse_template_size("templates/1080x1920/default.html")
+        >>> parse_template_size("templates/1080x1920/image_default.html")
         (1080, 1920)
         >>> parse_template_size("1920x1080/modern.html")
         (1920, 1080)
@@ -80,7 +91,7 @@ def parse_template_size(template_path: str) -> Tuple[int, int]:
     except ValueError as e:
         raise ValueError(
             f"Failed to parse size from path: {template_path}. "
-            f"Expected format: 'WIDTHxHEIGHT/template.html' (e.g., '1080x1920/default.html'). "
+            f"Expected format: 'WIDTHxHEIGHT/template.html' (e.g., '1080x1920/image_default.html'). "
             f"Error: {e}"
         )
 
@@ -136,7 +147,7 @@ def parse_template_contract(template_path: str) -> TemplateContract:
 
 def list_available_sizes() -> List[str]:
     """
-    List all available video sizes (merged from templates/ and data/templates/)
+    List all available template design-coordinate sizes.
     
     Returns:
         List of size strings like ["1080x1920", "1920x1080", "1080x1080"]
@@ -172,11 +183,11 @@ def list_templates_for_size(size: str) -> List[str]:
         size: Size string like "1080x1920"
     
     Returns:
-        List of template filenames (without path) like ["default.html", "modern.html"]
+        List of template filenames (without path) like ["image_default.html", "image_modern.html"]
     
     Examples:
         >>> list_templates_for_size("1080x1920")
-        ['cartoon.html', 'default.html', 'elegant.html', 'modern.html', ...]
+        ['image_cartoon.html', 'image_default.html', 'image_elegant.html', 'image_modern.html', ...]
     """
     # Use new resource API to merge default and custom templates
     all_files = list_resource_files("templates", size)
@@ -193,17 +204,17 @@ def get_template_full_path(size: str, template_name: str) -> str:
     
     Args:
         size: Size string like "1080x1920"
-        template_name: Template filename like "default.html"
+        template_name: Template filename like "image_default.html"
     
     Returns:
-        Full path like "templates/1080x1920/default.html" or "data/templates/1080x1920/default.html"
+        Full path like "templates/1080x1920/image_default.html" or "data/templates/1080x1920/image_default.html"
     
     Raises:
         FileNotFoundError: If template file doesn't exist in either location
     
     Examples:
-        >>> get_template_full_path("1080x1920", "default.html")
-        'templates/1080x1920/default.html'
+        >>> get_template_full_path("1080x1920", "image_default.html")
+        'templates/1080x1920/image_default.html'
     """
     # Use new resource API to search custom first, then default
     try:
@@ -220,9 +231,9 @@ class TemplateDisplayInfo(BaseModel):
     """Template display information for UI layer"""
     
     name: str = Field(..., description="Template name without extension")
-    size: str = Field(..., description="Size string like '1080x1920'")
-    width: int = Field(..., description="Width in pixels")
-    height: int = Field(..., description="Height in pixels")
+    size: str = Field(..., description="Template design-coordinate size like '1080x1920'")
+    width: int = Field(..., description="Template design-coordinate width")
+    height: int = Field(..., description="Template design-coordinate height")
     orientation: TemplateOrientation = Field(
         ..., 
         description="Template layout orientation"
@@ -236,7 +247,7 @@ class TemplateDisplayInfo(BaseModel):
 class TemplateInfo(BaseModel):
     """Complete template information with path and display info"""
     
-    template_path: str = Field(..., description="Full template path like '1080x1920/default.html'")
+    template_path: str = Field(..., description="Full template path like '1080x1920/image_default.html'")
     display_info: TemplateDisplayInfo = Field(..., description="Display information")
 
 
@@ -247,16 +258,16 @@ def format_template_display_info(template_name: str, size: str) -> TemplateDispl
     Returns structured data for UI layer to handle display and i18n.
     
     Args:
-        template_name: Template filename like "default.html"
+        template_name: Template filename like "image_default.html"
         size: Size string like "1080x1920"
     
     Returns:
         TemplateDisplayInfo object with name, size, dimensions, orientation, and standard flag
     
     Examples:
-        >>> info = format_template_display_info("default.html", "1080x1920")
+        >>> info = format_template_display_info("image_default.html", "1080x1920")
         >>> info.name
-        'default'
+        'image_default'
         >>> info.is_standard
         True
         
@@ -359,7 +370,7 @@ def resolve_template_path(template_input: Optional[str]) -> str:
     
     Args:
         template_input: Can be:
-            - None: Use default "1080x1920/image_default.html"
+            - None: Use the default image template
             - "template.html": Use default size + this template
             - "1080x1920/template.html": Full relative path
             - "templates/1080x1920/template.html": Absolute-ish path (legacy)
@@ -376,12 +387,12 @@ def resolve_template_path(template_input: Optional[str]) -> str:
         'templates/1080x1920/image_default.html'
         >>> resolve_template_path("image_modern.html")
         'templates/1080x1920/image_modern.html'
-        >>> resolve_template_path("1920x1080/image_default.html")
-        'templates/1920x1080/image_default.html'
+        >>> resolve_template_path("1920x1080/image_book.html")
+        'templates/1920x1080/image_book.html'
     """
     # Default case
     if template_input is None:
-        template_input = "1080x1920/image_default.html"
+        template_input = DEFAULT_IMAGE_TEMPLATE
     
     # Parse input to extract size and template name
     size = None
@@ -426,7 +437,7 @@ def resolve_template_path(template_input: Optional[str]) -> str:
         )
 
 
-def get_template_type(template_name: str) -> Literal['static', 'image', 'video']:
+def get_template_type(template_name: str) -> TemplateType:
     """
     Detect template type from template filename
     
@@ -468,7 +479,7 @@ def get_template_type(template_name: str) -> Literal['static', 'image', 'video']
 
 def filter_templates_by_type(
     templates: List[TemplateInfo], 
-    template_type: Literal['static', 'image', 'video']
+    template_type: TemplateType,
 ) -> List[TemplateInfo]:
     """
     Filter templates by type
@@ -495,7 +506,7 @@ def filter_templates_by_type(
 
 
 def get_templates_grouped_by_size_and_type(
-    template_type: Optional[Literal['static', 'image', 'video']] = None
+    template_type: Optional[TemplateType] = None,
 ) -> dict:
     """
     Get templates grouped by size, optionally filtered by type
@@ -548,7 +559,7 @@ def get_template_orientation(template_path: str) -> TemplateOrientation:
 def resolve_compatible_template_for_orientation(
     *,
     current_template: str,
-    template_type: Literal["static", "image", "video"],
+    template_type: TemplateType,
     orientation: Literal["landscape", "portrait", "square"],
 ) -> str:
     if get_template_orientation(current_template) == orientation:

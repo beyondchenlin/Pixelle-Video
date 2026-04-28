@@ -37,6 +37,7 @@ from pixelle_video.models.storyboard_planning import ContentMode, ShotOverridePo
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, RenderBackend
 from pixelle_video.tts_audio_strategy import DEFAULT_TTS_AUDIO_STRATEGY, TTSAudioStrategy
 from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, TtsSplitMode
+from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
 
 
 class LLMConfig(BaseModel):
@@ -478,7 +479,7 @@ class ComfyUIConfig(BaseModel):
 class TemplateConfig(BaseModel):
     """Template configuration"""
     default_template: str = Field(
-        default="1080x1920/default.html",
+        default=DEFAULT_IMAGE_TEMPLATE,
         description="Default frame template path"
     )
 

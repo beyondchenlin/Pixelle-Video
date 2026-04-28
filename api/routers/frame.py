@@ -36,7 +36,7 @@ async def render_frame(
     Generates a frame image by combining template, title, text, and image.
     This is useful for previewing templates or generating custom frames.
     
-    - **template**: Template key (e.g., '1080x1920/default.html')
+    - **template**: Template key (e.g., '1080x1920/image_default.html')
     - **title**: Optional title text
     - **text**: Frame text content
     - **image**: Image path (can be local path or URL)
@@ -46,7 +46,7 @@ async def render_frame(
     Example:
     ```json
     {
-        "template": "1080x1920/modern.html",
+        "template": "1080x1920/image_default.html",
         "title": "Welcome",
         "text": "This is a beautiful frame with custom styling",
         "image": "resources/example.png"
@@ -158,4 +158,3 @@ async def get_template_params(
     except Exception as e:
         logger.error(f"Get template params error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-

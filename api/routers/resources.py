@@ -159,14 +159,14 @@ async def list_templates():
     {
         "templates": [
             {
-                "name": "default.html",
-                "display_name": "default.html",
+                "name": "image_default.html",
+                "display_name": "image_default.html",
                 "size": "1080x1920",
                 "width": 1080,
                 "height": 1920,
                 "orientation": "portrait",
-                "path": "templates/1080x1920/default.html",
-                "key": "1080x1920/default.html"
+                "path": "templates/1080x1920/image_default.html",
+                "key": "1080x1920/image_default.html"
             }
         ]
     }
@@ -267,4 +267,3 @@ async def list_bgm():
     except Exception as e:
         logger.error(f"List BGM error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-

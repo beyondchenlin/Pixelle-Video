@@ -81,7 +81,7 @@ class HTMLFrameGenerator:
         Initialize HTML frame generator
         
         Args:
-            template_path: Path to HTML template file (e.g., "templates/1080x1920/default.html")
+            template_path: Path to HTML template file (e.g., "templates/1080x1920/image_default.html")
         """
         self.template_path = template_path
         self.template = self._load_template(template_path)

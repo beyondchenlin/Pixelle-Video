@@ -94,7 +94,7 @@ async def get_file(file_path: str):
     Examples:
     - "abc123.mp4" → output/abc123.mp4
     - "workflows/runninghub/image_flux.json" → workflows/runninghub/image_flux.json
-    - "templates/1080x1920/default.html" → templates/1080x1920/default.html
+    - "templates/1080x1920/image_default.html" → templates/1080x1920/image_default.html
     - "bgm/default.mp3" → bgm/default.mp3
     - "resources/example.png" → resources/example.png
     

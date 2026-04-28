@@ -18,13 +18,15 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
+
 
 class FrameRenderRequest(BaseModel):
     """Frame rendering request"""
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "template": "1080x1920/default.html",
+                "template": DEFAULT_IMAGE_TEMPLATE,
                 "title": "Sample Title",
                 "text": "This is a sample text for the frame.",
                 "image": "resources/example.png",
@@ -34,7 +36,10 @@ class FrameRenderRequest(BaseModel):
 
     template: str = Field(
         ..., 
-        description="Template key (e.g., '1080x1920/default.html'). Can also be just filename (e.g., 'default.html') to use default size."
+        description=(
+            f"Template key (e.g., '{DEFAULT_IMAGE_TEMPLATE}'). Can also be just "
+            "filename (e.g., 'image_default.html') to use the default template design size."
+        ),
     )
     title: Optional[str] = Field(None, description="Frame title (optional)")
     text: str = Field(..., description="Frame text content")

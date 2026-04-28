@@ -37,6 +37,7 @@ from pixelle_video.tts_audio_strategy import (
     validate_tts_audio_strategy,
 )
 from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, validate_tts_split_mode
+from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
 from pixelle_video.utils.text_splitting import (
     DEFAULT_CAPTION_PUNCTUATION_MODE,
     DEFAULT_TTS_SENTENCE_JOINER_MODE,
@@ -119,8 +120,8 @@ class StoryboardConfig:
     media_workflow: Optional[str] = None       # Media workflow filename (image or video, None = use default)
     media_negative_prompt: Optional[str] = None  # Optional negative prompt for media workflows
     
-    # Frame template (includes size information in path)
-    frame_template: str = "1080x1920/default.html"  # Template path with size (e.g., "1080x1920/default.html")
+    # Frame template (includes template design-coordinate information in path)
+    frame_template: str = DEFAULT_IMAGE_TEMPLATE
     template_params: Optional[Dict[str, Any]] = None  # Custom template parameters (e.g., {"accent_color": "#ff0000"})
     template_text_policy: str = "caption_renderer"
     world_preset_id: Optional[str] = None

@@ -58,7 +58,7 @@ class ConfigManager:
     
     def _validate_template(self, template_path: str):
         """Validate that the configured template exists"""
-        from pixelle_video.utils.template_util import resolve_template_path
+        from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE, resolve_template_path
         
         try:
             # Try to resolve the template path
@@ -67,7 +67,7 @@ class ConfigManager:
         except FileNotFoundError as e:
             logger.warning(
                 f"Configured default template '{template_path}' not found. "
-                f"Will fall back to '1080x1920/default.html' if needed. Error: {e}"
+                f"Will fall back to '{DEFAULT_IMAGE_TEMPLATE}' if needed. Error: {e}"
             )
     
     def reload(self):

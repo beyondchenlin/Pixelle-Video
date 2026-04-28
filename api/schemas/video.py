@@ -47,6 +47,7 @@ from pixelle_video.utils.prompt_generation_performance import (
     PROMPT_BATCH_SIZE_MAX,
     PROMPT_BATCH_SIZE_MIN,
 )
+from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
 
 StandardTtsAudioStrategy = Literal["auto", "master_track"]
 VideoOrientation = Literal["landscape", "portrait", "square"]
@@ -276,7 +277,7 @@ class VideoGenerateRequest(BaseModel):
         None, 
         description=(
             "HTML template path with template design coordinates/layout "
-            "(e.g., '1080x1920/default.html'). Final video output size is "
+            f"(e.g., '{DEFAULT_IMAGE_TEMPLATE}'). Final video output size is "
             "controlled by explicit canvas fields or the selected video preset."
         ),
     )

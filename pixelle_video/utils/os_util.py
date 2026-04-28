@@ -464,8 +464,8 @@ def get_resource_path(resource_type: Literal["bgm", "templates", "workflows"], *
         >>> get_resource_path("bgm", "happy.mp3")
         # Returns: "data/bgm/happy.mp3" (if exists) or "bgm/happy.mp3"
         
-        >>> get_resource_path("templates", "1080x1920", "default.html")
-        # Returns: "data/templates/1080x1920/default.html" or "templates/1080x1920/default.html"
+        >>> get_resource_path("templates", "1080x1920", "image_default.html")
+        # Returns: "data/templates/1080x1920/image_default.html" or "templates/1080x1920/image_default.html"
         
         >>> get_resource_path("workflows", "selfhost", "image_flux.json")
         # Returns: "data/workflows/selfhost/image_flux.json" or "workflows/selfhost/image_flux.json"
@@ -517,7 +517,7 @@ def list_resource_files(
         # (merged from bgm/ and data/bgm/)
         
         >>> list_resource_files("templates", "1080x1920")
-        # Returns: ["custom.html", "default.html", "modern.html"]
+        # Returns: ["custom.html", "image_default.html", "image_modern.html"]
         # (merged from templates/1080x1920/ and data/templates/1080x1920/)
     """
     files = {}  # Use dict to track source priority: {filename: path}
@@ -598,7 +598,7 @@ def resource_exists(resource_type: Literal["bgm", "templates", "workflows"], *pa
         >>> resource_exists("bgm", "happy.mp3")
         True
         
-        >>> resource_exists("templates", "1080x1920", "default.html")
+        >>> resource_exists("templates", "1080x1920", "image_default.html")
         True
     """
     custom_path = get_data_path(resource_type, *paths)

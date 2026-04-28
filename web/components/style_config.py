@@ -2372,6 +2372,9 @@ def render_style_config(
         
         # Import template utilities
         from pixelle_video.utils.template_util import (
+            DEFAULT_IMAGE_TEMPLATE,
+            DEFAULT_TEMPLATE_BY_TYPE,
+            LEGACY_DEFAULT_TEMPLATE,
             get_template_type,
             get_templates_grouped_by_size_and_type,
             resolve_compatible_template_for_orientation,
@@ -2424,19 +2427,14 @@ def render_style_config(
         
         # Get default template from config
         template_config = pixelle_video.config.get("template", {})
-        config_default_template = template_config.get("default_template", "1080x1920/image_default.html")
+        config_default_template = template_config.get("default_template", DEFAULT_IMAGE_TEMPLATE)
 
         # Backward compatibility
-        if config_default_template == "1080x1920/default.html":
-            config_default_template = "1080x1920/image_default.html"
+        if config_default_template == LEGACY_DEFAULT_TEMPLATE:
+            config_default_template = DEFAULT_IMAGE_TEMPLATE
         
         # Determine type-specific default template
-        type_default_templates = {
-            'static': '1080x1920/static_default.html',
-            'image': '1080x1920/image_default.html',
-            'video': '1080x1920/video_default.html'
-        }
-        type_specific_default = type_default_templates.get(selected_template_type, config_default_template)
+        type_specific_default = DEFAULT_TEMPLATE_BY_TYPE.get(selected_template_type, config_default_template)
         
         # Initialize selected template in session state if not exists
         if 'selected_template' not in st.session_state:

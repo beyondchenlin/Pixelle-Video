@@ -5,6 +5,7 @@ from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanF
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
+from pixelle_video.utils.template_util import get_template_orientation
 
 
 class _DummyCore:
@@ -218,6 +219,57 @@ async def test_plan_visuals_uses_image_prompt_composer(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_plan_visuals_defaults_template_to_canvas_orientation(monkeypatch):
+    captured_resolver = {}
+
+    def fake_resolve_template(*, current_template, template_type, orientation):
+        captured_resolver.update(
+            {
+                "current_template": current_template,
+                "template_type": template_type,
+                "orientation": orientation,
+            }
+        )
+        return "1920x1080/image_book.html"
+
+    async def fake_compose(self, **kwargs):
+        return StyledImagePromptBatch(
+            prompts=["prompt one", "prompt two"],
+            negative_prompt=None,
+            resolved_style=None,
+            planning_snapshot={"storyboard_generation": kwargs["storyboard_plan"].to_dict()},
+        )
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.resolve_compatible_template_for_orientation",
+        fake_resolve_template,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.ImagePromptComposer.compose",
+        fake_compose,
+    )
+
+    ctx = PipelineContext(
+        input_text="first. second.",
+        params={
+            "video_orientation": "landscape",
+            "video_resolution_preset": "landscape_hd",
+        },
+    )
+    ctx.task_id = "task-plan-visuals-default-template"
+    ctx.storyboard_plan = _plan()
+
+    await StandardPipeline(_DummyCore()).plan_visuals(ctx)
+
+    assert captured_resolver == {
+        "current_template": "1080x1920/image_default.html",
+        "template_type": "image",
+        "orientation": "landscape",
+    }
+    assert ctx.image_prompts == ["prompt one", "prompt two"]
+
+
+@pytest.mark.asyncio
 async def test_static_template_skips_media_but_keeps_storyboard_plan(monkeypatch):
     monkeypatch.setattr("pixelle_video.pipelines.standard.get_template_type", lambda template_name: "static")
 
@@ -278,3 +330,44 @@ async def test_generate_content_builds_caption_speech_plan_from_source_not_story
         "untouched.",
     ]
     assert not hasattr(ctx.storyboard_plan.frames[0], "narration_text")
+
+
+@pytest.mark.asyncio
+async def test_initialize_storyboard_defaults_template_to_canvas_orientation():
+    ctx = PipelineContext(
+        input_text="first. second.",
+        params={
+            "video_orientation": "landscape",
+            "video_resolution_preset": "landscape_hd",
+        },
+    )
+    ctx.task_id = "task-size-default-template"
+    ctx.title = "Size default template"
+    ctx.storyboard_plan = _plan()
+    ctx.image_prompts = ["prompt one", "prompt two"]
+
+    await StandardPipeline(_DummyCore()).initialize_storyboard(ctx)
+
+    assert (ctx.config.canvas_width, ctx.config.canvas_height) == (1280, 720)
+    assert ctx.config.video_orientation == "landscape"
+    assert get_template_orientation(ctx.config.frame_template) == "landscape"
+
+
+@pytest.mark.asyncio
+async def test_initialize_storyboard_preserves_explicit_template():
+    ctx = PipelineContext(
+        input_text="first. second.",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "video_orientation": "landscape",
+            "video_resolution_preset": "landscape_hd",
+        },
+    )
+    ctx.task_id = "task-explicit-template"
+    ctx.title = "Explicit template"
+    ctx.storyboard_plan = _plan()
+    ctx.image_prompts = ["prompt one", "prompt two"]
+
+    await StandardPipeline(_DummyCore()).initialize_storyboard(ctx)
+
+    assert ctx.config.frame_template == "1080x1920/image_default.html"
