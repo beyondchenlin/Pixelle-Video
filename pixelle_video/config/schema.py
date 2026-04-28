@@ -29,7 +29,10 @@ from pixelle_video.config.storyboard_preset_library import (
     build_builtin_world_preset_library_dict,
 )
 from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
-from pixelle_video.models.storyboard_limits import DEFAULT_STORYBOARD_GENERATION_LIMITS
+from pixelle_video.models.storyboard_limits import (
+    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
+    DEFAULT_STORYBOARD_GENERATION_LIMITS,
+)
 from pixelle_video.models.storyboard_planning import ContentMode, ShotOverridePolicy
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, RenderBackend
 from pixelle_video.tts_audio_strategy import DEFAULT_TTS_AUDIO_STRATEGY, TTSAudioStrategy
@@ -417,7 +420,13 @@ class StoryboardSubConfig(BaseModel):
     max_scene_count: int = Field(
         default=DEFAULT_STORYBOARD_GENERATION_LIMITS.max_scene_count,
         ge=1,
-        description="Maximum scene count for storyboard generation",
+        description="Maximum scene count for smart storyboard generation",
+    )
+    deterministic_max_scene_count_limit: int = Field(
+        default=DEFAULT_STORYBOARD_GENERATION_LIMITS.deterministic_max_scene_count_limit,
+        ge=1,
+        le=DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
+        description="Maximum scene count for punctuation and sentence storyboard modes",
     )
     world_preset_library: StoryboardWorldPresetLibraryConfig = Field(
         default_factory=lambda: StoryboardWorldPresetLibraryConfig.model_validate(

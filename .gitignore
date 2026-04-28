@@ -48,6 +48,9 @@ config.yaml.bak
 
 # Logs
 *.log
+
+# Pytest temp directory
+.pytest_tmp/
 logs/
 
 # Test outputs
