@@ -12,7 +12,10 @@ from api.routers.video import (
     generate_video_sync,
 )
 from api.schemas.video import VideoGenerateRequest
-from pixelle_video.models.size_contract import GenerationSizeContract
+from pixelle_video.models.size_contract import (
+    GenerationSizeContract,
+    STANDARD_VIDEO_SIZE_PRESETS,
+)
 from pixelle_video.models.storyboard_limits import StoryboardGenerationLimits
 
 
@@ -158,18 +161,22 @@ def test_video_generate_request_accepts_new_full_hd_preset():
     assert params["video_resolution_preset"] == "landscape_full_hd"
 
 
-def test_video_generate_request_infers_portrait_orientation_from_standard_preset():
-    request = VideoGenerateRequest(text="demo", video_resolution_preset="portrait_hd")
+@pytest.mark.parametrize(
+    ("orientation", "preset"),
+    [
+        (orientation, preset)
+        for orientation, presets in STANDARD_VIDEO_SIZE_PRESETS.items()
+        for preset in presets
+    ],
+)
+def test_video_generate_request_infers_orientation_from_standard_preset(
+    orientation: str,
+    preset: str,
+):
+    request = VideoGenerateRequest(text="demo", video_resolution_preset=preset)
 
-    assert request.video_orientation == "portrait"
-    assert request.video_resolution_preset == "portrait_hd"
-
-
-def test_video_generate_request_infers_square_orientation_from_standard_preset():
-    request = VideoGenerateRequest(text="demo", video_resolution_preset="square_standard")
-
-    assert request.video_orientation == "square"
-    assert request.video_resolution_preset == "square_standard"
+    assert request.video_orientation == orientation
+    assert request.video_resolution_preset == preset
 
 
 def test_video_generate_request_rejects_conflicting_standard_preset_orientation():

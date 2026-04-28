@@ -14,7 +14,7 @@
 Video generation API schemas
 """
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -24,7 +24,10 @@ from api.schemas.storyboard_contract import (
 )
 from api.schemas.text_rendering import TextRenderingRequest
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
-from pixelle_video.models.size_contract import GenerationSizeContract
+from pixelle_video.models.size_contract import (
+    GenerationSizeContract,
+    STANDARD_VIDEO_SIZE_PRESETS,
+)
 from pixelle_video.models.storyboard_limits import (
     DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
     DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
@@ -61,23 +64,16 @@ VideoResolutionPreset = Literal[
 ]
 MediaResolutionPreset = Literal["768", "1k", "2k", "4k"]
 
-_STANDARD_VIDEO_PRESET_ORIENTATIONS: dict[str, VideoOrientation] = {
-    "landscape_hd": "landscape",
-    "landscape_full_hd": "landscape",
-    "landscape_4k": "landscape",
-    "portrait_hd": "portrait",
-    "portrait_full_hd": "portrait",
-    "portrait_4k": "portrait",
-    "square_standard": "square",
-}
-
 
 def _infer_video_orientation_from_standard_preset(
     preset: VideoResolutionPreset | None,
 ) -> VideoOrientation | None:
     if preset is None:
         return None
-    return _STANDARD_VIDEO_PRESET_ORIENTATIONS.get(preset)
+    for orientation, presets in STANDARD_VIDEO_SIZE_PRESETS.items():
+        if preset in presets:
+            return cast(VideoOrientation, orientation)
+    return None
 
 
 class VideoGenerateRequest(BaseModel):
