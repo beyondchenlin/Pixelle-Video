@@ -2,7 +2,11 @@ import json
 
 import pytest
 
-from pixelle_video.models.asset_script import AssetCatalogEntry, AssetScriptResponse, AssetScriptSceneResponse
+from pixelle_video.models.asset_script import (
+    AssetCatalogEntry,
+    AssetScriptResponse,
+    AssetScriptSceneResponse,
+)
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.prompts.asset_script_generation import build_asset_script_prompt
