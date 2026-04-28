@@ -70,7 +70,9 @@ def build_video_generation_params(
     api_task_id: str | None = None,
 ) -> dict:
     """Build PixelleVideoCore.generate_video kwargs from an API request."""
-    size_contract = GenerationSizeContract.from_params(request_body.model_dump())
+    size_contract = GenerationSizeContract.from_params(
+        request_body.model_dump(exclude_unset=True)
+    )
     video_params = {
         "text": request_body.text,
         "mode": request_body.mode,

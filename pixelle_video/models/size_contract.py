@@ -169,6 +169,8 @@ def _optional_int_pair(
 
 
 def _has_new_canvas_intent(params: Mapping[str, Any]) -> bool:
+    if bool(params.get("sync_media_size_to_canvas", False)):
+        return True
     return any(
         key in params and params.get(key) is not None
         for key in (
@@ -176,7 +178,6 @@ def _has_new_canvas_intent(params: Mapping[str, Any]) -> bool:
             "canvas_height",
             "video_orientation",
             "video_resolution_preset",
-            "sync_media_size_to_canvas",
         )
     )
 

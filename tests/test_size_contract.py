@@ -131,6 +131,19 @@ def test_legacy_media_only_request_uses_media_as_canvas():
     assert (contract.media_width, contract.media_height) == (1080, 1920)
 
 
+def test_legacy_media_only_request_with_sync_disabled_uses_media_as_canvas():
+    contract = GenerationSizeContract.from_params(
+        {
+            "media_width": 1080,
+            "media_height": 1920,
+            "sync_media_size_to_canvas": False,
+        }
+    )
+
+    assert (contract.canvas_width, contract.canvas_height) == (1080, 1920)
+    assert (contract.media_width, contract.media_height) == (1080, 1920)
+
+
 def test_missing_dimensions_uses_new_defaults():
     contract = GenerationSizeContract.from_params({})
 

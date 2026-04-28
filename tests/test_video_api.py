@@ -6,7 +6,11 @@ import pytest
 from pydantic import ValidationError
 
 import api.schemas.video as video_schema_module
-from api.routers.video import generate_video_async, generate_video_sync
+from api.routers.video import (
+    build_video_generation_params,
+    generate_video_async,
+    generate_video_sync,
+)
 from api.schemas.video import VideoGenerateRequest
 from pixelle_video.models.storyboard_limits import StoryboardGenerationLimits
 
@@ -137,6 +141,20 @@ def test_video_generate_request_accepts_size_contract_controls():
     assert request.media_orientation == "square"
     assert request.media_resolution_preset == "768"
     assert request.sync_media_size_to_canvas is False
+
+
+def test_build_video_generation_params_preserves_legacy_media_only_canvas_size():
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            media_width=1080,
+            media_height=1920,
+        ),
+        request_id="req_test",
+    )
+
+    assert (params["canvas_width"], params["canvas_height"]) == (1080, 1920)
+    assert (params["media_width"], params["media_height"]) == (1080, 1920)
 
 
 def test_video_generate_request_rejects_invalid_size_contract_controls():

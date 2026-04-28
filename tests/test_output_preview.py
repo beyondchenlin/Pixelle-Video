@@ -122,6 +122,28 @@ def test_video_generation_pipelines_use_shared_scaled_preview_renderer():
         assert "render_scaled_video_preview(" in source, f"{path.name} should use shared preview renderer"
 
 
+def test_single_video_result_summary_uses_canvas_contract_dimensions():
+    result = SimpleNamespace(
+        video_path="final.mp4",
+        file_size=1024 * 1024,
+        storyboard=SimpleNamespace(
+            config=SimpleNamespace(
+                frame_template="1080x1920/image_default.html",
+                canvas_width=1280,
+                canvas_height=720,
+            ),
+            frames=[object(), object()],
+        ),
+    )
+
+    summary = output_preview._build_single_video_result_summary(
+        result,
+        total_generation_time=12.5,
+    )
+
+    assert (summary["video_width"], summary["video_height"]) == (1280, 720)
+
+
 def test_build_single_generation_request_includes_render_backend():
     def _progress(_event):
         return None

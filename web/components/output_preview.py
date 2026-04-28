@@ -163,8 +163,12 @@ def _build_single_video_result_summary(result, *, total_generation_time: float):
         resolve_template_path,
     )
 
-    template_path = resolve_template_path(result.storyboard.config.frame_template)
-    video_width, video_height = parse_template_size(template_path)
+    config = result.storyboard.config
+    video_width = getattr(config, "canvas_width", None)
+    video_height = getattr(config, "canvas_height", None)
+    if video_width is None or video_height is None:
+        template_path = resolve_template_path(config.frame_template)
+        video_width, video_height = parse_template_size(template_path)
     return {
         "video_path": str(result.video_path),
         "generation_time_sec": float(total_generation_time),
