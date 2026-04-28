@@ -135,3 +135,35 @@ async def test_standard_pipeline_tts_mode_falls_back_to_configured_default():
     await pipeline.initialize_storyboard(ctx)
 
     assert ctx.config.tts_inference_mode == "comfyui"
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_initializes_distinct_canvas_and_media_sizes():
+    pipeline = StandardPipeline(_FakeCore())
+    ctx = PipelineContext(
+        input_text="test text",
+        params={
+            "canvas_width": 1280,
+            "canvas_height": 720,
+            "media_width": 768,
+            "media_height": 768,
+            "video_orientation": "landscape",
+            "video_resolution_preset": "1k",
+            "media_orientation": "square",
+            "media_resolution_preset": "768",
+            "sync_media_size_to_canvas": False,
+        },
+    )
+    ctx.task_id = "task-size-contract"
+    ctx.title = "Size Contract"
+    ctx.storyboard_plan = _single_frame_plan()
+    ctx.image_prompts = ["prompt"]
+
+    await pipeline.initialize_storyboard(ctx)
+
+    assert (ctx.config.canvas_width, ctx.config.canvas_height) == (1280, 720)
+    assert (ctx.config.media_width, ctx.config.media_height) == (768, 768)
+    assert ctx.config.video_orientation == "landscape"
+    assert ctx.config.video_resolution_preset == "1k"
+    assert ctx.config.media_orientation == "square"
+    assert ctx.config.media_resolution_preset == "768"

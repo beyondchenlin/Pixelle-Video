@@ -19,14 +19,24 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
-from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage, normalize_prompt_language
+from pixelle_video.models.size_contract import (
+    DEFAULT_MEDIA_ORIENTATION,
+    DEFAULT_MEDIA_RESOLUTION_PRESET,
+    DEFAULT_VIDEO_ORIENTATION,
+    DEFAULT_VIDEO_RESOLUTION_PRESET,
+)
+from pixelle_video.models.video_generation_contract import StoryboardControlsContract
+from pixelle_video.prompt_language import (
+    DEFAULT_PROMPT_LANGUAGE,
+    PromptLanguage,
+    normalize_prompt_language,
+)
 from pixelle_video.render_backend import DEFAULT_RENDER_BACKEND, validate_render_backend
 from pixelle_video.tts_audio_strategy import (
     DEFAULT_TTS_AUDIO_STRATEGY,
     validate_tts_audio_strategy,
 )
 from pixelle_video.tts_split_strategy import DEFAULT_TTS_SPLIT_MODE, validate_tts_split_mode
-from pixelle_video.models.video_generation_contract import StoryboardControlsContract
 from pixelle_video.utils.text_splitting import (
     DEFAULT_CAPTION_PUNCTUATION_MODE,
     DEFAULT_TTS_SENTENCE_JOINER_MODE,
@@ -51,6 +61,8 @@ class StoryboardConfig:
     # Required parameters (must come first in dataclass)
     media_width: int                           # Media width (image or video, required)
     media_height: int                          # Media height (image or video, required)
+    canvas_width: Optional[int] = None         # Final video canvas width
+    canvas_height: Optional[int] = None        # Final video canvas height
     
     # Task isolation
     task_id: Optional[str] = None              # Task ID for file isolation (auto-generated if None)
@@ -63,6 +75,11 @@ class StoryboardConfig:
     
     # Video parameters (fps only, size is determined by frame template)
     video_fps: int = 30                        # Frame rate
+    video_orientation: str = DEFAULT_VIDEO_ORIENTATION
+    video_resolution_preset: str = DEFAULT_VIDEO_RESOLUTION_PRESET
+    media_orientation: str = DEFAULT_MEDIA_ORIENTATION
+    media_resolution_preset: str = DEFAULT_MEDIA_RESOLUTION_PRESET
+    sync_media_size_to_canvas: bool = False
     
     # Audio parameters
     tts_inference_mode: str = DEFAULT_TTS_INFERENCE_MODE  # TTS inference mode: "local" or "comfyui"
@@ -116,6 +133,20 @@ class StoryboardConfig:
     shot_strategy: Optional[str] = None
 
     def __post_init__(self):
+        self.media_width = int(self.media_width)
+        self.media_height = int(self.media_height)
+        if self.canvas_width is None:
+            self.canvas_width = self.media_width
+        if self.canvas_height is None:
+            self.canvas_height = self.media_height
+        self.canvas_width = int(self.canvas_width)
+        self.canvas_height = int(self.canvas_height)
+        if self.media_width <= 0 or self.media_height <= 0:
+            raise ValueError("media dimensions must be positive")
+        if self.canvas_width <= 0 or self.canvas_height <= 0:
+            raise ValueError("canvas dimensions must be positive")
+        self.sync_media_size_to_canvas = bool(self.sync_media_size_to_canvas)
+
         self.render_backend = validate_render_backend(self.render_backend)
         self.tts_audio_strategy = validate_tts_audio_strategy(self.tts_audio_strategy)
         self.tts_split_mode = validate_tts_split_mode(self.tts_split_mode)

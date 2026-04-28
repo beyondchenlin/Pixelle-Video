@@ -47,6 +47,7 @@ from pixelle_video.models.render_package import (
     TextTrack,
     VisualClip,
 )
+from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.storyboard import (
     Storyboard,
     StoryboardConfig,
@@ -469,6 +470,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
 
         frame_count = ctx.storyboard_plan.resolved_scene_count
+        size_contract = GenerationSizeContract.from_params(ctx.params)
 
         # Create config
         ctx.config = StoryboardConfig(
@@ -486,8 +488,15 @@ class StandardPipeline(LinearVideoPipeline):
             ref_audio=ctx.params.get("ref_audio"),
             ref_audio_text=ctx.params.get("ref_audio_text") or ctx.params.get("prompt_text"),
             **resolve_storyboard_render_kwargs(self.core.config, ctx.params),
-            media_width=ctx.params.get("media_width"),
-            media_height=ctx.params.get("media_height"),
+            canvas_width=size_contract.canvas_width,
+            canvas_height=size_contract.canvas_height,
+            media_width=size_contract.media_width,
+            media_height=size_contract.media_height,
+            video_orientation=size_contract.video_orientation,
+            video_resolution_preset=size_contract.video_resolution_preset,
+            media_orientation=size_contract.media_orientation,
+            media_resolution_preset=size_contract.media_resolution_preset,
+            sync_media_size_to_canvas=size_contract.sync_media_size_to_canvas,
             media_workflow=ctx.params.get("media_workflow"),
             media_negative_prompt=ctx.media_negative_prompt,
             frame_template=ctx.params.get("frame_template") or "1080x1920/default.html",
