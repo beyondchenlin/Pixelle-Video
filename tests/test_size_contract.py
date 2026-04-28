@@ -82,6 +82,50 @@ def test_non_standard_output_size_alias_is_rejected():
         )
 
 
+@pytest.mark.parametrize("orientation", ["landscape", "portrait"])
+def test_media_size_presets_for_wide_or_tall_media_only_expose_media_ids(
+    orientation,
+):
+    from pixelle_video.models.size_contract import MEDIA_SIZE_PRESETS
+
+    assert set(MEDIA_SIZE_PRESETS[orientation]) == {"1k", "2k", "4k"}
+    for preset in MEDIA_SIZE_PRESETS[orientation]:
+        assert resolve_media_size(orientation, preset) == MEDIA_SIZE_PRESETS[
+            orientation
+        ][preset]
+
+
+def test_media_size_presets_do_not_expose_video_specific_ids():
+    from pixelle_video.models.size_contract import MEDIA_SIZE_PRESETS
+
+    all_media_presets = {
+        preset
+        for presets in MEDIA_SIZE_PRESETS.values()
+        for preset in presets
+    }
+
+    assert "landscape_hd" not in all_media_presets
+
+
+def test_valid_video_resolution_presets_are_unique():
+    from pixelle_video.models.size_contract import VALID_VIDEO_RESOLUTION_PRESETS
+
+    assert len(VALID_VIDEO_RESOLUTION_PRESETS) == len(
+        set(VALID_VIDEO_RESOLUTION_PRESETS)
+    )
+
+
+def test_video_size_aliases_are_orientation_aware():
+    assert resolve_canvas_size("portrait", "720x1280") == SizeSpec(720, 1280)
+    with pytest.raises(ValueError, match="unsupported video resolution preset"):
+        GenerationSizeContract.from_params(
+            {
+                "video_orientation": "landscape",
+                "video_resolution_preset": "720x1280",
+            }
+        )
+
+
 @pytest.mark.parametrize(
     ("orientation", "preset", "expected"),
     [

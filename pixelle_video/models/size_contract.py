@@ -64,9 +64,11 @@ VIDEO_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
 }
 
 VALID_VIDEO_RESOLUTION_PRESETS = tuple(
-    preset
-    for presets in VIDEO_SIZE_PRESETS.values()
-    for preset in presets
+    dict.fromkeys(
+        preset
+        for presets in VIDEO_SIZE_PRESETS.values()
+        for preset in presets
+    )
 )
 
 VALID_MEDIA_RESOLUTION_PRESETS = ("768", "1k", "2k", "4k")
@@ -84,11 +86,11 @@ DEFAULT_MEDIA_ORIENTATION = "square"
 DEFAULT_MEDIA_RESOLUTION_PRESET = "768"
 
 MEDIA_SIZE_PRESETS: dict[str, dict[str, SizeSpec]] = {
-    "landscape": VIDEO_SIZE_PRESETS["landscape"],
-    "portrait": VIDEO_SIZE_PRESETS["portrait"],
+    "landscape": LEGACY_VIDEO_SIZE_PRESETS["landscape"],
+    "portrait": LEGACY_VIDEO_SIZE_PRESETS["portrait"],
     "square": {
         DEFAULT_MEDIA_RESOLUTION_PRESET: DEFAULT_MEDIA_SIZE,
-        **VIDEO_SIZE_PRESETS["square"],
+        **LEGACY_VIDEO_SIZE_PRESETS["square"],
     },
 }
 
