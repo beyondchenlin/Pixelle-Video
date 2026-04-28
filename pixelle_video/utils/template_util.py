@@ -24,6 +24,8 @@ from pixelle_video.utils.os_util import get_resource_path, list_resource_dirs, l
 
 logger = logging.getLogger(__name__)
 
+TemplateOrientation = Literal["portrait", "landscape", "square"]
+
 
 def parse_template_size(template_path: str) -> Tuple[int, int]:
     """
@@ -83,6 +85,14 @@ def parse_template_size(template_path: str) -> Tuple[int, int]:
         )
 
 
+def _template_orientation_from_dimensions(width: int, height: int) -> TemplateOrientation:
+    if width > height:
+        return "landscape"
+    if height > width:
+        return "portrait"
+    return "square"
+
+
 class TemplateContract(BaseModel):
     """
     Template design-coordinate metadata parsed from the template path.
@@ -100,7 +110,7 @@ class TemplateContract(BaseModel):
         ...,
         description="Template design-coordinate height parsed from the template directory",
     )
-    template_orientation: Literal["portrait", "landscape", "square"] = Field(
+    template_orientation: TemplateOrientation = Field(
         ...,
         description="Template design-coordinate orientation; does not imply final output orientation",
     )
@@ -115,18 +125,12 @@ def parse_template_contract(template_path: str) -> TemplateContract:
     canvas size are defined elsewhere.
     """
     width, height = parse_template_size(template_path)
-    if width > height:
-        orientation = "landscape"
-    elif height > width:
-        orientation = "portrait"
-    else:
-        orientation = "square"
 
     return TemplateContract(
         template_path=template_path,
         template_design_width=width,
         template_design_height=height,
-        template_orientation=orientation,
+        template_orientation=_template_orientation_from_dimensions(width, height),
     )
 
 
@@ -542,13 +546,9 @@ def get_templates_grouped_by_size_and_type(
     return sorted_grouped
 
 
-def get_template_orientation(template_path: str) -> Literal["portrait", "landscape", "square"]:
+def get_template_orientation(template_path: str) -> TemplateOrientation:
     width, height = parse_template_size(template_path)
-    if width > height:
-        return "landscape"
-    if height > width:
-        return "portrait"
-    return "square"
+    return _template_orientation_from_dimensions(width, height)
 
 
 def resolve_compatible_template_for_orientation(
