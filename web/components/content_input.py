@@ -16,7 +16,9 @@ Content input components for web UI (left column)
 
 import streamlit as st
 
+from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
 from pixelle_video.models.storyboard_limits import (
+    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
     StoryboardGenerationLimits,
     current_storyboard_generation_limits,
 )
@@ -36,7 +38,6 @@ from web.utils.async_helpers import get_project_version
 
 
 SCRIPT_TARGET_WORDS_MIN = 50
-SCRIPT_TARGET_WORDS_MAX = 2000
 SCRIPT_TARGET_WORDS_DEFAULT = 200
 SCRIPT_TARGET_WORDS_STEP = 50
 
@@ -94,14 +95,24 @@ def build_storyboard_generation_payload(
     storyboard_mode: str,
     storyboard_count_mode: str,
     storyboard_scene_count: int | None,
+    storyboard_max_scene_count: int | None = None,
     storyboard_prompt_language: str = CHINESE_PROMPT_LANGUAGE,
 ) -> dict:
     """Normalize UI storyboard generation controls into the video request contract."""
+    resolved_storyboard_max_scene_count = storyboard_max_scene_count
+    if (
+        storyboard_mode in {"punctuation", "sentence"}
+        and resolved_storyboard_max_scene_count is None
+    ):
+        resolved_storyboard_max_scene_count = (
+            get_storyboard_generation_limits().default_deterministic_max_scene_count
+        )
     return StoryboardControlsContract.from_mapping(
         {
             "storyboard_mode": storyboard_mode,
             "storyboard_count_mode": storyboard_count_mode,
             "storyboard_scene_count": storyboard_scene_count,
+            "storyboard_max_scene_count": resolved_storyboard_max_scene_count,
             "storyboard_prompt_language": storyboard_prompt_language,
         },
         default_prompt_language=CHINESE_PROMPT_LANGUAGE,
@@ -153,6 +164,7 @@ def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict
 
         storyboard_count_mode = "auto"
         storyboard_scene_count = None
+        storyboard_max_scene_count = None
         if storyboard_mode == "smart":
             storyboard_limits = get_storyboard_generation_limits()
             storyboard_count_mode = st.radio(
@@ -180,6 +192,15 @@ def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict
                 )
         else:
             st.caption(tr("video.frames_fixed_mode_hint"))
+            storyboard_limits = get_storyboard_generation_limits()
+            storyboard_max_scene_count = st.slider(
+                tr("storyboard.max_scene_count"),
+                min_value=DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
+                max_value=storyboard_limits.deterministic_max_scene_count_limit,
+                value=storyboard_limits.default_deterministic_max_scene_count,
+                key=f"{key_prefix}_storyboard_max_scene_count",
+                help=tr("storyboard.max_scene_count_help"),
+            )
 
         selected_template_type_for_storyboard = st.session_state.get("template_type_selector")
         storyboard_prompt_language = st.radio(
@@ -208,6 +229,7 @@ def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict
                 storyboard_mode=storyboard_mode,
                 storyboard_count_mode=storyboard_count_mode,
                 storyboard_scene_count=storyboard_scene_count,
+                storyboard_max_scene_count=storyboard_max_scene_count,
                 storyboard_prompt_language=storyboard_prompt_language,
             ),
             **advanced_storyboard_payload,
