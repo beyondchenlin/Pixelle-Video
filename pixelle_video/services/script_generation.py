@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pixelle_video.models.script_generation import ScriptGenerationResponse
+from pixelle_video.models.script_generation_limits import (
+    SCRIPT_TARGET_WORDS_MAX,
+    script_generation_max_tokens,
+)
 from pixelle_video.models.storyboard_plan import ScriptLengthMode
 from pixelle_video.prompts.script_generation import build_script_generation_prompt
 
@@ -54,7 +58,7 @@ class ScriptGenerationService:
             prompt=prompt,
             response_type=ScriptGenerationResponse,
             temperature=0.7,
-            max_tokens=self._max_tokens(target_words),
+            max_tokens=script_generation_max_tokens(target_words),
         )
         return response.source_text
 
@@ -65,8 +69,15 @@ class ScriptGenerationService:
         script_target_words: int | None,
     ) -> int | None:
         if length_mode == ScriptLengthMode.CUSTOM:
-            if type(script_target_words) is not int or script_target_words < 1:
-                raise ValueError("script_target_words must be a positive integer")
+            if (
+                type(script_target_words) is not int
+                or script_target_words < 1
+                or script_target_words > SCRIPT_TARGET_WORDS_MAX
+            ):
+                raise ValueError(
+                    "script_target_words must be a positive integer "
+                    f"no greater than {SCRIPT_TARGET_WORDS_MAX}"
+                )
             return script_target_words
         if script_target_words is not None:
             raise ValueError("script_target_words is only valid with custom script length mode")
@@ -81,12 +92,6 @@ class ScriptGenerationService:
         if length_mode == ScriptLengthMode.AUTO:
             return "Use a natural length for the topic."
         return f"Write about {target_words} words."
-
-    @staticmethod
-    def _max_tokens(target_words: int | None) -> int:
-        if target_words is None:
-            return 2000
-        return max(1200, int(target_words * 4))
 
 
 __all__ = ["ScriptGenerationService"]

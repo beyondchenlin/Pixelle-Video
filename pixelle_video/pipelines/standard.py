@@ -252,6 +252,7 @@ class StandardPipeline(LinearVideoPipeline):
             storyboard_mode=storyboard_contract.storyboard_mode,
             storyboard_count_mode=storyboard_contract.storyboard_count_mode,
             storyboard_scene_count=storyboard_contract.storyboard_scene_count,
+            storyboard_max_scene_count=storyboard_contract.storyboard_max_scene_count,
             prompt_language=storyboard_contract.storyboard_prompt_language,
         )
         ctx.source_text = ctx.storyboard_plan.source_text
