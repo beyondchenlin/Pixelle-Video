@@ -23,7 +23,12 @@ from api.schemas.storyboard_contract import (
     StoryboardPromptLanguage,
 )
 from api.schemas.text_rendering import TextRenderingRequest
-from pixelle_video.models.storyboard_limits import current_storyboard_generation_limits
+from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
+from pixelle_video.models.storyboard_limits import (
+    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
+    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
+    current_storyboard_generation_limits,
+)
 from pixelle_video.models.storyboard_planning import (
     ConsistencyStrength,
     ContentMode,
@@ -93,6 +98,14 @@ class VideoGenerateRequest(BaseModel):
         ge=1,
         description="Manual storyboard scene count. Only valid with smart + manual.",
     )
+    storyboard_max_scene_count: Optional[int] = Field(
+        None,
+        ge=DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
+        le=DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
+        description=(
+            "Maximum storyboard frame count for punctuation or sentence storyboard modes."
+        ),
+    )
     script_length_mode: Literal["auto", "short", "medium", "long", "custom"] = Field(
         "auto",
         description="Complete script length mode for generate mode",
@@ -100,6 +113,7 @@ class VideoGenerateRequest(BaseModel):
     script_target_words: Optional[int] = Field(
         None,
         ge=1,
+        le=SCRIPT_TARGET_WORDS_MAX,
         description="Custom target word count. Only valid with generate + custom script length mode.",
     )
     
@@ -254,11 +268,26 @@ class VideoGenerateRequest(BaseModel):
                     )
             elif self.storyboard_scene_count is not None:
                 raise ValueError("storyboard_scene_count is valid only with smart manual mode")
+            if self.storyboard_max_scene_count is not None:
+                raise ValueError(
+                    "storyboard_max_scene_count is only valid for deterministic storyboard modes"
+                )
         else:
             if self.storyboard_count_mode != "auto":
                 raise ValueError("deterministic storyboard modes require auto count mode")
             if self.storyboard_scene_count is not None:
                 raise ValueError("storyboard_scene_count is not valid for deterministic storyboard modes")
+            limits = current_storyboard_generation_limits()
+            if self.storyboard_max_scene_count is None:
+                self.storyboard_max_scene_count = (
+                    limits.default_deterministic_max_scene_count
+                )
+            elif self.storyboard_max_scene_count > limits.deterministic_max_scene_count_limit:
+                raise ValueError(
+                    "storyboard_max_scene_count must be between "
+                    f"{DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN} and "
+                    f"{limits.deterministic_max_scene_count_limit}"
+                )
 
         if self.mode == "fixed":
             if self.script_length_mode != "auto":

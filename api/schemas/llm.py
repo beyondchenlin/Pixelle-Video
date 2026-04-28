@@ -18,6 +18,8 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from pixelle_video.models.llm_limits import LLM_MAX_OUTPUT_TOKENS
+
 
 class LLMChatRequest(BaseModel):
     """LLM chat request"""
@@ -33,7 +35,12 @@ class LLMChatRequest(BaseModel):
 
     prompt: str = Field(..., description="User prompt")
     temperature: float = Field(0.7, ge=0.0, le=2.0, description="Temperature (0.0-2.0)")
-    max_tokens: int = Field(2000, ge=1, le=32000, description="Maximum tokens")
+    max_tokens: int = Field(
+        2000,
+        ge=1,
+        le=LLM_MAX_OUTPUT_TOKENS,
+        description="Maximum tokens",
+    )
 
 
 class LLMChatResponse(BaseModel):
