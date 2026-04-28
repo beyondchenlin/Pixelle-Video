@@ -39,8 +39,9 @@ async def test_script_generation_returns_complete_source_text_from_topic():
 
 
 def test_script_generation_prompt_loads_plain_narration_strategy():
-    from pixelle_video.prompts.script_generation import build_script_generation_prompt
     import json
+
+    from pixelle_video.prompts.script_generation import build_script_generation_prompt
 
     prompt = build_script_generation_prompt(
         topic="强者思维",
@@ -51,7 +52,8 @@ def test_script_generation_prompt_loads_plain_narration_strategy():
     assert payload["task"] == "generate_complete_video_script_source_text"
     assert "短视频编导" in payload["script_generation_strategy"]
     assert "第一句话必须是强 Hook" in payload["script_generation_strategy"]
-    assert "然后只生成一段最终可直接用于分镜和口播的完整文案。" in payload["script_generation_strategy"]
+    assert "然后只输出一段最终可直接用于短视频口播和分镜的完整文案。" in payload["script_generation_strategy"]
+    assert "id: default" not in payload["script_generation_strategy"]
     assert "【目标用户】" not in payload["script_generation_strategy"]
     assert "【推荐标题】" not in payload["script_generation_strategy"]
     assert "【完整口播文案】" not in payload["script_generation_strategy"]
