@@ -188,7 +188,7 @@ def test_build_single_generation_request_uses_size_contract_not_template_session
             "media_width": 768,
             "media_height": 768,
             "video_orientation": "landscape",
-            "video_resolution_preset": "1k",
+            "video_resolution_preset": "landscape_hd",
             "media_orientation": "square",
             "media_resolution_preset": "768",
             "sync_media_size_to_canvas": False,
@@ -202,7 +202,7 @@ def test_build_single_generation_request_uses_size_contract_not_template_session
     assert request["media_width"] == 768
     assert request["media_height"] == 768
     assert request["video_orientation"] == "landscape"
-    assert request["video_resolution_preset"] == "1k"
+    assert request["video_resolution_preset"] == "landscape_hd"
     assert request["media_orientation"] == "square"
     assert request["media_resolution_preset"] == "768"
     assert request["sync_media_size_to_canvas"] is False
@@ -223,12 +223,16 @@ def test_build_single_generation_request_uses_full_hd_standard_preset():
             "sync_media_size_to_canvas": False,
         },
         progress_callback=_progress,
-        session_state={"template_media_width": 1920, "template_media_height": 1080},
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
     )
 
     assert (request["canvas_width"], request["canvas_height"]) == (1920, 1080)
     assert (request["media_width"], request["media_height"]) == (768, 768)
+    assert request["video_orientation"] == "landscape"
     assert request["video_resolution_preset"] == "landscape_full_hd"
+    assert request["media_orientation"] == "square"
+    assert request["media_resolution_preset"] == "768"
+    assert request["sync_media_size_to_canvas"] is False
 
 
 def test_build_single_generation_request_syncs_media_size_to_canvas():
@@ -240,7 +244,7 @@ def test_build_single_generation_request_syncs_media_size_to_canvas():
             "text": "demo",
             "mode": "generate",
             "video_orientation": "portrait",
-            "video_resolution_preset": "2k",
+            "video_resolution_preset": "portrait_full_hd",
             "media_orientation": "landscape",
             "media_resolution_preset": "1k",
             "sync_media_size_to_canvas": True,
@@ -251,6 +255,7 @@ def test_build_single_generation_request_syncs_media_size_to_canvas():
 
     assert (request["canvas_width"], request["canvas_height"]) == (1080, 1920)
     assert (request["media_width"], request["media_height"]) == (1080, 1920)
+    assert request["video_resolution_preset"] == "portrait_full_hd"
     assert request["media_orientation"] == "landscape"
     assert request["media_resolution_preset"] == "1k"
 
@@ -578,7 +583,7 @@ def test_build_batch_shared_config_uses_size_contract_defaults_and_overrides():
         {
             "title_prefix": "Series",
             "video_orientation": "square",
-            "video_resolution_preset": "2k",
+            "video_resolution_preset": "square_standard",
             "media_orientation": "portrait",
             "media_resolution_preset": "4k",
             "sync_media_size_to_canvas": False,
@@ -586,15 +591,15 @@ def test_build_batch_shared_config_uses_size_contract_defaults_and_overrides():
     )
 
     assert (shared_config["canvas_width"], shared_config["canvas_height"]) == (
-        2048,
-        2048,
+        1080,
+        1080,
     )
     assert (shared_config["media_width"], shared_config["media_height"]) == (
         2160,
         3840,
     )
     assert shared_config["video_orientation"] == "square"
-    assert shared_config["video_resolution_preset"] == "2k"
+    assert shared_config["video_resolution_preset"] == "square_standard"
     assert shared_config["media_orientation"] == "portrait"
     assert shared_config["media_resolution_preset"] == "4k"
     assert shared_config["sync_media_size_to_canvas"] is False
@@ -615,7 +620,12 @@ def test_build_batch_shared_config_uses_standard_video_preset():
         1080,
         1920,
     )
+    assert (shared_config["media_width"], shared_config["media_height"]) == (768, 768)
+    assert shared_config["video_orientation"] == "portrait"
     assert shared_config["video_resolution_preset"] == "portrait_full_hd"
+    assert shared_config["media_orientation"] == "square"
+    assert shared_config["media_resolution_preset"] == "768"
+    assert shared_config["sync_media_size_to_canvas"] is False
 
 
 def test_build_batch_shared_config_uses_storyboard_generation_contract_fields():
