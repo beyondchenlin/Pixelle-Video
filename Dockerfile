@@ -64,8 +64,21 @@ COPY resources ./resources
 COPY docs/images ./docs/images
 COPY docs/FAQ*.md ./docs/
 
-# Create output, data and temp directories
-RUN mkdir -p /app/output /app/data /app/temp
+ENV PIXELLE_VIDEO_ROOT="/app" \
+    PIXELLE_VIDEO_RUNTIME_ROOT="/app/_runtime" \
+    TMP="/app/_runtime/tmp" \
+    TEMP="/app/_runtime/tmp" \
+    TMPDIR="/app/_runtime/tmp" \
+    UV_CACHE_DIR="/app/_runtime/uv-cache" \
+    RUFF_CACHE_DIR="/app/_runtime/ruff-cache"
+
+# Create persistent output/data directories and runtime workspace.
+RUN mkdir -p \
+    /app/output \
+    /app/data \
+    "$TMP" \
+    "$UV_CACHE_DIR" \
+    "$RUFF_CACHE_DIR"
 
 # Expose ports
 # 8000: API service
@@ -74,4 +87,3 @@ EXPOSE 8000 8501
 
 # Default command (can be overridden in docker-compose)
 CMD ["uv", "run", "python", "api/app.py"]
-

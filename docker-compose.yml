@@ -7,6 +7,22 @@
 # Example for international environment (default):
 #   docker-compose up -d
 
+x-pixelle-runtime-env: &pixelle-runtime-env
+  TZ: Asia/Shanghai
+  PIXELLE_VIDEO_ROOT: /app
+  PIXELLE_VIDEO_RUNTIME_ROOT: /app/_runtime
+  TMP: /app/_runtime/tmp
+  TEMP: /app/_runtime/tmp
+  TMPDIR: /app/_runtime/tmp
+  UV_CACHE_DIR: /app/_runtime/uv-cache
+  RUFF_CACHE_DIR: /app/_runtime/ruff-cache
+
+x-pixelle-app-volumes: &pixelle-app-volumes
+  - ./config.yaml:/app/config.yaml
+  - ./data:/app/data
+  - ./output:/app/output
+  - ./_runtime:/app/_runtime
+
 services:
   # Init Service - Ensures config.yaml exists before other services start
   # This fixes the Docker issue where mounting a non-existent file creates a directory
@@ -80,23 +96,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    volumes:
-      - ./config.yaml:/app/config.yaml
-      - ./data:/app/data
-      - ./output:/app/output
+    volumes: *pixelle-app-volumes
     environment:
-      - TZ=Asia/Shanghai
-      - PIXELLE_TASK_BACKEND=postgres
-      - PIXELLE_POSTGRES_DSN=postgresql+asyncpg://pixelle:pixelle@postgres:5432/pixelle
-      - PIXELLE_REDIS_URL=redis://redis:6379/0
-      - PIXELLE_REQUIRE_DISTRIBUTED_COORDINATION=true
-      - PIXELLE_GENERATION_LEASE_TTL_SECONDS=120
-      - PIXELLE_GENERATION_HEARTBEAT_SECONDS=30
-      - PIXELLE_GENERATION_SUBMIT_LOCK_WAIT_SECONDS=2
-      - PIXELLE_GENERATION_SUBMIT_LOCK_POLL_SECONDS=0.05
-      - PIXELLE_ARTIFACT_BACKEND=local
-      - PIXELLE_ARTIFACT_BASE_PATH=output
-      - PIXELLE_ARTIFACT_BASE_URL=/api/files
+      <<: *pixelle-runtime-env
+      PIXELLE_TASK_BACKEND: postgres
+      PIXELLE_POSTGRES_DSN: postgresql+asyncpg://pixelle:pixelle@postgres:5432/pixelle
+      PIXELLE_REDIS_URL: redis://redis:6379/0
+      PIXELLE_REQUIRE_DISTRIBUTED_COORDINATION: "true"
+      PIXELLE_GENERATION_LEASE_TTL_SECONDS: "120"
+      PIXELLE_GENERATION_HEARTBEAT_SECONDS: "30"
+      PIXELLE_GENERATION_SUBMIT_LOCK_WAIT_SECONDS: "2"
+      PIXELLE_GENERATION_SUBMIT_LOCK_POLL_SECONDS: "0.05"
+      PIXELLE_ARTIFACT_BACKEND: local
+      PIXELLE_ARTIFACT_BASE_PATH: output
+      PIXELLE_ARTIFACT_BASE_URL: /api/files
     restart: "no"
     networks:
       - pixelle-network
@@ -119,30 +132,21 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
-    volumes:
-      # Mount config file (read-write to allow saving from Web UI)
-      # Note: init service auto-creates config.yaml from config.example.yaml if not exists
-      - ./config.yaml:/app/config.yaml
-      # Mount data directories for persistence
-      # data/ contains: users/, bgm/, templates/, workflows/ (custom resources)
-      - ./data:/app/data
-      - ./output:/app/output
-      # Note: Default resources (bgm/, templates/, workflows/) are baked into the image
-      # Custom resources in data/* will override defaults
+    volumes: *pixelle-app-volumes
     environment:
-      - TZ=Asia/Shanghai
-      - PIXELLE_TASK_BACKEND=postgres
-      - PIXELLE_POSTGRES_DSN=postgresql+asyncpg://pixelle:pixelle@postgres:5432/pixelle
-      - PIXELLE_REDIS_URL=redis://redis:6379/0
-      - PIXELLE_REQUIRE_DISTRIBUTED_COORDINATION=true
-      - PIXELLE_GENERATION_LEASE_TTL_SECONDS=120
-      - PIXELLE_GENERATION_HEARTBEAT_SECONDS=30
-      - PIXELLE_GENERATION_SUBMIT_LOCK_WAIT_SECONDS=2
-      - PIXELLE_GENERATION_SUBMIT_LOCK_POLL_SECONDS=0.05
-      - PIXELLE_EXECUTION_MODE=worker
-      - PIXELLE_ARTIFACT_BACKEND=local
-      - PIXELLE_ARTIFACT_BASE_PATH=output
-      - PIXELLE_ARTIFACT_BASE_URL=/api/files
+      <<: *pixelle-runtime-env
+      PIXELLE_TASK_BACKEND: postgres
+      PIXELLE_POSTGRES_DSN: postgresql+asyncpg://pixelle:pixelle@postgres:5432/pixelle
+      PIXELLE_REDIS_URL: redis://redis:6379/0
+      PIXELLE_REQUIRE_DISTRIBUTED_COORDINATION: "true"
+      PIXELLE_GENERATION_LEASE_TTL_SECONDS: "120"
+      PIXELLE_GENERATION_HEARTBEAT_SECONDS: "30"
+      PIXELLE_GENERATION_SUBMIT_LOCK_WAIT_SECONDS: "2"
+      PIXELLE_GENERATION_SUBMIT_LOCK_POLL_SECONDS: "0.05"
+      PIXELLE_EXECUTION_MODE: worker
+      PIXELLE_ARTIFACT_BACKEND: local
+      PIXELLE_ARTIFACT_BASE_PATH: output
+      PIXELLE_ARTIFACT_BASE_URL: /api/files
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -174,25 +178,22 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-    volumes:
-      - ./config.yaml:/app/config.yaml
-      - ./data:/app/data
-      - ./output:/app/output
+    volumes: *pixelle-app-volumes
     environment:
-      - TZ=Asia/Shanghai
-      - PIXELLE_TASK_BACKEND=postgres
-      - PIXELLE_POSTGRES_DSN=postgresql+asyncpg://pixelle:pixelle@postgres:5432/pixelle
-      - PIXELLE_REDIS_URL=redis://redis:6379/0
-      - PIXELLE_REQUIRE_DISTRIBUTED_COORDINATION=true
-      - PIXELLE_GENERATION_LEASE_TTL_SECONDS=120
-      - PIXELLE_GENERATION_HEARTBEAT_SECONDS=30
-      - PIXELLE_GENERATION_SUBMIT_LOCK_WAIT_SECONDS=2
-      - PIXELLE_GENERATION_SUBMIT_LOCK_POLL_SECONDS=0.05
-      - PIXELLE_EXECUTION_MODE=worker
-      - PIXELLE_ARTIFACT_BACKEND=local
-      - PIXELLE_ARTIFACT_BASE_PATH=output
-      - PIXELLE_ARTIFACT_BASE_URL=/api/files
-      - PIXELLE_WORKER_POLL_INTERVAL_SECONDS=2
+      <<: *pixelle-runtime-env
+      PIXELLE_TASK_BACKEND: postgres
+      PIXELLE_POSTGRES_DSN: postgresql+asyncpg://pixelle:pixelle@postgres:5432/pixelle
+      PIXELLE_REDIS_URL: redis://redis:6379/0
+      PIXELLE_REQUIRE_DISTRIBUTED_COORDINATION: "true"
+      PIXELLE_GENERATION_LEASE_TTL_SECONDS: "120"
+      PIXELLE_GENERATION_HEARTBEAT_SECONDS: "30"
+      PIXELLE_GENERATION_SUBMIT_LOCK_WAIT_SECONDS: "2"
+      PIXELLE_GENERATION_SUBMIT_LOCK_POLL_SECONDS: "0.05"
+      PIXELLE_EXECUTION_MODE: worker
+      PIXELLE_ARTIFACT_BACKEND: local
+      PIXELLE_ARTIFACT_BASE_PATH: output
+      PIXELLE_ARTIFACT_BASE_URL: /api/files
+      PIXELLE_WORKER_POLL_INTERVAL_SECONDS: "2"
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -220,33 +221,24 @@ services:
         condition: service_healthy
     ports:
       - "8501:8501"
-    volumes:
-      # Mount config file (read-write to allow saving from Web UI)
-      # Note: init service auto-creates config.yaml from config.example.yaml if not exists
-      - ./config.yaml:/app/config.yaml
-      # Mount data directories for persistence
-      # data/ contains: users/, bgm/, templates/, workflows/ (custom resources)
-      - ./data:/app/data
-      - ./output:/app/output
-      # Note: Default resources (bgm/, templates/, workflows/) are baked into the image
-      # Custom resources in data/* will override defaults
+    volumes: *pixelle-app-volumes
     environment:
-      - TZ=Asia/Shanghai
-      - STREAMLIT_SERVER_PORT=8501
-      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
-      - PIXELLE_TASK_BACKEND=postgres
-      - PIXELLE_POSTGRES_DSN=postgresql+asyncpg://pixelle:pixelle@postgres:5432/pixelle
-      - PIXELLE_REDIS_URL=redis://redis:6379/0
-      - PIXELLE_REQUIRE_DISTRIBUTED_COORDINATION=true
-      - PIXELLE_GENERATION_LEASE_TTL_SECONDS=120
-      - PIXELLE_GENERATION_HEARTBEAT_SECONDS=30
-      - PIXELLE_GENERATION_SUBMIT_LOCK_WAIT_SECONDS=2
-      - PIXELLE_GENERATION_SUBMIT_LOCK_POLL_SECONDS=0.05
-      - PIXELLE_EXECUTION_MODE=worker
-      - PIXELLE_ARTIFACT_BACKEND=local
-      - PIXELLE_ARTIFACT_BASE_PATH=output
-      - PIXELLE_ARTIFACT_BASE_URL=/api/files
+      <<: *pixelle-runtime-env
+      STREAMLIT_SERVER_PORT: "8501"
+      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+      PIXELLE_TASK_BACKEND: postgres
+      PIXELLE_POSTGRES_DSN: postgresql+asyncpg://pixelle:pixelle@postgres:5432/pixelle
+      PIXELLE_REDIS_URL: redis://redis:6379/0
+      PIXELLE_REQUIRE_DISTRIBUTED_COORDINATION: "true"
+      PIXELLE_GENERATION_LEASE_TTL_SECONDS: "120"
+      PIXELLE_GENERATION_HEARTBEAT_SECONDS: "30"
+      PIXELLE_GENERATION_SUBMIT_LOCK_WAIT_SECONDS: "2"
+      PIXELLE_GENERATION_SUBMIT_LOCK_POLL_SECONDS: "0.05"
+      PIXELLE_EXECUTION_MODE: worker
+      PIXELLE_ARTIFACT_BACKEND: local
+      PIXELLE_ARTIFACT_BASE_PATH: output
+      PIXELLE_ARTIFACT_BASE_URL: /api/files
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]

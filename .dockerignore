@@ -48,6 +48,10 @@ tests/
 output/*
 !output/.gitkeep
 temp/
+_runtime/
+.pytest_cache/
+.ruff_cache/
+.uv-cache/
 *.tmp
 
 # User data (will be mounted)
@@ -68,4 +72,3 @@ config.example.yaml
 *.bak
 restart_web.sh
 start_web.sh
-

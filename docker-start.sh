@@ -34,6 +34,8 @@ if [ ! -f config.yaml ]; then
     fi
 fi
 
+mkdir -p _runtime
+
 # Check if docker-compose is available
 if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
     echo "❌ Error: docker-compose not found!"
@@ -81,4 +83,3 @@ echo "  Stop:         $DOCKER_COMPOSE down"
 echo "  Restart:      $DOCKER_COMPOSE restart"
 echo "  Rebuild:      $DOCKER_COMPOSE up -d --build"
 echo ""
-
