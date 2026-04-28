@@ -458,6 +458,10 @@ class ComfyUIConfig(BaseModel):
         default="force",
         description="ComfyUI cleanup mode before video generation",
     )
+    post_generation_cleanup_mode: Literal["idle", "disabled"] = Field(
+        default="idle",
+        description="ComfyUI memory release mode after a local video generation task",
+    )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")
     runninghub_concurrent_limit: int = Field(default=1, ge=1, le=10, description="RunningHub concurrent execution limit (1-10)")

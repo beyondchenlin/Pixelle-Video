@@ -18,13 +18,14 @@ It introduces `PipelineContext` for state management and `LinearVideoPipeline` f
 process orchestration.
 """
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from loguru import logger
 
-from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
+from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, VideoGenerationResult
 from pixelle_video.models.storyboard_plan import StoryboardPlan
@@ -32,6 +33,11 @@ from pixelle_video.models.style_resolution import ResolvedStyleSpec
 from pixelle_video.pipelines.base import BasePipeline
 from pixelle_video.services.timing_planner import TimingPlan
 from pixelle_video.utils.logging_util import bind_log_context
+
+
+@asynccontextmanager
+async def _noop_async_context():
+    yield
 
 
 @dataclass
@@ -120,26 +126,29 @@ class LinearVideoPipeline(BasePipeline):
             session_id=ctx.session_id,
             api_task_id=ctx.api_task_id,
         ):
+            task_scope = getattr(self.core, "local_comfyui_task_scope", None)
+            scope_manager = task_scope() if callable(task_scope) else _noop_async_context()
             try:
-                # === Phase 1: Preparation ===
-                await self.setup_environment(ctx)
+                async with scope_manager:
+                    # === Phase 1: Preparation ===
+                    await self.setup_environment(ctx)
 
-                # === Phase 2: Content Creation ===
-                await self.generate_content(ctx)
-                await self.determine_title(ctx)
+                    # === Phase 2: Content Creation ===
+                    await self.generate_content(ctx)
+                    await self.determine_title(ctx)
 
-                # === Phase 3: Visual Planning ===
-                await self.plan_visuals(ctx)
-                await self.initialize_storyboard(ctx)
+                    # === Phase 3: Visual Planning ===
+                    await self.plan_visuals(ctx)
+                    await self.initialize_storyboard(ctx)
 
-                # === Phase 4: Asset Production ===
-                await self.produce_assets(ctx)
+                    # === Phase 4: Asset Production ===
+                    await self.produce_assets(ctx)
 
-                # === Phase 5: Post Production ===
-                await self.post_production(ctx)
+                    # === Phase 5: Post Production ===
+                    await self.post_production(ctx)
 
-                # === Phase 6: Finalization ===
-                return await self.finalize(ctx)
+                    # === Phase 6: Finalization ===
+                    return await self.finalize(ctx)
 
             except Exception as e:
                 persist_failed_task_data = getattr(self, "_persist_failed_task_data", None)

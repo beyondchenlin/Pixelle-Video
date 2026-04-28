@@ -83,6 +83,12 @@ def test_comfyui_pre_generation_cleanup_defaults_to_force():
     assert config.comfyui.pre_generation_cleanup_mode == "force"
 
 
+def test_comfyui_post_generation_cleanup_defaults_to_idle():
+    config = PixelleVideoConfig()
+
+    assert config.comfyui.post_generation_cleanup_mode == "idle"
+
+
 def test_comfyui_config_exposes_pre_generation_cleanup_mode(monkeypatch):
     monkeypatch.setattr(
         config_manager,
@@ -96,3 +102,18 @@ def test_comfyui_config_exposes_pre_generation_cleanup_mode(monkeypatch):
     )
 
     assert config_manager.get_comfyui_config()["pre_generation_cleanup_mode"] == "conservative"
+
+
+def test_comfyui_config_exposes_post_generation_cleanup_mode(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                post_generation_cleanup_mode="disabled",
+            )
+        ),
+    )
+
+    assert config_manager.get_comfyui_config()["post_generation_cleanup_mode"] == "disabled"

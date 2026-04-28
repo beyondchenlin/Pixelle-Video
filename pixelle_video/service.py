@@ -63,6 +63,12 @@ class _LocalComfyUIWorkflowSession:
         self.prepared = False
 
 
+class _LocalComfyUITaskScope:
+    def __init__(self) -> None:
+        self.used_local_comfyui = False
+        self.registered_active_task = False
+
+
 class PixelleVideoCore:
     """
     Pixelle-Video Core - Service Layer
@@ -131,6 +137,11 @@ class PixelleVideoCore:
         self._local_comfyui_workflow_session: ContextVar[_LocalComfyUIWorkflowSession | None] = (
             ContextVar("local_comfyui_workflow_session", default=None)
         )
+        self._local_comfyui_task_scope: ContextVar[_LocalComfyUITaskScope | None] = (
+            ContextVar("local_comfyui_task_scope", default=None)
+        )
+        self._local_comfyui_task_count_lock = asyncio.Lock()
+        self._local_comfyui_active_task_count = 0
         
         # Default pipeline callable (for backward compatibility)
         self.generate_video = None
@@ -333,6 +344,46 @@ class PixelleVideoCore:
         except Exception as e:
             logger.warning(f"ComfyUI post-workflow memory release failed, continuing: {e}")
 
+    async def release_comfyui_after_local_task(self) -> None:
+        """Release self-hosted ComfyUI memory once no local video task is active."""
+        self.config = config_manager.config.to_dict()
+        comfyui_config = self.config.get("comfyui", {})
+        base_url = comfyui_config.get("comfyui_url")
+        if not base_url:
+            return
+
+        mode = (comfyui_config.get("post_generation_cleanup_mode") or "idle").lower()
+        if mode == "disabled":
+            logger.info("Skipping ComfyUI post-generation memory release by configuration")
+            return
+        if mode != "idle":
+            logger.warning(f"Unsupported ComfyUI post-generation cleanup mode: {mode}")
+            return
+
+        client = ComfyUIMaintenanceClient(
+            base_url,
+            api_key=comfyui_config.get("comfyui_api_key"),
+        )
+        try:
+            async with self._local_comfyui_execution_lock:
+                await client.free_memory_when_idle()
+        except Exception as e:
+            logger.warning(f"ComfyUI post-task memory release failed, continuing: {e}")
+
+    async def _register_local_comfyui_task_use(self) -> None:
+        scope = self._local_comfyui_task_scope.get()
+        if scope is None:
+            return
+
+        scope.used_local_comfyui = True
+        if scope.registered_active_task:
+            return
+
+        async with self._local_comfyui_task_count_lock:
+            if not scope.registered_active_task:
+                self._local_comfyui_active_task_count += 1
+                scope.registered_active_task = True
+
     async def _execute_local_comfykit_workflow(self, workflow_input, workflow_params: dict):
         kit = await self._get_or_create_comfykit()
         return await kit.execute(workflow_input, workflow_params)
@@ -349,6 +400,7 @@ class PixelleVideoCore:
                 try:
                     await self.prepare_comfyui_for_local_workflow()
                     session.prepared = True
+                    await self._register_local_comfyui_task_use()
                 except Exception:
                     session.lock_acquired = False
                     self._local_comfyui_execution_lock.release()
@@ -371,12 +423,40 @@ class PixelleVideoCore:
             yield
         finally:
             try:
-                if session.prepared:
+                if session.prepared and self._local_comfyui_task_scope.get() is None:
                     await self.release_comfyui_after_local_workflow()
             finally:
                 if session.lock_acquired:
                     self._local_comfyui_execution_lock.release()
                 self._local_comfyui_workflow_session.reset(token)
+
+    @asynccontextmanager
+    async def local_comfyui_task_scope(self):
+        """Defer local ComfyUI memory release until a full video task is finished."""
+        existing_scope = self._local_comfyui_task_scope.get()
+        if existing_scope is not None:
+            yield
+            return
+
+        scope = _LocalComfyUITaskScope()
+        token = self._local_comfyui_task_scope.set(scope)
+        try:
+            yield
+        finally:
+            should_release = False
+            try:
+                if scope.registered_active_task:
+                    async with self._local_comfyui_task_count_lock:
+                        self._local_comfyui_active_task_count = max(
+                            self._local_comfyui_active_task_count - 1,
+                            0,
+                        )
+                        should_release = self._local_comfyui_active_task_count == 0
+            finally:
+                self._local_comfyui_task_scope.reset(token)
+
+            if scope.used_local_comfyui and should_release:
+                await self.release_comfyui_after_local_task()
 
     async def execute_comfykit_workflow(
         self,
@@ -398,10 +478,12 @@ class PixelleVideoCore:
 
         async with self._local_comfyui_execution_lock:
             await self.prepare_comfyui_for_local_workflow()
+            await self._register_local_comfyui_task_use()
             try:
                 return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
             finally:
-                await self.release_comfyui_after_local_workflow()
+                if self._local_comfyui_task_scope.get() is None:
+                    await self.release_comfyui_after_local_workflow()
 
     async def execute_comfykit_workflow_file(
         self,

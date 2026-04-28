@@ -56,6 +56,21 @@ class ComfyUIMaintenanceClient:
     async def free_memory(self) -> None:
         await self._post("/free", {"unload_models": True, "free_memory": True})
 
+    async def free_memory_when_idle(self) -> bool:
+        queue = await self._get_queue()
+        running = queue.get("queue_running") or []
+        pending = queue.get("queue_pending") or []
+        if running or pending:
+            logger.info(
+                "Skipping ComfyUI memory release because queue is busy "
+                f"(running={len(running)}, pending={len(pending)})"
+            )
+            return False
+
+        logger.info("Releasing ComfyUI memory after idle workflow completion")
+        await self.free_memory()
+        return True
+
     async def _get_queue(self) -> dict:
         response = await self._request("GET", "/queue")
         data = response.json()

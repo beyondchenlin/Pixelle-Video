@@ -449,6 +449,106 @@ async def test_local_comfyui_workflow_session_keeps_lifecycle_open_across_batch(
 
 
 @pytest.mark.asyncio
+async def test_local_comfyui_task_scope_defers_release_until_task_exit():
+    events = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(("execute", workflow_input))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append(("prepare",))
+
+    async def _release():
+        events.append(("release",))
+
+    async def _get_kit():
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_task = _release
+    core._get_or_create_comfykit = _get_kit
+
+    async with core.local_comfyui_task_scope():
+        async with core.local_comfyui_workflow_session():
+            await core.execute_comfykit_workflow(
+                "first.json",
+                {},
+                workflow_source="selfhost",
+            )
+
+        assert events == [
+            ("prepare",),
+            ("execute", "first.json"),
+        ]
+
+    assert events == [
+        ("prepare",),
+        ("execute", "first.json"),
+        ("release",),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_local_comfyui_task_scope_releases_only_after_last_active_task_exits():
+    events = []
+    first_ready_to_exit = asyncio.Event()
+    second_released_scope = asyncio.Event()
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(("execute", workflow_input))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append(("prepare",))
+
+    async def _release():
+        events.append(("release",))
+
+    async def _get_kit():
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_task = _release
+    core._get_or_create_comfykit = _get_kit
+
+    async def _run_task(name: str, wait_for_second: bool = False):
+        async with core.local_comfyui_task_scope():
+            async with core.local_comfyui_workflow_session():
+                await core.execute_comfykit_workflow(
+                    f"{name}.json",
+                    {},
+                    workflow_source="selfhost",
+                )
+            if wait_for_second:
+                first_ready_to_exit.set()
+                await second_released_scope.wait()
+
+    first = asyncio.create_task(_run_task("first", wait_for_second=True))
+    await first_ready_to_exit.wait()
+    await _run_task("second")
+
+    assert ("release",) not in events
+
+    second_released_scope.set()
+    await first
+
+    assert events == [
+        ("prepare",),
+        ("execute", "first.json"),
+        ("prepare",),
+        ("execute", "second.json"),
+        ("release",),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_local_comfyui_workflow_session_serializes_concurrent_workflows():
     events = []
     first_started = asyncio.Event()
