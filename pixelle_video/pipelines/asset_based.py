@@ -465,6 +465,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
         """
         from datetime import datetime
 
+        from pixelle_video.models.size_contract import GenerationSizeContract
         from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
         
         # Extract all narrations in order for compatibility
@@ -481,15 +482,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
         # Use asset_default.html template which supports both image and video assets
         # (conditionally shows background image or provides transparent overlay)
         template_name = "1080x1920/asset_default.html"
-        # Extract dimensions from template name (e.g., "1080x1920")
-        try:
-            dims = template_name.split("/")[0].split("x")
-            media_width = int(dims[0])
-            media_height = int(dims[1])
-        except (IndexError, ValueError):
-            # Default to 1080x1920
-            media_width = 1080
-            media_height = 1920
+        size_contract = GenerationSizeContract.from_params(context.params)
         
         requested_tts_inference_mode = context.params.get("tts_inference_mode")
         if (
@@ -524,8 +517,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
             ref_audio_text=context.params.get("ref_audio_text"),
             tts_speed=context.params.get("tts_speed", 1.2),
             **resolve_storyboard_render_kwargs(self.core.config, context.params),
-            media_width=media_width,
-            media_height=media_height,
+            **size_contract.to_params(),
             frame_template=template_name,
             template_params=context.params.get("template_params")
         )

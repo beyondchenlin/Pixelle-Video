@@ -61,7 +61,7 @@ def _storyboard_plan_from_segments(segments: list[str]) -> StoryboardPlan:
 def test_render_manifest_round_trip_and_timing_config_defaults():
     config = StoryboardConfig(media_width=1080, media_height=1920)
     assert config.tts_batching_mode == "paragraph"
-    assert config.tts_audio_strategy == "auto"
+    assert config.tts_audio_strategy == "master_track"
     assert config.tts_split_mode == "internal_only"
     assert config.tts_sentence_joiner_mode == "direct"
     assert config.caption_punctuation_mode == "strip_all"
@@ -70,7 +70,7 @@ def test_render_manifest_round_trip_and_timing_config_defaults():
     assert config.tts_audio_boundary_fade_ms == 8
     assert config.subtitle_alignment_engine == "qwen_forced_aligner"
     assert config.silence_trim_tool is None
-    assert config.render_backend == "legacy"
+    assert config.render_backend == "hyperframes_compiled"
 
     manifest = RenderManifest(
         task_id="task-1",
@@ -1049,6 +1049,70 @@ async def test_asset_based_pipeline_initialize_storyboard_uses_render_config_def
     assert captured["silence_trim_tool"] == "ffmpeg"
     assert captured["silence_trim_margin_ms"] == 75
     assert captured["render_backend"] == "legacy"
+
+
+@pytest.mark.asyncio
+async def test_asset_based_pipeline_initialize_storyboard_uses_size_contract(
+    monkeypatch,
+):
+    captured = {}
+
+    class _CapturedConfig(Exception):
+        pass
+
+    def _capture_storyboard_config(**kwargs):
+        captured.update(kwargs)
+        raise _CapturedConfig
+
+    monkeypatch.setattr("pixelle_video.models.storyboard.StoryboardConfig", _capture_storyboard_config)
+
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {},
+            "llm": object(),
+            "tts": object(),
+            "media": object(),
+            "video": object(),
+        },
+    )()
+
+    pipeline = AssetBasedPipeline(fake_core)
+    ctx = PipelineContext(
+        input_text="intent",
+        params={
+            "canvas_width": 1280,
+            "canvas_height": 720,
+            "media_width": 768,
+            "media_height": 768,
+            "video_orientation": "landscape",
+            "video_resolution_preset": "1k",
+            "media_orientation": "square",
+            "media_resolution_preset": "768",
+            "sync_media_size_to_canvas": False,
+        },
+    )
+    ctx.task_id = "task-1"
+    ctx.title = "Asset title"
+    ctx.matched_scenes = [
+        {
+            "scene_number": 1,
+            "asset_path": "assets/example.png",
+            "narrations": ["Sentence 1."],
+        }
+    ]
+
+    with pytest.raises(_CapturedConfig):
+        await pipeline.initialize_storyboard(ctx)
+
+    assert (captured["canvas_width"], captured["canvas_height"]) == (1280, 720)
+    assert (captured["media_width"], captured["media_height"]) == (768, 768)
+    assert captured["video_orientation"] == "landscape"
+    assert captured["video_resolution_preset"] == "1k"
+    assert captured["media_orientation"] == "square"
+    assert captured["media_resolution_preset"] == "768"
+    assert captured["sync_media_size_to_canvas"] is False
 
 
 @pytest.mark.asyncio
