@@ -6,7 +6,6 @@ from typing import Any, Mapping
 from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 from pixelle_video.services.frame_html import HTMLFrameGenerator
 
-
 VALID_TEMPLATE_TEXT_POLICIES = {
     "caption_renderer",
     "template_body",
@@ -48,10 +47,16 @@ class TemplateVisualMaterializer:
         output_path: str | PathLike[str],
         text_policy: str,
         template_params: Mapping[str, Any] | None = None,
+        canvas_width: int | None = None,
+        canvas_height: int | None = None,
     ) -> TemplateVisualAsset:
         body_text = resolve_template_body_text(template_body_text, text_policy)
         validated_template_params = _validate_template_params(template_params)
-        generator = HTMLFrameGenerator(str(template_path))
+        generator = HTMLFrameGenerator(
+            str(template_path),
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+        )
         ext = {"index": int(frame_index) + 1}
         ext.update(validated_template_params)
 

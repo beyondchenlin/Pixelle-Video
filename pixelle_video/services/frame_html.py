@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from loguru import logger
+from PIL import Image
 
 from pixelle_video.utils.os_util import get_temp_path
 from pixelle_video.utils.template_util import parse_template_size
@@ -68,7 +69,14 @@ class HTMLFrameGenerator:
     _browser_locks: dict[int, asyncio.Lock] = {}
     _state_guard = threading.Lock()
 
-    def __init__(self, template_path: str):
+    def __init__(
+        self,
+        template_path: str,
+        *,
+        canvas_width: int | None = None,
+        canvas_height: int | None = None,
+        canvas_fit: str = "contain",
+    ):
         """
         Initialize HTML frame generator
         
@@ -78,11 +86,28 @@ class HTMLFrameGenerator:
         self.template_path = template_path
         self.template = self._load_template(template_path)
         
-        # Parse video size from template path
-        self.width, self.height = parse_template_size(template_path)
+        self.template_width, self.template_height = parse_template_size(template_path)
+        if canvas_width is None and canvas_height is None:
+            canvas_width = self.template_width
+            canvas_height = self.template_height
+        elif canvas_width is None or canvas_height is None:
+            raise ValueError("canvas_width and canvas_height must be provided together")
+
+        self.width = int(canvas_width)
+        self.height = int(canvas_height)
+        if self.width <= 0 or self.height <= 0:
+            raise ValueError("canvas dimensions must be positive")
+        if canvas_fit not in {"contain", "cover"}:
+            raise ValueError("canvas_fit must be 'contain' or 'cover'")
+        self.canvas_fit = canvas_fit
         
         self._check_linux_dependencies()
-        logger.debug(f"Loaded HTML template: {template_path} (size: {self.width}x{self.height})")
+        logger.debug(
+            "Loaded HTML template: "
+            f"{template_path} "
+            f"(template: {self.template_width}x{self.template_height}, "
+            f"canvas: {self.width}x{self.height})"
+        )
     
     
     def _check_linux_dependencies(self):
@@ -335,6 +360,41 @@ class HTMLFrameGenerator:
 
         return f"{base_tag}{html}"
 
+    def _normalize_canvas_output(self, output_path: str) -> None:
+        target_size = (int(self.width), int(self.height))
+        if target_size == (int(self.template_width), int(self.template_height)):
+            return
+
+        with Image.open(output_path) as image:
+            frame = image.convert("RGBA")
+            if frame.size == target_size:
+                return
+
+            if self.canvas_fit == "cover":
+                scale = max(target_size[0] / frame.width, target_size[1] / frame.height)
+            else:
+                scale = min(target_size[0] / frame.width, target_size[1] / frame.height)
+
+            resized_size = (
+                max(1, int(round(frame.width * scale))),
+                max(1, int(round(frame.height * scale))),
+            )
+            resized = frame.resize(resized_size, Image.Resampling.LANCZOS)
+
+            if self.canvas_fit == "cover":
+                left = max(0, (resized.width - target_size[0]) // 2)
+                top = max(0, (resized.height - target_size[1]) // 2)
+                normalized = resized.crop(
+                    (left, top, left + target_size[0], top + target_size[1])
+                )
+            else:
+                normalized = Image.new("RGBA", target_size, (0, 0, 0, 0))
+                left = (target_size[0] - resized.width) // 2
+                top = (target_size[1] - resized.height) // 2
+                normalized.alpha_composite(resized, (left, top))
+
+            normalized.save(output_path)
+
     @classmethod
     def _get_browser_lock(cls, loop: asyncio.AbstractEventLoop) -> asyncio.Lock:
         loop_id = id(loop)
@@ -483,12 +543,17 @@ class HTMLFrameGenerator:
         else:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
-        logger.debug(f"Rendering HTML template to {output_path} (size: {self.width}x{self.height})")
+        logger.debug(
+            "Rendering HTML template to "
+            f"{output_path} "
+            f"(template: {self.template_width}x{self.template_height}, "
+            f"canvas: {self.width}x{self.height})"
+        )
         tmp_html_path = None
         try:
             browser = await self._ensure_browser()
             page = await browser.new_page(
-                viewport={'width': self.width, 'height': self.height},
+                viewport={'width': self.template_width, 'height': self.template_height},
                 device_scale_factor=1,
             )
             try:
@@ -504,6 +569,7 @@ class HTMLFrameGenerator:
                 
                 await page.goto(Path(tmp_html_path).as_uri(), wait_until='networkidle')
                 await page.screenshot(path=output_path, type='png', omit_background=True)
+                self._normalize_canvas_output(output_path)
             finally:
                 await page.close()
                 if tmp_html_path and os.path.exists(tmp_html_path):

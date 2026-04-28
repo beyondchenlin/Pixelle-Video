@@ -2,11 +2,11 @@ from pathlib import Path
 
 import pytest
 
+from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 from pixelle_video.services.template_visual_materializer import (
     TemplateVisualMaterializer,
     resolve_template_body_text,
 )
-from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 
 
 def test_resolve_template_body_text_defaults_to_caption_renderer():
@@ -90,11 +90,12 @@ async def test_template_visual_materializer_renders_html_with_text_policy(tmp_pa
     calls = {}
 
     class FakeGenerator:
-        width = 1080
-        height = 1920
-
-        def __init__(self, template_path):
+        def __init__(self, template_path, canvas_width=None, canvas_height=None):
             calls["template_path"] = template_path
+            calls["canvas_width"] = canvas_width
+            calls["canvas_height"] = canvas_height
+            self.width = canvas_width or 1080
+            self.height = canvas_height or 1920
 
         async def generate_frame(self, *, title, text, image, ext, output_path):
             calls["title"] = title
@@ -127,3 +128,46 @@ async def test_template_visual_materializer_renders_html_with_text_policy(tmp_pa
     assert result.text_policy == "caption_renderer"
     assert calls["text"] == ""
     assert calls["ext"] == {"index": 1, "accent": "#fff"}
+
+
+@pytest.mark.asyncio
+async def test_template_visual_materializer_forwards_canvas_dimensions(
+    tmp_path,
+    monkeypatch,
+):
+    calls = {}
+
+    class FakeGenerator:
+        def __init__(self, template_path, canvas_width=None, canvas_height=None):
+            calls["template_path"] = template_path
+            calls["canvas_width"] = canvas_width
+            calls["canvas_height"] = canvas_height
+            self.width = canvas_width or 1080
+            self.height = canvas_height or 1920
+
+        async def generate_frame(self, *, title, text, image, ext, output_path):
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(output_path).write_bytes(b"png")
+            return output_path
+
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.HTMLFrameGenerator",
+        FakeGenerator,
+    )
+
+    result = await TemplateVisualMaterializer().materialize_frame(
+        title="Demo",
+        template_body_text="Template body",
+        media_path="raw.png",
+        frame_index=0,
+        template_path="templates/1080x1920/image_default.html",
+        template_id="image_default",
+        output_path=tmp_path / "frame.png",
+        text_policy="caption_renderer",
+        canvas_width=1280,
+        canvas_height=720,
+    )
+
+    assert calls["canvas_width"] == 1280
+    assert calls["canvas_height"] == 720
+    assert (result.width, result.height) == (1280, 720)

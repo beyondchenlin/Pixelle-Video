@@ -3,6 +3,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from PIL import Image
 
 from pixelle_video.services.frame_html import HTMLFrameGenerator
 from web.state.async_runtime import AsyncRuntime, shutdown_all_async_runtimes
@@ -131,3 +132,25 @@ def test_prepare_html_for_render_injects_template_base_href(tmp_path):
     prepared_html = generator._prepare_html_for_render(generator.template)
 
     assert f'<base href="{template_dir.resolve().as_uri()}/">' in prepared_html
+
+
+def test_html_frame_generator_normalizes_output_png_to_target_canvas(tmp_path):
+    template_dir = tmp_path / "templates" / "1080x1920"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "image_sample.html"
+    template.write_text("<html><body>{{title}}</body></html>", encoding="utf-8")
+    output = tmp_path / "frame.png"
+    Image.new("RGBA", (1080, 1920), (255, 0, 0, 255)).save(output)
+
+    generator = HTMLFrameGenerator(
+        str(template),
+        canvas_width=1280,
+        canvas_height=720,
+    )
+    generator._normalize_canvas_output(str(output))
+
+    with Image.open(output) as image:
+        assert image.size == (1280, 720)
+
+    assert (generator.template_width, generator.template_height) == (1080, 1920)
+    assert (generator.width, generator.height) == (1280, 720)
