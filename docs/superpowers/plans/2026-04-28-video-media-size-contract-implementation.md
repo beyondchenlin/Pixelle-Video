@@ -6,6 +6,8 @@
 
 **Architecture:** Add a domain-level size contract module, then thread it through Web UI request construction, API request construction, `StoryboardConfig`, standard pipeline rendering, template rendering, and element animation. Templates remain layout assets with their own base coordinate system; rendered frames are normalized to the requested output canvas.
 
+**Revision after user clarification:** Generated image/media size has its own independent controls, not only a fixed `768x768` default. The contract must support `media_orientation` and `media_resolution_preset`; default media is `square` + `768`, while landscape/portrait/square media presets support `1k`, `2k`, and `4k`. `sync_media_size_to_canvas` still overrides the effective `media_width` / `media_height` to the final video canvas size.
+
 **Tech Stack:** Python 3.11, dataclasses, Pydantic v2, Streamlit, FastAPI, pytest, Pillow, Playwright-backed HTML rendering.
 
 ---
@@ -13,7 +15,7 @@
 ## File Structure
 
 - Create `pixelle_video/models/size_contract.py`
-  - Owns all orientation/preset/default/sync rules.
+  - Owns all video orientation/preset, media orientation/preset, default, and sync rules.
   - Provides `GenerationSizeContract.from_params()` as the single new size resolution entry point.
 
 - Modify `pixelle_video/models/storyboard.py`
@@ -32,7 +34,7 @@
   - Accepts canvas dimensions and passes them to `HTMLFrameGenerator`.
 
 - Modify `web/components/style_config.py`
-  - Renders final video size controls.
+  - Renders final video size controls and independent generated image/media size controls.
   - Computes media size from the shared size contract instead of template meta.
   - Keeps template meta only as recommendation/compatibility information.
 
@@ -41,14 +43,14 @@
   - Stops using `session_state["template_media_width"]` as the source of generation request dimensions.
 
 - Modify `api/schemas/video.py` and `api/routers/video.py`
-  - Adds optional canvas/media fields to the API schema.
+  - Adds optional canvas/media dimension and media orientation/preset fields to the API schema.
   - Stops forcing template-derived media sizes into API requests.
 
 - Modify `pixelle_video/utils/template_util.py`
   - Adds a helper to resolve an orientation-compatible template for a selected template type.
 
 - Modify `web/i18n/locales/zh_CN.json` and `web/i18n/locales/en_US.json`
-  - Adds labels for final video size, media size, orientation, resolution, and sync controls.
+  - Adds labels for final video size, generated image size, video/media orientation, video/media resolution, and sync controls.
 
 - Tests:
   - Create `tests/test_size_contract.py`
@@ -68,6 +70,8 @@
 **Files:**
 - Create: `pixelle_video/models/size_contract.py`
 - Create: `tests/test_size_contract.py`
+
+**Revision requirement:** The Task 1 test and implementation must include `media_orientation`, `media_resolution_preset`, and `resolve_media_size()`. Default media is `square` + `768`; media presets support landscape/portrait/square `1k` / `2k` / `4k`; square additionally supports `768`. Sync still makes the effective media dimensions equal the final canvas dimensions.
 
 - [ ] **Step 1: Write failing tests for default values, presets, sync, and legacy media fallback**
 
@@ -1157,6 +1161,8 @@ git commit -m "feat: 模板渲染归一化到目标画布"
 - Create or modify: `tests/test_template_util.py`
 - Extend: `tests/test_style_config_template_gallery.py`
 
+**Revision requirement:** The UI must render two independent control groups: final video size (`video_orientation` / `video_resolution_preset`) and generated image size (`media_orientation` / `media_resolution_preset`). The generated image group defaults to square `768x768`, supports landscape/portrait/square `1k` / `2k` / `4k`, and is disabled or visually subordinate when sync is enabled because the effective media size follows the final canvas.
+
 - [ ] **Step 1: Write failing template orientation resolver tests**
 
 Create `tests/test_template_util.py`:
@@ -1638,4 +1644,4 @@ If Step 1 through Step 4 reveal import-only or assertion-alignment fixes, return
   - The plan contains no `TBD`, `TODO`, or unassigned implementation sections.
 
 - Type consistency:
-  - The contract fields are consistently named `canvas_width`, `canvas_height`, `media_width`, `media_height`, `video_orientation`, `video_resolution_preset`, and `sync_media_size_to_canvas`.
+  - The contract fields are consistently named `canvas_width`, `canvas_height`, `media_width`, `media_height`, `video_orientation`, `video_resolution_preset`, `media_orientation`, `media_resolution_preset`, and `sync_media_size_to_canvas`.

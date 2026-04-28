@@ -1,5 +1,24 @@
 # Video And Media Size Contract Design
 
+## 0. Revision: Independent Image Generation Size
+
+2026-04-28 user clarification: generated image/media size must also be user-selectable. The default remains `768x768`, but the user can independently choose image orientation and image resolution:
+
+- Image orientation: `landscape`, `portrait`, `square`.
+- Image resolution: `1k`, `2k`, `4k` for all orientations.
+- Square image size additionally has the default preset `768`, resolved to `768x768`.
+- Image size selection is independent from the final video canvas selection.
+- When `sync_media_size_to_canvas` is enabled, the effective generated image/media size follows `canvas_width` / `canvas_height`, while the independent image controls remain part of the request contract.
+
+The size contract therefore includes both video controls and media controls:
+
+- `video_orientation`
+- `video_resolution_preset`
+- `media_orientation`
+- `media_resolution_preset`
+- `sync_media_size_to_canvas`
+- effective dimensions: `canvas_width`, `canvas_height`, `media_width`, `media_height`
+
 ## 1. 结论
 
 本次改造采用“显式尺寸合同 + 单一预设模型 + 分层消费”的方案，从源头拆开最终视频画布尺寸和素材生成尺寸。
