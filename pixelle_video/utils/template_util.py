@@ -29,12 +29,27 @@ TemplateType = Literal["static", "image", "video"]
 
 DEFAULT_STATIC_TEMPLATE = "1080x1920/static_default.html"
 DEFAULT_IMAGE_TEMPLATE = "1080x1920/image_default.html"
+DEFAULT_IMAGE_LANDSCAPE_TEMPLATE = "1920x1080/image_landscape_minimal.html"
+DEFAULT_IMAGE_SQUARE_TEMPLATE = "1080x1080/image_minimal_framed.html"
 DEFAULT_VIDEO_TEMPLATE = "1080x1920/video_default.html"
 LEGACY_DEFAULT_TEMPLATE = "1080x1920/default.html"
 DEFAULT_TEMPLATE_BY_TYPE: dict[TemplateType, str] = {
     "static": DEFAULT_STATIC_TEMPLATE,
     "image": DEFAULT_IMAGE_TEMPLATE,
     "video": DEFAULT_VIDEO_TEMPLATE,
+}
+DEFAULT_TEMPLATE_BY_TYPE_AND_ORIENTATION: dict[TemplateType, dict[TemplateOrientation, str]] = {
+    "static": {
+        "portrait": DEFAULT_STATIC_TEMPLATE,
+    },
+    "image": {
+        "portrait": DEFAULT_IMAGE_TEMPLATE,
+        "landscape": DEFAULT_IMAGE_LANDSCAPE_TEMPLATE,
+        "square": DEFAULT_IMAGE_SQUARE_TEMPLATE,
+    },
+    "video": {
+        "portrait": DEFAULT_VIDEO_TEMPLATE,
+    },
 }
 
 
@@ -556,26 +571,89 @@ def get_template_orientation(template_path: str) -> TemplateOrientation:
     return _template_orientation_from_dimensions(width, height)
 
 
-def resolve_compatible_template_for_orientation(
-    *,
-    current_template: str,
+def get_supported_template_orientations(
     template_type: TemplateType,
-    orientation: Literal["landscape", "portrait", "square"],
-) -> str:
-    if get_template_orientation(current_template) == orientation:
-        return current_template
-
+) -> tuple[TemplateOrientation, ...]:
     grouped = get_templates_grouped_by_size_and_type(template_type)
-    candidates = [
+    supported = {
+        template.display_info.orientation
+        for templates in grouped.values()
+        for template in templates
+    }
+    orientation_order: tuple[TemplateOrientation, ...] = ("portrait", "landscape", "square")
+    return tuple(orientation for orientation in orientation_order if orientation in supported)
+
+
+def _get_templates_for_orientation(
+    template_type: TemplateType,
+    orientation: TemplateOrientation,
+) -> list[TemplateInfo]:
+    grouped = get_templates_grouped_by_size_and_type(template_type)
+    return [
         template
         for templates in grouped.values()
         for template in templates
         if template.display_info.orientation == orientation
     ]
+
+
+def _raise_missing_orientation_template(
+    template_type: TemplateType,
+    orientation: TemplateOrientation,
+) -> None:
+    raise ValueError(
+        f"No {orientation} template is available for {template_type} storyboard type."
+    )
+
+
+def _resolve_registered_default_template(
+    template_type: TemplateType,
+    orientation: TemplateOrientation,
+    candidates: list[TemplateInfo],
+) -> str:
+    default_template = DEFAULT_TEMPLATE_BY_TYPE_AND_ORIENTATION.get(template_type, {}).get(
+        orientation
+    )
+    if default_template is None:
+        _raise_missing_orientation_template(template_type, orientation)
+
+    if any(template.template_path == default_template for template in candidates):
+        return default_template
+
+    raise ValueError(
+        f"Registered default template '{default_template}' is not available "
+        f"for {template_type} {orientation}."
+    )
+
+
+def resolve_default_template_for_type_and_orientation(
+    template_type: TemplateType,
+    orientation: TemplateOrientation,
+) -> str:
+    candidates = _get_templates_for_orientation(template_type, orientation)
     if not candidates:
+        _raise_missing_orientation_template(template_type, orientation)
+
+    return _resolve_registered_default_template(template_type, orientation, candidates)
+
+
+def resolve_compatible_template_for_orientation(
+    *,
+    current_template: str,
+    template_type: TemplateType,
+    orientation: TemplateOrientation,
+) -> str:
+    current_name = Path(current_template).name
+    if (
+        get_template_orientation(current_template) == orientation
+        and get_template_type(current_name) == template_type
+    ):
         return current_template
 
-    current_name = Path(current_template).name
+    candidates = _get_templates_for_orientation(template_type, orientation)
+    if not candidates:
+        _raise_missing_orientation_template(template_type, orientation)
+
     same_name = [
         template
         for template in candidates
@@ -584,4 +662,4 @@ def resolve_compatible_template_for_orientation(
     if same_name:
         return same_name[0].template_path
 
-    return sorted(candidates, key=lambda template: template.display_info.name)[0].template_path
+    return _resolve_registered_default_template(template_type, orientation, candidates)

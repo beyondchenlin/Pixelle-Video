@@ -222,15 +222,14 @@ async def test_plan_visuals_uses_image_prompt_composer(monkeypatch):
 async def test_plan_visuals_defaults_template_to_canvas_orientation(monkeypatch):
     captured_resolver = {}
 
-    def fake_resolve_template(*, current_template, template_type, orientation):
+    def fake_resolve_template(template_type, orientation):
         captured_resolver.update(
             {
-                "current_template": current_template,
                 "template_type": template_type,
                 "orientation": orientation,
             }
         )
-        return "1920x1080/image_book.html"
+        return "1920x1080/image_landscape_minimal.html"
 
     async def fake_compose(self, **kwargs):
         return StyledImagePromptBatch(
@@ -241,7 +240,7 @@ async def test_plan_visuals_defaults_template_to_canvas_orientation(monkeypatch)
         )
 
     monkeypatch.setattr(
-        "pixelle_video.pipelines.standard.resolve_compatible_template_for_orientation",
+        "pixelle_video.pipelines.standard.resolve_default_template_for_type_and_orientation",
         fake_resolve_template,
     )
     monkeypatch.setattr(
@@ -262,7 +261,6 @@ async def test_plan_visuals_defaults_template_to_canvas_orientation(monkeypatch)
     await StandardPipeline(_DummyCore()).plan_visuals(ctx)
 
     assert captured_resolver == {
-        "current_template": "1080x1920/image_default.html",
         "template_type": "image",
         "orientation": "landscape",
     }

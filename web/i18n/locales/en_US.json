@@ -237,6 +237,8 @@
     "template.selected": "Checked",
     "template.selected_template": "Current Template",
     "template.no_templates_with_preview": "⚠️ No templates available for this type",
+    "template.orientation_unavailable": "No {orientation} templates are available for {template_type}. Supported orientations: {supported_orientations}.",
+    "template.orientation_default_unavailable": "No default {orientation} template is configured for {template_type}. Add a type-and-orientation default before using this orientation.",
     "image.not_required": "Current template does not require image generation",
     "image.not_required_hint": "The selected template is text-only and does not need images. Benefits: ⚡ Faster generation 💰 Lower cost",
     "video.title": "🎬 Video Settings",

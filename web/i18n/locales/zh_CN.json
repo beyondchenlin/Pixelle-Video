@@ -238,6 +238,8 @@
     "template.selected": "已选",
     "template.selected_template": "当前模板",
     "template.no_templates_with_preview": "⚠️ 该类型暂无可用模板",
+    "template.orientation_unavailable": "当前分镜类型 {template_type} 暂无{orientation}模板。已支持方向：{supported_orientations}。",
+    "template.orientation_default_unavailable": "当前分镜类型 {template_type} 未配置默认{orientation}模板。请先补充类型与方向的默认模板注册。",
     "image.not_required": "当前模板不需要插图生成",
     "image.not_required_hint": "您选择的模板是纯文本模板，无需生成图片。这将：⚡ 加快生成速度 💰 降低生成成本",
     "video.title": "🎬 视频设置",

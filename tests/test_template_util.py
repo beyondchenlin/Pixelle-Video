@@ -1,7 +1,11 @@
+import pytest
+
 from pixelle_video.utils.template_util import (
+    get_supported_template_orientations,
     get_template_orientation,
     parse_template_contract,
     resolve_compatible_template_for_orientation,
+    resolve_default_template_for_type_and_orientation,
 )
 
 
@@ -42,5 +46,44 @@ def test_resolve_compatible_template_switches_to_matching_orientation():
         orientation="landscape",
     )
 
-    assert selected.startswith("1920x1080/")
-    assert selected.split("/")[-1].startswith("image_")
+    assert selected == "1920x1080/image_landscape_minimal.html"
+
+
+def test_resolve_default_template_uses_type_and_orientation_registry():
+    assert (
+        resolve_default_template_for_type_and_orientation("image", "landscape")
+        == "1920x1080/image_landscape_minimal.html"
+    )
+    assert (
+        resolve_default_template_for_type_and_orientation("image", "square")
+        == "1080x1080/image_minimal_framed.html"
+    )
+
+
+def test_resolve_compatible_template_switches_type_even_when_orientation_matches():
+    selected = resolve_compatible_template_for_orientation(
+        current_template="1080x1920/static_default.html",
+        template_type="image",
+        orientation="portrait",
+    )
+
+    assert selected == "1080x1920/image_default.html"
+
+
+def test_supported_template_orientations_are_based_on_template_inventory():
+    assert get_supported_template_orientations("static") == ("portrait",)
+    assert get_supported_template_orientations("video") == ("portrait",)
+    assert get_supported_template_orientations("image") == (
+        "portrait",
+        "landscape",
+        "square",
+    )
+
+
+def test_resolve_compatible_template_rejects_missing_orientation_for_type():
+    with pytest.raises(ValueError, match="No landscape template"):
+        resolve_compatible_template_for_orientation(
+            current_template="1080x1920/static_default.html",
+            template_type="static",
+            orientation="landscape",
+        )

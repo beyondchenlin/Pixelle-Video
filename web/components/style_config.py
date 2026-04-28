@@ -2372,12 +2372,11 @@ def render_style_config(
         
         # Import template utilities
         from pixelle_video.utils.template_util import (
-            DEFAULT_IMAGE_TEMPLATE,
-            DEFAULT_TEMPLATE_BY_TYPE,
-            LEGACY_DEFAULT_TEMPLATE,
+            get_supported_template_orientations,
             get_template_type,
             get_templates_grouped_by_size_and_type,
             resolve_compatible_template_for_orientation,
+            resolve_default_template_for_type_and_orientation,
         )
         
         # Template type selector
@@ -2424,17 +2423,36 @@ def render_style_config(
             'landscape': tr('orientation.landscape'),
             'square': tr('orientation.square')
         }
-        
-        # Get default template from config
-        template_config = pixelle_video.config.get("template", {})
-        config_default_template = template_config.get("default_template", DEFAULT_IMAGE_TEMPLATE)
 
-        # Backward compatibility
-        if config_default_template == LEGACY_DEFAULT_TEMPLATE:
-            config_default_template = DEFAULT_IMAGE_TEMPLATE
-        
-        # Determine type-specific default template
-        type_specific_default = DEFAULT_TEMPLATE_BY_TYPE.get(selected_template_type, config_default_template)
+        supported_orientations = get_supported_template_orientations(selected_template_type)
+        if size_contract.video_orientation not in supported_orientations:
+            supported_labels = ", ".join(
+                ORIENTATION_I18N[orientation] for orientation in supported_orientations
+            )
+            st.warning(
+                tr(
+                    "template.orientation_unavailable",
+                    template_type=template_type_options[selected_template_type],
+                    orientation=ORIENTATION_I18N[size_contract.video_orientation],
+                    supported_orientations=supported_labels,
+                )
+            )
+            st.stop()
+
+        try:
+            type_specific_default = resolve_default_template_for_type_and_orientation(
+                selected_template_type,
+                size_contract.video_orientation,
+            )
+        except ValueError:
+            st.warning(
+                tr(
+                    "template.orientation_default_unavailable",
+                    template_type=template_type_options[selected_template_type],
+                    orientation=ORIENTATION_I18N[size_contract.video_orientation],
+                )
+            )
+            st.stop()
         
         # Initialize selected template in session state if not exists
         if 'selected_template' not in st.session_state:

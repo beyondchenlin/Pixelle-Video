@@ -120,10 +120,9 @@ from pixelle_video.utils.prompt_generation_performance import (
     LLM_PROMPT_BATCH_SIZE_PARAM,
 )
 from pixelle_video.utils.template_util import (
-    DEFAULT_IMAGE_TEMPLATE,
     get_template_type,
     parse_template_size,
-    resolve_compatible_template_for_orientation,
+    resolve_default_template_for_type_and_orientation,
 )
 
 
@@ -157,10 +156,9 @@ def _resolve_frame_template_for_size_contract(
     if frame_template:
         return str(frame_template)
 
-    return resolve_compatible_template_for_orientation(
-        current_template=DEFAULT_IMAGE_TEMPLATE,
-        template_type="image",
-        orientation=size_contract.video_orientation,
+    return resolve_default_template_for_type_and_orientation(
+        "image",
+        size_contract.video_orientation,
     )
 
 
