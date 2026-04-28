@@ -129,6 +129,63 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["progress_callback"] is _progress
 
 
+def test_build_single_generation_request_uses_size_contract_not_template_session():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "canvas_width": 1280,
+            "canvas_height": 720,
+            "media_width": 768,
+            "media_height": 768,
+            "video_orientation": "landscape",
+            "video_resolution_preset": "1k",
+            "media_orientation": "square",
+            "media_resolution_preset": "768",
+            "sync_media_size_to_canvas": False,
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["canvas_width"] == 1280
+    assert request["canvas_height"] == 720
+    assert request["media_width"] == 768
+    assert request["media_height"] == 768
+    assert request["video_orientation"] == "landscape"
+    assert request["video_resolution_preset"] == "1k"
+    assert request["media_orientation"] == "square"
+    assert request["media_resolution_preset"] == "768"
+    assert request["sync_media_size_to_canvas"] is False
+
+
+def test_build_single_generation_request_syncs_media_size_to_canvas():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "video_orientation": "portrait",
+            "video_resolution_preset": "2k",
+            "media_orientation": "landscape",
+            "media_resolution_preset": "1k",
+            "sync_media_size_to_canvas": True,
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert (request["canvas_width"], request["canvas_height"]) == (1080, 1920)
+    assert (request["media_width"], request["media_height"]) == (1080, 1920)
+    assert request["media_orientation"] == "landscape"
+    assert request["media_resolution_preset"] == "1k"
+
+
 def test_build_single_generation_request_defaults_to_comfyui_tts_mode():
     def _progress(_event):
         return None
@@ -445,6 +502,33 @@ def test_build_batch_shared_config_includes_render_backend():
 
     assert shared_config["render_backend"] == "hyperframes_compiled"
     assert shared_config["tts_audio_strategy"] == "master_track"
+
+
+def test_build_batch_shared_config_uses_size_contract_defaults_and_overrides():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "title_prefix": "Series",
+            "video_orientation": "square",
+            "video_resolution_preset": "2k",
+            "media_orientation": "portrait",
+            "media_resolution_preset": "4k",
+            "sync_media_size_to_canvas": False,
+        }
+    )
+
+    assert (shared_config["canvas_width"], shared_config["canvas_height"]) == (
+        2048,
+        2048,
+    )
+    assert (shared_config["media_width"], shared_config["media_height"]) == (
+        2160,
+        3840,
+    )
+    assert shared_config["video_orientation"] == "square"
+    assert shared_config["video_resolution_preset"] == "2k"
+    assert shared_config["media_orientation"] == "portrait"
+    assert shared_config["media_resolution_preset"] == "4k"
+    assert shared_config["sync_media_size_to_canvas"] is False
 
 
 def test_build_batch_shared_config_uses_storyboard_generation_contract_fields():

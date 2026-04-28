@@ -22,8 +22,11 @@ from loguru import logger
 from pixelle_video.config import config_manager
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.video_generation_contract import (
     STORYBOARD_GENERATION_OPTION_KEYS as CONTRACT_STORYBOARD_GENERATION_OPTION_KEYS,
+)
+from pixelle_video.models.video_generation_contract import (
     StoryboardControlsContract,
     is_plan_frame_override_payload,
 )
@@ -228,6 +231,7 @@ def render_output_preview(pixelle_video, video_params):
 def build_single_generation_request(video_params, *, progress_callback, session_state):
     """Build a single generate_video() request from UI params."""
     storyboard_contract = _storyboard_controls_contract(video_params)
+    size_contract = GenerationSizeContract.from_params(video_params)
     request = {
         "text": video_params.get("text", ""),
         "mode": video_params.get("mode", "generate"),
@@ -240,8 +244,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         if video_params.get("bgm_path")
         else 0.2,
         "progress_callback": progress_callback,
-        "media_width": session_state.get("template_media_width"),
-        "media_height": session_state.get("template_media_height"),
+        **size_contract.to_params(),
         "tts_inference_mode": _resolve_video_tts_mode(video_params),
         "world_preset_id": storyboard_contract.world_preset_id,
         "shot_preset_id": storyboard_contract.shot_preset_id,
@@ -294,6 +297,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
 def build_batch_shared_config(video_params):
     """Build batch shared_config from Web UI params."""
     storyboard_contract = _storyboard_controls_contract(video_params)
+    size_contract = GenerationSizeContract.from_params(video_params)
     shared_config = {
         "title_prefix": video_params.get("title_prefix"),
         "media_workflow": video_params.get("media_workflow"),
@@ -302,8 +306,7 @@ def build_batch_shared_config(video_params):
         "bgm_path": video_params.get("bgm_path"),
         "bgm_volume": video_params.get("bgm_volume") or 0.2,
         "tts_inference_mode": _resolve_video_tts_mode(video_params),
-        "media_width": video_params.get("media_width"),
-        "media_height": video_params.get("media_height"),
+        **size_contract.to_params(),
         "world_preset_id": storyboard_contract.world_preset_id,
         "shot_preset_id": storyboard_contract.shot_preset_id,
         "consistency_strength": storyboard_contract.consistency_strength or "standard",
