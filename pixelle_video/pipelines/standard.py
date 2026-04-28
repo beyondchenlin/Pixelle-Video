@@ -34,7 +34,12 @@ from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.models.caption_speech_plan import build_caption_speech_plan
 from pixelle_video.models.creation_package import CreationPackage
-from pixelle_video.models.progress import ProgressEvent, ProgressI18nMessage
+from pixelle_video.models.progress import (
+    ProgressEvent,
+    ProgressEventType,
+    ProgressFrameAction,
+    ProgressI18nMessage,
+)
 from pixelle_video.models.render_execution_plan import (
     RenderExecutionArtifact,
     RenderExecutionPlan,
@@ -232,7 +237,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
         
         if mode == "generate":
-            self._report_progress(ctx.progress_callback, "generating_source_text", 0.05)
+            self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_SOURCE_TEXT, 0.05)
             ctx.source_text = await ScriptGenerationService().generate(
                 llm_service=self.llm,
                 topic=text,
@@ -241,11 +246,11 @@ class StandardPipeline(LinearVideoPipeline):
             )
             logger.info("✅ Generated complete source text for storyboard planning")
         else:  # fixed
-            self._report_progress(ctx.progress_callback, "preparing_source_text", 0.05)
+            self._report_progress(ctx.progress_callback, ProgressEventType.PREPARING_SOURCE_TEXT, 0.05)
             ctx.source_text = text.strip()
             logger.info("✅ Prepared fixed source text for storyboard planning")
 
-        self._report_progress(ctx.progress_callback, "generating_storyboard_plan", 0.08)
+        self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_STORYBOARD_PLAN, 0.08)
         ctx.storyboard_plan = await StoryboardGenerationService(
             config=self.core.config,
         ).generate(
@@ -297,7 +302,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
             logger.info(f"   Title: '{title}' (user-specified)")
         else:
-            self._report_progress(ctx.progress_callback, "generating_title", 0.10)
+            self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_TITLE, 0.10)
             if mode == "generate":
                 ctx.title = await generate_title(
                     self.llm,
@@ -340,7 +345,7 @@ class StandardPipeline(LinearVideoPipeline):
         
         # Only generate image prompts if template requires media
         if template_requires_media:
-            self._report_progress(ctx.progress_callback, "generating_image_prompts", 0.15)
+            self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_IMAGE_PROMPTS, 0.15)
             
             prompt_prefix = ctx.params.get("prompt_prefix")
             min_words = ctx.params.get("min_image_prompt_words", 30)
@@ -363,7 +368,7 @@ class StandardPipeline(LinearVideoPipeline):
                 overall_progress = 0.15 + (batch_progress * 0.15)
                 self._report_progress(
                     ctx.progress_callback,
-                    "generating_image_prompts",
+                    ProgressEventType.GENERATING_IMAGE_PROMPTS,
                     overall_progress,
                     extra_info=message
                 )
@@ -1085,11 +1090,11 @@ class StandardPipeline(LinearVideoPipeline):
         frame_current: int,
         frame_total: int,
         step: int,
-        action: str,
+        action: str | ProgressFrameAction,
     ) -> None:
         self._report_progress(
             callback,
-            "frame_step",
+            ProgressEventType.FRAME_STEP,
             self._stage_progress(stage_start, stage_end, frame_current, frame_total),
             frame_current=frame_current,
             frame_total=frame_total,
@@ -1118,7 +1123,7 @@ class StandardPipeline(LinearVideoPipeline):
                     frame_current=frame.index + 1,
                     frame_total=total_frames,
                     step=1,
-                    action="audio",
+                    action=ProgressFrameAction.AUDIO,
                 )
                 await self.core.frame_processor._step_generate_audio(frame, config)
 
@@ -1134,7 +1139,7 @@ class StandardPipeline(LinearVideoPipeline):
                     frame_current=frame.index + 1,
                     frame_total=total_frames,
                     step=2,
-                    action="media",
+                    action=ProgressFrameAction.MEDIA,
                 )
                 await self.core.frame_processor._step_generate_media(frame, config)
             elif not has_existing_media:
@@ -1149,7 +1154,7 @@ class StandardPipeline(LinearVideoPipeline):
                 frame_current=frame.index + 1,
                 frame_total=total_frames,
                 step=3,
-                action="compose",
+                action=ProgressFrameAction.COMPOSE,
             )
             await self.core.frame_processor._step_compose_frame(
                 frame,
@@ -1166,7 +1171,7 @@ class StandardPipeline(LinearVideoPipeline):
                 frame_current=frame.index + 1,
                 frame_total=total_frames,
                 step=4,
-                action="video",
+                action=ProgressFrameAction.VIDEO,
             )
             await self._materialize_element_motion_for_frame(ctx, frame)
             await self.core.frame_processor._step_create_video_segment(frame, config)
@@ -1282,7 +1287,7 @@ class StandardPipeline(LinearVideoPipeline):
                     # Report frame start
                     self._report_progress(
                         ctx.progress_callback,
-                        "processing_frame",
+                        ProgressEventType.PROCESSING_FRAME,
                         base_progress + (per_frame_progress * completed_count),
                         frame_current=i+1,
                         frame_total=len(storyboard.frames)
@@ -1345,7 +1350,7 @@ class StandardPipeline(LinearVideoPipeline):
                 # Report frame start
                 self._report_progress(
                     ctx.progress_callback,
-                    "processing_frame",
+                    ProgressEventType.PROCESSING_FRAME,
                     base_progress + (per_frame_progress * i),
                     frame_current=i+1,
                     frame_total=len(storyboard.frames)
@@ -1389,7 +1394,7 @@ class StandardPipeline(LinearVideoPipeline):
                     frame_current=frame.index + 1,
                     frame_total=total_frames,
                     step=2,
-                    action="media",
+                    action=ProgressFrameAction.MEDIA,
                 )
                 await self.core.frame_processor._step_generate_media(frame, config)
             elif not has_existing_media:
@@ -1403,7 +1408,7 @@ class StandardPipeline(LinearVideoPipeline):
                 frame_current=frame.index + 1,
                 frame_total=total_frames,
                 step=3,
-                action="compose",
+                action=ProgressFrameAction.COMPOSE,
             )
             await self.core.frame_processor._step_compose_frame(
                 frame,
@@ -1435,7 +1440,7 @@ class StandardPipeline(LinearVideoPipeline):
                     f"{effective_backend!r}: {fallback_reason}"
                 )
 
-        self._report_progress(ctx.progress_callback, "concatenating", 0.85)
+        self._report_progress(ctx.progress_callback, ProgressEventType.CONCATENATING, 0.85)
         
         storyboard = ctx.storyboard
         segment_paths = [frame.video_segment_path for frame in storyboard.frames]
@@ -1551,7 +1556,7 @@ class StandardPipeline(LinearVideoPipeline):
         logger.success(f"🎬 Video generation completed: {ctx.final_video_path}")
 
     async def _post_production_ffmpeg_manifest(self, ctx: PipelineContext):
-        self._report_progress(ctx.progress_callback, "rendering_ffmpeg_manifest", 0.85)
+        self._report_progress(ctx.progress_callback, ProgressEventType.RENDERING_FFMPEG_MANIFEST, 0.85)
 
         manifest = self._build_render_manifest_for_current_timeline(ctx)
         execution_plan = self._build_render_execution_plan(ctx, manifest=manifest)
@@ -2002,7 +2007,7 @@ class StandardPipeline(LinearVideoPipeline):
         return ass_outputs
 
     async def _post_production_hyperframes(self, ctx: PipelineContext):
-        self._report_progress(ctx.progress_callback, "rendering_hyperframes", 0.85)
+        self._report_progress(ctx.progress_callback, ProgressEventType.RENDERING_HYPERFRAMES, 0.85)
 
         storyboard = ctx.storyboard
         config = ctx.config
@@ -3138,7 +3143,7 @@ class StandardPipeline(LinearVideoPipeline):
 
     async def finalize(self, ctx: PipelineContext) -> VideoGenerationResult:
         """Step 8: Create result object and persist metadata."""
-        self._report_progress(ctx.progress_callback, "completed", 1.0)
+        self._report_progress(ctx.progress_callback, ProgressEventType.COMPLETED, 1.0)
         
         video_path_obj = Path(ctx.final_video_path)
         file_size = video_path_obj.stat().st_size

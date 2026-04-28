@@ -17,7 +17,88 @@ Provides structured progress events for UI layer to consume and translate.
 """
 
 from dataclasses import dataclass, field
+from enum import StrEnum
+from types import MappingProxyType
 from typing import Any, Mapping, Optional, Union
+
+
+class ProgressEventType(StrEnum):
+    GENERATING_SOURCE_TEXT = "generating_source_text"
+    PREPARING_SOURCE_TEXT = "preparing_source_text"
+    GENERATING_STORYBOARD_PLAN = "generating_storyboard_plan"
+    GENERATING_TITLE = "generating_title"
+    GENERATING_NARRATIONS = "generating_narrations"
+    SPLITTING_SCRIPT = "splitting_script"
+    GENERATING_IMAGE_PROMPTS = "generating_image_prompts"
+    GENERATING_VIDEO_PROMPTS = "generating_video_prompts"
+    PREPARING_FRAMES = "preparing_frames"
+    FRAME_STEP = "frame_step"
+    PROCESSING_FRAME = "processing_frame"
+    CONCATENATING = "concatenating"
+    RENDERING_FFMPEG_MANIFEST = "rendering_ffmpeg_manifest"
+    RENDERING_HYPERFRAMES = "rendering_hyperframes"
+    GENERATION = "generation"
+    FINALIZING = "finalizing"
+    COMPLETED = "completed"
+
+
+class ProgressFrameAction(StrEnum):
+    AUDIO = "audio"
+    IMAGE = "image"
+    MEDIA = "media"
+    COMPOSE = "compose"
+    VIDEO = "video"
+
+
+PROGRESS_EVENT_I18N_KEYS: Mapping[str, str] = MappingProxyType(
+    {
+        ProgressEventType.GENERATING_SOURCE_TEXT.value: "progress.generating_source_text",
+        ProgressEventType.PREPARING_SOURCE_TEXT.value: "progress.preparing_source_text",
+        ProgressEventType.GENERATING_STORYBOARD_PLAN.value: "progress.generating_storyboard_plan",
+        ProgressEventType.GENERATING_TITLE.value: "progress.generating_title",
+        ProgressEventType.GENERATING_NARRATIONS.value: "progress.generating_narrations",
+        ProgressEventType.SPLITTING_SCRIPT.value: "progress.splitting_script",
+        ProgressEventType.GENERATING_IMAGE_PROMPTS.value: "progress.generating_image_prompts",
+        ProgressEventType.GENERATING_VIDEO_PROMPTS.value: "progress.generating_video_prompts",
+        ProgressEventType.PREPARING_FRAMES.value: "progress.preparing_frames",
+        ProgressEventType.FRAME_STEP.value: "progress.frame_step",
+        ProgressEventType.PROCESSING_FRAME.value: "progress.frame",
+        ProgressEventType.CONCATENATING.value: "progress.concatenating",
+        ProgressEventType.RENDERING_FFMPEG_MANIFEST.value: "progress.rendering_ffmpeg_manifest",
+        ProgressEventType.RENDERING_HYPERFRAMES.value: "progress.rendering_hyperframes",
+        ProgressEventType.GENERATION.value: "progress.generation",
+        ProgressEventType.FINALIZING.value: "progress.finalizing",
+        ProgressEventType.COMPLETED.value: "progress.completed",
+    }
+)
+
+PROGRESS_FRAME_ACTION_I18N_KEYS: Mapping[str, str] = MappingProxyType(
+    {
+        ProgressFrameAction.AUDIO.value: "progress.step_audio",
+        ProgressFrameAction.IMAGE.value: "progress.step_image",
+        ProgressFrameAction.MEDIA.value: "progress.step_media",
+        ProgressFrameAction.COMPOSE.value: "progress.step_compose",
+        ProgressFrameAction.VIDEO.value: "progress.step_video",
+    }
+)
+
+
+def normalize_progress_event_type(event_type: str | ProgressEventType) -> str:
+    return event_type.value if isinstance(event_type, ProgressEventType) else str(event_type)
+
+
+def normalize_progress_frame_action(action: str | ProgressFrameAction) -> str:
+    return action.value if isinstance(action, ProgressFrameAction) else str(action)
+
+
+def progress_event_i18n_key(event_type: str | ProgressEventType) -> Optional[str]:
+    return PROGRESS_EVENT_I18N_KEYS.get(normalize_progress_event_type(event_type))
+
+
+def progress_frame_action_i18n_key(action: str | ProgressFrameAction | None) -> Optional[str]:
+    if action is None:
+        return None
+    return PROGRESS_FRAME_ACTION_I18N_KEYS.get(normalize_progress_frame_action(action))
 
 
 @dataclass(frozen=True)
@@ -65,17 +146,20 @@ class ProgressEvent:
             action="audio"
         )
     """
-    event_type: str
+    event_type: str | ProgressEventType
     progress: float
     
     # Optional frame-related fields
     frame_current: Optional[int] = None
     frame_total: Optional[int] = None
     step: Optional[int] = None  # 1-4 for frame processing steps
-    action: Optional[str] = None  # "audio", "image", "compose", "video"
+    action: Optional[str | ProgressFrameAction] = None  # "audio", "image", "compose", "video"
     extra_info: Optional[ProgressExtraInfo] = None
     
     def __post_init__(self):
         """Validate progress value"""
+        self.event_type = normalize_progress_event_type(self.event_type)
+        if self.action is not None:
+            self.action = normalize_progress_frame_action(self.action)
         if not 0.0 <= self.progress <= 1.0:
             raise ValueError(f"Progress must be between 0.0 and 1.0, got {self.progress}")

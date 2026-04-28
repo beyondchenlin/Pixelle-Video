@@ -29,7 +29,7 @@ from typing import Awaitable, Callable, Optional
 import httpx
 from loguru import logger
 
-from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.progress import ProgressEvent, ProgressEventType, ProgressFrameAction
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
@@ -116,12 +116,12 @@ class FrameProcessor:
             if not frame.audio_path:
                 if progress_callback:
                     progress_callback(ProgressEvent(
-                        event_type="frame_step",
+                        event_type=ProgressEventType.FRAME_STEP,
                         progress=0.0,
                         frame_current=frame_num,
                         frame_total=total_frames,
                         step=1,
-                        action="audio"
+                        action=ProgressFrameAction.AUDIO
                     ))
                 await self._step_generate_audio(frame, config)
             else:
@@ -131,12 +131,12 @@ class FrameProcessor:
             if needs_generation:
                 if progress_callback:
                     progress_callback(ProgressEvent(
-                        event_type="frame_step",
+                        event_type=ProgressEventType.FRAME_STEP,
                         progress=0.25,
                         frame_current=frame_num,
                         frame_total=total_frames,
                         step=2,
-                        action="media"
+                        action=ProgressFrameAction.MEDIA
                     ))
                 await self._step_generate_media(frame, config)
             elif has_existing_media:
@@ -153,12 +153,12 @@ class FrameProcessor:
             # Step 3: Compose frame (add subtitle)
             if progress_callback:
                 progress_callback(ProgressEvent(
-                    event_type="frame_step",
+                    event_type=ProgressEventType.FRAME_STEP,
                     progress=0.50 if (needs_generation or has_existing_media) else 0.33,
                     frame_current=frame_num,
                     frame_total=total_frames,
                     step=3,
-                    action="compose"
+                    action=ProgressFrameAction.COMPOSE
                 ))
             await self._step_compose_frame(
                 frame,
@@ -173,12 +173,12 @@ class FrameProcessor:
             # Step 4: Create video segment
             if progress_callback:
                 progress_callback(ProgressEvent(
-                    event_type="frame_step",
+                    event_type=ProgressEventType.FRAME_STEP,
                     progress=0.75 if (needs_generation or has_existing_media) else 0.67,
                     frame_current=frame_num,
                     frame_total=total_frames,
                     step=4,
-                    action="video"
+                    action=ProgressFrameAction.VIDEO
                 ))
             
             await self._step_create_video_segment(frame, config)

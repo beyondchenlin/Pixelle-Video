@@ -9,6 +9,7 @@ from web.components.prompt_generation_performance import (
     LLM_PROMPT_BATCH_SIZE_PARAM,
 )
 from web.utils import batch_manager as batch_manager_module
+from web.utils import progress_i18n
 from web.utils.streamlit_helpers import RefreshableSlot
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -56,7 +57,7 @@ def test_build_video_preview_css_overrides_streamlit_inline_width():
 
 def test_localize_progress_extra_info_supports_structured_i18n_message(monkeypatch):
     monkeypatch.setattr(
-        output_preview,
+        progress_i18n,
         "tr",
         lambda key, fallback=None, **kwargs: (
             f"批次 {kwargs.get('current')}/{kwargs.get('total')} 已完成"
@@ -65,7 +66,7 @@ def test_localize_progress_extra_info_supports_structured_i18n_message(monkeypat
         ),
     )
 
-    message = output_preview._localize_progress_extra_info(
+    message = progress_i18n.localize_progress_extra_info(
         ProgressI18nMessage(
             key="progress.batch_completed",
             params={"current": 2, "total": 3},
@@ -1089,10 +1090,8 @@ def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_pa
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
-    monkeypatch.setattr(
-        output_preview,
-        "tr",
-        lambda key, **kwargs: {
+    def fake_tr(key, **kwargs):
+        return {
             "section.video_generation": "section.video_generation",
             "btn.generate": "btn.generate",
             "progress.generating_image_prompts": "Generating image prompts...",
@@ -1101,8 +1100,10 @@ def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_pa
             "status.video_generated": "video generated",
             "info.generation_time": "time",
             "info.scenes_unit": " scenes",
-        }.get(key, key),
-    )
+        }.get(key, key)
+
+    monkeypatch.setattr(output_preview, "tr", fake_tr)
+    monkeypatch.setattr(progress_i18n, "tr", fake_tr)
     monkeypatch.setattr(output_preview, "render_scaled_video_preview", lambda _path: None)
     monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))

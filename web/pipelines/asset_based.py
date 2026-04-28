@@ -25,7 +25,7 @@ import streamlit as st
 from loguru import logger
 
 from pixelle_video.config import config_manager
-from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.progress import ProgressEvent, ProgressEventType
 from pixelle_video.utils.os_util import get_temp_path
 from web.components.bgm_config import render_bgm_section
 from web.components.content_input import render_version_info
@@ -34,6 +34,7 @@ from web.components.selfhost_workflow_notice import render_selfhost_workflow_not
 from web.i18n import get_language, tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
 from web.utils.async_helpers import run_async
+from web.utils.progress_i18n import format_progress_event_message
 
 
 class AssetBasedPipelineUI(PipelineUI):
@@ -349,31 +350,20 @@ class AssetBasedPipelineUI(PipelineUI):
                                 message = tr("asset_based.progress.script_complete")
                             else:
                                 message = tr("asset_based.progress.generating_script")
-                        elif event.event_type == "frame_step":
-                            action_key = f"progress.step_{event.action}"
-                            action_text = tr(action_key)
-                            message = tr(
-                                "progress.frame_step",
-                                current=event.frame_current,
-                                total=event.frame_total,
-                                step=event.step,
-                                action=action_text
-                            )
-                        elif event.event_type == "processing_frame":
-                            message = tr(
-                                "progress.frame",
-                                current=event.frame_current,
-                                total=event.frame_total
-                            )
-                        elif event.event_type == "concatenating":
+                        elif event.event_type in {
+                            ProgressEventType.FRAME_STEP,
+                            ProgressEventType.PROCESSING_FRAME,
+                        }:
+                            message = format_progress_event_message(event)
+                        elif event.event_type == ProgressEventType.CONCATENATING:
                             if event.extra_info == "complete":
                                 message = tr("asset_based.progress.concat_complete")
                             else:
                                 message = tr("progress.concatenating")
-                        elif event.event_type == "completed":
+                        elif event.event_type == ProgressEventType.COMPLETED:
                             message = tr("progress.completed")
                         else:
-                            message = tr(f"progress.{event.event_type}")
+                            message = format_progress_event_message(event)
                         
                         status_text.text(message)
                         progress_bar.progress(min(int(event.progress * 100), 99))

@@ -21,7 +21,7 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
-from pixelle_video.models.progress import ProgressEvent, ProgressI18nMessage
+from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.video_generation_contract import (
     STORYBOARD_GENERATION_OPTION_KEYS as CONTRACT_STORYBOARD_GENERATION_OPTION_KEYS,
@@ -41,6 +41,7 @@ from web.components.recent_video_gallery import (
 )
 from web.i18n import tr
 from web.utils.async_helpers import run_async
+from web.utils.progress_i18n import format_progress_event_message, localize_progress_extra_info
 from web.utils.render_backend_ui import copy_render_backend
 from web.utils.streamlit_helpers import RefreshableSlot
 from web.utils.tts_audio_strategy_ui import copy_tts_audio_strategy
@@ -52,23 +53,6 @@ VIDEO_PREVIEW_WIDTH = "50%"
 
 def _resolve_video_tts_mode(video_params):
     return resolve_tts_inference_mode(None, video_params.get("tts_inference_mode"))
-
-
-def _localize_progress_extra_info(extra_info) -> str:
-    if extra_info is None:
-        return ""
-
-    if isinstance(extra_info, ProgressI18nMessage):
-        return tr(
-            extra_info.key,
-            fallback=extra_info.fallback,
-            **dict(extra_info.params),
-        )
-
-    text = str(extra_info).strip()
-    if not text:
-        return ""
-    return tr(text, fallback=text)
 
 
 ELEMENT_ANIMATION_OPTION_KEYS = (
@@ -513,32 +497,11 @@ def render_single_output(pixelle_video, video_params):
                     # Progress callback to update UI
                     def update_progress(event: ProgressEvent):
                         """Update progress bar and status text from ProgressEvent"""
-                        # Translate event to user-facing message
-                        if event.event_type == "frame_step":
-                            # Frame step: "分镜 3/5 - 步骤 2/4: 生成插图"
-                            action_key = f"progress.step_{event.action}"
-                            action_text = tr(action_key)
-                            message = tr(
-                                "progress.frame_step",
-                                current=event.frame_current,
-                                total=event.frame_total,
-                                step=event.step,
-                                action=action_text
-                            )
-                        elif event.event_type == "processing_frame":
-                            # Processing frame: "分镜 3/5"
-                            message = tr(
-                                "progress.frame",
-                                current=event.frame_current,
-                                total=event.frame_total
-                            )
-                        else:
-                            # Simple events: use i18n key directly
-                            message = tr(f"progress.{event.event_type}")
+                        message = format_progress_event_message(event)
 
                         # Append extra_info if available (e.g., batch progress)
                         if event.extra_info:
-                            localized_extra_info = _localize_progress_extra_info(event.extra_info)
+                            localized_extra_info = localize_progress_extra_info(event.extra_info)
                             if localized_extra_info:
                                 message = f"{message} - {localized_extra_info}"
 
@@ -698,28 +661,10 @@ def render_batch_output(pixelle_video, video_params):
                     # Display current task title
                     current_task_title.markdown(f"🎬 **{tr('batch.current_task')} {task_idx}**: {topic}")
 
-                    # Update task detailed progress
-                    if event.event_type == "frame_step":
-                        action_key = f"progress.step_{event.action}"
-                        action_text = tr(action_key)
-                        message = tr(
-                            "progress.frame_step",
-                            current=event.frame_current,
-                            total=event.frame_total,
-                            step=event.step,
-                            action=action_text
-                        )
-                    elif event.event_type == "processing_frame":
-                        message = tr(
-                            "progress.frame",
-                            current=event.frame_current,
-                            total=event.frame_total
-                        )
-                    else:
-                        message = tr(f"progress.{event.event_type}")
+                    message = format_progress_event_message(event)
 
                     if event.extra_info:
-                        localized_extra_info = _localize_progress_extra_info(event.extra_info)
+                        localized_extra_info = localize_progress_extra_info(event.extra_info)
                         if localized_extra_info:
                             message = f"{message} - {localized_extra_info}"
 

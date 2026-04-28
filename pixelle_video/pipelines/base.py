@@ -21,7 +21,7 @@ from typing import Callable, Optional
 
 from loguru import logger
 
-from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.progress import ProgressEvent, ProgressEventType
 from pixelle_video.models.storyboard import VideoGenerationResult
 
 
@@ -96,7 +96,7 @@ class BasePipeline(ABC):
     def _report_progress(
         self,
         callback: Optional[Callable[[ProgressEvent], None]],
-        event_type: str,
+        event_type: str | ProgressEventType,
         progress: float,
         **kwargs
     ):
