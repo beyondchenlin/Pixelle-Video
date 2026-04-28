@@ -173,6 +173,13 @@
 - `media_size = 768x768`
 - `sync_media_size_to_canvas = false`
 
+兼容约束：
+
+- `GenerationSizeContract` 是新链路的唯一尺寸解析入口。
+- `StoryboardConfig` 可以继续被旧测试和旧调用只用 `media_width` / `media_height` 构造。
+- 当 `StoryboardConfig` 未收到 `canvas_width` / `canvas_height` 时，`__post_init__` 必须把它们解析为 `media_width` / `media_height`，保持旧行为。
+- 当请求入口同时缺少 canvas 和 media 尺寸时，必须通过 `GenerationSizeContract.default()` 得到 `canvas=1280x720`、`media=768x768`，而不是散落在 UI 或 pipeline 中各自写默认值。
+
 ### 6.2 UI 行为
 
 在样式/模板区域增加最终视频尺寸设置：
@@ -189,6 +196,13 @@
 - 文案必须区分“最终视频尺寸”和“图片生成尺寸”，不再使用“由模板自动决定”的表达。
 
 模板选择仍然保留，但模板只代表版式和视觉样式。模板目录尺寸可以作为兼容信息和模板基础坐标系，不再作为用户最终尺寸选择的唯一来源。
+
+模板与画幅的协调规则：
+
+- 用户切换画幅时，模板列表默认优先展示同画幅模板。
+- 当前模板与所选画幅不一致时，UI 应通过一个模板解析函数切换到同类型、同画幅的可用模板。
+- 如果同类型同画幅模板不存在，可以保留当前模板，但必须显示兼容性提示，并通过渲染归一化保证最终视频尺寸仍然等于用户选择的 canvas 尺寸。
+- 不能让“选了横版但仍静默使用竖版模板”成为默认路径。
 
 ### 6.3 请求参数
 
@@ -234,6 +248,7 @@ API schema 可新增可选字段：
 - 最终视频段、字幕、manifest、HyperFrames canvas 使用 `canvas_width` / `canvas_height`。
 - 渲染包中的 `canvas_width` / `canvas_height` 写最终视频尺寸。
 - 渲染包中的 `media_width` / `media_height` 写素材生成尺寸。
+- 元素动画、分割、微动合成如果处理的是已合成帧，使用 `canvas_width` / `canvas_height`；只有处理原始生成素材时才使用 `media_width` / `media_height`。
 
 ### 6.5 模板渲染
 
@@ -244,8 +259,10 @@ API schema 可新增可选字段：
 渲染策略：
 
 - 默认兼容：没有传入目标画布尺寸时，继续使用模板路径尺寸。
-- 新链路：传入目标画布尺寸时，截图 viewport 使用 `canvas_width` / `canvas_height`。
-- 对模板内部写死坐标的情况，优先用 CSS transform 或外层 viewport 缩放把模板基础坐标系适配到目标画布尺寸。
+- 新链路：传入目标画布尺寸时，最终输出图像必须归一化到 `canvas_width` / `canvas_height`。
+- 对模板内部写死坐标的情况，不直接把 viewport 改小后截图，因为这会裁切固定像素布局。
+- 推荐策略是先按模板基础坐标系完整渲染，再用高质量缩放把结果归一化到目标 canvas；同画幅模板走等比缩放，不改变布局比例。
+- 如果模板画幅与目标画幅不一致，归一化必须采用显式策略，例如 contain 留边或 cover 裁切，并在 UI 提示模板画幅不匹配。
 
 这样既不需要一次重写所有模板，又能保证最终输出尺寸真正等于用户选择的尺寸。
 
