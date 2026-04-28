@@ -1256,12 +1256,295 @@ def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
         "progress",
         "empty",
         "empty",
+        "empty",
         "gallery",
         "generate",
         "store",
         "gallery",
         "button",
     ]
+
+
+def test_render_single_output_preserves_ui_size_contract_when_generating(
+    monkeypatch,
+    tmp_path,
+):
+    captured = {"button_calls": 0, "request": None}
+    video_path = tmp_path / "final.mp4"
+    video_path.write_bytes(b"video")
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeProgressBar:
+        def progress(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+    class _FakeSlot:
+        def text(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+        def container(self):
+            return _FakeContext()
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {}
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def button(self, *_args, **_kwargs):
+            captured["button_calls"] += 1
+            return captured["button_calls"] == 1
+
+        def error(self, message):
+            raise AssertionError(message)
+
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            return _FakeSlot()
+
+        def success(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, *_args, **_kwargs):
+            return None
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    class _FakePixelleVideo:
+        async def generate_video(self, **kwargs):
+            captured["request"] = kwargs
+            return SimpleNamespace(
+                video_path=str(video_path),
+                duration=8.5,
+                file_size=len(video_path.read_bytes()),
+                storyboard=SimpleNamespace(
+                    title="Generated",
+                    planning_snapshot=None,
+                    config=SimpleNamespace(
+                        task_id="task-generated",
+                        frame_template="1080x1920/image_default.html",
+                        canvas_width=kwargs["canvas_width"],
+                        canvas_height=kwargs["canvas_height"],
+                    ),
+                    frames=[object(), object()],
+                ),
+            )
+
+    monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+    monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
+    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+
+    output_preview.render_single_output(
+        _FakePixelleVideo(),
+        {
+            "text": "demo",
+            "mode": "generate",
+            "title": "Demo",
+            "media_workflow": "runninghub/image_flux.json",
+            "frame_template": "1080x1920/image_default.html",
+            "prompt_prefix": "clean",
+            "tts_inference_mode": "local",
+            "tts_voice": "zh-CN-YunjianNeural",
+            "video_orientation": "landscape",
+            "video_resolution_preset": "1k",
+            "media_orientation": "landscape",
+            "media_resolution_preset": "1k",
+            "sync_media_size_to_canvas": False,
+        },
+    )
+
+    assert captured["request"] is not None
+    assert (captured["request"]["canvas_width"], captured["request"]["canvas_height"]) == (
+        1280,
+        720,
+    )
+    assert (captured["request"]["media_width"], captured["request"]["media_height"]) == (
+        1280,
+        720,
+    )
+    assert captured["request"]["media_orientation"] == "landscape"
+    assert captured["request"]["media_resolution_preset"] == "1k"
+
+
+def test_render_single_output_places_success_summary_before_recent_gallery(
+    monkeypatch,
+    tmp_path,
+):
+    captured = {
+        "button_calls": 0,
+        "current_slot": None,
+        "events": [],
+        "slot_order": [],
+    }
+    video_path = tmp_path / "final.mp4"
+    video_path.write_bytes(b"video")
+
+    class _FakeContext:
+        def __init__(self, slot_name=None):
+            self.slot_name = slot_name
+            self.previous_slot = None
+
+        def __enter__(self):
+            self.previous_slot = captured["current_slot"]
+            if self.slot_name is not None:
+                captured["current_slot"] = self.slot_name
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            captured["current_slot"] = self.previous_slot
+            return False
+
+    class _FakeProgressBar:
+        def progress(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+    class _FakeSlot:
+        def __init__(self, name):
+            self.name = name
+
+        def text(self, value):
+            captured["events"].append(("status", self.name, value))
+
+        def empty(self):
+            captured["events"].append(("slot_empty", self.name))
+
+        def container(self):
+            return _FakeContext(self.name)
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "template_media_width": 1280,
+                "template_media_height": 720,
+            }
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def button(self, *_args, **_kwargs):
+            captured["button_calls"] += 1
+            return captured["button_calls"] == 1
+
+        def error(self, message):
+            raise AssertionError(message)
+
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            slot_name = f"slot_{len(captured['slot_order']) + 1}"
+            captured["slot_order"].append(slot_name)
+            return _FakeSlot(slot_name)
+
+        def success(self, message, **_kwargs):
+            captured["events"].append(("summary_success", captured["current_slot"], message))
+
+        def caption(self, message, **_kwargs):
+            captured["events"].append(("summary_caption", captured["current_slot"], message))
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    class _FakePixelleVideo:
+        async def generate_video(self, **_kwargs):
+            return SimpleNamespace(
+                video_path=str(video_path),
+                duration=8.5,
+                file_size=len(video_path.read_bytes()),
+                storyboard=SimpleNamespace(
+                    title="Generated",
+                    planning_snapshot=None,
+                    config=SimpleNamespace(
+                        task_id="task-generated",
+                        frame_template="1080x1920/image_default.html",
+                        canvas_width=1280,
+                        canvas_height=720,
+                    ),
+                    frames=[object(), object()],
+                ),
+            )
+
+    def _render_recent_gallery(_pixelle_video, **kwargs):
+        captured["events"].append(
+            ("gallery", captured["current_slot"], kwargs.get("key_suffix", ""))
+        )
+
+    monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+    monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
+    monkeypatch.setattr(output_preview, "render_recent_video_gallery", _render_recent_gallery)
+
+    output_preview.render_single_output(
+        _FakePixelleVideo(),
+        {
+            "text": "demo",
+            "mode": "generate",
+            "title": "Demo",
+            "tts_inference_mode": "local",
+        },
+    )
+
+    summary_event = next(event for event in captured["events"] if event[0] == "summary_success")
+    success_status_event = next(
+        event
+        for event in captured["events"]
+        if event[0] == "status" and event[2] == "status.success"
+    )
+    refreshed_gallery_event = next(
+        event for event in captured["events"] if event[0] == "gallery" and event[2]
+    )
+    initial_gallery_event = next(
+        event for event in captured["events"] if event[0] == "gallery" and not event[2]
+    )
+
+    assert summary_event[1] in captured["slot_order"]
+    assert refreshed_gallery_event[1] in captured["slot_order"]
+    assert initial_gallery_event[1] == refreshed_gallery_event[1]
+    assert captured["slot_order"].index(summary_event[1]) < captured["slot_order"].index(
+        refreshed_gallery_event[1]
+    )
+    assert captured["events"].index(success_status_event) < captured["events"].index(
+        summary_event
+    )
+    assert captured["events"].index(summary_event) < captured["events"].index(
+        refreshed_gallery_event
+    )
 
 
 def test_render_single_output_shows_gallery_before_blocking_generation(monkeypatch, tmp_path):

@@ -438,13 +438,24 @@ def render_single_output(pixelle_video, video_params):
         ):
             st.info(tr("status.generation_in_progress"))
 
+        result_summary_slot = None
+        result_summary_rendered = False
         gallery_slot = None
         gallery_rendered = False
 
-        def render_result_summary() -> None:
+        def render_result_summary(*, refresh: bool = False) -> None:
+            nonlocal result_summary_rendered
+
             summary = _get_single_video_result_summary(st.session_state)
             if summary:
-                _render_single_video_result_summary(summary)
+                if result_summary_slot is None:
+                    _render_single_video_result_summary(summary)
+                else:
+                    result_summary_slot.render(
+                        lambda _key_suffix: _render_single_video_result_summary(summary),
+                        refresh=refresh,
+                    )
+                result_summary_rendered = True
 
         def render_gallery(*, refresh: bool = False) -> None:
             nonlocal gallery_rendered
@@ -463,8 +474,6 @@ def render_single_output(pixelle_video, video_params):
             )
             gallery_rendered = True
 
-        render_result_summary()
-
         if generation_requested:
             can_generate = True
             # Validate system configuration
@@ -479,11 +488,11 @@ def render_single_output(pixelle_video, video_params):
 
             if can_generate:
                 _clear_single_video_result_summary(st.session_state)
-                render_result_summary()
 
                 # Show progress
                 progress_bar = st.progress(0)
                 status_text = st.empty()
+                result_summary_slot = RefreshableSlot(st.empty())
                 gallery_slot = RefreshableSlot(st.empty())
                 render_gallery()
 
@@ -539,6 +548,7 @@ def render_single_output(pixelle_video, video_params):
                     storyboard_contract = _storyboard_controls_contract(video_params)
                     generation_request = build_single_generation_request(
                         {
+                            **video_params,
                             "text": text,
                             "mode": mode,
                             "title": title,
@@ -596,12 +606,11 @@ def render_single_output(pixelle_video, video_params):
                                 total_generation_time=total_generation_time,
                             )
                         )
-                        render_result_summary()
+                        render_result_summary(refresh=True)
                         store_recent_generated_video(result, st.session_state)
                         render_gallery(refresh=True)
                     else:
                         _clear_single_video_result_summary(st.session_state)
-                        render_result_summary()
                         st.error(tr("status.video_not_found", path=result.video_path))
 
                 except Exception as e:
@@ -615,6 +624,10 @@ def render_single_output(pixelle_video, video_params):
             else:
                 _reset_single_video_generation_state()
                 render_generate_button(disabled=False, refresh=True)
+
+        # Idle reruns render stored results directly; active generations reserve a slot above the gallery.
+        if not result_summary_rendered and result_summary_slot is None:
+            render_result_summary()
 
         if not gallery_rendered:
             render_gallery()
