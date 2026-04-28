@@ -1423,7 +1423,7 @@ def test_render_single_output_preserves_ui_size_contract_when_generating(
             "tts_inference_mode": "local",
             "tts_voice": "zh-CN-YunjianNeural",
             "video_orientation": "landscape",
-            "video_resolution_preset": "1k",
+            "video_resolution_preset": "landscape_hd",
             "media_orientation": "landscape",
             "media_resolution_preset": "1k",
             "sync_media_size_to_canvas": False,
@@ -1435,6 +1435,7 @@ def test_render_single_output_preserves_ui_size_contract_when_generating(
         1280,
         720,
     )
+    assert captured["request"]["video_resolution_preset"] == "landscape_hd"
     assert (captured["request"]["media_width"], captured["request"]["media_height"]) == (
         1280,
         720,
