@@ -38,6 +38,7 @@ from loguru import logger
 from pixelle_video.services.font_resolver import FontResolver
 from pixelle_video.utils.os_util import (
     get_resource_path,
+    get_temp_path,
     list_resource_files,
     resource_exists,
 )
@@ -281,7 +282,8 @@ class VideoService:
             mode='w',
             delete=False,
             suffix='.txt',
-            encoding='utf-8'
+            encoding='utf-8',
+            dir=get_temp_path(),
         ) as f:
             for video in videos:
                 abs_path = Path(video).absolute()
@@ -933,14 +935,12 @@ class VideoService:
             original_filename: Original filename to preserve in temp path
         
         Returns:
-            Unique temporary file path with format: temp/{prefix}_{uuid}_{original_filename}
+            Unique temporary file path under _runtime/temp.
         
         Example:
             >>> self._get_unique_temp_path("trimmed", "video.mp4")
-            >>> # Returns: "temp/trimmed_a3f2d8c1_video.mp4"
+            >>> # Returns: ".../_runtime/temp/trimmed_a3f2d8c1_video.mp4"
         """
-        from pixelle_video.utils.os_util import get_temp_path
-        
         unique_id = uuid.uuid4().hex[:8]
         return get_temp_path(f"{prefix}_{unique_id}_{original_filename}")
     

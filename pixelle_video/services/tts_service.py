@@ -25,6 +25,7 @@ from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.tts_voices import speed_to_rate
 from pixelle_video.tts_workflow_contract import build_ref_audio_text_params
+from pixelle_video.utils.os_util import get_output_path
 from pixelle_video.utils.tts_util import edge_tts
 
 
@@ -174,10 +175,8 @@ class TTSService(ComfyBaseService):
         if not output_path:
             # Generate unique filename
             unique_id = uuid.uuid4().hex
-            output_path = f"output/{unique_id}.mp3"
-            
-            # Ensure output directory exists
-            Path("output").mkdir(parents=True, exist_ok=True)
+            output_path = get_output_path(f"{unique_id}.mp3")
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         
         # Call Edge TTS
         try:

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from pixelle_video.models.render_package import SentenceUnit
+from pixelle_video.utils.os_util import get_temp_path
 
 DEFAULT_AUTO_EDITOR_EXPORT = "timeline:api=1"
 DEFAULT_AUTO_EDITOR_EXECUTABLE = "auto-editor"
@@ -157,7 +158,11 @@ class _SubprocessAutoEditorRunner:
     def export_timeline(self, audio_path: str, margin_ms: int | None = None) -> str:
         output_path = ""
         try:
-            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
+            with tempfile.NamedTemporaryFile(
+                suffix=".json",
+                delete=False,
+                dir=get_temp_path(),
+            ) as handle:
                 output_path = handle.name
 
             command = [

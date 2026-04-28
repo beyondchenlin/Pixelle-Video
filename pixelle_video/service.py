@@ -229,7 +229,7 @@ class PixelleVideoCore:
         self.video_analysis = VideoAnalysisService(self.config, core=self)
         self.video = VideoService()
         self.frame_processor = FrameProcessor(self)
-        self.persistence = PersistenceService(output_dir="output")
+        self.persistence = PersistenceService(output_dir=get_output_path())
         self.history = HistoryManager(self.persistence)
         self.alignment_service = AlignmentService()
         self.audio_edit_service = AudioEditService()

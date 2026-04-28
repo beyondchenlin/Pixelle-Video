@@ -37,6 +37,7 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 
+from pixelle_video.utils.os_util import get_temp_path
 from pixelle_video.utils.template_util import parse_template_size
 
 
@@ -493,7 +494,11 @@ class HTMLFrameGenerator:
             try:
                 # Write HTML to a temp file and navigate via file:// URL so that
                 # local file:// image references are loaded under the same origin.
-                fd, tmp_html_path = tempfile.mkstemp(suffix='.html', prefix='pv_frame_')
+                fd, tmp_html_path = tempfile.mkstemp(
+                    suffix='.html',
+                    prefix='pv_frame_',
+                    dir=get_temp_path(),
+                )
                 with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     f.write(html)
                 

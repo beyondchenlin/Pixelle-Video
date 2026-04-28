@@ -35,6 +35,10 @@ from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.models.caption_speech_plan import build_caption_speech_plan
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.render_execution_plan import (
+    RenderExecutionArtifact,
+    RenderExecutionPlan,
+)
 from pixelle_video.models.render_package import (
     CaptionCue,
     RenderAudioTrack,
@@ -42,10 +46,6 @@ from pixelle_video.models.render_package import (
     TextCue,
     TextTrack,
     VisualClip,
-)
-from pixelle_video.models.render_execution_plan import (
-    RenderExecutionArtifact,
-    RenderExecutionPlan,
 )
 from pixelle_video.models.storyboard import (
     Storyboard,
@@ -56,9 +56,9 @@ from pixelle_video.models.storyboard import (
     build_storyboard_frame_planning_kwargs,
 )
 from pixelle_video.models.video_generation_contract import StoryboardControlsContract
-from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
+from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE
 from pixelle_video.render_backend import (
     FFMPEG_MANIFEST_RENDER_BACKEND,
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
@@ -106,6 +106,7 @@ from pixelle_video.utils.os_util import (
     get_task_final_video_path,
     get_task_frame_path,
     get_task_path,
+    get_temp_path,
 )
 from pixelle_video.utils.prompt_generation_performance import (
     LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM,
@@ -2841,7 +2842,13 @@ class StandardPipeline(LinearVideoPipeline):
 
         filelist_path = ""
         try:
-            with NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as handle:
+            with NamedTemporaryFile(
+                mode="w",
+                delete=False,
+                suffix=".txt",
+                encoding="utf-8",
+                dir=get_temp_path(),
+            ) as handle:
                 filelist_path = handle.name
                 for audio_path in audio_paths:
                     escaped_path = str(Path(audio_path).resolve()).replace("'", "'\\''")

@@ -9,6 +9,7 @@ from PIL import Image
 
 from pixelle_video.models.element_animation import ElementAnimationManifest
 from pixelle_video.services.element_animation_presets import sample_transform
+from pixelle_video.utils.os_util import get_temp_path
 
 
 class PythonElementAnimationRenderer:
@@ -63,7 +64,7 @@ class PythonElementAnimationRenderer:
             round(manifest.timeline.duration * manifest.timeline.fps),
         )
 
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory(dir=get_temp_path()) as temp_dir:
             frame_pattern = Path(temp_dir) / "frame_%06d.png"
             for frame_index in range(frame_count):
                 frame_time = frame_index / manifest.timeline.fps
