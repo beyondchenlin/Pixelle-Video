@@ -34,8 +34,15 @@ async def test_storyboard_persistence_round_trip_preserves_planning_snapshot_and
         title="Planning Snapshot Storyboard",
         config=StoryboardConfig(
             task_id="task-1",
-            media_width=1024,
-            media_height=1024,
+            canvas_width=1280,
+            canvas_height=720,
+            media_width=768,
+            media_height=768,
+            video_orientation="landscape",
+            video_resolution_preset="1k",
+            media_orientation="square",
+            media_resolution_preset="768",
+            sync_media_size_to_canvas=False,
             world_preset_id="neutral_knowledge_storyboard",
             shot_preset_id="balanced_explainer",
             content_mode="concept_explainer",
@@ -63,6 +70,13 @@ async def test_storyboard_persistence_round_trip_preserves_planning_snapshot_and
 
     assert loaded is not None
     assert loaded.planning_snapshot == planning_snapshot
+    assert (loaded.config.canvas_width, loaded.config.canvas_height) == (1280, 720)
+    assert (loaded.config.media_width, loaded.config.media_height) == (768, 768)
+    assert loaded.config.video_orientation == "landscape"
+    assert loaded.config.video_resolution_preset == "1k"
+    assert loaded.config.media_orientation == "square"
+    assert loaded.config.media_resolution_preset == "768"
+    assert loaded.config.sync_media_size_to_canvas is False
     assert loaded.config.world_preset_id == "neutral_knowledge_storyboard"
     assert loaded.config.shot_preset_id == "balanced_explainer"
     assert loaded.config.content_mode == "concept_explainer"

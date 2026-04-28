@@ -24,6 +24,12 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
+from pixelle_video.models.size_contract import (
+    DEFAULT_MEDIA_ORIENTATION,
+    DEFAULT_MEDIA_RESOLUTION_PRESET,
+    DEFAULT_VIDEO_ORIENTATION,
+    DEFAULT_VIDEO_RESOLUTION_PRESET,
+)
 from pixelle_video.models.storyboard import (
     ContentMetadata,
     Storyboard,
@@ -411,8 +417,15 @@ class PersistenceService:
             "element_animation_prompt": config.element_animation_prompt,
             "element_animation_intensity": config.element_animation_intensity,
             "element_animation_workflow": config.element_animation_workflow,
+            "canvas_width": config.canvas_width,
+            "canvas_height": config.canvas_height,
             "media_width": config.media_width,
             "media_height": config.media_height,
+            "video_orientation": config.video_orientation,
+            "video_resolution_preset": config.video_resolution_preset,
+            "media_orientation": config.media_orientation,
+            "media_resolution_preset": config.media_resolution_preset,
+            "sync_media_size_to_canvas": config.sync_media_size_to_canvas,
             "media_workflow": config.media_workflow,
             "media_negative_prompt": config.media_negative_prompt,
             "frame_template": config.frame_template,
@@ -473,8 +486,21 @@ class PersistenceService:
             element_animation_prompt=data.get("element_animation_prompt"),
             element_animation_intensity=data.get("element_animation_intensity", "medium"),
             element_animation_workflow=data.get("element_animation_workflow", "image_sam31_segment.json"),
+            canvas_width=data.get("canvas_width"),
+            canvas_height=data.get("canvas_height"),
             media_width=data.get("media_width", data.get("image_width", 1024)),  # Backward compatibility
             media_height=data.get("media_height", data.get("image_height", 1024)),  # Backward compatibility
+            video_orientation=data.get("video_orientation", DEFAULT_VIDEO_ORIENTATION),
+            video_resolution_preset=data.get(
+                "video_resolution_preset",
+                DEFAULT_VIDEO_RESOLUTION_PRESET,
+            ),
+            media_orientation=data.get("media_orientation", DEFAULT_MEDIA_ORIENTATION),
+            media_resolution_preset=data.get(
+                "media_resolution_preset",
+                DEFAULT_MEDIA_RESOLUTION_PRESET,
+            ),
+            sync_media_size_to_canvas=data.get("sync_media_size_to_canvas", False),
             media_workflow=data.get("media_workflow", data.get("image_workflow")),  # Backward compatibility
             media_negative_prompt=data.get("media_negative_prompt"),
             frame_template=data.get("frame_template", "1080x1920/default.html"),
