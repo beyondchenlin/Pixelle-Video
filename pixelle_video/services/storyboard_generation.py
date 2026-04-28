@@ -8,6 +8,7 @@ from typing import Any
 
 from pixelle_video.models.content_generation import SmartStoryboardPlanResponse
 from pixelle_video.models.storyboard_limits import (
+    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
     StoryboardGenerationLimits,
     storyboard_generation_limits_from_config,
 )
@@ -42,6 +43,10 @@ CLOSING_PUNCTUATION = "”’\"'）)]}》】」』"
 
 def _is_unicode_punctuation(char: str) -> bool:
     return unicodedata.category(char).startswith("P")
+
+
+def _is_storyboard_split_punctuation(char: str) -> bool:
+    return _is_unicode_punctuation(char) and char not in {"%", "％", "《", "》"}
 
 
 def _normalize_text(text: str) -> str:
@@ -200,18 +205,35 @@ class StoryboardGenerationService:
         storyboard_mode: str,
         storyboard_count_mode: str,
         storyboard_scene_count: int | None,
+        storyboard_max_scene_count: int | None = None,
         prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
     ) -> StoryboardPlan:
         if not _normalize_text(source_text):
             raise ValueError("source_text must not be empty")
+        deterministic_limit_cap = self.limits.deterministic_max_scene_count_limit
+        if storyboard_max_scene_count is not None and (
+            type(storyboard_max_scene_count) is not int
+            or not DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN
+            <= storyboard_max_scene_count
+            <= deterministic_limit_cap
+        ):
+            raise ValueError(
+                "storyboard_max_scene_count must be between "
+                f"{DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN} and "
+                f"{deterministic_limit_cap}"
+            )
         if storyboard_mode == "punctuation":
-            segments = _split_with_predicate(source_text, _is_unicode_punctuation)
+            segments = _split_with_predicate(
+                source_text,
+                _is_storyboard_split_punctuation,
+            )
             return self._plan_from_segments(
                 mode="punctuation",
                 count_mode=storyboard_count_mode,
                 requested_scene_count=storyboard_scene_count,
                 source_text=source_text,
                 segments=segments,
+                max_scene_count=storyboard_max_scene_count,
                 prompt_language=prompt_language,
             )
         if storyboard_mode == "sentence":
@@ -222,6 +244,7 @@ class StoryboardGenerationService:
                 requested_scene_count=storyboard_scene_count,
                 source_text=source_text,
                 segments=segments,
+                max_scene_count=storyboard_max_scene_count,
                 prompt_language=prompt_language,
             )
         if storyboard_mode == "smart":
@@ -634,6 +657,7 @@ class StoryboardGenerationService:
         requested_scene_count: int | None,
         source_text: str,
         segments: list[tuple[str, int, int]],
+        max_scene_count: int | None = None,
         prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
         frame_strategy: str | None = None,
         diagnostics_strategy: str | None = None,
@@ -642,8 +666,12 @@ class StoryboardGenerationService:
         normalized_source = _normalize_text(source_text)
         resolved_prompt_language = normalize_prompt_language(prompt_language)
         effective_segments = segments or [(normalized_source, 0, len(normalized_source))]
-        max_scene_count = self.limits.max_scene_count
-        if len(effective_segments) > max_scene_count:
+        effective_max_scene_count = (
+            max_scene_count
+            if max_scene_count is not None
+            else self.limits.default_deterministic_max_scene_count
+        )
+        if len(effective_segments) > effective_max_scene_count:
             raise ValueError(
                 "too many storyboard frames; use smart storyboard mode or shorten the text"
             )
@@ -671,6 +699,7 @@ class StoryboardGenerationService:
         diagnostics = {
             "strategy": diagnostics_strategy or mode,
             "split_count": len(frames),
+            "max_scene_count": effective_max_scene_count,
         }
         if extra_diagnostics:
             diagnostics.update(extra_diagnostics)

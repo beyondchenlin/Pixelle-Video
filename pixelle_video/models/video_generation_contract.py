@@ -11,10 +11,13 @@ from pixelle_video.models.storyboard_plan import (
     StoryboardPlan,
 )
 from pixelle_video.models.storyboard_limits import (
+    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
+    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
     DEFAULT_STORYBOARD_GENERATION_LIMITS,
     StoryboardGenerationLimits,
     storyboard_generation_limits_from_config,
 )
+from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
 from pixelle_video.prompt_language import (
     DEFAULT_PROMPT_LANGUAGE,
     PromptLanguage,
@@ -71,6 +74,7 @@ STORYBOARD_GENERATION_OPTION_KEYS = (
     "storyboard_mode",
     "storyboard_count_mode",
     "storyboard_scene_count",
+    "storyboard_max_scene_count",
     "storyboard_prompt_language",
 )
 STORYBOARD_PLANNING_OPTION_KEYS = (
@@ -97,6 +101,7 @@ class StoryboardControlsContract:
     storyboard_mode: str = StoryboardGenerationMode.SMART.value
     storyboard_count_mode: str = StoryboardCountMode.AUTO.value
     storyboard_scene_count: Any = None
+    storyboard_max_scene_count: Any = None
     storyboard_prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE
     world_preset_id: str | None = None
     shot_preset_id: str | None = None
@@ -124,11 +129,13 @@ class StoryboardControlsContract:
             or StoryboardCountMode.AUTO.value
         )
         storyboard_scene_count = mapping.get("storyboard_scene_count")
+        storyboard_max_scene_count = mapping.get("storyboard_max_scene_count")
 
         if storyboard_mode == StoryboardGenerationMode.SMART.value:
             if storyboard_count_mode == StoryboardCountMode.AUTO.value:
                 storyboard_count_mode = StoryboardCountMode.AUTO.value
                 storyboard_scene_count = None
+            storyboard_max_scene_count = None
         elif storyboard_mode in {
             StoryboardGenerationMode.PUNCTUATION.value,
             StoryboardGenerationMode.SENTENCE.value,
@@ -148,6 +155,7 @@ class StoryboardControlsContract:
             storyboard_mode=storyboard_mode,
             storyboard_count_mode=storyboard_count_mode,
             storyboard_scene_count=storyboard_scene_count,
+            storyboard_max_scene_count=storyboard_max_scene_count,
             storyboard_prompt_language=normalize_prompt_language(
                 mapping.get("storyboard_prompt_language"),
                 default=default_prompt_language,
@@ -169,6 +177,7 @@ class StoryboardControlsContract:
             "storyboard_mode": self.storyboard_mode,
             "storyboard_count_mode": self.storyboard_count_mode,
             "storyboard_scene_count": self.storyboard_scene_count,
+            "storyboard_max_scene_count": self.storyboard_max_scene_count,
             "storyboard_prompt_language": self.storyboard_prompt_language,
         }
 
@@ -250,6 +259,7 @@ def validate_standard_video_generation_params(
         raise ValueError(f"unsupported storyboard count mode: {count_mode}")
 
     scene_count = params.get("storyboard_scene_count")
+    deterministic_max_scene_count = params.get("storyboard_max_scene_count")
     if storyboard_mode == "smart":
         if count_mode == "manual":
             if scene_count is None:
@@ -266,11 +276,26 @@ def validate_standard_video_generation_params(
                 )
         elif scene_count is not None:
             raise ValueError("storyboard_scene_count is valid only with smart manual mode")
+        if deterministic_max_scene_count is not None:
+            raise ValueError(
+                "storyboard_max_scene_count is only valid for deterministic storyboard modes"
+            )
     else:
         if count_mode != "auto":
             raise ValueError("deterministic storyboard modes require auto count mode")
         if scene_count is not None:
             raise ValueError("storyboard_scene_count is not valid for deterministic storyboard modes")
+        if deterministic_max_scene_count is not None and (
+            type(deterministic_max_scene_count) is not int
+            or not DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN
+            <= deterministic_max_scene_count
+            <= effective_limits.deterministic_max_scene_count_limit
+        ):
+            raise ValueError(
+                "storyboard_max_scene_count must be between "
+                f"{DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN} and "
+                f"{effective_limits.deterministic_max_scene_count_limit}"
+            )
 
     script_length_mode = params.get("script_length_mode", "auto")
     if script_length_mode not in {item.value for item in ScriptLengthMode}:
@@ -285,8 +310,15 @@ def validate_standard_video_generation_params(
     elif script_length_mode == "custom":
         if script_target_words is None:
             raise ValueError("script_target_words is required with custom script length mode")
-        if type(script_target_words) is not int or script_target_words < 1:
-            raise ValueError("invalid script_target_words: must be a positive integer")
+        if (
+            type(script_target_words) is not int
+            or script_target_words < 1
+            or script_target_words > SCRIPT_TARGET_WORDS_MAX
+        ):
+            raise ValueError(
+                "invalid script_target_words: must be a positive integer "
+                f"no greater than {SCRIPT_TARGET_WORDS_MAX}"
+            )
     elif script_target_words is not None:
         raise ValueError("script_target_words is only valid with custom script length mode")
 
