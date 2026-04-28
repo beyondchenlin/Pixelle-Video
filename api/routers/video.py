@@ -93,6 +93,7 @@ def build_video_generation_params(
         "storyboard_mode": request_body.storyboard_mode,
         "storyboard_count_mode": request_body.storyboard_count_mode,
         "storyboard_scene_count": request_body.storyboard_scene_count,
+        "storyboard_max_scene_count": request_body.storyboard_max_scene_count,
         "script_length_mode": request_body.script_length_mode,
         "script_target_words": request_body.script_target_words,
         "min_image_prompt_words": request_body.min_image_prompt_words,
