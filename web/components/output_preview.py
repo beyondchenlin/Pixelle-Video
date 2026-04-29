@@ -21,6 +21,7 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
+from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.video_generation_contract import (
@@ -53,6 +54,13 @@ VIDEO_PREVIEW_WIDTH = "50%"
 
 def _resolve_video_tts_mode(video_params):
     return resolve_tts_inference_mode(None, video_params.get("tts_inference_mode"))
+
+
+def _media_placement_payload(*sources) -> dict:
+    for source in sources:
+        if source is not None:
+            return resolve_media_placement(source).to_dict()
+    return MediaPlacement().to_dict()
 
 
 ELEMENT_ANIMATION_OPTION_KEYS = (
@@ -250,6 +258,10 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         else 0.2,
         "progress_callback": progress_callback,
         **size_contract.to_params(),
+        "media_placement": _media_placement_payload(
+            video_params.get("media_placement"),
+            session_state.get("media_placement"),
+        ),
         "tts_inference_mode": _resolve_video_tts_mode(video_params),
         "world_preset_id": storyboard_contract.world_preset_id,
         "shot_preset_id": storyboard_contract.shot_preset_id,
@@ -312,6 +324,7 @@ def build_batch_shared_config(video_params):
         "bgm_volume": video_params.get("bgm_volume") or 0.2,
         "tts_inference_mode": _resolve_video_tts_mode(video_params),
         **size_contract.to_params(),
+        "media_placement": _media_placement_payload(video_params.get("media_placement")),
         "world_preset_id": storyboard_contract.world_preset_id,
         "shot_preset_id": storyboard_contract.shot_preset_id,
         "consistency_strength": storyboard_contract.consistency_strength or "standard",

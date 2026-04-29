@@ -37,6 +37,10 @@ from pixelle_video.config.prompt_prefix_library import (
     get_prompt_prefix_workflow_preview_asset_path,
     resolve_prompt_prefix_gallery_cover,
 )
+from pixelle_video.models.media_placement import (
+    VALID_MEDIA_PLACEMENT_ANCHORS,
+    MediaPlacement,
+)
 from pixelle_video.models.size_contract import (
     DEFAULT_MEDIA_ORIENTATION,
     DEFAULT_MEDIA_RESOLUTION_PRESET,
@@ -193,6 +197,99 @@ def _render_size_segmented_control(
     return str(selected or default_value)
 
 
+MEDIA_PLACEMENT_ANCHOR_GRID = (
+    ("top_left", "top", "top_right"),
+    ("left", "center", "right"),
+    ("bottom_left", "bottom", "bottom_right"),
+)
+MEDIA_PLACEMENT_ANCHOR_BUTTON_LABELS = {
+    "top_left": "↖",
+    "top": "↑",
+    "top_right": "↗",
+    "left": "←",
+    "center": "●",
+    "right": "→",
+    "bottom_left": "↙",
+    "bottom": "↓",
+    "bottom_right": "↘",
+}
+
+
+def _coerce_media_placement_scale(value) -> int:
+    try:
+        return MediaPlacement(scale_percent=value).scale_percent
+    except (TypeError, ValueError):
+        return MediaPlacement().scale_percent
+
+
+def _media_placement_anchor_label(anchor: str) -> str:
+    return tr(f"media_placement.anchor.{anchor}")
+
+
+def _render_media_placement_controls() -> MediaPlacement:
+    scale_default = _coerce_media_placement_scale(
+        st.session_state.get(
+            "media_placement_scale_percent",
+            MediaPlacement().scale_percent,
+        )
+    )
+    slider = getattr(st, "slider", None)
+    if slider is None:
+        scale_percent = scale_default
+        st.session_state["media_placement_scale_percent"] = scale_percent
+    else:
+        scale_percent = int(
+            slider(
+                tr("media_placement.scale"),
+                min_value=10,
+                max_value=100,
+                value=scale_default,
+                step=5,
+                help=tr("media_placement.scale_help"),
+                key="media_placement_scale_percent",
+            )
+        )
+
+    anchor = _ensure_session_option(
+        "media_placement_anchor",
+        VALID_MEDIA_PLACEMENT_ANCHORS,
+        MediaPlacement().anchor,
+    )
+    caption = getattr(st, "caption", None)
+    if caption is not None:
+        caption(tr("media_placement.anchor"))
+
+    columns = getattr(st, "columns", None)
+    button = getattr(st, "button", None)
+    if columns is not None and button is not None:
+        for row in MEDIA_PLACEMENT_ANCHOR_GRID:
+            cols = columns(3)
+            for col, candidate in zip(cols, row):
+                with col:
+                    if st.button(
+                        MEDIA_PLACEMENT_ANCHOR_BUTTON_LABELS[candidate],
+                        key=f"media_placement_anchor_{candidate}",
+                        width="stretch",
+                        type="primary" if anchor == candidate else "secondary",
+                        help=_media_placement_anchor_label(candidate),
+                    ):
+                        anchor = candidate
+                        st.session_state["media_placement_anchor"] = candidate
+
+    placement = MediaPlacement(scale_percent=scale_percent, anchor=anchor)
+    st.session_state["media_placement"] = placement.to_dict()
+
+    if caption is not None:
+        caption(
+            tr(
+                "media_placement.summary",
+                scale=placement.scale_percent,
+                anchor=_media_placement_anchor_label(placement.anchor),
+            )
+        )
+    return placement
+
+
 def _build_template_gallery_tab_label(display_info, orientation_labels: dict[str, str]) -> str:
     orientation = getattr(display_info, "orientation", "")
     return orientation_labels.get(orientation, orientation)
@@ -283,6 +380,7 @@ def _render_generation_size_controls() -> GenerationSizeContract:
             height=contract.media_height,
         )
     )
+    _render_media_placement_controls()
     return contract
 
 
@@ -2768,7 +2866,11 @@ def render_style_config(
                             title=preview_title,
                             text=preview_text,
                             image=preview_image,
-                            ext=ext
+                            ext=ext,
+                            media_placement=st.session_state.get("media_placement"),
+                            media_type=template_media_type,
+                            media_width=media_width,
+                            media_height=media_height,
                         ))
                         
                         # Display preview
@@ -2975,6 +3077,10 @@ def render_style_config(
         "storyboard_prompt_language": storyboard_prompt_language,
         "prompt_prefix": prompt_prefix if prompt_prefix else "",
         **size_contract.to_params(),
+        "media_placement": st.session_state.get(
+            "media_placement",
+            MediaPlacement().to_dict(),
+        ),
         "text_rendering": text_rendering,
         **element_animation_settings,
     }

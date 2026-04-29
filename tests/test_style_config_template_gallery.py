@@ -300,3 +300,46 @@ def test_render_generation_size_controls_syncs_image_size_to_canvas(monkeypatch)
     assert (contract.canvas_width, contract.canvas_height) == (3840, 2160)
     assert (contract.media_width, contract.media_height) == (3840, 2160)
     assert contract.sync_media_size_to_canvas is True
+
+
+def test_render_generation_size_controls_sets_default_media_placement(monkeypatch):
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "video_orientation": "landscape",
+                "video_resolution_preset": "landscape_hd",
+                "media_orientation": "landscape",
+                "media_resolution_preset": "1k",
+                "sync_media_size_to_canvas": False,
+            }
+
+        def segmented_control(self, _label, options, *, format_func, default, key):
+            assert default in options
+            return self.session_state[key]
+
+        def toggle(self, _label, *, value, help, key):
+            assert value is False
+            assert help
+            return self.session_state[key]
+
+        def info(self, _message):
+            return None
+
+    fake_st = FakeStreamlit()
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(
+        style_config,
+        "tr",
+        lambda key, **kwargs: key.format(**kwargs) if kwargs else key,
+    )
+
+    style_config._render_generation_size_controls()
+
+    assert fake_st.session_state["media_placement_scale_percent"] == 80
+    assert fake_st.session_state["media_placement_anchor"] == "center"
+    assert fake_st.session_state["media_placement"] == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 80,
+        "anchor": "center",
+    }

@@ -206,6 +206,46 @@ def test_build_single_generation_request_uses_size_contract_not_template_session
     assert request["media_orientation"] == "square"
     assert request["media_resolution_preset"] == "768"
     assert request["sync_media_size_to_canvas"] is False
+    assert request["media_placement"] == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 80,
+        "anchor": "center",
+    }
+
+
+def test_build_single_generation_request_uses_media_placement_payload():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "media_placement": {
+                "basis": "canvas",
+                "fit": "contain",
+                "scale_percent": 90,
+                "anchor": "right",
+            },
+        },
+        progress_callback=_progress,
+        session_state={
+            "media_placement": {
+                "basis": "canvas",
+                "fit": "contain",
+                "scale_percent": 70,
+                "anchor": "left",
+            }
+        },
+    )
+
+    assert request["media_placement"] == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 90,
+        "anchor": "right",
+    }
 
 
 def test_build_single_generation_request_uses_full_hd_standard_preset():
@@ -603,6 +643,12 @@ def test_build_batch_shared_config_uses_size_contract_defaults_and_overrides():
     assert shared_config["media_orientation"] == "portrait"
     assert shared_config["media_resolution_preset"] == "4k"
     assert shared_config["sync_media_size_to_canvas"] is False
+    assert shared_config["media_placement"] == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 80,
+        "anchor": "center",
+    }
 
 
 def test_build_batch_shared_config_uses_standard_video_preset():
