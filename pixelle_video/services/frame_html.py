@@ -394,6 +394,34 @@ class HTMLFrameGenerator:
 
             normalized.save(output_path)
 
+    async def _wait_for_render_ready(self, page: Any) -> None:
+        await page.evaluate(
+            """
+            async () => {
+                const fontReady = document.fonts && document.fonts.ready
+                    ? document.fonts.ready.catch(() => undefined)
+                    : Promise.resolve();
+
+                const imageReady = Array.from(document.images || []).map((img) => {
+                    if (img.complete) {
+                        return Promise.resolve();
+                    }
+                    if (typeof img.decode === "function") {
+                        return img.decode().catch(() => undefined);
+                    }
+                    return new Promise((resolve) => {
+                        img.addEventListener("load", resolve, { once: true });
+                        img.addEventListener("error", resolve, { once: true });
+                    });
+                });
+
+                await Promise.all([fontReady, ...imageReady]);
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+            }
+            """
+        )
+
     @classmethod
     def _get_browser_lock(cls, loop: asyncio.AbstractEventLoop) -> asyncio.Lock:
         loop_id = id(loop)
@@ -566,7 +594,8 @@ class HTMLFrameGenerator:
                 with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     f.write(html)
                 
-                await page.goto(Path(tmp_html_path).as_uri(), wait_until='networkidle')
+                await page.goto(Path(tmp_html_path).as_uri(), wait_until='domcontentloaded')
+                await self._wait_for_render_ready(page)
                 await page.screenshot(path=output_path, type='png', omit_background=True)
                 self._normalize_canvas_output(output_path)
             finally:

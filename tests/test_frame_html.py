@@ -181,3 +181,60 @@ def test_html_frame_generator_normalizes_output_png_to_target_canvas(tmp_path):
 
     assert (generator.template_width, generator.template_height) == (1080, 1920)
     assert (generator.width, generator.height) == (1280, 720)
+
+
+def test_html_frame_generator_uses_deterministic_render_readiness(
+    tmp_path,
+    monkeypatch,
+):
+    template_dir = tmp_path / "templates" / "1280x720"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "image_sample.html"
+    template.write_text("<html><body>{{title}}</body></html>", encoding="utf-8")
+    output = tmp_path / "frame.png"
+    calls = {}
+
+    class FakePage:
+        async def goto(self, url, wait_until):
+            calls["goto"] = {"url": url, "wait_until": wait_until}
+
+        async def evaluate(self, script):
+            calls.setdefault("evaluate", []).append(script)
+
+        async def screenshot(self, path, type, omit_background):
+            Image.new("RGBA", (1280, 720), (255, 0, 0, 255)).save(path)
+
+        async def close(self):
+            calls["closed"] = True
+
+    class FakeBrowser:
+        async def new_page(self, viewport, device_scale_factor):
+            calls["new_page"] = {
+                "viewport": viewport,
+                "device_scale_factor": device_scale_factor,
+            }
+            return FakePage()
+
+    async def fake_ensure_browser(_cls):
+        return FakeBrowser()
+
+    monkeypatch.setattr(HTMLFrameGenerator, "_ensure_browser", fake_ensure_browser)
+
+    generator = HTMLFrameGenerator(str(template))
+    try:
+        run_async(
+            generator.generate_frame(
+                title="Demo",
+                text="",
+                image="",
+                ext={"index": 1},
+                output_path=str(output),
+            )
+        )
+    finally:
+        shutdown_all_async_runtimes()
+
+    assert calls["goto"]["wait_until"] == "domcontentloaded"
+    assert "document.fonts.ready" in calls["evaluate"][0]
+    assert "decode" in calls["evaluate"][0]
+    assert output.exists()
