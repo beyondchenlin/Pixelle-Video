@@ -33,7 +33,7 @@
             position: relative;
             background: transparent;
             /* 移除黑色背景 */
-            background-image: url("{{image}}");
+            background-image: none;
             background-size: cover;
             background-position: center;
         }
@@ -43,7 +43,7 @@
             position: relative;
             width: 100%;
             height: 100%;
-            background-image: url("{{image}}");
+            background-image: none;
             background-size: cover;
             background-position: center;
             z-index: 0;
@@ -169,6 +169,7 @@
 </head>
 
 <body>
+    {{pixelle_media_layer}}
     <!-- <div class="bg"></div> -->
     <div class="main">
         <div class="title">{{title}}</div>

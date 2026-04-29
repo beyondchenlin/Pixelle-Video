@@ -3,6 +3,7 @@ import pytest
 from pixelle_video.utils.template_util import (
     get_supported_template_orientations,
     get_template_orientation,
+    lint_repository_media_templates,
     parse_template_contract,
     resolve_compatible_template_for_orientation,
     resolve_default_template_for_type_and_orientation,
@@ -87,3 +88,7 @@ def test_resolve_compatible_template_rejects_missing_orientation_for_type():
             template_type="static",
             orientation="landscape",
         )
+
+
+def test_lint_repository_media_templates_reports_no_template_bypass():
+    assert lint_repository_media_templates() == {}

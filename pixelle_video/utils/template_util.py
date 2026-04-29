@@ -584,6 +584,30 @@ def get_supported_template_orientations(
     return tuple(orientation for orientation in orientation_order if orientation in supported)
 
 
+def iter_repository_media_templates(
+    templates_root: str | Path = "templates",
+) -> list[Path]:
+    root = Path(templates_root)
+    return [
+        path
+        for path in sorted(root.rglob("*.html"))
+        if path.name.startswith(("image_", "video_", "asset_"))
+    ]
+
+
+def lint_repository_media_templates(
+    templates_root: str | Path = "templates",
+) -> dict[str, list[str]]:
+    from pixelle_video.services.template_media_lint import lint_media_template
+
+    failures: dict[str, list[str]] = {}
+    for path in iter_repository_media_templates(templates_root):
+        result = lint_media_template(path)
+        if result.errors:
+            failures[str(path)] = result.errors
+    return failures
+
+
 def _get_templates_for_orientation(
     template_type: TemplateType,
     orientation: TemplateOrientation,

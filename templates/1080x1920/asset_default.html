@@ -125,6 +125,7 @@
 
 <body>
     <div class="page-container">
+        {{pixelle_media_layer}}
         <!-- Background Media Layer 
              - For image assets: contains <img> tag
              - For video assets: empty (hidden by CSS)
@@ -152,23 +153,6 @@
             </div>
         </div>
     </div>
-
-    <script>
-        // Conditionally add image if provided
-        (function () {
-            var imageUrl = "{{image}}";
-            var bgLayer = document.getElementById('bg-layer');
-
-            // Only add img tag if image URL is provided and not empty
-            if (imageUrl && imageUrl.trim() !== "" && imageUrl !== "None") {
-                var img = document.createElement('img');
-                img.src = imageUrl;
-                img.alt = "Background";
-                bgLayer.appendChild(img);
-            }
-            // Otherwise, bg-layer stays empty and gets hidden by CSS
-        })();
-    </script>
 </body>
 
 </html>

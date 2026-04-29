@@ -21,7 +21,7 @@
             color: #fff;
             position: relative;
             background: #1a1a1a;
-            background-image: url("{{image}}");
+            background-image: none;
             background-size: cover;
             background-position: center bottom 400px;
         }
@@ -102,13 +102,13 @@
     </style>
 </head>
 <body>
+    {{pixelle_media_layer}}
     <!-- 顶部标题区 -->
     <div class="top-section">
         <div class="title">{{title}}</div>
         <div class="subtitle">{{subtitle=作者}}</div>
     </div>
 
-    <!-- <img class="img" src="{{image}}" alt="内容图片"> -->
     
     <!-- 底部文字区 -->
     <div class="bottom-section">

@@ -479,7 +479,7 @@ class HTMLFrameGenerator:
   --pixelle-media-top: {variables["pixelle_media_top"]};
 }}
 .pixelle-media-layer {{
-  position: absolute;
+  position: fixed;
   inset: 0;
   pointer-events: none;
 }}
