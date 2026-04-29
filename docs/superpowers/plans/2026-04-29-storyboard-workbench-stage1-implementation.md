@@ -10,6 +10,57 @@
 
 ---
 
+## Planning Authority
+
+This plan is a Stage 1 implementation plan under the full Pixelle AI short drama/comic planning hierarchy. It must be executed only inside the boundaries defined by these documents:
+
+- `docs/pixelle_video_full_planning_md/MASTER_PIXELLE_AI_DRAMA_COMIC_PLATFORM_PLAN.md`
+- `docs/pixelle_video_full_planning_md/13_STORYBOARD_WORKBENCH_SUBPLAN.md`
+- `docs/pixelle_video_full_planning_md/14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md`
+- `docs/pixelle_video_full_planning_md/15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md`
+
+This plan does not replace the master plan or the remaining capability subplans. It is the first executable slice of the master plan.
+
+## Skill-Gated Execution Rules
+
+Use the documents above for product and architecture decisions, and use Superpowers skills for execution discipline.
+
+Required execution flow:
+
+```text
+1. Review this plan with superpowers:executing-plans or superpowers:subagent-driven-development.
+2. Before production code for each task, use superpowers:test-driven-development.
+3. For every behavior change, write the failing test first and verify the expected failure.
+4. Implement the minimum code required for the task.
+5. Run the task-specific verification command in the task.
+6. Commit each task atomically.
+7. Before claiming the stage complete, use superpowers:verification-before-completion and run the full Stage 1 verification checklist.
+```
+
+Repository override:
+
+```text
+AGENTS.md forbids git worktree use in this repository.
+If a Superpowers skill recommends a worktree, do not create one here.
+Execute in the current workspace with narrow staging and atomic commits.
+```
+
+Stop conditions:
+
+- A task references a file, model, API, or service that no longer exists.
+- A test cannot be made to fail for the expected reason.
+- A task would introduce FlowGram, full Workflow Engine, SaaS billing, ProviderCapability matrix, Quality Evaluation, or video segment generation into Stage 1.
+- The working tree contains unrelated changes that would be mixed into the task commit.
+
+## Stage 1 Alignment Matrix
+
+| Requirement source | Stage 1 coverage |
+| --- | --- |
+| `13_STORYBOARD_WORKBENCH_SUBPLAN.md` | Tasks 4, 6, 8, and 9 implement workbench metadata, candidate listing, image selection, lock/stale behavior, and frame regeneration. |
+| `14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md` | Tasks 1, 2, 5, 6, and 9 implement Artifact/ArtifactVersion, trace events, local services, image regeneration, and Trace linkage. |
+| `15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md` | Tasks 3 and 7 implement PromptPlan with reserved SceneCast fields and PromptPlan construction without full AssetBible/SceneCast implementation. |
+| `MASTER_PIXELLE_AI_DRAMA_COMIC_PLATFORM_PLAN.md` | Scope exclusions below keep Workflow, Worker, Provider, FlowGram, SaaS, video, and Quality/Admin work out of Stage 1. |
+
 ## Scope
 
 This plan implements only Stage 1 from the accepted v2 review:
@@ -2364,7 +2415,7 @@ Expected: both selected tests pass and existing raw fields still work for compat
 
 ```bash
 git add tests/test_raw_generation_parameter_policy.py api/schemas/video.py
-git commit -m "docs: 标记生成接口原始参数为兼容字段"
+git commit -m "feat: 标记生成接口原始参数为兼容字段"
 ```
 
 ---
@@ -2413,6 +2464,9 @@ Expected: all selected compatibility tests pass.
 - Do not directly manipulate `output/{task_id}/trace/events.jsonl` outside `LocalJsonGenerationTraceService`.
 - Keep `StoryboardFrame.index` zero-based in the current runtime model. Keep `StoryboardPlanFrame.index` one-based as it already is.
 - Use `frame_id` for workbench identity. Use `index` only for ordering and existing render compatibility.
+- Use Superpowers skills as execution gates, not as replacement architecture sources. The architecture source is the master plan plus Stage 1 subplans listed in Planning Authority.
+- Follow TDD for every production-code task. If a listed failing test cannot fail for the expected reason, stop and revise the task before implementing.
+- Do not use `git worktree`; AGENTS.md forbids worktree-based workflows in this repository.
 - Keep every commit atomic. Do not include `_runtime/` or review documents unless the user explicitly asks.
 
 ## Spec Coverage Self-Review
