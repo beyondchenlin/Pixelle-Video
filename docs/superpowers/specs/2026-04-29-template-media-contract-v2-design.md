@@ -87,7 +87,7 @@ media_placement
 
 ## 6. 新增契约
 
-建议新增模块：
+新增模块：
 
 ```text
 pixelle_video/models/media_placement.py
@@ -115,11 +115,11 @@ class MediaPlacement:
     anchor: MediaPlacementAnchor = "center"
 ```
 
-第一版只开放 `basis="canvas"` 和 `fit="contain"`。`cover` 可以作为内部兼容值保留，但 UI 不默认暴露，避免用户误以为图片不会被裁切。
+第一版只开放 `basis="canvas"` 和 `fit="contain"`。`cover` 只允许作为旧模板迁移诊断中的内部兼容值，不进入 UI、API 文档或默认请求，避免用户误以为图片不会被裁切。
 
 校验规则：
 
-- `scale_percent` 建议范围 `10..100`。
+- `scale_percent` 允许范围 `10..100`。
 - 默认值为 `80`。
 - `anchor` 默认 `center`。
 - `basis` 第一版只能为 `canvas`。
@@ -233,25 +233,29 @@ HyperFramesCompiler 将其投影为 CSS 变量和 data attributes。
 
 ### HTMLFrameGenerator
 
-`generate_frame()` 增加可选参数或通过 `ext` 注入标准保留字段：
+`generate_frame()` 必须增加类型化 `media_placement` 参数。`ext` 只能由渲染器内部派生保留模板变量，不能作为外部调用方传入媒体摆放规则的入口，避免形成第二套事实源。
 
-```text
-media_placement_scale
-media_placement_anchor
-media_placement_fit
-media_placement_basis
+```python
+async def generate_frame(
+    ...,
+    media_placement: MediaPlacement | None = None,
+) -> str:
+    ...
 ```
 
-更推荐由 `HTMLFrameGenerator` 直接注入一个标准 CSS 片段，而不是让每个模板重复实现布局计算。
+`HTMLFrameGenerator` 负责把 `MediaPlacement` 投影成内部保留模板变量和标准 CSS 片段。模板只能消费这些结果，不能自己解释 `scale_percent` 或 `anchor`。
 
 ## 9. 标准媒体层
 
-所有图片/视频模板应迁移到统一结构：
+所有图片/视频模板应迁移到统一结构。图片和视频共享同一个外层媒体盒子，内部 media element 根据素材类型选择 `<img>` 或 `<video>`：
 
 ```html
 <div class="pixelle-media-layer">
   <div class="pixelle-media-box" data-pixelle-media-box>
     <img class="pixelle-media" src="{{image}}" alt="">
+    <!-- video workflow uses:
+    <video class="pixelle-media" src="{{image}}" muted playsinline></video>
+    -->
   </div>
 </div>
 ```
@@ -267,6 +271,7 @@ media_placement_basis
 
 .pixelle-media-box {
   position: absolute;
+  box-sizing: border-box;
   width: var(--pixelle-media-display-width);
   height: var(--pixelle-media-display-height);
   left: var(--pixelle-media-left);
@@ -280,6 +285,8 @@ media_placement_basis
   display: block;
 }
 ```
+
+模板迁移时不能同时保留旧的裸 `{{image}}` 媒体节点。一个模板只能有一个主媒体层；额外的装饰性背景如果需要使用图片，必须使用独立参数名，例如 `{{background}}`，不能复用 `{{image}}`。
 
 模板可以继续添加视觉外观，例如阴影、圆角、边框，但不能覆盖：
 
@@ -320,6 +327,17 @@ media_placement_basis
 - 注入 CSS 变量。
 - 渲染模板。
 
+当前 HTMLFrameGenerator 会先按模板设计坐标截图，再归一化到最终 `canvas_width` / `canvas_height`。因此媒体摆放计算必须显式处理坐标空间，不能直接把最终画布像素值塞进模板坐标。
+
+第一版要求：
+
+1. 用户语义仍以最终 canvas 为准计算 `display_width_canvas`、`display_height_canvas`、`left_canvas`、`top_canvas`。
+2. 渲染器根据模板设计尺寸到最终 canvas 的归一化变换，把这些 canvas 坐标反投影为模板坐标。
+3. 模板 CSS 变量使用反投影后的模板坐标，截图归一化后必须回到用户预期的 canvas 坐标。
+4. 若模板方向与最终 canvas 方向不兼容，必须阻止生成或显式走受控兼容策略，不能静默使用错误坐标。
+
+这条规则是验收重点。否则在 `1920x1080` 模板导出 `1280x720` 视频时，`80%` 会被重复缩放，用户看到的占比会小于 80%。
+
 ### HyperFrames
 
 `HyperFramesCompiler` 负责：
@@ -327,6 +345,8 @@ media_placement_basis
 - 把 `media_placement` 写入 `index.html`。
 - 将 `.visual-clip` 或 `.visual-frame` 映射到标准媒体层规则。
 - 确保 HyperFrames 预览和最终 render 与 legacy HTML 结果一致。
+
+HyperFrames 直接以最终 canvas 尺寸渲染，因此它可以直接消费 canvas 坐标。测试必须覆盖同一素材在 HTML/Legacy 和 HyperFrames 两个后端下的显示尺寸与锚点一致性。
 
 ### FFmpeg Manifest
 
@@ -343,7 +363,7 @@ media_placement_basis
   - 同步开关：控制生成图片多大。
   - 占比/位置：控制图片在视频里显示多大、在哪。
 
-建议显示结果摘要：
+UI 必须显示结果摘要：
 
 ```text
 图片显示：按视频画布 80%，居中
@@ -384,6 +404,8 @@ media_placement_basis
 - HTMLFrameGenerator 渲染出的 debug HTML 包含媒体摆放变量。
 - HyperFrames 编译产物包含同一媒体摆放变量。
 - 模板 lint 能发现裸 `{{image}}`、`background-image: url("{{image}}")`、覆盖标准媒体尺寸/位置等问题。
+- `1920x1080` 模板导出 `1280x720` 时，最终输出里的媒体实际显示为 canvas 的 80%，不会因为模板截图归一化被二次缩放。
+- 视频素材模板使用标准媒体层 `<video>` 路径，和图片素材共享同一几何计算。
 
 视觉验证：
 
@@ -403,7 +425,7 @@ media_placement_basis
 - 模板 lint 阻止新模板绕过标准媒体层。
 - 自动化测试覆盖几何计算、API/manifest 数据流、模板 lint 和关键渲染产物。
 
-## 17. 实施顺序建议
+## 17. 实施顺序
 
 1. 新增 `MediaPlacement` 模型和几何计算测试。
 2. 扩展 API、StoryboardConfig、RenderManifest、TemplateRenderContext 数据通路。
