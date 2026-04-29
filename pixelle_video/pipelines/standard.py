@@ -53,7 +53,11 @@ from pixelle_video.models.render_package import (
     TextTrack,
     VisualClip,
 )
-from pixelle_video.models.size_contract import GenerationSizeContract
+from pixelle_video.models.size_contract import (
+    GenerationSizeContract,
+    has_canvas_size_intent,
+    orientation_from_dimensions,
+)
 from pixelle_video.models.storyboard import (
     Storyboard,
     StoryboardConfig,
@@ -120,9 +124,12 @@ from pixelle_video.utils.prompt_generation_performance import (
     LLM_PROMPT_BATCH_SIZE_PARAM,
 )
 from pixelle_video.utils.template_util import (
+    get_template_orientation,
     get_template_type,
     parse_template_size,
     resolve_default_template_for_type_and_orientation,
+    resolve_template_path,
+    validate_template_canvas_orientation,
 )
 
 
@@ -152,14 +159,31 @@ def _resolve_frame_template_for_size_contract(
     params: Mapping[str, Any],
     size_contract: GenerationSizeContract,
 ) -> str:
+    canvas_orientation = orientation_from_dimensions(
+        size_contract.canvas_width,
+        size_contract.canvas_height,
+    )
     frame_template = params.get("frame_template")
     if frame_template:
+        resolved_template = resolve_template_path(str(frame_template))
+        validate_template_canvas_orientation(resolved_template, canvas_orientation)
         return str(frame_template)
 
     return resolve_default_template_for_type_and_orientation(
         "image",
-        size_contract.video_orientation,
+        canvas_orientation,
     )
+
+
+def _size_params_with_template_defaults(params: Mapping[str, Any]) -> dict[str, Any]:
+    size_params = dict(params)
+    frame_template = size_params.get("frame_template")
+    if not frame_template or has_canvas_size_intent(size_params):
+        return size_params
+
+    resolved_template = resolve_template_path(str(frame_template))
+    size_params["video_orientation"] = get_template_orientation(resolved_template)
+    return size_params
 
 
 
@@ -357,7 +381,9 @@ class StandardPipeline(LinearVideoPipeline):
             default_prompt_language=DEFAULT_PROMPT_LANGUAGE,
         )
         # Detect template type to determine if media generation is needed
-        size_contract = GenerationSizeContract.from_params(ctx.params)
+        size_contract = GenerationSizeContract.from_params(
+            _size_params_with_template_defaults(ctx.params)
+        )
         frame_template = _resolve_frame_template_for_size_contract(ctx.params, size_contract)
         
         template_name = Path(frame_template).name
@@ -510,7 +536,9 @@ class StandardPipeline(LinearVideoPipeline):
             )
 
         frame_count = ctx.storyboard_plan.resolved_scene_count
-        size_contract = GenerationSizeContract.from_params(ctx.params)
+        size_contract = GenerationSizeContract.from_params(
+            _size_params_with_template_defaults(ctx.params)
+        )
         frame_template = _resolve_frame_template_for_size_contract(ctx.params, size_contract)
 
         # Create config

@@ -352,11 +352,51 @@ async def test_initialize_storyboard_defaults_template_to_canvas_orientation():
 
 
 @pytest.mark.asyncio
-async def test_initialize_storyboard_preserves_explicit_template():
+async def test_initialize_storyboard_defaults_template_to_explicit_canvas_orientation():
     ctx = PipelineContext(
         input_text="first. second.",
         params={
-            "frame_template": "1080x1920/image_default.html",
+            "canvas_width": 1080,
+            "canvas_height": 1920,
+            "media_width": 768,
+            "media_height": 768,
+        },
+    )
+    ctx.task_id = "task-explicit-canvas-default-template"
+    ctx.title = "Explicit canvas default template"
+    ctx.storyboard_plan = _plan()
+    ctx.image_prompts = ["prompt one", "prompt two"]
+
+    await StandardPipeline(_DummyCore()).initialize_storyboard(ctx)
+
+    assert (ctx.config.canvas_width, ctx.config.canvas_height) == (1080, 1920)
+    assert get_template_orientation(ctx.config.frame_template) == "portrait"
+
+
+@pytest.mark.asyncio
+async def test_initialize_storyboard_uses_explicit_template_orientation_when_size_unset():
+    ctx = PipelineContext(
+        input_text="first. second.",
+        params={"frame_template": "1080x1920/image_default.html"},
+    )
+    ctx.task_id = "task-template-derived-size"
+    ctx.title = "Template derived size"
+    ctx.storyboard_plan = _plan()
+    ctx.image_prompts = ["prompt one", "prompt two"]
+
+    await StandardPipeline(_DummyCore()).initialize_storyboard(ctx)
+
+    assert ctx.config.video_orientation == "portrait"
+    assert (ctx.config.canvas_width, ctx.config.canvas_height) == (720, 1280)
+    assert ctx.config.frame_template == "1080x1920/image_default.html"
+
+
+@pytest.mark.asyncio
+async def test_initialize_storyboard_preserves_compatible_explicit_template():
+    ctx = PipelineContext(
+        input_text="first. second.",
+        params={
+            "frame_template": "1920x1080/image_landscape_minimal.html",
             "video_orientation": "landscape",
             "video_resolution_preset": "landscape_hd",
         },
@@ -368,4 +408,23 @@ async def test_initialize_storyboard_preserves_explicit_template():
 
     await StandardPipeline(_DummyCore()).initialize_storyboard(ctx)
 
-    assert ctx.config.frame_template == "1080x1920/image_default.html"
+    assert ctx.config.frame_template == "1920x1080/image_landscape_minimal.html"
+
+
+@pytest.mark.asyncio
+async def test_initialize_storyboard_rejects_template_canvas_orientation_mismatch():
+    ctx = PipelineContext(
+        input_text="first. second.",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "video_orientation": "landscape",
+            "video_resolution_preset": "landscape_hd",
+        },
+    )
+    ctx.task_id = "task-mismatched-explicit-template"
+    ctx.title = "Mismatched explicit template"
+    ctx.storyboard_plan = _plan()
+    ctx.image_prompts = ["prompt one", "prompt two"]
+
+    with pytest.raises(ValueError, match="Template orientation"):
+        await StandardPipeline(_DummyCore()).initialize_storyboard(ctx)

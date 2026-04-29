@@ -4,6 +4,7 @@ from pixelle_video.models.size_contract import (
     DEFAULT_MEDIA_SIZE,
     GenerationSizeContract,
     SizeSpec,
+    has_canvas_size_intent,
     resolve_canvas_size,
     resolve_media_size,
 )
@@ -204,6 +205,29 @@ def test_explicit_canvas_and_media_dimensions_take_precedence():
 
     assert (contract.canvas_width, contract.canvas_height) == (1280, 720)
     assert (contract.media_width, contract.media_height) == (1024, 1024)
+    assert contract.video_orientation == "landscape"
+
+
+def test_explicit_canvas_without_orientation_derives_video_orientation_from_canvas():
+    contract = GenerationSizeContract.from_params(
+        {
+            "canvas_width": 1080,
+            "canvas_height": 1920,
+            "media_width": 768,
+            "media_height": 768,
+        }
+    )
+
+    assert (contract.canvas_width, contract.canvas_height) == (1080, 1920)
+    assert contract.video_orientation == "portrait"
+
+
+def test_canvas_size_intent_includes_legacy_media_canvas_fields():
+    assert has_canvas_size_intent({}) is False
+    assert has_canvas_size_intent({"video_orientation": "portrait"}) is True
+    assert has_canvas_size_intent({"canvas_width": 1080, "canvas_height": 1920}) is True
+    assert has_canvas_size_intent({"media_width": 1080, "media_height": 1920}) is True
+    assert has_canvas_size_intent({"sync_media_size_to_canvas": True}) is True
 
 
 def test_legacy_media_only_request_uses_media_as_canvas():

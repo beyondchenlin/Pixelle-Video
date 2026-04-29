@@ -28,6 +28,8 @@ from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MA
 from pixelle_video.models.size_contract import (
     STANDARD_VIDEO_SIZE_PRESETS,
     GenerationSizeContract,
+    has_canvas_size_intent,
+    orientation_from_dimensions,
 )
 from pixelle_video.models.storyboard_limits import (
     DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
@@ -48,7 +50,12 @@ from pixelle_video.utils.prompt_generation_performance import (
     PROMPT_BATCH_SIZE_MAX,
     PROMPT_BATCH_SIZE_MIN,
 )
-from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
+from pixelle_video.utils.template_util import (
+    DEFAULT_IMAGE_TEMPLATE,
+    get_template_orientation,
+    resolve_template_path,
+    validate_template_canvas_orientation,
+)
 
 StandardTtsAudioStrategy = Literal["auto", "master_track"]
 VideoOrientation = Literal["landscape", "portrait", "square"]
@@ -421,19 +428,37 @@ class VideoGenerateRequest(BaseModel):
         elif self.script_target_words is not None:
             raise ValueError("script_target_words is only valid with custom script length mode")
 
-        GenerationSizeContract.from_params(
-            {
-                "canvas_width": self.canvas_width,
-                "canvas_height": self.canvas_height,
-                "media_width": self.media_width,
-                "media_height": self.media_height,
-                "video_orientation": self.video_orientation,
-                "video_resolution_preset": self.video_resolution_preset,
-                "media_orientation": self.media_orientation,
-                "media_resolution_preset": self.media_resolution_preset,
-                "sync_media_size_to_canvas": self.sync_media_size_to_canvas,
-            }
-        )
+        size_params = {
+            "canvas_width": self.canvas_width,
+            "canvas_height": self.canvas_height,
+            "media_width": self.media_width,
+            "media_height": self.media_height,
+            "video_orientation": self.video_orientation,
+            "video_resolution_preset": self.video_resolution_preset,
+            "media_orientation": self.media_orientation,
+            "media_resolution_preset": self.media_resolution_preset,
+            "sync_media_size_to_canvas": self.sync_media_size_to_canvas,
+        }
+        if (
+            self.frame_template
+            and self.video_orientation is None
+            and not has_canvas_size_intent(size_params)
+        ):
+            self.video_orientation = get_template_orientation(
+                resolve_template_path(self.frame_template)
+            )
+            size_params["video_orientation"] = self.video_orientation
+
+        size_contract = GenerationSizeContract.from_params(size_params)
+        if self.frame_template:
+            canvas_orientation = orientation_from_dimensions(
+                size_contract.canvas_width,
+                size_contract.canvas_height,
+            )
+            validate_template_canvas_orientation(
+                resolve_template_path(self.frame_template),
+                canvas_orientation,
+            )
 
         return self
 

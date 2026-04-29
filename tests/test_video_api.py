@@ -162,6 +162,16 @@ def test_video_generate_request_accepts_size_contract_controls():
     assert request.sync_media_size_to_canvas is False
 
 
+def test_video_generate_request_rejects_template_canvas_orientation_mismatch():
+    with pytest.raises(ValidationError, match="Template orientation"):
+        VideoGenerateRequest(
+            text="demo",
+            frame_template="1080x1920/image_default.html",
+            video_orientation="landscape",
+            video_resolution_preset="landscape_hd",
+        )
+
+
 def test_video_generate_request_defaults_media_placement():
     request = VideoGenerateRequest(text="demo")
 
@@ -378,6 +388,7 @@ def test_video_generate_request_defaults_storyboard_prompt_language_to_english_f
     )
 
     assert request.storyboard_prompt_language == "zh_CN"
+    assert request.video_orientation == "portrait"
 
 
 def test_video_generate_request_accepts_plan_identity_frame_overrides():
@@ -850,12 +861,12 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "script_target_words": 180,
             "min_image_prompt_words": 30,
             "max_image_prompt_words": 60,
-            "canvas_width": 1280,
-            "canvas_height": 720,
+            "canvas_width": 720,
+            "canvas_height": 1280,
             "media_width": 768,
             "media_height": 768,
-            "video_orientation": "landscape",
-            "video_resolution_preset": "landscape_hd",
+            "video_orientation": "portrait",
+            "video_resolution_preset": "portrait_hd",
             "media_orientation": "square",
             "media_resolution_preset": "768",
             "sync_media_size_to_canvas": False,

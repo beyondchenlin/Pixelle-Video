@@ -571,6 +571,21 @@ def get_template_orientation(template_path: str) -> TemplateOrientation:
     return _template_orientation_from_dimensions(width, height)
 
 
+def validate_template_canvas_orientation(
+    template_path: str,
+    canvas_orientation: TemplateOrientation,
+) -> None:
+    template_orientation = get_template_orientation(template_path)
+    if template_orientation == canvas_orientation:
+        return
+    raise ValueError(
+        "Template orientation mismatch: "
+        f"Template orientation is {template_orientation!r}, "
+        f"but final video canvas orientation is {canvas_orientation!r}. "
+        f"Select a {canvas_orientation} template or change the video canvas."
+    )
+
+
 def get_supported_template_orientations(
     template_type: TemplateType,
 ) -> tuple[TemplateOrientation, ...]:

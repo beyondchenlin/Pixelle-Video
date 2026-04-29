@@ -162,6 +162,17 @@ def normalize_media_orientation(value: Any = None) -> str:
     )
 
 
+def orientation_from_dimensions(width: int | float, height: int | float) -> str:
+    dimensions = _validate_positive_dimensions(width=width, height=height)
+    resolved_width = dimensions["width"]
+    resolved_height = dimensions["height"]
+    if resolved_width > resolved_height:
+        return "landscape"
+    if resolved_height > resolved_width:
+        return "portrait"
+    return "square"
+
+
 def normalize_video_resolution_preset(
     value: Any = None,
     *,
@@ -234,6 +245,16 @@ def _optional_int_pair(
     return SizeSpec(int(width), int(height))
 
 
+def _validate_positive_dimensions(**dimensions: Any) -> dict[str, float]:
+    normalized: dict[str, float] = {}
+    for name, value in dimensions.items():
+        numeric = float(value)
+        if numeric <= 0:
+            raise ValueError(f"{name} must be positive")
+        normalized[name] = numeric
+    return normalized
+
+
 def _has_new_canvas_intent(params: Mapping[str, Any]) -> bool:
     if bool(params.get("sync_media_size_to_canvas", False)):
         return True
@@ -242,6 +263,24 @@ def _has_new_canvas_intent(params: Mapping[str, Any]) -> bool:
         for key in (
             "canvas_width",
             "canvas_height",
+            "video_orientation",
+            "video_resolution_preset",
+        )
+    )
+
+
+def has_canvas_size_intent(params: Mapping[str, Any] | None) -> bool:
+    """Return whether params explicitly influence the final video canvas size."""
+    source = params or {}
+    if bool(source.get("sync_media_size_to_canvas", False)):
+        return True
+    return any(
+        key in source and source.get(key) is not None
+        for key in (
+            "canvas_width",
+            "canvas_height",
+            "media_width",
+            "media_height",
             "video_orientation",
             "video_resolution_preset",
         )
@@ -288,6 +327,17 @@ class GenerationSizeContract:
 
         if explicit_canvas is not None:
             canvas = explicit_canvas
+            if source.get("video_orientation") is None:
+                video_orientation = orientation_from_dimensions(
+                    canvas.width,
+                    canvas.height,
+                )
+                video_preset = _VIDEO_PRESET_ALIASES_BY_ORIENTATION[
+                    video_orientation
+                ].get(
+                    f"{canvas.width}x{canvas.height}",
+                    DEFAULT_VIDEO_RESOLUTION_PRESETS_BY_ORIENTATION[video_orientation],
+                )
         elif explicit_media is not None and not _has_new_canvas_intent(source):
             canvas = explicit_media
         else:
