@@ -407,6 +407,12 @@ class HTMLFrameGenerator:
             logger.warning(f"Failed to preserve debug HTML: {exc}")
             return None
 
+    def _remove_temp_html(self, tmp_html_path: str) -> None:
+        try:
+            os.unlink(tmp_html_path)
+        except Exception as exc:
+            logger.debug(f"Failed to delete temporary HTML: {exc}")
+
     @classmethod
     def _get_browser_lock(cls, loop: asyncio.AbstractEventLoop) -> asyncio.Lock:
         loop_id = id(loop)
@@ -597,13 +603,13 @@ class HTMLFrameGenerator:
                     logger.debug(f"Failed to close Playwright page cleanly: {close_error}")
                 if tmp_html_path and os.path.exists(tmp_html_path):
                     if rendered:
-                        os.unlink(tmp_html_path)
+                        self._remove_temp_html(tmp_html_path)
                     else:
                         debug_html_path = self._preserve_debug_html(
                             tmp_html_path,
                             output_path,
                         )
-                        os.unlink(tmp_html_path)
+                        self._remove_temp_html(tmp_html_path)
             
             logger.info(f"Frame generated: {output_path}")
             return output_path

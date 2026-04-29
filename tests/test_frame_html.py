@@ -352,3 +352,118 @@ def test_html_frame_generator_ignores_page_close_failure_after_screenshot(
     assert result == str(output)
     assert output.exists()
     assert not (tmp_path / "frame.debug.html").exists()
+
+
+def test_html_frame_generator_ignores_temp_html_delete_failure_after_screenshot(
+    tmp_path,
+    monkeypatch,
+):
+    template_dir = tmp_path / "templates" / "1280x720"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "image_sample.html"
+    template.write_text("<html><body>{{title}}</body></html>", encoding="utf-8")
+    output = tmp_path / "frame.png"
+
+    class FakePage:
+        async def goto(self, url, wait_until, timeout=None):
+            pass
+
+        async def evaluate(self, script):
+            pass
+
+        async def screenshot(self, path, type, omit_background):
+            Image.new("RGBA", (1280, 720), (255, 0, 0, 255)).save(path)
+
+        async def close(self):
+            pass
+
+    class FakeBrowser:
+        async def new_page(self, viewport, device_scale_factor):
+            return FakePage()
+
+    async def fake_ensure_browser(_cls):
+        return FakeBrowser()
+
+    def fail_unlink(path):
+        raise PermissionError("temp file locked")
+
+    monkeypatch.setattr(HTMLFrameGenerator, "_ensure_browser", fake_ensure_browser)
+    monkeypatch.setattr("pixelle_video.services.frame_html.os.unlink", fail_unlink)
+
+    generator = HTMLFrameGenerator(str(template))
+    try:
+        result = run_async(
+            generator.generate_frame(
+                title="Unlink failure",
+                text="",
+                image="",
+                ext={"index": 1},
+                output_path=str(output),
+            )
+        )
+    finally:
+        shutdown_all_async_runtimes()
+
+    assert result == str(output)
+    assert output.exists()
+
+
+def test_html_frame_generator_keeps_original_error_when_temp_html_delete_fails(
+    tmp_path,
+    monkeypatch,
+):
+    template_dir = tmp_path / "templates" / "1280x720"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "image_sample.html"
+    template.write_text("<html><body>{{title}}</body></html>", encoding="utf-8")
+    output = tmp_path / "frame.png"
+
+    class FailingReadiness(FrameRenderReadiness):
+        async def wait(self, page):
+            raise RuntimeError("original render failure")
+
+    class FakePage:
+        async def goto(self, url, wait_until, timeout=None):
+            pass
+
+        async def screenshot(self, path, type, omit_background):
+            raise AssertionError("screenshot should not run after readiness failure")
+
+        async def close(self):
+            pass
+
+    class FakeBrowser:
+        async def new_page(self, viewport, device_scale_factor):
+            return FakePage()
+
+    async def fake_ensure_browser(_cls):
+        return FakeBrowser()
+
+    def fail_unlink(path):
+        raise PermissionError("temp file locked")
+
+    monkeypatch.setattr(HTMLFrameGenerator, "_ensure_browser", fake_ensure_browser)
+    monkeypatch.setattr("pixelle_video.services.frame_html.os.unlink", fail_unlink)
+
+    generator = HTMLFrameGenerator(
+        str(template),
+        render_readiness=FailingReadiness(),
+    )
+
+    try:
+        with pytest.raises(RuntimeError) as exc_info:
+            run_async(
+                generator.generate_frame(
+                    title="Failure",
+                    text="",
+                    image="",
+                    ext={"index": 1},
+                    output_path=str(output),
+                )
+            )
+    finally:
+        shutdown_all_async_runtimes()
+
+    assert "original render failure" in str(exc_info.value)
+    assert "temp file locked" not in str(exc_info.value)
+    assert "frame.debug.html" in str(exc_info.value)
