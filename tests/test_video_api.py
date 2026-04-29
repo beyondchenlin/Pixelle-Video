@@ -859,6 +859,12 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "media_orientation": "square",
             "media_resolution_preset": "768",
             "sync_media_size_to_canvas": False,
+            "media_placement": {
+                "basis": "canvas",
+                "fit": "contain",
+                "scale_percent": 80,
+                "anchor": "center",
+            },
             "media_workflow": None,
             "video_fps": 30,
             "frame_template": "1080x1920/image_default.html",
