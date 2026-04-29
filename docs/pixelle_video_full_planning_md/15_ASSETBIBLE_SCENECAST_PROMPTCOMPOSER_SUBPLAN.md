@@ -69,6 +69,8 @@ PromptPlan 是结构化计划，PromptProjection 是面向某个 Provider 的最
 - PromptPlan 先存在。
 - 预留 `character_ids / scene_id / prop_ids / style_id`。
 - 不实现复杂 AssetBible。
+- Stage 1A 负责文案、分镜规划、图片提示词和 PromptPlan。
+- Stage 1B 负责把 PromptPlan 接入工作台、候选图、Artifact 和 Trace。
 
 阶段 2：
 

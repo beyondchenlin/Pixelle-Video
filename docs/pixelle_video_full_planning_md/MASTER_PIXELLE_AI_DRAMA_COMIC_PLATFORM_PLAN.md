@@ -12,7 +12,8 @@ Pixelle 不应继续按“本地一键视频生成工具”演进，也不应一
 更健康的路线是：
 
 ```text
-先把 Pixelle 做成可编辑、可重抽、可追踪的分镜图创作工作台；
+先把 Pixelle 的文案、分镜规划和图片提示词生成链路做稳；
+再把这些稳定上游接入可编辑、可重抽、可追踪的分镜图创作工作台；
 再把工作台里的稳定流程抽象成最小 Workflow Skeleton；
 再接 Worker、Provider、FlowGram、SaaS、Public API 和视频扩展。
 ```
@@ -25,7 +26,7 @@ Pixelle 不应继续按“本地一键视频生成工具”演进，也不应一
 阶段实施计划 = 某个阶段可直接交给 Codex 执行的任务拆分
 ```
 
-因此，已经生成的阶段一计划只能作为第一个阶段实施计划，不能替代整个项目规划。
+因此，已经生成的阶段一工作台计划只能作为 Stage 1B 实施计划，不能替代整个项目规划，也不能跳过 Stage 1A 的文案与图片提示词计划。
 
 ---
 
@@ -84,7 +85,7 @@ WorkflowRun / NodeRun
 SaaS 权限计费
 ```
 
-这些方向正确，但实施顺序偏早。团队评审和 v2 反馈的修正更合理：第一阶段先完成用户能感知的分镜图工作台闭环，同时只预埋最小合同，避免后续接 Workflow 和 FlowGram 时返工。
+这些方向正确，但实施顺序偏早。团队评审和 v2 反馈的修正更合理：第一阶段先完成用户能感知的创作链路和分镜图工作台闭环，同时只预埋最小合同，避免后续接 Workflow 和 FlowGram 时返工。
 
 ### 3.3 `ALL_IN_ONE` 的定位
 
@@ -279,6 +280,23 @@ GenerationTrace
 - PromptPlan 可追溯到 StoryboardPanel、SceneCast 和 AssetBible。
 - 修改角色或风格后，下游 PromptPlan 和图片产物能标记为 stale。
 
+### 7.4A Stage 1A 文案与图片提示词分方案
+
+来源：`12A_TEXT_IMAGE_PROMPT_STAGE1A_SUBPLAN.md`、`02_TEXT_GENERATION_PIPELINE_REDESIGN.md`、`04_PROMPT_COMPOSER_AND_SCENE_CASTING.md`
+
+目标：
+
+- 先稳定 `主题/文案 -> ScriptDraft -> StoryboardPlan -> 图片提示词 -> PromptPlan`。
+- PromptPlan 预留 `character_ids`、`scene_id`、`prop_ids`、`style_id`。
+- 支持最小 Prompt-only IP 输入，但不实现完整 AssetBible。
+- 让 Stage 1B 的工作台、候选图、重抽和 Artifact 有稳定上游。
+
+验收：
+
+- 不生成真实图片也能验证文案、分镜和图片提示词链路。
+- 每个 frame 都有稳定 `frame_id` 和 PromptPlan。
+- `prompt_prefix` 不再被定义为长期事实源。
+
 ### 7.5 分镜图工作台分方案
 
 来源：团队评审、v2 反馈、阶段一实施计划
@@ -453,9 +471,36 @@ GenerationTrace
 
 - 本文档被确认。
 - 每个阶段有明确输入、输出和禁止项。
-- 阶段一计划挂到总控方案下，不再被误认为完整总方案。
+- 阶段一被拆成 Stage 1A 和 Stage 1B，已有工作台计划挂到 Stage 1B 下，不再被误认为完整总方案。
 
-### 阶段 1：分镜图工作台核心
+### 阶段 1A：文案与图片提示词生成基础
+
+新增分方案：
+
+`12A_TEXT_IMAGE_PROMPT_STAGE1A_SUBPLAN.md`
+
+目标：
+
+- 用户主题/文案输入。
+- ScriptDraft 基础结构。
+- StoryboardPlan 稳定生成。
+- 每格视觉目标和图片提示词。
+- PromptPlan 基础结构。
+- PromptPlan 预留 `character_ids`、`scene_id`、`prop_ids`、`style_id`。
+- 最小 Prompt-only IP 输入字段。
+- 文案、分镜、图片提示词基础 Trace 入口。
+
+禁止：
+
+- 不做完整 AssetBible。
+- 不做完整 SceneCast。
+- 不做候选图选择。
+- 不做图片重抽。
+- 不做完整 ArtifactVersion 选择状态。
+- 不接完整 FlowGram。
+- 不做完整 SaaS 计费。
+
+### 阶段 1B：分镜图工作台核心
 
 已有计划：
 
@@ -464,7 +509,7 @@ GenerationTrace
 目标：
 
 - StoryboardPanel / StoryboardFrame 工作台字段。
-- PromptPlan 基础结构。
+- 消费 Stage 1A 产出的 PromptPlan。
 - Artifact / ArtifactVersion。
 - GenerationTrace。
 - frame lock / stale flags。
@@ -480,7 +525,7 @@ GenerationTrace
 - 不做完整 ProviderCapability 矩阵。
 - 不做用户自定义 DAG。
 
-### 阶段 2：AssetBible / SceneCast / PromptComposer
+### 阶段 2：完整 AssetBible / SceneCast / PromptComposer
 
 目标：
 
@@ -491,7 +536,8 @@ GenerationTrace
 
 依赖：
 
-- 阶段 1 的 PromptPlan 必须已经预留 `character_ids`、`scene_id`、`prop_ids`、`style_id`。
+- 阶段 1A 的 PromptPlan 必须已经预留 `character_ids`、`scene_id`、`prop_ids`、`style_id`。
+- 阶段 1B 已经能把 PromptPlan 与图片候选、Artifact 和 Trace 关联起来。
 
 ### 阶段 3：Artifact / Trace / Regeneration 完整闭环
 
@@ -504,7 +550,7 @@ GenerationTrace
 
 依赖：
 
-- 阶段 1 的基础 Artifact / Trace。
+- 阶段 1B 的基础 Artifact / Trace。
 - 阶段 2 的 SceneCast / PromptComposer。
 
 ### 阶段 4：最小 Workflow Skeleton
@@ -614,22 +660,24 @@ GenerationTrace
 
 ```text
 阶段 0 总方案
-  -> 阶段 1 分镜图工作台核心
-    -> 阶段 2 AssetBible / SceneCast / PromptComposer
-      -> 阶段 3 Artifact / Trace / Regeneration 完整闭环
-        -> 阶段 4 Workflow Skeleton
-          -> 阶段 5 Worker / Queue
-            -> 阶段 6 Provider Router / ResourceResolver
-              -> 阶段 7 FlowGram Adapter
-                -> 阶段 8 SaaS / Billing / Public API
+  -> 阶段 1A 文案与图片提示词生成基础
+    -> 阶段 1B 分镜图工作台核心
+      -> 阶段 2 完整 AssetBible / SceneCast / PromptComposer
+        -> 阶段 3 Artifact / Trace / Regeneration 完整闭环
+          -> 阶段 4 Workflow Skeleton
+            -> 阶段 5 Worker / Queue
+              -> 阶段 6 Provider Router / ResourceResolver
+                -> 阶段 7 FlowGram Adapter
+                  -> 阶段 8 SaaS / Billing / Public API
 
-阶段 9 视频扩展依赖阶段 1、3、5、6
+阶段 9 视频扩展依赖阶段 1B、3、5、6
 阶段 10 质量评估和管理后台依赖阶段 3、6、8
 ```
 
 关键原则：
 
-- 阶段 1 可以开始实现，但只能实现工作台闭环和最小合同。
+- 阶段 1A 可以先实现文案、分镜规划、图片提示词和 PromptPlan。
+- 阶段 1B 再实现工作台闭环、Artifact、Trace、候选图、选择和重抽。
 - 阶段 4 之前不做用户自定义 Workflow 产品。
 - 阶段 7 之前不把 FlowGram 接入主执行路径。
 - 阶段 8 之前不开放 Public API 强商业化能力。
@@ -669,7 +717,7 @@ GenerationTrace
 
 ```text
 阶段 0：总方案收敛
-阶段 1：分镜图工作台核心准备开始
+阶段 1A：文案与图片提示词生成基础准备开始
 ```
 
 已有可复用基础：
@@ -681,13 +729,14 @@ GenerationTrace
 
 当前明显缺口：
 
+- 文案、分镜规划和图片提示词生成还没有被收敛成 Stage 1A 的独立实施入口。
 - Artifact / ArtifactVersion 未成为统一领域模型。
 - GenerationTrace 仍未成为所有生成步骤的统一事实记录。
 - StoryboardFrame 更偏最终媒体输出，缺少工作台选择、重抽、锁定和 stale 状态。
 - API 仍暴露 `tts_workflow`、`ref_audio`、`media_workflow`、`frame_template`、`prompt_prefix`、`bgm_path` 等 raw 参数。
 - Workflow / FlowGram / SaaS 还不能进入主实施路径。
 
-因此，下一步应继续围绕阶段 1，但必须在本总控方案约束下执行。
+因此，下一步应先围绕阶段 1A 补齐实施计划，再进入阶段 1B 工作台闭环。
 
 ---
 
@@ -706,10 +755,10 @@ GenerationTrace
 
 `01-12` 文档继续作为能力域资料。正式能力分方案已经从 `13_STORYBOARD_WORKBENCH_SUBPLAN.md` 到 `22_QUALITY_EVALUATION_ADMIN_SUBPLAN.md` 建立，后续评审和实施应优先引用这些分方案。
 
-阶段一实施计划继续有效，但它的定位是：
+已有阶段一工作台实施计划继续有效，但它的定位调整为：
 
 ```text
-阶段 1 子计划：分镜图工作台核心
+阶段 1B 子计划：分镜图工作台核心
 ```
 
 不是：
@@ -725,6 +774,7 @@ GenerationTrace
 正式分方案已经按以下顺序建立：
 
 ```text
+12A_TEXT_IMAGE_PROMPT_STAGE1A_SUBPLAN.md
 13_STORYBOARD_WORKBENCH_SUBPLAN.md
 14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md
 15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md
@@ -737,7 +787,7 @@ GenerationTrace
 22_QUALITY_EVALUATION_ADMIN_SUBPLAN.md
 ```
 
-每份分方案确认后，再生成对应阶段或子阶段实施计划。已有阶段一计划继续作为 `13_STORYBOARD_WORKBENCH_SUBPLAN.md` 的第一份实施计划。
+每份分方案确认后，再生成对应阶段或子阶段实施计划。已有阶段一工作台计划继续作为 `13_STORYBOARD_WORKBENCH_SUBPLAN.md` 的 Stage 1B 实施计划；Stage 1A 需要新增独立实施计划后再进入代码实现。
 
 ---
 
@@ -768,9 +818,9 @@ Pixelle 的正确路线不是：
 
 ```text
 确认本总控方案
-  -> 以阶段一计划启动分镜图工作台核心
-  -> 同步补齐 Artifact / Trace / Regeneration 和 AssetBible / SceneCast 分方案
-  -> 等工作台闭环稳定后，再进入 Workflow、Worker、Provider、FlowGram、SaaS、视频扩展
+  -> 先启动 Stage 1A：文案、分镜规划、图片提示词和 PromptPlan
+  -> 再启动 Stage 1B：分镜图工作台、Artifact、Trace、候选图、选择和重抽
+  -> 等工作台闭环稳定后，再进入完整 AssetBible、SceneCast、Workflow、Worker、Provider、FlowGram、SaaS、视频扩展
 ```
 
 这样既不会丢掉大平台方向，也不会被平台复杂度拖住第一阶段产品价值。

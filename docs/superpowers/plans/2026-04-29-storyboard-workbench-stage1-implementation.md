@@ -1,10 +1,10 @@
-# Storyboard Workbench Stage 1 Implementation Plan
+# Storyboard Workbench Stage 1B Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first Pixelle AI short drama/comic storyboard image workbench slice: frame-level PromptPlan, Artifact/ArtifactVersion, GenerationTrace, image candidate selection, image regeneration, lock/stale metadata, and raw-parameter deprecation markers without introducing FlowGram or a full Workflow Engine.
+**Goal:** Build the Stage 1B Pixelle AI short drama/comic storyboard image workbench slice: consume Stage 1A PromptPlan outputs, then add Artifact/ArtifactVersion, GenerationTrace, image candidate selection, image regeneration, lock/stale metadata, and raw-parameter deprecation markers without introducing FlowGram or a full Workflow Engine.
 
-**Architecture:** Keep the existing `StandardPipeline`, `StoryboardPlan`, `ImagePromptComposer`, and video APIs working. Add focused domain contracts and local JSON services behind interfaces so Stage 1 can run on the current filesystem output layout while remaining replaceable by PostgreSQL/object storage later. Use existing `api.tasks` embedded execution for frame image regeneration, but only add light task types and no full DAG scheduling.
+**Architecture:** Keep the existing `StandardPipeline`, `StoryboardPlan`, `ImagePromptComposer`, and video APIs working. Add focused domain contracts and local JSON services behind interfaces so Stage 1B can run on the current filesystem output layout while remaining replaceable by PostgreSQL/object storage later. Use existing `api.tasks` embedded execution for frame image regeneration, but only add light task types and no full DAG scheduling.
 
 **Tech Stack:** Python dataclasses, Pydantic API schemas, FastAPI routers, local JSON/JSONL persistence, pytest, existing Pixelle `TaskManager`, existing ComfyUI/media service through `pixelle_video` core.
 
@@ -12,14 +12,23 @@
 
 ## Planning Authority
 
-This plan is a Stage 1 implementation plan under the full Pixelle AI short drama/comic planning hierarchy. It must be executed only inside the boundaries defined by these documents:
+This plan is a Stage 1B implementation plan under the full Pixelle AI short drama/comic planning hierarchy. It must be executed only inside the boundaries defined by these documents:
 
 - `docs/pixelle_video_full_planning_md/MASTER_PIXELLE_AI_DRAMA_COMIC_PLATFORM_PLAN.md`
+- `docs/pixelle_video_full_planning_md/12A_TEXT_IMAGE_PROMPT_STAGE1A_SUBPLAN.md`
 - `docs/pixelle_video_full_planning_md/13_STORYBOARD_WORKBENCH_SUBPLAN.md`
 - `docs/pixelle_video_full_planning_md/14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md`
 - `docs/pixelle_video_full_planning_md/15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md`
 
-This plan does not replace the master plan or the remaining capability subplans. It is the first executable slice of the master plan.
+This plan does not replace the master plan or the remaining capability subplans. It is the Stage 1B workbench slice and assumes Stage 1A owns the first implementation pass for text, storyboard planning, image prompt generation, and PromptPlan creation.
+
+Stage 1A ownership override:
+
+```text
+Task 3 and Task 7 are historical bootstrap tasks from the original Stage 1 plan.
+After Stage 1A is implemented, do not redefine PromptPlan or PromptPlanBuilder in Stage 1B.
+Instead, use Task 3 and Task 7 as compatibility checks against the Stage 1A contracts.
+```
 
 ## Skill-Gated Execution Rules
 
@@ -34,7 +43,7 @@ Required execution flow:
 4. Implement the minimum code required for the task.
 5. Run the task-specific verification command in the task.
 6. Commit each task atomically.
-7. Before claiming the stage complete, use superpowers:verification-before-completion and run the full Stage 1 verification checklist.
+7. Before claiming the stage complete, use superpowers:verification-before-completion and run the full Stage 1B verification checklist.
 ```
 
 Repository override:
@@ -49,13 +58,14 @@ Stop conditions:
 
 - A task references a file, model, API, or service that no longer exists.
 - A test cannot be made to fail for the expected reason.
-- A task would introduce FlowGram, full Workflow Engine, SaaS billing, ProviderCapability matrix, Quality Evaluation, or video segment generation into Stage 1.
+- A task would introduce FlowGram, full Workflow Engine, SaaS billing, ProviderCapability matrix, Quality Evaluation, or video segment generation into Stage 1B.
 - The working tree contains unrelated changes that would be mixed into the task commit.
 
-## Stage 1 Alignment Matrix
+## Stage 1B Alignment Matrix
 
-| Requirement source | Stage 1 coverage |
+| Requirement source | Stage 1B coverage |
 | --- | --- |
+| `12A_TEXT_IMAGE_PROMPT_STAGE1A_SUBPLAN.md` | Stage 1A owns ScriptDraft, StoryboardPlan, image prompts, and initial PromptPlan generation. This plan consumes and extends those outputs instead of redefining them. |
 | `13_STORYBOARD_WORKBENCH_SUBPLAN.md` | Tasks 4, 6, 8, and 9 implement workbench metadata, candidate listing, image selection, lock/stale behavior, and frame regeneration. |
 | `14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md` | Tasks 1, 2, 5, 6, and 9 implement Artifact/ArtifactVersion, trace events, local services, image regeneration, and Trace linkage. |
 | `15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md` | Tasks 3 and 7 implement PromptPlan with reserved SceneCast fields and PromptPlan construction without full AssetBible/SceneCast implementation. |
@@ -63,10 +73,10 @@ Stop conditions:
 
 ## Scope
 
-This plan implements only Stage 1 from the accepted v2 review:
+This plan implements only Stage 1B from the accepted v2 review and updated master roadmap:
 
 - `StoryboardPanel`-compatible metadata on current `StoryboardFrame`.
-- `PromptPlan` base contract with reserved `style_id`, `character_ids`, `scene_id`, and `prop_ids`.
+- `PromptPlan` compatibility with Stage 1A outputs and reserved `style_id`, `character_ids`, `scene_id`, and `prop_ids`.
 - `Artifact` and `ArtifactVersion` as separate concepts.
 - Local JSON artifact service and local JSONL trace service.
 - Frame image candidate selection.
@@ -83,6 +93,9 @@ This plan intentionally does not implement:
 - Provider routing matrix.
 - Quality scoring.
 - Video segment regeneration.
+- ScriptDraft generation.
+- Initial StoryboardPlan generation.
+- Initial image prompt generation.
 
 ## Existing Code Anchors
 
@@ -2420,7 +2433,7 @@ git commit -m "feat: 标记生成接口原始参数为兼容字段"
 
 ---
 
-## Stage 1 Verification Checklist
+## Stage 1B Verification Checklist
 
 Run these commands after all tasks are implemented:
 
@@ -2439,7 +2452,7 @@ pytest \
   -v
 ```
 
-Expected: all selected Stage 1 tests pass.
+Expected: all selected Stage 1B tests pass.
 
 Run compatibility tests:
 
@@ -2457,9 +2470,10 @@ Expected: all selected compatibility tests pass.
 
 ## Implementation Notes
 
-- Do not remove existing `prompt_prefix`, `media_workflow`, `frame_template`, `bgm_path`, `ref_audio`, or `tts_workflow` behavior in Stage 1. Mark them legacy/deprecated only.
+- Execute the Stage 1A text/image-prompt plan before using this plan for production code. If Stage 1A is not implemented yet, only the pure contract tasks in this plan may proceed.
+- Do not remove existing `prompt_prefix`, `media_workflow`, `frame_template`, `bgm_path`, `ref_audio`, or `tts_workflow` behavior in Stage 1B. Mark them legacy/deprecated only.
 - Do not make FlowGram part of this plan.
-- Do not introduce database migrations in Stage 1. Local JSON/JSONL services are acceptable because they are hidden behind service classes.
+- Do not introduce database migrations in Stage 1B. Local JSON/JSONL services are acceptable because they are hidden behind service classes.
 - Do not directly manipulate `output/{task_id}/artifacts.json` outside `LocalJsonArtifactService`.
 - Do not directly manipulate `output/{task_id}/trace/events.jsonl` outside `LocalJsonGenerationTraceService`.
 - Keep `StoryboardFrame.index` zero-based in the current runtime model. Keep `StoryboardPlanFrame.index` one-based as it already is.
@@ -2471,7 +2485,7 @@ Expected: all selected compatibility tests pass.
 
 ## Spec Coverage Self-Review
 
-- Stage 1 workbench core is covered by Tasks 1 through 9.
+- Stage 1B workbench core is covered by Tasks 1 through 9.
 - Artifact and ArtifactVersion split is covered by Tasks 1 and 5.
 - GenerationTrace first-class recording is covered by Tasks 2, 6, and 9.
 - PromptPlan with reserved SceneCast fields is covered by Tasks 3 and 7.
@@ -2479,4 +2493,4 @@ Expected: all selected compatibility tests pass.
 - Candidate image selection is covered by Tasks 5, 6, and 8.
 - Frame image regeneration is covered by Task 9.
 - Raw parameter migration begins with deprecation metadata in Task 10.
-- FlowGram, SaaS, ProviderCapability, and Quality Evaluation are intentionally out of scope for this Stage 1 plan.
+- FlowGram, SaaS, ProviderCapability, and Quality Evaluation are intentionally out of scope for this Stage 1B plan.

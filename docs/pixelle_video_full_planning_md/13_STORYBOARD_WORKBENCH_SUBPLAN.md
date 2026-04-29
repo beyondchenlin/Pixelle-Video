@@ -1,20 +1,24 @@
 # 13 分镜图工作台分方案
 
-用途：阶段 1 的正式能力分方案，约束分镜图工作台的领域模型、交互边界、API 合同和验收标准。  
+用途：Stage 1B 的正式能力分方案，约束分镜图工作台的领域模型、交互边界、API 合同和验收标准。
 上级文档：`MASTER_PIXELLE_AI_DRAMA_COMIC_PLATFORM_PLAN.md`
 
 ---
 
 ## 1. 定位
 
-分镜图工作台是 Pixelle 从“一键生成器”升级为“创作平台”的第一层产品闭环。
+分镜图工作台是 Pixelle 从“一键生成器”升级为“创作平台”的第一层产品闭环，但它不再是阶段 1 的第一步。Stage 1A 先稳定文案、分镜规划、图片提示词和 PromptPlan，Stage 1B 再把这些上游结果接入工作台。
 
 它不负责完整 Workflow 编排，也不负责 SaaS 权限计费。它负责让用户围绕每一格分镜进行可编辑、可重抽、可选择、可追踪的图文创作。
 
 核心目标：
 
 ```text
-主题/文案 -> StoryboardPanel -> PromptPlan -> 候选图 -> 选择/重抽 -> 可追踪版本
+Stage 1A 输出的 StoryboardPlan / PromptPlan
+  -> StoryboardPanel
+  -> 候选图
+  -> 选择/重抽
+  -> 可追踪版本
 ```
 
 ---
@@ -32,7 +36,13 @@
 - stale flags。
 - GenerationTrace 查看入口。
 
-阶段 1 不包含：
+Stage 1B 的前置输入：
+
+- Stage 1A 生成的 StoryboardPlan。
+- Stage 1A 生成的 PromptPlan。
+- PromptPlan 中预留的 `character_ids`、`scene_id`、`prop_ids`、`style_id` 字段。
+
+Stage 1B 不包含：
 
 - FlowGram Canvas。
 - 用户自定义 Workflow。
@@ -146,4 +156,4 @@ API 不直接接受本地 workflow 文件路径。图片生成参数来自 Promp
 
 `../superpowers/plans/2026-04-29-storyboard-workbench-stage1-implementation.md`
 
-该计划是本分方案的阶段 1 施工图，不代表 Pixelle 全平台完整实施计划。
+该计划是本分方案的 Stage 1B 施工图，不代表 Pixelle 全平台完整实施计划，也不替代 Stage 1A 文案与图片提示词实施计划。
