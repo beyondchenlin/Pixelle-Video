@@ -162,6 +162,88 @@ def test_parse_template_parameters_excludes_runtime_reserved_placeholders(tmp_pa
     }
 
 
+def test_html_frame_generator_injects_standard_media_layer_css(tmp_path):
+    template_dir = tmp_path / "templates" / "1920x1080"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "image_standard.html"
+    template.write_text(
+        "<html><head></head><body>{{pixelle_media_layer}}</body></html>",
+        encoding="utf-8",
+    )
+
+    generator = HTMLFrameGenerator(str(template), canvas_width=1280, canvas_height=720)
+    html = generator._build_render_html(
+        title="Demo",
+        text="",
+        image="file:///tmp/source.png",
+        ext={"index": 1},
+        media_placement={"scale_percent": 80, "anchor": "center"},
+        media_type="image",
+        media_width=1280,
+        media_height=720,
+    )
+
+    assert "pixelle-media-layer" in html
+    assert "--pixelle-media-display-width: 1536px" in html
+    assert "--pixelle-media-display-height: 864px" in html
+    assert "--pixelle-media-left: 192px" in html
+    assert "--pixelle-media-top: 108px" in html
+    assert '<img class="pixelle-media"' in html
+
+
+def test_html_frame_generator_injects_video_media_element(tmp_path):
+    template_dir = tmp_path / "templates" / "1280x720"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "video_standard.html"
+    template.write_text(
+        "<html><head></head><body>{{pixelle_media_layer}}</body></html>",
+        encoding="utf-8",
+    )
+
+    generator = HTMLFrameGenerator(str(template), canvas_width=1280, canvas_height=720)
+    html = generator._build_render_html(
+        title="Demo",
+        text="",
+        image="file:///tmp/source.mp4",
+        ext={"index": 1},
+        media_placement={"scale_percent": 80},
+        media_type="video",
+        media_width=1280,
+        media_height=720,
+    )
+
+    assert '<video class="pixelle-media"' in html
+    assert "muted playsinline" in html
+
+
+def test_html_frame_generator_keeps_legacy_image_placeholder_without_standard_layer(
+    tmp_path,
+):
+    template_dir = tmp_path / "templates" / "1080x1920"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "image_legacy.html"
+    template.write_text(
+        "<html><head></head><body>{{image}}</body></html>",
+        encoding="utf-8",
+    )
+
+    generator = HTMLFrameGenerator(str(template), canvas_width=1280, canvas_height=720)
+    html = generator._build_render_html(
+        title="Demo",
+        text="",
+        image="file:///tmp/source.png",
+        ext={"index": 1},
+        media_placement={"scale_percent": 80, "anchor": "center"},
+        media_type="image",
+        media_width=1280,
+        media_height=720,
+    )
+
+    assert "file:///tmp/source.png" in html
+    assert "data-pixelle-media-placement" not in html
+    assert "pixelle-media-layer" not in html
+
+
 def test_html_frame_generator_normalizes_output_png_to_target_canvas(tmp_path):
     template_dir = tmp_path / "templates" / "1080x1920"
     template_dir.mkdir(parents=True)

@@ -33,12 +33,20 @@ import tempfile
 import threading
 import uuid
 from dataclasses import dataclass
+from html import escape
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import unquote, urlparse
 
 from loguru import logger
 from PIL import Image
 
+from pixelle_video.models.media_placement import (
+    MediaPlacement,
+    calculate_media_box,
+    project_canvas_box_to_template,
+    resolve_media_placement,
+)
 from pixelle_video.models.template_parameters import is_reserved_template_param
 from pixelle_video.services.frame_render_readiness import FrameRenderReadiness
 from pixelle_video.utils.os_util import get_temp_path
@@ -363,6 +371,188 @@ class HTMLFrameGenerator:
 
         return f"{base_tag}{html}"
 
+    def _resolve_media_source_size(
+        self,
+        media_url: str,
+        *,
+        media_width: int | None,
+        media_height: int | None,
+    ) -> tuple[int, int]:
+        source_path = self._media_url_to_local_path(media_url)
+        if source_path and source_path.exists():
+            try:
+                with Image.open(source_path) as source:
+                    return source.width, source.height
+            except Exception as exc:
+                logger.debug(
+                    f"Could not inspect media dimensions with PIL: {source_path} ({exc})"
+                )
+
+        return (
+            max(1, int(media_width or self.width)),
+            max(1, int(media_height or self.height)),
+        )
+
+    def _media_url_to_local_path(self, media_url: str) -> Path | None:
+        if not media_url:
+            return None
+        if media_url.startswith("file://"):
+            parsed = urlparse(media_url)
+            if parsed.scheme != "file":
+                return None
+            path = unquote(parsed.path)
+            if os.name == "nt" and path.startswith("/") and re.match(r"^/[a-zA-Z]:", path):
+                path = path[1:]
+            return Path(path)
+        if media_url.startswith(("http://", "https://", "data:")):
+            return None
+
+        path = Path(media_url)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        return path
+
+    def _build_standard_media_layer(
+        self,
+        *,
+        media_url: str,
+        media_type: str,
+        media_placement: MediaPlacement,
+        media_width: int | None,
+        media_height: int | None,
+    ) -> tuple[str, dict[str, str]]:
+        normalized_media_type = str(media_type or "image").strip().lower()
+        if normalized_media_type not in {"image", "video"}:
+            raise ValueError("media_type must be 'image' or 'video'")
+
+        source_width, source_height = self._resolve_media_source_size(
+            media_url,
+            media_width=media_width,
+            media_height=media_height,
+        )
+        canvas_box = calculate_media_box(
+            canvas_width=self.width,
+            canvas_height=self.height,
+            media_source_width=source_width,
+            media_source_height=source_height,
+            placement=media_placement,
+        )
+        template_box = project_canvas_box_to_template(
+            canvas_box,
+            canvas_width=self.width,
+            canvas_height=self.height,
+            template_width=self.template_width,
+            template_height=self.template_height,
+            canvas_fit=self.canvas_fit,
+        )
+        escaped_url = escape(media_url or "", quote=True)
+        if normalized_media_type == "video":
+            media_tag = (
+                f'<video class="pixelle-media" src="{escaped_url}" '
+                "muted playsinline></video>"
+            )
+        else:
+            media_tag = f'<img class="pixelle-media" src="{escaped_url}" alt="">'
+
+        layer = (
+            '<div class="pixelle-media-layer">'
+            '<div class="pixelle-media-box" data-pixelle-media-box>'
+            f"{media_tag}"
+            "</div>"
+            "</div>"
+        )
+        variables = {
+            "pixelle_media_display_width": f"{round(template_box.width)}px",
+            "pixelle_media_display_height": f"{round(template_box.height)}px",
+            "pixelle_media_left": f"{round(template_box.left)}px",
+            "pixelle_media_top": f"{round(template_box.top)}px",
+        }
+        return layer, variables
+
+    def _inject_standard_media_css(self, html: str, variables: dict[str, str]) -> str:
+        css = f"""
+<style data-pixelle-media-placement>
+:root {{
+  --pixelle-media-display-width: {variables["pixelle_media_display_width"]};
+  --pixelle-media-display-height: {variables["pixelle_media_display_height"]};
+  --pixelle-media-left: {variables["pixelle_media_left"]};
+  --pixelle-media-top: {variables["pixelle_media_top"]};
+}}
+.pixelle-media-layer {{
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}}
+.pixelle-media-box {{
+  position: absolute;
+  box-sizing: border-box;
+  width: var(--pixelle-media-display-width);
+  height: var(--pixelle-media-display-height);
+  left: var(--pixelle-media-left);
+  top: var(--pixelle-media-top);
+}}
+.pixelle-media {{
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}}
+</style>"""
+        head_match = re.search(r"</head>", html, flags=re.IGNORECASE)
+        if head_match:
+            return f"{html[:head_match.start()]}{css}{html[head_match.start():]}"
+        return f"{css}{html}"
+
+    def _build_render_html(
+        self,
+        *,
+        title: str,
+        text: str,
+        image: str,
+        ext: Optional[Dict[str, Any]],
+        media_placement: MediaPlacement | dict[str, Any] | None,
+        media_type: str,
+        media_width: int | None,
+        media_height: int | None,
+    ) -> str:
+        if not self._template_consumes_standard_media_layer():
+            context = {
+                "title": title,
+                "text": text,
+                "image": image,
+            }
+            if ext:
+                context.update(ext)
+            return self._replace_parameters(self.template, context)
+
+        layer, media_variables = self._build_standard_media_layer(
+            media_url=image,
+            media_type=media_type,
+            media_placement=resolve_media_placement(media_placement),
+            media_width=media_width,
+            media_height=media_height,
+        )
+        context = dict(ext or {})
+        context.update(
+            {
+                "title": title,
+                "text": text,
+                "image": image,
+                "pixelle_media_layer": layer,
+                **media_variables,
+            }
+        )
+        html = self._replace_parameters(self.template, context)
+        return self._inject_standard_media_css(html, media_variables)
+
+    def _template_consumes_standard_media_layer(self) -> bool:
+        return bool(
+            re.search(
+                r"\{\{\s*pixelle_media_(?:layer|display_width|display_height|left|top)\b",
+                self.template,
+            )
+        )
+
     def _normalize_canvas_output(self, output_path: str) -> None:
         target_size = (int(self.width), int(self.height))
         if target_size == (int(self.template_width), int(self.template_height)):
@@ -514,7 +704,11 @@ class HTMLFrameGenerator:
         text: str,
         image: str,
         ext: Optional[Dict[str, Any]] = None,
-        output_path: Optional[str] = None
+        output_path: Optional[str] = None,
+        media_placement: MediaPlacement | dict[str, Any] | None = None,
+        media_type: str = "image",
+        media_width: int | None = None,
+        media_height: int | None = None,
     ) -> str:
         """
         Generate frame from HTML template
@@ -542,16 +736,16 @@ class HTMLFrameGenerator:
                 image = image_path.as_uri()
                 logger.debug(f"Converted image path to: {image}")
         
-        context = {
-            "title": title,
-            "text": text,
-            "image": image,
-        }
-        
-        if ext:
-            context.update(ext)
-        
-        html = self._replace_parameters(self.template, context)
+        html = self._build_render_html(
+            title=title,
+            text=text,
+            image=image,
+            ext=ext,
+            media_placement=media_placement,
+            media_type=media_type,
+            media_width=media_width,
+            media_height=media_height,
+        )
         html = self._prepare_html_for_render(html)
 
         if output_path is None:

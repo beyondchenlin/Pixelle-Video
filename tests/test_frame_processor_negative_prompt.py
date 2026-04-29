@@ -151,6 +151,7 @@ async def test_compose_frame_html_uses_canvas_media_layout_when_media_syncs(monk
         media_width=1280,
         media_height=720,
         sync_media_size_to_canvas=True,
+        media_placement={"scale_percent": 90, "anchor": "right"},
         task_id="task-1",
         frame_template="1920x1080/image_landscape_minimal.html",
     )
@@ -171,6 +172,14 @@ async def test_compose_frame_html_uses_canvas_media_layout_when_media_syncs(monk
     )
 
     assert captured["ext"]["media_layout_mode"] == "canvas"
+    assert captured["media_placement"].to_dict() == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 90,
+        "anchor": "right",
+    }
+    assert captured["media_type"] == "image"
+    assert (captured["media_width"], captured["media_height"]) == (1280, 720)
 
 
 @pytest.mark.asyncio

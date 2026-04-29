@@ -100,7 +100,7 @@ async def test_template_visual_materializer_renders_html_with_text_policy(tmp_pa
             self.width = canvas_width or 1080
             self.height = canvas_height or 1920
 
-        async def generate_frame(self, *, title, text, image, ext, output_path):
+        async def generate_frame(self, *, title, text, image, ext, output_path, **kwargs):
             calls["title"] = title
             calls["text"] = text
             calls["image"] = image
@@ -152,7 +152,7 @@ async def test_template_visual_materializer_forwards_canvas_dimensions(
             self.width = canvas_width or 1080
             self.height = canvas_height or 1920
 
-        async def generate_frame(self, *, title, text, image, ext, output_path):
+        async def generate_frame(self, *, title, text, image, ext, output_path, **kwargs):
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             Path(output_path).write_bytes(b"png")
             return output_path
@@ -194,7 +194,7 @@ async def test_template_visual_materializer_forwards_media_layout_mode(
         def __init__(self, template_path, canvas_width=None, canvas_height=None):
             calls["template_path"] = template_path
 
-        async def generate_frame(self, *, title, text, image, ext, output_path):
+        async def generate_frame(self, *, title, text, image, ext, output_path, **kwargs):
             calls["ext"] = dict(ext)
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             Path(output_path).write_bytes(b"png")
@@ -218,3 +218,66 @@ async def test_template_visual_materializer_forwards_media_layout_mode(
     )
 
     assert calls["ext"]["media_layout_mode"] == "canvas"
+
+
+@pytest.mark.asyncio
+async def test_template_visual_materializer_forwards_typed_media_placement(
+    tmp_path,
+    monkeypatch,
+):
+    calls = {}
+
+    class FakeGenerator:
+        width = 1280
+        height = 720
+
+        def __init__(self, template_path, canvas_width=None, canvas_height=None):
+            calls["canvas"] = (canvas_width, canvas_height)
+
+        async def generate_frame(
+            self,
+            *,
+            title,
+            text,
+            image,
+            ext,
+            output_path,
+            media_placement,
+            media_type,
+            media_width,
+            media_height,
+        ):
+            calls["media_placement"] = media_placement.to_dict()
+            calls["media_type"] = media_type
+            calls["media_size"] = (media_width, media_height)
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(output_path).write_bytes(b"png")
+            return output_path
+
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.HTMLFrameGenerator",
+        FakeGenerator,
+    )
+
+    await TemplateVisualMaterializer().materialize_frame(
+        title="Demo",
+        template_body_text="Template body",
+        media_path="raw.png",
+        media_type="image",
+        frame_index=0,
+        template_path="templates/1920x1080/image_landscape_minimal.html",
+        template_id="image_landscape_minimal",
+        output_path=tmp_path / "frame.png",
+        text_policy="caption_renderer",
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=768,
+        media_height=768,
+        media_placement={"scale_percent": 90, "anchor": "right"},
+    )
+
+    assert calls["canvas"] == (1280, 720)
+    assert calls["media_placement"]["scale_percent"] == 90
+    assert calls["media_placement"]["anchor"] == "right"
+    assert calls["media_type"] == "image"
+    assert calls["media_size"] == (768, 768)

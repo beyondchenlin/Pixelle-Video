@@ -3,6 +3,7 @@ from __future__ import annotations
 from os import PathLike
 from typing import Any, Mapping
 
+from pixelle_video.models.media_placement import resolve_media_placement
 from pixelle_video.models.render_package import resolve_media_layout_mode
 from pixelle_video.models.template_parameters import RESERVED_TEMPLATE_PARAM_NAMES
 from pixelle_video.models.template_visual_asset import TemplateVisualAsset
@@ -51,6 +52,10 @@ class TemplateVisualMaterializer:
         canvas_width: int | None = None,
         canvas_height: int | None = None,
         media_layout_mode: str | None = None,
+        media_type: str = "image",
+        media_width: int | None = None,
+        media_height: int | None = None,
+        media_placement: Any = None,
     ) -> TemplateVisualAsset:
         body_text = resolve_template_body_text(template_body_text, text_policy)
         validated_template_params = _validate_template_params(template_params)
@@ -72,6 +77,10 @@ class TemplateVisualMaterializer:
             image=media_path or "",
             ext=ext,
             output_path=str(output_path),
+            media_placement=resolve_media_placement(media_placement),
+            media_type=media_type,
+            media_width=media_width,
+            media_height=media_height,
         )
 
         return TemplateVisualAsset(
