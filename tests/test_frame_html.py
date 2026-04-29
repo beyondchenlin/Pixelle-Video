@@ -6,6 +6,7 @@ import pytest
 from PIL import Image
 
 from pixelle_video.services.frame_html import HTMLFrameGenerator
+from pixelle_video.services.frame_render_readiness import FrameRenderReadiness
 from web.state.async_runtime import AsyncRuntime, shutdown_all_async_runtimes
 from web.utils.async_helpers import run_async
 
@@ -195,8 +196,12 @@ def test_html_frame_generator_uses_deterministic_render_readiness(
     calls = {}
 
     class FakePage:
-        async def goto(self, url, wait_until):
-            calls["goto"] = {"url": url, "wait_until": wait_until}
+        async def goto(self, url, wait_until, timeout=None):
+            calls["goto"] = {
+                "url": url,
+                "wait_until": wait_until,
+                "timeout": timeout,
+            }
 
         async def evaluate(self, script):
             calls.setdefault("evaluate", []).append(script)
@@ -235,6 +240,115 @@ def test_html_frame_generator_uses_deterministic_render_readiness(
         shutdown_all_async_runtimes()
 
     assert calls["goto"]["wait_until"] == "domcontentloaded"
+    assert calls["goto"]["timeout"] == 30000
     assert "document.fonts.ready" in calls["evaluate"][0]
     assert "decode" in calls["evaluate"][0]
     assert output.exists()
+
+
+def test_html_frame_generator_preserves_debug_html_when_rendering_fails(
+    tmp_path,
+    monkeypatch,
+):
+    template_dir = tmp_path / "templates" / "1280x720"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "image_sample.html"
+    template.write_text("<html><body>{{title}}</body></html>", encoding="utf-8")
+    output = tmp_path / "frame.png"
+
+    class FailingReadiness(FrameRenderReadiness):
+        async def wait(self, page):
+            raise RuntimeError("font decode failed")
+
+    class FakePage:
+        async def goto(self, url, wait_until, timeout=None):
+            self.url = url
+
+        async def screenshot(self, path, type, omit_background):
+            raise AssertionError("screenshot should not run after readiness failure")
+
+        async def close(self):
+            pass
+
+    class FakeBrowser:
+        async def new_page(self, viewport, device_scale_factor):
+            return FakePage()
+
+    async def fake_ensure_browser(_cls):
+        return FakeBrowser()
+
+    monkeypatch.setattr(HTMLFrameGenerator, "_ensure_browser", fake_ensure_browser)
+
+    generator = HTMLFrameGenerator(
+        str(template),
+        render_readiness=FailingReadiness(),
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="frame.debug.html"):
+            run_async(
+                generator.generate_frame(
+                    title="Debug",
+                    text="",
+                    image="",
+                    ext={"index": 1},
+                    output_path=str(output),
+                )
+            )
+    finally:
+        shutdown_all_async_runtimes()
+
+    debug_html = tmp_path / "frame.debug.html"
+    assert debug_html.exists()
+    assert "Debug" in debug_html.read_text(encoding="utf-8")
+
+
+def test_html_frame_generator_ignores_page_close_failure_after_screenshot(
+    tmp_path,
+    monkeypatch,
+):
+    template_dir = tmp_path / "templates" / "1280x720"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "image_sample.html"
+    template.write_text("<html><body>{{title}}</body></html>", encoding="utf-8")
+    output = tmp_path / "frame.png"
+
+    class FakePage:
+        async def goto(self, url, wait_until, timeout=None):
+            pass
+
+        async def evaluate(self, script):
+            pass
+
+        async def screenshot(self, path, type, omit_background):
+            Image.new("RGBA", (1280, 720), (255, 0, 0, 255)).save(path)
+
+        async def close(self):
+            raise RuntimeError("page already closed")
+
+    class FakeBrowser:
+        async def new_page(self, viewport, device_scale_factor):
+            return FakePage()
+
+    async def fake_ensure_browser(_cls):
+        return FakeBrowser()
+
+    monkeypatch.setattr(HTMLFrameGenerator, "_ensure_browser", fake_ensure_browser)
+
+    generator = HTMLFrameGenerator(str(template))
+    try:
+        result = run_async(
+            generator.generate_frame(
+                title="Close failure",
+                text="",
+                image="",
+                ext={"index": 1},
+                output_path=str(output),
+            )
+        )
+    finally:
+        shutdown_all_async_runtimes()
+
+    assert result == str(output)
+    assert output.exists()
+    assert not (tmp_path / "frame.debug.html").exists()

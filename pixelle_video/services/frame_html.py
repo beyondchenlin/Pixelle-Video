@@ -28,6 +28,7 @@ Linux Environment Requirements:
 import asyncio
 import os
 import re
+import shutil
 import tempfile
 import threading
 import uuid
@@ -39,6 +40,7 @@ from loguru import logger
 from PIL import Image
 
 from pixelle_video.models.template_parameters import is_reserved_template_param
+from pixelle_video.services.frame_render_readiness import FrameRenderReadiness
 from pixelle_video.utils.os_util import get_temp_path
 from pixelle_video.utils.template_util import parse_template_size
 
@@ -77,6 +79,7 @@ class HTMLFrameGenerator:
         canvas_width: int | None = None,
         canvas_height: int | None = None,
         canvas_fit: str = "contain",
+        render_readiness: FrameRenderReadiness | None = None,
     ):
         """
         Initialize HTML frame generator
@@ -101,6 +104,7 @@ class HTMLFrameGenerator:
         if canvas_fit not in {"contain", "cover"}:
             raise ValueError("canvas_fit must be 'contain' or 'cover'")
         self.canvas_fit = canvas_fit
+        self.render_readiness = render_readiness or FrameRenderReadiness()
         
         self._check_linux_dependencies()
         logger.debug(
@@ -394,33 +398,14 @@ class HTMLFrameGenerator:
 
             normalized.save(output_path)
 
-    async def _wait_for_render_ready(self, page: Any) -> None:
-        await page.evaluate(
-            """
-            async () => {
-                const fontReady = document.fonts && document.fonts.ready
-                    ? document.fonts.ready.catch(() => undefined)
-                    : Promise.resolve();
-
-                const imageReady = Array.from(document.images || []).map((img) => {
-                    if (img.complete) {
-                        return Promise.resolve();
-                    }
-                    if (typeof img.decode === "function") {
-                        return img.decode().catch(() => undefined);
-                    }
-                    return new Promise((resolve) => {
-                        img.addEventListener("load", resolve, { once: true });
-                        img.addEventListener("error", resolve, { once: true });
-                    });
-                });
-
-                await Promise.all([fontReady, ...imageReady]);
-                await new Promise((resolve) => requestAnimationFrame(resolve));
-                await new Promise((resolve) => requestAnimationFrame(resolve));
-            }
-            """
-        )
+    def _preserve_debug_html(self, tmp_html_path: str, output_path: str) -> str | None:
+        try:
+            target = Path(output_path).with_suffix(".debug.html")
+            shutil.copy2(tmp_html_path, target)
+            return str(target)
+        except Exception as exc:
+            logger.warning(f"Failed to preserve debug HTML: {exc}")
+            return None
 
     @classmethod
     def _get_browser_lock(cls, loop: asyncio.AbstractEventLoop) -> asyncio.Lock:
@@ -577,6 +562,8 @@ class HTMLFrameGenerator:
             f"canvas: {self.width}x{self.height})"
         )
         tmp_html_path = None
+        debug_html_path = None
+        rendered = False
         try:
             browser = await self._ensure_browser()
             page = await browser.new_page(
@@ -594,18 +581,38 @@ class HTMLFrameGenerator:
                 with os.fdopen(fd, 'w', encoding='utf-8') as f:
                     f.write(html)
                 
-                await page.goto(Path(tmp_html_path).as_uri(), wait_until='domcontentloaded')
-                await self._wait_for_render_ready(page)
+                await page.goto(
+                    Path(tmp_html_path).as_uri(),
+                    wait_until=self.render_readiness.navigation_wait_until,
+                    timeout=self.render_readiness.navigation_timeout_ms,
+                )
+                await self.render_readiness.wait(page)
                 await page.screenshot(path=output_path, type='png', omit_background=True)
                 self._normalize_canvas_output(output_path)
+                rendered = True
             finally:
-                await page.close()
+                try:
+                    await page.close()
+                except Exception as close_error:
+                    logger.debug(f"Failed to close Playwright page cleanly: {close_error}")
                 if tmp_html_path and os.path.exists(tmp_html_path):
-                    os.unlink(tmp_html_path)
+                    if rendered:
+                        os.unlink(tmp_html_path)
+                    else:
+                        debug_html_path = self._preserve_debug_html(
+                            tmp_html_path,
+                            output_path,
+                        )
+                        os.unlink(tmp_html_path)
             
             logger.info(f"Frame generated: {output_path}")
             return output_path
             
         except Exception as e:
-            logger.error(f"Failed to render HTML template: {e}")
-            raise RuntimeError(f"HTML rendering failed: {e}")
+            diagnostic = (
+                f" Debug HTML: {debug_html_path}"
+                if debug_html_path
+                else ""
+            )
+            logger.error(f"Failed to render HTML template: {e}{diagnostic}")
+            raise RuntimeError(f"HTML rendering failed: {e}{diagnostic}") from e
