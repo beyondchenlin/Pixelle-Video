@@ -7,6 +7,7 @@ from html import escape
 from pathlib import Path
 from shutil import copy2
 
+from pixelle_video.models.media_placement import calculate_media_box
 from pixelle_video.models.render_package import CaptionCue, TextCue
 from pixelle_video.models.template_render_context import TemplateRenderContext
 from pixelle_video.models.text_style import TextStyleProfile
@@ -64,6 +65,7 @@ class HyperFramesCompiler:
             "__THEME__": escape(context.theme or ""),
             "__STYLE_PROFILE__": escape(context.style_profile),
             "__MEDIA_LAYOUT_MODE__": escape(context.media_layout_mode, quote=True),
+            "__MEDIA_PLACEMENT_CSS__": self._render_media_placement_css(context),
             "__VISUALS__": self._render_visuals(context),
             "__AUDIO__": self._render_audio(context),
             "__CAPTIONS__": self._render_captions(context),
@@ -124,27 +126,11 @@ class HyperFramesCompiler:
                 )
             rendered.append(
                 (
-                    f'<div id="{escape(clip.id, quote=True)}" class="clip visual-clip" '
+                    f'<div id="{escape(clip.id, quote=True)}" class="clip pixelle-media-clip" '
                     f'data-start="{clip.start}" '
                     f'data-duration="{duration}" data-track-index="{track_index}"'
                     f"{element_manifest_attr}>"
-                    '<div class="visual-frame">'
                     f"{media_tag}"
-                    '<div class="corner-mark tl"></div>'
-                    '<div class="corner-mark tr"></div>'
-                    '<div class="corner-mark bl"></div>'
-                    '<div class="corner-mark br"></div>'
-                    '<div class="side-dots left">'
-                    '<div class="side-dot"></div>'
-                    '<div class="side-dot active"></div>'
-                    '<div class="side-dot"></div>'
-                    "</div>"
-                    '<div class="side-dots right">'
-                    '<div class="side-dot"></div>'
-                    '<div class="side-dot active"></div>'
-                    '<div class="side-dot"></div>'
-                    "</div>"
-                    "</div>"
                     "</div>"
                 )
             )
@@ -154,10 +140,38 @@ class HyperFramesCompiler:
         escaped_path = escape(media_path, quote=True)
         if media_type == "video":
             return (
-                '<video class="visual-clip__media" '
+                '<video class="pixelle-media" '
                 f'src="{escaped_path}" muted playsinline></video>'
             )
-        return f'<img class="visual-clip__media" src="{escaped_path}" alt="" />'
+        return f'<img class="pixelle-media" src="{escaped_path}" alt="" />'
+
+    def _render_media_placement_css(self, context: TemplateRenderContext) -> str:
+        source_width = int(context.media_width or context.canvas_width)
+        source_height = int(context.media_height or context.canvas_height)
+        box = calculate_media_box(
+            canvas_width=context.canvas_width,
+            canvas_height=context.canvas_height,
+            media_source_width=source_width,
+            media_source_height=source_height,
+            placement=context.media_placement,
+        )
+        return (
+            "<style data-pixelle-media-placement>"
+            ":root{"
+            f"--pixelle-media-display-width: {round(box.width)}px;"
+            f"--pixelle-media-display-height: {round(box.height)}px;"
+            f"--pixelle-media-left: {round(box.left)}px;"
+            f"--pixelle-media-top: {round(box.top)}px;"
+            "}"
+            ".pixelle-media-layer{position:absolute;inset:0;pointer-events:none;}"
+            ".pixelle-media-clip{position:absolute;"
+            "left:var(--pixelle-media-left);"
+            "top:var(--pixelle-media-top);"
+            "width:var(--pixelle-media-display-width);"
+            "height:var(--pixelle-media-display-height);}"
+            ".pixelle-media{width:100%;height:100%;object-fit:contain;display:block;}"
+            "</style>"
+        )
 
     def _render_audio(self, context: TemplateRenderContext) -> str:
         audio_tracks = list(context.audio_tracks)

@@ -9,8 +9,8 @@
     <style>
       html, body, #main-comp { margin: 0; width: __CANVAS_WIDTH__px; height: __CANVAS_HEIGHT__px; overflow: hidden; }
       body { font-family: var(--hf-font-sans); color: #fff; }
-      .visual-clip, .visual-frame, .visual-clip__media { position: absolute; inset: 0; width: 100%; height: 100%; }
-      .visual-clip__media { object-fit: cover; display: block; }
+      .pixelle-media-clip, .pixelle-media-frame, .pixelle-media { position: absolute; inset: 0; width: 100%; height: 100%; }
+      .pixelle-media { object-fit: cover; display: block; }
       .title { position: absolute; top: 84px; left: 120px; right: 120px; text-align: center; font-size: 80px; font-weight: 700; line-height: 1.2; letter-spacing: 4px; font-family: var(--hf-font-brush); text-shadow: 0 10px 32px rgba(0,0,0,0.45), -2px -2px 0 rgba(0,0,0,0.85), 2px -2px 0 rgba(0,0,0,0.85), -2px 2px 0 rgba(0,0,0,0.85), 2px 2px 0 rgba(0,0,0,0.85); }
       .info-cluster { position: absolute; left: 72px; bottom: 44px; display: flex; flex-direction: column; gap: 8px; z-index: 3; text-shadow: 0 4px 18px rgba(0,0,0,0.45); }
       .info-brand { font-size: 22px; font-weight: 600; letter-spacing: 0.08em; }
@@ -20,10 +20,11 @@
       #text-layer { z-index: 4; }
       #captions-layer { z-index: 5; }
     </style>
+    __MEDIA_PLACEMENT_CSS__
   </head>
   <body>
     <div id="main-comp" data-composition-id="main-comp" data-width="__CANVAS_WIDTH__" data-height="__CANVAS_HEIGHT__" data-start="0" data-duration="__DURATION__" data-style-profile="__STYLE_PROFILE__">
-      __VISUALS__
+      <div class="pixelle-media-layer">__VISUALS__</div>
       <div class="title">__TITLE__</div>
       <div class="info-cluster">
         <div class="info-brand">__FOOTER__</div>

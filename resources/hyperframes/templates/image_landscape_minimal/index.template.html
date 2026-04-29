@@ -20,14 +20,14 @@
       .title { display: inline-block; font-size: 76px; line-height: 1.12; font-weight: 900; letter-spacing: 0.02em; color: #171410; background: linear-gradient(135deg, #1a1611 0%, #2c2416 50%, #1a1611 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; filter: contrast(1.08) brightness(0.94); }
       .content-stage { position: absolute; inset: 154px 180px 116px 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 56px; z-index: 2; }
       .visual-shell { position: relative; width: min(560px, 100%); height: min(560px, calc(100% - 180px)); display: flex; align-items: center; justify-content: center; }
-      .visual-shell .visual-clip { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; will-change: transform, opacity; }
-      .visual-shell .visual-frame { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-      .visual-shell .visual-clip__media { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; display: block; background: #fff; box-shadow: 0 4px 24px rgba(0,0,0,0.06); }
+      .visual-shell .pixelle-media-clip { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; will-change: transform, opacity; }
+      .visual-shell .pixelle-media-frame { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+      .visual-shell .pixelle-media { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; display: block; background: #fff; box-shadow: 0 4px 24px rgba(0,0,0,0.06); }
       #main-comp[data-media-layout-mode="canvas"] .content-stage { inset: 0; gap: 0; }
       #main-comp[data-media-layout-mode="canvas"] .visual-shell { width: 100%; height: 100%; }
-      #main-comp[data-media-layout-mode="canvas"] .visual-shell .visual-clip { inset: 0; }
-      #main-comp[data-media-layout-mode="canvas"] .visual-shell .visual-frame { width: 100%; height: 100%; }
-      #main-comp[data-media-layout-mode="canvas"] .visual-shell .visual-clip__media { width: 100%; height: 100%; max-width: none; max-height: none; object-fit: contain; box-shadow: none; }
+      #main-comp[data-media-layout-mode="canvas"] .visual-shell .pixelle-media-clip { inset: 0; }
+      #main-comp[data-media-layout-mode="canvas"] .visual-shell .pixelle-media-frame { width: 100%; height: 100%; }
+      #main-comp[data-media-layout-mode="canvas"] .visual-shell .pixelle-media { width: 100%; height: 100%; max-width: none; max-height: none; object-fit: contain; box-shadow: none; }
       .visual-shell .corner-mark, .visual-shell .side-dots { display: none; }
       .signature { position: absolute; right: 72px; bottom: 48px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 3; }
       .signature-brand { font-size: 22px; font-weight: 600; letter-spacing: 0.08em; }
@@ -37,6 +37,7 @@
       #text-layer { z-index: 4; }
       #captions-layer { z-index: 5; }
     </style>
+    __MEDIA_PLACEMENT_CSS__
   </head>
   <body>
     <div id="main-comp" data-composition-id="main-comp" data-width="__CANVAS_WIDTH__" data-height="__CANVAS_HEIGHT__" data-start="0" data-duration="__DURATION__" data-style-profile="__STYLE_PROFILE__" data-media-layout-mode="__MEDIA_LAYOUT_MODE__">
@@ -47,9 +48,7 @@
         <div class="circle circle-2"></div>
       </div>
       <div class="header"><div class="title">__TITLE__</div></div>
-      <div class="content-stage">
-        <div class="visual-shell">__VISUALS__</div>
-      </div>
+      <div class="pixelle-media-layer">__VISUALS__</div>
       <div class="signature">
         <div class="signature-brand">__FOOTER__</div>
         <div class="signature-author">__AUTHOR__</div>

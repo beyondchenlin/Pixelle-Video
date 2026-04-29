@@ -3,7 +3,11 @@ from pathlib import Path
 import pytest
 
 from pixelle_video.models.render_package import CaptionCue, TextCue, TextTrack, VisualClip
-from pixelle_video.models.template_render_context import PHASE1_TEMPLATE_FIELD_INVENTORY, TemplateAudioRef, TemplateRenderContext
+from pixelle_video.models.template_render_context import (
+    PHASE1_TEMPLATE_FIELD_INVENTORY,
+    TemplateAudioRef,
+    TemplateRenderContext,
+)
 from pixelle_video.models.text_style import TextStyleProfile
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 
@@ -98,12 +102,51 @@ def test_compiler_emits_static_index_without_manifest_fetch_or_remote_urls(tmp_p
     assert "https://" not in index_html
     assert 'src="assets/audio/master_audio.wav"' in index_html
     assert 'src="assets/images/01_image.png"' in index_html
-    assert 'class="clip visual-clip"' in index_html
+    assert 'class="clip pixelle-media-clip"' in index_html
     assert 'href="./runtime/fonts/phase1_fonts.css"' in index_html
     assert 'class="clip caption-group"' in captions_html
     assert 'href="../runtime/fonts/phase1_fonts.css"' in captions_html
     assert 'data-duration="12.5"' in captions_html
     assert (project_dir / "runtime" / "fonts" / "phase1_fonts.css").exists()
+
+
+def test_hyperframes_compiler_emits_media_placement_variables(tmp_path: Path):
+    compiler = HyperFramesCompiler()
+    context = TemplateRenderContext(
+        template_id="image_landscape_minimal",
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=1280,
+        media_height=720,
+        media_placement={"scale_percent": 80, "anchor": "center"},
+        duration=6.0,
+        fps=30,
+        title="Landscape",
+        author="LanRen.AI",
+        footer="LanRen",
+        theme=None,
+        style_profile="image_landscape_minimal",
+        visuals=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0.0,
+                end=6.0,
+                media_path="assets/images/01.png",
+                media_type="image",
+            )
+        ],
+    )
+
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "--pixelle-media-display-width: 1024px" in index_html
+    assert "--pixelle-media-display-height: 576px" in index_html
+    assert "--pixelle-media-left: 128px" in index_html
+    assert "--pixelle-media-top: 72px" in index_html
+    assert "pixelle-media-layer" in index_html
+    assert "visual-clip__media" not in index_html
 
 
 def test_compiler_exposes_clip_level_element_animation_manifest_attribute(
@@ -1057,14 +1100,13 @@ def test_image_landscape_minimal_template_uses_local_assets_and_raised_text_with
     assert "top: 74%" not in text_layer_content
 
 
-def test_legacy_image_landscape_minimal_template_expands_visual_for_canvas_media_layout():
+def test_legacy_image_landscape_minimal_template_uses_standard_media_layer():
     legacy_content = Path("templates/1920x1080/image_landscape_minimal.html").read_text(
         encoding="utf-8"
     )
 
-    assert 'data-media-layout-mode="{{media_layout_mode=template}}"' in legacy_content
-    assert '[data-media-layout-mode="canvas"] .content-stage' in legacy_content
-    assert '[data-media-layout-mode="canvas"] .visual-shell' in legacy_content
+    assert "{{pixelle_media_layer}}" in legacy_content
+    assert "{{image}}" not in legacy_content
 
 
 def test_image_landscape_full_template_compiles_with_1920x1080_canvas(tmp_path: Path):
@@ -1156,6 +1198,6 @@ def test_image_landscape_minimal_template_expands_visual_when_media_syncs_to_can
     compiler.compile(project_dir=tmp_path / "project", context=context)
 
     index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
-    assert 'data-media-layout-mode="canvas"' in index_html
-    assert '[data-media-layout-mode="canvas"] .content-stage' in index_html
-    assert '[data-media-layout-mode="canvas"] .visual-shell' in index_html
+    assert "--pixelle-media-display-width: 1024px" in index_html
+    assert "--pixelle-media-display-height: 576px" in index_html
+    assert 'class="clip pixelle-media-clip"' in index_html

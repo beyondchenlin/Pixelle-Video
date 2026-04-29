@@ -182,19 +182,19 @@
         height: 100%;
       }
 
-      .visual-clip {
+      .pixelle-media-clip {
         position: absolute;
         inset: 0;
         will-change: transform, opacity;
       }
 
-      .visual-frame {
+      .pixelle-media-frame {
         position: relative;
         width: 100%;
         height: 100%;
       }
 
-      .visual-clip__media {
+      .pixelle-media {
         width: 100%;
         height: 100%;
         object-fit: cover;
@@ -378,6 +378,7 @@
         pointer-events: none;
       }
     </style>
+    __MEDIA_PLACEMENT_CSS__
   </head>
   <body>
     <div
@@ -411,9 +412,7 @@
           <h1 class="video-title">__TITLE__</h1>
         </div>
 
-        <div class="image-wrapper">
-          <div class="image-container">__VISUALS__</div>
-        </div>
+        <div class="pixelle-media-layer">__VISUALS__</div>
 
         <div class="footer">
           <div class="author">
