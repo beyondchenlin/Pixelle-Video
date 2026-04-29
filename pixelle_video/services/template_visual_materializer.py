@@ -4,6 +4,7 @@ from os import PathLike
 from typing import Any, Mapping
 
 from pixelle_video.models.render_package import resolve_media_layout_mode
+from pixelle_video.models.template_parameters import RESERVED_TEMPLATE_PARAM_NAMES
 from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 from pixelle_video.services.frame_html import HTMLFrameGenerator
 
@@ -13,9 +14,6 @@ VALID_TEMPLATE_TEXT_POLICIES = {
     "none",
     "explicit_both",
 }
-RESERVED_TEMPLATE_PARAMS = {"title", "text", "image", "index", "media_layout_mode"}
-
-
 def resolve_template_body_text(template_body_text: str, text_policy: str) -> str:
     if text_policy not in VALID_TEMPLATE_TEXT_POLICIES:
         raise ValueError(f"Invalid template text policy: {text_policy}")
@@ -28,7 +26,9 @@ def _validate_template_params(
     template_params: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     params = dict(template_params or {})
-    reserved = sorted(str(key) for key in params if key in RESERVED_TEMPLATE_PARAMS)
+    reserved = sorted(
+        str(key) for key in params if key in RESERVED_TEMPLATE_PARAM_NAMES
+    )
     if reserved:
         joined = ", ".join(reserved)
         raise ValueError(f"reserved template parameter(s) are not allowed: {joined}")

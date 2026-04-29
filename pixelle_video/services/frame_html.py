@@ -38,6 +38,7 @@ from typing import Any, Dict, Optional
 from loguru import logger
 from PIL import Image
 
+from pixelle_video.models.template_parameters import is_reserved_template_param
 from pixelle_video.utils.os_util import get_temp_path
 from pixelle_video.utils.template_util import parse_template_size
 
@@ -229,8 +230,6 @@ class HTMLFrameGenerator:
                 }
             }
         """
-        PRESET_PARAMS = {'title', 'text', 'image', 'index'}
-        
         PARAM_PATTERN = r'\{\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([a-z]+))?(?:=([^}]+))?\}\}'
         
         params = {}
@@ -240,7 +239,7 @@ class HTMLFrameGenerator:
             param_type = match.group(2) or 'text'
             default_value = match.group(3)
             
-            if param_name in PRESET_PARAMS:
+            if is_reserved_template_param(param_name):
                 continue
             
             if param_name in params:

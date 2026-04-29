@@ -134,6 +134,33 @@ def test_prepare_html_for_render_injects_template_base_href(tmp_path):
     assert f'<base href="{template_dir.resolve().as_uri()}/">' in prepared_html
 
 
+def test_parse_template_parameters_excludes_runtime_reserved_placeholders(tmp_path):
+    template_dir = tmp_path / "templates" / "1920x1080"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "image_reserved.html"
+    template.write_text(
+        """
+        <html>
+          <body data-media-layout-mode="{{media_layout_mode=template}}">
+            {{title}} {{text}} {{image}} {{index}}
+            <span>{{brand=Pixelle}}</span>
+          </body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+
+    params = HTMLFrameGenerator(str(template)).parse_template_parameters()
+
+    assert params == {
+        "brand": {
+            "type": "text",
+            "default": "Pixelle",
+            "label": "brand",
+        }
+    }
+
+
 def test_html_frame_generator_normalizes_output_png_to_target_canvas(tmp_path):
     template_dir = tmp_path / "templates" / "1080x1920"
     template_dir.mkdir(parents=True)

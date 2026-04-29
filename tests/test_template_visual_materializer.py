@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from pixelle_video.models.template_parameters import RESERVED_TEMPLATE_PARAM_NAMES
 from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 from pixelle_video.services.template_visual_materializer import (
     TemplateVisualMaterializer,
@@ -59,9 +60,11 @@ async def test_template_visual_materializer_rejects_invalid_policy_before_loadin
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("param_name", sorted(RESERVED_TEMPLATE_PARAM_NAMES))
 async def test_template_visual_materializer_rejects_reserved_template_params(
     monkeypatch,
     tmp_path,
+    param_name,
 ):
     def fail_if_constructed(_template_path):
         raise AssertionError("generator should not be constructed")
@@ -81,7 +84,7 @@ async def test_template_visual_materializer_rejects_reserved_template_params(
             template_id="image_default",
             output_path=tmp_path / "frame.png",
             text_policy="caption_renderer",
-            template_params={"text": "bypass caption renderer"},
+            template_params={param_name: "bypass runtime field"},
         )
 
 
