@@ -162,6 +162,67 @@ def test_video_generate_request_accepts_size_contract_controls():
     assert request.sync_media_size_to_canvas is False
 
 
+def test_video_generate_request_defaults_media_placement():
+    request = VideoGenerateRequest(text="demo")
+
+    assert request.media_placement.to_dict() == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 80,
+        "anchor": "center",
+    }
+
+
+def test_video_generate_request_accepts_media_placement():
+    request = VideoGenerateRequest(
+        text="demo",
+        media_placement={"scale_percent": 100, "anchor": "right"},
+    )
+
+    assert request.media_placement.scale_percent == 100
+    assert request.media_placement.anchor == "right"
+
+
+@pytest.mark.parametrize("scale_percent", [9, 101, 80.5, 80.0, "80", True])
+def test_video_generate_request_rejects_invalid_media_placement_scale(scale_percent):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            media_placement={"scale_percent": scale_percent},
+        )
+
+
+@pytest.mark.parametrize(
+    "media_placement",
+    [
+        {"anchor": "middle"},
+        {"basis": "template"},
+        {"fit": "cover"},
+        {"scale_percent": 80, "offset_x": 12},
+    ],
+)
+def test_video_generate_request_rejects_invalid_media_placement_values(media_placement):
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="demo", media_placement=media_placement)
+
+
+def test_build_video_generation_params_includes_media_placement():
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            media_placement={"scale_percent": 90, "anchor": "bottom"},
+        ),
+        request_id="req_test",
+    )
+
+    assert params["media_placement"] == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 90,
+        "anchor": "bottom",
+    }
+
+
 def test_video_generate_request_accepts_new_full_hd_preset():
     params = build_video_generation_params(
         VideoGenerateRequest(

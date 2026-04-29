@@ -86,6 +86,7 @@ def build_video_generation_params(
         "min_image_prompt_words": request_body.min_image_prompt_words,
         "max_image_prompt_words": request_body.max_image_prompt_words,
         **size_contract.to_params(),
+        "media_placement": request_body.media_placement.to_model().to_dict(),
         "media_workflow": request_body.media_workflow,
         "video_fps": request_body.video_fps,
         "frame_template": request_body.frame_template,

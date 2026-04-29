@@ -16,13 +16,14 @@ Video generation API schemas
 
 from typing import Any, Dict, List, Literal, Optional, cast
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from api.schemas.storyboard_contract import (
     StoryboardFrameOverride,
     StoryboardPromptLanguage,
 )
 from api.schemas.text_rendering import TextRenderingRequest
+from pixelle_video.models.media_placement import MediaPlacement
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
 from pixelle_video.models.size_contract import (
     STANDARD_VIDEO_SIZE_PRESETS,
@@ -64,6 +65,42 @@ VideoResolutionPreset = Literal[
     "4k",
 ]
 MediaResolutionPreset = Literal["768", "1k", "2k", "4k"]
+
+
+class MediaPlacementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    basis: Literal["canvas"] = Field(
+        "canvas",
+        description="Placement basis. First version supports final canvas only.",
+    )
+    fit: Literal["contain"] = Field(
+        "contain",
+        description="Preserve aspect ratio and do not crop.",
+    )
+    scale_percent: StrictInt = Field(
+        80,
+        ge=10,
+        le=100,
+        description="Display size as percent of final video canvas contain-fit size.",
+    )
+    anchor: Literal[
+        "top_left",
+        "top",
+        "top_right",
+        "left",
+        "center",
+        "right",
+        "bottom_left",
+        "bottom",
+        "bottom_right",
+    ] = Field("center", description="9-grid anchor for the displayed media.")
+
+    def to_model(self) -> MediaPlacement:
+        return MediaPlacement.from_dict(self.model_dump())
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.to_model().to_dict()
 
 
 def _infer_video_orientation_from_standard_preset(
@@ -264,6 +301,10 @@ class VideoGenerateRequest(BaseModel):
     sync_media_size_to_canvas: bool = Field(
         False,
         description="When true, generated image/media dimensions follow the final video canvas.",
+    )
+    media_placement: MediaPlacementRequest = Field(
+        default_factory=MediaPlacementRequest,
+        description="Generated image/video display size and position inside the final video canvas.",
     )
 
     # === Media Parameters ===
