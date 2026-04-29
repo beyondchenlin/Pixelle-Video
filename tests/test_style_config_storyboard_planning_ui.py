@@ -40,6 +40,7 @@ class _FakeStreamlit:
         self.session_state = {
             "template_type_selector": "static",
             "storyboard_planning_enabled": True,
+            "video_orientation": "portrait",
         }
         self._in_expander = False
         self._in_popover = False
@@ -91,6 +92,9 @@ class _FakeStreamlit:
         return _FakePopover()
 
     def checkbox(self, label, value=False, **kwargs):
+        key = kwargs.get("key")
+        if key in self.session_state:
+            value = self.session_state[key]
         self.checkbox_calls.append({"label": label, "value": value, **kwargs})
         return value
 
@@ -119,6 +123,8 @@ class _FakeStreamlit:
         return None
 
     def radio(self, _label, options, index=0, key=None, **_kwargs):
+        if key in self.session_state:
+            return self.session_state[key]
         if key == "tts_inference_mode":
             return "local"
         if key == "template_type_selector":
@@ -130,6 +136,8 @@ class _FakeStreamlit:
         return options[index]
 
     def selectbox(self, _label, options, index=0, key=None, **_kwargs):
+        if key in self.session_state:
+            return self.session_state[key]
         if options:
             return options[index]
         return None
@@ -139,6 +147,9 @@ class _FakeStreamlit:
         return [_FakeContext() for _ in range(count)]
 
     def slider(self, _label, value=None, **_kwargs):
+        key = _kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
         return value
 
     def file_uploader(self, *_args, **_kwargs):
@@ -148,15 +159,27 @@ class _FakeStreamlit:
         return False
 
     def text_input(self, _label, value="", **_kwargs):
+        key = _kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
         return value
 
     def text_area(self, _label, value="", **_kwargs):
+        key = _kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
         return value
 
     def number_input(self, _label, value=0, **_kwargs):
+        key = _kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
         return value
 
     def color_picker(self, _label, value="#000000", **_kwargs):
+        key = _kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
         return value
 
     def audio(self, *_args, **_kwargs):
@@ -773,7 +796,7 @@ def test_render_style_config_disables_storyboard_for_static_templates(monkeypatc
     )
     monkeypatch.setattr(
         "pixelle_video.utils.template_util.get_template_type",
-        lambda _template_name: "image",
+        lambda _template_name: "static",
     )
     monkeypatch.setattr(
         "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
@@ -783,12 +806,12 @@ def test_render_style_config_disables_storyboard_for_static_templates(monkeypatc
                     "TemplateInfo",
                     (),
                     {
-                        "template_path": "1080x1920/image_default.html",
+                        "template_path": "1080x1920/static_default.html",
                         "display_info": type(
                             "DisplayInfo",
                             (),
                             {
-                                "name": "image_default",
+                                "name": "static_default",
                                 "orientation": "portrait",
                                 "width": 1080,
                                 "height": 1920,
@@ -1651,20 +1674,20 @@ def test_render_style_config_keeps_video_generation_section_expanded_by_default(
     monkeypatch.setattr(
         "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
         lambda _template_type: {
-            "1920x1080": [
+            "1080x1920": [
                 type(
                     "TemplateInfo",
                     (),
                     {
-                        "template_path": "1920x1080/video_default.html",
+                        "template_path": "1080x1920/video_default.html",
                         "display_info": type(
                             "DisplayInfo",
                             (),
                             {
                                 "name": "video_default",
-                                "orientation": "landscape",
-                                "width": 1920,
-                                "height": 1080,
+                                "orientation": "portrait",
+                                "width": 1080,
+                                "height": 1920,
                             },
                         )(),
                     },
@@ -1674,7 +1697,7 @@ def test_render_style_config_keeps_video_generation_section_expanded_by_default(
     )
     monkeypatch.setattr(
         "pixelle_video.utils.template_util.parse_template_size",
-        lambda _path: (1920, 1080),
+        lambda _path: (1080, 1920),
     )
     monkeypatch.setattr(
         "pixelle_video.utils.template_util.resolve_template_path",
@@ -1689,7 +1712,7 @@ def test_render_style_config_keeps_video_generation_section_expanded_by_default(
             return {}
 
         def get_media_size(self):
-            return (1920, 1080)
+            return (1080, 1920)
 
     monkeypatch.setattr(
         "pixelle_video.services.frame_html.HTMLFrameGenerator",

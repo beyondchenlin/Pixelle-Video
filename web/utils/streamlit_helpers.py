@@ -22,6 +22,42 @@ import streamlit as st
 T = TypeVar("T")
 
 
+def session_state_has_key(session_state: Any, key: str) -> bool:
+    """Return whether a Streamlit-like session state already owns a widget key."""
+    try:
+        return key in session_state
+    except TypeError:
+        return False
+
+
+def keyed_widget_default_kwargs(
+    session_state: Any,
+    key: str,
+    **default_kwargs: Any,
+) -> dict[str, Any]:
+    """Return widget default kwargs only before Streamlit owns the widget key."""
+    if session_state_has_key(session_state, key):
+        return {}
+    return dict(default_kwargs)
+
+
+def normalize_keyed_option(
+    session_state: Any,
+    key: str,
+    *,
+    options: list[str] | tuple[str, ...],
+    default: str,
+) -> tuple[str, bool]:
+    """Normalize a keyed option and report whether the key already existed."""
+    has_session_value = session_state_has_key(session_state, key)
+    getter = getattr(session_state, "get", None)
+    value = getter(key, default) if callable(getter) else default
+    normalized = str(value) if value in options else default
+    if has_session_value and hasattr(session_state, "__setitem__"):
+        session_state[key] = normalized
+    return normalized, has_session_value
+
+
 class RefreshableSlot:
     """Render dynamic Streamlit content in one placeholder with fresh widget keys."""
 

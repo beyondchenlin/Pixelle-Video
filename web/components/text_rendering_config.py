@@ -40,6 +40,10 @@ from pixelle_video.services.font_discovery import (
     discover_font_families as _discover_font_families,
 )
 from web.i18n import tr
+from web.utils.streamlit_helpers import (
+    keyed_widget_default_kwargs,
+    session_state_has_key,
+)
 
 CAPTION_STYLE_DEFAULTS: dict[str, Any] = {
     "font_family": "Noto Sans CJK SC",
@@ -107,6 +111,14 @@ def _set_session_value(ui: Any, key: str, value: Any) -> None:
     if session_state is None or not hasattr(session_state, "__setitem__"):
         return
     session_state[key] = value
+
+
+def _widget_default_kwargs(ui: Any, key: str, **default_kwargs: Any) -> dict[str, Any]:
+    return keyed_widget_default_kwargs(
+        getattr(ui, "session_state", {}),
+        key,
+        **default_kwargs,
+    )
 
 
 def _migrate_legacy_caption_style_defaults(ui: Any) -> None:
@@ -277,15 +289,22 @@ def _render_text_style_controls(
             font_path_for_payload(selected_font_option.path),
         )
 
+        font_option_key = f"{prefix}_font_option"
+        if session_state_has_key(getattr(ui, "session_state", {}), font_option_key):
+            _set_session_value(ui, font_option_key, selected_font_label)
         selected_label = _call_control(
             ui,
             "selectbox",
             selected_font_label,
             translate(f"{prefix}.font_family"),
             font_option_labels,
-            index=font_option_labels.index(selected_font_label),
-            key=f"{prefix}_font_option",
+            key=font_option_key,
             help=translate(f"{prefix}.font_family_help"),
+            **_widget_default_kwargs(
+                ui,
+                font_option_key,
+                index=font_option_labels.index(selected_font_label),
+            ),
         )
         font_option = labels_by_option[str(selected_label)]
         font_family = font_option.family
@@ -296,16 +315,22 @@ def _render_text_style_controls(
             font_path_for_payload(font_option.path),
         )
     else:
+        font_family_key = f"{prefix}_font_family"
         font_family = _call_control(
             ui,
             "text_input",
             configured_font_family,
             translate(f"{prefix}.font_family"),
-            value=configured_font_family,
-            key=f"{prefix}_font_family",
+            key=font_family_key,
             help=translate(f"{prefix}.font_family_help"),
+            **_widget_default_kwargs(
+                ui,
+                font_family_key,
+                value=configured_font_family,
+            ),
         )
     font_file = font_path_for_payload(font_option.path) if font_option else None
+    font_size_key = f"{prefix}_font_size"
     font_size = _call_control(
         ui,
         "number_input",
@@ -313,26 +338,41 @@ def _render_text_style_controls(
         translate(f"{prefix}.font_size"),
         min_value=8,
         max_value=240,
-        value=int(_session_value(ui, f"{prefix}_font_size", defaults["font_size"])),
         step=1,
-        key=f"{prefix}_font_size",
+        key=font_size_key,
+        **_widget_default_kwargs(
+            ui,
+            font_size_key,
+            value=int(_session_value(ui, font_size_key, defaults["font_size"])),
+        ),
     )
+    primary_color_key = f"{prefix}_primary_color"
     primary_color = _call_control(
         ui,
         "color_picker",
         _session_value(ui, f"{prefix}_primary_color", defaults["primary_color"]),
         translate(f"{prefix}.primary_color"),
-        value=_session_value(ui, f"{prefix}_primary_color", defaults["primary_color"]),
-        key=f"{prefix}_primary_color",
+        key=primary_color_key,
+        **_widget_default_kwargs(
+            ui,
+            primary_color_key,
+            value=_session_value(ui, primary_color_key, defaults["primary_color"]),
+        ),
     )
+    stroke_color_key = f"{prefix}_stroke_color"
     stroke_color = _call_control(
         ui,
         "color_picker",
         _session_value(ui, f"{prefix}_stroke_color", defaults["stroke_color"]),
         translate(f"{prefix}.stroke_color"),
-        value=_session_value(ui, f"{prefix}_stroke_color", defaults["stroke_color"]),
-        key=f"{prefix}_stroke_color",
+        key=stroke_color_key,
+        **_widget_default_kwargs(
+            ui,
+            stroke_color_key,
+            value=_session_value(ui, stroke_color_key, defaults["stroke_color"]),
+        ),
     )
+    stroke_width_key = f"{prefix}_stroke_width"
     stroke_width = _call_control(
         ui,
         "number_input",
@@ -340,18 +380,28 @@ def _render_text_style_controls(
         translate(f"{prefix}.stroke_width"),
         min_value=0,
         max_value=16,
-        value=int(_session_value(ui, f"{prefix}_stroke_width", defaults["stroke_width"])),
         step=1,
-        key=f"{prefix}_stroke_width",
+        key=stroke_width_key,
+        **_widget_default_kwargs(
+            ui,
+            stroke_width_key,
+            value=int(_session_value(ui, stroke_width_key, defaults["stroke_width"])),
+        ),
     )
+    background_color_key = f"{prefix}_background_color"
     background_color = _call_control(
         ui,
         "color_picker",
         _session_value(ui, f"{prefix}_background_color", defaults["background_color"]),
         translate(f"{prefix}.background_color"),
-        value=_session_value(ui, f"{prefix}_background_color", defaults["background_color"]),
-        key=f"{prefix}_background_color",
+        key=background_color_key,
+        **_widget_default_kwargs(
+            ui,
+            background_color_key,
+            value=_session_value(ui, background_color_key, defaults["background_color"]),
+        ),
     )
+    background_opacity_key = f"{prefix}_background_opacity"
     background_opacity = _call_control(
         ui,
         "number_input",
@@ -359,25 +409,43 @@ def _render_text_style_controls(
         translate(f"{prefix}.background_opacity"),
         min_value=0.0,
         max_value=1.0,
-        value=float(_session_value(ui, f"{prefix}_background_opacity", defaults["background_opacity"])),
         step=0.05,
         format="%.2f",
-        key=f"{prefix}_background_opacity",
+        key=background_opacity_key,
+        **_widget_default_kwargs(
+            ui,
+            background_opacity_key,
+            value=float(
+                _session_value(
+                    ui,
+                    background_opacity_key,
+                    defaults["background_opacity"],
+                )
+            ),
+        ),
     )
 
-    configured_position = _session_value(ui, f"{prefix}_position", defaults["position"])
+    position_key = f"{prefix}_position"
+    configured_position = _session_value(ui, position_key, defaults["position"])
     if configured_position not in TEXT_POSITION_OPTIONS:
         configured_position = defaults["position"]
+    if session_state_has_key(getattr(ui, "session_state", {}), position_key):
+        _set_session_value(ui, position_key, configured_position)
     position = _call_control(
         ui,
         "selectbox",
         configured_position,
         translate(f"{prefix}.position"),
         TEXT_POSITION_OPTIONS,
-        index=TEXT_POSITION_OPTIONS.index(configured_position),
         format_func=lambda value: translate(f"text_style.position.{value}"),
-        key=f"{prefix}_position",
+        key=position_key,
+        **_widget_default_kwargs(
+            ui,
+            position_key,
+            index=TEXT_POSITION_OPTIONS.index(configured_position),
+        ),
     )
+    margin_y_key = f"{prefix}_margin_y"
     margin_y = _call_control(
         ui,
         "number_input",
@@ -385,11 +453,16 @@ def _render_text_style_controls(
         translate(f"{prefix}.margin_y"),
         min_value=0,
         max_value=1000,
-        value=int(_session_value(ui, f"{prefix}_margin_y", defaults["margin_y"])),
         step=1,
-        key=f"{prefix}_margin_y",
+        key=margin_y_key,
+        **_widget_default_kwargs(
+            ui,
+            margin_y_key,
+            value=int(_session_value(ui, margin_y_key, defaults["margin_y"])),
+        ),
     )
     default_max_chars = defaults.get("max_chars_per_line") or 0
+    max_chars_key = f"{prefix}_max_chars_per_line"
     max_chars_per_line = _call_control(
         ui,
         "number_input",
@@ -397,9 +470,13 @@ def _render_text_style_controls(
         translate(f"{prefix}.max_chars_per_line"),
         min_value=0,
         max_value=200,
-        value=int(_session_value(ui, f"{prefix}_max_chars_per_line", default_max_chars)),
         step=1,
-        key=f"{prefix}_max_chars_per_line",
+        key=max_chars_key,
+        **_widget_default_kwargs(
+            ui,
+            max_chars_key,
+            value=int(_session_value(ui, max_chars_key, default_max_chars)),
+        ),
     )
 
     return {
@@ -457,20 +534,28 @@ def render_text_rendering_controls(
         with _render_middle_column_detail_section(ui, translate("image_text.policy_title")):
             suppress_embedded_text = ui.checkbox(
                 translate("image_text.suppress_embedded_text"),
-                value=_session_value(ui, "image_text_suppress_embedded_text", False),
                 help=translate("image_text.suppress_embedded_text_help"),
                 key="image_text_suppress_embedded_text",
+                **_widget_default_kwargs(
+                    ui,
+                    "image_text_suppress_embedded_text",
+                    value=_session_value(ui, "image_text_suppress_embedded_text", False),
+                ),
             )
             positive_prompt = ui.text_area(
                 translate("image_text.positive_prompt"),
-                value=_session_value(
-                    ui,
-                    "image_text_positive_prompt",
-                    DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
-                ),
                 help=translate("image_text.positive_prompt_help"),
                 key="image_text_positive_prompt",
                 disabled=False,
+                **_widget_default_kwargs(
+                    ui,
+                    "image_text_positive_prompt",
+                    value=_session_value(
+                        ui,
+                        "image_text_positive_prompt",
+                        DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
+                    ),
+                ),
             )
 
     return build_text_rendering_payload(
@@ -493,9 +578,13 @@ def render_text_layer_controls(
     translate = _resolve_translate(translate)
     enabled = ui.checkbox(
         translate("text_layer.enabled"),
-        value=_session_value(ui, "text_layer_enabled", False),
         key="text_layer_enabled",
         help=translate("text_layer.enabled_help"),
+        **_widget_default_kwargs(
+            ui,
+            "text_layer_enabled",
+            value=_session_value(ui, "text_layer_enabled", False),
+        ),
     )
     if not enabled:
         return None
@@ -504,10 +593,10 @@ def render_text_layer_controls(
     mode = ui.radio(
         translate("text_layer.mode"),
         mode_options,
-        index=0,
         horizontal=True,
         format_func=lambda value: translate(f"text_layer.mode.{value}"),
         key="text_layer_mode",
+        **_widget_default_kwargs(ui, "text_layer_mode", index=0),
     )
 
     default_target = "ass" if render_backend == LEGACY_RENDER_BACKEND else "hyperframes"
@@ -515,28 +604,36 @@ def render_text_layer_controls(
     target_preset = ui.radio(
         translate("text_layer.targets"),
         target_options,
-        index=target_options.index(default_target),
         horizontal=True,
         format_func=lambda value: translate(f"text_layer.target.{value}"),
         key="text_layer_target_preset",
+        **_widget_default_kwargs(
+            ui,
+            "text_layer_target_preset",
+            index=target_options.index(default_target),
+        ),
     )
 
     density_options = ["low", "medium", "high"]
     density = ui.selectbox(
         translate("text_layer.density"),
         density_options,
-        index=1,
         format_func=lambda value: translate(f"text_layer.density.{value}"),
         key="text_layer_density",
+        **_widget_default_kwargs(ui, "text_layer_density", index=1),
     )
 
     max_items_per_frame = ui.number_input(
         translate("text_layer.max_items_per_frame"),
         min_value=1,
         max_value=5,
-        value=2,
         step=1,
         key="text_layer_max_items_per_frame",
+        **_widget_default_kwargs(
+            ui,
+            "text_layer_max_items_per_frame",
+            value=2,
+        ),
     )
 
     target_map = {

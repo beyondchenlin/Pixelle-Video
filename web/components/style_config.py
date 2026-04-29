@@ -98,7 +98,12 @@ from web.utils.prompt_prefix_ui import (
     toggle_prompt_prefix_preview_selection,
 )
 from web.utils.render_backend_ui import get_render_backend_default
-from web.utils.streamlit_helpers import safe_rerun
+from web.utils.streamlit_helpers import (
+    keyed_widget_default_kwargs,
+    normalize_keyed_option,
+    safe_rerun,
+    session_state_has_key,
+)
 from web.utils.tts_audio_strategy_ui import get_tts_audio_strategy_default
 from web.utils.tts_split_mode_ui import get_tts_split_mode_default
 from web.utils.tts_ui import resolve_comfyui_tts_speed, resolve_configured_tts_mode
@@ -155,10 +160,13 @@ def resolve_media_generation_section_expanded(template_media_type: str) -> bool:
 
 
 def _normalize_session_option(key: str, options: Sequence[str], default: str) -> str:
-    value = st.session_state.get(key)
-    if value not in options:
-        return default
-    return str(value)
+    value, _has_session_value = normalize_keyed_option(
+        st.session_state,
+        key,
+        options=tuple(options),
+        default=default,
+    )
+    return value
 
 
 def _ensure_session_option(key: str, options: Sequence[str], default: str) -> str:
@@ -175,10 +183,12 @@ def _render_size_segmented_control(
     key: str,
     default: str,
 ) -> str:
-    has_session_value = key in st.session_state
-    default_value = _normalize_session_option(key, options, default)
-    if has_session_value:
-        st.session_state[key] = default_value
+    default_value, has_session_value = normalize_keyed_option(
+        st.session_state,
+        key,
+        options=tuple(options),
+        default=default,
+    )
     option_list = list(options)
 
     def format_func(value: str) -> str:
@@ -190,8 +200,13 @@ def _render_size_segmented_control(
             "format_func": format_func,
             "key": key,
         }
-        if not has_session_value:
-            kwargs["default"] = default_value
+        kwargs.update(
+            keyed_widget_default_kwargs(
+                st.session_state,
+                key,
+                default=default_value,
+            )
+        )
         selected = segmented_control(label, option_list, **kwargs)
     else:
         kwargs = {
@@ -199,8 +214,13 @@ def _render_size_segmented_control(
             "horizontal": True,
             "key": key,
         }
-        if not has_session_value:
-            kwargs["index"] = option_list.index(default_value)
+        kwargs.update(
+            keyed_widget_default_kwargs(
+                st.session_state,
+                key,
+                index=option_list.index(default_value),
+            )
+        )
         selected = st.radio(label, option_list, **kwargs)
     return str(selected or default_value)
 
@@ -235,7 +255,10 @@ def _media_placement_anchor_label(anchor: str) -> str:
 
 
 def _render_media_placement_controls() -> MediaPlacement:
-    has_scale_session_value = "media_placement_scale_percent" in st.session_state
+    has_scale_session_value = session_state_has_key(
+        st.session_state,
+        "media_placement_scale_percent",
+    )
     scale_default = _coerce_media_placement_scale(
         st.session_state.get(
             "media_placement_scale_percent",
@@ -256,8 +279,13 @@ def _render_media_placement_controls() -> MediaPlacement:
             "help": tr("media_placement.scale_help"),
             "key": "media_placement_scale_percent",
         }
-        if not has_scale_session_value:
-            slider_kwargs["value"] = scale_default
+        slider_kwargs.update(
+            keyed_widget_default_kwargs(
+                st.session_state,
+                "media_placement_scale_percent",
+                value=scale_default,
+            )
+        )
         scale_percent = int(
             slider(
                 tr("media_placement.scale"),
@@ -370,10 +398,10 @@ def _render_generation_size_controls() -> GenerationSizeContract:
         tr("size.sync_media_to_canvas"),
         help=tr("size.sync_media_to_canvas_help"),
         key="sync_media_size_to_canvas",
-        **(
-            {}
-            if "sync_media_size_to_canvas" in st.session_state
-            else {"value": False}
+        **keyed_widget_default_kwargs(
+            st.session_state,
+            "sync_media_size_to_canvas",
+            value=False,
         ),
     )
     contract = GenerationSizeContract.from_params(
@@ -1441,14 +1469,22 @@ def _render_prompt_prefix_ai_panel(
     generated_candidates = st.session_state.get("prompt_prefix_generated_candidates", [])
     ai_idea = st.text_area(
         tr("style.prefix_library.ai_idea"),
-        value=st.session_state.get("prompt_prefix_ai_idea", ""),
         key="prompt_prefix_ai_idea",
         height=100,
+        **keyed_widget_default_kwargs(
+            st.session_state,
+            "prompt_prefix_ai_idea",
+            value=st.session_state.get("prompt_prefix_ai_idea", ""),
+        ),
     )
     candidate_preview_prompt = st.text_input(
         tr("style.prefix_library.ai_preview_prompt"),
-        value=st.session_state.get("style_test_prompt", "a dog"),
         key="prompt_prefix_ai_preview_prompt",
+        **keyed_widget_default_kwargs(
+            st.session_state,
+            "prompt_prefix_ai_preview_prompt",
+            value=st.session_state.get("style_test_prompt", "a dog"),
+        ),
     )
     if st.button(
         tr("style.prefix_library.ai_generate_button"),
@@ -2149,9 +2185,13 @@ def _render_image_prompt_prefix_library(
     with render_middle_column_detail_section(preview_title):
         test_prompt = st.text_input(
             tr("style.test_prompt"),
-            value=st.session_state.get("style_test_prompt", "a dog"),
             help=tr("style.test_prompt_help"),
             key="style_test_prompt",
+            **keyed_widget_default_kwargs(
+                st.session_state,
+                "style_test_prompt",
+                value=st.session_state.get("style_test_prompt", "a dog"),
+            ),
         )
         st.caption(tr("style.prefix_library.workflow_preview_hint"))
 

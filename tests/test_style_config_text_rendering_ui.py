@@ -15,19 +15,108 @@ class _TextStyleFakeUI:
 
     def text_input(self, label, value="", **kwargs):
         self.text_inputs.append({"label": label, "value": value, **kwargs})
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
         return value
 
-    def number_input(self, _label, value=0, **_kwargs):
+    def number_input(self, _label, value=0, **kwargs):
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
         return value
 
-    def color_picker(self, _label, value="#000000", **_kwargs):
+    def color_picker(self, _label, value="#000000", **kwargs):
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
         return value
 
-    def selectbox(self, _label, options, index=0, **_kwargs):
+    def selectbox(self, _label, options, index=0, **kwargs):
         self.selectboxes.append(
-            {"label": _label, "options": list(options), "index": index, **_kwargs}
+            {"label": _label, "options": list(options), "index": index, **kwargs}
         )
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
         return options[index]
+
+
+class _NoopContext:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _WidgetDefaultRecordingUI:
+    def __init__(self):
+        self.session_state = {
+            "caption_style_font_family": "SimHei",
+            "caption_style_font_size": 42,
+            "caption_style_primary_color": "#2C3E50",
+            "image_text_suppress_embedded_text": True,
+            "image_text_positive_prompt": "avoid embedded text",
+            "text_layer_enabled": False,
+        }
+        self.checkbox_calls = []
+        self.text_area_calls = []
+        self.text_input_calls = []
+        self.number_input_calls = []
+        self.color_picker_calls = []
+
+    def expander(self, *_args, **_kwargs):
+        return _NoopContext()
+
+    def container(self, *_args, **_kwargs):
+        return _NoopContext()
+
+    def markdown(self, *_args, **_kwargs):
+        return None
+
+    def checkbox(self, _label, **kwargs):
+        self.checkbox_calls.append(kwargs)
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
+        return kwargs.get("value", False)
+
+    def text_area(self, _label, **kwargs):
+        self.text_area_calls.append(kwargs)
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
+        return kwargs.get("value", "")
+
+    def text_input(self, _label, **kwargs):
+        self.text_input_calls.append(kwargs)
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
+        return kwargs.get("value", "")
+
+    def number_input(self, _label, **kwargs):
+        self.number_input_calls.append(kwargs)
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
+        return kwargs.get("value", 0)
+
+    def color_picker(self, _label, **kwargs):
+        self.color_picker_calls.append(kwargs)
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
+        return kwargs.get("value", "#000000")
+
+    def selectbox(self, _label, options, **kwargs):
+        index = kwargs.get("index", 0)
+        return list(options)[index]
+
+    def radio(self, _label, options, **kwargs):
+        index = kwargs.get("index", 0)
+        return list(options)[index]
 
 
 def test_text_rendering_request_accepts_caption_style_and_forbids_unknown_fields():
@@ -391,6 +480,38 @@ def test_caption_style_control_migrates_legacy_hollow_caption_defaults(monkeypat
     assert fake_ui.session_state["caption_style_font_size"] == 42
     assert fake_ui.session_state["caption_style_primary_color"] == "#2C3E50"
     assert fake_ui.session_state["caption_style_stroke_width"] == 0
+
+
+def test_text_rendering_controls_omit_widget_defaults_for_existing_session_keys(
+    monkeypatch,
+):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import render_text_rendering_controls
+
+    fake_ui = _WidgetDefaultRecordingUI()
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
+
+    payload = render_text_rendering_controls(
+        "legacy",
+        ui=fake_ui,
+        translate=lambda key: key,
+    )
+
+    checkbox_by_key = {call["key"]: call for call in fake_ui.checkbox_calls}
+    text_area_by_key = {call["key"]: call for call in fake_ui.text_area_calls}
+    text_input_by_key = {call["key"]: call for call in fake_ui.text_input_calls}
+    number_input_by_key = {call["key"]: call for call in fake_ui.number_input_calls}
+    color_picker_by_key = {call["key"]: call for call in fake_ui.color_picker_calls}
+
+    assert "value" not in checkbox_by_key["image_text_suppress_embedded_text"]
+    assert "value" not in text_area_by_key["image_text_positive_prompt"]
+    assert "value" not in text_input_by_key["caption_style_font_family"]
+    assert "value" not in number_input_by_key["caption_style_font_size"]
+    assert "value" not in color_picker_by_key["caption_style_primary_color"]
+    assert payload["image_text"] == {
+        "suppress_embedded_text": True,
+        "positive_prompt": "avoid embedded text",
+    }
 
 
 def test_text_rendering_font_help_translation_keys_exist_in_supported_locales():

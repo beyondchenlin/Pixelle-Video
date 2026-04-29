@@ -35,6 +35,7 @@ from pixelle_video.models.video_generation_contract import (
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from web.components.storyboard_preview import render_storyboard_preview
 from web.i18n import tr
+from web.utils.streamlit_helpers import keyed_widget_default_kwargs
 
 STORYBOARD_SHOT_PRESET_AUTO_VALUE = "__auto__"
 
@@ -457,15 +458,19 @@ def render_storyboard_advanced_controls(
     )
     storyboard_enabled = ui.checkbox(
         translate("storyboard.advanced_enabled"),
-        value=resolve_storyboard_toggle_default(
-            session_state,
-            storyboard_default_enabled=storyboard_default_enabled,
-            preview_snapshot=preview_snapshot,
-            template_type=selected_template_type,
-        ),
         key=storyboard_checkbox_key,
         help=translate("storyboard.advanced_enabled_help"),
         disabled=storyboard_controls_disabled,
+        **keyed_widget_default_kwargs(
+            session_state,
+            storyboard_checkbox_key,
+            value=resolve_storyboard_toggle_default(
+                session_state,
+                storyboard_default_enabled=storyboard_default_enabled,
+                preview_snapshot=preview_snapshot,
+                template_type=selected_template_type,
+            ),
+        ),
     )
 
     if storyboard_controls_disabled:
