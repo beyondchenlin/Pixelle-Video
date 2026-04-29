@@ -18,6 +18,7 @@ Render package models for the render contract.
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
+from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.text_overlay import (
     FrozenJSONValue,
     freeze_json_value,
@@ -375,6 +376,7 @@ class RenderManifest:
     media_height: Optional[int]
     sync_media_size_to_canvas: bool = False
     media_layout_mode: str = "template"
+    media_placement: MediaPlacement = field(default_factory=MediaPlacement)
     fps: int
     template_id: str
     master_audio_path: Optional[str] = None
@@ -409,6 +411,7 @@ class RenderManifest:
         media_height: Optional[int] = None,
         sync_media_size_to_canvas: bool = False,
         media_layout_mode: Optional[str] = None,
+        media_placement: MediaPlacement | Mapping[str, Any] | None = None,
         master_audio_path: Optional[str] = None,
         master_audio_duration: Optional[float] = None,
         audio_tracks: Optional[List[RenderAudioTrack]] = None,
@@ -448,6 +451,7 @@ class RenderManifest:
             media_layout_mode,
             sync_media_size_to_canvas=self.sync_media_size_to_canvas,
         )
+        self.media_placement = resolve_media_placement(media_placement)
         self.fps = int(fps)
         self.template_id = template_id
         self.master_audio_path = master_audio_path
@@ -503,6 +507,7 @@ class RenderManifest:
             "media_height": self.media_height,
             "sync_media_size_to_canvas": self.sync_media_size_to_canvas,
             "media_layout_mode": self.media_layout_mode,
+            "media_placement": self.media_placement.to_dict(),
             # Compatibility fields for the current runtime-manifest templates.
             "width": self.canvas_width,
             "height": self.canvas_height,
@@ -541,6 +546,7 @@ class RenderManifest:
             media_height=data.get("media_height"),
             sync_media_size_to_canvas=bool(data.get("sync_media_size_to_canvas", False)),
             media_layout_mode=data.get("media_layout_mode"),
+            media_placement=data.get("media_placement"),
             fps=data["fps"],
             template_id=data["template_id"],
             master_audio_path=data.get("master_audio_path"),

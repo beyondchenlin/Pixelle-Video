@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.render_package import (
     CaptionCue,
     TextCue,
@@ -84,6 +85,7 @@ class TemplateRenderContext:
     media_height: Optional[int] = None
     sync_media_size_to_canvas: bool = False
     media_layout_mode: Optional[str] = None
+    media_placement: MediaPlacement | dict[str, Any] | None = None
     template_params: Dict[str, Any] = field(default_factory=dict)
     visuals: List[VisualClip] = field(default_factory=list)
     captions: List[CaptionCue] = field(default_factory=list)
@@ -100,3 +102,4 @@ class TemplateRenderContext:
             self.media_layout_mode,
             sync_media_size_to_canvas=self.sync_media_size_to_canvas,
         )
+        self.media_placement = resolve_media_placement(self.media_placement)

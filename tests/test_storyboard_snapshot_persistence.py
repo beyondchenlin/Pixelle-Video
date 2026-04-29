@@ -43,6 +43,7 @@ async def test_storyboard_persistence_round_trip_preserves_planning_snapshot_and
             media_orientation="square",
             media_resolution_preset="768",
             sync_media_size_to_canvas=False,
+            media_placement={"scale_percent": 90, "anchor": "bottom"},
             world_preset_id="neutral_knowledge_storyboard",
             shot_preset_id="balanced_explainer",
             content_mode="concept_explainer",
@@ -77,6 +78,12 @@ async def test_storyboard_persistence_round_trip_preserves_planning_snapshot_and
     assert loaded.config.media_orientation == "square"
     assert loaded.config.media_resolution_preset == "768"
     assert loaded.config.sync_media_size_to_canvas is False
+    assert loaded.config.media_placement.to_dict() == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 90,
+        "anchor": "bottom",
+    }
     assert loaded.config.world_preset_id == "neutral_knowledge_storyboard"
     assert loaded.config.shot_preset_id == "balanced_explainer"
     assert loaded.config.content_mode == "concept_explainer"

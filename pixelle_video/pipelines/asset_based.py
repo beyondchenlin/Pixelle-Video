@@ -518,6 +518,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
             tts_speed=context.params.get("tts_speed", 1.2),
             **resolve_storyboard_render_kwargs(self.core.config, context.params),
             **size_contract.to_params(),
+            media_placement=context.params.get("media_placement"),
             frame_template=template_name,
             template_params=context.params.get("template_params")
         )

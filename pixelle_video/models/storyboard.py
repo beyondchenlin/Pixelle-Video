@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
+from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.size_contract import (
     DEFAULT_MEDIA_ORIENTATION,
     DEFAULT_MEDIA_RESOLUTION_PRESET,
@@ -81,6 +82,7 @@ class StoryboardConfig:
     media_orientation: str = DEFAULT_MEDIA_ORIENTATION
     media_resolution_preset: str = DEFAULT_MEDIA_RESOLUTION_PRESET
     sync_media_size_to_canvas: bool = False
+    media_placement: MediaPlacement | dict[str, Any] | None = None
     
     # Audio parameters
     tts_inference_mode: str = DEFAULT_TTS_INFERENCE_MODE  # TTS inference mode: "local" or "comfyui"
@@ -147,6 +149,7 @@ class StoryboardConfig:
         if self.canvas_width <= 0 or self.canvas_height <= 0:
             raise ValueError("canvas dimensions must be positive")
         self.sync_media_size_to_canvas = bool(self.sync_media_size_to_canvas)
+        self.media_placement = resolve_media_placement(self.media_placement)
 
         self.render_backend = validate_render_backend(self.render_backend)
         self.tts_audio_strategy = validate_tts_audio_strategy(self.tts_audio_strategy)

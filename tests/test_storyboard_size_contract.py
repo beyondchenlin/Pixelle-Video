@@ -1,5 +1,6 @@
 import pytest
 
+from pixelle_video.models.media_placement import MediaPlacement
 from pixelle_video.models.storyboard import StoryboardConfig
 
 
@@ -30,6 +31,36 @@ def test_storyboard_config_preserves_distinct_canvas_and_media_sizes():
     assert config.media_orientation == "square"
     assert config.media_resolution_preset == "768"
     assert config.sync_media_size_to_canvas is False
+
+
+def test_storyboard_config_defaults_media_placement_independently_from_sync_flag():
+    config = StoryboardConfig(
+        media_width=768,
+        media_height=768,
+        canvas_width=1280,
+        canvas_height=720,
+        sync_media_size_to_canvas=True,
+    )
+
+    assert config.media_placement == MediaPlacement()
+    assert config.media_placement.scale_percent == 80
+
+
+def test_storyboard_config_accepts_media_placement_dict():
+    config = StoryboardConfig(
+        media_width=768,
+        media_height=768,
+        canvas_width=1280,
+        canvas_height=720,
+        media_placement={"scale_percent": 90, "anchor": "bottom_right"},
+    )
+
+    assert config.media_placement.to_dict() == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 90,
+        "anchor": "bottom_right",
+    }
 
 
 @pytest.mark.parametrize(

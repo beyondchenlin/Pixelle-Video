@@ -473,6 +473,29 @@ def test_render_manifest_derives_canvas_media_layout_from_synced_media():
     assert restored.sync_media_size_to_canvas is True
 
 
+def test_render_manifest_round_trips_media_placement():
+    manifest = RenderManifest(
+        task_id="task-media-placement",
+        title="demo",
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=768,
+        media_height=768,
+        fps=30,
+        template_id="image_landscape_minimal",
+        media_placement={"scale_percent": 90, "anchor": "bottom_right"},
+    )
+
+    restored = RenderManifest.from_dict(manifest.to_dict())
+
+    assert restored.media_placement.to_dict() == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 90,
+        "anchor": "bottom_right",
+    }
+
+
 def test_sentence_unit_round_trip_preserves_remapped_times():
     sentence = SentenceUnit(
         id="s1",
@@ -803,6 +826,46 @@ async def test_standard_pipeline_initialize_storyboard_uses_render_config_defaul
     assert [block.text for block in ctx.timing_plan.blocks] == [
         "Sentence 1.",
     ]
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_initialize_storyboard_preserves_media_placement():
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {},
+            "llm": None,
+            "tts": None,
+            "media": None,
+            "video": None,
+        },
+    )()
+
+    pipeline = StandardPipeline(fake_core)
+    ctx = PipelineContext(
+        input_text="demo",
+        params={
+            "media_width": 768,
+            "media_height": 768,
+            "canvas_width": 1280,
+            "canvas_height": 720,
+            "media_placement": {"scale_percent": 90, "anchor": "right"},
+        },
+    )
+    ctx.task_id = "task-placement"
+    ctx.title = "demo"
+    ctx.storyboard_plan = _storyboard_plan_from_segments(["Sentence 1."])
+    ctx.image_prompts = ["prompt"]
+
+    await pipeline.initialize_storyboard(ctx)
+
+    assert ctx.config.media_placement.to_dict() == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 90,
+        "anchor": "right",
+    }
 
 
 @pytest.mark.asyncio
@@ -1153,6 +1216,59 @@ async def test_asset_based_pipeline_initialize_storyboard_uses_size_contract(
     assert captured["media_orientation"] == "square"
     assert captured["media_resolution_preset"] == "768"
     assert captured["sync_media_size_to_canvas"] is False
+
+
+@pytest.mark.asyncio
+async def test_asset_based_pipeline_initialize_storyboard_preserves_media_placement(
+    monkeypatch,
+):
+    captured = {}
+
+    class _CapturedConfig(Exception):
+        pass
+
+    def _capture_storyboard_config(**kwargs):
+        captured.update(kwargs)
+        raise _CapturedConfig
+
+    monkeypatch.setattr("pixelle_video.models.storyboard.StoryboardConfig", _capture_storyboard_config)
+
+    fake_core = type(
+        "FakeCore",
+        (),
+        {
+            "config": {},
+            "llm": object(),
+            "tts": object(),
+            "media": object(),
+            "video": object(),
+        },
+    )()
+
+    pipeline = AssetBasedPipeline(fake_core)
+    ctx = PipelineContext(
+        input_text="intent",
+        params={
+            "media_placement": {"scale_percent": 90, "anchor": "bottom_left"},
+        },
+    )
+    ctx.task_id = "task-asset-placement"
+    ctx.title = "Asset title"
+    ctx.matched_scenes = [
+        {
+            "scene_number": 1,
+            "asset_path": "assets/example.png",
+            "narrations": ["Sentence 1."],
+        }
+    ]
+
+    with pytest.raises(_CapturedConfig):
+        await pipeline.initialize_storyboard(ctx)
+
+    assert captured["media_placement"] == {
+        "scale_percent": 90,
+        "anchor": "bottom_left",
+    }
 
 
 @pytest.mark.asyncio

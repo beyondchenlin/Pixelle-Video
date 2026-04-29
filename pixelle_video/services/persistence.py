@@ -427,6 +427,7 @@ class PersistenceService:
             "media_orientation": config.media_orientation,
             "media_resolution_preset": config.media_resolution_preset,
             "sync_media_size_to_canvas": config.sync_media_size_to_canvas,
+            "media_placement": config.media_placement.to_dict(),
             "media_workflow": config.media_workflow,
             "media_negative_prompt": config.media_negative_prompt,
             "frame_template": config.frame_template,
@@ -502,6 +503,7 @@ class PersistenceService:
                 DEFAULT_MEDIA_RESOLUTION_PRESET,
             ),
             sync_media_size_to_canvas=data.get("sync_media_size_to_canvas", False),
+            media_placement=data.get("media_placement"),
             media_workflow=data.get("media_workflow", data.get("image_workflow")),  # Backward compatibility
             media_negative_prompt=data.get("media_negative_prompt"),
             frame_template=data.get("frame_template", DEFAULT_IMAGE_TEMPLATE),

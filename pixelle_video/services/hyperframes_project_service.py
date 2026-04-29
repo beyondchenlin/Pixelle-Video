@@ -104,6 +104,7 @@ def build_template_render_context(
         media_height=manifest.media_height,
         sync_media_size_to_canvas=manifest.sync_media_size_to_canvas,
         media_layout_mode=manifest.media_layout_mode,
+        media_placement=manifest.media_placement,
         duration=duration,
         fps=manifest.fps,
         title=manifest.title,

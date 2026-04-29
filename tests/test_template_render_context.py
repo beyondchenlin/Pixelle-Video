@@ -110,6 +110,46 @@ def test_template_render_context_derives_canvas_media_layout_from_sync_flag():
     assert context.media_layout_mode == "canvas"
 
 
+def test_template_render_context_defaults_media_placement():
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=2.0,
+        fps=30,
+        title="demo",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+    )
+
+    assert context.media_placement.to_dict()["scale_percent"] == 80
+
+
+def test_template_render_context_accepts_media_placement_dict():
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=2.0,
+        fps=30,
+        title="demo",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        media_placement={"scale_percent": 100, "anchor": "top"},
+    )
+
+    assert context.media_placement.to_dict() == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 100,
+        "anchor": "top",
+    }
+
+
 def test_template_render_context_rejects_invalid_media_layout_mode():
     with pytest.raises(ValueError, match="media_layout_mode"):
         TemplateRenderContext(

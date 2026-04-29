@@ -389,6 +389,27 @@ def test_build_template_render_context_carries_text_layer_from_manifest():
     assert context.duration == 1.4
 
 
+def test_build_template_render_context_carries_media_placement_from_manifest():
+    manifest = RenderManifest(
+        task_id="task-placement",
+        title="demo",
+        width=1280,
+        height=720,
+        fps=30,
+        template_id="image_landscape_minimal",
+        media_placement={"scale_percent": 90, "anchor": "right"},
+    )
+
+    context = build_template_render_context(manifest, template_params={})
+
+    assert context.media_placement.to_dict() == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 90,
+        "anchor": "right",
+    }
+
+
 def test_build_template_render_context_carries_text_style_profiles():
     manifest = RenderManifest(
         task_id="task-context-styles",
