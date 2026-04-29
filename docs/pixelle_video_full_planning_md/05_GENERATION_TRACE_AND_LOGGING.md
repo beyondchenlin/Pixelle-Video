@@ -20,6 +20,8 @@ JSON 解析哪里失败
 
 新增 Generation Trace 系统，使整个生成过程像“大模型对话流 + 工程日志”一样可视化。
 
+这里的“大模型对话流”不能只是终端日志。Pixelle 需要在 LLMService 网关层记录结构化 `LLMInteractionTrace`，让每一次大模型请求、响应、解析、校验和重试都能被追踪。
+
 前端可以展示：
 
 ```text
@@ -57,6 +59,44 @@ class GenerationEvent(BaseModel):
     debug: dict = {}
 ```
 
+## 3.1 LLMInteractionTrace 模型
+
+`GenerationEvent` 负责时间线，`LLMInteractionTrace` 负责一次具体模型交互的输入输出证据。
+
+```python
+class LLMInteractionTrace(BaseModel):
+    interaction_id: str
+    task_id: str | None = None
+    request_id: str | None = None
+    session_id: str | None = None
+    project_id: str | None = None
+    source_entity_type: str
+    source_entity_id: str | None = None
+    frame_id: str | None = None
+    stage: str
+    purpose: str
+    provider: str | None = None
+    model: str
+    temperature: float | None = None
+    max_tokens: int | None = None
+    response_type: str | None = None
+    request_messages_preview: list[dict]
+    request_hash: str
+    response_preview: str | None = None
+    response_hash: str | None = None
+    parsed_output_preview: str | dict | list | None = None
+    raw_request_object_key: str | None = None
+    raw_response_object_key: str | None = None
+    status: Literal["started", "success", "failed", "retrying"]
+    attempt: int = 1
+    latency_ms: int | None = None
+    token_usage: dict | None = None
+    parse_error: str | None = None
+    validation_error: str | None = None
+    error_message: str | None = None
+    visibility: Literal["summary", "debug_raw"] = "summary"
+```
+
 ## 4. Trace 文件结构
 
 本地 MVP 可以先落盘：
@@ -64,6 +104,12 @@ class GenerationEvent(BaseModel):
 ```text
 output/{task_id}/trace/
   events.jsonl
+  llm_interactions.jsonl
+  raw/
+    {interaction_id}_request.json
+    {interaction_id}_response.json
+    {interaction_id}_parsed.json
+    {interaction_id}_error.json
   001_video_plan_prompt.txt
   001_video_plan_response.json
   002_script_prompt.txt
@@ -87,6 +133,8 @@ Object Storage: raw prompt / raw response / debug payload
 GET /api/v1/app/jobs/{job_id}/events
 GET /api/v1/app/jobs/{job_id}/trace
 GET /api/v1/app/storyboards/{storyboard_id}/frames/{frame_id}/trace
+GET /api/v1/app/jobs/{job_id}/llm-interactions
+GET /api/v1/app/jobs/{job_id}/llm-interactions/{interaction_id}
 ```
 
 实时流：
@@ -123,12 +171,30 @@ GET /api/v1/app/jobs/{job_id}/events/stream
 ```text
 raw prompt
 raw response
+submitted messages
+parsed object
+schema validation error
 workflow payload
 error stack
 worker id
 provider latency
 token usage
 ```
+
+### 6.4 LLM 交互面板
+
+参考 BettaFish 的多 Engine 日志面板体验，Pixelle Studio 可以提供左侧或侧边 Trace Panel：
+
+```text
+Script
+Storyboard
+Image Prompts
+PromptPlan
+Provider
+Errors
+```
+
+每条记录展示阶段、用途、模型、状态、耗时和关联实体；展开后展示提交内容、返回内容、解析结果、校验错误和重试链路。前端读取结构化 Trace，不解析普通文本日志。
 
 ## 7. Trace 与权限
 
@@ -153,6 +219,8 @@ pixelle_video/services/generation_trace.py
 pixelle_video/models/generation_event.py
 api/routers/generation_trace.py
 web/components/generation_trace.py
+pixelle_video/models/llm_interaction_trace.py
+pixelle_video/services/llm_interaction_trace.py
 ```
 
 服务方法：
@@ -160,10 +228,12 @@ web/components/generation_trace.py
 ```python
 record_event()
 record_llm_call()
+record_llm_interaction()
 record_validation()
 record_retry()
 record_worker_event()
 load_events()
+load_llm_interactions()
 ```
 
 ## 9. 和任务系统结合

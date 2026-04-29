@@ -22,6 +22,8 @@ Stage 1A 是阶段 1 的前半段。它先不做完整分镜图工作台，也�
 
 这样 Stage 1B 的候选图、选择、重抽、Artifact、Trace 才有稳定上游。
 
+同时，Stage 1A 必须把大模型输入输出追踪作为基础设施一起完成。文案、分镜规划、图片提示词和 PromptPlan 都依赖 LLM，如果不能看到每次提交给模型的内容、返回内容、解析结果和错误原因，后续工作台会继续停留在黑盒调试状态。具体追踪合同见 `12B_LLM_INTERACTION_TRACE_STAGE1A_SUBPLAN.md`。
+
 ---
 
 ## 2. 为什么要先做 Stage 1A
@@ -50,6 +52,8 @@ Stage 1A 必须包含：
 - 最小 Prompt-only IP 输入字段。
 - 图片提示词生成服务与测试。
 - 文案、分镜、图片提示词的基础 Trace 入口。
+- LLMInteractionTrace 基础设施，记录每一次大模型调用的输入、输出、解析结果和错误。
+- Studio 左侧或侧边 LLM Trace Panel 的数据合同。
 
 Stage 1A 不包含：
 
@@ -117,9 +121,12 @@ UserInput
   -> ImagePromptComposer
   -> PromptPlanBuilder
   -> PromptPlan
+  -> LLMInteractionTrace
 ```
 
 Stage 1A 不直接负责调用图片生成 Provider。它只输出稳定、可测试、可追踪的图片提示词和 PromptPlan。
+
+所有服务调用大模型时必须经过统一 `LLMService` 网关，并传入 trace context。业务服务只描述语义上下文，不能各自手写 prompt 日志。
 
 ---
 
@@ -151,6 +158,8 @@ POST /api/content/storyboard-plan
 POST /api/content/image-prompts
 POST /api/content/prompt-plans
 GET  /api/content/prompt-plans/{prompt_plan_id}
+GET  /api/content/tasks/{task_id}/llm-interactions
+GET  /api/content/tasks/{task_id}/llm-interactions/{interaction_id}
 ```
 
 如果现有 API 已经覆盖部分能力，优先扩展现有 `content` 或 `storyboard` 合同，不重复造入口。
@@ -167,6 +176,9 @@ GET  /api/content/prompt-plans/{prompt_plan_id}
 - PromptPlan 预留 SceneCast 字段。
 - 不需要生成真实图片也能测试 Stage 1A。
 - `prompt_prefix` 不再被定义为长期事实源。
+- 每一次生成 ScriptDraft、StoryboardPlan、ImagePromptDraft、PromptPlan 的 LLM 调用都有可查询的 LLMInteractionTrace。
+- 左侧或侧边 Trace Panel 能展示大模型输入、输出、解析结果、校验错误和重试链路。
+- raw request / raw response 保存为调试产物，但默认只在 Admin / Local Debug 可见。
 
 ---
 
@@ -178,6 +190,7 @@ Stage 1A 输出：
 StoryboardPlan
 PromptPlan
 ImagePromptDraft
+LLMInteractionTrace
 ```
 
 Stage 1B 消费这些输出，继续完成：

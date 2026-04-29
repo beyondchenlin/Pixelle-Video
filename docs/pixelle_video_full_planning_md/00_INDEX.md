@@ -49,34 +49,37 @@
 14. `12A_TEXT_IMAGE_PROMPT_STAGE1A_SUBPLAN.md`
     Stage 1A 文案与图片提示词正式分方案，约束主题/文案、ScriptDraft、StoryboardPlan、图片提示词和 PromptPlan。
 
-15. `13_STORYBOARD_WORKBENCH_SUBPLAN.md`
+15. `12B_LLM_INTERACTION_TRACE_STAGE1A_SUBPLAN.md`
+    Stage 1A 大模型交互追踪正式分方案，约束 LLMInteractionTrace、raw request/response、Trace Panel 和权限边界。
+
+16. `13_STORYBOARD_WORKBENCH_SUBPLAN.md`
     分镜图工作台正式分方案，约束 StoryboardPanel、候选图、选择、重抽、锁定和 stale 状态。
 
-16. `14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md`
+17. `14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md`
     Artifact、ArtifactVersion、GenerationTrace 和局部重跑正式分方案。
 
-17. `15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md`
+18. `15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md`
     AssetBible、SceneCast、PromptPlan、PromptComposer 和 PromptProjection 正式分方案。
 
-18. `16_WORKFLOW_SKELETON_SUBPLAN.md`
+19. `16_WORKFLOW_SKELETON_SUBPLAN.md`
     最小 Workflow Skeleton 正式分方案，约束 NodeContractLite、WorkflowRunLite 和系统预设流程。
 
-19. `17_WORKER_QUEUE_DISTRIBUTED_SUBPLAN.md`
+20. `17_WORKER_QUEUE_DISTRIBUTED_SUBPLAN.md`
     Worker、Queue、多机器执行、lease、heartbeat 和任务恢复正式分方案。
 
-20. `18_PROVIDER_RESOURCE_RESOLVER_SUBPLAN.md`
+21. `18_PROVIDER_RESOURCE_RESOLVER_SUBPLAN.md`
     Provider、ProviderCapability、ResourceResolver 和强控制资源 ID 正式分方案。
 
-21. `19_FLOWGRAM_ADAPTER_SUBPLAN.md`
+22. `19_FLOWGRAM_ADAPTER_SUBPLAN.md`
     FlowGram Adapter 正式分方案，明确 FlowGram 是 Studio 外壳，不是 Pixelle Core 事实源。
 
-22. `20_SAAS_BILLING_PUBLIC_API_SUBPLAN.md`
+23. `20_SAAS_BILLING_PUBLIC_API_SUBPLAN.md`
     SaaS、权限、计费、UsageLedger 和 Public API 正式分方案。
 
-23. `21_VIDEO_EXTENSION_SUBPLAN.md`
+24. `21_VIDEO_EXTENSION_SUBPLAN.md`
     视频扩展正式分方案，覆盖 first frame、last frame、motion prompt、video segment 和 final render artifact。
 
-24. `22_QUALITY_EVALUATION_ADMIN_SUBPLAN.md`
+25. `22_QUALITY_EVALUATION_ADMIN_SUBPLAN.md`
     Quality Evaluation、Admin、运营观测和审计正式分方案。
 
 ## 推荐阅读顺序
@@ -85,14 +88,14 @@
 
 ```text
 MASTER -> 
-01 -> 02 -> 03 -> 04 -> 12A -> 13 -> 14 -> 15 -> 12
+01 -> 02 -> 03 -> 04 -> 12A -> 12B -> 13 -> 14 -> 15 -> 12
 ```
 
 如果是先做文案和图片提示词生成，建议按这个顺序：
 
 ```text
 MASTER ->
-02 -> 04 -> 12A -> 15
+02 -> 04 -> 05 -> 12A -> 12B -> 15
 ```
 
 如果是先做商业化后端规划，建议按这个顺序：
@@ -106,14 +109,14 @@ MASTER ->
 
 ```text
 MASTER ->
-02 -> 03 -> 04 -> 12A -> 13 -> 14 -> 15
+02 -> 03 -> 04 -> 05 -> 12A -> 12B -> 13 -> 14 -> 15
 ```
 
 如果是理解完整平台化路线，建议按这个顺序：
 
 ```text
 MASTER ->
-12A -> 13 -> 14 -> 15 -> 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22
+12A -> 12B -> 13 -> 14 -> 15 -> 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22
 ```
 
 ## 当前总目标

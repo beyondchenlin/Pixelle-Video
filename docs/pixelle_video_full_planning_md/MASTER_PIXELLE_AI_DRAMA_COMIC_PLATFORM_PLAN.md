@@ -12,7 +12,7 @@ Pixelle 不应继续按“本地一键视频生成工具”演进，也不应一
 更健康的路线是：
 
 ```text
-先把 Pixelle 的文案、分镜规划和图片提示词生成链路做稳；
+先把 Pixelle 的文案、分镜规划、图片提示词生成和大模型输入输出追踪链路做稳；
 再把这些稳定上游接入可编辑、可重抽、可追踪的分镜图创作工作台；
 再把工作台里的稳定流程抽象成最小 Workflow Skeleton；
 再接 Worker、Provider、FlowGram、SaaS、Public API 和视频扩展。
@@ -26,7 +26,7 @@ Pixelle 不应继续按“本地一键视频生成工具”演进，也不应一
 阶段实施计划 = 某个阶段可直接交给 Codex 执行的任务拆分
 ```
 
-因此，已经生成的阶段一工作台计划只能作为 Stage 1B 实施计划，不能替代整个项目规划，也不能跳过 Stage 1A 的文案与图片提示词计划。
+因此，已经生成的阶段一工作台计划只能作为 Stage 1B 实施计划，不能替代整个项目规划，也不能跳过 Stage 1A 的文案、图片提示词和 LLM Interaction Trace 计划。
 
 ---
 
@@ -297,6 +297,24 @@ GenerationTrace
 - 每个 frame 都有稳定 `frame_id` 和 PromptPlan。
 - `prompt_prefix` 不再被定义为长期事实源。
 
+### 7.4B Stage 1A 大模型交互追踪分方案
+
+来源：`12B_LLM_INTERACTION_TRACE_STAGE1A_SUBPLAN.md`、`05_GENERATION_TRACE_AND_LOGGING.md`、BettaFish 前端日志展示参考
+
+目标：
+
+- 将 LLMService 升级为大模型调用追踪网关。
+- 每一次 ScriptDraft、StoryboardPlan、ImagePromptDraft、PromptPlan 生成都产生 `LLMInteractionTrace`。
+- 保存 raw request / raw response / parsed output / validation error。
+- Studio 左侧或侧边 Trace Panel 展示大模型输入输出过程。
+- 借鉴 BettaFish 的多 tab、状态点、实时追加、历史补齐和自动滚动体验，但不把 stdout 文本日志作为事实源。
+
+验收：
+
+- 用户或开发者能直观看到每一步提交给模型的内容和返回内容。
+- JSON 解析失败、schema 校验失败、retry exhausted 能定位到具体 interaction。
+- raw prompt / raw response 默认只在 Admin / Local Debug 可见。
+
 ### 7.5 分镜图工作台分方案
 
 来源：团队评审、v2 反馈、阶段一实施计划
@@ -478,6 +496,7 @@ GenerationTrace
 新增分方案：
 
 `12A_TEXT_IMAGE_PROMPT_STAGE1A_SUBPLAN.md`
+`12B_LLM_INTERACTION_TRACE_STAGE1A_SUBPLAN.md`
 
 目标：
 
@@ -489,6 +508,9 @@ GenerationTrace
 - PromptPlan 预留 `character_ids`、`scene_id`、`prop_ids`、`style_id`。
 - 最小 Prompt-only IP 输入字段。
 - 文案、分镜、图片提示词基础 Trace 入口。
+- LLMInteractionTrace。
+- 左侧或侧边大模型交互追踪展示区。
+- raw request / raw response 权限隔离。
 
 禁止：
 
@@ -730,6 +752,7 @@ GenerationTrace
 当前明显缺口：
 
 - 文案、分镜规划和图片提示词生成还没有被收敛成 Stage 1A 的独立实施入口。
+- 大模型输入输出仍未成为结构化、可查询、可权限控制的事实源。
 - Artifact / ArtifactVersion 未成为统一领域模型。
 - GenerationTrace 仍未成为所有生成步骤的统一事实记录。
 - StoryboardFrame 更偏最终媒体输出，缺少工作台选择、重抽、锁定和 stale 状态。
@@ -775,6 +798,7 @@ GenerationTrace
 
 ```text
 12A_TEXT_IMAGE_PROMPT_STAGE1A_SUBPLAN.md
+12B_LLM_INTERACTION_TRACE_STAGE1A_SUBPLAN.md
 13_STORYBOARD_WORKBENCH_SUBPLAN.md
 14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md
 15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md
@@ -787,7 +811,7 @@ GenerationTrace
 22_QUALITY_EVALUATION_ADMIN_SUBPLAN.md
 ```
 
-每份分方案确认后，再生成对应阶段或子阶段实施计划。已有阶段一工作台计划继续作为 `13_STORYBOARD_WORKBENCH_SUBPLAN.md` 的 Stage 1B 实施计划；Stage 1A 需要新增独立实施计划后再进入代码实现。
+每份分方案确认后，再生成对应阶段或子阶段实施计划。已有阶段一工作台计划继续作为 `13_STORYBOARD_WORKBENCH_SUBPLAN.md` 的 Stage 1B 实施计划；Stage 1A 需要新增独立实施计划后再进入代码实现。Stage 1A 实施计划必须同时覆盖 `12A` 和 `12B`，不能先实现黑盒文案/提示词生成再补 Trace。
 
 ---
 
@@ -818,7 +842,7 @@ Pixelle 的正确路线不是：
 
 ```text
 确认本总控方案
-  -> 先启动 Stage 1A：文案、分镜规划、图片提示词和 PromptPlan
+  -> 先启动 Stage 1A：文案、分镜规划、图片提示词、PromptPlan 和 LLM Interaction Trace
   -> 再启动 Stage 1B：分镜图工作台、Artifact、Trace、候选图、选择和重抽
   -> 等工作台闭环稳定后，再进入完整 AssetBible、SceneCast、Workflow、Worker、Provider、FlowGram、SaaS、视频扩展
 ```
