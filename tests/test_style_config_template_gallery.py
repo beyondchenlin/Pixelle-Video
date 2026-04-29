@@ -55,12 +55,14 @@ def test_render_generation_size_controls_returns_independent_image_size(monkeypa
             }
             self.info_messages = []
 
-        def segmented_control(self, _label, options, *, format_func, default, key):
-            assert default in options
+        def segmented_control(self, _label, options, *, format_func, key, default=None):
+            if default is not None:
+                assert default in options
             return self.session_state[key]
 
-        def toggle(self, _label, *, value, help, key):
-            assert value is False
+        def toggle(self, _label, *, help, key, value=None):
+            if value is not None:
+                assert value is False
             assert help
             return self.session_state[key]
 
@@ -96,14 +98,16 @@ def test_render_generation_size_controls_uses_standard_video_presets(monkeypatch
             }
             self.video_resolution_options = None
 
-        def segmented_control(self, _label, options, *, format_func, default, key):
-            assert default in options
+        def segmented_control(self, _label, options, *, format_func, key, default=None):
+            if default is not None:
+                assert default in options
             if key == "video_resolution_preset":
                 self.video_resolution_options = list(options)
             return self.session_state[key]
 
-        def toggle(self, _label, *, value, help, key):
-            assert value is False
+        def toggle(self, _label, *, help, key, value=None):
+            if value is not None:
+                assert value is False
             assert help
             return self.session_state[key]
 
@@ -139,14 +143,16 @@ def test_render_generation_size_controls_uses_standard_video_labels(monkeypatch)
             }
             self.video_labels = {}
 
-        def segmented_control(self, _label, options, *, format_func, default, key):
-            assert default in options
+        def segmented_control(self, _label, options, *, format_func, key, default=None):
+            if default is not None:
+                assert default in options
             if key == "video_resolution_preset":
                 self.video_labels = {option: format_func(option) for option in options}
             return self.session_state[key]
 
-        def toggle(self, _label, *, value, help, key):
-            assert value is False
+        def toggle(self, _label, *, help, key, value=None):
+            if value is not None:
+                assert value is False
             assert help
             return self.session_state[key]
 
@@ -193,14 +199,16 @@ def test_render_generation_size_controls_uses_valid_non_square_media_default(
             }
             self.media_resolution_default = None
 
-        def segmented_control(self, _label, options, *, format_func, default, key):
-            assert default in options
+        def segmented_control(self, _label, options, *, format_func, key, default=None):
+            if default is not None:
+                assert default in options
             if key == "media_resolution_preset":
-                self.media_resolution_default = default
+                self.media_resolution_default = default or self.session_state[key]
             return self.session_state[key]
 
-        def toggle(self, _label, *, value, help, key):
-            assert value is False
+        def toggle(self, _label, *, help, key, value=None):
+            if value is not None:
+                assert value is False
             assert help
             return self.session_state[key]
 
@@ -236,14 +244,16 @@ def test_render_generation_size_controls_uses_orientation_video_default(
             }
             self.video_resolution_default = None
 
-        def segmented_control(self, _label, options, *, format_func, default, key):
-            assert default in options
+        def segmented_control(self, _label, options, *, format_func, key, default=None):
+            if default is not None:
+                assert default in options
             if key == "video_resolution_preset":
-                self.video_resolution_default = default
+                self.video_resolution_default = default or self.session_state[key]
             return self.session_state[key]
 
-        def toggle(self, _label, *, value, help, key):
-            assert value is False
+        def toggle(self, _label, *, help, key, value=None):
+            if value is not None:
+                assert value is False
             assert help
             return self.session_state[key]
 
@@ -276,12 +286,14 @@ def test_render_generation_size_controls_syncs_image_size_to_canvas(monkeypatch)
                 "sync_media_size_to_canvas": True,
             }
 
-        def segmented_control(self, _label, options, *, format_func, default, key):
-            assert default in options
+        def segmented_control(self, _label, options, *, format_func, key, default=None):
+            if default is not None:
+                assert default in options
             return self.session_state[key]
 
-        def toggle(self, _label, *, value, help, key):
-            assert value is True
+        def toggle(self, _label, *, help, key, value=None):
+            if value is not None:
+                assert value is True
             assert help
             return self.session_state[key]
 
@@ -313,12 +325,14 @@ def test_render_generation_size_controls_sets_default_media_placement(monkeypatc
                 "sync_media_size_to_canvas": False,
             }
 
-        def segmented_control(self, _label, options, *, format_func, default, key):
-            assert default in options
+        def segmented_control(self, _label, options, *, format_func, key, default=None):
+            if default is not None:
+                assert default in options
             return self.session_state[key]
 
-        def toggle(self, _label, *, value, help, key):
-            assert value is False
+        def toggle(self, _label, *, help, key, value=None):
+            if value is not None:
+                assert value is False
             assert help
             return self.session_state[key]
 
@@ -343,3 +357,55 @@ def test_render_generation_size_controls_sets_default_media_placement(monkeypatc
         "scale_percent": 80,
         "anchor": "center",
     }
+
+
+def test_render_generation_size_controls_omits_defaults_for_session_widgets(
+    monkeypatch,
+):
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "video_orientation": "landscape",
+                "video_resolution_preset": "landscape_hd",
+                "media_orientation": "square",
+                "media_resolution_preset": "768",
+                "sync_media_size_to_canvas": False,
+                "media_placement_scale_percent": 80,
+                "media_placement_anchor": "center",
+            }
+            self.segmented_kwargs = {}
+            self.toggle_kwargs = {}
+            self.slider_kwargs = {}
+
+        def segmented_control(self, _label, options, *, format_func, key, **kwargs):
+            assert self.session_state[key] in options
+            self.segmented_kwargs[key] = kwargs
+            return self.session_state[key]
+
+        def toggle(self, _label, *, help, key, **kwargs):
+            assert help
+            self.toggle_kwargs[key] = kwargs
+            return self.session_state[key]
+
+        def slider(self, _label, *, key, **kwargs):
+            self.slider_kwargs[key] = kwargs
+            return self.session_state[key]
+
+        def info(self, _message):
+            return None
+
+    fake_st = FakeStreamlit()
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(
+        style_config,
+        "tr",
+        lambda key, **kwargs: key.format(**kwargs) if kwargs else key,
+    )
+
+    style_config._render_generation_size_controls()
+
+    assert all(
+        "default" not in kwargs for kwargs in fake_st.segmented_kwargs.values()
+    )
+    assert "value" not in fake_st.toggle_kwargs["sync_media_size_to_canvas"]
+    assert "value" not in fake_st.slider_kwargs["media_placement_scale_percent"]

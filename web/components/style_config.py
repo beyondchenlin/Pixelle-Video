@@ -154,12 +154,17 @@ def resolve_media_generation_section_expanded(template_media_type: str) -> bool:
     return template_media_type == "video"
 
 
-def _ensure_session_option(key: str, options: Sequence[str], default: str) -> str:
+def _normalize_session_option(key: str, options: Sequence[str], default: str) -> str:
     value = st.session_state.get(key)
     if value not in options:
-        st.session_state[key] = default
         return default
     return str(value)
+
+
+def _ensure_session_option(key: str, options: Sequence[str], default: str) -> str:
+    value = _normalize_session_option(key, options, default)
+    st.session_state[key] = value
+    return value
 
 
 def _render_size_segmented_control(
@@ -170,7 +175,10 @@ def _render_size_segmented_control(
     key: str,
     default: str,
 ) -> str:
-    default_value = _ensure_session_option(key, options, default)
+    has_session_value = key in st.session_state
+    default_value = _normalize_session_option(key, options, default)
+    if has_session_value:
+        st.session_state[key] = default_value
     option_list = list(options)
 
     def format_func(value: str) -> str:
@@ -178,22 +186,22 @@ def _render_size_segmented_control(
 
     segmented_control = getattr(st, "segmented_control", None)
     if segmented_control is not None:
-        selected = segmented_control(
-            label,
-            option_list,
-            format_func=format_func,
-            default=default_value,
-            key=key,
-        )
+        kwargs = {
+            "format_func": format_func,
+            "key": key,
+        }
+        if not has_session_value:
+            kwargs["default"] = default_value
+        selected = segmented_control(label, option_list, **kwargs)
     else:
-        selected = st.radio(
-            label,
-            option_list,
-            index=option_list.index(default_value),
-            format_func=format_func,
-            horizontal=True,
-            key=key,
-        )
+        kwargs = {
+            "format_func": format_func,
+            "horizontal": True,
+            "key": key,
+        }
+        if not has_session_value:
+            kwargs["index"] = option_list.index(default_value)
+        selected = st.radio(label, option_list, **kwargs)
     return str(selected or default_value)
 
 
@@ -227,26 +235,33 @@ def _media_placement_anchor_label(anchor: str) -> str:
 
 
 def _render_media_placement_controls() -> MediaPlacement:
+    has_scale_session_value = "media_placement_scale_percent" in st.session_state
     scale_default = _coerce_media_placement_scale(
         st.session_state.get(
             "media_placement_scale_percent",
             MediaPlacement().scale_percent,
         )
     )
+    if has_scale_session_value:
+        st.session_state["media_placement_scale_percent"] = scale_default
     slider = getattr(st, "slider", None)
     if slider is None:
         scale_percent = scale_default
         st.session_state["media_placement_scale_percent"] = scale_percent
     else:
+        slider_kwargs = {
+            "min_value": 10,
+            "max_value": 100,
+            "step": 5,
+            "help": tr("media_placement.scale_help"),
+            "key": "media_placement_scale_percent",
+        }
+        if not has_scale_session_value:
+            slider_kwargs["value"] = scale_default
         scale_percent = int(
             slider(
                 tr("media_placement.scale"),
-                min_value=10,
-                max_value=100,
-                value=scale_default,
-                step=5,
-                help=tr("media_placement.scale_help"),
-                key="media_placement_scale_percent",
+                **slider_kwargs,
             )
         )
 
@@ -353,9 +368,13 @@ def _render_generation_size_controls() -> GenerationSizeContract:
 
     sync = st.toggle(
         tr("size.sync_media_to_canvas"),
-        value=bool(st.session_state.get("sync_media_size_to_canvas", False)),
         help=tr("size.sync_media_to_canvas_help"),
         key="sync_media_size_to_canvas",
+        **(
+            {}
+            if "sync_media_size_to_canvas" in st.session_state
+            else {"value": False}
+        ),
     )
     contract = GenerationSizeContract.from_params(
         {
