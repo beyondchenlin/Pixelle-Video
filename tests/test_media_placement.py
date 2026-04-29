@@ -29,6 +29,12 @@ def test_media_placement_rejects_scale_outside_allowed_range(scale):
         MediaPlacement(scale_percent=scale)
 
 
+@pytest.mark.parametrize("scale", [80.5, float("nan"), float("inf"), True])
+def test_media_placement_rejects_non_integral_or_non_finite_scale(scale):
+    with pytest.raises(ValueError, match="scale_percent"):
+        MediaPlacement(scale_percent=scale)
+
+
 @pytest.mark.parametrize("anchor", ["middle", "top-middle", ""])
 def test_media_placement_rejects_unknown_anchor(anchor):
     with pytest.raises(ValueError, match="anchor"):
@@ -86,6 +92,47 @@ def test_anchor_right_bottom_moves_position_without_changing_size():
     assert bottom_right.height == pytest.approx(center.height)
     assert bottom_right.left == pytest.approx(704)
     assert bottom_right.top == pytest.approx(144)
+
+
+@pytest.mark.parametrize(
+    ("anchor", "expected_left", "expected_top"),
+    [
+        ("top_left", 0, 0),
+        ("top", 352, 0),
+        ("top_right", 704, 0),
+        ("left", 0, 72),
+        ("center", 352, 72),
+        ("right", 704, 72),
+        ("bottom_left", 0, 144),
+        ("bottom", 352, 144),
+        ("bottom_right", 704, 144),
+    ],
+)
+def test_all_anchors_position_without_changing_size(anchor, expected_left, expected_top):
+    box = calculate_media_box(
+        canvas_width=1280,
+        canvas_height=720,
+        media_source_width=1024,
+        media_source_height=1024,
+        placement=MediaPlacement(scale_percent=80, anchor=anchor),
+    )
+
+    assert box.width == pytest.approx(576)
+    assert box.height == pytest.approx(576)
+    assert box.left == pytest.approx(expected_left)
+    assert box.top == pytest.approx(expected_top)
+
+
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), "wide"])
+def test_calculate_media_box_rejects_non_finite_dimensions(bad_value):
+    with pytest.raises(ValueError, match="canvas_width"):
+        calculate_media_box(
+            canvas_width=bad_value,
+            canvas_height=720,
+            media_source_width=1280,
+            media_source_height=720,
+            placement=MediaPlacement(),
+        )
 
 
 def test_canvas_box_projects_into_template_coordinates_for_same_aspect_resize():

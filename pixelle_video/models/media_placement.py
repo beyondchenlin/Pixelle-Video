@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isclose
+from math import isclose, isfinite
 from typing import Any, Literal, Mapping
 
 MediaPlacementBasis = Literal["canvas"]
@@ -41,10 +41,7 @@ class MediaPlacement:
     anchor: MediaPlacementAnchor = "center"
 
     def __post_init__(self) -> None:
-        try:
-            scale_percent = int(self.scale_percent)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("scale_percent must be between 10 and 100") from exc
+        scale_percent = _normalize_scale_percent(self.scale_percent)
 
         if self.basis not in VALID_MEDIA_PLACEMENT_BASIS:
             raise ValueError(f"basis must be one of {VALID_MEDIA_PLACEMENT_BASIS}")
@@ -97,12 +94,16 @@ def calculate_media_box(
     placement: MediaPlacement | Mapping[str, Any] | None = None,
 ) -> MediaBox:
     resolved = resolve_media_placement(placement)
-    _validate_positive_dimensions(
+    dimensions = _validate_positive_dimensions(
         canvas_width=canvas_width,
         canvas_height=canvas_height,
         media_source_width=media_source_width,
         media_source_height=media_source_height,
     )
+    canvas_width = dimensions["canvas_width"]
+    canvas_height = dimensions["canvas_height"]
+    media_source_width = dimensions["media_source_width"]
+    media_source_height = dimensions["media_source_height"]
 
     contain_scale = min(
         canvas_width / media_source_width,
@@ -128,12 +129,16 @@ def project_canvas_box_to_template(
 ) -> MediaBox:
     if canvas_fit not in VALID_MEDIA_PLACEMENT_FIT:
         raise ValueError(f"canvas_fit must be one of {VALID_MEDIA_PLACEMENT_FIT}")
-    _validate_positive_dimensions(
+    dimensions = _validate_positive_dimensions(
         canvas_width=canvas_width,
         canvas_height=canvas_height,
         template_width=template_width,
         template_height=template_height,
     )
+    canvas_width = dimensions["canvas_width"]
+    canvas_height = dimensions["canvas_height"]
+    template_width = dimensions["template_width"]
+    template_height = dimensions["template_height"]
     if not _same_aspect_ratio(canvas_width, canvas_height, template_width, template_height):
         raise ValueError("template and canvas aspect ratio must match")
 
@@ -171,7 +176,31 @@ def _same_aspect_ratio(
     return isclose(width_a * height_b, width_b * height_a, rel_tol=1e-9, abs_tol=1e-9)
 
 
-def _validate_positive_dimensions(**dimensions: float) -> None:
+def _normalize_scale_percent(value: Any) -> int:
+    if isinstance(value, bool):
+        raise ValueError("scale_percent must be an integer between 10 and 100")
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("scale_percent must be an integer between 10 and 100") from exc
+    if not isfinite(numeric_value) or not numeric_value.is_integer():
+        raise ValueError("scale_percent must be an integer between 10 and 100")
+    scale_percent = int(numeric_value)
+    if not 10 <= scale_percent <= 100:
+        raise ValueError("scale_percent must be between 10 and 100")
+    return scale_percent
+
+
+def _validate_positive_dimensions(**dimensions: float) -> dict[str, float]:
+    normalized: dict[str, float] = {}
     for name, value in dimensions.items():
-        if value <= 0:
-            raise ValueError(f"{name} must be positive")
+        if isinstance(value, bool):
+            raise ValueError(f"{name} must be a finite positive number")
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"{name} must be a finite positive number") from exc
+        if not isfinite(numeric_value) or numeric_value <= 0:
+            raise ValueError(f"{name} must be a finite positive number")
+        normalized[name] = numeric_value
+    return normalized
