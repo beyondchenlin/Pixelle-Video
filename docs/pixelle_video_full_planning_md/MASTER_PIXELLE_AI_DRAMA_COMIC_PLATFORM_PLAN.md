@@ -704,7 +704,7 @@ GenerationTrace
     -> superpowers/plans 下的阶段实施计划
 ```
 
-`01-12` 文档继续作为能力域资料，但要逐步升级为正式分方案。
+`01-12` 文档继续作为能力域资料。正式能力分方案已经从 `13_STORYBOARD_WORKBENCH_SUBPLAN.md` 到 `22_QUALITY_EVALUATION_ADMIN_SUBPLAN.md` 建立，后续评审和实施应优先引用这些分方案。
 
 阶段一实施计划继续有效，但它的定位是：
 
@@ -722,22 +722,22 @@ GenerationTrace
 
 ## 13. 后续文档工作
 
-建议按以下顺序补齐分方案：
+正式分方案已经按以下顺序建立：
 
 ```text
-1. 分镜图工作台分方案
-2. Artifact / Trace / Regeneration 分方案
-3. AssetBible / SceneCast / PromptComposer 分方案
-4. Workflow Skeleton 分方案
-5. Worker / Queue 分方案
-6. Provider / ResourceResolver 分方案
-7. FlowGram Adapter 分方案
-8. SaaS / Billing / Public API 分方案
-9. 视频扩展分方案
-10. Quality Evaluation / Admin 分方案
+13_STORYBOARD_WORKBENCH_SUBPLAN.md
+14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md
+15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md
+16_WORKFLOW_SKELETON_SUBPLAN.md
+17_WORKER_QUEUE_DISTRIBUTED_SUBPLAN.md
+18_PROVIDER_RESOURCE_RESOLVER_SUBPLAN.md
+19_FLOWGRAM_ADAPTER_SUBPLAN.md
+20_SAAS_BILLING_PUBLIC_API_SUBPLAN.md
+21_VIDEO_EXTENSION_SUBPLAN.md
+22_QUALITY_EVALUATION_ADMIN_SUBPLAN.md
 ```
 
-每份分方案确认后，再生成对应阶段或子阶段实施计划。
+每份分方案确认后，再生成对应阶段或子阶段实施计划。已有阶段一计划继续作为 `13_STORYBOARD_WORKBENCH_SUBPLAN.md` 的第一份实施计划。
 
 ---
 

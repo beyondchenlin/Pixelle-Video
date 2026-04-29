@@ -46,27 +46,64 @@
 13. `ALL_IN_ONE_PIXELLE_VIDEO_FULL_PLAN.md`  
     合并版完整文档。
 
+14. `13_STORYBOARD_WORKBENCH_SUBPLAN.md`
+    分镜图工作台正式分方案，约束 StoryboardPanel、候选图、选择、重抽、锁定和 stale 状态。
+
+15. `14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md`
+    Artifact、ArtifactVersion、GenerationTrace 和局部重跑正式分方案。
+
+16. `15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md`
+    AssetBible、SceneCast、PromptPlan、PromptComposer 和 PromptProjection 正式分方案。
+
+17. `16_WORKFLOW_SKELETON_SUBPLAN.md`
+    最小 Workflow Skeleton 正式分方案，约束 NodeContractLite、WorkflowRunLite 和系统预设流程。
+
+18. `17_WORKER_QUEUE_DISTRIBUTED_SUBPLAN.md`
+    Worker、Queue、多机器执行、lease、heartbeat 和任务恢复正式分方案。
+
+19. `18_PROVIDER_RESOURCE_RESOLVER_SUBPLAN.md`
+    Provider、ProviderCapability、ResourceResolver 和强控制资源 ID 正式分方案。
+
+20. `19_FLOWGRAM_ADAPTER_SUBPLAN.md`
+    FlowGram Adapter 正式分方案，明确 FlowGram 是 Studio 外壳，不是 Pixelle Core 事实源。
+
+21. `20_SAAS_BILLING_PUBLIC_API_SUBPLAN.md`
+    SaaS、权限、计费、UsageLedger 和 Public API 正式分方案。
+
+22. `21_VIDEO_EXTENSION_SUBPLAN.md`
+    视频扩展正式分方案，覆盖 first frame、last frame、motion prompt、video segment 和 final render artifact。
+
+23. `22_QUALITY_EVALUATION_ADMIN_SUBPLAN.md`
+    Quality Evaluation、Admin、运营观测和审计正式分方案。
+
 ## 推荐阅读顺序
 
 如果是让 Codex 直接辅助开发，建议按这个顺序：
 
 ```text
 MASTER -> 
-01 -> 02 -> 03 -> 04 -> 05 -> 06 -> 08 -> 09 -> 12
+01 -> 02 -> 03 -> 04 -> 05 -> 09 -> 13 -> 14 -> 15 -> 12
 ```
 
 如果是先做商业化后端规划，建议按这个顺序：
 
 ```text
 MASTER ->
-01 -> 06 -> 07 -> 08 -> 10 -> 11
+01 -> 06 -> 07 -> 08 -> 10 -> 11 -> 17 -> 18 -> 20
 ```
 
 如果是先做产品体验和重抽卡：
 
 ```text
 MASTER ->
-02 -> 03 -> 04 -> 05 -> 09
+02 -> 03 -> 04 -> 05 -> 09 -> 13 -> 14 -> 15
+```
+
+如果是理解完整平台化路线，建议按这个顺序：
+
+```text
+MASTER ->
+13 -> 14 -> 15 -> 16 -> 17 -> 18 -> 19 -> 20 -> 21 -> 22
 ```
 
 ## 当前总目标
