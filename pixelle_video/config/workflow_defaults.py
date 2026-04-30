@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import Mapping, Optional, Sequence
 
+DEFAULT_TTS_WORKFLOW = "selfhost/tts_index2_8g.json"
+
 BUILTIN_DEFAULT_WORKFLOWS = {
     "image": "selfhost/image_z_image_turbo_gguf.json",
     "video": "runninghub/video_wan2.1_fusionx.json",
-    "tts": "selfhost/tts_index2.json",
+    "tts": DEFAULT_TTS_WORKFLOW,
 }
 
 WORKFLOW_DOMAIN_PREFIXES = {

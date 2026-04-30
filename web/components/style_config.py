@@ -29,6 +29,7 @@ from loguru import logger
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
 
 from pixelle_video.config import config_manager
+from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
 from pixelle_video.config.prompt_prefix_library import (
     build_prompt_prefix_workflow_preview_record,
     filter_prompt_prefix_items,
@@ -2391,7 +2392,7 @@ def render_style_config(
                 tts_selected_index = tts_workflow_options.index(tts_workflow_display)
                 tts_workflow_key = tts_workflow_keys[tts_selected_index]
             else:
-                tts_workflow_key = "selfhost/tts_index2.json"
+                tts_workflow_key = DEFAULT_TTS_WORKFLOW
             
             render_selfhost_workflow_notice(
                 tts_workflow_key,

@@ -48,7 +48,7 @@ comfyui:
       voice: zh-CN-YunjianNeural
       speed: 1.2
     comfyui:
-      default_workflow: selfhost/tts_index2.json  # Default ComfyUI TTS workflow
+      default_workflow: selfhost/tts_index2_8g.json  # Default ComfyUI TTS workflow
   
   # Image-specific configuration
   image:
