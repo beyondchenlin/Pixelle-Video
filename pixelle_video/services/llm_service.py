@@ -495,11 +495,13 @@ class LLMService:
             trace_request_kwargs = json_mode_kwargs
             try:
                 response = await client.chat.completions.create(**json_mode_kwargs)
-            except (BadRequestError, TypeError) as exc:
-                if (
-                    not capabilities.retry_prompt_schema_when_json_object_unsupported
-                    or not is_json_object_response_format_unsupported_error(exc)
-                ):
+            except Exception as exc:
+                should_retry_without_json_mode = (
+                    isinstance(exc, (BadRequestError, TypeError))
+                    and capabilities.retry_prompt_schema_when_json_object_unsupported
+                    and is_json_object_response_format_unsupported_error(exc)
+                )
+                if not should_retry_without_json_mode:
                     await self._record_llm_trace(
                         trace_context=trace_context,
                         trace_recorder=trace_recorder,
