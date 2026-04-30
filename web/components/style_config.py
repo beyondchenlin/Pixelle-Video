@@ -2784,21 +2784,6 @@ def render_style_config(
         # Backward compatibility
         st.session_state['template_requires_image'] = (template_media_type == "image")
 
-        text_rendering = render_text_rendering_controls(
-            render_backend,
-            ui=st,
-            translate=tr,
-            template_id=Path(frame_template).stem,
-            canvas_width=size_contract.canvas_width,
-            canvas_height=size_contract.canvas_height,
-            media_width=media_width,
-            media_height=media_height,
-            media_placement=st.session_state.get("media_placement"),
-            title_text=(content_context or {}).get("title"),
-            caption_text=_preview_caption_text((content_context or {}).get("text")),
-            preview_media_ref=st.session_state.get("text_rendering_preview_media_ref"),
-        )
-        
         custom_values_for_video = {}
         if custom_params_for_video:
             st.markdown("📝 " + tr("template.custom_parameters"))
@@ -2968,6 +2953,21 @@ def render_style_config(
                     except Exception as e:
                         st.error(tr("template.preview_failed", error=str(e)))
                         logger.exception(e)
+
+    text_rendering = render_text_rendering_controls(
+        render_backend,
+        ui=st,
+        translate=tr,
+        template_id=Path(frame_template).stem,
+        canvas_width=size_contract.canvas_width,
+        canvas_height=size_contract.canvas_height,
+        media_width=media_width,
+        media_height=media_height,
+        media_placement=st.session_state.get("media_placement"),
+        title_text=(content_context or {}).get("title"),
+        caption_text=_preview_caption_text((content_context or {}).get("text")),
+        preview_media_ref=st.session_state.get("text_rendering_preview_media_ref"),
+    )
     
     # ====================================================================
     # Media Generation Section (conditional based on template)
