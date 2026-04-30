@@ -29,7 +29,10 @@ def test_legacy_caption_fixture_contains_single_caption_and_no_overlay_text():
     assert len(payload["caption_cues"]) == 1
     assert payload["text_tracks"] == []
     assert payload["text_cues"] == []
-    assert payload["text_style_profiles"][0]["id"] == "caption-default"
+    assert [profile["id"] for profile in payload["text_style_profiles"]] == [
+        "caption-default",
+        "title-default",
+    ]
 
 
 def test_overlay_hybrid_fixture_contains_caption_overlay_and_native_hint_diagnostic():
@@ -41,6 +44,7 @@ def test_overlay_hybrid_fixture_contains_caption_overlay_and_native_hint_diagnos
 
     assert [profile["id"] for profile in payload["text_style_profiles"]] == [
         "caption-default",
+        "title-default",
         "overlay-default",
     ]
     assert payload["caption_cues"][0]["style_profile"] == "caption-default"
@@ -59,6 +63,7 @@ def test_render_manifest_with_text_styles_fixture_is_versioned():
     assert payload["version"] == "render_manifest.v1"
     assert [profile["id"] for profile in payload["text_style_profiles"]] == [
         "caption-default",
+        "title-default",
         "overlay-default",
     ]
     assert payload["text_cues"][0]["style_profile"] == "overlay-default"
@@ -92,5 +97,6 @@ def test_render_manifest_with_text_styles_fixture_round_trips_through_model():
     assert restored["version"] == "render_manifest.v1"
     assert [profile["id"] for profile in restored["text_style_profiles"]] == [
         "caption-default",
+        "title-default",
         "overlay-default",
     ]
