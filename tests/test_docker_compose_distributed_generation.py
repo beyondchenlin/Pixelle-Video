@@ -7,7 +7,10 @@ def load_compose():
     return yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
 
 
-def env_list_to_dict(values):
+def env_to_dict(values):
+    if isinstance(values, dict):
+        return {str(key): str(value) for key, value in values.items()}
+
     result = {}
     for value in values:
         key, _, env_value = value.partition("=")
@@ -29,7 +32,7 @@ def test_api_worker_and_web_share_task_backend_environment():
     services = load_compose()["services"]
 
     for service_name in ["api", "web", "worker"]:
-        env = env_list_to_dict(services[service_name]["environment"])
+        env = env_to_dict(services[service_name]["environment"])
         assert env["PIXELLE_TASK_BACKEND"] == "postgres"
         assert env["PIXELLE_REDIS_URL"] == "redis://redis:6379/0"
         assert env["PIXELLE_REQUIRE_DISTRIBUTED_COORDINATION"] == "true"
@@ -39,5 +42,5 @@ def test_api_worker_and_web_share_task_backend_environment():
         assert env["PIXELLE_GENERATION_SUBMIT_LOCK_WAIT_SECONDS"] == "2"
         assert env["PIXELLE_GENERATION_SUBMIT_LOCK_POLL_SECONDS"] == "0.05"
 
-    assert env_list_to_dict(services["api"]["environment"])["PIXELLE_EXECUTION_MODE"] == "worker"
-    assert env_list_to_dict(services["worker"]["environment"])["PIXELLE_EXECUTION_MODE"] == "worker"
+    assert env_to_dict(services["api"]["environment"])["PIXELLE_EXECUTION_MODE"] == "worker"
+    assert env_to_dict(services["worker"]["environment"])["PIXELLE_EXECUTION_MODE"] == "worker"

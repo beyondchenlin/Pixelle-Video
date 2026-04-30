@@ -64,6 +64,7 @@ def test_render_style_config_uses_real_streamlit_popovers():
 import importlib.util
 import sys
 from pathlib import Path
+from unittest.mock import patch
 import streamlit as st
 from pixelle_video.config.schema import PixelleVideoConfig
 import pixelle_video.utils.template_util as template_util
@@ -78,6 +79,11 @@ spec.loader.exec_module(style_config)
 st.session_state['template_type_selector'] = 'image'
 st.session_state['template_media_type'] = 'image'
 st.session_state['template_requires_media'] = True
+st.session_state['video_orientation'] = 'portrait'
+st.session_state['video_resolution_preset'] = 'portrait_hd'
+st.session_state['media_orientation'] = 'square'
+st.session_state['media_resolution_preset'] = '768'
+st.session_state['sync_media_size_to_canvas'] = False
 
 style_config.tr = lambda key, **kwargs: key
 style_config.get_language = lambda: 'en_US'
@@ -112,8 +118,8 @@ style_config.render_storyboard_planning_guide = lambda: None
 style_config.render_storyboard_preview = lambda _snapshot: []
 style_config._render_image_prompt_prefix_library = lambda **_kwargs: ''
 
-template_util.get_template_type = lambda _template_name: 'image'
-template_util.get_templates_grouped_by_size_and_type = lambda _template_type: {
+def _fake_get_templates_grouped_by_size_and_type(_template_type):
+    return {
     '1080x1920': [
         type('TemplateInfo', (), {
             'template_path': '1080x1920/image_default.html',
@@ -125,9 +131,7 @@ template_util.get_templates_grouped_by_size_and_type = lambda _template_type: {
             })(),
         })()
     ]
-}
-template_util.parse_template_size = lambda _path: (1080, 1920)
-template_util.resolve_template_path = lambda path: path
+    }
 
 class _FakeFrameGenerator:
     def __init__(self, _template_path):
@@ -148,7 +152,14 @@ class _FakeVideo:
     config = {'template': {}}
     media = _FakeMedia()
 
-style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
+with (
+    patch.object(template_util, 'get_template_type', lambda _template_name: 'image'),
+    patch.object(template_util, 'get_templates_grouped_by_size_and_type', _fake_get_templates_grouped_by_size_and_type),
+    patch.object(template_util, 'parse_template_size', lambda _path: (1080, 1920)),
+    patch.object(template_util, 'resolve_template_path', lambda path: path),
+    patch.object(frame_html, 'HTMLFrameGenerator', _FakeFrameGenerator),
+):
+    style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
 """
         script = script.replace("__MODULE_PATH__", str(module_path))
 

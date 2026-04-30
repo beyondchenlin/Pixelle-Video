@@ -7,6 +7,10 @@ from pixelle_video.utils.content_generators import generate_styled_image_prompt_
 from pixelle_video.utils.prompt_helper import apply_no_text_policy
 
 
+def _progress_message_key(message):
+    return getattr(message, "key", message)
+
+
 def _suppress_image_text(negative_prompt: str | None = None) -> dict:
     image_text = {"suppress_embedded_text": True}
     if negative_prompt is not None:
@@ -818,7 +822,7 @@ async def test_generate_styled_image_prompt_batch_reports_substage_progress_mess
         ),
     )
 
-    assert [message for _, _, message in progress_events] == [
+    assert [_progress_message_key(message) for _, _, message in progress_events] == [
         "progress.detail.style_resolution",
         "progress.detail.storyboard_planning",
         "base_prompt_generation",

@@ -7,6 +7,7 @@ def test_build_video_prompt_prompt_uses_requested_word_range():
         min_words=12,
         max_words=34,
         style_profile=None,
+        prompt_language="en_US",
     )
 
     assert "recommended 12-34 English words" in prompt
