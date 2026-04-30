@@ -27,6 +27,8 @@ class ResolvedResource:
     metadata: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
+        if not isinstance(self.resolved_value, str):
+            raise ResourceResolverError("resolved_value must be a string")
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
 
@@ -122,6 +124,10 @@ def _freeze_mapping(
                 f"{resource_type} resource_id mismatch: "
                 f"mapping key {resource_id!r} does not match "
                 f"resolved resource_id {resolved.resource_id!r}"
+            )
+        if not isinstance(resolved, str | ResolvedResource):
+            raise ResourceResolverError(
+                f"{resource_type} resolved_value must be a string"
             )
         frozen[resource_id] = resolved
     return MappingProxyType(frozen)
