@@ -45,7 +45,7 @@ def test_text_rendering_preview_frame_api_returns_public_artifact_contract(monke
             "canvas_height": 1920,
             "media_width": 900,
             "media_height": 1200,
-            "media_placement": {"anchor": "center"},
+            "media_placement": {},
             "preview_media_storage_key": "artifacts/demo/source.png",
         },
     )
@@ -58,6 +58,12 @@ def test_text_rendering_preview_frame_api_returns_public_artifact_contract(monke
     }
     assert set(response.json()) == {"storage_key", "url", "fingerprint"}
     assert captured["request"].text_rendering["title_style"] == {"font_size": 80}
+    assert captured["request"].media_placement == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 100,
+        "anchor": "center",
+    }
     assert "template_params" not in captured["request"].text_rendering
     assert not hasattr(captured["request"], "preview_media_url")
     assert not hasattr(captured["request"], "template_params")
@@ -127,6 +133,86 @@ def test_text_rendering_preview_frame_rejects_unbounded_dimensions_and_fps(monke
     )
 
     assert response.status_code == 422
+
+
+def test_text_rendering_preview_frame_rejects_invalid_workspace_id_before_service(
+    monkeypatch,
+):
+    service_called = False
+
+    class FakeService:
+        def __init__(self, *, object_store, renderer=None):
+            nonlocal service_called
+            service_called = True
+
+        async def render_preview_frame(self, request):
+            raise AssertionError("validation should reject before service call")
+
+    monkeypatch.setattr(
+        "api.routers.text_rendering_preview.TextRenderingPreviewFrameService",
+        FakeService,
+    )
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+
+    for workspace_id in ("../bad", "ws/bad"):
+        response = client.post(
+            "/text-rendering/preview-frame",
+            json={
+                "workspace_id": workspace_id,
+                "template_id": "image_default",
+                "canvas_width": 1080,
+                "canvas_height": 1920,
+                "media_width": 900,
+                "media_height": 1200,
+            },
+        )
+
+        assert response.status_code == 422
+
+    assert service_called is False
+
+
+def test_text_rendering_preview_frame_rejects_invalid_media_placement_with_4xx(
+    monkeypatch,
+):
+    service_called = False
+
+    class FakeService:
+        def __init__(self, *, object_store, renderer=None):
+            nonlocal service_called
+            service_called = True
+
+        async def render_preview_frame(self, request):
+            raise AssertionError("validation should reject before service call")
+
+    monkeypatch.setattr(
+        "api.routers.text_rendering_preview.TextRenderingPreviewFrameService",
+        FakeService,
+    )
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/text-rendering/preview-frame",
+        json={
+            "workspace_id": "demo",
+            "template_id": "image_default",
+            "canvas_width": 1080,
+            "canvas_height": 1920,
+            "media_width": 900,
+            "media_height": 1200,
+            "media_placement": {"scale_percent": 0},
+        },
+    )
+
+    assert 400 <= response.status_code < 500
+    assert response.status_code != 500
+    assert service_called is False
 
 
 def test_text_rendering_preview_frame_maps_cross_workspace_key_to_4xx():

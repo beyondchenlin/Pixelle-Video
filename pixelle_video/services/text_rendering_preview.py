@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import re
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -18,6 +19,9 @@ from pixelle_video.services.text_rendering_orchestrator import (
 )
 
 PREVIEW_ARTIFACT_KIND = "text_rendering_preview_frame"
+_PREVIEW_MEDIA_FILENAME_PATTERN = re.compile(
+    r"^[0-9A-Za-z][0-9A-Za-z_.-]*\.[A-Za-z0-9][A-Za-z0-9_-]*$"
+)
 
 
 class TextRenderingPreviewFrameRequestError(ValueError):
@@ -142,7 +146,12 @@ class TextRenderingPreviewFrameService:
     @staticmethod
     def _validate_preview_media_storage_key(workspace_id: str, storage_key: str) -> None:
         parts = storage_key.split("/")
-        if len(parts) != 3 or parts[0] != "artifacts" or parts[1] != workspace_id:
+        if (
+            len(parts) != 3
+            or parts[0] != "artifacts"
+            or parts[1] != workspace_id
+            or not _PREVIEW_MEDIA_FILENAME_PATTERN.fullmatch(parts[2])
+        ):
             raise TextRenderingPreviewFrameRequestError(
                 "preview_media_storage_key must belong to the request workspace"
             )

@@ -36,7 +36,7 @@ async def render_text_rendering_preview_frame(
                 canvas_height=request.canvas_height,
                 media_width=request.media_width,
                 media_height=request.media_height,
-                media_placement=dict(request.media_placement),
+                media_placement=request.media_placement.model_dump(),
                 render_backend=request.render_backend,
                 fps=request.fps,
                 preview_media_storage_key=request.preview_media_storage_key,
