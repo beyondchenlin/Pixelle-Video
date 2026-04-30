@@ -83,6 +83,8 @@ def build_text_rendering_preview_spec(
 ) -> TextRenderingPreviewSpec:
     preset = resolve_template_text_style_preset(template_id)
     normalized_preview_media_ref = str(preview_media_ref).strip() if preview_media_ref else None
+    title_style_payload = preset.title_style_dict()
+    title_style_payload.update(_clean_style(title_style))
     spec = TextRenderingPreviewSpec(
         template_id=str(template_id),
         render_backend=str(render_backend) if render_backend is not None else None,
@@ -95,7 +97,7 @@ def build_text_rendering_preview_spec(
         placeholder_media=normalized_preview_media_ref is None,
         title_text=str(title_text or ""),
         caption_text=str(caption_text or ""),
-        title_style=_clean_style(title_style),
+        title_style=title_style_payload,
         caption_style=_clean_style(caption_style),
         template_title_region=preset.title_region_dict(),
         template_caption_safe_area=preset.caption_safe_area_dict(),

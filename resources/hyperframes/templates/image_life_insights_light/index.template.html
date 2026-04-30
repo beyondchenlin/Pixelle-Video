@@ -97,24 +97,30 @@
       }
 
       .header {
-        margin-top: 200px;
-        text-align: center;
-        position: relative;
+        position: absolute;
+        left: var(--title-left);
+        right: var(--title-right);
+        top: var(--title-top);
+        bottom: var(--title-bottom);
+        transform: var(--title-transform);
+        width: min(var(--title-box-width), calc(100% - var(--title-margin-x) - var(--title-margin-x)));
+        max-width: var(--title-max-width);
+        text-align: var(--title-text-align);
         z-index: 2;
       }
 
       .title {
-        color: var(--title-fill, #5b4631);
-        font-family: var(--title-font-family, var(--hf-font-sans));
-        font-size: var(--title-font-size, 72px);
-        font-weight: var(--title-font-weight, 800);
-        line-height: var(--title-line-height, 1.2);
+        color: var(--title-fill);
+        font-family: var(--title-font-family);
+        font-size: var(--title-font-size);
+        font-weight: var(--title-font-weight);
+        line-height: var(--title-line-height);
         letter-spacing: 3px;
-        background: var(--title-background, transparent);
+        background: var(--title-background);
         -webkit-background-clip: text;
-        -webkit-text-fill-color: var(--title-fill, #5b4631);
+        -webkit-text-fill-color: var(--title-fill);
         background-clip: text;
-        -webkit-text-stroke: var(--title-stroke-width, 0) var(--title-stroke-color, #000000);
+        -webkit-text-stroke: var(--title-stroke-width) var(--title-stroke-color);
         filter: contrast(1.1) brightness(0.9);
       }
 
@@ -219,8 +225,8 @@
         <div class="decorative-circle circle-3"></div>
       </div>
 
-      <div class="header">
-        <div class="title" style="__TITLE_STYLE_CSS__">__TITLE__</div>
+      <div class="header" style="__TITLE_STYLE_CSS__">
+        <div class="title">__TITLE__</div>
       </div>
 
       <div class="pixelle-media-layer">__VISUALS__</div>

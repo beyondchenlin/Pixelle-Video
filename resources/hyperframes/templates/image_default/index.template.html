@@ -133,10 +133,14 @@
 
       .video-title-wrapper {
         position: absolute;
-        top: 150px;
-        left: 140px;
-        right: 140px;
-        text-align: center;
+        left: var(--title-left);
+        right: var(--title-right);
+        top: var(--title-top);
+        bottom: var(--title-bottom);
+        transform: var(--title-transform);
+        width: min(var(--title-box-width), calc(100% - var(--title-margin-x) - var(--title-margin-x)));
+        max-width: var(--title-max-width);
+        text-align: var(--title-text-align);
       }
 
       .video-title-ornament-top {
@@ -162,14 +166,14 @@
 
       .video-title {
         margin: 0;
-        color: var(--title-fill, #2c3e50);
-        font-family: var(--title-font-family, var(--hf-font-sans));
-        font-size: var(--title-font-size, 72px);
-        font-weight: var(--title-font-weight, 700);
-        line-height: var(--title-line-height, 1.2);
-        background: var(--title-background, transparent);
+        color: var(--title-fill);
+        font-family: var(--title-font-family);
+        font-size: var(--title-font-size);
+        font-weight: var(--title-font-weight);
+        line-height: var(--title-line-height);
+        background: var(--title-background);
         letter-spacing: 2px;
-        -webkit-text-stroke: var(--title-stroke-width, 0) var(--title-stroke-color, #000000);
+        -webkit-text-stroke: var(--title-stroke-width) var(--title-stroke-color);
       }
 
       .image-wrapper {
@@ -407,13 +411,13 @@
       </div>
 
       <div class="page-container">
-        <div class="video-title-wrapper">
+        <div class="video-title-wrapper" style="__TITLE_STYLE_CSS__">
           <div class="video-title-ornament-top">
             <div class="ornament-line"></div>
             <div class="ornament-dot"></div>
             <div class="ornament-line"></div>
           </div>
-          <h1 class="video-title" style="__TITLE_STYLE_CSS__">__TITLE__</h1>
+          <h1 class="video-title">__TITLE__</h1>
         </div>
 
         <div class="pixelle-media-layer">__VISUALS__</div>

@@ -67,6 +67,27 @@ def test_build_text_rendering_preview_spec_marks_placeholder_media_when_ref_miss
     assert spec.placeholder_media is True
 
 
+def test_build_text_rendering_preview_spec_merges_title_preset_defaults():
+    spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=900,
+        media_height=1200,
+        media_placement={"anchor": "center"},
+        title_text="Title",
+        caption_text="Caption",
+        title_style={"font_size": 96},
+        caption_style={},
+    )
+
+    assert spec.title_style["font_size"] == 96
+    assert spec.title_style["primary_color"] == "#2C3E50"
+    assert spec.title_style["background_color"] == "#FFFFFF"
+    assert spec.title_style["background_opacity"] == 0.92
+
+
 def test_preview_spec_fingerprint_is_deterministic_and_excludes_itself():
     spec = build_text_rendering_preview_spec(
         template_id="image_default",

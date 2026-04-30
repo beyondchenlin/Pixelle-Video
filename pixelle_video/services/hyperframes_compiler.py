@@ -324,21 +324,85 @@ class HyperFramesCompiler:
         margin_y = max(0, int(round(profile.margin_y * scale)))
         max_width = max(1, int(round(context.canvas_width * profile.max_width_ratio)))
         background = self._rgba(profile.background_color, profile.background_opacity)
-        return "; ".join(
-            [
-                f"--{prefix}-fill: {profile.primary_color}",
-                f"--{prefix}-stroke-color: {profile.stroke_color}",
-                f"--{prefix}-stroke-width: {stroke_width}px",
-                f"--{prefix}-background: {background}",
-                f"--{prefix}-font-family: {self._css_font_family_value(profile.font_family)}",
-                f"--{prefix}-font-size: {font_size}px",
-                f"--{prefix}-font-weight: {int(profile.font_weight)}",
-                f"--{prefix}-line-height: {float(profile.line_height)}",
-                f"--{prefix}-max-width: {max_width}px",
-                f"--{prefix}-margin-x: {margin_x}px",
-                f"--{prefix}-margin-y: {margin_y}px",
-            ]
-        ) + ";"
+        declarations = [
+            f"--{prefix}-fill: {profile.primary_color}",
+            f"--{prefix}-stroke-color: {profile.stroke_color}",
+            f"--{prefix}-stroke-width: {stroke_width}px",
+            f"--{prefix}-background: {background}",
+            f"--{prefix}-font-family: {self._css_font_family_value(profile.font_family)}",
+            f"--{prefix}-font-size: {font_size}px",
+            f"--{prefix}-font-weight: {int(profile.font_weight)}",
+            f"--{prefix}-line-height: {float(profile.line_height)}",
+            f"--{prefix}-max-width: {max_width}px",
+            f"--{prefix}-box-width: {max_width}px",
+            f"--{prefix}-margin-x: {margin_x}px",
+            f"--{prefix}-margin-y: {margin_y}px",
+            f"--{prefix}-text-align: {profile.alignment}",
+            f"--{prefix}-justify-content: {self._justify_content(profile.alignment)}",
+        ]
+        declarations.extend(
+            self._style_profile_position_css_variables(
+                profile=profile,
+                margin_x=margin_x,
+                margin_y=margin_y,
+                prefix=prefix,
+            )
+        )
+        return "; ".join(declarations) + ";"
+
+    @staticmethod
+    def _style_profile_position_css_variables(
+        *,
+        profile: TextStyleProfile,
+        margin_x: int,
+        margin_y: int,
+        prefix: str,
+    ) -> list[str]:
+        left = "auto"
+        right = "auto"
+        top = "auto"
+        bottom = "auto"
+        transform = "none"
+
+        if profile.position == "center":
+            left = "50%"
+            top = "50%"
+            transform = "translate(-50%, -50%)"
+        elif profile.position in {"bottom", "lower_third"}:
+            left = "50%"
+            bottom = f"{margin_y}px"
+            transform = "translateX(-50%)"
+        elif profile.position == "top":
+            left = "50%"
+            top = f"{margin_y}px"
+            transform = "translateX(-50%)"
+        elif profile.position == "top_left":
+            left = f"{margin_x}px"
+            top = f"{margin_y}px"
+        elif profile.position == "top_right":
+            right = f"{margin_x}px"
+            top = f"{margin_y}px"
+        elif profile.position == "bottom_left":
+            left = f"{margin_x}px"
+            bottom = f"{margin_y}px"
+        elif profile.position == "bottom_right":
+            right = f"{margin_x}px"
+            bottom = f"{margin_y}px"
+
+        return [
+            f"--{prefix}-left: {left}",
+            f"--{prefix}-right: {right}",
+            f"--{prefix}-top: {top}",
+            f"--{prefix}-bottom: {bottom}",
+            f"--{prefix}-transform: {transform}",
+        ]
+
+    @staticmethod
+    def _justify_content(alignment: str) -> str:
+        return {
+            "left": "flex-start",
+            "right": "flex-end",
+        }.get(alignment, "center")
 
     @staticmethod
     def _text_content_inline_style() -> str:
