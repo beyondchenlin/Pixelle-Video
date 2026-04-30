@@ -63,6 +63,7 @@ from api.routers import (
     llm_router,
     llm_trace_router,
     resources_router,
+    storyboard_workbench_router,
     tasks_router,
     tts_router,
     video_router,
@@ -155,6 +156,7 @@ app.include_router(tasks_router, prefix=api_config.api_prefix)
 app.include_router(files_router, prefix=api_config.api_prefix)
 app.include_router(resources_router, prefix=api_config.api_prefix)
 app.include_router(frame_router, prefix=api_config.api_prefix)
+app.include_router(storyboard_workbench_router, prefix=api_config.api_prefix)
 
 
 @app.get("/")
@@ -176,6 +178,7 @@ async def root():
             "files": f"{api_config.api_prefix}/files",
             "resources": f"{api_config.api_prefix}/resources",
             "frame": f"{api_config.api_prefix}/frame",
+            "storyboards": f"{api_config.api_prefix}/storyboards",
         }
     }
 
