@@ -53,6 +53,16 @@ def test_workbench_state_rejects_duplicate_candidate_versions():
         )
 
 
+def test_workbench_state_from_dict_rejects_scalar_candidate_versions():
+    with pytest.raises(ValueError, match="candidate_image_version_ids"):
+        StoryboardFrameWorkbenchState.from_dict(
+            {
+                "frame_id": "frame_0001",
+                "candidate_image_version_ids": "abc",
+            }
+        )
+
+
 @pytest.mark.parametrize(
     "field_name,value",
     [

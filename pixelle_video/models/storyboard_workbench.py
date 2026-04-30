@@ -107,12 +107,15 @@ class StoryboardFrameWorkbenchState:
     def from_dict(cls, payload: Mapping[str, Any]) -> "StoryboardFrameWorkbenchState":
         if not isinstance(payload, Mapping):
             raise ValueError("StoryboardFrameWorkbenchState payload must be a mapping")
+        candidate_image_version_ids = payload.get("candidate_image_version_ids")
+        if candidate_image_version_ids is None:
+            candidate_image_version_ids = ()
         return cls(
             frame_id=payload.get("frame_id", ""),
             prompt_plan_id=payload.get("prompt_plan_id"),
             selected_image_artifact_id=payload.get("selected_image_artifact_id"),
             selected_image_version_id=payload.get("selected_image_version_id"),
-            candidate_image_version_ids=tuple(payload.get("candidate_image_version_ids") or ()),
+            candidate_image_version_ids=candidate_image_version_ids,
             lock_policy=payload.get("lock_policy", FrameLockPolicy.UNLOCKED),
             stale_flags=tuple(payload.get("stale_flags") or ()),
             last_generation_job_id=payload.get("last_generation_job_id"),
