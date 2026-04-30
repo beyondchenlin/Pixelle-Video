@@ -9,12 +9,15 @@ Pixelle 不应该只在前端表单里临时增加一组“标题样式”字段
 - 在 `text_rendering` 下新增正式字段 `title_style`。
 - `title_style` 直接复用现有 `TextStyleProfileRequest` / `TextStyleProfile` 结构，不再复制一套标题专用 schema。
 - 前端在 `文字渲染` 折叠区内新增 `字幕样式` / `标题样式` 双 tab，但 tab 只切换样式表单，不影响文字层和图中文字策略等全局区块。
+- 在 `文字渲染` 折叠区内新增“实施预览区”，同时展示生成图片、标题和字幕的排版效果，帮助用户在生成前判断布局。
+- 预览采用“双层机制”：前端即时预览提供快速排版反馈，后端真实预览帧通过实际模板编译/渲染链路做最终校准。
 - 标题继续作为模板主标题渲染，不改造成 text cue，不参加时间轴切换。
 - 带 `title_region` 的模板为 `title_style` 提供默认 preset，模板视觉默认值成为标题样式的 source of truth。
 - `title_style` 的字段集与字幕样式保持一致，包含背景颜色和背景不透明度。
+- 预览区不拥有任何新的样式事实源，不写入 `template_params`，不复制模板 CSS 默认值，只消费同一份 `text_rendering`、模板 preset、画布尺寸和 `media_placement` 契约。
 - 无标题区的模板允许安全忽略 `title_style`，旧请求不传 `title_style` 时稳定回落到模板默认。
 
-这不是最小改动。它的目标是从源头建立“标题文字样式”这条正式链路，避免继续在模板 CSS、前端 session state 或单个 pipeline 里打补丁。
+这不是最小改动，也禁止以局部补丁作为实现目标。它的目标是从源头建立“标题文字样式”和“预览反馈”两条正式链路，避免继续在模板 CSS、前端 session state、预览层或单个 pipeline 里打补丁。
 
 ## 2. 背景
 
@@ -28,6 +31,7 @@ Pixelle 不应该只在前端表单里临时增加一组“标题样式”字段
 - 模板里的标题通过 `__TITLE__` 或 `manifest.title` 注入纯文本。
 - 标题的字体、字号、颜色、背景和位置主要写死在模板 CSS 中。
 - 前端 `文字渲染` 面板只有 `字幕样式`，用户无法直接控制主标题。
+- 用户调整字幕、标题和生成图片摆放时，缺少一个能同时看到三者关系的实施预览区，只能等完整生成后才发现遮挡、字号过大、标题和主体图片冲突等排版问题。
 - 如果只在前端增加标题字段而不进入正式契约，标题样式会变成“看起来可配、实际上没有统一落点”的半成品功能。
 
 同时，这次需求已经明确了一个重要产品原则：
@@ -35,6 +39,7 @@ Pixelle 不应该只在前端表单里临时增加一组“标题样式”字段
 - 标题样式字段要和字幕样式尽量一致。
 - 标题样式必须支持背景颜色和背景不透明度。
 - UI 上希望在 `文字渲染` 下通过双 tab 切换 `字幕样式` 与 `标题样式`。
+- UI 上还需要一个可视化实施预览区，把当前生成图片、标题样式和字幕样式放在同一画布语境中检查，而不是分别孤立配置。
 
 因此，本次设计的关键不只是“前端多一个 tab”，而是让标题文字进入现有文字样式体系，成为长期可维护的正式能力。
 
@@ -47,7 +52,10 @@ Pixelle 不应该只在前端表单里临时增加一组“标题样式”字段
 5. 保持标题仍然是模板主标题，不引入不必要的 cue/timeline 复杂度。
 6. 让模板默认标题样式集中在模板能力层，避免前端、schema、模板 CSS 各自维护一份默认值。
 7. 让 `standard`、`asset_based`、历史任务复盘和 HyperFrames 编译链路消费同一份标题样式事实源。
-8. 保证旧请求、无标题模板和未传 `title_style` 的场景都能稳定兼容。
+8. 新增实施预览区，同步展示生成图片、标题和字幕在最终画布中的排版关系。
+9. 预览区必须消费正式契约：`title_style`、`caption_style`、模板 preset、画布尺寸和 `media_placement`，不能维护独立默认值。
+10. 用前端即时预览解决操作反馈，用真实预览帧校准最终效果，避免“看起来能预览、实际渲染不一致”。
+11. 保证旧请求、无标题模板和未传 `title_style` 的场景都能稳定兼容。
 
 ## 4. 非目标
 
@@ -56,11 +64,14 @@ Pixelle 不应该只在前端表单里临时增加一组“标题样式”字段
 - 不把 `title_style` 放进 `template_params`。
 - 不让每个模板自行定义私有标题参数，例如 `title_font_size`、`headline_box_color`。
 - 不把前端 `演示` 文本持久化到 API 请求或渲染产物。
+- 不把实施预览区做成新的事实源，不在预览区复制标题、字幕、图片摆放或模板默认值。
+- 不在每次控件变化时自动触发昂贵的真实渲染；真实预览帧必须是显式动作或受控刷新。
+- 不承诺前端即时预览像素级等同最终渲染；像素级校准以真实预览帧为准。
 - 不要求第一版把所有模板的标题表现完全视觉统一；模板仍可保留各自的标题区域结构和装饰。
 
-## 5. 两次设计评审结论
+## 5. 两次全局设计评审结论
 
-### Review 1: 契约边界
+### Review 1: 契约边界与事实源
 
 前端 UI 只是入口，不是事实源。如果只做双 tab 表单而不建立 `title_style` 契约，那么标题样式就会退化成模板局部参数或 UI 假配置。
 
@@ -77,6 +88,19 @@ text_rendering.overlay_style
   -> 叠加文字样式
 ```
 
+实施预览区也是契约下游，不是契约入口。它只能消费当前 UI 构造出的正式请求、模板 preset、`TemplateRenderContext` 和 `MediaPlacement`，不能在预览层重新定义标题默认值、字幕默认值或图片摆放规则。
+
+正确边界：
+
+```text
+text_rendering + template preset + media_placement + canvas contract
+  -> TextRenderingPreviewSpec
+  -> 前端即时预览
+  -> 后端真实预览帧
+```
+
+`TextRenderingPreviewSpec` 是预览快照，不是持久化业务模型。它的存在是为了把当前用户配置投影成可视化反馈，而不是增加第三套配置系统。
+
 ### Review 2: 技术债风险
 
 拒绝三个看似简单但会留下技术债的方案：
@@ -85,7 +109,13 @@ text_rendering.overlay_style
 2. 把标题样式塞进 `template_params`。这样标题能力会变成模板私有能力，平台无法统一验证。
 3. 把标题也改造成 cue。这样会把“常驻主标题”错误地拉进时间轴和 track 系统，复杂度明显过高。
 
-最终选择：标题继续是模板主标题，但其样式进入统一文字样式契约，作为正式的 `title_style` 长期维护。
+新增预览需求后，还必须拒绝三类预览技术债：
+
+1. 只用前端 CSS 临时拼一个假预览。这样反馈快，但很容易和最终模板、字体缩放、媒体摆放和真实渲染分叉。
+2. 每个模板各自实现私有预览。这样短期贴合模板，但会形成新的模板私有参数和重复默认值。
+3. 每次控件变化都触发真实渲染。这样理论上准确，但交互成本、队列压力和失败面过高，会拖慢配置体验。
+
+最终选择：标题继续是模板主标题，但其样式进入统一文字样式契约，作为正式的 `title_style` 长期维护；预览采用“前端即时预览 + 后端真实预览帧”双层机制，二者都从同一份契约派生。
 
 ## 6. 新增契约
 
@@ -200,6 +230,7 @@ pixelle_video/models/template_text_style_presets.py
 - 第一次进入或切换模板时，如果用户未改过标题字段，则按模板 preset 初始化。
 - 一旦用户手动修改过 `title_style_*` session key，就不再因模板重绘被覆盖。
 - `caption_style` 继续沿用现有默认值逻辑，不被 `title_style` 影响。
+- 实施预览区读取初始化后的有效样式，不自行 seed 默认值。
 
 ## 8. 前端交互设计
 
@@ -216,11 +247,18 @@ web/components/text_rendering_config.py
 1. 样式 tab 区
    - `字幕样式`
    - `标题样式`
-2. 固定全局区块
+2. 实施预览区（实时排版预览）
+   - 当前生成图片或占位图片
+   - 当前主标题
+   - 当前字幕示例
+   - 当前画布尺寸、媒体摆放和模板标题区域
+3. 固定全局区块
    - `文字层` / 关键词叠加设置
    - `图中文字策略`
 
 tab 只负责切换样式编辑区，不复制全局设置区块。
+
+桌面宽度足够时，样式编辑区和实施预览区可以并排展示；窄屏下预览区位于样式编辑区下方。布局变化不改变 payload，不引入独立预览配置。
 
 ### 8.2 样式表单
 
@@ -288,7 +326,114 @@ title_style: dict | None = None
 }
 ```
 
-## 9. Orchestrator 与共享契约链路
+## 9. 实施预览区（实时排版预览）设计
+
+### 9.1 设计原则
+
+实施预览区的目标是让用户在生成前看到“生成图片 + 主标题 + 字幕”的整体排版关系，尤其是字号、背景块、标题区域、字幕安全区和图片摆放之间是否冲突。这里的“实时”指前端即时反馈，不代表每次控件变化都触发真实渲染。
+
+预览区必须遵守三条原则：
+
+- 预览不拥有事实源。标题、字幕、图片摆放、画布尺寸和模板默认值都来自正式契约。
+- 预览分为即时反馈和真实校准。即时预览保证交互顺畅，真实预览帧保证最终可信。
+- 预览不污染生成请求。演示标题、演示字幕、占位图片和预览缓存都不写入最终 API payload。
+
+### 9.2 方案选择
+
+评估三个方案：
+
+1. 纯前端即时预览。实现快，但只能近似最终效果，容易和 HyperFrames 编译、字体缩放、模板 CSS 变量、媒体摆放产生漂移。
+2. 纯后端真实预览。准确，但每次调整都要排队渲染，交互成本过高，不适合作为配置面板的实时反馈。
+3. 双层预览。前端即时预览负责快速排版反馈，后端真实预览帧通过同一模板编译/渲染链路生成代表帧，作为最终校准。
+
+采用方案 3。它不是最小改动，但能同时满足准确性、性能和长期一致性。
+
+### 9.3 TextRenderingPreviewSpec
+
+新增一个预览快照结构，建议放在前端组件层或共享 UI 模型层：
+
+```text
+TextRenderingPreviewSpec
+  template_id
+  render_backend
+  canvas_width
+  canvas_height
+  media_width
+  media_height
+  media_placement
+  preview_media_ref
+  title_text
+  caption_text
+  title_style
+  caption_style
+  template_title_region
+  template_caption_safe_area
+  fingerprint
+```
+
+该结构只用于预览，不作为 API 请求 schema。它由当前 UI 状态和正式契约派生：
+
+- `title_style` 来自 `text_rendering.title_style` 合并模板 preset 后的有效值。
+- `caption_style` 来自现有字幕样式有效值。
+- `media_placement` 来自平台级媒体摆放契约。
+- `canvas_width` / `canvas_height` 来自 `GenerationSizeContract`。
+- `template_title_region` / `template_caption_safe_area` 来自模板能力层。
+- `preview_media_ref` 优先使用当前已生成或已选择的图片；没有真实图片时使用受管占位图，并明确标注“占位预览”。
+- `title_text` 默认使用当前任务标题；为空时使用本地演示标题，不写入 payload。
+- `caption_text` 默认使用用户指定的演示字幕或首条旁白片段，不写入 payload。
+
+`fingerprint` 由上述会影响预览的字段稳定计算，用于判断预览是否过期和复用真实预览帧缓存。
+
+### 9.4 前端即时预览
+
+前端新增独立组件：
+
+```text
+web/components/text_rendering_preview.py
+```
+
+职责：
+
+- 接收 `TextRenderingPreviewSpec`。
+- 用最终画布比例渲染一个缩放容器。
+- 按 `media_placement` 计算图片显示框，展示生成图片或占位图片。
+- 按 `title_style` 在模板声明的 `title_region` 内渲染主标题。
+- 按 `caption_style` 在字幕安全区内渲染字幕示例。
+- 标注当前是否为即时预览、真实预览帧是否过期、是否使用占位图片。
+
+即时预览可以使用 Streamlit HTML/CSS 渲染，但 CSS 变量名称和含义必须与编译器保持同构。允许预览层做缩放适配，不允许预览层维护独立默认值。
+
+### 9.5 后端真实预览帧
+
+新增一个显式动作，例如 `生成真实预览帧`。触发后走后端真实链路：
+
+```text
+TextRenderingPreviewSpec
+  -> TextRenderingOrchestrator.build(...)
+  -> TemplateRenderContext
+  -> HyperFramesCompiler / HTMLFrameGenerator 兼容桥
+  -> 单帧预览图片
+```
+
+真实预览帧必须消费与最终生成一致的 `title_style_profile`、`caption_style`、`media_placement` 和模板 CSS 变量。它不能通过 `template_params` 传标题样式，也不能绕过 orchestrator 自己拼默认值。
+
+性能策略：
+
+- 真实预览帧默认由用户显式点击触发。
+- 对同一 `fingerprint` 可复用缓存。
+- 当用户继续修改样式、标题、字幕、图片或模板时，已有真实预览帧标记为“已过期”，但不自动重渲染。
+- 如果真实预览帧生成失败，即时预览仍可展示，但必须显示失败原因，不能把即时预览伪装成最终结果。
+
+### 9.6 预览与最终生成的一致性
+
+预览一致性来自共享链路，而不是人工约定：
+
+- 前端即时预览从 `TextRenderingPreviewSpec` 读取，不直接读取散落的 session key。
+- 真实预览帧和正式生成共享 `TextRenderingOrchestrator`、`TemplateRenderContext`、模板 preset 和编译器 CSS 变量。
+- 模板能力 lint 必须覆盖 `title_region`、字幕安全区和媒体层变量消费，防止预览与最终模板分叉。
+- 历史任务复盘可显示当时的真实预览帧或重新按保存的正式契约生成预览，但不能依赖前端临时演示字段。
+
+## 10. Orchestrator 与共享契约链路
 
 文件：
 
@@ -299,7 +444,7 @@ pixelle_video/pipelines/standard.py
 pixelle_video/pipelines/asset_based.py
 ```
 
-### 9.1 构造规则
+### 10.1 构造规则
 
 `TextRenderingOrchestrator.build(...)` 新增标题 profile 构造：
 
@@ -322,7 +467,7 @@ title_style = _profile_from_request(
   -> 用户 title_style 覆盖
 ```
 
-### 9.2 package 输出
+### 10.2 package 输出
 
 `text_style_profiles` 由两套扩展为三套：
 
@@ -336,13 +481,15 @@ title_style = _profile_from_request(
 title_style: TextStyleProfile
 ```
 
-### 9.3 共享路径一致性
+### 10.3 共享路径一致性
 
 `standard` 和 `asset_based` 都必须通过同一个 orchestrator 构建 `title_style`，禁止某条路径自己拼默认标题样式。
 
 这和之前字幕字号修复的经验一致：任何“只在某个 pipeline 手动补字段”的方案都会再次形成分叉。
 
-## 10. 模板编译与渲染
+真实预览帧也必须纳入这条共享路径。它可以使用预览专用 `task_id`，但不能使用预览专用默认样式、预览专用模板参数或绕过 orchestrator 的快捷渲染分支。
+
+## 11. 模板编译与渲染
 
 文件：
 
@@ -352,7 +499,7 @@ pixelle_video/models/template_render_context.py
 resources/hyperframes/templates/*/index.template.html
 ```
 
-### 10.1 TemplateRenderContext
+### 11.1 TemplateRenderContext
 
 `TemplateRenderContext` 新增一个显式字段，用于主标题样式：
 
@@ -362,7 +509,9 @@ title_style_profile: TextStyleProfile | None = None
 
 这样模板编译器不需要从 `text_style_profiles` 全量列表里猜哪个是标题 profile。
 
-### 10.2 编译器职责
+实施预览帧也应使用同一个 `TemplateRenderContext` 构造路径。预览可以只提供一张代表图片、一条字幕示例和短时长 duration，但上下文字段、样式 profile、媒体摆放和模板能力读取方式必须与正式生成一致。
+
+### 11.2 编译器职责
 
 `HyperFramesCompiler` 为模板主标题生成一组独立 CSS 变量，例如：
 
@@ -381,7 +530,7 @@ title_style_profile: TextStyleProfile | None = None
 
 `position` 的语义也要明确：`title_style.position` 仍然接受和字幕一致的枚举值，但它作用于模板声明的 `title_region`，不是直接把标题移动到整张画布任意位置。实现上应由模板能力层把这些值映射到标题区域内的锚点布局，避免标题跑到字幕区或页脚区。
 
-### 10.3 模板消费方式
+### 11.3 模板消费方式
 
 带 `title_region` 的模板统一改为通过 CSS 变量消费主标题样式，而不是继续把关键值写死在模板 CSS 中。
 
@@ -403,11 +552,11 @@ title_style_profile: TextStyleProfile | None = None
 }
 ```
 
-### 10.4 换行规则
+### 11.4 换行规则
 
 标题不进入 cue 系统，但 `max_chars_per_line` 仍然生效，用于主标题排版。第一版采用和字幕一致的简单文本折行策略即可，不引入额外标题专用排版引擎。
 
-### 10.5 无标题模板
+### 11.5 无标题模板
 
 若模板没有 `title_region`：
 
@@ -415,7 +564,7 @@ title_style_profile: TextStyleProfile | None = None
 - 编译器不得报错
 - `title_style` 仍可在 contract 中存在，但会被安全忽略
 
-## 11. HTMLFrameGenerator 与旧模板兼容
+## 12. HTMLFrameGenerator 与旧模板兼容
 
 文件：
 
@@ -431,30 +580,30 @@ pixelle_video/services/frame_html.py
 
 这是一条兼容桥，不是新的长期事实源。长期目标仍然是统一迁移到标准模板能力层和编译器注入。
 
-## 12. 兼容性与错误处理
+## 13. 兼容性与错误处理
 
-### 12.1 旧请求
+### 13.1 旧请求
 
 旧请求未传 `title_style` 时：
 
 - 请求继续合法
 - 系统使用当前模板的标题默认 preset
 
-### 12.2 未知字段
+### 13.2 未知字段
 
 `title_style` 与 `caption_style` 一样，继续依赖 `TextStyleProfileRequest(extra="forbid")`：
 
 - 未知字段直接返回清晰错误
 - 不静默吞掉
 
-### 12.3 非法值
+### 13.3 非法值
 
 - 颜色值不合法：直接校验失败
 - `font_size` 超范围：直接校验失败
 - `background_opacity` 不在 `0..1`：直接校验失败
 - `max_chars_per_line <= 0`：前端 payload 清洗时视为未设置
 
-### 12.4 模板缺少标题能力
+### 13.4 模板缺少标题能力
 
 若模板声明有 `title_region` 但未提供标题 preset：
 
@@ -462,9 +611,9 @@ pixelle_video/services/frame_html.py
 - 在测试和 lint 层失败
 - 不允许上线后靠运行时静默回退掩盖问题
 
-## 13. 测试方案
+## 14. 测试方案
 
-### 13.1 API / schema
+### 14.1 API / schema
 
 新增测试覆盖：
 
@@ -472,7 +621,7 @@ pixelle_video/services/frame_html.py
 - `title_style` 字段集与 `caption_style` 同构
 - 未知 `title_style` 字段被拒绝
 
-### 13.2 前端 UI
+### 14.2 前端 UI
 
 新增测试覆盖：
 
@@ -483,7 +632,21 @@ pixelle_video/services/frame_html.py
 - `演示` 字段不进入 payload
 - 标题 session key 与字幕 session key 不串台
 
-### 13.3 Orchestrator / contract
+### 14.3 实施预览区
+
+新增测试覆盖：
+
+- `文字渲染` 中存在实施预览区，并能同时显示图片层、标题层和字幕层
+- 即时预览消费 `TextRenderingPreviewSpec`，不直接拼散落 session key
+- 预览区使用当前 `canvas_width` / `canvas_height` 保持最终画布比例
+- 预览区使用 `media_placement` 计算生成图片显示框
+- 标题即时预览使用 `title_style` 与模板 `title_region`
+- 字幕即时预览使用 `caption_style` 与字幕安全区
+- 演示标题、演示字幕和占位图片不进入 API payload
+- 真实预览帧按钮按 `fingerprint` 缓存结果，并在相关配置变化后标记过期
+- 真实预览帧失败时显示明确错误，不把即时预览误标为最终效果
+
+### 14.4 Orchestrator / contract
 
 新增测试覆盖：
 
@@ -491,8 +654,9 @@ pixelle_video/services/frame_html.py
 - 传入 `title_style` 后能正确覆盖默认值
 - `standard` 路径与 `asset_based` 路径都能拿到同样的 `title_style`
 - `text_style_profiles` 中稳定包含 `title-default`
+- 真实预览帧和正式生成使用同一个 orchestrator 构建 `title_style`
 
-### 13.4 模板编译
+### 14.5 模板编译
 
 新增测试覆盖：
 
@@ -500,23 +664,26 @@ pixelle_video/services/frame_html.py
 - 至少一个无标题模板传入 `title_style` 时不会报错
 - `max_chars_per_line` 对标题折行生效
 
-### 13.5 模板能力 lint
+### 14.6 模板能力 lint
 
 新增测试/校验规则：
 
 - 带 `title_region` 的模板必须声明标题 preset
 - 模板标题 CSS 不允许再把核心标题属性完全写死而绕开变量注入
 
-## 14. 实施顺序
+## 15. 实施顺序
 
 1. 扩展 `TextRenderingRequest`、`TextStyleProfile` 默认 profile 和 orchestrator，建立 `title_style` 契约。
 2. 为模板能力层增加 `title_region` 对应的标题默认 preset。
 3. 扩展前端 `文字渲染` 组件，新增双 tab 和 `title_style` payload。
-4. 扩展 `TemplateRenderContext` 与 `HyperFramesCompiler`，让模板主标题消费 `title_style_profile`。
-5. 调整带标题的模板，把主标题改为消费 CSS 变量。
-6. 补齐 API、UI、orchestrator、模板编译与模板能力 lint 测试。
+4. 建立 `TextRenderingPreviewSpec`，让实施预览区从正式契约派生当前图片、标题和字幕预览快照。
+5. 新增前端即时预览组件，按画布比例、`media_placement`、`title_region` 和字幕安全区展示排版效果。
+6. 扩展 `TemplateRenderContext` 与 `HyperFramesCompiler`，让模板主标题消费 `title_style_profile`。
+7. 增加后端真实预览帧链路，复用 orchestrator、模板 preset、`TemplateRenderContext` 和编译器，不新增预览专用事实源。
+8. 调整带标题的模板，把主标题改为消费 CSS 变量。
+9. 补齐 API、UI、实施预览、orchestrator、模板编译与模板能力 lint 测试。
 
-## 15. 风险与缓解
+## 16. 风险与缓解
 
 ### 风险 1：标题默认值仍然出现多份副本
 
@@ -546,7 +713,25 @@ pixelle_video/services/frame_html.py
 - 明确旧请求可回退模板默认
 - 明确无标题模板允许安全忽略 `title_style`
 
-## 16. 验收标准
+### 风险 5：即时预览与最终渲染漂移
+
+缓解：
+
+- 即时预览只消费 `TextRenderingPreviewSpec`，不复制默认值
+- CSS 变量命名和语义与编译器保持同构
+- 提供真实预览帧作为最终校准
+- 增加测试覆盖即时预览、真实预览帧和最终模板变量消费的一致性
+
+### 风险 6：真实预览帧拖慢配置体验
+
+缓解：
+
+- 真实预览帧默认由用户显式触发，不随每个控件变化自动生成
+- 用 `fingerprint` 缓存相同配置的预览结果
+- 配置变化后只标记旧预览过期，不阻塞用户继续编辑
+- 渲染失败时保留即时预览并显示明确错误
+
+## 17. 验收标准
 
 满足以下条件时视为本设计完成：
 
@@ -557,4 +742,8 @@ pixelle_video/services/frame_html.py
 5. 标题仍作为模板主标题渲染，不进入 cue/timeline 体系。
 6. `standard` 和 `asset_based` 两条共享路径拿到相同的 `title_style` 构建结果。
 7. 至少一个带标题模板能在最终生成 HTML 中体现 `title_style`。
-8. 旧请求和无标题模板场景保持兼容。
+8. `文字渲染` 中存在实施预览区，能同时展示生成图片、标题和字幕的排版关系。
+9. 即时预览消费 `TextRenderingPreviewSpec`，并使用正式的 `title_style`、`caption_style`、`media_placement`、画布尺寸和模板能力信息。
+10. 真实预览帧通过实际模板编译/渲染链路生成，不通过 `template_params` 或预览专用默认值绕开契约。
+11. 演示标题、演示字幕、占位图片和预览缓存不进入最终 API payload。
+12. 旧请求和无标题模板场景保持兼容。
