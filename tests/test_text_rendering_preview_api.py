@@ -19,7 +19,6 @@ def test_text_rendering_preview_frame_api_returns_public_artifact_contract(monke
                 storage_key="artifacts/demo/frame.png",
                 url="https://cdn.example.test/frame.png",
                 fingerprint="fp-api",
-                local_path=None,
             )
 
     monkeypatch.setattr(
@@ -61,3 +60,11 @@ def test_text_rendering_preview_frame_api_returns_public_artifact_contract(monke
     assert set(response.json()) == {"storage_key", "url", "fingerprint"}
     assert captured["request"].text_rendering["title_style"] == {"font_size": 80}
     assert "template_params" not in captured["request"].text_rendering
+
+
+def test_text_rendering_preview_frame_is_registered_under_api_prefix():
+    from api.app import app
+
+    route_paths = {route.path for route in app.routes}
+
+    assert "/api/text-rendering/preview-frame" in route_paths

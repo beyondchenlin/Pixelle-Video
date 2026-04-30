@@ -44,7 +44,6 @@ class TextRenderingPreviewFrameResult:
     storage_key: str
     url: str | None
     fingerprint: str
-    local_path: None = None
 
 
 class TextRenderingPreviewFrameRenderer(Protocol):
@@ -117,7 +116,6 @@ class TextRenderingPreviewFrameService:
             storage_key=stored_file.storage_key,
             url=stored_file.url,
             fingerprint=fingerprint,
-            local_path=None,
         )
 
     async def _resolve_preview_media_url(

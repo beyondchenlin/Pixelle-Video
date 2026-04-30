@@ -77,7 +77,7 @@ def _request(**overrides):
 
 
 @pytest.mark.asyncio
-async def test_render_preview_frame_returns_artifact_key_url_and_no_local_path(tmp_path):
+async def test_render_preview_frame_returns_only_artifact_key_url_and_fingerprint(tmp_path):
     renderer = FakeRenderer(tmp_path / "preview.png")
     object_store = FakeArtifactObjectStore()
     service = TextRenderingPreviewFrameService(
@@ -90,7 +90,7 @@ async def test_render_preview_frame_returns_artifact_key_url_and_no_local_path(t
     assert result.storage_key == "artifacts/demo/rendered.png"
     assert result.url == "https://cdn.example.test/rendered.png"
     assert result.fingerprint == preview_frame_fingerprint(_request())
-    assert result.local_path is None
+    assert not hasattr(result, "local_path")
     assert object_store.uploads[0]["metadata"] == {
         "kind": "text_rendering_preview_frame",
         "fingerprint": result.fingerprint,
