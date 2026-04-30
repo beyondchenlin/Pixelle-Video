@@ -62,7 +62,7 @@ template:
 
 Pixelle does not call `/free` before each image in a local image batch. The batch keeps GGUF and related models hot so every frame does not pay the unload/reload cost. When that local workflow batch finishes, `model_cleanup_mode` controls whether Pixelle releases ComfyUI model memory and Pixelle-managed extension caches. If a local IndexTTS2 workflow is used with `comfyui_and_extensions`, Pixelle preflights the required `/pixelle/indextts2/free` endpoint before executing the workflow so a missing plugin patch fails early instead of silently leaving VRAM occupied. OOM recovery still triggers an explicit high-intensity cleanup before one retry.
 
-Runtime task logs include structured `local_media_batch` start/end events with elapsed milliseconds and frame counts, plus `comfyui_memory_release` events. IndexTTS2 release responses include CUDA allocated/reserved before/after snapshots when the patched endpoint provides them.
+Runtime task logs include structured `local_media_batch` start/end events with elapsed milliseconds and frame counts, plus `comfyui_memory_release` events. ComfyUI `/free` releases capture `/system_stats` VRAM snapshots before and after the release when the endpoint is available. IndexTTS2 release responses also include CUDA allocated/reserved before/after snapshots when the patched endpoint provides them.
 
 ### RunningHub Cloud Configuration
 

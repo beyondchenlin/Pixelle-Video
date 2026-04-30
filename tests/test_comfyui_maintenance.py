@@ -8,10 +8,39 @@ from pixelle_video.services.comfyui_maintenance import ComfyUIMaintenanceClient
 
 
 class _RecordingTransport(httpx.AsyncBaseTransport):
-    def __init__(self, queue_payload=None, queue_payloads=None):
+    def __init__(self, queue_payload=None, queue_payloads=None, system_stats_payloads=None):
         self.calls = []
         self.queue_payload = queue_payload or {"queue_running": [], "queue_pending": []}
         self.queue_payloads = list(queue_payloads or [])
+        self.system_stats_payloads = list(
+            system_stats_payloads
+            or [
+                {
+                    "devices": [
+                        {
+                            "name": "NVIDIA",
+                            "type": "cuda",
+                            "vram_total": 8192,
+                            "vram_free": 4096,
+                            "torch_vram_total": 4096,
+                            "torch_vram_free": 2048,
+                        }
+                    ]
+                },
+                {
+                    "devices": [
+                        {
+                            "name": "NVIDIA",
+                            "type": "cuda",
+                            "vram_total": 8192,
+                            "vram_free": 6144,
+                            "torch_vram_total": 4096,
+                            "torch_vram_free": 3072,
+                        }
+                    ]
+                },
+            ]
+        )
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         body = await request.aread()
@@ -21,6 +50,9 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
             if self.queue_payloads:
                 return httpx.Response(200, json=self.queue_payloads.pop(0), request=request)
             return httpx.Response(200, json=self.queue_payload, request=request)
+        if request.url.path == "/system_stats" and request.method == "GET":
+            payload = self.system_stats_payloads.pop(0) if self.system_stats_payloads else {}
+            return httpx.Response(200, json=payload, request=request)
         if request.url.path == "/pixelle/indextts2/free":
             return httpx.Response(
                 200,
@@ -119,9 +151,35 @@ async def test_free_memory_when_idle_checks_queue_before_freeing():
     assert released.comfyui_released is True
     assert released.queue_running == 0
     assert released.queue_pending == 0
+    assert released.system_vram_before == {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_total": 8192,
+                "vram_free": 4096,
+                "torch_vram_total": 4096,
+                "torch_vram_free": 2048,
+            }
+        ]
+    }
+    assert released.system_vram_after == {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_total": 8192,
+                "vram_free": 6144,
+                "torch_vram_total": 4096,
+                "torch_vram_free": 3072,
+            }
+        ]
+    }
     assert transport.calls == [
         ("GET", "/queue", None),
+        ("GET", "/system_stats", None),
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
+        ("GET", "/system_stats", None),
     ]
 
 
@@ -137,7 +195,9 @@ async def test_free_memory_when_idle_supports_low_intensity_release():
     assert released.intensity == "low"
     assert transport.calls == [
         ("GET", "/queue", None),
+        ("GET", "/system_stats", None),
         ("POST", "/free", {"unload_models": True, "free_memory": False}),
+        ("GET", "/system_stats", None),
     ]
 
 
@@ -168,8 +228,37 @@ async def test_free_memory_with_extensions_calls_comfyui_free_then_indextts2_end
     assert [extension.extension for extension in result.extensions] == ["indextts2"]
     assert result.extensions[0].released is True
     assert transport.calls == [
+        ("GET", "/system_stats", None),
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
+        ("GET", "/system_stats", None),
         ("POST", "/pixelle/indextts2/free", {}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_free_memory_keeps_release_success_when_system_stats_are_unavailable():
+    class _NoSystemStatsTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/system_stats":
+                return httpx.Response(404, request=request)
+            return httpx.Response(200, request=request)
+
+    transport = _NoSystemStatsTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    result = await client.free_memory("high")
+
+    assert result.released is True
+    assert result.comfyui_released is True
+    assert result.system_vram_before is None
+    assert result.system_vram_after is None
+    assert transport.calls == [
+        ("GET", "/system_stats", None),
+        ("POST", "/free", {"unload_models": True, "free_memory": True}),
+        ("GET", "/system_stats", None),
     ]
 
 
@@ -183,6 +272,8 @@ async def test_free_memory_with_extensions_preserves_extension_vram_snapshots():
     log_fields = result.to_log_fields()
     assert log_fields["released"] is True
     assert log_fields["comfyui_released"] is True
+    assert log_fields["system_vram_before"]["devices"][0]["vram_free"] == 4096
+    assert log_fields["system_vram_after"]["devices"][0]["vram_free"] == 6144
     assert log_fields["extension_results"] == [
         {
             "extension": "indextts2",
@@ -225,7 +316,9 @@ async def test_free_memory_with_extensions_when_idle_checks_queue_before_release
     assert released.queue_pending == 0
     assert transport.calls == [
         ("GET", "/queue", None),
+        ("GET", "/system_stats", None),
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
+        ("GET", "/system_stats", None),
         ("POST", "/pixelle/indextts2/free", {}),
     ]
 

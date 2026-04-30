@@ -29,6 +29,14 @@ _VRAM_RESPONSE_KEYS = (
     "cuda_reserved_before",
     "cuda_reserved_after",
 )
+_SYSTEM_VRAM_DEVICE_KEYS = (
+    "name",
+    "type",
+    "vram_total",
+    "vram_free",
+    "torch_vram_total",
+    "torch_vram_free",
+)
 
 
 @dataclass(frozen=True)
@@ -69,6 +77,8 @@ class ComfyUIMemoryReleaseResult:
     intensity: ComfyUIReleaseIntensity | None = None
     queue_running: int | None = None
     queue_pending: int | None = None
+    system_vram_before: dict[str, Any] | None = None
+    system_vram_after: dict[str, Any] | None = None
     extensions: tuple[ComfyUIExtensionReleaseResult, ...] = ()
 
     def __bool__(self) -> bool:
@@ -84,6 +94,8 @@ class ComfyUIMemoryReleaseResult:
             "intensity": self.intensity,
             "queue_running": self.queue_running,
             "queue_pending": self.queue_pending,
+            "system_vram_before": self.system_vram_before,
+            "system_vram_after": self.system_vram_after,
             "extension_results": [
                 extension.to_log_dict()
                 for extension in self.extensions
@@ -154,12 +166,16 @@ class ComfyUIMaintenanceClient:
         payload = _FREE_MEMORY_PAYLOADS.get(intensity)
         if payload is None:
             raise ValueError(f"Unsupported ComfyUI release intensity: {intensity}")
+        system_vram_before = await self._get_system_vram_snapshot()
         await self._post("/free", dict(payload))
+        system_vram_after = await self._get_system_vram_snapshot()
         return ComfyUIMemoryReleaseResult(
             attempted=True,
             released=True,
             comfyui_released=True,
             intensity=intensity,
+            system_vram_before=system_vram_before,
+            system_vram_after=system_vram_after,
         )
 
     async def free_memory_with_extensions(
@@ -334,6 +350,38 @@ class ComfyUIMaintenanceClient:
         response = await self._request("GET", "/queue")
         data = response.json()
         return data if isinstance(data, dict) else {}
+
+    async def _get_system_vram_snapshot(self) -> dict[str, Any] | None:
+        try:
+            response = await self._request("GET", "/system_stats")
+            data = response.json()
+        except Exception as exc:
+            logger.debug(f"Skipping ComfyUI system VRAM snapshot: {exc}")
+            return None
+        return self._extract_system_vram_snapshot(data)
+
+    def _extract_system_vram_snapshot(self, data: Any) -> dict[str, Any] | None:
+        if not isinstance(data, dict):
+            return None
+        devices = data.get("devices")
+        if not isinstance(devices, list):
+            return None
+
+        normalized_devices = []
+        for device in devices:
+            if not isinstance(device, dict):
+                continue
+            normalized = {
+                key: device[key]
+                for key in _SYSTEM_VRAM_DEVICE_KEYS
+                if key in device
+            }
+            if normalized:
+                normalized_devices.append(normalized)
+
+        if not normalized_devices:
+            return None
+        return {"devices": normalized_devices}
 
     async def _wait_until_idle(self) -> None:
         loop = asyncio.get_running_loop()
