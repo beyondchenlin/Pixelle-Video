@@ -58,6 +58,17 @@ def test_image_z_image_turbo_gguf_workflow_is_parseable():
     _assert_prompt_mapping_is_declared_once(metadata)
 
 
+def test_image_z_image_turbo_gguf_defaults_to_q4_k_m_models():
+    workflow = json.loads(
+        Path("workflows/selfhost/image_z_image_turbo_gguf.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert workflow["37"]["inputs"]["unet_name"] == "z-image-turbo-Q4_K_M.gguf"
+    assert workflow["38"]["inputs"]["clip_name"] == "Qwen3-4B-Q4_K_M.gguf"
+
+
 def test_image_z_image_turbo_gguf_doc_declares_easy_use_dependency():
     doc = Path(
         "workflows/down/image_z_image_turbo_gguf_\u4f9d\u8d56\u4e0e\u4e0b\u8f7d\u8bf4\u660e.md"

@@ -33,8 +33,8 @@
 | 自定义节点插件 | `ComfyUI-GGUF` | 提供 `UnetLoaderGGUF`、`CLIPLoaderGGUF` |
 | 自定义节点插件 | `ComfyUI-Easy-Use` | 提供 `easy int`，用于 `width` / `height` 输入 |
 | Python 包 | `gguf`、`sentencepiece`、`protobuf` | GGUF 模型读取与分词依赖 |
-| 主模型 | `z-image-turbo-Q8_0.gguf` | `Z-Image-Turbo` GGUF 主扩散模型 |
-| 文本编码器 | `Qwen3-4B-Q8_0.gguf` | `Z-Image-Turbo` GGUF 文本编码器 |
+| 主模型 | `z-image-turbo-Q4_K_M.gguf` | `Z-Image-Turbo` GGUF 主扩散模型，默认低显存量化版本 |
+| 文本编码器 | `Qwen3-4B-Q4_K_M.gguf` | `Z-Image-Turbo` GGUF 文本编码器，默认低显存量化版本 |
 | VAE | `ae.safetensors` | `latent` 与图像之间的编解码 |
 | ComfyUI 前端修复 | `dialogService-*.js` 中的 GGUF loader 映射 | 修复右侧“缺失模型/未知模型”误报，不影响实际跑图，但能消除错误提示 |
 
@@ -44,8 +44,8 @@
 
 | 依赖 | 目标目录 |
 |---|---|
-| `z-image-turbo-Q8_0.gguf` | `ComfyUI/models/unet/` |
-| `Qwen3-4B-Q8_0.gguf` | `ComfyUI/models/text_encoders/` |
+| `z-image-turbo-Q4_K_M.gguf` | `ComfyUI/models/unet/` |
+| `Qwen3-4B-Q4_K_M.gguf` | `ComfyUI/models/text_encoders/` |
 | `ae.safetensors` | `ComfyUI/models/vae/` |
 | `ComfyUI-GGUF` 插件 | `ComfyUI/custom_nodes/ComfyUI-GGUF/` |
 | `ComfyUI-Easy-Use` 插件 | `ComfyUI/custom_nodes/ComfyUI-Easy-Use/` |
@@ -56,16 +56,16 @@
 
 | 依赖 | 本机实际路径 |
 |---|---|
-| `z-image-turbo-Q8_0.gguf` | `E:\comfyui\comfyui\models\unet\z-image-turbo-Q8_0.gguf` |
-| `Qwen3-4B-Q8_0.gguf` | `E:\comfyui\comfyui\models\text_encoders\Qwen3-4B-Q8_0.gguf` |
-| `ae.safetensors` | `E:\comfyui\comfyui\models\vae\ae.safetensors` |
-| `ComfyUI-GGUF` 插件 | `E:\comfyui\comfyui\custom_nodes\ComfyUI-GGUF` |
+| `z-image-turbo-Q4_K_M.gguf` | `E:\ComfyUIData\models\unet\z-image-turbo-Q4_K_M.gguf` |
+| `Qwen3-4B-Q4_K_M.gguf` | `E:\ComfyUIData\models\text_encoders\Qwen3-4B-Q4_K_M.gguf` |
+| `ae.safetensors` | `E:\ComfyUIData\models\vae\ae.safetensors` |
+| `ComfyUI-GGUF` 插件 | `E:\ComfyUIData\custom_nodes\ComfyUI-GGUF` |
 | `ComfyUI-Easy-Use` 插件 | `E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-Easy-Use` |
 
 说明：
 
 - 这台机器上的 ComfyUI Desktop 安装布局不是完全统一的。
-- `ComfyUI-GGUF` 在 `E:\comfyui\comfyui\custom_nodes\` 下。
+- `ComfyUI-GGUF` 在 `E:\ComfyUIData\custom_nodes\` 下。
 - `ComfyUI-Easy-Use` 在 `E:\comfyui\resources\ComfyUI\custom_nodes\` 下。
 - 实际部署时，应以当前 ComfyUI 安装方式和节点管理器的实际插件目录为准。
 
@@ -79,12 +79,12 @@
 ### 5.1 GGUF 主模型
 
 - 页面：`https://www.modelscope.cn/models/unsloth/Z-Image-Turbo-GGUF/files`
-- 文件：`z-image-turbo-Q8_0.gguf`
+- 文件：`z-image-turbo-Q4_K_M.gguf`
 
 ### 5.2 GGUF 文本编码器
 
 - 页面：`https://www.modelscope.cn/models/unsloth/Qwen3-4B-GGUF/files`
-- 文件：`Qwen3-4B-Q8_0.gguf`
+- 文件：`Qwen3-4B-Q4_K_M.gguf`
 
 ### 5.3 VAE
 
@@ -148,9 +148,9 @@ python -m pip install -U gguf sentencepiece protobuf
 ### 7.4 使用 ModelScope 下载模型
 
 ```powershell
-modelscope download --model unsloth/Z-Image-Turbo-GGUF --local_dir "ComfyUI\models\unet" "z-image-turbo-Q8_0.gguf"
-modelscope download --model unsloth/Qwen3-4B-GGUF --local_dir "ComfyUI\models\text_encoders" "Qwen3-4B-Q8_0.gguf"
-modelscope download --model Comfy-Org/z_image --local_dir "ComfyUI\models\vae" "split_files/vae/ae.safetensors"
+modelscope download --model unsloth/Z-Image-Turbo-GGUF --local_dir "E:\ComfyUIData\models\unet" "z-image-turbo-Q4_K_M.gguf"
+modelscope download --model unsloth/Qwen3-4B-GGUF --local_dir "E:\ComfyUIData\models\text_encoders" "Qwen3-4B-Q4_K_M.gguf"
+modelscope download --model Comfy-Org/z_image --local_dir "E:\ComfyUIData\models\vae" "split_files/vae/ae.safetensors"
 ```
 
 ### 7.5 修复 ComfyUI 右侧“缺失模型/未知模型”误报
@@ -189,25 +189,25 @@ modelscope download --model Comfy-Org/z_image --local_dir "ComfyUI\models\vae" "
 
 ```powershell
 Get-Item `
-  "ComfyUI\models\unet\z-image-turbo-Q8_0.gguf", `
-  "ComfyUI\models\text_encoders\Qwen3-4B-Q8_0.gguf", `
-  "ComfyUI\models\vae\ae.safetensors"
+  "E:\ComfyUIData\models\unet\z-image-turbo-Q4_K_M.gguf", `
+  "E:\ComfyUIData\models\text_encoders\Qwen3-4B-Q4_K_M.gguf", `
+  "E:\ComfyUIData\models\vae\ae.safetensors"
 ```
 
 ### 8.2 检查文件大小是否合理
 
 ```powershell
 Get-Item `
-  "ComfyUI\models\unet\z-image-turbo-Q8_0.gguf", `
-  "ComfyUI\models\text_encoders\Qwen3-4B-Q8_0.gguf", `
-  "ComfyUI\models\vae\ae.safetensors" |
+  "E:\ComfyUIData\models\unet\z-image-turbo-Q4_K_M.gguf", `
+  "E:\ComfyUIData\models\text_encoders\Qwen3-4B-Q4_K_M.gguf", `
+  "E:\ComfyUIData\models\vae\ae.safetensors" |
   Select-Object Name, Length
 ```
 
 参考大小：
 
-- `z-image-turbo-Q8_0.gguf`：`7224707136`
-- `Qwen3-4B-Q8_0.gguf`：`4280405792`
+- `z-image-turbo-Q4_K_M.gguf`：`5017613376`
+- `Qwen3-4B-Q4_K_M.gguf`：`2497281312`
 - `ae.safetensors`：`335304388`
 
 ### 8.3 检查工作流节点是否匹配
@@ -239,7 +239,7 @@ Get-Item `
 
 ## 9. 已验证结果
 
-以下项目已在 `2026-04-23` 实际验证通过：
+以下项目已在 `2026-04-30` 重新验证：
 
 - `ModelScope` 页面可访问：
   - `https://www.modelscope.cn/models/unsloth/Z-Image-Turbo-GGUF/files`
@@ -253,12 +253,15 @@ Get-Item `
 - 插件源可访问：
   - `https://github.com/city96/ComfyUI-GGUF`
   - `https://github.com/yolain/ComfyUI-Easy-Use`
-- 本机模型文件已存在，大小已核对：
-  - `E:\comfyui\comfyui\models\unet\z-image-turbo-Q8_0.gguf`
-  - `E:\comfyui\comfyui\models\text_encoders\Qwen3-4B-Q8_0.gguf`
-  - `E:\comfyui\comfyui\models\vae\ae.safetensors`
+- ModelScope 已确认存在默认低显存量化文件：
+  - `z-image-turbo-Q4_K_M.gguf`，大小 `5017613376`
+  - `Qwen3-4B-Q4_K_M.gguf`，大小 `2497281312`
+- 本机目标模型路径：
+  - `E:\ComfyUIData\models\unet\z-image-turbo-Q4_K_M.gguf`
+  - `E:\ComfyUIData\models\text_encoders\Qwen3-4B-Q4_K_M.gguf`
+  - `E:\ComfyUIData\models\vae\ae.safetensors`
 - 本机插件路径已存在：
-  - `E:\comfyui\comfyui\custom_nodes\ComfyUI-GGUF`
+  - `E:\ComfyUIData\custom_nodes\ComfyUI-GGUF`
   - `E:\comfyui\resources\ComfyUI\custom_nodes\ComfyUI-Easy-Use`
 - 本机前端修复文件和备份文件已存在：
   - `E:\comfyui\resources\ComfyUI\web_custom_versions\desktop_app\assets\dialogService-DcRVP_r2.js`
@@ -282,13 +285,17 @@ Get-Item `
 
 因为 `Z-Image-Turbo` 的 GGUF 版本只替换了主模型和文本编码器，VAE 仍然沿用 `z_image` / `z_image_turbo` 工作流使用的 `ae.safetensors`。
 
-### 10.3 如果我想换成更小的量化怎么办？
+### 10.3 如果我想换成其他量化怎么办？
 
-可以直接把工作流里的文件名改成同一仓库里的其他量化版本，例如：
+当前默认使用 `Q4_K_M`，比原来的 `Q8_0` 显存占用更低。如果需要在质量与显存之间重新取舍，可以直接把工作流里的文件名改成同一仓库里的其他量化版本，例如：
 
+- `z-image-turbo-Q8_0.gguf`
 - `z-image-turbo-Q6_K.gguf`
+- `z-image-turbo-Q5_K_M.gguf`
 - `z-image-turbo-Q4_K_M.gguf`
+- `Qwen3-4B-Q8_0.gguf`
 - `Qwen3-4B-Q6_K.gguf`
+- `Qwen3-4B-Q5_K_M.gguf`
 - `Qwen3-4B-Q4_K_M.gguf`
 
 但要保证主模型和文本编码器的量化组合，是你实际下载到本机的文件名。
