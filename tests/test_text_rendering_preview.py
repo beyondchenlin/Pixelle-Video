@@ -207,3 +207,225 @@ def test_render_preview_html_degrades_when_media_contract_is_invalid():
     assert "top:0.000%;" in html
     assert "width:100.000%;" in html
     assert "height:100.000%;" in html
+
+
+def test_preview_cache_marks_real_frame_stale_when_fingerprint_changes():
+    from web.components.text_rendering_preview import (
+        build_real_preview_state,
+        is_real_preview_stale,
+    )
+
+    state = build_real_preview_state(
+        storage_key="artifacts/ws/preview.png",
+        url="/api/files/artifacts/ws/preview.png",
+        fingerprint="old",
+        error=None,
+    )
+
+    assert is_real_preview_stale(state, "old") is False
+    assert is_real_preview_stale(state, "new") is True
+    assert is_real_preview_stale(None, "new") is True
+
+
+def test_request_real_preview_frame_posts_storage_key_only_for_artifacts(monkeypatch):
+    from web.components import text_rendering_preview
+    from web.components.text_rendering_preview import request_real_preview_frame
+
+    posts = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "storage_key": "artifacts/ws/rendered.png",
+                "url": "/api/files/artifacts/ws/rendered.png",
+                "fingerprint": "server-fp",
+            }
+
+    def fake_post(url, *, json, timeout):
+        posts.append({"url": url, "json": json, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(text_rendering_preview.httpx, "post", fake_post)
+
+    artifacts_spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=900,
+        media_height=1200,
+        media_placement={"anchor": "center"},
+        preview_media_ref="artifacts/ws/source.png",
+        title_text="Title",
+        caption_text="Caption",
+        title_style={"font_size": 84},
+        caption_style={"font_size": 42},
+    )
+    state = request_real_preview_frame(
+        spec=artifacts_spec,
+        text_rendering_payload={"title_style": {"font_size": 84}},
+        api_base_url="http://localhost:8000/api/",
+        workspace_id="ws",
+    )
+
+    public_spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=900,
+        media_height=1200,
+        media_placement={"anchor": "center"},
+        preview_media_ref="https://cdn.example.test/source.png",
+        title_text="Title",
+        caption_text="Caption",
+        title_style={"font_size": 84},
+        caption_style={"font_size": 42},
+    )
+    request_real_preview_frame(
+        spec=public_spec,
+        text_rendering_payload={"caption_style": {"font_size": 42}},
+        api_base_url="http://localhost:8000/api/",
+        workspace_id="ws",
+    )
+
+    assert state == {
+        "storage_key": "artifacts/ws/rendered.png",
+        "url": "/api/files/artifacts/ws/rendered.png",
+        "fingerprint": "server-fp",
+        "error": None,
+    }
+    assert posts[0]["url"] == "http://localhost:8000/api/text-rendering/preview-frame"
+    assert posts[0]["json"]["preview_media_storage_key"] == "artifacts/ws/source.png"
+    assert "preview_media_url" not in posts[0]["json"]
+    assert "preview_media_storage_key" not in posts[1]["json"]
+    assert "preview_media_url" not in posts[1]["json"]
+    assert posts[0]["json"]["text_rendering"] == {"title_style": {"font_size": 84}}
+    assert posts[0]["json"]["workspace_id"] == "ws"
+    assert posts[0]["json"]["template_id"] == "image_default"
+    assert posts[0]["json"]["render_backend"] == "hyperframes"
+    assert posts[0]["json"]["canvas_width"] == 1080
+    assert posts[0]["json"]["canvas_height"] == 1920
+    assert posts[0]["json"]["media_width"] == 900
+    assert posts[0]["json"]["media_height"] == 1200
+    assert posts[0]["json"]["media_placement"] == {"anchor": "center"}
+    assert posts[0]["json"]["title_text"] == "Title"
+    assert posts[0]["json"]["caption_text"] == "Caption"
+
+
+def test_request_real_preview_frame_returns_error_state_on_exception(monkeypatch):
+    from web.components import text_rendering_preview
+    from web.components.text_rendering_preview import request_real_preview_frame
+
+    def fake_post(*_args, **_kwargs):
+        raise RuntimeError("network unavailable")
+
+    monkeypatch.setattr(text_rendering_preview.httpx, "post", fake_post)
+    spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=900,
+        media_height=1200,
+        title_style={},
+        caption_style={},
+    )
+
+    state = request_real_preview_frame(
+        spec=spec,
+        text_rendering_payload={},
+        api_base_url="http://localhost:8000/api",
+        workspace_id="ws",
+    )
+
+    assert state == {
+        "storage_key": None,
+        "url": None,
+        "fingerprint": spec.fingerprint,
+        "error": "network unavailable",
+    }
+
+
+def test_render_real_preview_status_reports_current_stale_and_error():
+    from web.components.text_rendering_preview import (
+        build_real_preview_state,
+        render_real_preview_status,
+    )
+
+    class FakeUI:
+        def __init__(self):
+            self.images = []
+            self.captions = []
+            self.errors = []
+
+        def image(self, url, **kwargs):
+            self.images.append({"url": url, **kwargs})
+
+        def caption(self, message):
+            self.captions.append(message)
+
+        def error(self, message):
+            self.errors.append(message)
+
+    spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=900,
+        media_height=1200,
+        title_style={},
+        caption_style={},
+    )
+    translate = lambda key, **kwargs: f"{key}:{kwargs}" if kwargs else key
+
+    current_ui = FakeUI()
+    render_real_preview_status(
+        spec,
+        build_real_preview_state(
+            storage_key="artifacts/ws/current.png",
+            url="/api/files/current.png",
+            fingerprint=spec.fingerprint,
+            error=None,
+        ),
+        current_ui,
+        translate,
+    )
+    stale_ui = FakeUI()
+    render_real_preview_status(
+        spec,
+        build_real_preview_state(
+            storage_key="artifacts/ws/old.png",
+            url="/api/files/old.png",
+            fingerprint="old",
+            error=None,
+        ),
+        stale_ui,
+        translate,
+    )
+    error_ui = FakeUI()
+    render_real_preview_status(
+        spec,
+        build_real_preview_state(
+            storage_key=None,
+            url=None,
+            fingerprint=spec.fingerprint,
+            error="boom",
+        ),
+        error_ui,
+        translate,
+    )
+
+    assert current_ui.images == [
+        {
+            "url": "/api/files/current.png",
+            "caption": "text_rendering_preview.real_current",
+        }
+    ]
+    assert stale_ui.images == []
+    assert stale_ui.captions == ["text_rendering_preview.real_stale"]
+    assert error_ui.errors == ["text_rendering_preview.real_failed:{'error': 'boom'}"]

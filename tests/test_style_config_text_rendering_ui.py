@@ -66,6 +66,10 @@ class _WidgetDefaultRecordingUI:
         self.number_input_calls = []
         self.color_picker_calls = []
         self.tabs_calls = []
+        self.button_calls = []
+        self.image_calls = []
+        self.caption_calls = []
+        self.error_calls = []
 
     def expander(self, *_args, **_kwargs):
         return _NoopContext()
@@ -79,6 +83,19 @@ class _WidgetDefaultRecordingUI:
 
     def markdown(self, *_args, **_kwargs):
         return None
+
+    def caption(self, message):
+        self.caption_calls.append(message)
+
+    def image(self, url, **kwargs):
+        self.image_calls.append({"url": url, **kwargs})
+
+    def error(self, message):
+        self.error_calls.append(message)
+
+    def button(self, _label, **kwargs):
+        self.button_calls.append({"label": _label, **kwargs})
+        return bool(self.session_state.get(kwargs.get("key"), False))
 
     def checkbox(self, _label, **kwargs):
         self.checkbox_calls.append(kwargs)
@@ -610,6 +627,69 @@ def test_text_rendering_controls_render_caption_and_title_tabs(monkeypatch):
     )
     assert payload["title_style"]["font_size"] == 76
     assert payload["title_style"]["position"] == "top_left"
+
+
+def test_text_rendering_controls_real_preview_button_stores_state_without_payload_leak(
+    monkeypatch,
+):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import render_text_rendering_controls
+
+    fake_ui = _WidgetDefaultRecordingUI()
+    fake_ui.session_state.update(
+        {
+            "text_rendering_generate_real_preview": True,
+            "api_base_url": "http://localhost:8000/api",
+            "workspace_id": "ws",
+            "title_style_font_size": 76,
+        }
+    )
+    captured = {}
+
+    def fake_request_real_preview_frame(**kwargs):
+        captured.update(kwargs)
+        return {
+            "storage_key": "artifacts/ws/rendered.png",
+            "url": "/api/files/artifacts/ws/rendered.png",
+            "fingerprint": kwargs["spec"].fingerprint,
+            "error": None,
+        }
+
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
+    monkeypatch.setattr(
+        text_rendering_config,
+        "request_real_preview_frame",
+        fake_request_real_preview_frame,
+    )
+
+    payload = render_text_rendering_controls(
+        "hyperframes",
+        ui=fake_ui,
+        translate=lambda key, **kwargs: key,
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=900,
+        media_height=1200,
+        media_placement={"anchor": "center"},
+        title_text="Preview title",
+        caption_text="Preview caption",
+        preview_media_ref="artifacts/ws/source.png",
+    )
+
+    assert fake_ui.button_calls[0]["key"] == "text_rendering_generate_real_preview"
+    assert fake_ui.button_calls[0]["label"] == "text_rendering_preview.generate_real"
+    assert fake_ui.session_state["text_rendering_real_preview_frame"] == {
+        "storage_key": "artifacts/ws/rendered.png",
+        "url": "/api/files/artifacts/ws/rendered.png",
+        "fingerprint": captured["spec"].fingerprint,
+        "error": None,
+    }
+    assert captured["api_base_url"] == "http://localhost:8000/api"
+    assert captured["workspace_id"] == "ws"
+    assert captured["text_rendering_payload"] == payload
+    assert "text_rendering_real_preview_frame" not in payload
+    assert "preview_media_url" not in captured["text_rendering_payload"]
 
 
 def test_preview_caption_text_uses_first_non_empty_line_and_default(monkeypatch):

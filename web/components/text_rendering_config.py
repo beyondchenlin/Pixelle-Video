@@ -45,7 +45,9 @@ from pixelle_video.services.font_discovery import (
 from web.i18n import tr
 from web.components.text_rendering_preview import (
     build_text_rendering_preview_spec,
+    render_real_preview_status,
     render_text_rendering_preview,
+    request_real_preview_frame,
 )
 from web.utils.streamlit_helpers import (
     keyed_widget_default_kwargs,
@@ -559,23 +561,6 @@ def render_text_rendering_controls(
                     translate=translate,
                 )
 
-        if template_id and canvas_width and canvas_height and media_width and media_height:
-            preview_spec = build_text_rendering_preview_spec(
-                template_id=template_id,
-                render_backend=render_backend,
-                canvas_width=canvas_width,
-                canvas_height=canvas_height,
-                media_width=media_width,
-                media_height=media_height,
-                media_placement=media_placement,
-                preview_media_ref=preview_media_ref,
-                title_text=title_text,
-                caption_text=caption_text,
-                title_style=title_style,
-                caption_style=caption_style,
-            )
-            render_text_rendering_preview(preview_spec, ui=ui, translate=translate)
-
         with _render_middle_column_detail_section(ui, translate("text_layer.title")):
             overlay_policy = render_text_layer_controls(
                 render_backend,
@@ -615,17 +600,64 @@ def render_text_rendering_controls(
                         "image_text_positive_prompt",
                         DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
                     ),
-                ),
-            )
+                    ),
+                )
 
-    return build_text_rendering_payload(
-        caption_style=caption_style,
-        title_style=title_style,
-        overlay_policy=overlay_policy,
-        overlay_style=overlay_style,
-        suppress_embedded_text=suppress_embedded_text,
-        positive_prompt=positive_prompt,
-    )
+        text_rendering_payload = build_text_rendering_payload(
+            caption_style=caption_style,
+            title_style=title_style,
+            overlay_policy=overlay_policy,
+            overlay_style=overlay_style,
+            suppress_embedded_text=suppress_embedded_text,
+            positive_prompt=positive_prompt,
+        )
+
+        if template_id and canvas_width and canvas_height and media_width and media_height:
+            preview_spec = build_text_rendering_preview_spec(
+                template_id=template_id,
+                render_backend=render_backend,
+                canvas_width=canvas_width,
+                canvas_height=canvas_height,
+                media_width=media_width,
+                media_height=media_height,
+                media_placement=media_placement,
+                preview_media_ref=preview_media_ref,
+                title_text=title_text,
+                caption_text=caption_text,
+                title_style=title_style,
+                caption_style=caption_style,
+            )
+            render_text_rendering_preview(preview_spec, ui=ui, translate=translate)
+            preview_state_key = "text_rendering_real_preview_frame"
+            render_real_preview_status(
+                preview_spec,
+                _session_value(ui, preview_state_key, None),
+                ui,
+                translate,
+            )
+            if _call_control(
+                ui,
+                "button",
+                False,
+                translate("text_rendering_preview.generate_real"),
+                key="text_rendering_generate_real_preview",
+            ):
+                _set_session_value(
+                    ui,
+                    preview_state_key,
+                    request_real_preview_frame(
+                        spec=preview_spec,
+                        text_rendering_payload=text_rendering_payload,
+                        api_base_url=_session_value(
+                            ui,
+                            "api_base_url",
+                            "http://localhost:8000/api",
+                        ),
+                        workspace_id=_session_value(ui, "workspace_id", "default"),
+                    ),
+                )
+
+    return text_rendering_payload
 
 
 def render_text_layer_controls(

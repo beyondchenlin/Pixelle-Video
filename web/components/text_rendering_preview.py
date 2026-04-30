@@ -8,6 +8,7 @@ from html import escape
 from math import isfinite
 from typing import Any, Mapping
 
+import httpx
 import streamlit as st
 
 from pixelle_video.models.media_placement import calculate_media_box
@@ -270,3 +271,90 @@ def render_text_rendering_preview(
     if caption is not None:
         caption(translate("text_rendering_preview.instant_notice"))
     ui.markdown(render_preview_html(spec), unsafe_allow_html=True)
+
+
+def build_real_preview_state(
+    storage_key: str | None,
+    url: str | None,
+    fingerprint: str | None,
+    error: str | None,
+) -> dict[str, Any]:
+    return {
+        "storage_key": storage_key,
+        "url": url,
+        "fingerprint": fingerprint,
+        "error": error,
+    }
+
+
+def is_real_preview_stale(
+    state: Mapping[str, Any] | None,
+    fingerprint: str,
+) -> bool:
+    if not state:
+        return True
+    return state.get("fingerprint") != fingerprint
+
+
+def render_real_preview_status(
+    spec: TextRenderingPreviewSpec,
+    state: Mapping[str, Any] | None,
+    ui: Any,
+    translate,
+) -> None:
+    if state and state.get("url") and not is_real_preview_stale(state, spec.fingerprint):
+        image = getattr(ui, "image", None)
+        if image is not None:
+            image(state["url"], caption=translate("text_rendering_preview.real_current"))
+        return
+    if state and state.get("url"):
+        caption = getattr(ui, "caption", None)
+        if caption is not None:
+            caption(translate("text_rendering_preview.real_stale"))
+    if state and state.get("error"):
+        error = getattr(ui, "error", None)
+        if error is not None:
+            error(translate("text_rendering_preview.real_failed", error=state["error"]))
+
+
+def request_real_preview_frame(
+    spec: TextRenderingPreviewSpec,
+    text_rendering_payload: Mapping[str, Any],
+    api_base_url: str,
+    workspace_id: str,
+) -> dict[str, Any]:
+    endpoint = f"{api_base_url.rstrip('/')}/text-rendering/preview-frame"
+    payload: dict[str, Any] = {
+        "workspace_id": workspace_id,
+        "template_id": spec.template_id,
+        "render_backend": spec.render_backend,
+        "canvas_width": spec.canvas_width,
+        "canvas_height": spec.canvas_height,
+        "media_width": spec.media_width,
+        "media_height": spec.media_height,
+        "media_placement": spec.media_placement,
+        "title_text": spec.title_text,
+        "caption_text": spec.caption_text,
+        "text_rendering": dict(text_rendering_payload),
+    }
+    preview_media_ref = str(spec.preview_media_ref or "").strip()
+    if preview_media_ref.startswith("artifacts/"):
+        payload["preview_media_storage_key"] = preview_media_ref
+
+    try:
+        response = httpx.post(endpoint, json=payload, timeout=60.0)
+        response.raise_for_status()
+        data = response.json()
+        return build_real_preview_state(
+            storage_key=data.get("storage_key"),
+            url=data.get("url"),
+            fingerprint=data.get("fingerprint"),
+            error=None,
+        )
+    except Exception as exc:
+        return build_real_preview_state(
+            storage_key=None,
+            url=None,
+            fingerprint=spec.fingerprint,
+            error=str(exc),
+        )
