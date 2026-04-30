@@ -47,11 +47,12 @@ if ($listener) {
         $listenerProcessName = $processInfo.Name
         $listenerCommandLine = $processInfo.CommandLine
     }
+    $listenerMatchesConfig = Test-ManagedComfyUIProcess $config $listenerPid
     $listenerManaged = [bool](
-        $pidFilePresent -and
-        $managedPid -and
-        $managedPid -eq $listenerPid -and
-        (Test-ManagedComfyUIProcess $config $listenerPid)
+        $listenerMatchesConfig -and (
+            -not $pidFilePresent -or
+            ($managedPid -and $managedPid -eq $listenerPid)
+        )
     )
 }
 

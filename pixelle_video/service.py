@@ -74,6 +74,7 @@ class _LocalComfyUITaskScope:
         self.pending_memory_release = False
         self.pending_extension_memory_release = False
         self.registered_active_task = False
+        self.release_failed = False
 
 
 class PixelleVideoCore:
@@ -401,7 +402,7 @@ class PixelleVideoCore:
             api_key=comfyui_config.get("comfyui_api_key"),
         )
         try:
-            if include_extensions and model_cleanup_mode == "comfyui_and_extensions":
+            if include_extensions:
                 result = await client.free_memory_with_extensions_when_idle(
                     intensity="high",
                     extensions=("indextts2",),
@@ -416,8 +417,7 @@ class PixelleVideoCore:
             )
             return bool(result)
         except Exception as e:
-            logger.warning(f"ComfyUI {context} memory release failed, continuing: {e}")
-            return False
+            raise RuntimeError(f"ComfyUI {context} memory release failed: {e}") from e
 
     async def force_release_comfyui_memory(
         self,
@@ -465,7 +465,7 @@ class PixelleVideoCore:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
         model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
-        if model_cleanup_mode != "comfyui_and_extensions":
+        if model_cleanup_mode == "disabled":
             return False
 
         base_url = comfyui_config.get("comfyui_url")
@@ -494,6 +494,11 @@ class PixelleVideoCore:
     async def release_comfyui_after_local_workflow(self) -> bool:
         """Release standard ComfyUI model/cache state after an image or video workflow batch."""
         released = await self._release_comfyui_memory_when_idle("post-workflow")
+        if not released:
+            raise RuntimeError(
+                "ComfyUI post-workflow memory release was not confirmed; "
+                "stopping before the next Pixelle stage to avoid mixed model residency."
+            )
         if released:
             self._mark_local_comfyui_released()
         return released
@@ -501,7 +506,13 @@ class PixelleVideoCore:
     async def release_comfyui_after_local_task(self) -> bool:
         """Fallback release once no local video task is active."""
         async with self._local_comfyui_execution_lock:
-            return await self._release_comfyui_memory_when_idle("post-task")
+            released = await self._release_comfyui_memory_when_idle("post-task")
+            if not released:
+                raise RuntimeError(
+                    "ComfyUI post-task memory release was not confirmed; "
+                    "stopping to avoid leaving Pixelle-owned models resident."
+                )
+            return released
 
     async def release_comfyui_after_index_tts2_workflow(
         self,
@@ -515,6 +526,11 @@ class PixelleVideoCore:
             include_extensions=True,
             missing_endpoint=missing_endpoint,
         )
+        if not released:
+            raise RuntimeError(
+                f"ComfyUI {context} memory release was not confirmed; "
+                "stopping before the next Pixelle stage to avoid mixed model residency."
+            )
         if released:
             self._mark_local_comfyui_released()
         return released
@@ -532,11 +548,18 @@ class PixelleVideoCore:
             return
 
         if session.used_index_tts2:
-            released = await self.release_comfyui_after_index_tts2_workflow(
-                context="post-index-tts2-workflow",
-                missing_endpoint="optional",
-            )
+            try:
+                released = await self.release_comfyui_after_index_tts2_workflow(
+                    context="post-index-tts2-workflow",
+                    missing_endpoint="required",
+                )
+            except Exception:
+                scope = self._local_comfyui_task_scope.get()
+                if scope is not None:
+                    scope.release_failed = True
+                raise
             if released:
+                self._mark_local_comfyui_released()
                 scope = self._local_comfyui_task_scope.get()
                 if scope is not None:
                     scope.pending_extension_memory_release = False
@@ -546,7 +569,13 @@ class PixelleVideoCore:
             session.release_after_session
             or self._should_release_local_comfyui_after_workflow()
         ):
-            await self.release_comfyui_after_local_workflow()
+            try:
+                await self.release_comfyui_after_local_workflow()
+            except Exception:
+                scope = self._local_comfyui_task_scope.get()
+                if scope is not None:
+                    scope.release_failed = True
+                raise
 
     async def _register_local_comfyui_task_use(self) -> None:
         scope = self._local_comfyui_task_scope.get()
@@ -668,11 +697,23 @@ class PixelleVideoCore:
             release_after_session=release_after_session
         )
         token = self._local_comfyui_workflow_session.set(session)
+        body_failed = False
         try:
             yield
+        except BaseException:
+            body_failed = True
+            raise
         finally:
             try:
-                await self._release_local_comfyui_after_workflow_session(session)
+                try:
+                    await self._release_local_comfyui_after_workflow_session(session)
+                except Exception as exc:
+                    if not body_failed:
+                        raise
+                    logger.warning(
+                        "ComfyUI workflow-session memory release failed while "
+                        f"unwinding a failed workflow; preserving original error: {exc}"
+                    )
             finally:
                 if session.lock_acquired:
                     self._local_comfyui_execution_lock.release()
@@ -688,8 +729,12 @@ class PixelleVideoCore:
 
         scope = _LocalComfyUITaskScope()
         token = self._local_comfyui_task_scope.set(scope)
+        body_failed = False
         try:
             yield
+        except BaseException:
+            body_failed = True
+            raise
         finally:
             should_release = False
             try:
@@ -701,16 +746,42 @@ class PixelleVideoCore:
                         )
                         should_release = self._local_comfyui_active_task_count == 0
 
-                if scope.pending_extension_memory_release and should_release:
-                    released = await self.release_comfyui_after_index_tts2_workflow(
-                        context="post-task-index-tts2-fallback",
-                        missing_endpoint="optional",
-                    )
-                    if released:
-                        scope.pending_extension_memory_release = False
+                if (
+                    scope.pending_extension_memory_release
+                    and should_release
+                    and not scope.release_failed
+                ):
+                    try:
+                        released = await self.release_comfyui_after_index_tts2_workflow(
+                            context="post-task-index-tts2-fallback",
+                            missing_endpoint="required",
+                        )
+                        if released:
+                            self._mark_local_comfyui_released()
+                            scope.pending_extension_memory_release = False
+                    except Exception as exc:
+                        if not body_failed:
+                            raise
+                        logger.warning(
+                            "ComfyUI post-task IndexTTS2 fallback release failed while "
+                            f"unwinding a failed task; preserving original error: {exc}"
+                        )
 
-                if scope.used_local_comfyui and scope.pending_memory_release and should_release:
-                    await self.release_comfyui_after_local_task()
+                if (
+                    scope.used_local_comfyui
+                    and scope.pending_memory_release
+                    and should_release
+                    and not scope.release_failed
+                ):
+                    try:
+                        await self.release_comfyui_after_local_task()
+                    except Exception as exc:
+                        if not body_failed:
+                            raise
+                        logger.warning(
+                            "ComfyUI post-task fallback release failed while unwinding "
+                            f"a failed task; preserving original error: {exc}"
+                        )
             finally:
                 self._local_comfyui_task_scope.reset(token)
 
@@ -745,17 +816,29 @@ class PixelleVideoCore:
             used_index_tts2 = self._mark_index_tts2_workflow_use(workflow_input)
             if used_index_tts2:
                 await self._preflight_index_tts2_release_endpoint_once(session)
+            workflow_failed = False
             try:
                 return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
+            except BaseException:
+                workflow_failed = True
+                raise
             finally:
                 if self._should_release_local_comfyui_after_workflow():
-                    if used_index_tts2:
-                        await self.release_comfyui_after_index_tts2_workflow(
-                            context="post-index-tts2-workflow",
-                            missing_endpoint="optional",
+                    try:
+                        if used_index_tts2:
+                            await self.release_comfyui_after_index_tts2_workflow(
+                                context="post-index-tts2-workflow",
+                                missing_endpoint="required",
+                            )
+                        else:
+                            await self.release_comfyui_after_local_workflow()
+                    except Exception as exc:
+                        if not workflow_failed:
+                            raise
+                        logger.warning(
+                            "ComfyUI workflow release failed while unwinding a failed "
+                            f"workflow; preserving original error: {exc}"
                         )
-                    else:
-                        await self.release_comfyui_after_local_workflow()
 
     async def execute_comfykit_workflow_file(
         self,

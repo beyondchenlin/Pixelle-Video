@@ -291,7 +291,7 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_models_after
         ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("get_kit",),
         ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "demo"}),
-        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "required"),
     ]
 
 
@@ -365,6 +365,7 @@ async def test_core_execute_local_comfy_workflow_recovers_once_after_oom():
         return True
 
     core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
     core.force_release_comfyui_memory = _force_release
     core._get_or_create_comfykit = _get_kit
 
@@ -383,6 +384,7 @@ async def test_core_execute_local_comfy_workflow_recovers_once_after_oom():
         ("prepare",),
         ("get_kit",),
         ("execute", 2, "workflow.json", {"prompt": "demo"}),
+        ("release",),
     ]
 
 
@@ -662,7 +664,7 @@ async def test_index_tts2_workflow_session_releases_models_once_at_session_exit(
         ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "first"}),
         ("get_kit",),
         ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "second"}),
-        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "required"),
     ]
 
 
@@ -722,7 +724,7 @@ async def test_local_comfyui_workflow_session_releases_models_for_renamed_index_
         ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("get_kit",),
         ("execute", str(workflow_path), {"prompt": "first"}),
-        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "required"),
     ]
 
 
@@ -763,7 +765,7 @@ async def test_index_tts2_workflow_session_releases_models_at_session_exit():
     assert events == [
         ("prepare",),
         ("execute", "workflows/selfhost/tts_index2.json"),
-        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "required"),
     ]
 
 
@@ -808,7 +810,7 @@ async def test_index_tts2_workflow_preflights_required_extension_endpoint_before
         ("prepare",),
         ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("execute", "workflows/selfhost/tts_index2.json"),
-        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "required"),
     ]
 
 
@@ -854,13 +856,13 @@ async def test_index_tts2_workflow_session_does_not_force_release_on_normal_comp
         assert events == [
             ("prepare",),
             ("execute", "workflows/selfhost/tts_index2.json"),
-            ("index_tts2_release", "post-index-tts2-workflow", "optional"),
+            ("index_tts2_release", "post-index-tts2-workflow", "required"),
         ]
 
     assert events == [
         ("prepare",),
         ("execute", "workflows/selfhost/tts_index2.json"),
-        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "required"),
     ]
 
 
@@ -962,7 +964,7 @@ async def test_local_comfyui_workflow_session_can_release_at_batch_exit_inside_t
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_task_scope_uses_task_exit_as_release_fallback():
+async def test_local_comfyui_workflow_session_fails_when_stage_release_is_not_confirmed(monkeypatch):
     events = []
 
     class _Kit:
@@ -970,39 +972,50 @@ async def test_local_comfyui_task_scope_uses_task_exit_as_release_fallback():
             events.append(("execute", workflow_input))
             return SimpleNamespace(status="completed")
 
+    class _Client:
+        def __init__(self, base_url, *, api_key=None):
+            events.append(("client", base_url, api_key))
+
+        async def free_memory_when_idle(self, *, intensity):
+            events.append(("idle_release_skipped", intensity))
+            return False
+
     core = PixelleVideoCore()
 
     async def _prepare():
         events.append(("prepare",))
 
-    async def _release_workflow():
-        events.append(("workflow_release_failed",))
-        return False
-
-    async def _release_task():
-        events.append(("task_release",))
-        return True
-
     async def _get_kit():
         return _Kit()
 
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                comfyui_api_key="secret",
+            )
+        )
+    )
+    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
     core.prepare_comfyui_for_local_workflow = _prepare
-    core.release_comfyui_after_local_workflow = _release_workflow
-    core.release_comfyui_after_local_task = _release_task
     core._get_or_create_comfykit = _get_kit
 
-    async with core.local_comfyui_task_scope():
-        async with core.local_comfyui_workflow_session():
-            await core.execute_comfykit_workflow(
-                "first.json",
-                {},
-                workflow_source="selfhost",
-            )
+    with pytest.raises(RuntimeError, match="post-workflow"):
+        async with core.local_comfyui_task_scope():
+            async with core.local_comfyui_workflow_session(release_after_session=True):
+                await core.execute_comfykit_workflow(
+                    "image_batch.json",
+                    {},
+                    workflow_source="selfhost",
+                )
 
     assert events == [
         ("prepare",),
-        ("execute", "first.json"),
-        ("task_release",),
+        ("execute", "image_batch.json"),
+        ("client", "http://127.0.0.1:8000", "secret"),
+        ("idle_release_skipped", "high"),
     ]
 
 
@@ -1157,6 +1170,93 @@ async def test_release_comfyui_after_index_tts2_workflow_releases_standard_and_p
     assert events == [
         ("client", "http://127.0.0.1:8000", "secret"),
         ("idle_release_with_extensions", "high", ("indextts2",), "optional"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_release_comfyui_after_index_tts2_workflow_forces_extension_cleanup_in_comfyui_mode(monkeypatch):
+    events = []
+
+    class _Client:
+        def __init__(self, base_url, *, api_key=None):
+            events.append(("client", base_url, api_key))
+
+        async def free_memory_with_extensions_when_idle(
+            self,
+            *,
+            intensity,
+            extensions=("indextts2",),
+            missing_endpoint="optional",
+        ):
+            events.append(("idle_release_with_extensions", intensity, extensions, missing_endpoint))
+            return True
+
+        async def free_memory_when_idle(self, *, intensity):
+            raise AssertionError("IndexTTS2 release must also clean plugin caches")
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                comfyui_api_key="secret",
+                model_cleanup_mode="comfyui",
+            )
+        ),
+    )
+    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+
+    core = PixelleVideoCore()
+
+    assert await core.release_comfyui_after_index_tts2_workflow(
+        context="post-index-tts2-workflow",
+        missing_endpoint="required",
+    ) is True
+    assert events == [
+        ("client", "http://127.0.0.1:8000", "secret"),
+        ("idle_release_with_extensions", "high", ("indextts2",), "required"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_index_tts2_release_preflight_runs_in_comfyui_cleanup_mode(monkeypatch):
+    events = []
+
+    class _Client:
+        def __init__(self, base_url, *, api_key=None):
+            events.append(("client", base_url, api_key))
+
+        async def preflight_extension_release_endpoints(
+            self,
+            *,
+            extensions=("indextts2",),
+        ):
+            events.append(("preflight", extensions))
+            return []
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                comfyui_api_key="secret",
+                model_cleanup_mode="comfyui",
+            )
+        ),
+    )
+    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+
+    core = PixelleVideoCore()
+
+    assert await core.preflight_comfyui_extension_release_endpoints(
+        context="pre-index-tts2-workflow",
+        extensions=("indextts2",),
+    ) is True
+    assert events == [
+        ("client", "http://127.0.0.1:8000", "secret"),
+        ("preflight", ("indextts2",)),
     ]
 
 

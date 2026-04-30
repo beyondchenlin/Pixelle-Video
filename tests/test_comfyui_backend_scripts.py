@@ -280,17 +280,99 @@ def test_start_backend_refuses_wildcard_address_port_conflict(tmp_path: Path) ->
 
 
 def test_stop_backend_without_pid_file_is_safe_noop(tmp_path: Path) -> None:
+    port = reserve_free_port()
     result = run_powershell(
         SCRIPT_DIR / "stop_backend.ps1",
         "-Json",
         "-RuntimeDir",
         tmp_path / "runtime",
+        "-HostAddress",
+        "127.0.0.1",
+        "-Port",
+        str(port),
     )
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["stopped"] is False
     assert payload["reason"] == "pid_file_missing"
+
+
+def test_stop_backend_stops_matching_listener_without_pid_file(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_listening_main_py(comfyui_root)
+    runtime_dir = tmp_path / "runtime"
+    port = reserve_free_port()
+    command = [
+        sys.executable,
+        str(comfyui_root / "main.py"),
+        "--user-directory",
+        str(data_root / "user"),
+        "--input-directory",
+        str(data_root / "input"),
+        "--output-directory",
+        str(data_root / "output"),
+        "--base-directory",
+        str(data_root),
+        "--listen",
+        "127.0.0.1",
+        "--port",
+        str(port),
+    ]
+    process = subprocess.Popen(command)
+
+    try:
+        wait_for_port(port)
+        result = run_powershell(
+            SCRIPT_DIR / "stop_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["stopped"] is True
+        assert payload["pid"] is None
+        assert isinstance(payload["listener_pid"], int)
+        assert payload["listener_pid"] > 0
+        assert payload["stopped_listener"] is True
+        assert payload["reason"] == "matching_listener_without_pid_file"
+
+        check = run_powershell(
+            SCRIPT_DIR / "check_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+        )
+        assert check.returncode == 0, check.stderr
+        assert json.loads(check.stdout)["listener_present"] is False
+    finally:
+        kill_fake_comfyui_processes(comfyui_root)
 
 
 def test_stop_backend_removes_invalid_pid_files(tmp_path: Path) -> None:
@@ -334,7 +416,7 @@ def test_check_backend_reports_clear_port_without_side_effects(tmp_path: Path) -
     assert payload["pid_file_present"] is False
 
 
-def test_check_backend_does_not_mark_matching_process_as_managed_without_pid_file(
+def test_check_backend_marks_matching_process_as_managed_without_pid_file(
     tmp_path: Path,
 ) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
@@ -385,7 +467,7 @@ def test_check_backend_does_not_mark_matching_process_as_managed_without_pid_fil
     payload = json.loads(result.stdout)
     assert payload["listener_present"] is True
     assert payload["pid_file_present"] is False
-    assert payload["listener_is_managed_backend"] is False
+    assert payload["listener_is_managed_backend"] is True
 
 
 def test_start_backend_tracks_listener_pid_when_launcher_spawns_child(tmp_path: Path) -> None:

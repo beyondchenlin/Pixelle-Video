@@ -35,9 +35,9 @@ comfyui:
   executor_type: null  # Optional override: null=auto (recommended HTTP default), websocket only for explicit opt-in
   pre_generation_cleanup_mode: force  # force=interrupt/clear busy queue before generation, conservative=leave an idle queue untouched
   pre_generation_cleanup_timeout_seconds: 20  # Fail fast if a forced cleanup cannot drain the ComfyUI queue in time
-  model_cleanup_mode: comfyui_and_extensions  # disabled=keep models loaded after stages, comfyui=/free after Pixelle-owned stages, comfyui_and_extensions=/free plus IndexTTS2 plugin cache cleanup for TTS stages
+  model_cleanup_mode: comfyui_and_extensions  # disabled=keep models loaded after stages; comfyui=/free after standard Pixelle-owned stages; IndexTTS2 TTS always requires plugin cache cleanup unless disabled
   # Pixelle assumes this ComfyUI instance is dedicated to Pixelle: it keeps models hot within a stage, then releases them at the image/TTS stage boundary without restarting ComfyUI.
-  # Local IndexTTS2 workflows preflight /pixelle/indextts2/health when extension cleanup is enabled; /free and plugin release responses are logged with VRAM snapshots when available.
+  # Local IndexTTS2 workflows preflight /pixelle/indextts2/health when model cleanup is not disabled; /free and plugin release responses are logged with VRAM snapshots when available.
   comfyui_api_key: ""  # ComfyUI API key (optional, get from https://platform.comfy.org/profile/api-keys)
   # Note for Docker users: Use host.docker.internal:8188 (Mac/Windows) or host IP address (Linux)
   runninghub_api_key: ""  # RunningHub API key (required for runninghub workflows)

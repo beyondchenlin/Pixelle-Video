@@ -72,3 +72,5 @@ $env:PIXELLE_COMFYUI_PORT = '8000'
 ```
 
 If port `8000` is already occupied by an unmanaged process, `start_backend.ps1` refuses to start another backend instead of drifting to a new port.
+
+`stop_backend.ps1` primarily uses the PID files above. If the PID files are missing but the listener command line still matches the configured ComfyUI root and data root, it can safely stop that matching backend and recreate a clean managed state on the next start. It still refuses to stop unrelated processes on the same port.

@@ -30,10 +30,36 @@ $config = Resolve-PixelleComfyUIBackendConfig `
 
 $pidFile = Get-BackendPidFile $config
 $launcherPidFile = Get-BackendLauncherPidFile $config
+$listener = Get-BackendListener $config
 if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf)) {
+    $listenerPid = $null
+    $stoppedListener = $false
+    if ($listener) {
+        $listenerPid = [int]$listener.OwningProcess
+        if (Test-ManagedComfyUIProcess $config $listenerPid) {
+            Stop-ManagedComfyUIProcess $config $listenerPid | Out-Null
+            $stoppedListener = $true
+            Remove-BackendPidFiles $config
+            $payload = [ordered]@{
+                stopped = $true
+                reason = 'matching_listener_without_pid_file'
+                pid = $null
+                listener_pid = $listenerPid
+                stopped_listener = $stoppedListener
+                launcher_pid = $null
+                stopped_launcher = $false
+                pid_file = $pidFile
+                launcher_pid_file = $launcherPidFile
+            }
+            Write-BackendMessage -Json:$Json -Payload $payload -Message "Stopped matching ComfyUI backend listener PID $listenerPid without PID file."
+            exit 0
+        }
+    }
+
     $payload = [ordered]@{
         stopped = $false
         reason = 'pid_file_missing'
+        listener_pid = $listenerPid
         pid_file = $pidFile
         launcher_pid_file = $launcherPidFile
     }
@@ -74,7 +100,6 @@ if (-not (Test-ManagedComfyUIProcess $config $managedPid)) {
     throw "PID file points to PID $managedPid, but that process is not the Pixelle-managed ComfyUI backend. Refusing to stop it. Command line: $($processInfo.CommandLine)"
 }
 
-$listener = Get-BackendListener $config
 $listenerPid = $null
 $stoppedListener = $false
 if ($listener) {

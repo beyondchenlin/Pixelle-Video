@@ -471,7 +471,8 @@ class ComfyUIConfig(BaseModel):
         default="comfyui_and_extensions",
         description=(
             "Model memory cleanup scope used after Pixelle-owned local workflow "
-            "stages and explicit recovery paths"
+            "stages; IndexTTS2 TTS plugin cache cleanup is required unless "
+            "cleanup is disabled"
         ),
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
