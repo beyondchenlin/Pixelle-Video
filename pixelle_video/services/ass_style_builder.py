@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 from pixelle_video.models.text_style import TextStyleProfile
 
+_DEFAULT_ASS_SCALE_BASIS_WIDTH = 1080
+_DEFAULT_ASS_SCALE_BASIS_HEIGHT = 1920
 _HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 _ASS_ALIGNMENT_BY_POSITION = {
     ("bottom", "center"): 2,
@@ -48,7 +50,7 @@ class AssStyleBuilder:
         if canvas_width <= 0 or canvas_height <= 0:
             raise ValueError("canvas_width and canvas_height must be positive")
 
-        scale = profile.scale_for_canvas(canvas_width, canvas_height)
+        scale = _ass_scale_for_canvas(profile, canvas_width, canvas_height)
         font_size = max(1, _scale_int(profile.font_size, scale))
         outline = _scale_int(profile.stroke_width, scale)
         shadow = _scale_int(profile.shadow_blur, scale) if profile.shadow_blur else 0
@@ -79,6 +81,19 @@ class AssStyleBuilder:
 
 def _scale_int(value: int, scale: float) -> int:
     return int(round(value * scale))
+
+
+def _ass_scale_for_canvas(
+    profile: TextStyleProfile,
+    canvas_width: int,
+    canvas_height: int,
+) -> float:
+    if profile.scale_basis_width is not None and profile.scale_basis_height is not None:
+        return profile.scale_for_canvas(canvas_width, canvas_height)
+    return min(
+        max(1, int(canvas_width)) / _DEFAULT_ASS_SCALE_BASIS_WIDTH,
+        max(1, int(canvas_height)) / _DEFAULT_ASS_SCALE_BASIS_HEIGHT,
+    )
 
 
 def _validate_ass_field(value: str, field_name: str) -> None:

@@ -55,7 +55,6 @@ from pixelle_video.models.render_package import (
 )
 from pixelle_video.models.size_contract import (
     GenerationSizeContract,
-    has_canvas_size_intent,
     orientation_from_dimensions,
 )
 from pixelle_video.models.storyboard import (
@@ -186,10 +185,26 @@ def _resolve_frame_template_for_size_contract(
     )
 
 
+def _has_explicit_canvas_size_intent(params: Mapping[str, Any]) -> bool:
+    if bool(params.get("sync_media_size_to_canvas", False)):
+        return True
+    return any(
+        key in params and params.get(key) is not None
+        for key in (
+            "canvas_width",
+            "canvas_height",
+            "video_orientation",
+            "video_resolution_preset",
+        )
+    )
+
+
 def _size_params_with_template_defaults(params: Mapping[str, Any]) -> dict[str, Any]:
     size_params = dict(params)
     frame_template = size_params.get("frame_template")
-    if not frame_template or has_canvas_size_intent(size_params):
+    if not frame_template:
+        return size_params
+    if _has_explicit_canvas_size_intent(size_params):
         return size_params
 
     resolved_template = resolve_template_path(str(frame_template))
@@ -551,6 +566,8 @@ class StandardPipeline(LinearVideoPipeline):
             _size_params_with_template_defaults(ctx.params)
         )
         frame_template = _resolve_frame_template_for_size_contract(ctx.params, size_contract)
+        template_type = get_template_type(Path(frame_template).name)
+        planning_params = ctx.params if template_type in {"image", "video"} else {}
 
         # Create config
         ctx.config = StoryboardConfig(
@@ -582,7 +599,7 @@ class StandardPipeline(LinearVideoPipeline):
             media_negative_prompt=ctx.media_negative_prompt,
             frame_template=frame_template,
             template_params=ctx.params.get("template_params"),
-            **build_storyboard_config_planning_kwargs(ctx.planning_snapshot, ctx.params),
+            **build_storyboard_config_planning_kwargs(ctx.planning_snapshot, planning_params),
         )
         
         # Create storyboard
@@ -754,24 +771,33 @@ class StandardPipeline(LinearVideoPipeline):
         config = ctx.config
         template_type = get_template_type(Path(config.frame_template).name)
         media_domain = self._resolve_media_domain(config)
+        core = getattr(self, "core", None)
 
         tts_workflow_key = None
         if config.tts_inference_mode == "comfyui":
-            tts_workflow_key = self.core.tts._resolve_workflow(
-                workflow=config.tts_workflow,
-            )["key"]
+            tts_resolver = getattr(getattr(core, "tts", None), "_resolve_workflow", None)
+            if callable(tts_resolver):
+                tts_workflow_key = tts_resolver(
+                    workflow=config.tts_workflow,
+                )["key"]
+            else:
+                tts_workflow_key = config.tts_workflow
 
         media_workflow_key = None
         media_capabilities = WorkflowCapabilities()
         if media_domain != "static":
-            media_workflow_info = self.core.media._resolve_workflow(
-                workflow=config.media_workflow,
-                workflow_domain=media_domain,
-            )
-            media_workflow_key = media_workflow_info["key"]
-            media_capabilities = self._resolve_workflow_capabilities_for_execution(
-                media_workflow_info
-            )
+            media_resolver = getattr(getattr(core, "media", None), "_resolve_workflow", None)
+            if callable(media_resolver):
+                media_workflow_info = media_resolver(
+                    workflow=config.media_workflow,
+                    workflow_domain=media_domain,
+                )
+                media_workflow_key = media_workflow_info["key"]
+                media_capabilities = self._resolve_workflow_capabilities_for_execution(
+                    media_workflow_info
+                )
+            else:
+                media_workflow_key = config.media_workflow
 
         is_runninghub = any(
             key and key.startswith("runninghub/")
