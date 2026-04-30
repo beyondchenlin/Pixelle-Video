@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path, PurePosixPath
 from typing import Mapping, Protocol
 from uuid import uuid4
@@ -6,6 +7,7 @@ from uuid import uuid4
 RAW_PAYLOAD_PREFIX = "raw-payloads"
 OBJECT_ID_HEX_LENGTH = 32
 LOWER_HEX_DIGITS = frozenset("0123456789abcdef")
+WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class RawPayloadReadError(Exception):
@@ -32,7 +34,10 @@ class RawPayloadStore(Protocol):
 
 
 class FilesystemDevRawPayloadStore:
-    """Dev/test adapter that stores JSON locally while returning platform storage keys."""
+    """Dev/test adapter that stores JSON locally while returning platform storage keys.
+
+    Production async adapters should avoid blocking filesystem I/O in request paths.
+    """
 
     def __init__(self, root: str | Path) -> None:
         self._root = Path(root).expanduser().resolve()
@@ -80,13 +85,7 @@ class FilesystemDevRawPayloadStore:
 
     @staticmethod
     def _is_valid_workspace_id(workspace_id: str) -> bool:
-        return (
-            bool(workspace_id)
-            and workspace_id.strip() == workspace_id
-            and "/" not in workspace_id
-            and "\\" not in workspace_id
-            and ".." not in workspace_id
-        )
+        return bool(WORKSPACE_ID_PATTERN.fullmatch(workspace_id))
 
     def _path_for_storage_key(self, storage_key: str) -> Path:
         key = PurePosixPath(storage_key)

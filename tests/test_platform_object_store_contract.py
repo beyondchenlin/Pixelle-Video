@@ -11,6 +11,36 @@ from pixelle_video.storage.object_store import (
     RawPayloadStore,
 )
 
+VALID_OBJECT_ID = "00000000000000000000000000000000"
+UNSAFE_WORKSPACE_IDS = [
+    "a?b",
+    "a*b",
+    "a<b",
+    "a>b",
+    "a|b",
+    'a"b',
+    "a\nb",
+    "workspace 1",
+]
+INVALID_STORAGE_KEYS = [
+    "../secret.json",
+    "raw-payloads/workspace-1/../../secret.json",
+    "raw-payloads/workspace-1//x.json",
+    "raw-payloads/workspace-1/./x.json",
+    "raw-payloads/workspace-1/x/../y.json",
+    "/raw-payloads/workspace-1/x.json",
+    "C:/raw-payloads/workspace-1/x.json",
+    "raw-payloads\\workspace-1\\x.json",
+    "payloads/workspace-1/x.json",
+    "raw-payloads/workspace-1/x.txt",
+    "raw-payloads/workspace-1/.json",
+    f"raw-payloads/workspace..1/{VALID_OBJECT_ID}.json",
+    *[
+        f"raw-payloads/{workspace_id}/{VALID_OBJECT_ID}.json"
+        for workspace_id in UNSAFE_WORKSPACE_IDS
+    ],
+]
+
 
 def test_raw_payload_store_contract_exposes_required_methods():
     assert inspect.iscoroutinefunction(RawPayloadStore.put_json)
@@ -57,20 +87,7 @@ async def test_filesystem_dev_store_returns_storage_key_and_round_trips_payload(
 
 @pytest.mark.parametrize(
     "storage_key",
-    [
-        "../secret.json",
-        "raw-payloads/workspace-1/../../secret.json",
-        "raw-payloads/workspace-1//x.json",
-        "raw-payloads/workspace-1/./x.json",
-        "raw-payloads/workspace-1/x/../y.json",
-        "/raw-payloads/workspace-1/x.json",
-        "C:/raw-payloads/workspace-1/x.json",
-        "raw-payloads\\workspace-1\\x.json",
-        "payloads/workspace-1/x.json",
-        "raw-payloads/workspace-1/x.txt",
-        "raw-payloads/workspace-1/.json",
-        "raw-payloads/workspace..1/00000000000000000000000000000000.json",
-    ],
+    INVALID_STORAGE_KEYS,
 )
 async def test_filesystem_dev_store_exists_rejects_non_canonical_keys(tmp_path, storage_key):
     store = FilesystemDevRawPayloadStore(root=tmp_path)
@@ -80,20 +97,7 @@ async def test_filesystem_dev_store_exists_rejects_non_canonical_keys(tmp_path, 
 
 @pytest.mark.parametrize(
     "storage_key",
-    [
-        "../secret.json",
-        "raw-payloads/workspace-1/../../secret.json",
-        "raw-payloads/workspace-1//x.json",
-        "raw-payloads/workspace-1/./x.json",
-        "raw-payloads/workspace-1/x/../y.json",
-        "/raw-payloads/workspace-1/x.json",
-        "C:/raw-payloads/workspace-1/x.json",
-        "raw-payloads\\workspace-1\\x.json",
-        "payloads/workspace-1/x.json",
-        "raw-payloads/workspace-1/x.txt",
-        "raw-payloads/workspace-1/.json",
-        "raw-payloads/workspace..1/00000000000000000000000000000000.json",
-    ],
+    INVALID_STORAGE_KEYS,
 )
 async def test_filesystem_dev_store_get_json_rejects_non_canonical_keys(
     tmp_path, storage_key
@@ -110,7 +114,7 @@ async def test_filesystem_dev_store_get_json_raises_contract_error_for_missing_p
     store = FilesystemDevRawPayloadStore(root=tmp_path)
 
     with pytest.raises(RawPayloadNotFoundError):
-        await store.get_json("raw-payloads/workspace-1/00000000000000000000000000000000.json")
+        await store.get_json(f"raw-payloads/workspace-1/{VALID_OBJECT_ID}.json")
 
 
 @pytest.mark.parametrize(
@@ -124,7 +128,7 @@ async def test_filesystem_dev_store_get_json_raises_contract_error_for_invalid_p
     tmp_path, stored_text, expected_error
 ):
     store = FilesystemDevRawPayloadStore(root=tmp_path)
-    storage_key = "raw-payloads/workspace-1/00000000000000000000000000000000.json"
+    storage_key = f"raw-payloads/workspace-1/{VALID_OBJECT_ID}.json"
     target_path = tmp_path / storage_key
     target_path.parent.mkdir(parents=True)
     target_path.write_text(stored_text, encoding="utf-8")
@@ -137,7 +141,7 @@ async def test_filesystem_dev_store_get_json_raises_invalid_error_for_invalid_ut
     tmp_path,
 ):
     store = FilesystemDevRawPayloadStore(root=tmp_path)
-    storage_key = "raw-payloads/workspace-1/00000000000000000000000000000000.json"
+    storage_key = f"raw-payloads/workspace-1/{VALID_OBJECT_ID}.json"
     target_path = tmp_path / storage_key
     target_path.parent.mkdir(parents=True)
     target_path.write_bytes(b"\xff\xfe")
@@ -154,6 +158,7 @@ async def test_filesystem_dev_store_get_json_raises_invalid_error_for_invalid_ut
         "workspace\\1",
         "workspace..1",
         "..",
+        *UNSAFE_WORKSPACE_IDS,
     ],
 )
 async def test_filesystem_dev_store_rejects_workspace_ids_with_path_syntax(
