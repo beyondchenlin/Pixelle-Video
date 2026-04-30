@@ -135,6 +135,19 @@ def test_text_rendering_request_accepts_caption_style_and_forbids_unknown_fields
     assert request.caption_style.font_size == 72
     assert request.caption_style.primary_color == "#FFFF00"
 
+    title_request = TextRenderingRequest.model_validate(
+        {
+            "title_style": {
+                "font_size": 96,
+                "position": "top_left",
+                "background_opacity": 0.8,
+            }
+        }
+    )
+    assert title_request.title_style.font_size == 96
+    assert title_request.title_style.position == "top_left"
+    assert title_request.title_style.background_opacity == 0.8
+
     overlay_request = TextRenderingRequest.model_validate(
         {
             "overlay_style": {

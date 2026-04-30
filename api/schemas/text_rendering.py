@@ -77,4 +77,5 @@ class TextRenderingRequest(BaseModel):
     overlay: TextOverlayRequest = Field(default_factory=TextOverlayRequest)
     image_text: ImageTextPolicyRequest = Field(default_factory=ImageTextPolicyRequest)
     caption_style: Optional[TextStyleProfileRequest] = None
+    title_style: Optional[TextStyleProfileRequest] = None
     overlay_style: Optional[TextStyleProfileRequest] = None
