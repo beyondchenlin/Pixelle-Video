@@ -427,7 +427,7 @@
     "tts.ref_audio": "Reference Audio",
     "tts.ref_audio_help": "Upload audio file for voice cloning (only supported by some workflows)",
     "tts.ref_audio_text": "Reference Audio Transcript",
-    "tts.ref_audio_text_help": "Transcript of the reference audio. LongCat voice cloning uses this to improve similarity and stability.",
+    "tts.ref_audio_text_help": "Transcript of the reference audio. Some reference-audio cloning workflows use this to improve similarity and stability.",
     "tts.ref_audio_text_placeholder": "Enter the exact words spoken in the reference audio...",
     "tts.voice_profile_select": "Saved Voice",
     "tts.voice_profile_none": "Do not use a saved voice",

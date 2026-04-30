@@ -65,14 +65,14 @@ def test_legacy_tts_default_workflow_config_is_migrated_to_comfyui_section():
         {
             "comfyui": {
                 "tts": {
-                    "default_workflow": "selfhost/tts_longcat.json",
+                    "default_workflow": "selfhost/tts_edge.json",
                 }
             }
         }
     )
 
-    assert config.comfyui.tts.comfyui.default_workflow == "selfhost/tts_longcat.json"
-    assert config.comfyui.tts.default_workflow == "selfhost/tts_longcat.json"
+    assert config.comfyui.tts.comfyui.default_workflow == "selfhost/tts_edge.json"
+    assert config.comfyui.tts.default_workflow == "selfhost/tts_edge.json"
 
 
 def test_nested_tts_default_workflow_takes_priority_over_legacy_field():
@@ -80,17 +80,17 @@ def test_nested_tts_default_workflow_takes_priority_over_legacy_field():
         {
             "comfyui": {
                 "tts": {
-                    "default_workflow": "selfhost/tts_longcat.json",
+                    "default_workflow": "selfhost/tts_edge.json",
                     "comfyui": {
-                        "default_workflow": "selfhost/tts_voxcpm2_saganaki.json",
+                        "default_workflow": "selfhost/tts_index2.json",
                     },
                 }
             }
         }
     )
 
-    assert config.comfyui.tts.comfyui.default_workflow == "selfhost/tts_voxcpm2_saganaki.json"
-    assert config.comfyui.tts.default_workflow == "selfhost/tts_voxcpm2_saganaki.json"
+    assert config.comfyui.tts.comfyui.default_workflow == "selfhost/tts_index2.json"
+    assert config.comfyui.tts.default_workflow == "selfhost/tts_index2.json"
 
 
 def test_storyboard_tts_default_matches_config_default():

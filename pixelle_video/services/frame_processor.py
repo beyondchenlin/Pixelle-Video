@@ -23,6 +23,7 @@ Key Feature:
 import os
 import shutil
 import subprocess
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
@@ -33,11 +34,26 @@ from pixelle_video.models.progress import ProgressEvent, ProgressEventType, Prog
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
-from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
+from pixelle_video.tts_workflow_contract import (
+    is_index_tts2_workflow_key,
+    resolve_workflow_output_audio_extension_from_info,
+    resolve_workflow_output_audio_extension_from_key,
+)
 from pixelle_video.utils.template_util import get_template_type
 from pixelle_video.utils.text_splitting import format_caption_text
 
 IMAGE_SEGMENT_MIN_FPS = 90
+
+
+@asynccontextmanager
+async def _maybe_local_comfyui_workflow_session(core):
+    session_factory = getattr(core, "local_comfyui_workflow_session", None)
+    if callable(session_factory):
+        async with session_factory():
+            yield
+        return
+
+    yield
 
 
 def _format_template_body_text(
@@ -202,9 +218,10 @@ class FrameProcessor:
         from pixelle_video.utils.os_util import get_task_frame_path
         output_path = get_task_frame_path(config.task_id, frame.index, "audio")
         segment_texts = [frame.narration]
+        uses_index_tts2 = self._uses_index_tts2_workflow(config)
 
         if (
-            self._uses_index_tts2_workflow(config)
+            uses_index_tts2
             and config.tts_split_mode != INTERNAL_ONLY_TTS_SPLIT_MODE
         ):
             plan = build_external_tts_segmentation_plan(
@@ -218,23 +235,27 @@ class FrameProcessor:
             )
             segment_texts = [segment.text for segment in plan.segments] or [frame.narration]
 
+        source_extension = self._resolve_tts_source_extension(config)
         if len(segment_texts) > 1:
             final_output_path = str(Path(output_path).with_suffix(".wav"))
             segment_paths = []
             output_base = Path(final_output_path)
-            for index, segment_text in enumerate(segment_texts, start=1):
-                segment_output_path = str(
-                    output_base.with_name(f"{output_base.stem}_segment_{index}.mp3")
-                )
-                await self.core.tts(
-                    **self._build_tts_params(
-                        text=segment_text,
-                        output_path=segment_output_path,
-                        config=config,
-                        index=frame.index + 1,
+            async with _maybe_local_comfyui_workflow_session(self.core):
+                for index, segment_text in enumerate(segment_texts, start=1):
+                    segment_output_path = str(
+                        output_base.with_name(
+                            f"{output_base.stem}_segment_{index}_source{source_extension}"
+                        )
                     )
-                )
-                segment_paths.append(segment_output_path)
+                    await self.core.tts(
+                        **self._build_tts_params(
+                            text=segment_text,
+                            output_path=segment_output_path,
+                            config=config,
+                            index=frame.index + 1,
+                        )
+                    )
+                    segment_paths.append(segment_output_path)
 
             self._concat_audio_files(
                 segment_paths,
@@ -242,6 +263,21 @@ class FrameProcessor:
                 fade_ms=config.tts_audio_boundary_fade_ms,
             )
             audio_path = final_output_path
+        elif uses_index_tts2:
+            final_output_path = str(Path(output_path).with_suffix(".wav"))
+            output_base = Path(final_output_path)
+            source_output_path = str(
+                output_base.with_name(f"{output_base.stem}_source{source_extension}")
+            )
+            await self.core.tts(
+                **self._build_tts_params(
+                    text=segment_texts[0],
+                    output_path=source_output_path,
+                    config=config,
+                    index=frame.index + 1,
+                )
+            )
+            audio_path = self._normalize_audio_for_frame(source_output_path, final_output_path)
         else:
             audio_path = await self.core.tts(
                 **self._build_tts_params(
@@ -309,6 +345,28 @@ class FrameProcessor:
 
         return is_index_tts2_workflow_key(workflow_key)
 
+    def _resolve_tts_source_extension(self, config: StoryboardConfig) -> str:
+        if config.tts_inference_mode != "comfyui":
+            return ".mp3"
+
+        tts_service = getattr(self.core, "tts", None)
+        if tts_service is not None and hasattr(tts_service, "_resolve_workflow"):
+            try:
+                workflow_info = tts_service._resolve_workflow(workflow=config.tts_workflow)
+                extension = resolve_workflow_output_audio_extension_from_info(
+                    workflow_info,
+                    default=".mp3",
+                )
+                return extension or ".mp3"
+            except Exception:
+                pass
+
+        extension = resolve_workflow_output_audio_extension_from_key(
+            config.tts_workflow,
+            default=".mp3",
+        )
+        return extension or ".mp3"
+
     def _concat_audio_files(self, audio_paths: list[str], output_path: str, *, fade_ms: int = 0) -> None:
         if not audio_paths:
             raise ValueError("Frame TTS audio synthesis requires at least one segment.")
@@ -364,6 +422,27 @@ class FrameProcessor:
         if completed.returncode != 0:
             detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
             raise RuntimeError(f"Failed to concatenate frame TTS audio: {detail}")
+
+    def _normalize_audio_for_frame(self, input_path: str, output_path: str) -> str:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        completed = subprocess.run(
+            [
+                "ffmpeg",
+                "-i",
+                input_path,
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+                output_path,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+            raise RuntimeError(f"Failed to normalize frame TTS audio: {detail}")
+        return output_path
 
     def _get_audio_duration_sync(self, audio_path: str) -> float:
         try:

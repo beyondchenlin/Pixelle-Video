@@ -42,16 +42,14 @@
   "8": {
     "inputs": {
       "filename_prefix": "audio/ComfyUI",
-      "quality": "V0",
-      "audioUI": "",
       "audio": [
         "5",
         0
       ]
     },
-    "class_type": "SaveAudioMP3",
+    "class_type": "SaveAudio",
     "_meta": {
-      "title": "Save Audio (MP3)"
+      "title": "Save Audio (FLAC)"
     }
   },
   "12": {

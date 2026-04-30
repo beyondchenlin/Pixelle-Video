@@ -51,7 +51,7 @@ def test_digital_tts_config_returns_selected_comfyui_workflow(monkeypatch):
                     "inference_mode": "comfyui",
                     "local": {"speed": 1.2},
                     "comfyui": {
-                        "default_workflow": "selfhost/tts_longcat_clone.json",
+                        "default_workflow": "selfhost/tts_edge.json",
                         "speed": 1.0,
                     },
                 }
@@ -61,7 +61,7 @@ def test_digital_tts_config_returns_selected_comfyui_workflow(monkeypatch):
         def list_workflows(self):
             return [
                 {"display_name": "IndexTTS2", "key": "runninghub/tts_index2.json"},
-                {"display_name": "LongCat Clone", "key": "selfhost/tts_longcat_clone.json"},
+                {"display_name": "Edge TTS", "key": "selfhost/tts_edge.json"},
             ]
 
     fake_pixelle_video = type("FakePixelleVideo", (), {"tts": FakeTTS()})()
@@ -72,10 +72,10 @@ def test_digital_tts_config_returns_selected_comfyui_workflow(monkeypatch):
 
     result = digital_tts_config.render_style_config(fake_pixelle_video)
 
-    assert captured["workflow_options"] == ["IndexTTS2", "LongCat Clone"]
+    assert captured["workflow_options"] == ["IndexTTS2", "Edge TTS"]
     assert captured["workflow_index"] == 1
     assert captured["workflow_key"] == "digital_tts_workflow_select"
-    assert result["tts_workflow"] == "selfhost/tts_longcat_clone.json"
+    assert result["tts_workflow"] == "selfhost/tts_edge.json"
 
 
 def test_digital_tts_config_defaults_to_comfyui_when_mode_is_missing(monkeypatch):

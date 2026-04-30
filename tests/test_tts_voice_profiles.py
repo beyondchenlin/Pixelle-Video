@@ -21,8 +21,8 @@ def test_build_voice_profile_name_appends_model_suffix():
         == "班哥-indextts2"
     )
     assert (
-        tts_voice_profiles.build_voice_profile_name("班哥", "selfhost/tts_voxcpm2_saganaki.json")
-        == "班哥-voxcpm2"
+        tts_voice_profiles.build_voice_profile_name("班哥", "selfhost/tts_edge.json")
+        == "班哥-edge"
     )
     assert (
         tts_voice_profiles.build_voice_profile_name("班哥-indextts2", "selfhost/tts_index2.json")
@@ -72,10 +72,10 @@ def test_list_voice_profiles_filters_by_tts_model(tmp_path):
                     },
                     {
                         "id": "b",
-                        "name": "班哥-voxcpm2",
-                        "model_slug": "voxcpm2",
-                        "workflow_key": "selfhost/tts_voxcpm2_saganaki.json",
-                        "audio_path": "reference_audio/voxcpm2/bange.wav",
+                        "name": "班哥-edge",
+                        "model_slug": "edge",
+                        "workflow_key": "selfhost/tts_edge.json",
+                        "audio_path": "reference_audio/edge/bange.wav",
                         "ref_audio_text": "",
                     },
                 ],

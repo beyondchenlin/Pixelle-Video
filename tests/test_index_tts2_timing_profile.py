@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from pixelle_video.models.render_package import AudioBlock
@@ -151,12 +153,12 @@ def test_standard_pipeline_does_not_require_index_tts2_internal_split_control_pa
     assert "overflow_policy" not in params
 
 
-def test_standard_pipeline_passes_ref_audio_text_as_semantic_param():
+def test_standard_pipeline_passes_ref_audio_text_through_without_workflow_rewrite():
     config = StoryboardConfig(
         media_width=1080,
         media_height=1920,
         tts_inference_mode="comfyui",
-        tts_workflow="selfhost/tts_longcat_clone.json",
+        tts_workflow="selfhost/tts_index2.json",
         ref_audio="temp/ref.wav",
         ref_audio_text="hello from the reference clip",
     )
@@ -226,6 +228,7 @@ async def test_standard_pipeline_external_only_synthesizes_deterministic_segment
     assert len(synthesized_texts) > 1
     assert all("。" not in text for text in synthesized_texts)
     assert all("split_strategy" not in call for call in core.tts.calls)
+    assert all(Path(call["output_path"]).suffix == ".flac" for call in core.tts.calls)
     assert [call["workflow_params_text"] for call in ctx.observability["tts_synthesis"]["calls"]] == synthesized_texts
     plans = ctx.observability["tts_segmentation"]["plans"]
     assert plans[0]["source_unit_id"] == "block-1"
@@ -241,6 +244,11 @@ async def test_standard_pipeline_master_concat_uses_boundary_fade(monkeypatch, t
 
     core = _FakeCore()
     core.tts = RecordingTts()
+
+    async def fail_if_released(*, context):
+        raise AssertionError(f"unexpected memory release for non-IndexTTS2 workflow: {context}")
+
+    core.force_release_comfyui_memory = fail_if_released
     pipeline = StandardPipeline(core)
     config = StoryboardConfig(
         media_width=1080,

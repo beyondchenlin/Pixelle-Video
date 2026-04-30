@@ -164,37 +164,6 @@ def test_tts_index2_treats_ref_audio_as_uploaded_audio():
     assert mappings["ref_audio"] == ("12", "audio", True)
 
 
-def test_tts_longcat_clone_workflow_is_parseable_and_modelscope_first():
-    metadata = WorkflowParser().parse_workflow_file(
-        str(Path("workflows/selfhost/tts_longcat_clone.json"))
-    )
-    workflow = json.loads(
-        Path("workflows/selfhost/tts_longcat_clone.json").read_text(encoding="utf-8")
-    )
-
-    assert set(metadata.params.keys()) == {"text", "ref_audio", "prompt_text"}
-    assert metadata.params["text"].required is True
-    assert metadata.params["ref_audio"].required is True
-    assert metadata.params["ref_audio"].need_upload is True
-    assert metadata.params["prompt_text"].required is False
-
-    mappings = {
-        mapping.param_name: (mapping.node_id, mapping.input_field, mapping.need_upload)
-        for mapping in metadata.mapping_info.param_mappings
-    }
-    assert mappings == {
-        "text": ("3", "value", False),
-        "ref_audio": ("4", "audio", True),
-        "prompt_text": ("5", "value", False),
-    }
-
-    assert workflow["2"]["class_type"] == "LongCatVoiceCloneTTS"
-    assert workflow["2"]["inputs"]["model_path"] == "LongCat-AudioDiT-1B"
-    assert "auto download" not in workflow["2"]["inputs"]["model_path"].lower()
-    assert workflow["2"]["inputs"]["prompt_audio"] == ["4", 0]
-    assert workflow["2"]["inputs"]["prompt_text"] == ["5", 0]
-
-
 def test_tts_index2_keeps_models_cached_between_runs():
     workflow = json.loads(Path("workflows/selfhost/tts_index2.json").read_text(encoding="utf-8"))
 
@@ -215,6 +184,29 @@ def test_tts_index2_uses_safer_sentence_token_cap():
     workflow = json.loads(Path("workflows/selfhost/tts_index2.json").read_text(encoding="utf-8"))
 
     assert workflow["5"]["inputs"]["max_tokens_per_sentence"] == 90
+
+
+def test_tts_index2_saves_lossless_flac_audio():
+    workflow = json.loads(Path("workflows/selfhost/tts_index2.json").read_text(encoding="utf-8"))
+
+    save_audio_nodes = {
+        node_id: node
+        for node_id, node in workflow.items()
+        if node["class_type"] in {"SaveAudio", "SaveAudioMP3"}
+    }
+
+    assert save_audio_nodes == {
+        "8": {
+            "inputs": {
+                "filename_prefix": "audio/ComfyUI",
+                "audio": ["5", 0],
+            },
+            "class_type": "SaveAudio",
+            "_meta": {
+                "title": "Save Audio (FLAC)",
+            },
+        }
+    }
 
 
 def test_tts_edge_workflow_is_parseable_and_uses_pixelle_nodes():
