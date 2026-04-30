@@ -5,6 +5,8 @@ import pytest
 
 from pixelle_video.storage.object_store import (
     FilesystemDevRawPayloadStore,
+    RawPayloadInvalidError,
+    RawPayloadNotFoundError,
     RawPayloadStore,
 )
 
@@ -26,9 +28,13 @@ async def test_filesystem_dev_store_returns_storage_key_and_round_trips_payload(
     payload = {"prompt": "hello", "metadata": {"count": 2, "enabled": True}}
 
     storage_key = await store.put_json(workspace_id="workspace-1", payload=payload)
+    object_id = storage_key.removeprefix("raw-payloads/workspace-1/").removesuffix(".json")
 
     assert storage_key.startswith("raw-payloads/workspace-1/")
     assert storage_key.endswith(".json")
+    assert len(object_id) == 32
+    assert object_id == object_id.lower()
+    assert all(character in "0123456789abcdef" for character in object_id)
     assert not os.path.isabs(storage_key)
     assert "\\" not in storage_key
 
@@ -46,6 +52,12 @@ async def test_filesystem_dev_store_returns_storage_key_and_round_trips_payload(
         "raw-payloads/workspace-1//x.json",
         "raw-payloads/workspace-1/./x.json",
         "raw-payloads/workspace-1/x/../y.json",
+        "/raw-payloads/workspace-1/x.json",
+        "C:/raw-payloads/workspace-1/x.json",
+        "raw-payloads\\workspace-1\\x.json",
+        "payloads/workspace-1/x.json",
+        "raw-payloads/workspace-1/x.txt",
+        "raw-payloads/workspace-1/.json",
     ],
 )
 async def test_filesystem_dev_store_exists_rejects_non_canonical_keys(tmp_path, storage_key):
@@ -62,6 +74,12 @@ async def test_filesystem_dev_store_exists_rejects_non_canonical_keys(tmp_path, 
         "raw-payloads/workspace-1//x.json",
         "raw-payloads/workspace-1/./x.json",
         "raw-payloads/workspace-1/x/../y.json",
+        "/raw-payloads/workspace-1/x.json",
+        "C:/raw-payloads/workspace-1/x.json",
+        "raw-payloads\\workspace-1\\x.json",
+        "payloads/workspace-1/x.json",
+        "raw-payloads/workspace-1/x.txt",
+        "raw-payloads/workspace-1/.json",
     ],
 )
 async def test_filesystem_dev_store_get_json_rejects_non_canonical_keys(
@@ -70,6 +88,35 @@ async def test_filesystem_dev_store_get_json_rejects_non_canonical_keys(
     store = FilesystemDevRawPayloadStore(root=tmp_path)
 
     with pytest.raises(ValueError):
+        await store.get_json(storage_key)
+
+
+async def test_filesystem_dev_store_get_json_raises_contract_error_for_missing_payload(
+    tmp_path,
+):
+    store = FilesystemDevRawPayloadStore(root=tmp_path)
+
+    with pytest.raises(RawPayloadNotFoundError):
+        await store.get_json("raw-payloads/workspace-1/00000000000000000000000000000000.json")
+
+
+@pytest.mark.parametrize(
+    ("stored_text", "expected_error"),
+    [
+        ("not-json", RawPayloadInvalidError),
+        ("[]", RawPayloadInvalidError),
+    ],
+)
+async def test_filesystem_dev_store_get_json_raises_contract_error_for_invalid_payload(
+    tmp_path, stored_text, expected_error
+):
+    store = FilesystemDevRawPayloadStore(root=tmp_path)
+    storage_key = "raw-payloads/workspace-1/00000000000000000000000000000000.json"
+    target_path = tmp_path / storage_key
+    target_path.parent.mkdir(parents=True)
+    target_path.write_text(stored_text, encoding="utf-8")
+
+    with pytest.raises(expected_error):
         await store.get_json(storage_key)
 
 

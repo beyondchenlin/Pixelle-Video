@@ -4,6 +4,20 @@ from typing import Mapping, Protocol
 from uuid import uuid4
 
 RAW_PAYLOAD_PREFIX = "raw-payloads"
+OBJECT_ID_HEX_LENGTH = 32
+LOWER_HEX_DIGITS = frozenset("0123456789abcdef")
+
+
+class RawPayloadReadError(Exception):
+    """Base error for raw payload reads that fail at the storage contract boundary."""
+
+
+class RawPayloadNotFoundError(RawPayloadReadError):
+    """Raised when a syntactically valid raw payload key has no stored object."""
+
+
+class RawPayloadInvalidError(RawPayloadReadError):
+    """Raised when stored raw payload bytes are not a JSON object payload."""
 
 
 class RawPayloadStore(Protocol):
@@ -38,7 +52,16 @@ class FilesystemDevRawPayloadStore:
 
     async def get_json(self, storage_key: str) -> dict[str, object]:
         target_path = self._path_for_storage_key(storage_key)
-        return json.loads(target_path.read_text(encoding="utf-8"))
+        try:
+            decoded_payload = json.loads(target_path.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise RawPayloadNotFoundError("raw payload object was not found") from exc
+        except json.JSONDecodeError as exc:
+            raise RawPayloadInvalidError("raw payload object is not valid JSON") from exc
+
+        if not isinstance(decoded_payload, dict):
+            raise RawPayloadInvalidError("raw payload object must decode to a JSON object")
+        return decoded_payload
 
     async def exists(self, storage_key: str) -> bool:
         try:
@@ -71,7 +94,7 @@ class FilesystemDevRawPayloadStore:
             or any(part in {"", ".", ".."} for part in parts)
             or len(parts) != 3
             or parts[0] != RAW_PAYLOAD_PREFIX
-            or not parts[2].endswith(".json")
+            or not self._is_valid_object_filename(parts[2])
         ):
             raise ValueError("invalid raw payload storage key")
 
@@ -79,3 +102,15 @@ class FilesystemDevRawPayloadStore:
         if not target_path.is_relative_to(self._root):
             raise ValueError("storage key escapes configured root")
         return target_path
+
+    @staticmethod
+    def _is_valid_object_filename(filename: str) -> bool:
+        if not filename.endswith(".json"):
+            return False
+
+        object_id = filename.removesuffix(".json")
+        return (
+            len(object_id) == OBJECT_ID_HEX_LENGTH
+            and object_id == object_id.lower()
+            and all(character in LOWER_HEX_DIGITS for character in object_id)
+        )
