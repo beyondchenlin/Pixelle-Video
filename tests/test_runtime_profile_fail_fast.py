@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from api.config import APIConfig
+from api.tasks.factory import build_task_manager
 
 PRODUCTION_ENV_VARS = [
     "PIXELLE_RUNTIME_PROFILE",
@@ -100,3 +101,22 @@ def test_production_runtime_profile_accepts_required_settings(monkeypatch):
     assert config.artifact_backend == "s3"
     assert config.artifact_object_store_endpoint_url == "https://s3.example.test"
     assert config.artifact_object_store_bucket == "pixelle-prod"
+
+
+def test_production_s3_config_is_valid_but_task_factory_is_not_implemented():
+    config = APIConfig(
+        runtime_profile="production",
+        task_backend="postgres",
+        postgres_dsn="postgresql+asyncpg://u:p@db:5432/pixelle",
+        redis_url="redis://redis:6379/0",
+        artifact_backend="s3",
+        artifact_object_store_endpoint_url="https://s3.example.test",
+        artifact_object_store_bucket="pixelle-prod",
+    )
+
+    assert config.artifact_backend == "s3"
+    with pytest.raises(
+        RuntimeError,
+        match="Only PIXELLE_ARTIFACT_BACKEND=local is implemented",
+    ):
+        build_task_manager(config)

@@ -1,12 +1,11 @@
 import inspect
-from importlib.util import module_from_spec, spec_from_file_location
 from os import PathLike
-from pathlib import Path
-from types import ModuleType
 from typing import Mapping
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-REPOSITORIES_ROOT = REPO_ROOT / "pixelle_video" / "repositories"
+import pixelle_video.repositories.artifacts as artifacts
+import pixelle_video.repositories.assets as assets
+import pixelle_video.repositories.prompt_plans as prompt_plans
+import pixelle_video.repositories.trace as trace
 
 
 def assert_protocol_exposes_async_methods(protocol: type, method_names: set[str]) -> None:
@@ -29,25 +28,7 @@ def assert_signature(
     assert signature.return_annotation == return_annotation
 
 
-def load_repository_module(module_name: str) -> ModuleType:
-    spec = spec_from_file_location(
-        f"pixelle_video.repositories.{module_name}",
-        REPOSITORIES_ROOT / f"{module_name}.py",
-    )
-    assert spec is not None
-    assert spec.loader is not None
-
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def test_repository_protocols_expose_required_methods():
-    artifacts = load_repository_module("artifacts")
-    assets = load_repository_module("assets")
-    prompt_plans = load_repository_module("prompt_plans")
-    trace = load_repository_module("trace")
-
     assert_protocol_exposes_async_methods(
         trace.TraceRepository,
         {
@@ -95,11 +76,6 @@ def test_repository_protocols_expose_required_methods():
 
 
 def test_repository_protocols_expose_required_signatures():
-    artifacts = load_repository_module("artifacts")
-    assets = load_repository_module("assets")
-    prompt_plans = load_repository_module("prompt_plans")
-    trace = load_repository_module("trace")
-
     assert_signature(
         trace.TraceRepository.append_llm_interaction,
         ["self", "workspace_id", "trace"],
@@ -131,7 +107,7 @@ def test_repository_protocols_expose_required_signatures():
             "source_path": str | PathLike[str],
             "metadata": Mapping[str, object] | None,
         },
-        dict[str, object],
+        artifacts.StoredArtifactFile,
     )
     assert_signature(
         assets.AssetBibleRepository.save_asset_bible,
@@ -145,3 +121,10 @@ def test_repository_protocols_expose_required_signatures():
         {"bundle": Mapping[str, object]},
         dict[str, object],
     )
+
+
+def test_artifact_object_store_result_contract_requires_storage_key():
+    stored_file = artifacts.StoredArtifactFile(storage_key="artifacts/workspace/file.png")
+
+    assert stored_file.storage_key == "artifacts/workspace/file.png"
+    assert stored_file.url is None

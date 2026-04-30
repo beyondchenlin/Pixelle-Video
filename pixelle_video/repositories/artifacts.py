@@ -1,5 +1,12 @@
+from dataclasses import dataclass
 from os import PathLike
 from typing import Mapping, Protocol
+
+
+@dataclass(frozen=True)
+class StoredArtifactFile:
+    storage_key: str
+    url: str | None = None
 
 
 class ArtifactRepository(Protocol):
@@ -48,7 +55,7 @@ class ArtifactObjectStore(Protocol):
         workspace_id: str,
         source_path: str | PathLike[str],
         metadata: Mapping[str, object] | None = None,
-    ) -> dict[str, object]:
+    ) -> StoredArtifactFile:
         """Upload from worker-side staging; public results must use storage keys or URLs."""
         ...
 
