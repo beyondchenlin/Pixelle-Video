@@ -26,8 +26,9 @@ Stage 1A ownership override:
 
 ```text
 Task 3 and Task 7 are historical bootstrap tasks from the original Stage 1 plan.
-After Stage 1A is implemented, do not redefine PromptPlan or PromptPlanBuilder in Stage 1B.
-Instead, use Task 3 and Task 7 as compatibility checks against the Stage 1A contracts.
+The canonical PromptPlan and PromptPlanBuilder now belong to `docs/superpowers/plans/2026-04-30-stage1a-text-image-prompt-trace-implementation.md`.
+Do not redefine PromptPlan or PromptPlanBuilder in Stage 1B.
+Use Task 3 and Task 7 only as compatibility checks after Stage 1A lands.
 ```
 
 ## Skill-Gated Execution Rules
@@ -68,7 +69,7 @@ Stop conditions:
 | `12A_TEXT_IMAGE_PROMPT_STAGE1A_SUBPLAN.md` | Stage 1A owns ScriptDraft, StoryboardPlan, image prompts, and initial PromptPlan generation. This plan consumes and extends those outputs instead of redefining them. |
 | `13_STORYBOARD_WORKBENCH_SUBPLAN.md` | Tasks 4, 6, 8, and 9 implement workbench metadata, candidate listing, image selection, lock/stale behavior, and frame regeneration. |
 | `14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md` | Tasks 1, 2, 5, 6, and 9 implement Artifact/ArtifactVersion, trace events, local services, image regeneration, and Trace linkage. |
-| `15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md` | Tasks 3 and 7 implement PromptPlan with reserved SceneCast fields and PromptPlan construction without full AssetBible/SceneCast implementation. |
+| `15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md` | Stage 1A implements PromptPlan reserved fields. Stage 1B only verifies those fields are consumable by workbench, Artifact, and Trace code. |
 | `MASTER_PIXELLE_AI_DRAMA_COMIC_PLATFORM_PLAN.md` | Scope exclusions below keep Workflow, Worker, Provider, FlowGram, SaaS, video, and Quality/Admin work out of Stage 1. |
 
 ## Scope
@@ -111,13 +112,13 @@ This plan intentionally does not implement:
 
 - Create `pixelle_video/models/artifact.py`: durable artifact and artifact-version contracts.
 - Create `pixelle_video/models/generation_event.py`: trace event contract.
-- Create `pixelle_video/models/prompt_plan.py`: prompt planning contract and projection contract.
+- Read `pixelle_video/models/prompt_plan.py`: canonical Stage 1A prompt planning contract and projection contract.
 - Create `pixelle_video/models/storyboard_workbench.py`: lock policy, stale flags, and stale propagation helpers.
 - Modify `pixelle_video/models/storyboard.py`: add optional workbench fields to `StoryboardFrame`.
 - Modify `pixelle_video/services/persistence.py`: persist and restore new `StoryboardFrame` fields.
 - Create `pixelle_video/services/artifact_service.py`: local JSON artifact service.
 - Create `pixelle_video/services/generation_trace.py`: local JSONL generation trace service.
-- Create `pixelle_video/services/prompt_plan_service.py`: build `PromptPlan` objects from `StoryboardPlan` and generated prompts.
+- Read `pixelle_video/services/prompt_plan_service.py`: canonical Stage 1A builder for `PromptPlan` objects.
 - Create `pixelle_video/services/storyboard_workbench.py`: selection and frame-regeneration orchestration.
 - Modify `api/tasks/models.py`: add `FRAME_IMAGE_REGENERATION`.
 - Modify `api/tasks/__init__.py`: export the expanded task type automatically through existing import.
@@ -128,11 +129,11 @@ This plan intentionally does not implement:
 - Add tests:
   - `tests/test_artifact_models.py`
   - `tests/test_generation_trace_service.py`
-  - `tests/test_prompt_plan_model.py`
+  - `tests/test_prompt_plan_model.py` from the Stage 1A plan
   - `tests/test_storyboard_workbench_metadata.py`
   - `tests/test_artifact_service.py`
   - `tests/test_storyboard_workbench_service.py`
-  - `tests/test_prompt_plan_service.py`
+  - `tests/test_prompt_plan_service.py` from the Stage 1A plan
   - `tests/test_storyboard_workbench_api.py`
   - `tests/test_raw_generation_parameter_policy.py`
 
@@ -678,10 +679,12 @@ git commit -m "feat: 新增本地生成追踪服务"
 
 ---
 
-### Task 3: PromptPlan Contract With Reserved SceneCast Fields
+### Task 3: PromptPlan Contract Compatibility Check
+
+Stage 1A owns the actual `PromptPlan`, `ImagePromptDraft`, and `PromptProjection` implementation. Do not create a second PromptPlan model while executing Stage 1B. Run this task only after `docs/superpowers/plans/2026-04-30-stage1a-text-image-prompt-trace-implementation.md` has landed.
 
 **Files:**
-- Create: `pixelle_video/models/prompt_plan.py`
+- Read: `pixelle_video/models/prompt_plan.py`
 - Test: `tests/test_prompt_plan_model.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -737,9 +740,11 @@ def test_prompt_projection_is_model_specific_and_not_fact_source():
 
 Run: `pytest tests/test_prompt_plan_model.py -v`
 
-Expected: fail with missing `prompt_plan` module.
+Expected: pass after the Stage 1A plan has landed. If it fails with missing `prompt_plan` module, stop Stage 1B execution and complete `2026-04-30-stage1a-text-image-prompt-trace-implementation.md` first.
 
-- [ ] **Step 3: Add PromptPlan and PromptProjection**
+- [ ] **Step 3: Verify PromptPlan and PromptProjection**
+
+The code block below is historical reference for the required public behavior. Do not paste it as a Stage 1B implementation if Stage 1A already provides `pixelle_video/models/prompt_plan.py`.
 
 ```python
 # pixelle_video/models/prompt_plan.py
@@ -893,8 +898,8 @@ Expected: both tests pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/test_prompt_plan_model.py pixelle_video/models/prompt_plan.py
-git commit -m "feat: 新增分镜提示词计划合同"
+git add tests/test_prompt_plan_model.py
+git commit -m "test: 验证分镜工作台兼容提示词计划合同"
 ```
 
 ---
@@ -1620,10 +1625,12 @@ git commit -m "feat: 新增分镜图片版本选择服务"
 
 ---
 
-### Task 7: PromptPlan Builder From StoryboardPlan And Generated Prompts
+### Task 7: PromptPlan Builder Compatibility Check
+
+Stage 1A owns the actual PromptPlan builder. Do not create `pixelle_video/services/prompt_plan_service.py` in Stage 1B if it already exists from Stage 1A. This task verifies Stage 1B can consume the builder output.
 
 **Files:**
-- Create: `pixelle_video/services/prompt_plan_service.py`
+- Read: `pixelle_video/services/prompt_plan_service.py`
 - Test: `tests/test_prompt_plan_service.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1688,9 +1695,11 @@ def test_build_prompt_plans_preserves_frame_identity_and_reserved_assets():
 
 Run: `pytest tests/test_prompt_plan_service.py -v`
 
-Expected: fail with missing `prompt_plan_service`.
+Expected: pass after the Stage 1A plan has landed. If it fails with missing `prompt_plan_service`, stop Stage 1B execution and complete `2026-04-30-stage1a-text-image-prompt-trace-implementation.md` first.
 
-- [ ] **Step 3: Add PromptPlan builder service**
+- [ ] **Step 3: Verify PromptPlan builder service**
+
+The code block below is historical reference for the required public behavior. Do not paste it as a Stage 1B implementation if Stage 1A already provides `pixelle_video/services/prompt_plan_service.py`.
 
 ```python
 # pixelle_video/services/prompt_plan_service.py
@@ -1757,8 +1766,8 @@ Expected: one test passes.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/test_prompt_plan_service.py pixelle_video/services/prompt_plan_service.py
-git commit -m "feat: 新增提示词计划构建服务"
+git add tests/test_prompt_plan_service.py
+git commit -m "test: 验证分镜工作台兼容提示词计划构建"
 ```
 
 ---
@@ -2470,7 +2479,7 @@ Expected: all selected compatibility tests pass.
 
 ## Implementation Notes
 
-- Execute the Stage 1A text/image-prompt plan before using this plan for production code. If Stage 1A is not implemented yet, only the pure contract tasks in this plan may proceed.
+- Execute `docs/superpowers/plans/2026-04-30-stage1a-text-image-prompt-trace-implementation.md` before using this Stage 1B plan for production code. If Stage 1A is not implemented yet, only the Artifact, GenerationTrace, and workbench-local contract tasks in this plan may proceed.
 - Do not remove existing `prompt_prefix`, `media_workflow`, `frame_template`, `bgm_path`, `ref_audio`, or `tts_workflow` behavior in Stage 1B. Mark them legacy/deprecated only.
 - Do not make FlowGram part of this plan.
 - Do not introduce database migrations in Stage 1B. Local JSON/JSONL services are acceptable because they are hidden behind service classes.
@@ -2488,7 +2497,7 @@ Expected: all selected compatibility tests pass.
 - Stage 1B workbench core is covered by Tasks 1 through 9.
 - Artifact and ArtifactVersion split is covered by Tasks 1 and 5.
 - GenerationTrace first-class recording is covered by Tasks 2, 6, and 9.
-- PromptPlan with reserved SceneCast fields is covered by Tasks 3 and 7.
+- PromptPlan with reserved SceneCast fields is owned by the Stage 1A plan and verified for Stage 1B compatibility by Tasks 3 and 7.
 - Frame lock and stale flags are covered by Tasks 4 and 6.
 - Candidate image selection is covered by Tasks 5, 6, and 8.
 - Frame image regeneration is covered by Task 9.
