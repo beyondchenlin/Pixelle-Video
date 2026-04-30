@@ -65,6 +65,7 @@ from api.routers import (
     resources_router,
     storyboard_workbench_router,
     tasks_router,
+    text_rendering_preview_router,
     tts_router,
     video_router,
 )
@@ -157,6 +158,7 @@ app.include_router(files_router, prefix=api_config.api_prefix)
 app.include_router(resources_router, prefix=api_config.api_prefix)
 app.include_router(frame_router, prefix=api_config.api_prefix)
 app.include_router(storyboard_workbench_router, prefix=api_config.api_prefix)
+app.include_router(text_rendering_preview_router, prefix=api_config.api_prefix)
 
 
 @app.get("/")
@@ -179,6 +181,7 @@ async def root():
             "resources": f"{api_config.api_prefix}/resources",
             "frame": f"{api_config.api_prefix}/frame",
             "storyboards": f"{api_config.api_prefix}/storyboards",
+            "text_rendering": f"{api_config.api_prefix}/text-rendering",
         }
     }
 

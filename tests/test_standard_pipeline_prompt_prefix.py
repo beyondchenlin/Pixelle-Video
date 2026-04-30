@@ -1,8 +1,8 @@
 import pytest
 
 from pixelle_video.models.prompt_context import PromptContextEnvelope
-from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
+from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.style_resolution import StyledImagePromptBatch, StyleSourceSpec
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
@@ -220,6 +220,10 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
             "llm_prompt_batch_size": 8,
             "llm_prompt_batch_concurrent_limit": 3,
             "text_rendering": {
+                "title_style": {"font_size": 96},
+                "caption_style": {"font_size": 72},
+                "overlay_style": {"font_size": 88},
+                "overlay": {"enabled": False},
                 "image_text": {
                     "suppress_embedded_text": True,
                     "positive_prompt": "avoid generated lettering",
@@ -235,7 +239,14 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
     assert captured["prompt_prefix"] == "explicit override"
     assert captured["batch_size"] == 8
     assert captured["max_concurrency"] == 3
-    assert captured["text_rendering"] == ctx.params["text_rendering"]
+    assert captured["text_rendering"] == {
+        "overlay": {"enabled": False},
+        "image_text": {
+            "suppress_embedded_text": True,
+            "positive_prompt": "avoid generated lettering",
+            "negative_prompt": "signage",
+        },
+    }
     assert captured["has_forbid_embedded_text_arg"] is False
     assert ctx.image_prompts == ["override prompt"]
 
@@ -313,6 +324,9 @@ async def test_standard_pipeline_plan_visuals_builds_text_package_and_native_hin
             "media_width": 1024,
             "media_height": 1024,
             "text_rendering": {
+                "title_style": {"font_size": 90},
+                "caption_style": {"font_size": 64},
+                "overlay_style": {"position": "center"},
                 "overlay": {
                     "enabled": True,
                     "mode": "native_hint",
@@ -333,7 +347,14 @@ async def test_standard_pipeline_plan_visuals_builds_text_package_and_native_hin
     assert ctx.creation_package is not None
     assert ctx.creation_package.text_overlay_plan is not None
     assert ctx.creation_package.text_overlay_plan.candidates[0].role == "model_native_hint"
-    assert captured["text_rendering"] == ctx.params["text_rendering"]
+    assert captured["text_rendering"] == {
+        "overlay": {
+            "enabled": True,
+            "mode": "native_hint",
+            "renderer_targets": ["hyperframes", "native_prompt"],
+            "max_items_per_frame": 1,
+        }
+    }
     assert captured["has_text_rendering_policy_arg"] is False
     assert captured["has_forbid_embedded_text_arg"] is False
     assert captured["native_prompt_hints_by_frame"][0][0].source_candidate_ids == (

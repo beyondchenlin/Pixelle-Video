@@ -9,7 +9,11 @@ from pixelle_video.models.render_package import SentenceUnit, TextCue, TextTrack
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.text_overlay import TextOverlayCandidate, TextOverlayPlan
-from pixelle_video.models.text_style import DEFAULT_OVERLAY_STYLE_ID, TextStyleProfile
+from pixelle_video.models.text_style import (
+    DEFAULT_OVERLAY_STYLE_ID,
+    DEFAULT_TITLE_STYLE_ID,
+    TextStyleProfile,
+)
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 
@@ -147,6 +151,75 @@ def test_text_rendering_result_uses_current_canvas_as_scale_basis(tmp_path):
     )
     assert package_payload["text_style_profiles"][0]["scale_basis_width"] == 1280
     assert package_payload["text_style_profiles"][0]["scale_basis_height"] == 720
+
+
+def test_text_rendering_result_passes_template_id_to_title_style_defaults(tmp_path):
+    pipeline = StandardPipeline.__new__(StandardPipeline)
+    ctx = SimpleNamespace(
+        params={"text_rendering": {"overlay": {"enabled": False}}},
+        narrations=["landscape narration"],
+        task_id="task-landscape-title-style",
+        task_dir=str(tmp_path),
+        observability={},
+        config=StoryboardConfig(
+            task_id="task-landscape-title-style",
+            media_width=768,
+            media_height=768,
+            canvas_width=1280,
+            canvas_height=720,
+            video_fps=30,
+            frame_template="1920x1080/image_landscape_minimal.html",
+            render_backend="hyperframes_compiled",
+        ),
+    )
+
+    result = pipeline._get_text_rendering_result(ctx)
+
+    assert result.title_style.id == DEFAULT_TITLE_STYLE_ID
+    assert result.title_style.position == "top_left"
+    assert result.title_style.font_size == 76
+
+
+def test_text_rendering_result_logs_template_resolution_fallback(monkeypatch, tmp_path):
+    pipeline = StandardPipeline.__new__(StandardPipeline)
+    warning_calls = []
+
+    def fail_template_resolution(config):
+        raise ValueError("invalid template config")
+
+    monkeypatch.setattr(
+        pipeline,
+        "_resolve_hyperframes_template_id",
+        fail_template_resolution,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.logger.warning",
+        lambda message: warning_calls.append(str(message)),
+    )
+    ctx = SimpleNamespace(
+        params={"text_rendering": {"overlay": {"enabled": False}}},
+        narrations=["fallback narration"],
+        task_id="task-template-fallback",
+        task_dir=str(tmp_path),
+        observability={},
+        config=StoryboardConfig(
+            task_id="task-template-fallback",
+            media_width=768,
+            media_height=768,
+            canvas_width=1280,
+            canvas_height=720,
+            video_fps=30,
+            frame_template="1920x1080/image_landscape_minimal.html",
+            render_backend="hyperframes_compiled",
+        ),
+    )
+
+    result = pipeline._get_text_rendering_result(ctx)
+
+    assert result.title_style.position == "top_left"
+    assert warning_calls
+    assert "Falling back to frame_template" in warning_calls[0]
+    assert "invalid template config" in warning_calls[0]
 
 
 def test_text_rendering_result_attaches_contract_to_creation_package(tmp_path):
@@ -315,6 +388,7 @@ def test_record_text_layer_summary_only_describes_overlay_text_layer():
     summary = ctx.observability["text_layer_summary"]
 
     assert summary["style_profile_ids"] == [DEFAULT_OVERLAY_STYLE_ID]
+    assert summary["title_style_profile_id"] == DEFAULT_TITLE_STYLE_ID
     assert "caption_cue_count" not in summary
     assert "caption_rendering_summary" not in summary
     assert "caption_rendering_summary" not in ctx.observability
@@ -461,6 +535,7 @@ async def test_legacy_ass_manifest_receives_text_style_profiles_from_package(
     assert manifest is not None
     assert [profile.id for profile in manifest.text_style_profiles] == [
         "caption-default",
+        DEFAULT_TITLE_STYLE_ID,
         DEFAULT_OVERLAY_STYLE_ID,
     ]
     assert manifest.text_style_profiles[0].primary_color == "#FFFF00"

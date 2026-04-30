@@ -4,6 +4,8 @@ from pydantic import ValidationError
 from api.routers.content import generate_image_prompt
 from api.schemas.content import (
     ImagePromptGenerateRequest,
+)
+from api.schemas.content import (
     StoryboardFrameOverride as ContentStoryboardFrameOverride,
 )
 from api.schemas.video import StoryboardFrameOverride as VideoStoryboardFrameOverride
@@ -344,12 +346,13 @@ async def test_generate_image_prompt_endpoint_threads_text_rendering(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_generate_image_prompt_endpoint_preserves_explicit_text_styles(monkeypatch):
+async def test_generate_image_prompt_endpoint_filters_render_style_payloads(monkeypatch):
     async def fake_generate_styled_image_prompt_batch(**kwargs):
-        assert kwargs["text_rendering"]["caption_style"]["font_size"] == 72
-        assert kwargs["text_rendering"]["caption_style"]["primary_color"] == "#FFFF00"
-        assert kwargs["text_rendering"]["overlay_style"]["font_size"] == 88
-        assert kwargs["text_rendering"]["overlay_style"]["position"] == "center"
+        assert "title_style" not in kwargs["text_rendering"]
+        assert "caption_style" not in kwargs["text_rendering"]
+        assert "overlay_style" not in kwargs["text_rendering"]
+        assert kwargs["text_rendering"]["overlay"]["enabled"] is False
+        assert kwargs["text_rendering"]["image_text"]["suppress_embedded_text"] is True
         return StyledImagePromptBatch(
             prompts=["styled prompt"],
             negative_prompt=None,
@@ -365,6 +368,9 @@ async def test_generate_image_prompt_endpoint_preserves_explicit_text_styles(mon
         ImagePromptGenerateRequest(
             narrations=["scene one"],
             text_rendering={
+                "title_style": {
+                    "font_size": 96,
+                },
                 "caption_style": {
                     "font_size": 72,
                     "primary_color": "#FFFF00",
@@ -373,6 +379,8 @@ async def test_generate_image_prompt_endpoint_preserves_explicit_text_styles(mon
                     "font_size": 88,
                     "position": "center",
                 },
+                "overlay": {"enabled": False},
+                "image_text": {"suppress_embedded_text": True},
             },
         ),
         _FakePixelleVideo(),

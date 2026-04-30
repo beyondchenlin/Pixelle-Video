@@ -8,6 +8,7 @@ from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
+from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
 from pixelle_video.models.video_generation_contract import (
     PLAN_FRAME_OVERRIDE_VALUE_FIELDS,
     normalize_plan_frame_overrides,
@@ -80,7 +81,7 @@ class ImagePromptComposer:
             role_locking_strength=role_locking_strength,
             shot_strategy=shot_strategy,
             frame_overrides=normalized_overrides,
-            text_rendering=text_rendering,
+            text_rendering=project_prompt_text_rendering_request(text_rendering),
             native_prompt_hints_by_frame=native_prompt_hints_by_frame,
             stage_callback=stage_callback,
         )

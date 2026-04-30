@@ -21,6 +21,9 @@ from typing import Any
 
 import streamlit as st
 
+from pixelle_video.models.template_text_style_presets import (
+    resolve_template_text_style_preset,
+)
 from pixelle_video.models.text_overlay import DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
 from pixelle_video.models.text_style import (
     DEFAULT_CAPTION_FONT_SIZE,
@@ -39,6 +42,12 @@ from pixelle_video.services.font_discovery import (
 from pixelle_video.services.font_discovery import (
     discover_font_families as _discover_font_families,
 )
+from web.components.text_rendering_preview import (
+    build_text_rendering_preview_spec,
+    render_real_preview_status,
+    render_text_rendering_preview,
+    request_real_preview_frame,
+)
 from web.i18n import tr
 from web.utils.streamlit_helpers import (
     keyed_widget_default_kwargs,
@@ -54,7 +63,10 @@ CAPTION_STYLE_DEFAULTS: dict[str, Any] = {
     "background_color": "#000000",
     "background_opacity": 0.0,
     "position": "bottom",
+    "alignment": "center",
+    "margin_x": 80,
     "margin_y": 140,
+    "max_width_ratio": 0.86,
     "max_chars_per_line": None,
 }
 
@@ -77,6 +89,7 @@ TEXT_POSITION_OPTIONS = [
     "bottom_left",
     "bottom_right",
 ]
+TEXT_ALIGNMENT_OPTIONS = ["left", "center", "right"]
 
 FONT_SEARCH_DIRS = (
     Path("fonts"),
@@ -89,6 +102,11 @@ LEGACY_CAPTION_STYLE_DEFAULTS = {
     "stroke_width": 2,
 }
 CAPTION_DEFAULTS_MIGRATION_KEY = "caption_style_template_defaults_migrated_v2"
+TEXT_STYLE_PREVIEW_ONLY_KEYS = {
+    "preview_title_text",
+    "preview_caption_text",
+    "preview_media_ref",
+}
 
 
 def _resolve_ui(ui: Any | None) -> Any:
@@ -200,14 +218,18 @@ def _clean_text_style_payload(style: Mapping[str, Any] | None) -> dict | None:
 
     payload: dict[str, Any] = {}
     for key, value in style.items():
+        if key in TEXT_STYLE_PREVIEW_ONLY_KEYS:
+            continue
         if value is None:
             continue
         if key in {"font_family", "font_file"}:
             value = str(value).strip()
             if not value:
                 continue
-        if key in {"font_size", "stroke_width", "margin_y"}:
+        if key in {"font_size", "stroke_width", "margin_x", "margin_y"}:
             value = int(value)
+        if key == "max_width_ratio":
+            value = float(value)
         if key == "max_chars_per_line":
             value = int(value)
             if value <= 0:
@@ -224,6 +246,7 @@ def build_text_rendering_payload(
     suppress_embedded_text: bool,
     positive_prompt: str,
     caption_style: dict | None = None,
+    title_style: dict | None = None,
     overlay_style: dict | None = None,
 ) -> dict:
     """Build the nested text_rendering payload used by API and pipelines."""
@@ -240,11 +263,19 @@ def build_text_rendering_payload(
     if caption_style_payload is not None:
         payload["caption_style"] = caption_style_payload
 
+    title_style_payload = _clean_text_style_payload(title_style)
+    if title_style_payload is not None:
+        payload["title_style"] = title_style_payload
+
     overlay_style_payload = _clean_text_style_payload(overlay_style)
     if overlay_style_payload is not None:
         payload["overlay_style"] = overlay_style_payload
 
     return payload
+
+
+def _title_style_defaults_for_template(template_id: str | None) -> dict[str, Any]:
+    return resolve_template_text_style_preset(template_id).title_style_dict()
 
 
 def _render_text_style_controls(
@@ -445,6 +476,42 @@ def _render_text_style_controls(
             index=TEXT_POSITION_OPTIONS.index(configured_position),
         ),
     )
+    alignment_key = f"{prefix}_alignment"
+    configured_alignment = _session_value(ui, alignment_key, defaults["alignment"])
+    if configured_alignment not in TEXT_ALIGNMENT_OPTIONS:
+        configured_alignment = defaults["alignment"]
+    if session_state_has_key(getattr(ui, "session_state", {}), alignment_key):
+        _set_session_value(ui, alignment_key, configured_alignment)
+    alignment = _call_control(
+        ui,
+        "selectbox",
+        configured_alignment,
+        translate(f"{prefix}.alignment"),
+        TEXT_ALIGNMENT_OPTIONS,
+        format_func=lambda value: translate(f"text_style.alignment.{value}"),
+        key=alignment_key,
+        **_widget_default_kwargs(
+            ui,
+            alignment_key,
+            index=TEXT_ALIGNMENT_OPTIONS.index(configured_alignment),
+        ),
+    )
+    margin_x_key = f"{prefix}_margin_x"
+    margin_x = _call_control(
+        ui,
+        "number_input",
+        _session_value(ui, f"{prefix}_margin_x", defaults["margin_x"]),
+        translate(f"{prefix}.margin_x"),
+        min_value=0,
+        max_value=1000,
+        step=1,
+        key=margin_x_key,
+        **_widget_default_kwargs(
+            ui,
+            margin_x_key,
+            value=int(_session_value(ui, margin_x_key, defaults["margin_x"])),
+        ),
+    )
     margin_y_key = f"{prefix}_margin_y"
     margin_y = _call_control(
         ui,
@@ -459,6 +526,29 @@ def _render_text_style_controls(
             ui,
             margin_y_key,
             value=int(_session_value(ui, margin_y_key, defaults["margin_y"])),
+        ),
+    )
+    max_width_ratio_key = f"{prefix}_max_width_ratio"
+    max_width_ratio = _call_control(
+        ui,
+        "number_input",
+        _session_value(ui, f"{prefix}_max_width_ratio", defaults["max_width_ratio"]),
+        translate(f"{prefix}.max_width_ratio"),
+        min_value=0.05,
+        max_value=1.0,
+        step=0.01,
+        format="%.2f",
+        key=max_width_ratio_key,
+        **_widget_default_kwargs(
+            ui,
+            max_width_ratio_key,
+            value=float(
+                _session_value(
+                    ui,
+                    max_width_ratio_key,
+                    defaults["max_width_ratio"],
+                )
+            ),
         ),
     )
     default_max_chars = defaults.get("max_chars_per_line") or 0
@@ -489,7 +579,10 @@ def _render_text_style_controls(
         "background_color": background_color,
         "background_opacity": background_opacity,
         "position": position,
+        "alignment": alignment,
+        "margin_x": margin_x,
         "margin_y": margin_y,
+        "max_width_ratio": max_width_ratio,
         "max_chars_per_line": max_chars_per_line,
     }
 
@@ -499,6 +592,15 @@ def render_text_rendering_controls(
     *,
     ui: Any | None = None,
     translate=None,
+    template_id: str | None = None,
+    canvas_width: int | None = None,
+    canvas_height: int | None = None,
+    media_width: int | None = None,
+    media_height: int | None = None,
+    media_placement: Mapping[str, Any] | None = None,
+    title_text: str | None = None,
+    caption_text: str | None = None,
+    preview_media_ref: str | None = None,
 ) -> dict:
     """Render text rendering controls as independent caption, overlay, and image policy sections."""
     ui = _resolve_ui(ui)
@@ -508,13 +610,24 @@ def render_text_rendering_controls(
         translate("section.text_rendering"),
         expanded=False,
     ):
-        with _render_middle_column_detail_section(ui, translate("caption_style.title")):
-            caption_style = _render_text_style_controls(
-                "caption_style",
-                CAPTION_STYLE_DEFAULTS,
-                ui=ui,
-                translate=translate,
+        with _render_middle_column_detail_section(ui, translate("text_style.tabs_title")):
+            caption_tab, title_tab = ui.tabs(
+                [translate("caption_style.tab"), translate("title_style.tab")]
             )
+            with caption_tab:
+                caption_style = _render_text_style_controls(
+                    "caption_style",
+                    CAPTION_STYLE_DEFAULTS,
+                    ui=ui,
+                    translate=translate,
+                )
+            with title_tab:
+                title_style = _render_text_style_controls(
+                    "title_style",
+                    _title_style_defaults_for_template(template_id),
+                    ui=ui,
+                    translate=translate,
+                )
 
         with _render_middle_column_detail_section(ui, translate("text_layer.title")):
             overlay_policy = render_text_layer_controls(
@@ -555,16 +668,66 @@ def render_text_rendering_controls(
                         "image_text_positive_prompt",
                         DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,
                     ),
-                ),
+                    ),
+                )
+
+        text_rendering_payload = build_text_rendering_payload(
+            caption_style=caption_style,
+            title_style=title_style,
+            overlay_policy=overlay_policy,
+            overlay_style=overlay_style,
+            suppress_embedded_text=suppress_embedded_text,
+            positive_prompt=positive_prompt,
+        )
+
+        if template_id and canvas_width and canvas_height and media_width and media_height:
+            preview_spec = build_text_rendering_preview_spec(
+                template_id=template_id,
+                render_backend=render_backend,
+                canvas_width=canvas_width,
+                canvas_height=canvas_height,
+                media_width=media_width,
+                media_height=media_height,
+                media_placement=media_placement,
+                preview_media_ref=preview_media_ref,
+                title_text=title_text,
+                caption_text=caption_text,
+                title_style=title_style,
+                caption_style=caption_style,
+            )
+            render_text_rendering_preview(preview_spec, ui=ui, translate=translate)
+            preview_state_key = "text_rendering_real_preview_frame"
+            preview_state = _session_value(ui, preview_state_key, None)
+            if _call_control(
+                ui,
+                "button",
+                False,
+                translate("text_rendering_preview.generate_real"),
+                key="text_rendering_generate_real_preview",
+            ):
+                preview_state = request_real_preview_frame(
+                    spec=preview_spec,
+                    text_rendering_payload=text_rendering_payload,
+                    api_base_url=_session_value(
+                        ui,
+                        "api_base_url",
+                        "http://localhost:8000/api",
+                    ),
+                    workspace_id=_session_value(ui, "workspace_id", "default"),
+                )
+                _set_session_value(
+                    ui,
+                    preview_state_key,
+                    preview_state,
+                )
+            render_real_preview_status(
+                preview_spec,
+                preview_state,
+                ui,
+                translate,
             )
 
-    return build_text_rendering_payload(
-        caption_style=caption_style,
-        overlay_policy=overlay_policy,
-        overlay_style=overlay_style,
-        suppress_embedded_text=suppress_embedded_text,
-        positive_prompt=positive_prompt,
-    )
+    return text_rendering_payload
 
 
 def render_text_layer_controls(

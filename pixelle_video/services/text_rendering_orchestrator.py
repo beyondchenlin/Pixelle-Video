@@ -19,6 +19,7 @@ from pixelle_video.models.text_render_package import (
 from pixelle_video.models.text_style import (
     DEFAULT_CAPTION_STYLE_ID,
     DEFAULT_OVERLAY_STYLE_ID,
+    DEFAULT_TITLE_STYLE_ID,
     TextStyleProfile,
     build_default_text_style_profiles,
 )
@@ -37,6 +38,7 @@ class TextRenderingBuildResult:
     overlay_plan: TextOverlayPlan
     text_style_profiles: tuple[TextStyleProfile, ...]
     caption_style: TextStyleProfile
+    title_style: TextStyleProfile
     overlay_style: TextStyleProfile
     image_text_policy: ImageTextPromptPolicy
     diagnostics: Mapping[str, Any] = field(default_factory=dict)
@@ -61,6 +63,7 @@ class TextRenderingOrchestrator:
         config: Any | None = None,
         canvas_width: int | None = None,
         canvas_height: int | None = None,
+        template_id: str | None = None,
     ) -> TextRenderingBuildResult:
         request = dict(text_rendering or {})
         settings = build_text_rendering_settings(request)
@@ -72,6 +75,15 @@ class TextRenderingOrchestrator:
             config=config,
             canvas_width=canvas_width,
             canvas_height=canvas_height,
+            template_id=template_id,
+        )
+        title_style = _profile_from_request(
+            style_id=DEFAULT_TITLE_STYLE_ID,
+            data=_mapping_or_none(request.get("title_style")),
+            config=config,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+            template_id=template_id,
         )
         overlay_style = _profile_from_request(
             style_id=DEFAULT_OVERLAY_STYLE_ID,
@@ -79,6 +91,7 @@ class TextRenderingOrchestrator:
             config=config,
             canvas_width=canvas_width,
             canvas_height=canvas_height,
+            template_id=template_id,
         )
         caption_settings = _caption_settings_from_request(
             request.get("caption"), caption_style_id=caption_style.id
@@ -89,7 +102,7 @@ class TextRenderingOrchestrator:
             policy=overlay_policy,
         )
         effective_task_id = str(task_id or "").strip() or _PREVIEW_TASK_ID
-        text_style_profiles = (caption_style, overlay_style)
+        text_style_profiles = (caption_style, title_style, overlay_style)
         diagnostics = _diagnostics(
             task_id=effective_task_id,
             render_backend=render_backend,
@@ -115,6 +128,7 @@ class TextRenderingOrchestrator:
             overlay_plan=overlay_plan,
             text_style_profiles=text_style_profiles,
             caption_style=caption_style,
+            title_style=title_style,
             overlay_style=overlay_style,
             image_text_policy=settings.image_text,
             diagnostics=package.diagnostics,
@@ -141,6 +155,7 @@ def _profile_from_request(
     config: Any | None = None,
     canvas_width: int | None = None,
     canvas_height: int | None = None,
+    template_id: str | None = None,
 ) -> TextStyleProfile:
     defaults = {
         profile.id: profile.to_dict()
@@ -148,6 +163,7 @@ def _profile_from_request(
             config=config,
             canvas_width=canvas_width,
             canvas_height=canvas_height,
+            template_id=template_id,
         )
     }
     payload = dict(defaults[style_id])

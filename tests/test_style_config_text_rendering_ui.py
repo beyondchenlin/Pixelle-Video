@@ -65,6 +65,11 @@ class _WidgetDefaultRecordingUI:
         self.text_input_calls = []
         self.number_input_calls = []
         self.color_picker_calls = []
+        self.tabs_calls = []
+        self.button_calls = []
+        self.image_calls = []
+        self.caption_calls = []
+        self.error_calls = []
 
     def expander(self, *_args, **_kwargs):
         return _NoopContext()
@@ -72,8 +77,25 @@ class _WidgetDefaultRecordingUI:
     def container(self, *_args, **_kwargs):
         return _NoopContext()
 
+    def tabs(self, labels):
+        self.tabs_calls.append(list(labels))
+        return [_NoopContext() for _label in labels]
+
     def markdown(self, *_args, **_kwargs):
         return None
+
+    def caption(self, message):
+        self.caption_calls.append(message)
+
+    def image(self, url, **kwargs):
+        self.image_calls.append({"url": url, **kwargs})
+
+    def error(self, message):
+        self.error_calls.append(message)
+
+    def button(self, _label, **kwargs):
+        self.button_calls.append({"label": _label, **kwargs})
+        return bool(self.session_state.get(kwargs.get("key"), False))
 
     def checkbox(self, _label, **kwargs):
         self.checkbox_calls.append(kwargs)
@@ -90,7 +112,7 @@ class _WidgetDefaultRecordingUI:
         return kwargs.get("value", "")
 
     def text_input(self, _label, **kwargs):
-        self.text_input_calls.append(kwargs)
+        self.text_input_calls.append({"label": _label, **kwargs})
         key = kwargs.get("key")
         if key in self.session_state:
             return self.session_state[key]
@@ -112,6 +134,9 @@ class _WidgetDefaultRecordingUI:
 
     def selectbox(self, _label, options, **kwargs):
         index = kwargs.get("index", 0)
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
         return list(options)[index]
 
     def radio(self, _label, options, **kwargs):
@@ -134,6 +159,19 @@ def test_text_rendering_request_accepts_caption_style_and_forbids_unknown_fields
 
     assert request.caption_style.font_size == 72
     assert request.caption_style.primary_color == "#FFFF00"
+
+    title_request = TextRenderingRequest.model_validate(
+        {
+            "title_style": {
+                "font_size": 96,
+                "position": "top_left",
+                "background_opacity": 0.8,
+            }
+        }
+    )
+    assert title_request.title_style.font_size == 96
+    assert title_request.title_style.position == "top_left"
+    assert title_request.title_style.background_opacity == 0.8
 
     overlay_request = TextRenderingRequest.model_validate(
         {
@@ -214,6 +252,39 @@ def test_build_text_rendering_payload_keeps_overlay_style_when_overlay_disabled(
         "font_size": 88,
         "position": "center",
     }
+
+
+def test_build_text_rendering_payload_keeps_title_style_and_drops_preview_demo_fields():
+    from web.components.text_rendering_config import build_text_rendering_payload
+
+    payload = build_text_rendering_payload(
+        caption_style={
+            "font_size": 42,
+            "preview_caption_text": "演示字幕",
+            "preview_media_ref": "artifacts/demo.png",
+        },
+        title_style={
+            "font_family": " Noto Sans CJK SC ",
+            "font_size": 96,
+            "background_opacity": 0.8,
+            "preview_title_text": "演示标题",
+            "preview_caption_text": "演示字幕",
+            "preview_media_ref": "artifacts/demo.png",
+        },
+        overlay_policy=None,
+        suppress_embedded_text=False,
+        positive_prompt="",
+    )
+
+    assert payload["title_style"] == {
+        "font_family": "Noto Sans CJK SC",
+        "font_size": 96,
+        "background_opacity": 0.8,
+    }
+    assert payload["caption_style"] == {"font_size": 42}
+    assert "preview_title_text" not in payload["title_style"]
+    assert "preview_caption_text" not in payload["title_style"]
+    assert "preview_media_ref" not in payload["title_style"]
 
 
 def test_caption_style_ui_defaults_match_template_dark_text():
@@ -514,12 +585,362 @@ def test_text_rendering_controls_omit_widget_defaults_for_existing_session_keys(
     }
 
 
+def test_text_rendering_controls_render_caption_and_title_tabs(monkeypatch):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import render_text_rendering_controls
+
+    fake_ui = _WidgetDefaultRecordingUI()
+    fake_ui.session_state.update(
+        {
+            "title_style_font_size": 76,
+            "title_style_primary_color": "#171410",
+            "title_style_background_opacity": 0.88,
+            "title_style_position": "top_left",
+            "title_style_alignment": "right",
+            "title_style_margin_x": 110,
+            "title_style_margin_y": 92,
+            "title_style_max_width_ratio": 0.44,
+        }
+    )
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
+
+    payload = render_text_rendering_controls(
+        "hyperframes",
+        ui=fake_ui,
+        translate=lambda key: f"translated:{key}",
+        template_id="image_landscape_minimal",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        media_placement={"mode": "cover"},
+        title_text="演示标题",
+        caption_text="演示字幕",
+        preview_media_ref="artifacts/demo.png",
+    )
+
+    assert fake_ui.tabs_calls == [
+        ["translated:caption_style.tab", "translated:title_style.tab"]
+    ]
+    text_input_by_key = {call["key"]: call for call in fake_ui.text_input_calls}
+    assert text_input_by_key["caption_style_font_family"]["label"] == (
+        "translated:caption_style.font_family"
+    )
+    assert text_input_by_key["title_style_font_family"]["label"] == (
+        "translated:title_style.font_family"
+    )
+    assert payload["title_style"]["font_size"] == 76
+    assert payload["title_style"]["position"] == "top_left"
+    assert payload["title_style"]["alignment"] == "right"
+    assert payload["title_style"]["margin_x"] == 110
+    assert payload["title_style"]["margin_y"] == 92
+    assert payload["title_style"]["max_width_ratio"] == 0.44
+
+
+def test_text_style_controls_return_full_layout_fields(monkeypatch):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import (
+        CAPTION_STYLE_DEFAULTS,
+        _render_text_style_controls,
+    )
+
+    fake_ui = _TextStyleFakeUI()
+    fake_ui.session_state = {
+        "caption_style_position": "bottom_right",
+        "caption_style_alignment": "right",
+        "caption_style_margin_x": 44,
+        "caption_style_margin_y": 56,
+        "caption_style_max_width_ratio": 0.4,
+    }
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
+
+    style = _render_text_style_controls(
+        "caption_style",
+        CAPTION_STYLE_DEFAULTS,
+        ui=fake_ui,
+        translate=lambda key: f"translated:{key}",
+    )
+
+    assert style["position"] == "bottom_right"
+    assert style["alignment"] == "right"
+    assert style["margin_x"] == 44
+    assert style["margin_y"] == 56
+    assert style["max_width_ratio"] == 0.4
+
+
+def test_text_rendering_controls_real_preview_button_stores_state_without_payload_leak(
+    monkeypatch,
+):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import render_text_rendering_controls
+
+    fake_ui = _WidgetDefaultRecordingUI()
+    fake_ui.session_state.update(
+        {
+            "text_rendering_generate_real_preview": True,
+            "api_base_url": "http://localhost:8000/api",
+            "workspace_id": "ws",
+            "title_style_font_size": 76,
+        }
+    )
+    captured = {}
+
+    def fake_request_real_preview_frame(**kwargs):
+        captured.update(kwargs)
+        return {
+            "storage_key": "artifacts/ws/rendered.png",
+            "url": "/api/files/artifacts/ws/rendered.png",
+            "fingerprint": kwargs["spec"].fingerprint,
+            "error": None,
+        }
+
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
+    monkeypatch.setattr(
+        text_rendering_config,
+        "request_real_preview_frame",
+        fake_request_real_preview_frame,
+    )
+
+    payload = render_text_rendering_controls(
+        "hyperframes",
+        ui=fake_ui,
+        translate=lambda key, **kwargs: key,
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=900,
+        media_height=1200,
+        media_placement={"anchor": "center"},
+        title_text="Preview title",
+        caption_text="Preview caption",
+        preview_media_ref="artifacts/ws/source.png",
+    )
+
+    assert fake_ui.button_calls[0]["key"] == "text_rendering_generate_real_preview"
+    assert fake_ui.button_calls[0]["label"] == "text_rendering_preview.generate_real"
+    assert fake_ui.session_state["text_rendering_real_preview_frame"] == {
+        "storage_key": "artifacts/ws/rendered.png",
+        "url": "/api/files/artifacts/ws/rendered.png",
+        "fingerprint": captured["spec"].fingerprint,
+        "error": None,
+    }
+    assert fake_ui.image_calls == [
+        {
+            "url": "/api/files/artifacts/ws/rendered.png",
+            "caption": "text_rendering_preview.real_current",
+        }
+    ]
+    assert captured["api_base_url"] == "http://localhost:8000/api"
+    assert captured["workspace_id"] == "ws"
+    assert captured["text_rendering_payload"] == payload
+    assert "text_rendering_real_preview_frame" not in payload
+    assert "preview_media_url" not in captured["text_rendering_payload"]
+
+
+def test_preview_caption_text_uses_first_non_empty_line_and_default(monkeypatch):
+    from web.components import style_config
+
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: f"translated:{key}")
+
+    assert style_config._preview_caption_text(" \n第一行内容\n第二行内容") == "第一行内容"
+    assert style_config._preview_caption_text("字" * 90) == "字" * 80
+    assert style_config._preview_caption_text(" \n ") == (
+        "translated:text_rendering_preview.default_caption"
+    )
+
+
+def test_render_style_config_passes_template_contract_and_context_to_text_controls(
+    monkeypatch,
+):
+    from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
+    from web.components import style_config
+
+    fake_st = _FakeStreamlit()
+    fake_st.session_state.update(
+        {
+            "template_type_selector": "image",
+            "text_rendering_preview_media_ref": "artifacts/demo.png",
+        }
+    )
+    captured = {}
+
+    def fake_render_text_rendering_controls(render_backend, **kwargs):
+        captured["render_backend"] = render_backend
+        captured.update(kwargs)
+        return {"overlay": {"enabled": False}}
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "hyperframes")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_element_animation_controls", lambda: {})
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(
+        style_config,
+        "render_text_rendering_controls",
+        fake_render_text_rendering_controls,
+    )
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_comfyui_config",
+        lambda: {
+            "tts": {
+                "inference_mode": "local",
+                "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2},
+                "comfyui": {},
+            },
+            "image": {},
+            "video": {},
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_template_type",
+        lambda _template_name: "image",
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
+        lambda _template_type: {
+            "1080x1920": [
+                type(
+                    "TemplateInfo",
+                    (),
+                    {
+                        "template_path": "1080x1920/image_default.html",
+                        "display_info": type(
+                            "DisplayInfo",
+                            (),
+                            {
+                                "name": "image_default",
+                                "orientation": "portrait",
+                                "width": 1080,
+                                "height": 1920,
+                            },
+                        )(),
+                    },
+                )()
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.parse_template_size",
+        lambda _path: (1080, 1920),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda path: path,
+    )
+
+    class _FakeFrameGenerator:
+        def __init__(self, _template_path):
+            self._template_path = _template_path
+
+        def parse_template_parameters(self):
+            return {}
+
+        def get_media_size(self):
+            return (1080, 1920)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+
+    class _FakeMedia:
+        @staticmethod
+        def list_workflows():
+            return [{"display_name": "Image Default", "key": "selfhost/image.json"}]
+
+    class _FakeVideo:
+        config = {"template": {}}
+        media = _FakeMedia()
+
+    result = style_config.render_style_config(
+        _FakeVideo(),
+        storyboard_default_enabled=True,
+        content_context={
+            "title": "Runtime Title",
+            "text": "\nRuntime caption line\nsecond line",
+        },
+    )
+
+    assert result["text_rendering"] == {"overlay": {"enabled": False}}
+    assert captured["render_backend"] == "hyperframes"
+    assert captured["template_id"] == "image_default"
+    assert captured["canvas_width"] == result["canvas_width"]
+    assert captured["canvas_height"] == result["canvas_height"]
+    assert captured["media_width"] == result["media_width"]
+    assert captured["media_height"] == result["media_height"]
+    assert captured["media_placement"] == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 100,
+        "anchor": "center",
+    }
+    assert captured["title_text"] == "Runtime Title"
+    assert captured["caption_text"] == "Runtime caption line"
+    assert captured["preview_media_ref"] == "artifacts/demo.png"
+
+
+def test_standard_pipeline_passes_content_context_to_style_config(monkeypatch):
+    from web.pipelines import standard as standard_pipeline
+
+    captured = {}
+
+    class _FakeColumn(_NoopContext):
+        pass
+
+    def fake_render_style_config(
+        pixelle_video,
+        storyboard_default_enabled=False,
+        storyboard_prompt_language="zh_CN",
+        content_context=None,
+    ):
+        captured["content_context"] = content_context
+        captured["storyboard_prompt_language"] = storyboard_prompt_language
+        return {"style": "ok"}
+
+    monkeypatch.setattr(
+        standard_pipeline.st,
+        "columns",
+        lambda _sizes: [_FakeColumn(), _FakeColumn(), _FakeColumn()],
+    )
+    monkeypatch.setattr(
+        standard_pipeline,
+        "render_content_input",
+        lambda: {
+            "title": "上下文标题",
+            "text": "第一行字幕\n第二行",
+            "storyboard_prompt_language": "en_US",
+        },
+    )
+    monkeypatch.setattr(standard_pipeline, "render_bgm_section", lambda **_kwargs: {})
+    monkeypatch.setattr(standard_pipeline, "render_version_info", lambda: None)
+    monkeypatch.setattr(standard_pipeline, "render_style_config", fake_render_style_config)
+    monkeypatch.setattr(standard_pipeline, "render_quick_create_flow_diagram", lambda: None)
+    monkeypatch.setattr(
+        standard_pipeline,
+        "render_output_preview",
+        lambda _pixelle_video, _video_params: None,
+    )
+
+    standard_pipeline.StandardPipelineUI().render(object())
+
+    assert captured["storyboard_prompt_language"] == "en_US"
+    assert captured["content_context"] == {
+        "title": "上下文标题",
+        "text": "第一行字幕\n第二行",
+        "storyboard_prompt_language": "en_US",
+    }
+
+
 def test_text_rendering_font_help_translation_keys_exist_in_supported_locales():
     import json
 
     locale_dir = Path(__file__).resolve().parents[1] / "web" / "i18n" / "locales"
     required_keys = [
         "caption_style.font_family_help",
+        "title_style.font_family_help",
         "overlay_style.font_family_help",
     ]
 

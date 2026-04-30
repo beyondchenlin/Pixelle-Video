@@ -24,25 +24,31 @@
 
       #captions-shell {
         position: absolute;
-        left: 115px;
-        right: 115px;
-        bottom: 260px;
+        inset: 0;
+        pointer-events: none;
       }
 
       #captions-container {
-        position: relative;
-        min-height: 240px;
+        position: absolute;
+        inset: 0;
       }
 
       .caption-group {
         position: absolute;
-        inset: 0;
+        left: var(--text-left);
+        right: var(--text-right);
+        top: var(--text-top);
+        bottom: var(--text-bottom);
+        transform: var(--text-transform);
+        width: min(var(--text-max-width), calc(100% - var(--text-margin-x) - var(--text-margin-x)));
+        max-width: var(--text-max-width);
         display: flex;
         align-items: center;
-        justify-content: center;
+        justify-content: var(--text-justify-content);
+        text-align: var(--text-text-align);
         opacity: 0;
         visibility: hidden;
-        will-change: transform, opacity;
+        will-change: opacity;
       }
 
       .caption-text {
@@ -51,7 +57,8 @@
         line-height: 1.9;
         font-weight: 500;
         color: #2c3e50;
-        text-align: center;
+        text-align: var(--text-text-align);
+        background: var(--text-background);
       }
 
       .quote-minimal {
@@ -155,14 +162,14 @@
         const captions = Array.from(document.querySelectorAll(".caption-group"));
         const tl = gsap.timeline({ paused: true });
 
-        gsap.set(captions, { autoAlpha: 0, y: 0 });
+        gsap.set(captions, { autoAlpha: 0 });
         captions.forEach((caption) => {
           const start = Number(caption.dataset.start || 0);
           const clipDuration = Math.max(Number(caption.dataset.duration || 0), 0.1);
-          tl.set(caption, { autoAlpha: 1, y: 0, visibility: "visible" }, start);
+          tl.set(caption, { autoAlpha: 1, visibility: "visible" }, start);
           tl.set(
             caption,
-            { autoAlpha: 0, y: 0, visibility: "hidden" },
+            { autoAlpha: 0, visibility: "hidden" },
             start + clipDuration,
           );
         });

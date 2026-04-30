@@ -1,3 +1,4 @@
+from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 from pixelle_video.storage.object_store import (
     FilesystemDevRawPayloadStore,
     RawPayloadInvalidError,
@@ -7,6 +8,7 @@ from pixelle_video.storage.object_store import (
 )
 
 __all__ = [
+    "FilesystemDevArtifactObjectStore",
     "FilesystemDevRawPayloadStore",
     "RawPayloadInvalidError",
     "RawPayloadNotFoundError",

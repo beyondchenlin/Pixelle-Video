@@ -8,7 +8,7 @@ from pixelle_video.models.template_render_context import (
     TemplateAudioRef,
     TemplateRenderContext,
 )
-from pixelle_video.models.text_style import TextStyleProfile
+from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID, TextStyleProfile
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 
 
@@ -409,6 +409,13 @@ def test_hyperframes_compiler_emits_text_style_variables(tmp_path: Path):
                 id="caption-yellow",
                 name="Caption Yellow",
                 primary_color="#FFFF00",
+                background_color="#000000",
+                background_opacity=0.5,
+                position="bottom_right",
+                alignment="right",
+                margin_x=44,
+                margin_y=56,
+                max_width_ratio=0.4,
             )
         ],
         text_tracks=[
@@ -625,6 +632,13 @@ def test_hyperframes_compiler_emits_caption_style_variables(tmp_path: Path):
                 id="caption-yellow",
                 name="Caption Yellow",
                 primary_color="#FFFF00",
+                background_color="#000000",
+                background_opacity=0.5,
+                position="bottom_right",
+                alignment="right",
+                margin_x=44,
+                margin_y=56,
+                max_width_ratio=0.4,
             )
         ],
         captions=[
@@ -648,8 +662,222 @@ def test_hyperframes_compiler_emits_caption_style_variables(tmp_path: Path):
     )
     assert 'data-style-profile="caption-yellow"' in html
     assert "--text-fill: #FFFF00" in html
+    assert "--text-background: rgba(0, 0, 0, 0.5)" in html
+    assert "--text-right: 44px" in html
+    assert "--text-bottom: 56px" in html
+    assert "--text-text-align: right" in html
+    assert "--text-max-width: 432px" in html
     assert "Caption text &amp; keep" in html
     assert "<b>" not in html
+
+
+def test_phase1_caption_templates_consume_caption_style_variables():
+    template_paths = [
+        Path("resources/hyperframes/templates/image_default/compositions/captions.template.html"),
+        Path(
+            "resources/hyperframes/templates/image_life_insights_light/compositions/captions.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_full/compositions/captions.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_minimal/compositions/captions.template.html"
+        ),
+    ]
+
+    for path in template_paths:
+        content = path.read_text(encoding="utf-8")
+        assert "var(--text-left)" in content
+        assert "var(--text-right)" in content
+        assert "var(--text-top)" in content
+        assert "var(--text-bottom)" in content
+        assert "var(--text-transform)" in content
+        assert "var(--text-max-width)" in content
+        assert "var(--text-text-align)" in content
+        assert "var(--text-background)" in content
+
+
+def test_hyperframes_compiler_emits_title_style_variables(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<h1 class="video-title" style="__TITLE_STYLE_CSS__">__TITLE__</h1>',
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    title_style = TextStyleProfile(
+        id=DEFAULT_TITLE_STYLE_ID,
+        name="Title Default",
+        font_size=88,
+        font_weight=800,
+        primary_color="#112233",
+        background_color="#FFFFFF",
+        background_opacity=0.75,
+        stroke_width=3,
+        max_width_ratio=0.5,
+        max_chars_per_line=5,
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="ABCDEFGHIJ<script>alert(1)</script>",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        title_style_profile=title_style,
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "--title-fill: #112233" in html
+    assert "--title-stroke-width: 3px" in html
+    assert "--title-background: rgba(255, 255, 255, 0.75)" in html
+    assert "--title-font-size: 88px" in html
+    assert "--title-max-width: 540px" in html
+    assert "--title-text-align: center" in html
+    assert "ABCDEFGHIJ" not in html
+    assert "ABCDE<br/>FGHIJ" in html
+    assert "<script>" not in html
+    assert "--text-fill" not in html
+
+
+def test_hyperframes_compiler_emits_title_layout_variables(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<h1 class="video-title" style="__TITLE_STYLE_CSS__">__TITLE__</h1>',
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    title_style = TextStyleProfile(
+        id=DEFAULT_TITLE_STYLE_ID,
+        name="Title Default",
+        font_size=88,
+        position="bottom_right",
+        alignment="right",
+        margin_x=44,
+        margin_y=56,
+        max_width_ratio=0.4,
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="Layout title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        title_style_profile=title_style,
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "--title-left: auto" in html
+    assert "--title-right: 44px" in html
+    assert "--title-top: auto" in html
+    assert "--title-bottom: 56px" in html
+    assert "--title-transform: none" in html
+    assert "--title-text-align: right" in html
+    assert "--title-max-width: 432px" in html
+
+
+def test_hyperframes_compiler_emits_fallback_title_style_variables(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<h1 class="video-title" style="__TITLE_STYLE_CSS__">__TITLE__</h1>',
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="Fallback title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "__TITLE_STYLE_CSS__" not in html
+    assert "--title-fill: #2C3E50" in html
+    assert "--title-background: rgba(255, 255, 255, 0.92)" in html
+
+
+def test_hyperframes_compiler_uses_fallback_title_profile_for_wrapping(
+    tmp_path: Path,
+):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<h1 class="video-title" style="__TITLE_STYLE_CSS__">__TITLE__</h1>',
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="ABCDEFGHIJKL",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "ABCDEFGHIJ<br/>KL" in html
 
 
 def test_hyperframes_compiler_copies_custom_font_file_and_emits_font_face(
@@ -826,6 +1054,169 @@ def test_phase1_templates_mount_static_text_layer_composition():
         assert 'data-composition-src="compositions/text_layer.html"' in index_content
         assert text_layer_template.exists()
         assert "__TEXT_CUES__" in text_layer_template.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "template_id",
+    [
+        "image_default",
+        "image_life_insights_light",
+        "image_landscape_full",
+        "image_landscape_minimal",
+    ],
+)
+def test_phase1_main_templates_compile_with_title_style_variables(
+    tmp_path: Path,
+    template_id: str,
+):
+    title = f"Title for {template_id}"
+    title_style = TextStyleProfile(
+        id=DEFAULT_TITLE_STYLE_ID,
+        name="Title Default",
+        font_size=88,
+        primary_color="#112233",
+        background_color="#445566",
+        background_opacity=0.5,
+        max_chars_per_line=40,
+    )
+    context = TemplateRenderContext(
+        template_id=template_id,
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title=title,
+        author="LanRen.AI",
+        footer="LanRen",
+        theme=None,
+        style_profile=template_id,
+        template_params={"author_desc": "LanRen"},
+        title_style_profile=title_style,
+        visuals=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0,
+                end=1,
+                media_path="assets/images/01.png",
+                media_type="image",
+            )
+        ],
+    )
+
+    HyperFramesCompiler().compile(project_dir=tmp_path / template_id, context=context)
+
+    html = (tmp_path / template_id / "index.html").read_text(encoding="utf-8")
+    assert "__TITLE_STYLE_CSS__" not in html
+    assert "--title-fill: #112233" in html
+    assert "--title-background: rgba(68, 85, 102, 0.5)" in html
+    assert "var(--title-fill)" in html
+    assert "var(--title-font-size)" in html
+    assert "var(--title-background)" in html
+    assert "var(--title-left)" in html
+    assert "var(--title-text-align)" in html
+    assert title in html
+
+
+def test_phase1_main_templates_consume_title_layout_variables():
+    template_paths = [
+        Path("resources/hyperframes/templates/image_default/index.template.html"),
+        Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_full/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"),
+    ]
+
+    for path in template_paths:
+        content = path.read_text(encoding="utf-8")
+        assert "var(--title-left)" in content
+        assert "var(--title-right)" in content
+        assert "var(--title-top)" in content
+        assert "var(--title-bottom)" in content
+        assert "var(--title-transform)" in content
+        assert "var(--title-box-width)" in content
+        assert "var(--title-text-align)" in content
+
+
+def test_phase1_main_templates_apply_title_background_to_visible_box():
+    wrapper_selectors = {
+        Path("resources/hyperframes/templates/image_default/index.template.html"): ".video-title-wrapper",
+        Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"): ".header",
+        Path("resources/hyperframes/templates/image_landscape_full/index.template.html"): ".title",
+        Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"): ".header",
+    }
+
+    for path, selector in wrapper_selectors.items():
+        content = path.read_text(encoding="utf-8")
+        selector_index = content.index(selector)
+        rule_start = content.index("{", selector_index)
+        rule_end = content.index("}", rule_start)
+        wrapper_rule = content[rule_start:rule_end]
+
+        assert "background: var(--title-background)" in wrapper_rule
+        assert "background-clip: text" not in wrapper_rule
+        assert "-webkit-background-clip: text" not in wrapper_rule
+        assert "-webkit-text-fill-color" not in wrapper_rule
+
+
+@pytest.mark.parametrize(
+    ("template_id", "layout_consumer_marker"),
+    [
+        ("image_default", 'class="video-title-wrapper"'),
+        ("image_life_insights_light", 'class="header"'),
+        ("image_landscape_full", 'class="title"'),
+        ("image_landscape_minimal", 'class="header"'),
+    ],
+)
+def test_phase1_main_templates_inject_title_variables_on_layout_consumer(
+    tmp_path: Path,
+    template_id: str,
+    layout_consumer_marker: str,
+):
+    context = TemplateRenderContext(
+        template_id=template_id,
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="Scoped layout title",
+        author="LanRen.AI",
+        footer="LanRen",
+        theme=None,
+        style_profile=template_id,
+        template_params={"author_desc": "LanRen"},
+        title_style_profile=TextStyleProfile(
+            id=DEFAULT_TITLE_STYLE_ID,
+            name="Title Default",
+            position="bottom_right",
+            alignment="right",
+            margin_x=44,
+            margin_y=56,
+            max_width_ratio=0.4,
+            max_chars_per_line=40,
+        ),
+        visuals=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0,
+                end=1,
+                media_path="assets/images/01.png",
+                media_type="image",
+            )
+        ],
+    )
+
+    HyperFramesCompiler().compile(project_dir=tmp_path / template_id, context=context)
+
+    html = (tmp_path / template_id / "index.html").read_text(encoding="utf-8")
+    marker_index = html.index(layout_consumer_marker)
+    tag_start = html.rfind("<", 0, marker_index)
+    tag_end = html.index(">", marker_index)
+    opening_tag = html[tag_start : tag_end + 1]
+
+    assert "--title-right: 44px" in opening_tag
+    assert "--title-bottom: 56px" in opening_tag
+    assert "--title-text-align: right" in opening_tag
 
 
 def test_life_insights_caption_template_does_not_embed_hardcoded_english_label():
@@ -1079,7 +1470,7 @@ def test_image_landscape_full_template_uses_local_assets_and_raised_text_without
     assert "https://cdnjs.cloudflare.com" not in captions_content
     assert 'window.__timelines["main-comp"]' in index_content
     assert "padTimelineToDuration(tl, duration);" in index_content
-    assert "font-family: var(--hf-font-brush);" in index_content
+    assert "font-family: var(--title-font-family);" in index_content
     assert ".info-cluster" in index_content
     assert "left: 72px;" in index_content
     assert "bottom: 44px;" in index_content
@@ -1087,7 +1478,12 @@ def test_image_landscape_full_template_uses_local_assets_and_raised_text_without
     assert "__AUTHOR__" in index_content
     assert "__AUTHOR_DESC__" in index_content
     assert "bottom: 260px" not in captions_content
-    assert "bottom: 190px" in captions_content
+    assert "bottom: 190px" not in captions_content
+    assert "bottom: var(--text-bottom)" in captions_content
+    assert "transform: var(--text-transform)" in captions_content
+    assert "justify-content: var(--text-justify-content)" in captions_content
+    assert "text-align: var(--text-text-align)" in captions_content
+    assert "background: var(--text-background)" in captions_content
     assert "background: rgba(26, 37, 47, 0.78)" not in text_layer_content
     assert "top: 74%" not in text_layer_content
 
@@ -1116,10 +1512,11 @@ def test_image_landscape_minimal_template_uses_local_assets_and_raised_text_with
     assert 'class="minimal-line line-1"' in index_content
     assert 'class="circle circle-2"' in index_content
     assert ".content-stage" in index_content
-    assert "width: fit-content;" in index_content
-    assert "max-width: min(840px, calc(100% - 220px));" in index_content
-    assert "font-weight: 900;" in index_content
-    assert "background: linear-gradient(135deg" in index_content
+    assert "width: min(var(--title-box-width)" in index_content
+    assert "max-width: var(--title-max-width);" in index_content
+    assert "font-weight: var(--title-font-weight);" in index_content
+    assert "background: var(--title-background);" in index_content
+    assert "background: linear-gradient(135deg" not in index_content
     assert "width: min(560px, 100%);" in index_content
     assert "height: min(560px, calc(100% - 180px));" in index_content
     assert ".signature" in index_content
@@ -1130,10 +1527,15 @@ def test_image_landscape_minimal_template_uses_local_assets_and_raised_text_with
     assert "__AUTHOR_DESC__" in index_content
     assert "left: 520px;" not in captions_content
     assert "right: 280px;" not in captions_content
-    assert "inset: 154px 180px 116px 180px;" in captions_content
-    assert "justify-content: center;" in captions_content
-    assert "align-items: flex-end;" in captions_content
-    assert "width: min(860px, 100%);" in captions_content
+    assert "inset: 154px 180px 116px 180px;" not in captions_content
+    assert "left: var(--text-left)" in captions_content
+    assert "right: var(--text-right)" in captions_content
+    assert "top: var(--text-top)" in captions_content
+    assert "bottom: var(--text-bottom)" in captions_content
+    assert "width: min(var(--text-max-width)" in captions_content
+    assert "justify-content: var(--text-justify-content)" in captions_content
+    assert "text-align: var(--text-text-align)" in captions_content
+    assert "background: var(--text-background)" in captions_content
     assert "background: rgba(26, 37, 47, 0.78)" not in text_layer_content
     assert "top: 74%" not in text_layer_content
 

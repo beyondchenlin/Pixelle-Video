@@ -97,21 +97,28 @@
       }
 
       .header {
-        margin-top: 200px;
-        text-align: center;
-        position: relative;
+        position: absolute;
+        left: var(--title-left);
+        right: var(--title-right);
+        top: var(--title-top);
+        bottom: var(--title-bottom);
+        transform: var(--title-transform);
+        width: min(var(--title-box-width), calc(100% - var(--title-margin-x) - var(--title-margin-x)));
+        max-width: var(--title-max-width);
+        text-align: var(--title-text-align);
+        background: var(--title-background);
         z-index: 2;
       }
 
       .title {
-        font-size: 80px;
-        font-weight: 900;
-        line-height: 1.4;
+        color: var(--title-fill);
+        font-family: var(--title-font-family);
+        font-size: var(--title-font-size);
+        font-weight: var(--title-font-weight);
+        line-height: var(--title-line-height);
         letter-spacing: 3px;
-        background: linear-gradient(135deg, #1a1611 0%, #2c2416 50%, #1a1611 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        -webkit-text-fill-color: var(--title-fill);
+        -webkit-text-stroke: var(--title-stroke-width) var(--title-stroke-color);
         filter: contrast(1.1) brightness(0.9);
       }
 
@@ -216,7 +223,7 @@
         <div class="decorative-circle circle-3"></div>
       </div>
 
-      <div class="header">
+      <div class="header" style="__TITLE_STYLE_CSS__">
         <div class="title">__TITLE__</div>
       </div>
 

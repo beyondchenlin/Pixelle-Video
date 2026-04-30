@@ -67,7 +67,10 @@ class TextStyleProfileRequest(BaseModel):
         "bottom_left",
         "bottom_right",
     ]] = None
+    alignment: Optional[Literal["left", "center", "right"]] = None
+    margin_x: Optional[int] = Field(None, ge=0, le=1000)
     margin_y: Optional[int] = Field(None, ge=0, le=1000)
+    max_width_ratio: Optional[float] = Field(None, ge=0.05, le=1.0)
     max_chars_per_line: Optional[int] = Field(None, ge=1, le=200)
 
 
@@ -77,4 +80,5 @@ class TextRenderingRequest(BaseModel):
     overlay: TextOverlayRequest = Field(default_factory=TextOverlayRequest)
     image_text: ImageTextPolicyRequest = Field(default_factory=ImageTextPolicyRequest)
     caption_style: Optional[TextStyleProfileRequest] = None
+    title_style: Optional[TextStyleProfileRequest] = None
     overlay_style: Optional[TextStyleProfileRequest] = None

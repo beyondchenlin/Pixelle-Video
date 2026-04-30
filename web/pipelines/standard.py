@@ -77,6 +77,7 @@ class StandardPipelineUI(PipelineUI):
                     "storyboard_prompt_language",
                     CHINESE_PROMPT_LANGUAGE,
                 ),
+                content_context=content_params,
             )
             render_quick_create_flow_diagram()
         

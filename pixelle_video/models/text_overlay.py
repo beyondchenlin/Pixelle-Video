@@ -124,6 +124,21 @@ def build_text_rendering_settings(data: Mapping[str, Any] | None) -> TextRenderi
     )
 
 
+def project_prompt_text_rendering_request(
+    data: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(data, Mapping):
+        return None
+
+    projected: dict[str, Any] = {}
+    for key in ("overlay", "image_text"):
+        value = data.get(key)
+        if isinstance(value, Mapping):
+            projected[key] = dict(value)
+
+    return projected or None
+
+
 @dataclass(frozen=True)
 class TextRenderingPolicy:
     version: str = "text_rendering_policy.v1"

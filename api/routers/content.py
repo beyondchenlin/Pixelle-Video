@@ -28,6 +28,7 @@ from api.schemas.content import (
     TitleGenerateRequest,
     TitleGenerateResponse,
 )
+from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 from pixelle_video.utils.content_generators import (
     generate_narrations_from_topic,
@@ -112,7 +113,9 @@ async def generate_image_prompt(
             else None
         )
         text_rendering = (
-            request.text_rendering.model_dump(exclude_none=True)
+            project_prompt_text_rendering_request(
+                request.text_rendering.model_dump(exclude_none=True)
+            )
             if request.text_rendering is not None
             else None
         )

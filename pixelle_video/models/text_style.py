@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 DEFAULT_CAPTION_STYLE_ID = "caption-default"
+DEFAULT_TITLE_STYLE_ID = "title-default"
 DEFAULT_OVERLAY_STYLE_ID = "overlay-default"
 DEFAULT_CAPTION_FONT_SIZE = 42
 DEFAULT_CAPTION_FONT_WEIGHT = 500
@@ -226,7 +227,12 @@ def build_default_text_style_profiles(
     config: Any | None = None,
     canvas_width: Any = None,
     canvas_height: Any = None,
+    template_id: str | None = None,
 ) -> list[TextStyleProfile]:
+    from pixelle_video.models.template_text_style_presets import (
+        resolve_template_text_style_preset,
+    )
+
     resolved_scale_basis_width, resolved_scale_basis_height = (
         resolve_text_style_scale_basis(
             config=config,
@@ -240,12 +246,16 @@ def build_default_text_style_profiles(
             "scale_basis_width": resolved_scale_basis_width,
             "scale_basis_height": resolved_scale_basis_height,
         }
+    title_payload = resolve_template_text_style_preset(template_id).title_style_dict()
+    title_payload.update(scale_basis_kwargs)
+    title_payload["id"] = DEFAULT_TITLE_STYLE_ID
     return [
         TextStyleProfile(
             id=DEFAULT_CAPTION_STYLE_ID,
             name="Caption Default",
             **scale_basis_kwargs,
         ),
+        TextStyleProfile.from_dict(title_payload),
         TextStyleProfile(
             id=DEFAULT_OVERLAY_STYLE_ID,
             name="Overlay Default",

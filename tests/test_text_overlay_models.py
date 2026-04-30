@@ -7,9 +7,10 @@ from pixelle_video.models.text_overlay import (
     TextOverlayPlan,
     TextOverlaySettings,
     TextRenderingPolicy,
-    build_text_rendering_settings,
     build_text_rendering_policy,
+    build_text_rendering_settings,
     freeze_json_value,
+    project_prompt_text_rendering_request,
     thaw_json_value,
 )
 from pixelle_video.utils import prompt_helper
@@ -33,6 +34,34 @@ def test_api_text_rendering_schema_reuses_core_default_image_text_prompt():
         is DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
     )
     assert prompt_helper.NO_TEXT_POSITIVE_RULE is DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
+
+
+def test_project_prompt_text_rendering_request_strips_render_style_payloads():
+    payload = project_prompt_text_rendering_request(
+        {
+            "title_style": {"font_size": 96},
+            "caption_style": {"font_size": 72},
+            "overlay_style": {"position": "center"},
+            "overlay": {"enabled": True, "mode": "native_hint"},
+            "image_text": {
+                "suppress_embedded_text": True,
+                "positive_prompt": "avoid generated lettering",
+            },
+        }
+    )
+
+    assert payload == {
+        "overlay": {"enabled": True, "mode": "native_hint"},
+        "image_text": {
+            "suppress_embedded_text": True,
+            "positive_prompt": "avoid generated lettering",
+        },
+    }
+
+
+def test_project_prompt_text_rendering_request_omits_empty_projection():
+    assert project_prompt_text_rendering_request(None) is None
+    assert project_prompt_text_rendering_request({"title_style": {"font_size": 96}}) is None
 
 
 def test_build_text_rendering_policy_defaults_when_overlay_missing():

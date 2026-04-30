@@ -7,10 +7,10 @@
     <script src="../runtime/vendor/gsap.min.js"></script>
     <style>
       html, body, [data-composition-id="captions"] { margin: 0; width: __CANVAS_WIDTH__px; height: __CANVAS_HEIGHT__px; overflow: hidden; }
-      #captions-shell { position: absolute; left: 120px; right: 120px; bottom: 190px; }
-      #captions-container { position: relative; min-height: 136px; }
-      .caption-group { position: absolute; inset: 0; display: flex; justify-content: center; align-items: center; opacity: 0; visibility: hidden; }
-      .caption-text { padding: 0; font-size: 54px; line-height: 1.35; font-weight: 700; color: #fff; text-align: center; text-shadow: 0 10px 30px rgba(0,0,0,0.48), -2px -2px 0 rgba(0,0,0,0.92), 2px -2px 0 rgba(0,0,0,0.92), -2px 2px 0 rgba(0,0,0,0.92), 2px 2px 0 rgba(0,0,0,0.92); }
+      #captions-shell { position: absolute; inset: 0; pointer-events: none; }
+      #captions-container { position: absolute; inset: 0; }
+      .caption-group { position: absolute; left: var(--text-left); right: var(--text-right); top: var(--text-top); bottom: var(--text-bottom); transform: var(--text-transform); width: min(var(--text-max-width), calc(100% - var(--text-margin-x) - var(--text-margin-x))); max-width: var(--text-max-width); display: flex; justify-content: var(--text-justify-content); align-items: center; text-align: var(--text-text-align); opacity: 0; visibility: hidden; will-change: opacity; }
+      .caption-text { padding: 0; background: var(--text-background); font-size: 54px; line-height: 1.35; font-weight: 700; color: #fff; text-align: var(--text-text-align); text-shadow: 0 10px 30px rgba(0,0,0,0.48), -2px -2px 0 rgba(0,0,0,0.92), 2px -2px 0 rgba(0,0,0,0.92), -2px 2px 0 rgba(0,0,0,0.92), 2px 2px 0 rgba(0,0,0,0.92); }
     </style>
   </head>
   <body>
@@ -33,14 +33,14 @@
         const captions = Array.from(document.querySelectorAll(".caption-group"));
         const tl = gsap.timeline({ paused: true });
 
-        gsap.set(captions, { autoAlpha: 0, y: 0 });
+        gsap.set(captions, { autoAlpha: 0 });
         captions.forEach((caption) => {
           const start = Number(caption.dataset.start || 0);
           const clipDuration = Math.max(Number(caption.dataset.duration || 0), 0.1);
-          tl.set(caption, { autoAlpha: 1, y: 0, visibility: "visible" }, start);
+          tl.set(caption, { autoAlpha: 1, visibility: "visible" }, start);
           tl.set(
             caption,
-            { autoAlpha: 0, y: 0, visibility: "hidden" },
+            { autoAlpha: 0, visibility: "hidden" },
             start + clipDuration,
           );
         });

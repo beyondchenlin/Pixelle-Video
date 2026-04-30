@@ -10,7 +10,8 @@ from shutil import copy2
 from pixelle_video.models.media_placement import calculate_media_box
 from pixelle_video.models.render_package import CaptionCue, TextCue
 from pixelle_video.models.template_render_context import TemplateRenderContext
-from pixelle_video.models.text_style import TextStyleProfile
+from pixelle_video.models.template_text_style_presets import resolve_template_text_style_preset
+from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID, TextStyleProfile
 from pixelle_video.services.font_discovery import resolve_font_file
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
 from pixelle_video.services.text_style_resolver import TextStyleResolver
@@ -58,7 +59,8 @@ class HyperFramesCompiler:
             "__CANVAS_WIDTH__": str(context.canvas_width),
             "__CANVAS_HEIGHT__": str(context.canvas_height),
             "__DURATION__": str(context.duration),
-            "__TITLE__": escape(context.title),
+            "__TITLE__": self._render_title(context),
+            "__TITLE_STYLE_CSS__": self._render_title_style_css(context),
             "__AUTHOR__": escape(context.author or ""),
             "__AUTHOR_DESC__": escape(str(context.template_params.get("author_desc", ""))),
             "__FOOTER__": escape(context.footer or ""),
@@ -263,6 +265,39 @@ class HyperFramesCompiler:
     def _safe_display_text(self, text: object) -> str:
         return self.text_sanitizer.sanitize(text).display_text
 
+    def _render_title(self, context: TemplateRenderContext) -> str:
+        display_text = self._safe_display_text(context.title)
+        profile = self._effective_title_style_profile(context)
+        if not profile.max_chars_per_line:
+            return escape(display_text)
+
+        max_chars = max(1, int(profile.max_chars_per_line))
+        lines = [
+            display_text[index : index + max_chars]
+            for index in range(0, len(display_text), max_chars)
+        ]
+        return "<br/>".join(escape(line) for line in lines)
+
+    def _render_title_style_css(self, context: TemplateRenderContext) -> str:
+        return self._style_profile_css_variables(
+            self._effective_title_style_profile(context),
+            context,
+            prefix="title",
+        )
+
+    def _effective_title_style_profile(
+        self,
+        context: TemplateRenderContext,
+    ) -> TextStyleProfile:
+        if context.title_style_profile is not None:
+            return context.title_style_profile
+
+        title_payload = resolve_template_text_style_preset(
+            context.template_id
+        ).title_style_dict()
+        title_payload["id"] = DEFAULT_TITLE_STYLE_ID
+        return TextStyleProfile.from_dict(title_payload)
+
     def _caption_as_text_cue(self, cue: CaptionCue) -> TextCue:
         return TextCue(
             id=cue.id,
@@ -279,6 +314,8 @@ class HyperFramesCompiler:
         self,
         profile: TextStyleProfile,
         context: TemplateRenderContext,
+        *,
+        prefix: str = "text",
     ) -> str:
         scale = profile.scale_for_canvas(context.canvas_width, context.canvas_height)
         font_size = max(1, int(round(profile.font_size * scale)))
@@ -287,21 +324,85 @@ class HyperFramesCompiler:
         margin_y = max(0, int(round(profile.margin_y * scale)))
         max_width = max(1, int(round(context.canvas_width * profile.max_width_ratio)))
         background = self._rgba(profile.background_color, profile.background_opacity)
-        return "; ".join(
-            [
-                f"--text-fill: {profile.primary_color}",
-                f"--text-stroke-color: {profile.stroke_color}",
-                f"--text-stroke-width: {stroke_width}px",
-                f"--text-background: {background}",
-                f"--text-font-family: {self._css_font_family_value(profile.font_family)}",
-                f"--text-font-size: {font_size}px",
-                f"--text-font-weight: {int(profile.font_weight)}",
-                f"--text-line-height: {float(profile.line_height)}",
-                f"--text-max-width: {max_width}px",
-                f"--text-margin-x: {margin_x}px",
-                f"--text-margin-y: {margin_y}px",
-            ]
-        ) + ";"
+        declarations = [
+            f"--{prefix}-fill: {profile.primary_color}",
+            f"--{prefix}-stroke-color: {profile.stroke_color}",
+            f"--{prefix}-stroke-width: {stroke_width}px",
+            f"--{prefix}-background: {background}",
+            f"--{prefix}-font-family: {self._css_font_family_value(profile.font_family)}",
+            f"--{prefix}-font-size: {font_size}px",
+            f"--{prefix}-font-weight: {int(profile.font_weight)}",
+            f"--{prefix}-line-height: {float(profile.line_height)}",
+            f"--{prefix}-max-width: {max_width}px",
+            f"--{prefix}-box-width: {max_width}px",
+            f"--{prefix}-margin-x: {margin_x}px",
+            f"--{prefix}-margin-y: {margin_y}px",
+            f"--{prefix}-text-align: {profile.alignment}",
+            f"--{prefix}-justify-content: {self._justify_content(profile.alignment)}",
+        ]
+        declarations.extend(
+            self._style_profile_position_css_variables(
+                profile=profile,
+                margin_x=margin_x,
+                margin_y=margin_y,
+                prefix=prefix,
+            )
+        )
+        return "; ".join(declarations) + ";"
+
+    @staticmethod
+    def _style_profile_position_css_variables(
+        *,
+        profile: TextStyleProfile,
+        margin_x: int,
+        margin_y: int,
+        prefix: str,
+    ) -> list[str]:
+        left = "auto"
+        right = "auto"
+        top = "auto"
+        bottom = "auto"
+        transform = "none"
+
+        if profile.position == "center":
+            left = "50%"
+            top = "50%"
+            transform = "translate(-50%, -50%)"
+        elif profile.position in {"bottom", "lower_third"}:
+            left = "50%"
+            bottom = f"{margin_y}px"
+            transform = "translateX(-50%)"
+        elif profile.position == "top":
+            left = "50%"
+            top = f"{margin_y}px"
+            transform = "translateX(-50%)"
+        elif profile.position == "top_left":
+            left = f"{margin_x}px"
+            top = f"{margin_y}px"
+        elif profile.position == "top_right":
+            right = f"{margin_x}px"
+            top = f"{margin_y}px"
+        elif profile.position == "bottom_left":
+            left = f"{margin_x}px"
+            bottom = f"{margin_y}px"
+        elif profile.position == "bottom_right":
+            right = f"{margin_x}px"
+            bottom = f"{margin_y}px"
+
+        return [
+            f"--{prefix}-left: {left}",
+            f"--{prefix}-right: {right}",
+            f"--{prefix}-top: {top}",
+            f"--{prefix}-bottom: {bottom}",
+            f"--{prefix}-transform: {transform}",
+        ]
+
+    @staticmethod
+    def _justify_content(alignment: str) -> str:
+        return {
+            "left": "flex-start",
+            "right": "flex-end",
+        }.get(alignment, "center")
 
     @staticmethod
     def _text_content_inline_style() -> str:

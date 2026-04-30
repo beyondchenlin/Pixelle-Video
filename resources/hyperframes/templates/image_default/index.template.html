@@ -133,10 +133,15 @@
 
       .video-title-wrapper {
         position: absolute;
-        top: 150px;
-        left: 140px;
-        right: 140px;
-        text-align: center;
+        left: var(--title-left);
+        right: var(--title-right);
+        top: var(--title-top);
+        bottom: var(--title-bottom);
+        transform: var(--title-transform);
+        width: min(var(--title-box-width), calc(100% - var(--title-margin-x) - var(--title-margin-x)));
+        max-width: var(--title-max-width);
+        text-align: var(--title-text-align);
+        background: var(--title-background);
       }
 
       .video-title-ornament-top {
@@ -162,10 +167,13 @@
 
       .video-title {
         margin: 0;
-        font-size: 68px;
-        font-weight: 600;
-        line-height: 1.4;
+        color: var(--title-fill);
+        font-family: var(--title-font-family);
+        font-size: var(--title-font-size);
+        font-weight: var(--title-font-weight);
+        line-height: var(--title-line-height);
         letter-spacing: 2px;
+        -webkit-text-stroke: var(--title-stroke-width) var(--title-stroke-color);
       }
 
       .image-wrapper {
@@ -403,7 +411,7 @@
       </div>
 
       <div class="page-container">
-        <div class="video-title-wrapper">
+        <div class="video-title-wrapper" style="__TITLE_STYLE_CSS__">
           <div class="video-title-ornament-top">
             <div class="ornament-line"></div>
             <div class="ornament-dot"></div>

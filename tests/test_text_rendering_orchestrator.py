@@ -3,6 +3,7 @@ import pytest
 from pixelle_video.models.text_style import (
     DEFAULT_CAPTION_STYLE_ID,
     DEFAULT_OVERLAY_STYLE_ID,
+    DEFAULT_TITLE_STYLE_ID,
 )
 from pixelle_video.services.text_rendering_orchestrator import (
     TextRenderingOrchestrator,
@@ -71,6 +72,44 @@ def test_orchestrator_builds_overlay_plan_only_when_enabled_with_programmatic_ta
     assert programmatic.overlay_plan.candidates[0].renderer_targets == ("hyperframes",)
 
 
+def test_orchestrator_builds_title_style_from_template_preset_and_user_override():
+    result = TextRenderingOrchestrator().build(
+        text_rendering={
+            "title_style": {
+                "font_size": 92,
+                "background_color": "#123456",
+                "background_opacity": 0.5,
+            }
+        },
+        template_id="image_landscape_minimal",
+        canvas_width=1920,
+        canvas_height=1080,
+    )
+
+    assert result.title_style.id == DEFAULT_TITLE_STYLE_ID
+    assert result.title_style.position == "top_left"
+    assert result.title_style.font_size == 92
+    assert result.title_style.background_color == "#123456"
+    assert result.title_style.background_opacity == 0.5
+    assert result.title_style.scale_basis_width == 1920
+    assert result.title_style.scale_basis_height == 1080
+    assert [profile.id for profile in result.text_style_profiles] == [
+        DEFAULT_CAPTION_STYLE_ID,
+        DEFAULT_TITLE_STYLE_ID,
+        DEFAULT_OVERLAY_STYLE_ID,
+    ]
+
+
+def test_orchestrator_uses_generic_title_default_for_templates_without_title_region():
+    result = TextRenderingOrchestrator().build(
+        text_rendering={},
+        template_id="static_plain",
+    )
+
+    assert result.title_style.id == DEFAULT_TITLE_STYLE_ID
+    assert result.title_style.name == "Title Default"
+
+
 def test_orchestrator_package_has_task_id_styles_caption_settings_and_diagnostics():
     result = TextRenderingOrchestrator().build(
         text_rendering={
@@ -93,6 +132,7 @@ def test_orchestrator_package_has_task_id_styles_caption_settings_and_diagnostic
     assert package.caption_settings.style_profile == DEFAULT_CAPTION_STYLE_ID
     assert [profile.id for profile in package.text_style_profiles] == [
         DEFAULT_CAPTION_STYLE_ID,
+        DEFAULT_TITLE_STYLE_ID,
         DEFAULT_OVERLAY_STYLE_ID,
     ]
     assert result.caption_settings.style_profile == DEFAULT_CAPTION_STYLE_ID

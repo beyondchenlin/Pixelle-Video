@@ -29,13 +29,15 @@ def record_text_rendering_contract_summary(
     disabled_reason: str | None,
     image_text_status: str = "not_applicable",
 ) -> Any:
+    config = getattr(target, "config", None)
     result = TextRenderingOrchestrator().build(
         text_rendering=text_rendering,
         narrations=narrations,
         render_backend=render_backend,
         frame_count=frame_count if frame_count is not None else len(narrations),
         task_id=task_id,
-        config=getattr(target, "config", None),
+        config=config,
+        template_id=getattr(config, "frame_template", None),
     )
     setattr(target, "text_rendering_result", result)
     setattr(target, "text_render_package", result.text_render_package)
@@ -115,6 +117,7 @@ def _build_text_layer_summary(
         "cue_count": 0,
         "native_prompt_hint_count": 0,
         "style_profile_ids": [result.overlay_style.id],
+        "title_style_profile_id": result.title_style.id,
         "artifacts": {},
         "fallbacks": [],
         "targets": (

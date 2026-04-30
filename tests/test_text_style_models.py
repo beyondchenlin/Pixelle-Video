@@ -3,6 +3,7 @@ import pytest
 from pixelle_video.models.text_style import (
     DEFAULT_CAPTION_STYLE_ID,
     DEFAULT_OVERLAY_STYLE_ID,
+    DEFAULT_TITLE_STYLE_ID,
     TextStyleProfile,
     build_default_text_style_profiles,
     normalize_hex_color,
@@ -89,11 +90,12 @@ def test_text_style_profile_scales_only_when_scale_basis_is_explicit():
     assert profile.scale_for_canvas(0, 0) == min(1 / 1080, 1 / 1920)
 
 
-def test_default_text_style_profiles_include_caption_and_overlay_defaults():
-    profiles = build_default_text_style_profiles()
+def test_default_text_style_profiles_include_caption_title_and_overlay_defaults():
+    profiles = build_default_text_style_profiles(template_id="image_landscape_minimal")
 
     assert [profile.id for profile in profiles] == [
         DEFAULT_CAPTION_STYLE_ID,
+        DEFAULT_TITLE_STYLE_ID,
         DEFAULT_OVERLAY_STYLE_ID,
     ]
     assert profiles[0].position == "bottom"
@@ -101,12 +103,29 @@ def test_default_text_style_profiles_include_caption_and_overlay_defaults():
     assert profiles[0].font_weight == 500
     assert profiles[0].primary_color == "#2C3E50"
     assert profiles[0].stroke_width == 0
-    assert profiles[1].name == "Overlay Default"
-    assert profiles[1].font_size == 76
-    assert profiles[1].primary_color == "#FFFFFF"
-    assert profiles[1].stroke_width == 2
-    assert profiles[1].position == "center"
-    assert profiles[1].margin_y == 80
+    title = profiles[1]
+    assert title.name == "Title Default"
+    assert title.position == "top_left"
+    assert title.font_size == 76
+    assert title.background_color == "#FFFFFF"
+    assert title.background_opacity == 0.88
+    assert profiles[2].name == "Overlay Default"
+    assert profiles[2].font_size == 76
+    assert profiles[2].primary_color == "#FFFFFF"
+    assert profiles[2].stroke_width == 2
+    assert profiles[2].position == "center"
+    assert profiles[2].margin_y == 80
+
+
+def test_default_text_style_profiles_apply_scale_basis_to_all_profiles():
+    profiles = build_default_text_style_profiles(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+    )
+
+    assert [profile.scale_basis_width for profile in profiles] == [1080, 1080, 1080]
+    assert [profile.scale_basis_height for profile in profiles] == [1920, 1920, 1920]
 
 
 def test_text_style_profile_from_dict_preserves_defaults_for_missing_fields():

@@ -484,6 +484,11 @@ def test_build_single_generation_request_includes_text_rendering_policy():
 
     text_rendering = {
         "overlay": {"enabled": False},
+        "title_style": {
+            "font_size": 84,
+            "primary_color": "#2C3E50",
+            "position": "top",
+        },
         "image_text": {
             "suppress_embedded_text": True,
             "positive_prompt": "avoid generated lettering",
@@ -503,6 +508,7 @@ def test_build_single_generation_request_includes_text_rendering_policy():
     )
 
     assert request["text_rendering"] == text_rendering
+    assert request["text_rendering"]["title_style"] is text_rendering["title_style"]
     assert "forbid_embedded_text_in_image" not in request
     assert "text_layer" not in request
 

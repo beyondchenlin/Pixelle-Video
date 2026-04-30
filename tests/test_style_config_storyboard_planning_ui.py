@@ -441,10 +441,12 @@ def test_standard_pipeline_ui_passes_storyboard_default_enabled_to_render_style_
         pixelle_video,
         storyboard_default_enabled=False,
         storyboard_prompt_language="zh_CN",
+        content_context=None,
     ):
         captured["pixelle_video"] = pixelle_video
         captured["storyboard_default_enabled"] = storyboard_default_enabled
         captured["storyboard_prompt_language"] = storyboard_prompt_language
+        captured["content_context"] = content_context
         return {"style": "ok"}
 
     def fake_render_quick_create_flow_diagram():
@@ -454,7 +456,12 @@ def test_standard_pipeline_ui_passes_storyboard_default_enabled_to_render_style_
     monkeypatch.setattr(
         standard_pipeline,
         "render_content_input",
-        lambda: {"content": "ok", "storyboard_prompt_language": "en_US"},
+        lambda: {
+            "content": "ok",
+            "title": "Preview title",
+            "text": "Preview caption",
+            "storyboard_prompt_language": "en_US",
+        },
     )
     monkeypatch.setattr(standard_pipeline, "render_bgm_section", lambda **_kwargs: {"bgm": "ok"})
     monkeypatch.setattr(standard_pipeline, "render_version_info", lambda: None)
@@ -467,6 +474,8 @@ def test_standard_pipeline_ui_passes_storyboard_default_enabled_to_render_style_
 
     assert captured["storyboard_default_enabled"] is False
     assert captured["storyboard_prompt_language"] == "en_US"
+    assert captured["content_context"]["title"] == "Preview title"
+    assert captured["content_context"]["text"] == "Preview caption"
     assert captured["rendered_quick_create_flow"] is True
 
 
@@ -709,7 +718,10 @@ def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monke
         "background_color": "#000000",
         "background_opacity": 1.0,
         "position": "bottom",
+        "alignment": "center",
+        "margin_x": 1,
         "margin_y": 1,
+        "max_width_ratio": 1.0,
         "max_chars_per_line": 1,
     }
     assert policy["overlay_style"] == {
@@ -721,7 +733,10 @@ def test_render_text_rendering_controls_returns_nested_policy_when_enabled(monke
         "background_color": "#000000",
         "background_opacity": 1.0,
         "position": "center",
+        "alignment": "center",
+        "margin_x": 1,
         "margin_y": 1,
+        "max_width_ratio": 1.0,
         "max_chars_per_line": 1,
     }
     assert policy["image_text"] == {
@@ -1609,7 +1624,8 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     assert result["media_workflow"] == "selfhost/image_z_image_turbo_gguf.json"
     assert ("section.image", False) in fake_st.expanders
     assert fake_st.nested_expanders == []
-    assert fake_st.tab_label_sets == [["orientation.portrait"]]
+    assert ["orientation.portrait"] in fake_st.tab_label_sets
+    assert ["caption_style.tab", "title_style.tab"] in fake_st.tab_label_sets
     assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
     expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
     assert "**style.image_model_selection_title**" in expander_html
