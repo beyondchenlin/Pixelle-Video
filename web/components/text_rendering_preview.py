@@ -278,13 +278,17 @@ def build_real_preview_state(
     url: str | None,
     fingerprint: str | None,
     error: str | None,
+    frame_fingerprint: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    state = {
         "storage_key": storage_key,
         "url": url,
         "fingerprint": fingerprint,
         "error": error,
     }
+    if frame_fingerprint is not None:
+        state["frame_fingerprint"] = frame_fingerprint
+    return state
 
 
 def is_real_preview_stale(
@@ -348,8 +352,9 @@ def request_real_preview_frame(
         return build_real_preview_state(
             storage_key=data.get("storage_key"),
             url=data.get("url"),
-            fingerprint=data.get("fingerprint"),
+            fingerprint=spec.fingerprint,
             error=None,
+            frame_fingerprint=data.get("fingerprint"),
         )
     except Exception as exc:
         return build_real_preview_state(

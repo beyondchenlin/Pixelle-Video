@@ -229,7 +229,10 @@ def test_preview_cache_marks_real_frame_stale_when_fingerprint_changes():
 
 def test_request_real_preview_frame_posts_storage_key_only_for_artifacts(monkeypatch):
     from web.components import text_rendering_preview
-    from web.components.text_rendering_preview import request_real_preview_frame
+    from web.components.text_rendering_preview import (
+        is_real_preview_stale,
+        request_real_preview_frame,
+    )
 
     posts = []
 
@@ -295,9 +298,11 @@ def test_request_real_preview_frame_posts_storage_key_only_for_artifacts(monkeyp
     assert state == {
         "storage_key": "artifacts/ws/rendered.png",
         "url": "/api/files/artifacts/ws/rendered.png",
-        "fingerprint": "server-fp",
+        "fingerprint": artifacts_spec.fingerprint,
+        "frame_fingerprint": "server-fp",
         "error": None,
     }
+    assert is_real_preview_stale(state, artifacts_spec.fingerprint) is False
     assert posts[0]["url"] == "http://localhost:8000/api/text-rendering/preview-frame"
     assert posts[0]["json"]["preview_media_storage_key"] == "artifacts/ws/source.png"
     assert "preview_media_url" not in posts[0]["json"]
