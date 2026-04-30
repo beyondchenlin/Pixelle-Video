@@ -29,4 +29,3 @@ class AssetBibleRepository(Protocol):
         scene_cast_id: str,
     ) -> dict[str, object] | None:
         ...
-

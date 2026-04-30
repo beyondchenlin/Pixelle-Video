@@ -5,7 +5,7 @@ class TraceRepository(Protocol):
     async def append_llm_interaction(
         self,
         workspace_id: str,
-        interaction: Mapping[str, object],
+        trace: Mapping[str, object],
     ) -> dict[str, object]:
         ...
 
@@ -29,4 +29,3 @@ class TraceRepository(Protocol):
         filters: Mapping[str, object] | None = None,
     ) -> list[dict[str, object]]:
         ...
-

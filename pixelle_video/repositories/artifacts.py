@@ -1,3 +1,4 @@
+from os import PathLike
 from typing import Mapping, Protocol
 
 
@@ -45,9 +46,10 @@ class ArtifactObjectStore(Protocol):
     async def put_file(
         self,
         workspace_id: str,
-        source_path: str,
+        source_path: str | PathLike[str],
         metadata: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
+        """Upload from worker-side staging; public results must use storage keys or URLs."""
         ...
 
     async def get_file_url(
@@ -59,4 +61,3 @@ class ArtifactObjectStore(Protocol):
 
     async def exists(self, storage_key: str) -> bool:
         ...
-

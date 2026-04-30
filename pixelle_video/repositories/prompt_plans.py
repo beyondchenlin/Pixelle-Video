@@ -5,7 +5,7 @@ class PromptPlanRepository(Protocol):
     async def save_prompt_plan_bundle(
         self,
         workspace_id: str,
-        prompt_plan_bundle: Mapping[str, object],
+        bundle: Mapping[str, object],
     ) -> dict[str, object]:
         ...
 
