@@ -1,5 +1,5 @@
-from importlib.util import module_from_spec, spec_from_file_location
 import inspect
+from importlib.util import module_from_spec, spec_from_file_location
 from os import PathLike
 from pathlib import Path
 from types import ModuleType
