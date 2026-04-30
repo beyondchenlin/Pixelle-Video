@@ -2,10 +2,13 @@ import inspect
 from os import PathLike
 from typing import Mapping
 
+import pytest
+
 import pixelle_video.repositories.artifacts as artifacts
 import pixelle_video.repositories.assets as assets
 import pixelle_video.repositories.prompt_plans as prompt_plans
 import pixelle_video.repositories.trace as trace
+from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 
 
 def assert_protocol_exposes_async_methods(protocol: type, method_names: set[str]) -> None:
@@ -128,3 +131,45 @@ def test_artifact_object_store_result_contract_requires_storage_key():
 
     assert stored_file.storage_key == "artifacts/workspace/file.png"
     assert stored_file.url is None
+
+
+@pytest.mark.asyncio
+async def test_filesystem_dev_artifact_object_store_uses_storage_keys_and_urls(tmp_path):
+    source_path = tmp_path / "source.png"
+    source_path.write_bytes(b"png")
+    store = FilesystemDevArtifactObjectStore(
+        root=tmp_path / "objects",
+        base_url="https://cdn.example.test/assets",
+    )
+
+    stored_file = await store.put_file("workspace_1", source_path)
+
+    assert stored_file.storage_key.startswith("artifacts/workspace_1/")
+    assert stored_file.storage_key.endswith(".png")
+    assert "\\" not in stored_file.storage_key
+    assert str(tmp_path) not in stored_file.storage_key
+    assert stored_file.url == f"https://cdn.example.test/assets/{stored_file.storage_key}"
+    assert await store.exists(stored_file.storage_key) is True
+    assert await store.get_file_url(stored_file.storage_key) == stored_file.url
+
+
+@pytest.mark.asyncio
+async def test_filesystem_dev_artifact_object_store_rejects_invalid_keys(tmp_path):
+    source_path = tmp_path / "source.png"
+    source_path.write_bytes(b"png")
+    store = FilesystemDevArtifactObjectStore(root=tmp_path / "objects", base_url="/api/files")
+
+    with pytest.raises(ValueError, match="workspace_id"):
+        await store.put_file("../escape", source_path)
+
+    for storage_key in [
+        "../escape.png",
+        "/artifacts/workspace/file.png",
+        "artifacts/workspace/../file.png",
+        "artifacts/workspace/file.png/extra",
+        "artifacts/workspace/C:\\temp\\file.png",
+        "output/workspace/file.png",
+    ]:
+        with pytest.raises(ValueError, match="artifact storage key"):
+            await store.get_file_url(storage_key)
+        assert await store.exists(storage_key) is False
