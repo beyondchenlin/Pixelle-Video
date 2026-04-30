@@ -129,6 +129,48 @@ def test_text_rendering_preview_frame_rejects_unbounded_dimensions_and_fps(monke
     assert response.status_code == 422
 
 
+def test_text_rendering_preview_frame_maps_cross_workspace_key_to_4xx():
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/text-rendering/preview-frame",
+        json={
+            "workspace_id": "ws-a",
+            "template_id": "image_default",
+            "canvas_width": 1080,
+            "canvas_height": 1920,
+            "media_width": 900,
+            "media_height": 1200,
+            "preview_media_storage_key": "artifacts/ws-b/source.png",
+        },
+    )
+
+    assert 400 <= response.status_code < 500
+
+
+def test_text_rendering_preview_frame_maps_malformed_storage_key_to_4xx():
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/text-rendering/preview-frame",
+        json={
+            "workspace_id": "ws-a",
+            "template_id": "image_default",
+            "canvas_width": 1080,
+            "canvas_height": 1920,
+            "media_width": 900,
+            "media_height": 1200,
+            "preview_media_storage_key": "artifacts/ws-a/../source.png",
+        },
+    )
+
+    assert 400 <= response.status_code < 500
+
+
 def test_text_rendering_preview_frame_is_registered_under_api_prefix():
     from api.app import app
 

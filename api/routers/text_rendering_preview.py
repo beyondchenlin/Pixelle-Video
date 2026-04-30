@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
 from api.config import api_config
 from api.schemas.text_rendering_preview import (
@@ -7,6 +7,7 @@ from api.schemas.text_rendering_preview import (
 from api.schemas.text_rendering_preview import TextRenderingPreviewFrameResponse
 from pixelle_video.services.text_rendering_preview import (
     TextRenderingPreviewFrameRequest,
+    TextRenderingPreviewFrameRequestError,
     TextRenderingPreviewFrameService,
 )
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
@@ -23,23 +24,29 @@ async def render_text_rendering_preview_frame(
         base_url=api_config.artifact_base_url,
     )
     service = TextRenderingPreviewFrameService(object_store=object_store)
-    result = await service.render_preview_frame(
-        TextRenderingPreviewFrameRequest(
-            workspace_id=request.workspace_id,
-            template_id=request.template_id,
-            title_text=request.title_text,
-            caption_text=request.caption_text,
-            text_rendering=request.text_rendering.model_dump(exclude_none=True),
-            canvas_width=request.canvas_width,
-            canvas_height=request.canvas_height,
-            media_width=request.media_width,
-            media_height=request.media_height,
-            media_placement=dict(request.media_placement),
-            render_backend=request.render_backend,
-            fps=request.fps,
-            preview_media_storage_key=request.preview_media_storage_key,
+    try:
+        result = await service.render_preview_frame(
+            TextRenderingPreviewFrameRequest(
+                workspace_id=request.workspace_id,
+                template_id=request.template_id,
+                title_text=request.title_text,
+                caption_text=request.caption_text,
+                text_rendering=request.text_rendering.model_dump(exclude_none=True),
+                canvas_width=request.canvas_width,
+                canvas_height=request.canvas_height,
+                media_width=request.media_width,
+                media_height=request.media_height,
+                media_placement=dict(request.media_placement),
+                render_backend=request.render_backend,
+                fps=request.fps,
+                preview_media_storage_key=request.preview_media_storage_key,
+            )
         )
-    )
+    except TextRenderingPreviewFrameRequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     return TextRenderingPreviewFrameResponse(
         storage_key=result.storage_key,
         url=result.url,

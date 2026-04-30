@@ -1,13 +1,17 @@
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 import pytest
 
 from pixelle_video.repositories.artifacts import StoredArtifactFile
 from pixelle_video.services.text_rendering_preview import (
     TextRenderingPreviewFrameRequest,
+    TextRenderingPreviewFrameRequestError,
     TextRenderingPreviewFrameService,
     preview_frame_fingerprint,
 )
+from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 
 
 class FakeArtifactObjectStore:
@@ -120,7 +124,7 @@ async def test_preview_media_storage_key_must_match_workspace():
         renderer=FakeRenderer(),
     )
 
-    with pytest.raises(ValueError, match="workspace"):
+    with pytest.raises(TextRenderingPreviewFrameRequestError, match="workspace"):
         await service.render_preview_frame(
             _request(
                 workspace_id="ws-a",
@@ -129,6 +133,36 @@ async def test_preview_media_storage_key_must_match_workspace():
         )
 
     assert object_store.url_requests == []
+
+
+@pytest.mark.asyncio
+async def test_filesystem_preview_media_uses_validated_local_file_uri_for_renderer(tmp_path):
+    source_media = tmp_path / "source.png"
+    source_media.write_bytes(b"source")
+    object_store = FilesystemDevArtifactObjectStore(
+        root=tmp_path / "objects",
+        base_url="/api/files",
+    )
+    stored_media = await object_store.put_file("demo", source_media)
+    renderer = FakeRenderer()
+    service = TextRenderingPreviewFrameService(
+        object_store=object_store,
+        renderer=renderer,
+    )
+
+    result = await service.render_preview_frame(
+        _request(preview_media_storage_key=stored_media.storage_key)
+    )
+
+    renderer_media_url = renderer.calls[0]["preview_media_url"]
+    parsed_url = urlparse(renderer_media_url)
+    renderer_media_path = Path(url2pathname(parsed_url.path))
+    assert parsed_url.scheme == "file"
+    assert renderer_media_path.is_file()
+    assert not renderer_media_url.startswith("/api/files/")
+    assert result.storage_key.startswith("artifacts/demo/")
+    assert result.url == f"/api/files/{result.storage_key}"
+    assert set(result.__dict__) == {"storage_key", "url", "fingerprint"}
 
 
 class CapturingCompiler:

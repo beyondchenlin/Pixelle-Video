@@ -172,6 +172,15 @@ async def test_filesystem_dev_artifact_object_store_uses_single_extension_and_de
 
 
 @pytest.mark.asyncio
+async def test_filesystem_dev_artifact_object_store_rejects_missing_local_file_uri(tmp_path):
+    store = FilesystemDevArtifactObjectStore(root=tmp_path / "objects")
+    missing_key = "artifacts/workspace_1/0123456789abcdef0123456789abcdef.png"
+
+    with pytest.raises(FileNotFoundError, match="artifact object was not found"):
+        await store.get_local_file_uri(missing_key)
+
+
+@pytest.mark.asyncio
 async def test_filesystem_dev_artifact_object_store_rejects_invalid_keys(tmp_path):
     source_path = tmp_path / "source.png"
     source_path.write_bytes(b"png")

@@ -63,6 +63,12 @@ class FilesystemDevArtifactObjectStore:
         self._path_for_storage_key(storage_key)
         return self._url_for_storage_key(storage_key)
 
+    async def get_local_file_uri(self, storage_key: str) -> str:
+        target_path = self._path_for_storage_key(storage_key)
+        if not target_path.is_file():
+            raise FileNotFoundError("artifact object was not found")
+        return target_path.as_uri()
+
     async def exists(self, storage_key: str) -> bool:
         try:
             return self._path_for_storage_key(storage_key).is_file()

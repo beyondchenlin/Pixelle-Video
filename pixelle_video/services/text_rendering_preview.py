@@ -20,6 +20,10 @@ from pixelle_video.services.text_rendering_orchestrator import (
 PREVIEW_ARTIFACT_KIND = "text_rendering_preview_frame"
 
 
+class TextRenderingPreviewFrameRequestError(ValueError):
+    """Raised when a preview-frame request violates the artifact-key contract."""
+
+
 @dataclass(frozen=True)
 class TextRenderingPreviewFrameRequest:
     workspace_id: str
@@ -127,6 +131,11 @@ class TextRenderingPreviewFrameService:
                 request.workspace_id,
                 request.preview_media_storage_key,
             )
+            local_file_uri = await self._get_local_file_uri_if_supported(
+                request.preview_media_storage_key
+            )
+            if local_file_uri is not None:
+                return local_file_uri
             return await self.object_store.get_file_url(request.preview_media_storage_key)
         return None
 
@@ -134,7 +143,25 @@ class TextRenderingPreviewFrameService:
     def _validate_preview_media_storage_key(workspace_id: str, storage_key: str) -> None:
         parts = storage_key.split("/")
         if len(parts) != 3 or parts[0] != "artifacts" or parts[1] != workspace_id:
-            raise ValueError("preview_media_storage_key must belong to the request workspace")
+            raise TextRenderingPreviewFrameRequestError(
+                "preview_media_storage_key must belong to the request workspace"
+            )
+
+    async def _get_local_file_uri_if_supported(self, storage_key: str) -> str | None:
+        get_local_file_uri = getattr(self.object_store, "get_local_file_uri", None)
+        if get_local_file_uri is None:
+            return None
+
+        try:
+            resolved_uri = get_local_file_uri(storage_key)
+            if inspect.isawaitable(resolved_uri):
+                resolved_uri = await resolved_uri
+        except (FileNotFoundError, ValueError) as exc:
+            raise TextRenderingPreviewFrameRequestError(str(exc)) from exc
+
+        if not isinstance(resolved_uri, str) or not resolved_uri.strip():
+            raise TextRenderingPreviewFrameRequestError("local artifact URI is invalid")
+        return resolved_uri
 
     async def _render(
         self,
