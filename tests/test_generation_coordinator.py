@@ -671,6 +671,64 @@ async def test_index_tts2_workflow_session_marks_task_scope_released_after_force
 
 
 @pytest.mark.asyncio
+async def test_index_tts2_workflow_session_retries_failed_force_release_at_task_exit():
+    events = []
+    force_release_results = [False, True]
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(("execute", workflow_input))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append(("prepare",))
+
+    async def _release_workflow():
+        events.append(("workflow_release",))
+        return True
+
+    async def _release_task():
+        events.append(("task_release",))
+        return True
+
+    async def _force_release(*, context):
+        events.append(("force_release", context))
+        return force_release_results.pop(0)
+
+    async def _get_kit():
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release_workflow
+    core.release_comfyui_after_local_task = _release_task
+    core.force_release_comfyui_memory = _force_release
+    core._get_or_create_comfykit = _get_kit
+
+    async with core.local_comfyui_task_scope():
+        async with core.local_comfyui_workflow_session():
+            await core.execute_comfykit_workflow(
+                "workflows/selfhost/tts_index2.json",
+                {},
+                workflow_source="selfhost",
+            )
+
+        assert events == [
+            ("prepare",),
+            ("execute", "workflows/selfhost/tts_index2.json"),
+            ("force_release", "post-index-tts2-workflow-session"),
+        ]
+
+    assert events == [
+        ("prepare",),
+        ("execute", "workflows/selfhost/tts_index2.json"),
+        ("force_release", "post-index-tts2-workflow-session"),
+        ("force_release", "post-index-tts2-local-task"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_local_comfyui_task_scope_releases_at_task_exit_after_workflow_session():
     events = []
 

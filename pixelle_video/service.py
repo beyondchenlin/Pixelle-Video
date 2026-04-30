@@ -71,6 +71,8 @@ class _LocalComfyUITaskScope:
     def __init__(self) -> None:
         self.used_local_comfyui = False
         self.pending_memory_release = False
+        self.used_index_tts2_workflow = False
+        self.pending_index_tts2_force_memory_release = False
         self.registered_active_task = False
 
 
@@ -385,6 +387,16 @@ class PixelleVideoCore:
         scope = self._local_comfyui_task_scope.get()
         if scope is not None:
             scope.pending_memory_release = False
+            scope.pending_index_tts2_force_memory_release = False
+
+    def _mark_index_tts2_force_memory_release_required(self) -> None:
+        scope = self._local_comfyui_task_scope.get()
+        if scope is None:
+            return
+
+        scope.used_index_tts2_workflow = True
+        scope.pending_index_tts2_force_memory_release = True
+        scope.pending_memory_release = True
 
     async def _force_release_index_tts2_workflow_memory(self, *, context: str) -> bool:
         try:
@@ -522,11 +534,18 @@ class PixelleVideoCore:
                             0,
                         )
                         should_release = self._local_comfyui_active_task_count == 0
+
+                if scope.used_local_comfyui and scope.pending_memory_release and should_release:
+                    released = False
+                    if scope.pending_index_tts2_force_memory_release:
+                        released = await self._force_release_index_tts2_workflow_memory(
+                            context="post-index-tts2-local-task",
+                        )
+
+                    if not released and scope.pending_memory_release:
+                        await self.release_comfyui_after_local_task()
             finally:
                 self._local_comfyui_task_scope.reset(token)
-
-            if scope.used_local_comfyui and scope.pending_memory_release and should_release:
-                await self.release_comfyui_after_local_task()
 
     def _should_release_local_comfyui_after_workflow(self) -> bool:
         # A task scope means more selfhost workflows are likely imminent inside the
@@ -551,6 +570,7 @@ class PixelleVideoCore:
         if session is not None:
             if is_index_tts2_workflow:
                 session.requires_force_memory_release = True
+                self._mark_index_tts2_force_memory_release_required()
             return await self._execute_scoped_local_comfykit_workflow(
                 workflow_input,
                 workflow_params,
@@ -559,6 +579,8 @@ class PixelleVideoCore:
         async with self._local_comfyui_execution_lock:
             await self.prepare_comfyui_for_local_workflow()
             await self._register_local_comfyui_task_use()
+            if is_index_tts2_workflow:
+                self._mark_index_tts2_force_memory_release_required()
             try:
                 return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
             finally:

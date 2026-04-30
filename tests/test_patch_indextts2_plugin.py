@@ -1,6 +1,10 @@
 import importlib
+import importlib.util
+import sys
 
+import numpy as np
 import pytest
+import soundfile as sf
 
 UTILS_SAMPLE = """import os
 import tempfile
@@ -164,6 +168,16 @@ def create_minimal_plugin_with_infer(tmp_path, infer_text):
     return plugin_dir, utils_path, infer_path
 
 
+def load_utils_module(utils_path):
+    module_name = f"patched_indextts2_utils_{utils_path.parent.parent.name}"
+    spec = importlib.util.spec_from_file_location(module_name, utils_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_patch_plugin_updates_minimal_samples_idempotently(tmp_path):
     patch_module = load_module()
     plugin_dir, utils_path, infer_path = create_minimal_plugin(tmp_path)
@@ -219,6 +233,53 @@ def test_patch_plugin_supports_current_upstream_qwen_initialization(tmp_path):
     assert "self.qwen_emo_path = os.path.join(self.model_dir, qwen_subdir)" in first_infer
     assert "self.qwen_emo = None" in first_infer
     assert "self._get_qwen_emo().inference(emo_text)" in first_infer
+
+
+def test_patch_utils_preserves_top_level_content_after_save_temp_wav(tmp_path):
+    patch_module = load_module()
+    plugin_dir, utils_path, infer_path = create_minimal_plugin(tmp_path)
+    utils_path.write_text(
+        UTILS_SAMPLE
+        + """
+SENTINEL_AFTER_SAVE_TEMP_WAV = "keep"
+
+
+class HelperAfterSaveTempWav:
+    value = SENTINEL_AFTER_SAVE_TEMP_WAV
+""",
+        encoding="utf-8",
+    )
+
+    patch_module.patch_plugin(plugin_dir)
+    patched_utils = utils_path.read_text(encoding="utf-8")
+
+    assert 'SENTINEL_AFTER_SAVE_TEMP_WAV = "keep"' in patched_utils
+    assert "class HelperAfterSaveTempWav:" in patched_utils
+    assert "value = SENTINEL_AFTER_SAVE_TEMP_WAV" in patched_utils
+
+
+def test_patched_save_temp_wav_reuses_and_repairs_cached_wav(monkeypatch, tmp_path):
+    patch_module = load_module()
+    plugin_dir, utils_path, infer_path = create_minimal_plugin(tmp_path)
+    patch_module.patch_plugin(plugin_dir)
+    patched_utils = load_utils_module(utils_path)
+    monkeypatch.setattr(patched_utils.tempfile, "gettempdir", lambda: str(tmp_path))
+
+    wave = np.asarray([0.0, 0.25, -0.25, 0.5], dtype=np.float32)
+    sr = 24000
+    first_path = patched_utils.save_temp_wav((wave, sr))
+    second_path = patched_utils.save_temp_wav((wave.copy(), sr))
+
+    assert second_path == first_path
+    with open(first_path, "wb") as handle:
+        handle.write(b"not a valid wav")
+
+    repaired_path = patched_utils.save_temp_wav((wave.copy(), sr))
+    info = sf.info(repaired_path)
+
+    assert repaired_path == first_path
+    assert int(info.samplerate) == sr
+    assert int(info.frames) > 0
 
 
 def test_patch_do_sample_only_updates_inference_speech_argument():

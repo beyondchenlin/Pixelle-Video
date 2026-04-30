@@ -176,14 +176,32 @@ STABLE_SAVE_TEMP_WAV = '''def save_temp_wav(wave_sr: Tuple[np.ndarray, int]) -> 
 
 
 def _replace_function(text: str, function_name: str, replacement: str) -> str:
-    pattern = re.compile(
-        rf"^def {re.escape(function_name)}\(.*?(?=^def |\Z)",
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    patched, count = pattern.subn(replacement, text, count=1)
-    if count != 1:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        raise ValueError(f"could not parse file while locating function to patch: {function_name}") from exc
+
+    matches = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function_name
+    ]
+    if len(matches) != 1:
         raise ValueError(f"could not find function to patch: {function_name}")
-    return patched
+
+    node = matches[0]
+    if node.end_lineno is None:
+        raise ValueError(f"could not determine function bounds while patching: {function_name}")
+
+    start_lineno = node.lineno
+    if node.decorator_list:
+        start_lineno = min(decorator.lineno for decorator in node.decorator_list)
+
+    lines = text.splitlines(keepends=True)
+    end_index = node.end_lineno
+    while end_index < len(lines) and not lines[end_index].strip():
+        end_index += 1
+    return "".join(lines[: start_lineno - 1]) + replacement + "".join(lines[end_index:])
 
 
 def _patch_infer_v2(text: str) -> str:
