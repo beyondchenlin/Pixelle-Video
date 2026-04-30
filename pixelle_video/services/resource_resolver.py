@@ -48,6 +48,8 @@ ResourceMapping = Mapping[str, str | ResolvedResource]
 
 
 class StaticResourceResolver:
+    """Dev/test resolver adapter backed by static mappings, not production routing."""
+
     def __init__(
         self,
         *,
@@ -58,12 +60,12 @@ class StaticResourceResolver:
         workflow_presets: ResourceMapping | None = None,
         provider_presets: ResourceMapping | None = None,
     ) -> None:
-        self._styles = styles or {}
-        self._templates = templates or {}
-        self._voices = voices or {}
-        self._bgms = bgms or {}
-        self._workflow_presets = workflow_presets or {}
-        self._provider_presets = provider_presets or {}
+        self._styles = _freeze_mapping("style", styles)
+        self._templates = _freeze_mapping("template", templates)
+        self._voices = _freeze_mapping("voice", voices)
+        self._bgms = _freeze_mapping("bgm", bgms)
+        self._workflow_presets = _freeze_mapping("workflow_preset", workflow_presets)
+        self._provider_presets = _freeze_mapping("provider_preset", provider_presets)
 
     def resolve_style_id(self, resource_id: str) -> ResolvedResource:
         return self._resolve("style", resource_id, self._styles)
@@ -106,3 +108,20 @@ def _validate_resource_id(resource_id: str) -> None:
         raise ResourceIdInvalidError(
             "resource ID must match ^[A-Za-z0-9][A-Za-z0-9_-]*$"
         )
+
+
+def _freeze_mapping(
+    resource_type: str,
+    mapping: ResourceMapping | None,
+) -> ResourceMapping:
+    frozen: dict[str, str | ResolvedResource] = {}
+    for resource_id, resolved in (mapping or {}).items():
+        _validate_resource_id(resource_id)
+        if isinstance(resolved, ResolvedResource) and resolved.resource_id != resource_id:
+            raise ResourceResolverError(
+                f"{resource_type} resource_id mismatch: "
+                f"mapping key {resource_id!r} does not match "
+                f"resolved resource_id {resolved.resource_id!r}"
+            )
+        frozen[resource_id] = resolved
+    return MappingProxyType(frozen)
