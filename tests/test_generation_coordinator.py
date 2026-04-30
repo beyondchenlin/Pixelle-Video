@@ -238,6 +238,51 @@ async def test_core_execute_local_comfy_workflow_runs_cleanup_around_execute():
 
 
 @pytest.mark.asyncio
+async def test_core_execute_standalone_index_tts2_workflow_releases_extension_after_execute():
+    calls = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            calls.append(("execute", workflow_input, workflow_params))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        calls.append(("prepare",))
+
+    async def _release_workflow():
+        raise AssertionError("standalone IndexTTS2 workflow should release extension cache")
+
+    async def _release_extension(*, context, missing_endpoint="optional"):
+        calls.append(("extension_release", context, missing_endpoint))
+        return True
+
+    async def _get_kit():
+        calls.append(("get_kit",))
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release_workflow
+    core.release_comfyui_extension_models_when_idle = _release_extension
+    core._get_or_create_comfykit = _get_kit
+
+    result = await core.execute_comfykit_workflow(
+        "workflows/selfhost/tts_index2.json",
+        {"prompt": "demo"},
+        workflow_source="selfhost",
+    )
+
+    assert result.status == "completed"
+    assert calls == [
+        ("prepare",),
+        ("get_kit",),
+        ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "demo"}),
+        ("extension_release", "post-index-tts2-workflow", "optional"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_core_execute_local_comfy_workflow_releases_after_failure():
     calls = []
 
@@ -325,6 +370,57 @@ async def test_core_execute_local_comfy_workflow_recovers_once_after_oom():
         ("prepare",),
         ("get_kit",),
         ("execute", 2, "workflow.json", {"prompt": "demo"}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_core_execute_local_comfy_workflow_stops_when_oom_release_fails():
+    calls = []
+    attempts = 0
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            nonlocal attempts
+            attempts += 1
+            calls.append(("execute", attempts))
+            if attempts == 1:
+                raise RuntimeError("CUDA out of memory while allocating tensor")
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        calls.append(("prepare",))
+
+    async def _release():
+        calls.append(("release",))
+
+    async def _get_kit():
+        calls.append(("get_kit",))
+        return _Kit()
+
+    async def _force_release(*, context):
+        calls.append(("force_release", context))
+        return False
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release
+    core.force_release_comfyui_memory = _force_release
+    core._get_or_create_comfykit = _get_kit
+
+    with pytest.raises(RuntimeError, match="without confirmed memory release"):
+        await core.execute_comfykit_workflow(
+            "workflow.json",
+            {"prompt": "demo"},
+            workflow_source="selfhost",
+        )
+
+    assert calls == [
+        ("prepare",),
+        ("get_kit",),
+        ("execute", 1),
+        ("force_release", "oom-recovery"),
+        ("release",),
     ]
 
 

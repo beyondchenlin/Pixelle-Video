@@ -481,9 +481,9 @@ class PixelleVideoCore:
                 self._local_comfyui_active_task_count += 1
                 scope.registered_active_task = True
 
-    def _mark_index_tts2_workflow_use(self, workflow_input) -> None:
+    def _mark_index_tts2_workflow_use(self, workflow_input) -> bool:
         if not is_index_tts2_workflow_key(workflow_input):
-            return
+            return False
 
         session = self._local_comfyui_workflow_session.get()
         if session is not None:
@@ -492,6 +492,7 @@ class PixelleVideoCore:
         scope = self._local_comfyui_task_scope.get()
         if scope is not None:
             scope.pending_extension_memory_release = True
+        return True
 
     async def _execute_local_comfykit_workflow_once(self, workflow_input, workflow_params: dict):
         kit = await self._get_or_create_comfykit()
@@ -511,7 +512,12 @@ class PixelleVideoCore:
                 "Local ComfyUI workflow ran out of memory; releasing memory and "
                 "retrying once after a fresh pre-workflow cleanup."
             )
-            await self.force_release_comfyui_memory(context="oom-recovery")
+            released = await self.force_release_comfyui_memory(context="oom-recovery")
+            if not released:
+                raise RuntimeError(
+                    "Local ComfyUI workflow ran out of memory and Pixelle stopped "
+                    "before retrying without confirmed memory release."
+                ) from exc
             await self.prepare_comfyui_for_local_workflow()
             await self._register_local_comfyui_task_use()
             return await self._execute_local_comfykit_workflow_once(
@@ -626,12 +632,18 @@ class PixelleVideoCore:
         async with self._local_comfyui_execution_lock:
             await self.prepare_comfyui_for_local_workflow()
             await self._register_local_comfyui_task_use()
-            self._mark_index_tts2_workflow_use(workflow_input)
+            used_index_tts2 = self._mark_index_tts2_workflow_use(workflow_input)
             try:
                 return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
             finally:
                 if self._should_release_local_comfyui_after_workflow():
-                    await self.release_comfyui_after_local_workflow()
+                    if used_index_tts2:
+                        await self.release_comfyui_extension_models_when_idle(
+                            context="post-index-tts2-workflow",
+                            missing_endpoint="optional",
+                        )
+                    else:
+                        await self.release_comfyui_after_local_workflow()
 
     async def execute_comfykit_workflow_file(
         self,
