@@ -13,6 +13,13 @@ from pixelle_video.services.generation_coordinator import (
 )
 
 
+def _install_noop_extension_preflight(core):
+    async def _preflight(*, context, extensions=("indextts2",)):
+        return True
+
+    core.preflight_comfyui_extension_release_endpoints = _preflight
+
+
 def test_generation_fingerprint_ignores_runtime_only_fields():
     first = build_generation_fingerprint(
         text="demo",
@@ -258,6 +265,10 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_extension_af
         calls.append(("extension_release", context, missing_endpoint))
         return True
 
+    async def _preflight(*, context, extensions=("indextts2",)):
+        calls.append(("preflight", context, extensions))
+        return True
+
     async def _get_kit():
         calls.append(("get_kit",))
         return _Kit()
@@ -265,6 +276,7 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_extension_af
     core.prepare_comfyui_for_local_workflow = _prepare
     core.release_comfyui_after_local_workflow = _release_workflow
     core.release_comfyui_extension_models_when_idle = _release_extension
+    core.preflight_comfyui_extension_release_endpoints = _preflight
     core._get_or_create_comfykit = _get_kit
 
     result = await core.execute_comfykit_workflow(
@@ -276,6 +288,7 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_extension_af
     assert result.status == "completed"
     assert calls == [
         ("prepare",),
+        ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("get_kit",),
         ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "demo"}),
         ("extension_release", "post-index-tts2-workflow", "optional"),
@@ -626,6 +639,7 @@ async def test_index_tts2_workflow_session_releases_extension_once_at_session_ex
 
     core.prepare_comfyui_for_local_workflow = _prepare
     core.release_comfyui_extension_models_when_idle = _release_extension
+    _install_noop_extension_preflight(core)
     core._get_or_create_comfykit = _get_kit
 
     async with core.local_comfyui_workflow_session():
@@ -682,12 +696,17 @@ async def test_local_comfyui_workflow_session_releases_extension_for_renamed_ind
         events.append(("extension_release", context, missing_endpoint))
         return True
 
+    async def _preflight(*, context, extensions=("indextts2",)):
+        events.append(("preflight", context, extensions))
+        return True
+
     async def _get_kit():
         events.append(("get_kit",))
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
     core.release_comfyui_extension_models_when_idle = _release_extension
+    core.preflight_comfyui_extension_release_endpoints = _preflight
     core._get_or_create_comfykit = _get_kit
 
     async with core.local_comfyui_workflow_session():
@@ -700,6 +719,7 @@ async def test_local_comfyui_workflow_session_releases_extension_for_renamed_ind
     assert result.status == "completed"
     assert events == [
         ("prepare",),
+        ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("get_kit",),
         ("execute", str(workflow_path), {"prompt": "first"}),
         ("extension_release", "post-index-tts2-workflow", "optional"),
@@ -729,6 +749,7 @@ async def test_index_tts2_workflow_session_releases_extension_at_session_exit():
 
     core.prepare_comfyui_for_local_workflow = _prepare
     core.release_comfyui_extension_models_when_idle = _release_extension
+    _install_noop_extension_preflight(core)
     core._get_or_create_comfykit = _get_kit
 
     async with core.local_comfyui_task_scope():
@@ -741,6 +762,51 @@ async def test_index_tts2_workflow_session_releases_extension_at_session_exit():
 
     assert events == [
         ("prepare",),
+        ("execute", "workflows/selfhost/tts_index2.json"),
+        ("extension_release", "post-index-tts2-workflow", "optional"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_index_tts2_workflow_preflights_required_extension_endpoint_before_execute():
+    events = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(("execute", workflow_input))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append(("prepare",))
+
+    async def _preflight(*, context, extensions=("indextts2",)):
+        events.append(("preflight", context, extensions))
+        return True
+
+    async def _release_extension(*, context, missing_endpoint="optional"):
+        events.append(("extension_release", context, missing_endpoint))
+        return True
+
+    async def _get_kit():
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.preflight_comfyui_extension_release_endpoints = _preflight
+    core.release_comfyui_extension_models_when_idle = _release_extension
+    core._get_or_create_comfykit = _get_kit
+
+    async with core.local_comfyui_workflow_session():
+        await core.execute_comfykit_workflow(
+            "workflows/selfhost/tts_index2.json",
+            {},
+            workflow_source="selfhost",
+        )
+
+    assert events == [
+        ("prepare",),
+        ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("execute", "workflows/selfhost/tts_index2.json"),
         ("extension_release", "post-index-tts2-workflow", "optional"),
     ]
@@ -774,6 +840,7 @@ async def test_index_tts2_workflow_session_does_not_force_release_on_normal_comp
     core.prepare_comfyui_for_local_workflow = _prepare
     core.release_comfyui_extension_models_when_idle = _release_extension
     core.force_release_comfyui_memory = _force_release
+    _install_noop_extension_preflight(core)
     core._get_or_create_comfykit = _get_kit
 
     async with core.local_comfyui_task_scope():
@@ -979,6 +1046,102 @@ async def test_release_comfyui_after_local_workflow_releases_models_after_batch(
 
 
 @pytest.mark.asyncio
+async def test_release_comfyui_after_local_workflow_logs_structured_release_result(monkeypatch):
+    log_events = []
+
+    class _BoundLogger:
+        def __init__(self, fields=None):
+            self.fields = fields or {}
+
+        def bind(self, **fields):
+            return _BoundLogger({**self.fields, **fields})
+
+        def info(self, message):
+            log_events.append(("info", message, self.fields))
+
+        def warning(self, message):
+            log_events.append(("warning", message, self.fields))
+
+    release_result = SimpleNamespace(
+        released=True,
+        to_log_fields=lambda: {
+            "released": True,
+            "comfyui_released": True,
+            "skipped": False,
+            "extension_results": [
+                {
+                    "extension": "indextts2",
+                    "endpoint": "/pixelle/indextts2/free",
+                    "released": True,
+                    "missing_endpoint": False,
+                    "vram": {
+                        "cuda_allocated_before": 2048,
+                        "cuda_allocated_after": 512,
+                    },
+                }
+            ],
+        },
+    )
+
+    class _Client:
+        def __init__(self, base_url, *, api_key=None):
+            pass
+
+        async def free_memory_with_extensions_when_idle(
+            self,
+            *,
+            intensity,
+            extensions=("indextts2",),
+            missing_endpoint="optional",
+        ):
+            return release_result
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                model_cleanup_mode="comfyui_and_extensions",
+            )
+        ),
+    )
+    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    monkeypatch.setattr(service_module, "logger", _BoundLogger())
+
+    core = PixelleVideoCore()
+
+    assert await core.release_comfyui_after_local_workflow() is True
+    assert log_events == [
+        (
+            "info",
+            "ComfyUI post-workflow memory release completed",
+            {
+                "channel": "runtime",
+                "event": "comfyui_memory_release",
+                "context": "post-workflow",
+                "model_cleanup_mode": "comfyui_and_extensions",
+                "released": True,
+                "comfyui_released": True,
+                "skipped": False,
+                "extension_results": [
+                    {
+                        "extension": "indextts2",
+                        "endpoint": "/pixelle/indextts2/free",
+                        "released": True,
+                        "missing_endpoint": False,
+                        "vram": {
+                            "cuda_allocated_before": 2048,
+                            "cuda_allocated_after": 512,
+                        },
+                    }
+                ],
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_prepare_comfyui_for_local_workflow_only_cleans_queue(monkeypatch):
     events = []
 
@@ -1041,6 +1204,7 @@ async def test_force_release_comfyui_memory_uses_comfyui_only_mode_high_intensit
 
         async def free_memory(self, intensity="high"):
             events.append(("force_release", intensity))
+            return True
 
     monkeypatch.setattr(
         service_module.config_manager,
@@ -1083,7 +1247,7 @@ async def test_force_release_comfyui_memory_uses_required_extension_endpoint(mon
             missing_endpoint="optional",
         ):
             events.append(("free_with_extensions", intensity, extensions, missing_endpoint))
-            return []
+            return True
 
     monkeypatch.setattr(
         service_module.config_manager,

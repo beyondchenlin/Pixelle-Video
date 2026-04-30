@@ -24,7 +24,15 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
         if request.url.path == "/pixelle/indextts2/free":
             return httpx.Response(
                 200,
-                json={"released": True, "loaders_seen": 1, "loaders_released": 1},
+                json={
+                    "released": True,
+                    "loaders_seen": 1,
+                    "loaders_released": 1,
+                    "cuda_allocated_before": 2048,
+                    "cuda_allocated_after": 512,
+                    "cuda_reserved_before": 4096,
+                    "cuda_reserved_after": 1024,
+                },
                 request=request,
             )
         return httpx.Response(200, request=request)
@@ -107,7 +115,10 @@ async def test_free_memory_when_idle_checks_queue_before_freeing():
 
     released = await client.free_memory_when_idle()
 
-    assert released is True
+    assert released.released is True
+    assert released.comfyui_released is True
+    assert released.queue_running == 0
+    assert released.queue_pending == 0
     assert transport.calls == [
         ("GET", "/queue", None),
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
@@ -121,7 +132,9 @@ async def test_free_memory_when_idle_supports_low_intensity_release():
 
     released = await client.free_memory_when_idle(intensity="low")
 
-    assert released is True
+    assert released.released is True
+    assert released.comfyui_released is True
+    assert released.intensity == "low"
     assert transport.calls == [
         ("GET", "/queue", None),
         ("POST", "/free", {"unload_models": True, "free_memory": False}),
@@ -137,7 +150,9 @@ async def test_free_memory_when_idle_skips_when_queue_is_busy():
 
     released = await client.free_memory_when_idle()
 
-    assert released is False
+    assert released.released is False
+    assert released.skipped is True
+    assert released.skipped_reason == "queue_busy"
     assert transport.calls == [("GET", "/queue", None)]
 
 
@@ -146,13 +161,51 @@ async def test_free_memory_with_extensions_calls_comfyui_free_then_indextts2_end
     transport = _RecordingTransport()
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
 
-    results = await client.free_memory_with_extensions("high", extensions=("indextts2",))
+    result = await client.free_memory_with_extensions("high", extensions=("indextts2",))
 
-    assert [result.extension for result in results] == ["indextts2"]
-    assert results[0].released is True
+    assert result.released is True
+    assert result.comfyui_released is True
+    assert [extension.extension for extension in result.extensions] == ["indextts2"]
+    assert result.extensions[0].released is True
     assert transport.calls == [
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
         ("POST", "/pixelle/indextts2/free", {}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_free_memory_with_extensions_preserves_extension_vram_snapshots():
+    transport = _RecordingTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    result = await client.free_memory_with_extensions("high", extensions=("indextts2",))
+
+    log_fields = result.to_log_fields()
+    assert log_fields["released"] is True
+    assert log_fields["comfyui_released"] is True
+    assert log_fields["extension_results"] == [
+        {
+            "extension": "indextts2",
+            "endpoint": "/pixelle/indextts2/free",
+            "released": True,
+            "missing_endpoint": False,
+            "message": "",
+            "vram": {
+                "cuda_allocated_before": 2048,
+                "cuda_allocated_after": 512,
+                "cuda_reserved_before": 4096,
+                "cuda_reserved_after": 1024,
+            },
+            "raw_response": {
+                "released": True,
+                "loaders_seen": 1,
+                "loaders_released": 1,
+                "cuda_allocated_before": 2048,
+                "cuda_allocated_after": 512,
+                "cuda_reserved_before": 4096,
+                "cuda_reserved_after": 1024,
+            },
+        }
     ]
 
 
@@ -166,7 +219,10 @@ async def test_free_memory_with_extensions_when_idle_checks_queue_before_release
         extensions=("indextts2",),
     )
 
-    assert released is True
+    assert released.released is True
+    assert released.skipped is False
+    assert released.queue_running == 0
+    assert released.queue_pending == 0
     assert transport.calls == [
         ("GET", "/queue", None),
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
@@ -186,7 +242,11 @@ async def test_free_memory_with_extensions_when_idle_skips_busy_queue():
         extensions=("indextts2",),
     )
 
-    assert released is False
+    assert released.released is False
+    assert released.skipped is True
+    assert released.skipped_reason == "queue_busy"
+    assert released.queue_running == 1
+    assert released.queue_pending == 0
     assert transport.calls == [("GET", "/queue", None)]
 
 
@@ -237,6 +297,26 @@ async def test_free_extension_models_raises_when_required_endpoint_is_missing():
 
 
 @pytest.mark.asyncio
+async def test_preflight_extension_release_endpoints_fails_fast_when_required_endpoint_is_missing():
+    class _MissingEndpointTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/pixelle/indextts2/free":
+                return httpx.Response(404, request=request)
+            return httpx.Response(200, request=request)
+
+    transport = _MissingEndpointTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    with pytest.raises(RuntimeError, match="tools/patch_indextts2_plugin.py"):
+        await client.preflight_extension_release_endpoints(extensions=("indextts2",))
+
+    assert transport.calls == [("POST", "/pixelle/indextts2/free", {})]
+
+
+@pytest.mark.asyncio
 async def test_free_extension_models_when_idle_skips_busy_queue():
     transport = _RecordingTransport(
         queue_payload={"queue_running": [["running"]], "queue_pending": []}
@@ -245,5 +325,7 @@ async def test_free_extension_models_when_idle_skips_busy_queue():
 
     released = await client.free_extension_models_when_idle(extensions=("indextts2",))
 
-    assert released is False
+    assert released.released is False
+    assert released.skipped is True
+    assert released.skipped_reason == "queue_busy"
     assert transport.calls == [("GET", "/queue", None)]

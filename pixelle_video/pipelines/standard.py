@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -1377,18 +1378,67 @@ class StandardPipeline(LinearVideoPipeline):
             return
 
         if media_session_policy == "batch":
-            async with _maybe_local_comfyui_workflow_session(
-                self.core,
-                release_after_session=True,
-            ):
-                for frame in storyboard.frames:
-                    await self._produce_staged_media_frame(
-                        ctx,
-                        frame,
-                        stage_start=stage_start,
-                        stage_end=stage_end,
-                        total_frames=total_frames,
-                    )
+            generatable_frame_count = sum(
+                1
+                for frame in storyboard.frames
+                if frame.image_prompt is not None
+            )
+            release_after_session = True
+            emit_stage_event(
+                channel="runtime",
+                stage="local_media_batch",
+                event="start",
+                message="Local media batch generation started",
+                media_session_policy=media_session_policy,
+                frame_count=total_frames,
+                generatable_frame_count=generatable_frame_count,
+                release_after_session=release_after_session,
+            )
+            started_at = time.perf_counter()
+            generated_frame_count = 0
+            try:
+                async with _maybe_local_comfyui_workflow_session(
+                    self.core,
+                    release_after_session=release_after_session,
+                ):
+                    for frame in storyboard.frames:
+                        await self._produce_staged_media_frame(
+                            ctx,
+                            frame,
+                            stage_start=stage_start,
+                            stage_end=stage_end,
+                            total_frames=total_frames,
+                        )
+                        if frame.image_prompt is not None:
+                            generated_frame_count += 1
+            except Exception:
+                elapsed_ms = int(round((time.perf_counter() - started_at) * 1000))
+                emit_stage_event(
+                    channel="runtime",
+                    stage="local_media_batch",
+                    event="fail",
+                    message="Local media batch generation failed",
+                    media_session_policy=media_session_policy,
+                    frame_count=total_frames,
+                    generatable_frame_count=generatable_frame_count,
+                    generated_frame_count=generated_frame_count,
+                    release_after_session=release_after_session,
+                    elapsed_ms=elapsed_ms,
+                )
+                raise
+            elapsed_ms = int(round((time.perf_counter() - started_at) * 1000))
+            emit_stage_event(
+                channel="runtime",
+                stage="local_media_batch",
+                event="end",
+                message="Local media batch generation completed",
+                media_session_policy=media_session_policy,
+                frame_count=total_frames,
+                generatable_frame_count=generatable_frame_count,
+                generated_frame_count=generated_frame_count,
+                release_after_session=release_after_session,
+                elapsed_ms=elapsed_ms,
+            )
             return
 
         for frame in storyboard.frames:

@@ -374,6 +374,56 @@ async def test_produce_assets_keeps_non_gguf_selfhost_media_in_batch_session(mon
 
 
 @pytest.mark.asyncio
+async def test_staged_media_batch_emits_structured_timing_events(monkeypatch):
+    events = []
+    perf_counter_values = iter([100.0, 100.125])
+
+    def fake_emit_stage_event(**payload):
+        events.append(payload)
+
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+
+    monkeypatch.setattr("pixelle_video.pipelines.standard.emit_stage_event", fake_emit_stage_event)
+    monkeypatch.setattr("pixelle_video.pipelines.standard.time.perf_counter", lambda: next(perf_counter_values))
+
+    await pipeline._produce_staged_media(
+        ctx,
+        stage_start=0.35,
+        stage_end=0.50,
+        media_session_policy="batch",
+    )
+
+    assert events == [
+        {
+            "channel": "runtime",
+            "stage": "local_media_batch",
+            "event": "start",
+            "message": "Local media batch generation started",
+            "media_session_policy": "batch",
+            "frame_count": 2,
+            "generatable_frame_count": 2,
+            "release_after_session": True,
+        },
+        {
+            "channel": "runtime",
+            "stage": "local_media_batch",
+            "event": "end",
+            "message": "Local media batch generation completed",
+            "media_session_policy": "batch",
+            "frame_count": 2,
+            "generatable_frame_count": 2,
+            "generated_frame_count": 2,
+            "release_after_session": True,
+            "elapsed_ms": 125,
+        },
+    ]
+    assert core.local_comfyui_session_release_options == [True]
+
+
+@pytest.mark.asyncio
 async def test_produce_assets_staged_materializes_element_motion_after_compose_before_segment(monkeypatch):
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor()

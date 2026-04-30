@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 import httpx
@@ -23,14 +23,72 @@ _EXTENSION_RELEASE_ENDPOINTS: dict[ComfyUIExtensionName, str] = {
     "indextts2": "/pixelle/indextts2/free",
 }
 
+_VRAM_RESPONSE_KEYS = (
+    "cuda_allocated_before",
+    "cuda_allocated_after",
+    "cuda_reserved_before",
+    "cuda_reserved_after",
+)
+
 
 @dataclass(frozen=True)
 class ComfyUIExtensionReleaseResult:
     extension: str
+    endpoint: str
     released: bool
     missing_endpoint: bool = False
     message: str = ""
     response: dict[str, Any] | None = None
+
+    def to_log_dict(self) -> dict[str, Any]:
+        vram = {}
+        if self.response is not None:
+            vram = {
+                key: self.response[key]
+                for key in _VRAM_RESPONSE_KEYS
+                if key in self.response
+            }
+        return {
+            "extension": self.extension,
+            "endpoint": self.endpoint,
+            "released": self.released,
+            "missing_endpoint": self.missing_endpoint,
+            "message": self.message,
+            "vram": vram,
+            "raw_response": self.response or {},
+        }
+
+
+@dataclass(frozen=True)
+class ComfyUIMemoryReleaseResult:
+    attempted: bool
+    released: bool
+    comfyui_released: bool = False
+    skipped: bool = False
+    skipped_reason: str = ""
+    intensity: ComfyUIReleaseIntensity | None = None
+    queue_running: int | None = None
+    queue_pending: int | None = None
+    extensions: tuple[ComfyUIExtensionReleaseResult, ...] = ()
+
+    def __bool__(self) -> bool:
+        return self.released
+
+    def to_log_fields(self) -> dict[str, Any]:
+        return {
+            "attempted": self.attempted,
+            "released": self.released,
+            "comfyui_released": self.comfyui_released,
+            "skipped": self.skipped,
+            "skipped_reason": self.skipped_reason,
+            "intensity": self.intensity,
+            "queue_running": self.queue_running,
+            "queue_pending": self.queue_pending,
+            "extension_results": [
+                extension.to_log_dict()
+                for extension in self.extensions
+            ],
+        }
 
 
 class ComfyUIMaintenanceClient:
@@ -89,11 +147,20 @@ class ComfyUIMaintenanceClient:
 
         logger.info("Skipping conservative ComfyUI cleanup because queue is already idle")
 
-    async def free_memory(self, intensity: ComfyUIReleaseIntensity = "high") -> None:
+    async def free_memory(
+        self,
+        intensity: ComfyUIReleaseIntensity = "high",
+    ) -> ComfyUIMemoryReleaseResult:
         payload = _FREE_MEMORY_PAYLOADS.get(intensity)
         if payload is None:
             raise ValueError(f"Unsupported ComfyUI release intensity: {intensity}")
         await self._post("/free", dict(payload))
+        return ComfyUIMemoryReleaseResult(
+            attempted=True,
+            released=True,
+            comfyui_released=True,
+            intensity=intensity,
+        )
 
     async def free_memory_with_extensions(
         self,
@@ -101,11 +168,16 @@ class ComfyUIMaintenanceClient:
         *,
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
         missing_endpoint: ComfyUIExtensionMissingEndpointMode = "optional",
-    ) -> list[ComfyUIExtensionReleaseResult]:
-        await self.free_memory(intensity)
-        return await self.free_extension_models(
+    ) -> ComfyUIMemoryReleaseResult:
+        result = await self.free_memory(intensity)
+        extension_results = await self.free_extension_models(
             extensions=extensions,
             missing_endpoint=missing_endpoint,
+        )
+        return replace(
+            result,
+            released=result.released or any(extension.released for extension in extension_results),
+            extensions=extension_results,
         )
 
     async def free_memory_with_extensions_when_idle(
@@ -114,7 +186,7 @@ class ComfyUIMaintenanceClient:
         intensity: ComfyUIReleaseIntensity = "high",
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
         missing_endpoint: ComfyUIExtensionMissingEndpointMode = "optional",
-    ) -> bool:
+    ) -> ComfyUIMemoryReleaseResult:
         queue = await self._get_queue()
         running, pending = self._queue_counts(queue)
         if running or pending:
@@ -122,25 +194,43 @@ class ComfyUIMaintenanceClient:
                 "Skipping ComfyUI memory and extension release because queue is busy "
                 f"(running={running}, pending={pending})"
             )
-            return False
+            return ComfyUIMemoryReleaseResult(
+                attempted=False,
+                released=False,
+                skipped=True,
+                skipped_reason="queue_busy",
+                intensity=intensity,
+                queue_running=running,
+                queue_pending=pending,
+            )
 
         logger.info(
             "Releasing ComfyUI memory and extension caches after idle workflow "
             f"completion ({intensity})"
         )
-        await self.free_memory(intensity)
-        await self.free_extension_models(
+        result = await self.free_memory_with_extensions(
+            intensity,
             extensions=extensions,
             missing_endpoint=missing_endpoint,
         )
-        return True
+        return replace(result, queue_running=running, queue_pending=pending)
+
+    async def preflight_extension_release_endpoints(
+        self,
+        *,
+        extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
+    ) -> tuple[ComfyUIExtensionReleaseResult, ...]:
+        return await self.free_extension_models(
+            extensions=extensions,
+            missing_endpoint="required",
+        )
 
     async def free_extension_models(
         self,
         *,
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
         missing_endpoint: ComfyUIExtensionMissingEndpointMode = "optional",
-    ) -> list[ComfyUIExtensionReleaseResult]:
+    ) -> tuple[ComfyUIExtensionReleaseResult, ...]:
         results: list[ComfyUIExtensionReleaseResult] = []
         for extension in extensions:
             endpoint = _EXTENSION_RELEASE_ENDPOINTS[extension]
@@ -158,6 +248,7 @@ class ComfyUIMaintenanceClient:
                         results.append(
                             ComfyUIExtensionReleaseResult(
                                 extension=extension,
+                                endpoint=endpoint,
                                 released=False,
                                 missing_endpoint=True,
                                 message=message,
@@ -172,18 +263,19 @@ class ComfyUIMaintenanceClient:
             results.append(
                 ComfyUIExtensionReleaseResult(
                     extension=extension,
+                    endpoint=endpoint,
                     released=bool(data.get("released")),
                     response=data,
                 )
             )
-        return results
+        return tuple(results)
 
     async def free_extension_models_when_idle(
         self,
         *,
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
         missing_endpoint: ComfyUIExtensionMissingEndpointMode = "optional",
-    ) -> bool:
+    ) -> ComfyUIMemoryReleaseResult:
         queue = await self._get_queue()
         running, pending = self._queue_counts(queue)
         if running or pending:
@@ -191,19 +283,32 @@ class ComfyUIMaintenanceClient:
                 "Skipping ComfyUI extension memory release because queue is busy "
                 f"(running={running}, pending={pending})"
             )
-            return False
+            return ComfyUIMemoryReleaseResult(
+                attempted=False,
+                released=False,
+                skipped=True,
+                skipped_reason="queue_busy",
+                queue_running=running,
+                queue_pending=pending,
+            )
 
         results = await self.free_extension_models(
             extensions=extensions,
             missing_endpoint=missing_endpoint,
         )
-        return any(result.released for result in results)
+        return ComfyUIMemoryReleaseResult(
+            attempted=True,
+            released=any(result.released for result in results),
+            queue_running=running,
+            queue_pending=pending,
+            extensions=results,
+        )
 
     async def free_memory_when_idle(
         self,
         *,
         intensity: ComfyUIReleaseIntensity = "high",
-    ) -> bool:
+    ) -> ComfyUIMemoryReleaseResult:
         queue = await self._get_queue()
         running, pending = self._queue_counts(queue)
         if running or pending:
@@ -211,11 +316,19 @@ class ComfyUIMaintenanceClient:
                 "Skipping ComfyUI memory release because queue is busy "
                 f"(running={running}, pending={pending})"
             )
-            return False
+            return ComfyUIMemoryReleaseResult(
+                attempted=False,
+                released=False,
+                skipped=True,
+                skipped_reason="queue_busy",
+                intensity=intensity,
+                queue_running=running,
+                queue_pending=pending,
+            )
 
         logger.info(f"Releasing ComfyUI memory after idle workflow completion ({intensity})")
-        await self.free_memory(intensity)
-        return True
+        result = await self.free_memory(intensity)
+        return replace(result, queue_running=running, queue_pending=pending)
 
     async def _get_queue(self) -> dict:
         response = await self._request("GET", "/queue")

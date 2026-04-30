@@ -64,6 +64,7 @@ class _LocalComfyUIWorkflowSession:
         self.lock_acquired = False
         self.prepared = False
         self.used_index_tts2 = False
+        self.index_tts2_release_preflight_done = False
         self.release_after_session = release_after_session
 
 
@@ -340,6 +341,43 @@ class PixelleVideoCore:
             return "disabled"
         return mode
 
+    def _log_comfyui_memory_release(
+        self,
+        *,
+        context: str,
+        model_cleanup_mode: str,
+        result,
+    ) -> None:
+        if hasattr(result, "to_log_fields"):
+            fields = result.to_log_fields()
+        else:
+            fields = {"released": bool(result)}
+        logger.bind(
+            channel="runtime",
+            event="comfyui_memory_release",
+            context=context,
+            model_cleanup_mode=model_cleanup_mode,
+            **fields,
+        ).info(f"ComfyUI {context} memory release completed")
+
+    def _log_comfyui_extension_release_preflight(
+        self,
+        *,
+        context: str,
+        model_cleanup_mode: str,
+        results,
+    ) -> None:
+        logger.bind(
+            channel="runtime",
+            event="comfyui_extension_release_preflight",
+            context=context,
+            model_cleanup_mode=model_cleanup_mode,
+            extension_results=[
+                result.to_log_dict() if hasattr(result, "to_log_dict") else result
+                for result in results
+            ],
+        ).info(f"ComfyUI {context} extension release preflight completed")
+
     async def _release_comfyui_memory_when_idle(self, context: str) -> bool:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
@@ -358,12 +396,19 @@ class PixelleVideoCore:
         )
         try:
             if model_cleanup_mode == "comfyui":
-                return await client.free_memory_when_idle(intensity="high")
-            return await client.free_memory_with_extensions_when_idle(
-                intensity="high",
-                extensions=("indextts2",),
-                missing_endpoint="optional",
+                result = await client.free_memory_when_idle(intensity="high")
+            else:
+                result = await client.free_memory_with_extensions_when_idle(
+                    intensity="high",
+                    extensions=("indextts2",),
+                    missing_endpoint="optional",
+                )
+            self._log_comfyui_memory_release(
+                context=context,
+                model_cleanup_mode=model_cleanup_mode,
+                result=result,
             )
+            return bool(result)
         except Exception as e:
             logger.warning(f"ComfyUI {context} memory release failed, continuing: {e}")
             return False
@@ -388,17 +433,57 @@ class PixelleVideoCore:
             if model_cleanup_mode == "disabled":
                 return False
             if model_cleanup_mode == "comfyui":
-                await client.free_memory("high")
+                result = await client.free_memory("high")
             else:
-                await client.free_memory_with_extensions(
+                result = await client.free_memory_with_extensions(
                     "high",
                     extensions=("indextts2",),
                     missing_endpoint="required",
                 )
-            return True
+            self._log_comfyui_memory_release(
+                context=context,
+                model_cleanup_mode=model_cleanup_mode,
+                result=result,
+            )
+            return bool(result)
         except Exception as e:
             logger.warning(f"ComfyUI {context} memory release failed, continuing: {e}")
             return False
+
+    async def preflight_comfyui_extension_release_endpoints(
+        self,
+        *,
+        context: str,
+        extensions=("indextts2",),
+    ) -> bool:
+        self.config = config_manager.config.to_dict()
+        comfyui_config = self.config.get("comfyui", {})
+        model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
+        if model_cleanup_mode != "comfyui_and_extensions":
+            return False
+
+        base_url = comfyui_config.get("comfyui_url")
+        if not base_url:
+            return False
+
+        client = ComfyUIMaintenanceClient(
+            base_url,
+            api_key=comfyui_config.get("comfyui_api_key"),
+        )
+        try:
+            results = await client.preflight_extension_release_endpoints(
+                extensions=extensions,
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"ComfyUI {context} extension release endpoint preflight failed: {e}"
+            ) from e
+        self._log_comfyui_extension_release_preflight(
+            context=context,
+            model_cleanup_mode=model_cleanup_mode,
+            results=results,
+        )
+        return True
 
     async def release_comfyui_extension_models_when_idle(
         self,
@@ -420,10 +505,16 @@ class PixelleVideoCore:
             api_key=comfyui_config.get("comfyui_api_key"),
         )
         try:
-            released = await client.free_extension_models_when_idle(
+            result = await client.free_extension_models_when_idle(
                 extensions=("indextts2",),
                 missing_endpoint=missing_endpoint,
             )
+            self._log_comfyui_memory_release(
+                context=context,
+                model_cleanup_mode="comfyui_and_extensions",
+                result=result,
+            )
+            released = bool(result)
             if released:
                 logger.info(f"Released ComfyUI extension model cache after {context}")
             return released
@@ -501,6 +592,25 @@ class PixelleVideoCore:
             scope.pending_extension_memory_release = True
         return True
 
+    async def _preflight_index_tts2_release_endpoint_once(
+        self,
+        session: _LocalComfyUIWorkflowSession | None,
+    ) -> None:
+        if session is not None:
+            if session.index_tts2_release_preflight_done:
+                return
+            await self.preflight_comfyui_extension_release_endpoints(
+                context="pre-index-tts2-workflow",
+                extensions=("indextts2",),
+            )
+            session.index_tts2_release_preflight_done = True
+            return
+
+        await self.preflight_comfyui_extension_release_endpoints(
+            context="pre-index-tts2-workflow",
+            extensions=("indextts2",),
+        )
+
     async def _execute_local_comfykit_workflow_once(self, workflow_input, workflow_params: dict):
         kit = await self._get_or_create_comfykit()
         return await kit.execute(workflow_input, workflow_params)
@@ -551,7 +661,9 @@ class PixelleVideoCore:
                     raise
 
         async with session.execute_lock:
-            self._mark_index_tts2_workflow_use(workflow_input)
+            used_index_tts2 = self._mark_index_tts2_workflow_use(workflow_input)
+            if used_index_tts2:
+                await self._preflight_index_tts2_release_endpoint_once(session)
             return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
 
     @asynccontextmanager
@@ -648,6 +760,8 @@ class PixelleVideoCore:
             await self.prepare_comfyui_for_local_workflow()
             await self._register_local_comfyui_task_use()
             used_index_tts2 = self._mark_index_tts2_workflow_use(workflow_input)
+            if used_index_tts2:
+                await self._preflight_index_tts2_release_endpoint_once(session)
             try:
                 return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
             finally:
