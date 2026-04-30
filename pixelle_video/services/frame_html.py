@@ -79,6 +79,11 @@ class HTMLFrameGenerator:
     _browser_states: dict[int, _BrowserState] = {}
     _browser_locks: dict[int, asyncio.Lock] = {}
     _state_guard = threading.Lock()
+    _RETRYABLE_BROWSER_ERROR_MARKERS = (
+        "Target page, context or browser has been closed",
+        "Target closed",
+        "Browser has been closed",
+    )
 
     def __init__(
         self,
@@ -698,6 +703,11 @@ class HTMLFrameGenerator:
                 return
             await cls._close_browser_state(current_loop, state)
 
+    @classmethod
+    def _is_retryable_browser_error(cls, exc: Exception) -> bool:
+        message = str(exc)
+        return any(marker in message for marker in cls._RETRYABLE_BROWSER_ERROR_MARKERS)
+
     async def generate_frame(
         self,
         title: str,
@@ -761,58 +771,74 @@ class HTMLFrameGenerator:
             f"(template: {self.template_width}x{self.template_height}, "
             f"canvas: {self.width}x{self.height})"
         )
-        tmp_html_path = None
-        debug_html_path = None
-        rendered = False
-        try:
-            browser = await self._ensure_browser()
-            page = await browser.new_page(
-                viewport={'width': self.template_width, 'height': self.template_height},
-                device_scale_factor=1,
-            )
+        for attempt in range(2):
+            tmp_html_path = None
+            debug_html_path = None
+            rendered = False
             try:
-                # Write HTML to a temp file and navigate via file:// URL so that
-                # local file:// image references are loaded under the same origin.
-                fd, tmp_html_path = tempfile.mkstemp(
-                    suffix='.html',
-                    prefix='pv_frame_',
-                    dir=get_temp_path(),
+                browser = await self._ensure_browser()
+                page = await browser.new_page(
+                    viewport={'width': self.template_width, 'height': self.template_height},
+                    device_scale_factor=1,
                 )
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                    f.write(html)
-                
-                await page.goto(
-                    Path(tmp_html_path).as_uri(),
-                    wait_until=self.render_readiness.navigation_wait_until,
-                    timeout=self.render_readiness.navigation_timeout_ms,
-                )
-                await self.render_readiness.wait(page)
-                await page.screenshot(path=output_path, type='png', omit_background=True)
-                self._normalize_canvas_output(output_path)
-                rendered = True
-            finally:
                 try:
-                    await page.close()
-                except Exception as close_error:
-                    logger.debug(f"Failed to close Playwright page cleanly: {close_error}")
-                if tmp_html_path and os.path.exists(tmp_html_path):
-                    if rendered:
-                        self._remove_temp_html(tmp_html_path)
-                    else:
-                        debug_html_path = self._preserve_debug_html(
-                            tmp_html_path,
-                            output_path,
-                        )
-                        self._remove_temp_html(tmp_html_path)
-            
-            logger.info(f"Frame generated: {output_path}")
-            return output_path
-            
-        except Exception as e:
-            diagnostic = (
-                f" Debug HTML: {debug_html_path}"
-                if debug_html_path
-                else ""
-            )
-            logger.error(f"Failed to render HTML template: {e}{diagnostic}")
-            raise RuntimeError(f"HTML rendering failed: {e}{diagnostic}") from e
+                    # Write HTML to a temp file and navigate via file:// URL so that
+                    # local file:// image references are loaded under the same origin.
+                    fd, tmp_html_path = tempfile.mkstemp(
+                        suffix='.html',
+                        prefix='pv_frame_',
+                        dir=get_temp_path(),
+                    )
+                    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                        f.write(html)
+
+                    await page.goto(
+                        Path(tmp_html_path).as_uri(),
+                        wait_until=self.render_readiness.navigation_wait_until,
+                        timeout=self.render_readiness.navigation_timeout_ms,
+                    )
+                    await self.render_readiness.wait(page)
+                    await page.screenshot(path=output_path, type='png', omit_background=True)
+                    self._normalize_canvas_output(output_path)
+                    rendered = True
+                finally:
+                    try:
+                        await page.close()
+                    except Exception as close_error:
+                        logger.debug(f"Failed to close Playwright page cleanly: {close_error}")
+                    if tmp_html_path and os.path.exists(tmp_html_path):
+                        if rendered:
+                            self._remove_temp_html(tmp_html_path)
+                        else:
+                            debug_html_path = self._preserve_debug_html(
+                                tmp_html_path,
+                                output_path,
+                            )
+                            self._remove_temp_html(tmp_html_path)
+
+                logger.info(f"Frame generated: {output_path}")
+                return output_path
+
+            except Exception as e:
+                if attempt == 0 and self._is_retryable_browser_error(e):
+                    if debug_html_path and os.path.exists(debug_html_path):
+                        try:
+                            os.unlink(debug_html_path)
+                        except Exception as cleanup_error:
+                            logger.debug(
+                                f"Failed to delete retry debug HTML: {cleanup_error}"
+                            )
+                    logger.warning(
+                        "Playwright browser disconnected while rendering HTML frame; "
+                        "retrying once with a fresh browser"
+                    )
+                    await self.close_browser()
+                    continue
+
+                diagnostic = (
+                    f" Debug HTML: {debug_html_path}"
+                    if debug_html_path
+                    else ""
+                )
+                logger.error(f"Failed to render HTML template: {e}{diagnostic}")
+                raise RuntimeError(f"HTML rendering failed: {e}{diagnostic}") from e

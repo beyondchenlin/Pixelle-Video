@@ -357,6 +357,71 @@ def test_html_frame_generator_uses_deterministic_render_readiness(
     assert output.exists()
 
 
+def test_html_frame_generator_retries_when_browser_disconnects_during_screenshot(
+    tmp_path,
+    monkeypatch,
+):
+    template_dir = tmp_path / "templates" / "1280x720"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "image_sample.html"
+    template.write_text("<html><body>{{title}}</body></html>", encoding="utf-8")
+    output = tmp_path / "frame.png"
+    attempts = {"count": 0, "closed": 0}
+
+    class FakePage:
+        def __init__(self, should_fail):
+            self.should_fail = should_fail
+
+        async def goto(self, url, wait_until, timeout=None):
+            pass
+
+        async def evaluate(self, script):
+            pass
+
+        async def screenshot(self, path, type, omit_background):
+            if self.should_fail:
+                raise RuntimeError(
+                    "Page.screenshot: Target page, context or browser has been closed"
+                )
+            Image.new("RGBA", (1280, 720), (255, 0, 0, 255)).save(path)
+
+        async def close(self):
+            attempts["closed"] += 1
+
+    class FakeBrowser:
+        def __init__(self, should_fail):
+            self.should_fail = should_fail
+
+        async def new_page(self, viewport, device_scale_factor):
+            return FakePage(self.should_fail)
+
+    async def fake_ensure_browser(_cls):
+        attempts["count"] += 1
+        return FakeBrowser(should_fail=attempts["count"] == 1)
+
+    monkeypatch.setattr(HTMLFrameGenerator, "_ensure_browser", fake_ensure_browser)
+
+    generator = HTMLFrameGenerator(str(template))
+    try:
+        result = run_async(
+            generator.generate_frame(
+                title="Retry screenshot",
+                text="",
+                image="",
+                ext={"index": 1},
+                output_path=str(output),
+            )
+        )
+    finally:
+        shutdown_all_async_runtimes()
+
+    assert result == str(output)
+    assert output.exists()
+    assert attempts["count"] == 2
+    assert attempts["closed"] == 2
+    assert not (tmp_path / "frame.debug.html").exists()
+
+
 def test_html_frame_generator_preserves_debug_html_when_rendering_fails(
     tmp_path,
     monkeypatch,
