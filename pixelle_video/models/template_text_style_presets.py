@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID
@@ -14,6 +15,23 @@ class TemplateTextStylePreset:
     title_style: Mapping[str, Any]
     title_region: Mapping[str, float]
     caption_safe_area: Mapping[str, float]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "title_style",
+            MappingProxyType(dict(self.title_style)),
+        )
+        object.__setattr__(
+            self,
+            "title_region",
+            MappingProxyType(dict(self.title_region)),
+        )
+        object.__setattr__(
+            self,
+            "caption_safe_area",
+            MappingProxyType(dict(self.caption_safe_area)),
+        )
 
     def title_style_dict(self) -> dict[str, Any]:
         return dict(self.title_style)
