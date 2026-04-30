@@ -23,9 +23,9 @@ This plan implements Stage 2 contract work only. It is governed by:
 Repository override:
 
 ```text
-AGENTS.md forbids git worktree use in this repository.
-Execute in the current workspace with narrow staging and atomic commits.
-Use Chinese commit messages.
+AGENTS.md allows `worktree` / `git worktree` when isolation or parallel execution is needed, but change boundaries must remain explicit and unrelated diffs must not be mixed.
+Execute in the current workspace or a dedicated worktree with narrow staging and atomic commits.
+Use Chinese commit messages and push each commit unless the user explicitly asks for local-only work.
 ```
 
 ## Hard Prerequisites
