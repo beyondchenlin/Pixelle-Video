@@ -21,6 +21,9 @@ from pydantic import BaseModel, model_validator
 class APIConfig(BaseModel):
     """API configuration"""
     
+    # Runtime profile
+    runtime_profile: Literal["dev", "production"] = "dev"
+
     # Server settings
     host: str = "0.0.0.0"
     port: int = 8000
@@ -50,6 +53,8 @@ class APIConfig(BaseModel):
     artifact_backend: Literal["local", "s3"] = "local"
     artifact_base_url: str = "/api/files"
     artifact_base_path: str = "output"
+    artifact_object_store_endpoint_url: Optional[str] = None
+    artifact_object_store_bucket: Optional[str] = None
     
     # File upload settings
     max_upload_size: int = 100 * 1024 * 1024  # 100MB
@@ -64,7 +69,8 @@ class APIConfig(BaseModel):
     def from_env(cls) -> "APIConfig":
         """Build API config from PIXELLE_* environment variables."""
         return cls(
-            task_backend=os.getenv("PIXELLE_TASK_BACKEND", "memory"),
+            runtime_profile=_env_str("PIXELLE_RUNTIME_PROFILE", default="dev"),
+            task_backend=_env_str("PIXELLE_TASK_BACKEND", default="memory"),
             postgres_dsn=os.getenv("PIXELLE_POSTGRES_DSN"),
             redis_url=os.getenv("PIXELLE_REDIS_URL"),
             require_distributed_coordination=_env_bool(
@@ -91,14 +97,18 @@ class APIConfig(BaseModel):
                 "PIXELLE_COMPLETED_REUSE_SECONDS",
                 default=86400,
             ),
-            execution_mode=os.getenv("PIXELLE_EXECUTION_MODE", "embedded"),
+            execution_mode=_env_str("PIXELLE_EXECUTION_MODE", default="embedded"),
             worker_poll_interval_seconds=_env_float(
                 "PIXELLE_WORKER_POLL_INTERVAL_SECONDS",
                 default=2.0,
             ),
-            artifact_backend=os.getenv("PIXELLE_ARTIFACT_BACKEND", "local"),
+            artifact_backend=_env_str("PIXELLE_ARTIFACT_BACKEND", default="local"),
             artifact_base_url=os.getenv("PIXELLE_ARTIFACT_BASE_URL", "/api/files"),
             artifact_base_path=os.getenv("PIXELLE_ARTIFACT_BASE_PATH", "output"),
+            artifact_object_store_endpoint_url=os.getenv(
+                "PIXELLE_ARTIFACT_OBJECT_STORE_ENDPOINT_URL"
+            ),
+            artifact_object_store_bucket=os.getenv("PIXELLE_ARTIFACT_OBJECT_STORE_BUCKET"),
         )
 
     @model_validator(mode="after")
@@ -113,6 +123,30 @@ class APIConfig(BaseModel):
             raise ValueError(
                 "generation_submit_lock_wait_seconds must be greater than or equal to generation_submit_lock_poll_seconds"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_runtime_profile(self) -> "APIConfig":
+        if self.runtime_profile != "production":
+            return self
+
+        missing: list[str] = []
+        if self.task_backend != "postgres":
+            missing.append("PIXELLE_TASK_BACKEND=postgres")
+        if _is_blank(self.postgres_dsn):
+            missing.append("PIXELLE_POSTGRES_DSN")
+        if _is_blank(self.redis_url):
+            missing.append("PIXELLE_REDIS_URL")
+        if self.artifact_backend != "s3":
+            missing.append("PIXELLE_ARTIFACT_BACKEND=s3")
+        if _is_blank(self.artifact_object_store_endpoint_url):
+            missing.append("PIXELLE_ARTIFACT_OBJECT_STORE_ENDPOINT_URL")
+        if _is_blank(self.artifact_object_store_bucket):
+            missing.append("PIXELLE_ARTIFACT_OBJECT_STORE_BUCKET")
+
+        if missing:
+            joined = ", ".join(missing)
+            raise ValueError(f"production runtime profile requires: {joined}")
         return self
 
 
@@ -131,6 +165,17 @@ def _env_int(name: str, *, default: int) -> int:
 def _env_float(name: str, *, default: float) -> float:
     value = os.getenv(name)
     return default if value is None else float(value)
+
+
+def _env_str(name: str, *, default: str) -> str:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    return value
+
+
+def _is_blank(value: Optional[str]) -> bool:
+    return value is None or value.strip() == ""
 
 
 # Global config instance
