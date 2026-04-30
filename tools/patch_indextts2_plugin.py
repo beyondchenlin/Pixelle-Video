@@ -9,6 +9,7 @@ from pathlib import Path
 INDEXTTS2_PLUGIN_ENV = "INDEXTTS2_PLUGIN_DIR"
 UTILS_RELATIVE_PATH = Path("indextts2") / "utils.py"
 INFER_V2_RELATIVE_PATH = Path("indextts2") / "vendor" / "indextts" / "infer_v2.py"
+ENGINE_RELATIVE_PATH = Path("indextts2") / "infer.py"
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ def patch_plugin(target: str | os.PathLike[str]) -> PatchResult:
 
     utils_path = plugin_dir / UTILS_RELATIVE_PATH
     infer_path = plugin_dir / INFER_V2_RELATIVE_PATH
+    engine_path = plugin_dir / ENGINE_RELATIVE_PATH
     _require_file(utils_path, UTILS_RELATIVE_PATH)
     _require_file(infer_path, INFER_V2_RELATIVE_PATH)
 
@@ -44,6 +46,8 @@ def patch_plugin(target: str | os.PathLike[str]) -> PatchResult:
         changed_files.append(utils_path)
     if _patch_file(infer_path, _patch_infer_v2):
         changed_files.append(infer_path)
+    if engine_path.exists() and _patch_file(engine_path, _patch_engine):
+        changed_files.append(engine_path)
     return PatchResult(changed_files=changed_files)
 
 
@@ -210,6 +214,25 @@ def _patch_infer_v2(text: str) -> str:
     text = _patch_use_emo_text_getter(text)
     text = _patch_do_sample_argument(text)
     return text
+
+
+def _patch_engine(text: str) -> str:
+    if (
+        "max_text_tokens_per_sentence=int(max_tokens_per_sentence)" in text
+        and "max_text_tokens_per_segment=int(max_tokens_per_sentence)" not in text
+    ):
+        return text
+
+    patched, count = re.subn(
+        r"\bmax_text_tokens_per_segment\s*=\s*int\(max_tokens_per_sentence\)\s*"
+        r"if\s*max_tokens_per_sentence\s*else\s*120\s*,",
+        "max_text_tokens_per_sentence=int(max_tokens_per_sentence) if max_tokens_per_sentence else 120,",
+        text,
+        count=1,
+    )
+    if count != 1:
+        raise ValueError("could not find max_tokens_per_sentence forwarding call to patch")
+    return patched
 
 
 def _patch_qwen_initialization(text: str) -> str:

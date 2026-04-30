@@ -147,6 +147,18 @@ class QwenEmotion:
 """
 
 
+ENGINE_SAMPLE = """class IndexTTS2Engine:
+    def generate(self, tts, text, max_tokens_per_sentence=120, **gen_kwargs):
+        result = tts.infer(
+            text=text,
+            output_path=None,
+            max_text_tokens_per_segment=int(max_tokens_per_sentence) if max_tokens_per_sentence else 120,
+            **gen_kwargs,
+        )
+        return result
+"""
+
+
 def load_module():
     return importlib.import_module("tools.patch_indextts2_plugin")
 
@@ -166,6 +178,13 @@ def create_minimal_plugin_with_infer(tmp_path, infer_text):
     plugin_dir, utils_path, infer_path = create_minimal_plugin(tmp_path)
     infer_path.write_text(infer_text, encoding="utf-8")
     return plugin_dir, utils_path, infer_path
+
+
+def create_minimal_plugin_with_engine(tmp_path, engine_text=ENGINE_SAMPLE):
+    plugin_dir, utils_path, infer_path = create_minimal_plugin(tmp_path)
+    engine_path = plugin_dir / "indextts2" / "infer.py"
+    engine_path.write_text(engine_text, encoding="utf-8")
+    return plugin_dir, utils_path, infer_path, engine_path
 
 
 def load_utils_module(utils_path):
@@ -290,6 +309,21 @@ def test_patch_do_sample_only_updates_inference_speech_argument():
     assert "fallback_result = self.audit_generation_defaults(do_sample=True)" in patched
     assert "do_sample=do_sample" in patched
     assert "do_sample=True" not in patched.split("self.gpt.inference_speech(", maxsplit=1)[1]
+
+
+def test_patch_plugin_forwards_sentence_token_cap_to_infer_v2(tmp_path):
+    patch_module = load_module()
+    plugin_dir, utils_path, infer_path, engine_path = create_minimal_plugin_with_engine(tmp_path)
+
+    first_result = patch_module.patch_plugin(plugin_dir)
+    first_engine = engine_path.read_text(encoding="utf-8")
+    second_result = patch_module.patch_plugin(plugin_dir)
+
+    assert engine_path in first_result.changed_files
+    assert second_result.changed_files == []
+    assert engine_path.read_text(encoding="utf-8") == first_engine
+    assert "max_text_tokens_per_sentence=int(max_tokens_per_sentence)" in first_engine
+    assert "max_text_tokens_per_segment" not in first_engine
 
 
 def test_resolve_target_path_uses_indextts_env(monkeypatch, tmp_path):
