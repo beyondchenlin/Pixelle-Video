@@ -448,8 +448,11 @@ def test_patch_plugin_adds_indextts2_release_contract_idempotently(tmp_path):
     assert "bigvgan" in first_loader
 
     assert "from . import pixelle_routes as _pixelle_routes" in first_init
+    assert '@PromptServer.instance.routes.get("/pixelle/indextts2/health")' in first_routes
     assert '@PromptServer.instance.routes.post("/pixelle/indextts2/free")' in first_routes
+    assert "indextts2_release_health()" in first_routes
     assert "unload_all_indextts2()" in first_routes
+    assert '"release_endpoint": "/pixelle/indextts2/free"' in first_loader
 
 
 def test_patch_plugin_requires_model_loader_for_release_contract(tmp_path):

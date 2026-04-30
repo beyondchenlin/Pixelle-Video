@@ -272,6 +272,17 @@ def _patch_model_loader(text: str) -> str:
         if count != 1:
             raise ValueError("could not find IndexTTS2Loader class to patch")
 
+    if "def indextts2_release_health" not in text:
+        text, count = re.subn(
+            r"^class IndexTTS2Loader:",
+            STABLE_INDEXTTS2_HEALTH + "class IndexTTS2Loader:",
+            text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if count != 1:
+            raise ValueError("could not find IndexTTS2Loader class to patch health contract")
+
     if "_INDEXTTS2_LOADER_REGISTRY.add(self)" not in text:
         patched, count = re.subn(
             r"(?P<indent>\s*)self\._cache:\s*Dict\[str,\s*Any\]\s*=\s*\{\}\s*$",
@@ -372,6 +383,20 @@ def unload_all_indextts2() -> dict:
         "cuda_allocated_after": after.get("cuda_allocated"),
         "cuda_reserved_before": before.get("cuda_reserved"),
         "cuda_reserved_after": after.get("cuda_reserved"),
+}
+
+
+'''
+
+
+STABLE_INDEXTTS2_HEALTH = '''def indextts2_release_health() -> dict:
+    with _INDEXTTS2_LOADER_REGISTRY_LOCK:
+        loaders_seen = len(list(_INDEXTTS2_LOADER_REGISTRY))
+    return {
+        "ok": True,
+        "extension": "indextts2",
+        "release_endpoint": "/pixelle/indextts2/free",
+        "loaders_seen": loaders_seen,
     }
 
 
@@ -423,7 +448,12 @@ def _patch_plugin_init(text: str) -> str:
 STABLE_PIXELLE_ROUTES = '''from aiohttp import web
 from server import PromptServer
 
-from .indextts2.model_loader import unload_all_indextts2
+from .indextts2.model_loader import indextts2_release_health, unload_all_indextts2
+
+
+@PromptServer.instance.routes.get("/pixelle/indextts2/health")
+async def pixelle_health_indextts2(request):
+    return web.json_response(indextts2_release_health())
 
 
 @PromptServer.instance.routes.post("/pixelle/indextts2/free")

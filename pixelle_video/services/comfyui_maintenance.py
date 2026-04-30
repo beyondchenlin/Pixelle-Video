@@ -22,6 +22,9 @@ _FREE_MEMORY_PAYLOADS: dict[ComfyUIReleaseIntensity, dict[str, bool]] = {
 _EXTENSION_RELEASE_ENDPOINTS: dict[ComfyUIExtensionName, str] = {
     "indextts2": "/pixelle/indextts2/free",
 }
+_EXTENSION_HEALTH_ENDPOINTS: dict[ComfyUIExtensionName, str] = {
+    "indextts2": "/pixelle/indextts2/health",
+}
 
 _VRAM_RESPONSE_KEYS = (
     "cuda_allocated_before",
@@ -112,14 +115,18 @@ class ComfyUIMaintenanceClient:
         *,
         api_key: str | None = None,
         timeout: float = 5.0,
+        system_stats_timeout: float = 0.5,
         transport: httpx.AsyncBaseTransport | None = None,
         idle_wait_timeout: float = 20.0,
     ) -> None:
         if idle_wait_timeout <= 0:
             raise ValueError("idle_wait_timeout must be positive")
+        if system_stats_timeout <= 0:
+            raise ValueError("system_stats_timeout must be positive")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        self.system_stats_timeout = system_stats_timeout
         self.transport = transport
         self.idle_wait_timeout = idle_wait_timeout
 
@@ -236,10 +243,32 @@ class ComfyUIMaintenanceClient:
         *,
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
     ) -> tuple[ComfyUIExtensionReleaseResult, ...]:
-        return await self.free_extension_models(
-            extensions=extensions,
-            missing_endpoint="required",
-        )
+        results: list[ComfyUIExtensionReleaseResult] = []
+        for extension in extensions:
+            endpoint = _EXTENSION_HEALTH_ENDPOINTS[extension]
+            try:
+                response = await self._request("GET", endpoint)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    message = (
+                        f"ComfyUI extension health endpoint {endpoint} is missing. "
+                        "Run tools/patch_indextts2_plugin.py against ComfyUI-Index-TTS, "
+                        "then restart ComfyUI."
+                    )
+                    raise RuntimeError(message) from exc
+                raise
+
+            payload = response.json()
+            data = payload if isinstance(payload, dict) else {}
+            results.append(
+                ComfyUIExtensionReleaseResult(
+                    extension=extension,
+                    endpoint=endpoint,
+                    released=False,
+                    response=data,
+                )
+            )
+        return tuple(results)
 
     async def free_extension_models(
         self,
@@ -353,7 +382,11 @@ class ComfyUIMaintenanceClient:
 
     async def _get_system_vram_snapshot(self) -> dict[str, Any] | None:
         try:
-            response = await self._request("GET", "/system_stats")
+            response = await self._request(
+                "GET",
+                "/system_stats",
+                timeout=self.system_stats_timeout,
+            )
             data = response.json()
         except Exception as exc:
             logger.debug(f"Skipping ComfyUI system VRAM snapshot: {exc}")

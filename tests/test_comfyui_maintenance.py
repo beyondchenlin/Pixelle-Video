@@ -53,6 +53,17 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
         if request.url.path == "/system_stats" and request.method == "GET":
             payload = self.system_stats_payloads.pop(0) if self.system_stats_payloads else {}
             return httpx.Response(200, json=payload, request=request)
+        if request.url.path == "/pixelle/indextts2/health":
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "extension": "indextts2",
+                    "release_endpoint": "/pixelle/indextts2/free",
+                    "loaders_seen": 1,
+                },
+                request=request,
+            )
         if request.url.path == "/pixelle/indextts2/free":
             return httpx.Response(
                 200,
@@ -396,7 +407,7 @@ async def test_preflight_extension_release_endpoints_fails_fast_when_required_en
             body = await request.aread()
             payload = json.loads(body.decode("utf-8")) if body else None
             self.calls.append((request.method, request.url.path, payload))
-            if request.url.path == "/pixelle/indextts2/free":
+            if request.url.path == "/pixelle/indextts2/health":
                 return httpx.Response(404, request=request)
             return httpx.Response(200, request=request)
 
@@ -406,7 +417,63 @@ async def test_preflight_extension_release_endpoints_fails_fast_when_required_en
     with pytest.raises(RuntimeError, match="tools/patch_indextts2_plugin.py"):
         await client.preflight_extension_release_endpoints(extensions=("indextts2",))
 
-    assert transport.calls == [("POST", "/pixelle/indextts2/free", {})]
+    assert transport.calls == [("GET", "/pixelle/indextts2/health", None)]
+
+
+@pytest.mark.asyncio
+async def test_preflight_extension_release_endpoints_uses_side_effect_free_health_endpoint():
+    transport = _RecordingTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    results = await client.preflight_extension_release_endpoints(extensions=("indextts2",))
+
+    assert results[0].extension == "indextts2"
+    assert results[0].endpoint == "/pixelle/indextts2/health"
+    assert results[0].released is False
+    assert results[0].response == {
+        "ok": True,
+        "extension": "indextts2",
+        "release_endpoint": "/pixelle/indextts2/free",
+        "loaders_seen": 1,
+    }
+    assert transport.calls == [("GET", "/pixelle/indextts2/health", None)]
+
+
+@pytest.mark.asyncio
+async def test_system_vram_snapshot_uses_short_timeout():
+    calls = []
+
+    class _Client(ComfyUIMaintenanceClient):
+        async def _request(self, method, path, **kwargs):
+            calls.append((method, path, kwargs.get("timeout")))
+            return httpx.Response(
+                200,
+                json={
+                    "devices": [
+                        {
+                            "name": "NVIDIA",
+                            "type": "cuda",
+                            "vram_free": 4096,
+                        }
+                    ]
+                },
+                request=httpx.Request(method, f"http://127.0.0.1:8000{path}"),
+            )
+
+    client = _Client("http://127.0.0.1:8000", system_stats_timeout=0.25)
+
+    snapshot = await client._get_system_vram_snapshot()
+
+    assert snapshot == {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_free": 4096,
+            }
+        ]
+    }
+    assert calls == [("GET", "/system_stats", 0.25)]
 
 
 @pytest.mark.asyncio
