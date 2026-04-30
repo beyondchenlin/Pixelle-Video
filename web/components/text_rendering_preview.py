@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 import streamlit as st
 
+from pixelle_video.models.media_placement import calculate_media_box
 from pixelle_video.models.template_text_style_presets import (
     resolve_template_text_style_preset,
 )
@@ -23,19 +24,20 @@ PREVIEW_STYLE_IGNORED_KEYS = {
 @dataclass(frozen=True)
 class TextRenderingPreviewSpec:
     template_id: str
-    render_backend: str
+    render_backend: str | None
     canvas_width: int
     canvas_height: int
     media_width: int
     media_height: int
     media_placement: dict[str, Any]
     preview_media_ref: str | None
+    placeholder_media: bool
     title_text: str
     caption_text: str
     title_style: dict[str, Any]
     caption_style: dict[str, Any]
-    title_region: dict[str, float]
-    caption_safe_area: dict[str, float]
+    template_title_region: dict[str, float]
+    template_caption_safe_area: dict[str, float]
     fingerprint: str = field(default="")
 
 
@@ -59,7 +61,7 @@ def preview_spec_fingerprint(spec: TextRenderingPreviewSpec | Mapping[str, Any])
 def build_text_rendering_preview_spec(
     *,
     template_id: str,
-    render_backend: str,
+    render_backend: str | None,
     canvas_width: int,
     canvas_height: int,
     media_width: int,
@@ -73,21 +75,23 @@ def build_text_rendering_preview_spec(
     **_ignored: Any,
 ) -> TextRenderingPreviewSpec:
     preset = resolve_template_text_style_preset(template_id)
+    normalized_preview_media_ref = str(preview_media_ref).strip() if preview_media_ref else None
     spec = TextRenderingPreviewSpec(
         template_id=str(template_id),
-        render_backend=str(render_backend),
+        render_backend=str(render_backend) if render_backend is not None else None,
         canvas_width=int(canvas_width),
         canvas_height=int(canvas_height),
         media_width=int(media_width),
         media_height=int(media_height),
         media_placement=dict(media_placement or {}),
-        preview_media_ref=str(preview_media_ref).strip() if preview_media_ref else None,
+        preview_media_ref=normalized_preview_media_ref,
+        placeholder_media=normalized_preview_media_ref is None,
         title_text=str(title_text or ""),
         caption_text=str(caption_text or ""),
         title_style=_clean_style(title_style),
         caption_style=_clean_style(caption_style),
-        title_region=preset.title_region_dict(),
-        caption_safe_area=preset.caption_safe_area_dict(),
+        template_title_region=preset.title_region_dict(),
+        template_caption_safe_area=preset.caption_safe_area_dict(),
     )
     return TextRenderingPreviewSpec(**{**spec.__dict__, "fingerprint": preview_spec_fingerprint(spec)})
 
@@ -123,6 +127,24 @@ def _style_css(style: Mapping[str, Any], region: Mapping[str, float]) -> str:
     )
 
 
+def _media_box_css(spec: TextRenderingPreviewSpec) -> str:
+    media_box = calculate_media_box(
+        canvas_width=spec.canvas_width,
+        canvas_height=spec.canvas_height,
+        media_source_width=spec.media_width,
+        media_source_height=spec.media_height,
+        placement=spec.media_placement,
+    )
+    canvas_width = max(float(spec.canvas_width), 1.0)
+    canvas_height = max(float(spec.canvas_height), 1.0)
+    return (
+        f"left:{media_box.left / canvas_width * 100:.3f}%;"
+        f"top:{media_box.top / canvas_height * 100:.3f}%;"
+        f"width:{media_box.width / canvas_width * 100:.3f}%;"
+        f"height:{media_box.height / canvas_height * 100:.3f}%;"
+    )
+
+
 def render_preview_html(spec: TextRenderingPreviewSpec) -> str:
     media_ref = _safe_media_ref(spec.preview_media_ref)
     media_layer = (
@@ -134,15 +156,16 @@ def render_preview_html(spec: TextRenderingPreviewSpec) -> str:
     return f"""
 <div class="text-rendering-preview" data-fingerprint="{escape(spec.fingerprint, quote=True)}"
      style="aspect-ratio:{aspect_ratio:.6f};">
-  <div class="text-rendering-preview__layer text-rendering-preview__media" data-layer="media">
+  <div class="text-rendering-preview__layer text-rendering-preview__media" data-layer="media"
+       style="{_media_box_css(spec)}">
     {media_layer}
   </div>
   <div class="text-rendering-preview__layer text-rendering-preview__title" data-layer="title"
-       style="{_style_css(spec.title_style, spec.title_region)}">
+       style="{_style_css(spec.title_style, spec.template_title_region)}">
     {escape(spec.title_text)}
   </div>
   <div class="text-rendering-preview__layer text-rendering-preview__caption" data-layer="caption"
-       style="{_style_css(spec.caption_style, spec.caption_safe_area)}">
+       style="{_style_css(spec.caption_style, spec.template_caption_safe_area)}">
     {escape(spec.caption_text)}
   </div>
 </div>
@@ -160,7 +183,6 @@ def render_preview_html(spec: TextRenderingPreviewSpec) -> str:
   box-sizing: border-box;
 }}
 .text-rendering-preview__media {{
-  inset: 0;
   display: grid;
   place-items: center;
 }}
