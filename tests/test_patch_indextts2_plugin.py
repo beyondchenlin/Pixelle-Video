@@ -1,6 +1,7 @@
 import importlib
 import importlib.util
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -159,18 +160,83 @@ ENGINE_SAMPLE = """class IndexTTS2Engine:
 """
 
 
+MODEL_LOADER_SAMPLE = """import os
+import sys
+import gc
+import torch
+from typing import Optional, Dict, Any
+
+
+class IndexTTS2Loader:
+    DEFAULT_DIRNAME = "IndexTTS-2"
+
+    def __init__(self, models_root: Optional[str] = None, device: Optional[str] = None, dtype: Optional[str] = None):
+        self._models_root = models_root or "models"
+        self._model_dir = os.path.join(self._models_root, self.DEFAULT_DIRNAME)
+        self._device = torch.device(device) if device else torch.device("cuda")
+        self._dtype = torch.float16
+        self._cache: Dict[str, Any] = {}
+
+    def get_tts(self):
+        if "tts" in self._cache:
+            return self._cache["tts"]
+        self._cache["tts"] = object()
+        return self._cache["tts"]
+
+    def unload_tts(self) -> None:
+        try:
+            tts = self._cache.pop("tts", None)
+            del tts
+        except Exception:
+            pass
+        try:
+            gc.collect()
+        except Exception:
+            pass
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+"""
+
+
+PLUGIN_INIT_SAMPLE = '''"""IndexTTS custom node."""
+
+import os
+import sys
+
+NODE_CLASS_MAPPINGS = {}
+NODE_DISPLAY_NAME_MAPPINGS = {}
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
+'''
+
+
 def load_module():
-    return importlib.import_module("tools.patch_indextts2_plugin")
+    module_name = "tools.patch_indextts2_plugin"
+    module_path = Path(__file__).resolve().parents[1] / "tools" / "patch_indextts2_plugin.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def create_minimal_plugin(tmp_path):
     plugin_dir = tmp_path / "ComfyUI-Index-TTS"
     utils_path = plugin_dir / "indextts2" / "utils.py"
     infer_path = plugin_dir / "indextts2" / "vendor" / "indextts" / "infer_v2.py"
+    loader_path = plugin_dir / "indextts2" / "model_loader.py"
+    init_path = plugin_dir / "__init__.py"
     utils_path.parent.mkdir(parents=True)
     infer_path.parent.mkdir(parents=True)
     utils_path.write_text(UTILS_SAMPLE, encoding="utf-8")
     infer_path.write_text(INFER_V2_SAMPLE, encoding="utf-8")
+    loader_path.write_text(MODEL_LOADER_SAMPLE, encoding="utf-8")
+    init_path.write_text(PLUGIN_INIT_SAMPLE, encoding="utf-8")
     return plugin_dir, utils_path, infer_path
 
 
@@ -187,6 +253,15 @@ def create_minimal_plugin_with_engine(tmp_path, engine_text=ENGINE_SAMPLE):
     return plugin_dir, utils_path, infer_path, engine_path
 
 
+def create_minimal_plugin_with_loader_and_init(tmp_path):
+    plugin_dir, utils_path, infer_path = create_minimal_plugin(tmp_path)
+    loader_path = plugin_dir / "indextts2" / "model_loader.py"
+    init_path = plugin_dir / "__init__.py"
+    loader_path.write_text(MODEL_LOADER_SAMPLE, encoding="utf-8")
+    init_path.write_text(PLUGIN_INIT_SAMPLE, encoding="utf-8")
+    return plugin_dir, utils_path, infer_path, loader_path, init_path
+
+
 def load_utils_module(utils_path):
     module_name = f"patched_indextts2_utils_{utils_path.parent.parent.name}"
     spec = importlib.util.spec_from_file_location(module_name, utils_path)
@@ -200,13 +275,22 @@ def load_utils_module(utils_path):
 def test_patch_plugin_updates_minimal_samples_idempotently(tmp_path):
     patch_module = load_module()
     plugin_dir, utils_path, infer_path = create_minimal_plugin(tmp_path)
+    loader_path = plugin_dir / "indextts2" / "model_loader.py"
+    init_path = plugin_dir / "__init__.py"
+    routes_path = plugin_dir / "pixelle_routes.py"
 
     first_result = patch_module.patch_plugin(plugin_dir)
     first_utils = utils_path.read_text(encoding="utf-8")
     first_infer = infer_path.read_text(encoding="utf-8")
     second_result = patch_module.patch_plugin(plugin_dir)
 
-    assert first_result.changed_files == [utils_path, infer_path]
+    assert first_result.changed_files == [
+        utils_path,
+        infer_path,
+        loader_path,
+        init_path,
+        routes_path,
+    ]
     assert second_result.changed_files == []
     assert utils_path.read_text(encoding="utf-8") == first_utils
     assert infer_path.read_text(encoding="utf-8") == first_infer
@@ -240,12 +324,21 @@ def test_patch_plugin_supports_current_upstream_qwen_initialization(tmp_path):
         tmp_path,
         CURRENT_UPSTREAM_INFER_V2_SAMPLE,
     )
+    loader_path = plugin_dir / "indextts2" / "model_loader.py"
+    init_path = plugin_dir / "__init__.py"
+    routes_path = plugin_dir / "pixelle_routes.py"
 
     first_result = patch_module.patch_plugin(plugin_dir)
     first_infer = infer_path.read_text(encoding="utf-8")
     second_result = patch_module.patch_plugin(plugin_dir)
 
-    assert first_result.changed_files == [utils_path, infer_path]
+    assert first_result.changed_files == [
+        utils_path,
+        infer_path,
+        loader_path,
+        init_path,
+        routes_path,
+    ]
     assert second_result.changed_files == []
     assert infer_path.read_text(encoding="utf-8") == first_infer
     assert "qwen_subdir = str(self.cfg.qwen_emo_path).strip()" in first_infer
@@ -324,6 +417,48 @@ def test_patch_plugin_forwards_sentence_token_cap_to_infer_v2(tmp_path):
     assert engine_path.read_text(encoding="utf-8") == first_engine
     assert "max_text_tokens_per_sentence=int(max_tokens_per_sentence)" in first_engine
     assert "max_text_tokens_per_segment" not in first_engine
+
+
+def test_patch_plugin_adds_indextts2_release_contract_idempotently(tmp_path):
+    patch_module = load_module()
+    plugin_dir, utils_path, infer_path, loader_path, init_path = create_minimal_plugin_with_loader_and_init(tmp_path)
+    routes_path = plugin_dir / "pixelle_routes.py"
+
+    first_result = patch_module.patch_plugin(plugin_dir)
+    first_loader = loader_path.read_text(encoding="utf-8")
+    first_init = init_path.read_text(encoding="utf-8")
+    first_routes = routes_path.read_text(encoding="utf-8")
+    second_result = patch_module.patch_plugin(plugin_dir)
+
+    assert loader_path in first_result.changed_files
+    assert init_path in first_result.changed_files
+    assert routes_path in first_result.changed_files
+    assert second_result.changed_files == []
+
+    assert loader_path.read_text(encoding="utf-8") == first_loader
+    assert init_path.read_text(encoding="utf-8") == first_init
+    assert routes_path.read_text(encoding="utf-8") == first_routes
+
+    assert "weakref.WeakSet()" in first_loader
+    assert "_INDEXTTS2_LOADER_REGISTRY.add(self)" in first_loader
+    assert "def unload_all_indextts2" in first_loader
+    assert "cuda_allocated_before" in first_loader
+    assert "torch.cuda.ipc_collect()" in first_loader
+    assert "semantic_model" in first_loader
+    assert "bigvgan" in first_loader
+
+    assert "from . import pixelle_routes as _pixelle_routes" in first_init
+    assert '@PromptServer.instance.routes.post("/pixelle/indextts2/free")' in first_routes
+    assert "unload_all_indextts2()" in first_routes
+
+
+def test_patch_plugin_requires_model_loader_for_release_contract(tmp_path):
+    patch_module = load_module()
+    plugin_dir, utils_path, infer_path = create_minimal_plugin(tmp_path)
+    (plugin_dir / "indextts2" / "model_loader.py").unlink()
+
+    with pytest.raises(FileNotFoundError, match="indextts2/model_loader.py"):
+        patch_module.patch_plugin(plugin_dir)
 
 
 def test_resolve_target_path_uses_indextts_env(monkeypatch, tmp_path):

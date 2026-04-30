@@ -10,6 +10,9 @@ INDEXTTS2_PLUGIN_ENV = "INDEXTTS2_PLUGIN_DIR"
 UTILS_RELATIVE_PATH = Path("indextts2") / "utils.py"
 INFER_V2_RELATIVE_PATH = Path("indextts2") / "vendor" / "indextts" / "infer_v2.py"
 ENGINE_RELATIVE_PATH = Path("indextts2") / "infer.py"
+MODEL_LOADER_RELATIVE_PATH = Path("indextts2") / "model_loader.py"
+PLUGIN_INIT_RELATIVE_PATH = Path("__init__.py")
+PIXELLE_ROUTES_RELATIVE_PATH = Path("pixelle_routes.py")
 
 
 @dataclass(frozen=True)
@@ -38,8 +41,13 @@ def patch_plugin(target: str | os.PathLike[str]) -> PatchResult:
     utils_path = plugin_dir / UTILS_RELATIVE_PATH
     infer_path = plugin_dir / INFER_V2_RELATIVE_PATH
     engine_path = plugin_dir / ENGINE_RELATIVE_PATH
+    model_loader_path = plugin_dir / MODEL_LOADER_RELATIVE_PATH
+    plugin_init_path = plugin_dir / PLUGIN_INIT_RELATIVE_PATH
+    routes_path = plugin_dir / PIXELLE_ROUTES_RELATIVE_PATH
     _require_file(utils_path, UTILS_RELATIVE_PATH)
     _require_file(infer_path, INFER_V2_RELATIVE_PATH)
+    _require_file(model_loader_path, MODEL_LOADER_RELATIVE_PATH)
+    _require_file(plugin_init_path, PLUGIN_INIT_RELATIVE_PATH)
 
     changed_files: list[Path] = []
     if _patch_file(utils_path, _patch_utils):
@@ -48,6 +56,12 @@ def patch_plugin(target: str | os.PathLike[str]) -> PatchResult:
         changed_files.append(infer_path)
     if engine_path.exists() and _patch_file(engine_path, _patch_engine):
         changed_files.append(engine_path)
+    if _patch_file(model_loader_path, _patch_model_loader):
+        changed_files.append(model_loader_path)
+    if _patch_file(plugin_init_path, _patch_plugin_init):
+        changed_files.append(plugin_init_path)
+    if _write_stable_file(routes_path, STABLE_PIXELLE_ROUTES):
+        changed_files.append(routes_path)
     return PatchResult(changed_files=changed_files)
 
 
@@ -65,6 +79,14 @@ def _patch_file(path: Path, patcher) -> bool:
     if patched == original:
         return False
     path.write_text(patched, encoding="utf-8")
+    return True
+
+
+def _write_stable_file(path: Path, content: str) -> bool:
+    original = path.read_text(encoding="utf-8") if path.exists() else None
+    if original == content:
+        return False
+    path.write_text(content, encoding="utf-8")
     return True
 
 
@@ -187,7 +209,7 @@ def _replace_function(text: str, function_name: str, replacement: str) -> str:
 
     matches = [
         node
-        for node in tree.body
+        for node in ast.walk(tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function_name
     ]
     if len(matches) != 1:
@@ -233,6 +255,183 @@ def _patch_engine(text: str) -> str:
     if count != 1:
         raise ValueError("could not find max_tokens_per_sentence forwarding call to patch")
     return patched
+
+
+def _patch_model_loader(text: str) -> str:
+    text = _ensure_import(text, "import threading")
+    text = _ensure_import(text, "import weakref")
+
+    if "def unload_all_indextts2" not in text:
+        text, count = re.subn(
+            r"^class IndexTTS2Loader:",
+            STABLE_INDEXTTS2_RELEASE_SUPPORT + "class IndexTTS2Loader:",
+            text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if count != 1:
+            raise ValueError("could not find IndexTTS2Loader class to patch")
+
+    if "_INDEXTTS2_LOADER_REGISTRY.add(self)" not in text:
+        patched, count = re.subn(
+            r"(?P<indent>\s*)self\._cache:\s*Dict\[str,\s*Any\]\s*=\s*\{\}\s*$",
+            "\\g<0>\n\\g<indent>with _INDEXTTS2_LOADER_REGISTRY_LOCK:\n"
+            "\\g<indent>    _INDEXTTS2_LOADER_REGISTRY.add(self)",
+            text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if count != 1:
+            raise ValueError("could not find IndexTTS2Loader cache initialization to patch")
+        text = patched
+
+    return _replace_function(text, "unload_tts", STABLE_UNLOAD_TTS)
+
+
+STABLE_INDEXTTS2_RELEASE_SUPPORT = '''_INDEXTTS2_LOADER_REGISTRY = weakref.WeakSet()
+_INDEXTTS2_LOADER_REGISTRY_LOCK = threading.RLock()
+_INDEXTTS2_TTS_ATTRS = (
+    "gpt",
+    "semantic_model",
+    "semantic_codec",
+    "s2mel",
+    "campplus_model",
+    "bigvgan",
+    "qwen_emo",
+    "extract_features",
+    "semantic_mean",
+    "semantic_std",
+    "tokenizer",
+    "model",
+)
+
+
+def _cuda_memory_stats() -> dict:
+    stats = {
+        "cuda_available": False,
+        "cuda_allocated": None,
+        "cuda_reserved": None,
+    }
+    try:
+        if torch.cuda.is_available():
+            stats["cuda_available"] = True
+            stats["cuda_allocated"] = int(torch.cuda.memory_allocated())
+            stats["cuda_reserved"] = int(torch.cuda.memory_reserved())
+    except Exception as exc:
+        stats["cuda_error"] = str(exc)
+    return stats
+
+
+def _clear_cuda_cache() -> None:
+    try:
+        gc.collect()
+    except Exception:
+        pass
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+    except Exception:
+        pass
+
+
+def _release_tts_object(tts: Any) -> None:
+    if tts is None:
+        return
+    for attr in _INDEXTTS2_TTS_ATTRS:
+        try:
+            if hasattr(tts, attr):
+                setattr(tts, attr, None)
+        except Exception:
+            pass
+
+
+def unload_all_indextts2() -> dict:
+    before = _cuda_memory_stats()
+    with _INDEXTTS2_LOADER_REGISTRY_LOCK:
+        loaders = list(_INDEXTTS2_LOADER_REGISTRY)
+
+    released = 0
+    errors = []
+    for loader in loaders:
+        try:
+            if loader.unload_tts():
+                released += 1
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+
+    _clear_cuda_cache()
+    after = _cuda_memory_stats()
+    return {
+        "released": released > 0,
+        "loaders_seen": len(loaders),
+        "loaders_released": released,
+        "errors": errors,
+        "cuda_allocated_before": before.get("cuda_allocated"),
+        "cuda_allocated_after": after.get("cuda_allocated"),
+        "cuda_reserved_before": before.get("cuda_reserved"),
+        "cuda_reserved_after": after.get("cuda_reserved"),
+    }
+
+
+'''
+
+
+STABLE_UNLOAD_TTS = '''    def unload_tts(self) -> bool:
+        """
+        Best-effort unload of cached TTS instance and free GPU cache to reduce VRAM.
+        Safe to call even if not loaded.
+        """
+        released = False
+        try:
+            tts = self._cache.pop("tts", None)
+            released = tts is not None
+            _release_tts_object(tts)
+            del tts
+        except Exception:
+            pass
+        _clear_cuda_cache()
+        return released
+'''
+
+
+def _patch_plugin_init(text: str) -> str:
+    import_line = "from . import pixelle_routes as _pixelle_routes"
+    if import_line in text:
+        return text
+
+    lines = text.splitlines()
+    insert_at = 0
+    if lines and lines[0].startswith('"""'):
+        insert_at = 1
+        while insert_at < len(lines) and not lines[insert_at].endswith('"""'):
+            insert_at += 1
+        insert_at = min(insert_at + 1, len(lines))
+
+    while insert_at < len(lines) and (
+        lines[insert_at].startswith("import ")
+        or lines[insert_at].startswith("from ")
+        or not lines[insert_at].strip()
+    ):
+        insert_at += 1
+
+    lines.insert(insert_at, import_line)
+    return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+
+
+STABLE_PIXELLE_ROUTES = '''from aiohttp import web
+from server import PromptServer
+
+from .indextts2.model_loader import unload_all_indextts2
+
+
+@PromptServer.instance.routes.post("/pixelle/indextts2/free")
+async def pixelle_free_indextts2(request):
+    result = unload_all_indextts2()
+    status = 500 if result.get("errors") else 200
+    return web.json_response(result, status=status)
+'''
 
 
 def _patch_qwen_initialization(text: str) -> str:
