@@ -55,6 +55,7 @@ from api.dependencies import shutdown_pixelle_video
 
 # Import routers
 from api.routers import (
+    asset_bible_router,
     content_router,
     files_router,
     frame_router,
@@ -152,6 +153,7 @@ app.include_router(llm_trace_router, prefix=api_config.api_prefix)
 app.include_router(tts_router, prefix=api_config.api_prefix)
 app.include_router(image_router, prefix=api_config.api_prefix)
 app.include_router(content_router, prefix=api_config.api_prefix)
+app.include_router(asset_bible_router, prefix=api_config.api_prefix)
 app.include_router(video_router, prefix=api_config.api_prefix)
 app.include_router(tasks_router, prefix=api_config.api_prefix)
 app.include_router(files_router, prefix=api_config.api_prefix)
@@ -175,6 +177,7 @@ async def root():
             "tts": f"{api_config.api_prefix}/tts",
             "image": f"{api_config.api_prefix}/image",
             "content": f"{api_config.api_prefix}/content",
+            "asset_bible": f"{api_config.api_prefix}/projects/{{project_id}}/asset-bible",
             "video": f"{api_config.api_prefix}/video",
             "tasks": f"{api_config.api_prefix}/tasks",
             "files": f"{api_config.api_prefix}/files",

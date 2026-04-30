@@ -14,6 +14,7 @@
 API Routers
 """
 
+from api.routers.asset_bible import router as asset_bible_router
 from api.routers.content import router as content_router
 from api.routers.files import router as files_router
 from api.routers.frame import router as frame_router
@@ -35,6 +36,7 @@ __all__ = [
     "tts_router",
     "image_router",
     "content_router",
+    "asset_bible_router",
     "video_router",
     "tasks_router",
     "files_router",
