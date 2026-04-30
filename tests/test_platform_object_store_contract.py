@@ -1,38 +1,36 @@
+import inspect
 import os
-from importlib.util import module_from_spec, spec_from_file_location
+import sys
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-OBJECT_STORE_PATH = REPO_ROOT / "pixelle_video" / "storage" / "object_store.py"
+sys.path.insert(0, str(REPO_ROOT))
 
-
-def load_object_store_module() -> ModuleType:
-    spec = spec_from_file_location("pixelle_video.storage.object_store", OBJECT_STORE_PATH)
-    assert spec is not None
-    assert spec.loader is not None
-
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from pixelle_video.storage.object_store import (  # noqa: E402
+    FilesystemDevRawPayloadStore,
+    RawPayloadStore,
+)
 
 
 def test_raw_payload_store_contract_exposes_required_methods():
-    object_store = load_object_store_module()
-
-    assert hasattr(object_store.RawPayloadStore, "put_json")
-    assert hasattr(object_store.RawPayloadStore, "get_json")
-    assert hasattr(object_store.RawPayloadStore, "exists")
+    assert inspect.iscoroutinefunction(RawPayloadStore.put_json)
+    assert inspect.iscoroutinefunction(RawPayloadStore.get_json)
+    assert inspect.iscoroutinefunction(RawPayloadStore.exists)
 
 
-def test_filesystem_dev_store_returns_storage_key_and_round_trips_payload(tmp_path):
-    object_store = load_object_store_module()
-    store = object_store.FilesystemDevRawPayloadStore(root=tmp_path)
+def test_filesystem_dev_store_contract_exposes_async_methods():
+    assert inspect.iscoroutinefunction(FilesystemDevRawPayloadStore.put_json)
+    assert inspect.iscoroutinefunction(FilesystemDevRawPayloadStore.get_json)
+    assert inspect.iscoroutinefunction(FilesystemDevRawPayloadStore.exists)
+
+
+async def test_filesystem_dev_store_returns_storage_key_and_round_trips_payload(tmp_path):
+    store = FilesystemDevRawPayloadStore(root=tmp_path)
     payload = {"prompt": "hello", "metadata": {"count": 2, "enabled": True}}
 
-    storage_key = store.put_json(workspace_id="workspace-1", payload=payload)
+    storage_key = await store.put_json(workspace_id="workspace-1", payload=payload)
 
     assert storage_key.startswith("raw-payloads/workspace-1/")
     assert storage_key.endswith(".json")
@@ -41,8 +39,8 @@ def test_filesystem_dev_store_returns_storage_key_and_round_trips_payload(tmp_pa
 
     written_path = tmp_path / storage_key
     assert written_path.is_file()
-    assert store.get_json(storage_key) == payload
-    assert store.exists(storage_key) is True
+    assert await store.get_json(storage_key) == payload
+    assert await store.exists(storage_key) is True
 
 
 @pytest.mark.parametrize(
@@ -50,13 +48,34 @@ def test_filesystem_dev_store_returns_storage_key_and_round_trips_payload(tmp_pa
     [
         "../secret.json",
         "raw-payloads/workspace-1/../../secret.json",
+        "raw-payloads/workspace-1//x.json",
+        "raw-payloads/workspace-1/./x.json",
+        "raw-payloads/workspace-1/x/../y.json",
     ],
 )
-def test_filesystem_dev_store_exists_rejects_traversal_attempts(tmp_path, storage_key):
-    object_store = load_object_store_module()
-    store = object_store.FilesystemDevRawPayloadStore(root=tmp_path)
+async def test_filesystem_dev_store_exists_rejects_non_canonical_keys(tmp_path, storage_key):
+    store = FilesystemDevRawPayloadStore(root=tmp_path)
 
-    assert store.exists(storage_key) is False
+    assert await store.exists(storage_key) is False
+
+
+@pytest.mark.parametrize(
+    "storage_key",
+    [
+        "../secret.json",
+        "raw-payloads/workspace-1/../../secret.json",
+        "raw-payloads/workspace-1//x.json",
+        "raw-payloads/workspace-1/./x.json",
+        "raw-payloads/workspace-1/x/../y.json",
+    ],
+)
+async def test_filesystem_dev_store_get_json_rejects_non_canonical_keys(
+    tmp_path, storage_key
+):
+    store = FilesystemDevRawPayloadStore(root=tmp_path)
+
+    with pytest.raises(ValueError):
+        await store.get_json(storage_key)
 
 
 @pytest.mark.parametrize(
@@ -69,9 +88,10 @@ def test_filesystem_dev_store_exists_rejects_traversal_attempts(tmp_path, storag
         "..",
     ],
 )
-def test_filesystem_dev_store_rejects_workspace_ids_with_path_syntax(tmp_path, workspace_id):
-    object_store = load_object_store_module()
-    store = object_store.FilesystemDevRawPayloadStore(root=tmp_path)
+async def test_filesystem_dev_store_rejects_workspace_ids_with_path_syntax(
+    tmp_path, workspace_id
+):
+    store = FilesystemDevRawPayloadStore(root=tmp_path)
 
     with pytest.raises(ValueError):
-        store.put_json(workspace_id=workspace_id, payload={"value": 1})
+        await store.put_json(workspace_id=workspace_id, payload={"value": 1})

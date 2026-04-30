@@ -7,13 +7,13 @@ RAW_PAYLOAD_PREFIX = "raw-payloads"
 
 
 class RawPayloadStore(Protocol):
-    def put_json(self, workspace_id: str, payload: Mapping[str, object]) -> str:
+    async def put_json(self, workspace_id: str, payload: Mapping[str, object]) -> str:
         ...
 
-    def get_json(self, storage_key: str) -> dict[str, object]:
+    async def get_json(self, storage_key: str) -> dict[str, object]:
         ...
 
-    def exists(self, storage_key: str) -> bool:
+    async def exists(self, storage_key: str) -> bool:
         ...
 
 
@@ -24,7 +24,7 @@ class FilesystemDevRawPayloadStore:
         self._root = Path(root).expanduser().resolve()
         self._root.mkdir(parents=True, exist_ok=True)
 
-    def put_json(self, workspace_id: str, payload: Mapping[str, object]) -> str:
+    async def put_json(self, workspace_id: str, payload: Mapping[str, object]) -> str:
         self._validate_workspace_id(workspace_id)
 
         storage_key = f"{RAW_PAYLOAD_PREFIX}/{workspace_id}/{uuid4().hex}.json"
@@ -36,11 +36,11 @@ class FilesystemDevRawPayloadStore:
         )
         return storage_key
 
-    def get_json(self, storage_key: str) -> dict[str, object]:
+    async def get_json(self, storage_key: str) -> dict[str, object]:
         target_path = self._path_for_storage_key(storage_key)
         return json.loads(target_path.read_text(encoding="utf-8"))
 
-    def exists(self, storage_key: str) -> bool:
+    async def exists(self, storage_key: str) -> bool:
         try:
             return self._path_for_storage_key(storage_key).is_file()
         except ValueError:
@@ -60,9 +60,11 @@ class FilesystemDevRawPayloadStore:
     def _path_for_storage_key(self, storage_key: str) -> Path:
         key = PurePosixPath(storage_key)
         parts = key.parts
+        normalized_key = key.as_posix()
 
         if (
             not storage_key
+            or storage_key != normalized_key
             or storage_key.startswith("/")
             or "\\" in storage_key
             or ":" in storage_key
