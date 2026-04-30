@@ -2589,8 +2589,12 @@ class StandardPipeline(LinearVideoPipeline):
         if config is not None:
             try:
                 template_id = self._resolve_hyperframes_template_id(config)
-            except Exception:
+            except Exception as exc:
                 template_id = getattr(config, "frame_template", None)
+                logger.warning(
+                    "Falling back to frame_template for text rendering template "
+                    f"style defaults after template resolution failed: {exc}"
+                )
         result = TextRenderingOrchestrator().build(
             text_rendering=self._text_rendering_request_for_contract(ctx),
             narrations=frame_texts,
