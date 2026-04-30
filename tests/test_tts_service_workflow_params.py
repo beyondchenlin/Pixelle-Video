@@ -213,50 +213,6 @@ async def test_tts_service_accepts_opus_audio_from_outputs(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_tts_service_maps_ref_audio_text_to_longcat_prompt_text():
-    core = _FakeCore()
-    service = TTSService({"comfyui": {"tts": {}}}, core=core)
-
-    await service._call_comfyui_workflow(
-        {
-            "key": "selfhost/tts_longcat_clone.json",
-            "source": "selfhost",
-            "path": "workflows/selfhost/tts_longcat_clone.json",
-        },
-        text="generated text",
-        ref_audio="data/reference_audio/indextts2/sample.wav",
-        ref_audio_text="reference transcript",
-    )
-
-    _, params = core.kit.calls[0]
-    assert params["prompt_text"] == "reference transcript"
-    assert "ref_audio_text" not in params
-    assert "reference_audio_text" not in params
-
-
-@pytest.mark.asyncio
-async def test_tts_service_maps_ref_audio_text_to_runninghub_voxcpm_reference_audio_text():
-    core = _FakeCore()
-    service = TTSService({"comfyui": {"tts": {}}}, core=core)
-
-    await service._call_comfyui_workflow(
-        {
-            "key": "selfhost/tts_voxcpm2_rh_clone.json",
-            "source": "selfhost",
-            "path": "workflows/selfhost/tts_voxcpm2_rh_clone.json",
-        },
-        text="generated text",
-        ref_audio="data/reference_audio/indextts2/sample.wav",
-        ref_audio_text="reference transcript",
-    )
-
-    _, params = core.kit.calls[0]
-    assert params["reference_audio_text"] == "reference transcript"
-    assert "ref_audio_text" not in params
-    assert "prompt_text" not in params
-
-
-@pytest.mark.asyncio
 async def test_tts_service_rejects_missing_required_ref_audio_before_execution():
     core = _FakeCore()
     service = TTSService({"comfyui": {"tts": {}}}, core=core)

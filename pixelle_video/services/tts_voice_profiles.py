@@ -19,10 +19,6 @@ def infer_tts_model_slug(workflow_key: str | None) -> str:
 
     if "index2" in normalized or "indextts2" in normalized:
         return "indextts2"
-    if "voxcpm2" in normalized:
-        return "voxcpm2"
-    if "longcat" in normalized:
-        return "longcat"
     if "edge" in normalized:
         return "edge"
 

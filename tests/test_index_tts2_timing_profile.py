@@ -153,12 +153,12 @@ def test_standard_pipeline_does_not_require_index_tts2_internal_split_control_pa
     assert "overflow_policy" not in params
 
 
-def test_standard_pipeline_passes_ref_audio_text_as_semantic_param():
+def test_standard_pipeline_passes_ref_audio_text_through_without_workflow_rewrite():
     config = StoryboardConfig(
         media_width=1080,
         media_height=1920,
         tts_inference_mode="comfyui",
-        tts_workflow="selfhost/tts_longcat_clone.json",
+        tts_workflow="selfhost/tts_index2.json",
         ref_audio="temp/ref.wav",
         ref_audio_text="hello from the reference clip",
     )
