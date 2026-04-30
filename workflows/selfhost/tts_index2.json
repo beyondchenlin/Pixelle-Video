@@ -1,7 +1,7 @@
 {
   "3": {
     "inputs": {
-      "value": "床前明月光，疑是地上霜。"
+      "value": "IndexTTS2 sample input."
     },
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
@@ -62,7 +62,7 @@
     },
     "class_type": "VHS_LoadAudioUpload",
     "_meta": {
-      "title": "$ref_audio.audio"
+      "title": "$ref_audio.~audio!"
     }
   },
   "13": {

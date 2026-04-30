@@ -60,7 +60,7 @@ def test_image_z_image_turbo_gguf_workflow_is_parseable():
 
 def test_image_z_image_turbo_gguf_doc_declares_easy_use_dependency():
     doc = Path(
-        "workflows/down/image_z_image_turbo_gguf_依赖与下载说明.md"
+        "workflows/down/image_z_image_turbo_gguf_\u4f9d\u8d56\u4e0e\u4e0b\u8f7d\u8bf4\u660e.md"
     ).read_text(encoding="utf-8")
 
     assert "ComfyUI-Easy-Use" in doc
@@ -113,7 +113,7 @@ def test_tts_index2_uses_builtin_multiline_string_input():
     workflow = json.loads(Path("workflows/selfhost/tts_index2.json").read_text(encoding="utf-8"))
 
     assert workflow["3"]["class_type"] == "PrimitiveStringMultiline"
-    assert workflow["3"]["inputs"]["value"] == "床前明月光，疑是地上霜。"
+    assert workflow["3"]["inputs"]["value"] == "IndexTTS2 sample input."
     assert workflow["3"]["_meta"]["title"] == "$text.value!"
 
 
@@ -123,6 +123,21 @@ def test_tts_index2_exposes_only_current_workflow_inputs():
     )
 
     assert set(metadata.params.keys()) == {"text", "ref_audio"}
+
+
+def test_tts_index2_treats_ref_audio_as_uploaded_audio():
+    metadata = WorkflowParser().parse_workflow_file(
+        str(Path("workflows/selfhost/tts_index2.json"))
+    )
+
+    assert metadata.params["ref_audio"].required is True
+    assert metadata.params["ref_audio"].need_upload is True
+
+    mappings = {
+        mapping.param_name: (mapping.node_id, mapping.input_field, mapping.need_upload)
+        for mapping in metadata.mapping_info.param_mappings
+    }
+    assert mappings["ref_audio"] == ("12", "audio", True)
 
 
 def test_tts_longcat_clone_workflow_is_parseable_and_modelscope_first():
@@ -201,7 +216,7 @@ def test_tts_edge_workflow_is_parseable_and_uses_pixelle_nodes():
 
     assert workflow["1"]["class_type"] == "PixelleEdgeTTS"
     assert workflow["3"]["class_type"] == "PrimitiveStringMultiline"
-    assert workflow["3"]["inputs"]["value"] == "床前明月光，疑是地上霜。"
+    assert workflow["3"]["inputs"]["value"] == "\u5e8a\u524d\u660e\u6708\u5149\uff0c\u7591\u662f\u5730\u4e0a\u971c\u3002"
     assert workflow["3"]["_meta"]["title"] == "$text.value!"
     assert workflow["7"]["class_type"] == "PrimitiveStringMultiline"
     assert workflow["7"]["inputs"]["value"] == "zh-CN-YunjianNeural"
