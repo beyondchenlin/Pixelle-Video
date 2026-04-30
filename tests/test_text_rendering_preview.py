@@ -137,3 +137,73 @@ def test_render_preview_html_uses_media_placement_for_media_box_percentages():
     assert "top:50.000%;" in html
     assert "width:25.000%;" in html
     assert "height:50.000%;" in html
+
+
+def test_render_preview_html_sanitizes_style_values():
+    spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=900,
+        media_height=1200,
+        media_placement={"anchor": "center"},
+        title_text="Title",
+        caption_text="Caption",
+        title_style={
+            "font_size": "99999",
+            "primary_color": "#fff;position:fixed",
+            "stroke_color": "url(javascript:alert(1))",
+            "stroke_width": "999",
+            "background_color": "expression(alert(1))",
+            "background_opacity": "99",
+        },
+        caption_style={
+            "font_size": "not-a-number",
+            "primary_color": "red;left:0",
+            "stroke_color": "#123456",
+            "stroke_width": "-9",
+            "background_color": "#ABC",
+            "background_opacity": "-1",
+        },
+    )
+
+    html = render_preview_html(spec)
+
+    assert "#fff;position:fixed" not in html
+    assert "url(javascript:alert(1))" not in html
+    assert "expression(alert(1))" not in html
+    assert "red;left:0" not in html
+    assert "font-size:240px;" in html
+    assert "font-size:42px;" in html
+    assert "color:#FFFFFF;" in html
+    assert "color:#123456;" not in html
+    assert "background:transparent;" in html
+    assert "-webkit-text-stroke:16px #000000;" in html
+    assert "-webkit-text-stroke:0px #123456;" in html
+
+
+def test_render_preview_html_degrades_when_media_contract_is_invalid():
+    spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=0,
+        canvas_height=1920,
+        media_width=-1,
+        media_height=1200,
+        media_placement={"anchor": "stale", "scale_percent": "bad"},
+        title_text="Title",
+        caption_text="Caption",
+        title_style={},
+        caption_style={},
+    )
+
+    html = render_preview_html(spec)
+
+    assert 'data-layer="media"' in html
+    assert 'data-layer="title"' in html
+    assert 'data-layer="caption"' in html
+    assert "left:0.000%;" in html
+    assert "top:0.000%;" in html
+    assert "width:100.000%;" in html
+    assert "height:100.000%;" in html

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from html import escape
+from math import isfinite
 from typing import Any, Mapping
 
 import streamlit as st
@@ -19,6 +21,10 @@ PREVIEW_STYLE_IGNORED_KEYS = {
     "preview_caption_text",
     "preview_media_ref",
 }
+SAFE_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
+SAFE_MEDIA_REF_RE = re.compile(
+    r"^(?:https?://[^\s\"'<>]+|/[A-Za-z0-9._/-]*|artifacts/[A-Za-z0-9._/-]+|[A-Za-z0-9._/-]+)$"
+)
 
 
 @dataclass(frozen=True)
@@ -99,21 +105,57 @@ def build_text_rendering_preview_spec(
 def _safe_media_ref(value: str | None) -> str | None:
     if not value:
         return None
-    if any(token in value.lower() for token in ("\"", "'", "<", ">", "javascript:", "onerror")):
+    cleaned = value.strip()
+    if not SAFE_MEDIA_REF_RE.match(cleaned):
         return None
-    return escape(value, quote=True)
+    if ".." in cleaned.split("/"):
+        return None
+    return escape(cleaned, quote=True)
+
+
+def _safe_color(value: Any, default: str | None) -> str | None:
+    cleaned = str(value or "").strip()
+    if SAFE_COLOR_RE.fullmatch(cleaned):
+        return cleaned
+    return default
+
+
+def _safe_int(value: Any, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        float_value = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not isfinite(float_value):
+        return default
+    numeric_value = int(float_value)
+    return min(max(numeric_value, minimum), maximum)
+
+
+def _safe_float(value: Any, default: float, *, minimum: float, maximum: float) -> float:
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not isfinite(numeric_value):
+        return default
+    return min(max(numeric_value, minimum), maximum)
 
 
 def _style_css(style: Mapping[str, Any], region: Mapping[str, float]) -> str:
-    font_size = int(style.get("font_size") or 42)
-    color = escape(str(style.get("primary_color") or "#FFFFFF"), quote=True)
-    stroke_color = escape(str(style.get("stroke_color") or "#000000"), quote=True)
-    stroke_width = int(style.get("stroke_width") or 0)
-    background_color = style.get("background_color")
-    background_opacity = float(style.get("background_opacity") or 0.0)
+    font_size = _safe_int(style.get("font_size"), 42, minimum=8, maximum=240)
+    color = _safe_color(style.get("primary_color"), "#FFFFFF")
+    stroke_color = _safe_color(style.get("stroke_color"), "#000000")
+    stroke_width = _safe_int(style.get("stroke_width"), 0, minimum=0, maximum=16)
+    background_color = _safe_color(style.get("background_color"), None)
+    background_opacity = _safe_float(
+        style.get("background_opacity"),
+        0.0,
+        minimum=0.0,
+        maximum=1.0,
+    )
     background = "transparent"
     if background_color and background_opacity > 0:
-        background = escape(str(background_color), quote=True)
+        background = background_color
     return (
         f"left:{float(region.get('x', 0.0)) * 100:.3f}%;"
         f"top:{float(region.get('y', 0.0)) * 100:.3f}%;"
@@ -128,15 +170,18 @@ def _style_css(style: Mapping[str, Any], region: Mapping[str, float]) -> str:
 
 
 def _media_box_css(spec: TextRenderingPreviewSpec) -> str:
-    media_box = calculate_media_box(
-        canvas_width=spec.canvas_width,
-        canvas_height=spec.canvas_height,
-        media_source_width=spec.media_width,
-        media_source_height=spec.media_height,
-        placement=spec.media_placement,
-    )
-    canvas_width = max(float(spec.canvas_width), 1.0)
-    canvas_height = max(float(spec.canvas_height), 1.0)
+    try:
+        media_box = calculate_media_box(
+            canvas_width=spec.canvas_width,
+            canvas_height=spec.canvas_height,
+            media_source_width=spec.media_width,
+            media_source_height=spec.media_height,
+            placement=spec.media_placement,
+        )
+        canvas_width = float(spec.canvas_width)
+        canvas_height = float(spec.canvas_height)
+    except (TypeError, ValueError):
+        return "left:0.000%;top:0.000%;width:100.000%;height:100.000%;"
     return (
         f"left:{media_box.left / canvas_width * 100:.3f}%;"
         f"top:{media_box.top / canvas_height * 100:.3f}%;"
