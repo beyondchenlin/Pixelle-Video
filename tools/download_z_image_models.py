@@ -8,7 +8,10 @@ from pathlib import Path
 
 from modelscope.hub.file_download import model_file_download
 
-from pixelle_video.utils.z_image_downloads import build_z_image_download_tasks
+from pixelle_video.utils.z_image_downloads import (
+    DEFAULT_COMFYUI_MODEL_ROOT,
+    build_z_image_download_tasks,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -17,8 +20,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model-root",
-        default=r"E:\comfyui\comfyui\models",
+        default=str(DEFAULT_COMFYUI_MODEL_ROOT),
         help="ComfyUI models root directory.",
+    )
+    parser.add_argument(
+        "--include-legacy-bf16",
+        action="store_true",
+        help="Also download the legacy BF16 files used by non-GGUF Z-Image workflows.",
     )
     parser.add_argument(
         "--include-turbo-nvfp4",
@@ -34,9 +42,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def download_tasks(model_root: Path, *, include_turbo_nvfp4: bool, retries: int) -> None:
+def download_tasks(
+    model_root: Path,
+    *,
+    include_legacy_bf16: bool,
+    include_turbo_nvfp4: bool,
+    retries: int,
+) -> None:
     tasks = build_z_image_download_tasks(
         model_root,
+        include_legacy_bf16=include_legacy_bf16,
         include_turbo_nvfp4=include_turbo_nvfp4,
     )
 
@@ -98,6 +113,7 @@ def main() -> None:
     model_root.mkdir(parents=True, exist_ok=True)
     download_tasks(
         model_root,
+        include_legacy_bf16=args.include_legacy_bf16,
         include_turbo_nvfp4=args.include_turbo_nvfp4,
         retries=args.retries,
     )

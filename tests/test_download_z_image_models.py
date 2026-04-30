@@ -19,4 +19,5 @@ def test_parse_args_uses_updated_comfyui_model_root_by_default(monkeypatch):
 
     args = module.parse_args()
 
-    assert args.model_root == r"E:\comfyui\comfyui\models"
+    assert args.model_root == r"E:\ComfyUIData\models"
+    assert args.include_legacy_bf16 is False
