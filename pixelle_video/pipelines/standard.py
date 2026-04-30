@@ -136,7 +136,6 @@ from pixelle_video.utils.workflow_capabilities import (
     get_workflow_capabilities,
 )
 
-
 LocalMediaSessionPolicy = Literal["none", "batch", "per_frame"]
 
 
@@ -1560,7 +1559,6 @@ class StandardPipeline(LinearVideoPipeline):
                 logger.info(f"✅ Frame {i+1} completed ({processed_frame.duration:.2f}s)")
 
     async def _produce_assets_hyperframes(self, ctx: PipelineContext):
-        storyboard = ctx.storyboard
         execution_mode = self._resolve_asset_execution_mode(ctx)
         media_session_policy = execution_mode.local_media_session_policy
         if media_session_policy == "none" and execution_mode.media_domain != "static":

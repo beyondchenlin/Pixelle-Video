@@ -9,8 +9,7 @@ from pixelle_video.models.render_package import SentenceUnit, TextCue, TextTrack
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.text_overlay import TextOverlayCandidate, TextOverlayPlan
-from pixelle_video.models.text_style import DEFAULT_OVERLAY_STYLE_ID
-from pixelle_video.models.text_style import TextStyleProfile
+from pixelle_video.models.text_style import DEFAULT_OVERLAY_STYLE_ID, TextStyleProfile
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 
