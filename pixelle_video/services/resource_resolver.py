@@ -1,0 +1,108 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Mapping, Protocol
+
+RESOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+class ResourceResolverError(ValueError):
+    """Base exception for public resource resolver contract failures."""
+
+
+class ResourceIdInvalidError(ResourceResolverError):
+    """Raised when a public resource identifier uses unsafe path/provider syntax."""
+
+
+class ResourceNotFoundError(ResourceResolverError):
+    """Raised when a valid public resource identifier is not configured."""
+
+
+@dataclass(frozen=True)
+class ResolvedResource:
+    resource_id: str
+    resolved_value: str
+    metadata: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+
+
+class ResourceResolver(Protocol):
+    def resolve_style_id(self, resource_id: str) -> ResolvedResource: ...
+
+    def resolve_template_id(self, resource_id: str) -> ResolvedResource: ...
+
+    def resolve_voice_id(self, resource_id: str) -> ResolvedResource: ...
+
+    def resolve_bgm_id(self, resource_id: str) -> ResolvedResource: ...
+
+    def resolve_workflow_preset_id(self, resource_id: str) -> ResolvedResource: ...
+
+    def resolve_provider_preset_id(self, resource_id: str) -> ResolvedResource: ...
+
+
+ResourceMapping = Mapping[str, str | ResolvedResource]
+
+
+class StaticResourceResolver:
+    def __init__(
+        self,
+        *,
+        styles: ResourceMapping | None = None,
+        templates: ResourceMapping | None = None,
+        voices: ResourceMapping | None = None,
+        bgms: ResourceMapping | None = None,
+        workflow_presets: ResourceMapping | None = None,
+        provider_presets: ResourceMapping | None = None,
+    ) -> None:
+        self._styles = styles or {}
+        self._templates = templates or {}
+        self._voices = voices or {}
+        self._bgms = bgms or {}
+        self._workflow_presets = workflow_presets or {}
+        self._provider_presets = provider_presets or {}
+
+    def resolve_style_id(self, resource_id: str) -> ResolvedResource:
+        return self._resolve("style", resource_id, self._styles)
+
+    def resolve_template_id(self, resource_id: str) -> ResolvedResource:
+        return self._resolve("template", resource_id, self._templates)
+
+    def resolve_voice_id(self, resource_id: str) -> ResolvedResource:
+        return self._resolve("voice", resource_id, self._voices)
+
+    def resolve_bgm_id(self, resource_id: str) -> ResolvedResource:
+        return self._resolve("bgm", resource_id, self._bgms)
+
+    def resolve_workflow_preset_id(self, resource_id: str) -> ResolvedResource:
+        return self._resolve("workflow_preset", resource_id, self._workflow_presets)
+
+    def resolve_provider_preset_id(self, resource_id: str) -> ResolvedResource:
+        return self._resolve("provider_preset", resource_id, self._provider_presets)
+
+    def _resolve(
+        self,
+        resource_type: str,
+        resource_id: str,
+        mapping: ResourceMapping,
+    ) -> ResolvedResource:
+        _validate_resource_id(resource_id)
+        if resource_id not in mapping:
+            raise ResourceNotFoundError(
+                f"{resource_type} resource ID is not configured: {resource_id}"
+            )
+
+        resolved = mapping[resource_id]
+        if isinstance(resolved, ResolvedResource):
+            return resolved
+        return ResolvedResource(resource_id=resource_id, resolved_value=resolved)
+
+
+def _validate_resource_id(resource_id: str) -> None:
+    if not isinstance(resource_id, str) or not RESOURCE_ID_PATTERN.fullmatch(resource_id):
+        raise ResourceIdInvalidError(
+            "resource ID must match ^[A-Za-z0-9][A-Za-z0-9_-]*$"
+        )
