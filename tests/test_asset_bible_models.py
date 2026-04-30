@@ -1,0 +1,165 @@
+import pytest
+
+from pixelle_video.models.asset_bible import (
+    AssetBible,
+    CharacterProfile,
+    IPProfile,
+    PropAsset,
+    SceneAsset,
+    StyleProfile,
+)
+
+
+def test_asset_bible_round_trips_ip_and_visual_assets():
+    bible = AssetBible(
+        asset_bible_id="bible_demo",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        ip_profiles=[
+            IPProfile(
+                ip_profile_id="ip_main",
+                workspace_id="workspace_1",
+                project_id="project_1",
+                name="Pixelle Demo",
+                logline="A warm AI comic world.",
+                world_hint="Soft futuristic city with friendly machines.",
+                style_hint="clean comic panels, warm rim light",
+                forbidden_elements=["photorealistic gore", "brand logos"],
+                metadata={"tone": "hopeful"},
+            )
+        ],
+        character_profiles=[
+            CharacterProfile(
+                character_id="char_luna",
+                workspace_id="workspace_1",
+                project_id="project_1",
+                display_name="Luna",
+                role="lead inventor",
+                visual_description="short silver hair, amber jacket",
+                personality="curious and precise",
+                continuity_notes=["always wears round goggles"],
+            )
+        ],
+        scene_assets=[
+            SceneAsset(
+                scene_id="scene_lab",
+                workspace_id="workspace_1",
+                project_id="project_1",
+                display_name="Sky Lab",
+                visual_description="floating workshop above clouds",
+                environment_notes=["large crescent window"],
+            )
+        ],
+        prop_assets=[
+            PropAsset(
+                prop_id="prop_compass",
+                workspace_id="workspace_1",
+                project_id="project_1",
+                display_name="Star Compass",
+                visual_description="brass compass with blue hologram",
+                usage_notes=["glows when a clue is nearby"],
+            )
+        ],
+        style_profiles=[
+            StyleProfile(
+                style_id="style_warm_comic",
+                workspace_id="workspace_1",
+                project_id="project_1",
+                display_name="Warm Comic",
+                visual_style="expressive comic in warm pastel colors",
+                world_style="optimistic science-fantasy",
+                provider_prompt="warm comic, clean line art, pastel palette",
+                negative_prompt="photorealistic, text, watermark",
+            )
+        ],
+        metadata={"source": "unit-test"},
+    )
+
+    restored = AssetBible.from_dict(bible.to_dict())
+
+    assert restored.asset_bible_id == "bible_demo"
+    assert restored.workspace_id == "workspace_1"
+    assert restored.project_id == "project_1"
+    assert restored.ip_profiles[0].forbidden_elements == (
+        "photorealistic gore",
+        "brand logos",
+    )
+    assert restored.character_profiles[0].continuity_notes == (
+        "always wears round goggles",
+    )
+    assert restored.scene_assets[0].environment_notes == ("large crescent window",)
+    assert restored.prop_assets[0].usage_notes == ("glows when a clue is nearby",)
+    assert restored.style_profiles[0].provider_prompt == (
+        "warm comic, clean line art, pastel palette"
+    )
+    assert restored.to_dict()["metadata"] == {"source": "unit-test"}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"asset_bible_id": "bible_demo", "workspace_id": "", "project_id": "project_1"},
+        {"asset_bible_id": "bible_demo", "workspace_id": "workspace_1", "project_id": ""},
+        {
+            "asset_bible_id": "bible_demo",
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "character_profiles": [
+                {
+                    "character_id": "char_luna",
+                    "workspace_id": "workspace_1",
+                    "project_id": "other",
+                    "display_name": "Luna",
+                }
+            ],
+        },
+        {
+            "asset_bible_id": "bible_demo",
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "style_profiles": [
+                {
+                    "style_id": "style_text",
+                    "workspace_id": "workspace_1",
+                    "project_id": "project_1",
+                    "display_name": "Text Style",
+                    "visual_style": "Should not accept text rendering fields.",
+                    "caption_style": {},
+                }
+            ],
+        },
+    ],
+)
+def test_asset_bible_rejects_invalid_or_cross_project_assets(payload):
+    with pytest.raises(ValueError):
+        AssetBible.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "asset_factory, field_name",
+    [
+        (
+            lambda: IPProfile(
+                ip_profile_id="ip_main",
+                workspace_id="workspace_1",
+                project_id="project_1",
+                name="Main IP",
+                forbidden_elements=["", "brand logos"],
+            ),
+            "forbidden_elements",
+        ),
+        (
+            lambda: CharacterProfile(
+                character_id="char_luna",
+                workspace_id="workspace_1",
+                project_id="project_1",
+                display_name="Luna",
+                continuity_notes=["round goggles", "round goggles"],
+            ),
+            "continuity_notes",
+        ),
+    ],
+)
+def test_asset_profiles_reject_empty_or_duplicate_id_lists(asset_factory, field_name):
+    with pytest.raises(ValueError, match=field_name):
+        asset_factory()
