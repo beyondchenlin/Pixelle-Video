@@ -4,7 +4,7 @@
 
 - 工作流路径：`workflows/selfhost/tts_index2_8g.json`
 - 工作流用途：在本地 ComfyUI 中调用 `ComfyUI-Index-TTS` 的 `IndexTTS2BaseNode` 生成语音，并通过 `SaveAudio` 保存为 FLAC 音频。
-- 适用场景：Pixelle 已经在进入 ComfyUI 前完成长段落分割，单次传入 ComfyUI 的文本较短，优先保证 8G 显存机器可运行。
+- 适用场景：Pixelle 已经在进入 ComfyUI 前完成长段落分割，单次传入 ComfyUI 的文本较短；模型在长文案任务内保持缓存，避免每段重载。
 
 ## 2. 节点与依赖清单
 
@@ -84,10 +84,10 @@ python tools\patch_indextts2_plugin.py --target E:\ComfyUIData\custom_nodes\Comf
 - `top_k = 20`
 - `max_mel_tokens = 800`
 - `max_tokens_per_sentence = 60`
-- `keep_models_cached = false`
+- `keep_models_cached = true`
 - 输出前缀：`audio/ComfyUI_8g`
 
-这些参数假设 Pixelle 已经先做长段落分割，不需要 ComfyUI 单次处理超长文本。
+这些参数假设 Pixelle 已经先做长段落分割，不需要 ComfyUI 单次处理超长文本。8G 版通过降低单次推理峰值来控制显存，而不是通过每段生成后卸载模型来控制显存。
 
 ## 9. 验证命令
 
@@ -124,9 +124,9 @@ Test-Path "E:\comfyui\comfyui\models\IndexTTS-2\s2mel.pth"
 
 会让工作流里的 `max_tokens_per_sentence` 真正生效。原版 `tts_index2.json` 配置为 `90`，8G 版 `tts_index2_8g.json` 配置为 `60`；修复后底层会按所选工作流参数分句，而不是回退到底层默认值。
 
-### 为什么 8G 版关闭 `keep_models_cached`？
+### 为什么 8G 版开启 `keep_models_cached`？
 
-关闭后每次任务结束会尝试释放模型缓存，减少持续占用显存。代价是连续多次生成时加载时间会变长。
+Pixelle 的长文案流程会先切分文本，再连续调用 ComfyUI IndexTTS2 处理多个短段。开启缓存后，第一段加载模型，后续段复用已加载模型，速度更接近常驻 TTS 服务。显存峰值仍由 `num_beams = 1`、`top_k = 20`、`max_mel_tokens = 800`、`max_tokens_per_sentence = 60` 和 Pixelle 上游分段控制。
 
 ### 如果音频自然度下降怎么办？
 

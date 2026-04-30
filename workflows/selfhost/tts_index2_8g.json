@@ -65,7 +65,7 @@
   },
   "13": {
     "inputs": {
-      "keep_models_cached": false
+      "keep_models_cached": true
     },
     "class_type": "IndexTTS2CacheControlNode",
     "_meta": {

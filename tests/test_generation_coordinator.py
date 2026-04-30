@@ -507,7 +507,7 @@ async def test_local_comfyui_workflow_session_keeps_lifecycle_open_across_batch(
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_workflow_session_force_releases_index_tts2_once_after_batch():
+async def test_local_comfyui_workflow_session_uses_normal_release_for_index_tts2_batch():
     events = []
 
     class _Kit:
@@ -524,17 +524,12 @@ async def test_local_comfyui_workflow_session_force_releases_index_tts2_once_aft
         events.append(("workflow_release",))
         return True
 
-    async def _force_release(*, context):
-        events.append(("force_release", context))
-        return True
-
     async def _get_kit():
         events.append(("get_kit",))
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
     core.release_comfyui_after_local_workflow = _release_workflow
-    core.force_release_comfyui_memory = _force_release
     core._get_or_create_comfykit = _get_kit
 
     async with core.local_comfyui_workflow_session():
@@ -557,12 +552,12 @@ async def test_local_comfyui_workflow_session_force_releases_index_tts2_once_aft
         ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "first"}),
         ("get_kit",),
         ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "second"}),
-        ("force_release", "post-index-tts2-workflow-session"),
+        ("workflow_release",),
     ]
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_workflow_session_force_releases_renamed_index_tts2_file(tmp_path):
+async def test_local_comfyui_workflow_session_uses_normal_release_for_renamed_index_tts2_file(tmp_path):
     workflow_path = tmp_path / "voice_batch.json"
     workflow_path.write_text(
         json.dumps(
@@ -591,17 +586,12 @@ async def test_local_comfyui_workflow_session_force_releases_renamed_index_tts2_
         events.append(("workflow_release",))
         return True
 
-    async def _force_release(*, context):
-        events.append(("force_release", context))
-        return True
-
     async def _get_kit():
         events.append(("get_kit",))
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
     core.release_comfyui_after_local_workflow = _release_workflow
-    core.force_release_comfyui_memory = _force_release
     core._get_or_create_comfykit = _get_kit
 
     async with core.local_comfyui_workflow_session():
@@ -616,12 +606,12 @@ async def test_local_comfyui_workflow_session_force_releases_renamed_index_tts2_
         ("prepare",),
         ("get_kit",),
         ("execute", str(workflow_path), {"prompt": "first"}),
-        ("force_release", "post-index-tts2-workflow-session"),
+        ("workflow_release",),
     ]
 
 
 @pytest.mark.asyncio
-async def test_index_tts2_workflow_session_marks_task_scope_released_after_force_release():
+async def test_index_tts2_workflow_session_defers_normal_release_to_task_exit():
     events = []
 
     class _Kit:
@@ -642,17 +632,12 @@ async def test_index_tts2_workflow_session_marks_task_scope_released_after_force
         events.append(("task_release",))
         return True
 
-    async def _force_release(*, context):
-        events.append(("force_release", context))
-        return True
-
     async def _get_kit():
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
     core.release_comfyui_after_local_workflow = _release_workflow
     core.release_comfyui_after_local_task = _release_task
-    core.force_release_comfyui_memory = _force_release
     core._get_or_create_comfykit = _get_kit
 
     async with core.local_comfyui_task_scope():
@@ -666,14 +651,13 @@ async def test_index_tts2_workflow_session_marks_task_scope_released_after_force
     assert events == [
         ("prepare",),
         ("execute", "workflows/selfhost/tts_index2.json"),
-        ("force_release", "post-index-tts2-workflow-session"),
+        ("task_release",),
     ]
 
 
 @pytest.mark.asyncio
-async def test_index_tts2_workflow_session_retries_failed_force_release_at_task_exit():
+async def test_index_tts2_workflow_session_does_not_force_release_on_normal_completion():
     events = []
-    force_release_results = [False, True]
 
     class _Kit:
         async def execute(self, workflow_input, workflow_params):
@@ -695,7 +679,7 @@ async def test_index_tts2_workflow_session_retries_failed_force_release_at_task_
 
     async def _force_release(*, context):
         events.append(("force_release", context))
-        return force_release_results.pop(0)
+        raise AssertionError("IndexTTS2 should not force-release ComfyUI memory after a successful run")
 
     async def _get_kit():
         return _Kit()
@@ -717,14 +701,12 @@ async def test_index_tts2_workflow_session_retries_failed_force_release_at_task_
         assert events == [
             ("prepare",),
             ("execute", "workflows/selfhost/tts_index2.json"),
-            ("force_release", "post-index-tts2-workflow-session"),
         ]
 
     assert events == [
         ("prepare",),
         ("execute", "workflows/selfhost/tts_index2.json"),
-        ("force_release", "post-index-tts2-workflow-session"),
-        ("force_release", "post-index-tts2-local-task"),
+        ("task_release",),
     ]
 
 

@@ -53,7 +53,6 @@ from pixelle_video.services.persistence import PersistenceService
 from pixelle_video.services.tts_service import TTSService
 from pixelle_video.services.video import VideoService
 from pixelle_video.services.video_analysis import VideoAnalysisService
-from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
 from pixelle_video.utils.os_util import get_output_path
 
 
@@ -63,16 +62,12 @@ class _LocalComfyUIWorkflowSession:
         self.execute_lock = asyncio.Lock()
         self.lock_acquired = False
         self.prepared = False
-        self.requires_force_memory_release = False
-        self.force_memory_released = False
 
 
 class _LocalComfyUITaskScope:
     def __init__(self) -> None:
         self.used_local_comfyui = False
         self.pending_memory_release = False
-        self.used_index_tts2_workflow = False
-        self.pending_index_tts2_force_memory_release = False
         self.registered_active_task = False
 
 
@@ -387,30 +382,6 @@ class PixelleVideoCore:
         scope = self._local_comfyui_task_scope.get()
         if scope is not None:
             scope.pending_memory_release = False
-            scope.pending_index_tts2_force_memory_release = False
-
-    def _mark_index_tts2_force_memory_release_required(self) -> None:
-        scope = self._local_comfyui_task_scope.get()
-        if scope is None:
-            return
-
-        scope.used_index_tts2_workflow = True
-        scope.pending_index_tts2_force_memory_release = True
-        scope.pending_memory_release = True
-
-    async def _force_release_index_tts2_workflow_memory(self, *, context: str) -> bool:
-        try:
-            released = await self.force_release_comfyui_memory(context=context)
-        except Exception as exc:
-            logger.warning(
-                "Failed to force release IndexTTS2 ComfyUI memory after workflow session: {}",
-                exc,
-            )
-            return False
-
-        if released:
-            self._mark_local_comfyui_released()
-        return released
 
     async def _release_local_comfyui_after_workflow_session(
         self,
@@ -418,14 +389,6 @@ class PixelleVideoCore:
     ) -> None:
         if not session.prepared:
             return
-
-        if session.requires_force_memory_release and not session.force_memory_released:
-            released = await self._force_release_index_tts2_workflow_memory(
-                context="post-index-tts2-workflow-session",
-            )
-            session.force_memory_released = released
-            if released:
-                return
 
         if self._should_release_local_comfyui_after_workflow():
             await self.release_comfyui_after_local_workflow()
@@ -536,14 +499,7 @@ class PixelleVideoCore:
                         should_release = self._local_comfyui_active_task_count == 0
 
                 if scope.used_local_comfyui and scope.pending_memory_release and should_release:
-                    released = False
-                    if scope.pending_index_tts2_force_memory_release:
-                        released = await self._force_release_index_tts2_workflow_memory(
-                            context="post-index-tts2-local-task",
-                        )
-
-                    if not released and scope.pending_memory_release:
-                        await self.release_comfyui_after_local_task()
+                    await self.release_comfyui_after_local_task()
             finally:
                 self._local_comfyui_task_scope.reset(token)
 
@@ -565,12 +521,8 @@ class PixelleVideoCore:
             kit = await self._get_or_create_comfykit()
             return await kit.execute(workflow_input, workflow_params)
 
-        is_index_tts2_workflow = is_index_tts2_workflow_key(workflow_input)
         session = self._local_comfyui_workflow_session.get()
         if session is not None:
-            if is_index_tts2_workflow:
-                session.requires_force_memory_release = True
-                self._mark_index_tts2_force_memory_release_required()
             return await self._execute_scoped_local_comfykit_workflow(
                 workflow_input,
                 workflow_params,
@@ -579,18 +531,10 @@ class PixelleVideoCore:
         async with self._local_comfyui_execution_lock:
             await self.prepare_comfyui_for_local_workflow()
             await self._register_local_comfyui_task_use()
-            if is_index_tts2_workflow:
-                self._mark_index_tts2_force_memory_release_required()
             try:
                 return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
             finally:
-                released = False
-                if is_index_tts2_workflow:
-                    released = await self._force_release_index_tts2_workflow_memory(
-                        context="post-index-tts2-workflow-session",
-                    )
-
-                if not released and self._should_release_local_comfyui_after_workflow():
+                if self._should_release_local_comfyui_after_workflow():
                     await self.release_comfyui_after_local_workflow()
 
     async def execute_comfykit_workflow_file(

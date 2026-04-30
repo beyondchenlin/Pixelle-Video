@@ -222,7 +222,7 @@ def test_tts_index2_8g_workflow_is_parseable_and_uses_low_vram_defaults():
     assert workflow["5"]["inputs"]["top_k"] == 20
     assert workflow["5"]["inputs"]["max_mel_tokens"] == 800
     assert workflow["5"]["inputs"]["max_tokens_per_sentence"] == 60
-    assert workflow["13"]["inputs"]["keep_models_cached"] is False
+    assert workflow["13"]["inputs"]["keep_models_cached"] is True
 
 
 def test_tts_edge_workflow_is_parseable_and_uses_pixelle_nodes():
