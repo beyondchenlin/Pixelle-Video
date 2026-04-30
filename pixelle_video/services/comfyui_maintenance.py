@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Literal
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import httpx
 from loguru import logger
 
 ComfyUICleanupMode = Literal["force", "conservative"]
 ComfyUIReleaseIntensity = Literal["high", "low"]
+ComfyUIExtensionName = Literal["indextts2"]
+ComfyUIExtensionMissingEndpointMode = Literal["optional", "required"]
 _IDLE_POLL_INTERVAL_SECONDS = 0.2
 
 
@@ -15,6 +18,19 @@ _FREE_MEMORY_PAYLOADS: dict[ComfyUIReleaseIntensity, dict[str, bool]] = {
     "high": {"unload_models": True, "free_memory": True},
     "low": {"unload_models": True, "free_memory": False},
 }
+
+_EXTENSION_RELEASE_ENDPOINTS: dict[ComfyUIExtensionName, str] = {
+    "indextts2": "/pixelle/indextts2/free",
+}
+
+
+@dataclass(frozen=True)
+class ComfyUIExtensionReleaseResult:
+    extension: str
+    released: bool
+    missing_endpoint: bool = False
+    message: str = ""
+    response: dict[str, Any] | None = None
 
 
 class ComfyUIMaintenanceClient:
@@ -78,6 +94,83 @@ class ComfyUIMaintenanceClient:
         if payload is None:
             raise ValueError(f"Unsupported ComfyUI release intensity: {intensity}")
         await self._post("/free", dict(payload))
+
+    async def free_memory_with_extensions(
+        self,
+        intensity: ComfyUIReleaseIntensity = "high",
+        *,
+        extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
+        missing_endpoint: ComfyUIExtensionMissingEndpointMode = "optional",
+    ) -> list[ComfyUIExtensionReleaseResult]:
+        await self.free_memory(intensity)
+        return await self.free_extension_models(
+            extensions=extensions,
+            missing_endpoint=missing_endpoint,
+        )
+
+    async def free_extension_models(
+        self,
+        *,
+        extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
+        missing_endpoint: ComfyUIExtensionMissingEndpointMode = "optional",
+    ) -> list[ComfyUIExtensionReleaseResult]:
+        results: list[ComfyUIExtensionReleaseResult] = []
+        for extension in extensions:
+            endpoint = _EXTENSION_RELEASE_ENDPOINTS[extension]
+            try:
+                response = await self._request("POST", endpoint, json={})
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    message = (
+                        f"ComfyUI extension cleanup endpoint {endpoint} is missing. "
+                        "Run tools/patch_indextts2_plugin.py against ComfyUI-Index-TTS, "
+                        "then restart ComfyUI."
+                    )
+                    if missing_endpoint == "optional":
+                        logger.warning(message)
+                        results.append(
+                            ComfyUIExtensionReleaseResult(
+                                extension=extension,
+                                released=False,
+                                missing_endpoint=True,
+                                message=message,
+                            )
+                        )
+                        continue
+                    raise RuntimeError(message) from exc
+                raise
+
+            payload = response.json()
+            data = payload if isinstance(payload, dict) else {}
+            results.append(
+                ComfyUIExtensionReleaseResult(
+                    extension=extension,
+                    released=bool(data.get("released")),
+                    response=data,
+                )
+            )
+        return results
+
+    async def free_extension_models_when_idle(
+        self,
+        *,
+        extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
+        missing_endpoint: ComfyUIExtensionMissingEndpointMode = "optional",
+    ) -> bool:
+        queue = await self._get_queue()
+        running, pending = self._queue_counts(queue)
+        if running or pending:
+            logger.info(
+                "Skipping ComfyUI extension memory release because queue is busy "
+                f"(running={running}, pending={pending})"
+            )
+            return False
+
+        results = await self.free_extension_models(
+            extensions=extensions,
+            missing_endpoint=missing_endpoint,
+        )
+        return any(result.released for result in results)
 
     async def free_memory_when_idle(
         self,
