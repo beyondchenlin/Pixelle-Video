@@ -267,8 +267,8 @@ class HyperFramesCompiler:
 
     def _render_title(self, context: TemplateRenderContext) -> str:
         display_text = self._safe_display_text(context.title)
-        profile = context.title_style_profile
-        if profile is None or not profile.max_chars_per_line:
+        profile = self._effective_title_style_profile(context)
+        if not profile.max_chars_per_line:
             return escape(display_text)
 
         max_chars = max(1, int(profile.max_chars_per_line))
@@ -279,18 +279,24 @@ class HyperFramesCompiler:
         return "<br/>".join(escape(line) for line in lines)
 
     def _render_title_style_css(self, context: TemplateRenderContext) -> str:
-        profile = context.title_style_profile
-        if profile is None:
-            title_payload = resolve_template_text_style_preset(
-                context.template_id
-            ).title_style_dict()
-            title_payload["id"] = DEFAULT_TITLE_STYLE_ID
-            profile = TextStyleProfile.from_dict(title_payload)
         return self._style_profile_css_variables(
-            profile,
+            self._effective_title_style_profile(context),
             context,
             prefix="title",
         )
+
+    def _effective_title_style_profile(
+        self,
+        context: TemplateRenderContext,
+    ) -> TextStyleProfile:
+        if context.title_style_profile is not None:
+            return context.title_style_profile
+
+        title_payload = resolve_template_text_style_preset(
+            context.template_id
+        ).title_style_dict()
+        title_payload["id"] = DEFAULT_TITLE_STYLE_ID
+        return TextStyleProfile.from_dict(title_payload)
 
     def _caption_as_text_cue(self, cue: CaptionCue) -> TextCue:
         return TextCue(

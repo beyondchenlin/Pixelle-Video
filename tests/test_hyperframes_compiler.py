@@ -745,6 +745,43 @@ def test_hyperframes_compiler_emits_fallback_title_style_variables(tmp_path: Pat
     assert "--title-background: rgba(255, 255, 255, 0.92)" in html
 
 
+def test_hyperframes_compiler_uses_fallback_title_profile_for_wrapping(
+    tmp_path: Path,
+):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<h1 class="video-title" style="__TITLE_STYLE_CSS__">__TITLE__</h1>',
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="ABCDEFGHIJKL",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "ABCDEFGHIJ<br/>KL" in html
+
+
 def test_hyperframes_compiler_copies_custom_font_file_and_emits_font_face(
     tmp_path: Path,
 ):
