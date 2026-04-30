@@ -35,6 +35,7 @@ def record_text_rendering_contract_summary(
         render_backend=render_backend,
         frame_count=frame_count if frame_count is not None else len(narrations),
         task_id=task_id,
+        config=getattr(target, "config", None),
     )
     setattr(target, "text_rendering_result", result)
     setattr(target, "text_render_package", result.text_render_package)

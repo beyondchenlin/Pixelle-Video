@@ -31,13 +31,13 @@ class RenderCapabilityResolver:
             return RenderCapabilityResult(effective_backend=LEGACY_RENDER_BACKEND)
 
         if request.requested_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND:
-            if request.has_hyperframes_native_template or request.template_prerendered:
+            if request.has_hyperframes_native_template:
                 return RenderCapabilityResult(
                     effective_backend=HYPERFRAMES_COMPILED_RENDER_BACKEND
                 )
             return RenderCapabilityResult(
                 effective_backend=LEGACY_RENDER_BACKEND,
-                fallback_reason="HyperFrames requires native or prerendered template assets",
+                fallback_reason="HyperFrames compiled backend requires a native HyperFrames template",
             )
 
         if request.requested_backend == FFMPEG_MANIFEST_RENDER_BACKEND:

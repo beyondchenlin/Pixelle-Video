@@ -40,6 +40,29 @@ def normalize_hex_color(
     return cleaned.upper()
 
 
+def resolve_text_style_scale_basis(
+    *,
+    config: Any | None = None,
+    canvas_width: Any = None,
+    canvas_height: Any = None,
+) -> tuple[int | None, int | None]:
+    if canvas_width is None and config is not None:
+        canvas_width = getattr(config, "canvas_width", None)
+    if canvas_height is None and config is not None:
+        canvas_height = getattr(config, "canvas_height", None)
+
+    if canvas_width is None and canvas_height is None:
+        return None, None
+    if canvas_width is None or canvas_height is None:
+        raise ValueError("scale basis width and height must be provided together")
+
+    resolved_width = int(canvas_width)
+    resolved_height = int(canvas_height)
+    if resolved_width <= 0 or resolved_height <= 0:
+        raise ValueError("scale basis dimensions must be positive")
+    return resolved_width, resolved_height
+
+
 @dataclass(frozen=True)
 class TextStyleProfile:
     id: str
@@ -64,8 +87,8 @@ class TextStyleProfile:
     line_height: float = 1.18
     max_chars_per_line: int | None = None
     punctuation_mode: str = "strip_all"
-    scale_basis_width: int = 1080
-    scale_basis_height: int = 1920
+    scale_basis_width: int | None = None
+    scale_basis_height: int | None = None
 
     def __post_init__(self) -> None:
         if not str(self.id).strip():
@@ -86,8 +109,14 @@ class TextStyleProfile:
             raise ValueError(f"Unsupported text alignment: {self.alignment}")
         if self.punctuation_mode not in _PUNCTUATION_MODES:
             raise ValueError(f"Unsupported punctuation_mode: {self.punctuation_mode}")
-        if self.scale_basis_width <= 0 or self.scale_basis_height <= 0:
-            raise ValueError("scale basis dimensions must be positive")
+        resolved_scale_basis_width, resolved_scale_basis_height = (
+            resolve_text_style_scale_basis(
+                canvas_width=self.scale_basis_width,
+                canvas_height=self.scale_basis_height,
+            )
+        )
+        object.__setattr__(self, "scale_basis_width", resolved_scale_basis_width)
+        object.__setattr__(self, "scale_basis_height", resolved_scale_basis_height)
 
         object.__setattr__(
             self,
@@ -111,6 +140,8 @@ class TextStyleProfile:
         )
 
     def scale_for_canvas(self, width: int, height: int) -> float:
+        if self.scale_basis_width is None or self.scale_basis_height is None:
+            return 1.0
         safe_width = max(1, int(width))
         safe_height = max(1, int(height))
         return min(
@@ -177,14 +208,44 @@ class TextStyleProfile:
                 else None
             ),
             punctuation_mode=str(data.get("punctuation_mode", "strip_all")),
-            scale_basis_width=int(data.get("scale_basis_width", 1080)),
-            scale_basis_height=int(data.get("scale_basis_height", 1920)),
+            scale_basis_width=(
+                int(data["scale_basis_width"])
+                if data.get("scale_basis_width") is not None
+                else None
+            ),
+            scale_basis_height=(
+                int(data["scale_basis_height"])
+                if data.get("scale_basis_height") is not None
+                else None
+            ),
         )
 
 
-def build_default_text_style_profiles() -> list[TextStyleProfile]:
+def build_default_text_style_profiles(
+    *,
+    config: Any | None = None,
+    canvas_width: Any = None,
+    canvas_height: Any = None,
+) -> list[TextStyleProfile]:
+    resolved_scale_basis_width, resolved_scale_basis_height = (
+        resolve_text_style_scale_basis(
+            config=config,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+        )
+    )
+    scale_basis_kwargs: dict[str, int] = {}
+    if resolved_scale_basis_width is not None and resolved_scale_basis_height is not None:
+        scale_basis_kwargs = {
+            "scale_basis_width": resolved_scale_basis_width,
+            "scale_basis_height": resolved_scale_basis_height,
+        }
     return [
-        TextStyleProfile(id=DEFAULT_CAPTION_STYLE_ID, name="Caption Default"),
+        TextStyleProfile(
+            id=DEFAULT_CAPTION_STYLE_ID,
+            name="Caption Default",
+            **scale_basis_kwargs,
+        ),
         TextStyleProfile(
             id=DEFAULT_OVERLAY_STYLE_ID,
             name="Overlay Default",
@@ -194,5 +255,6 @@ def build_default_text_style_profiles() -> list[TextStyleProfile]:
             stroke_width=DEFAULT_OVERLAY_STROKE_WIDTH,
             position="center",
             margin_y=80,
+            **scale_basis_kwargs,
         ),
     ]

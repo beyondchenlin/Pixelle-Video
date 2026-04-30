@@ -348,7 +348,7 @@ def _build_storyboard_context(
 
 
 @pytest.mark.asyncio
-async def test_produce_assets_uses_shell_only_hyperframes_path_without_segments(tmp_path):
+async def test_produce_assets_hyperframes_path_bypasses_legacy_html_composition(tmp_path):
     core = _DummyCore(tmp_path)
     pipeline = StandardPipeline(core)
     ctx = _build_storyboard_context(tmp_path)
@@ -358,14 +358,13 @@ async def test_produce_assets_uses_shell_only_hyperframes_path_without_segments(
     assert core.frame_processor.calls == [
         ("media", 0),
         ("media", 1),
-        ("compose", 0, ""),
-        ("compose", 1, ""),
     ]
-    assert core.local_comfyui_sessions == ["enter", "exit"]
-    assert [frame.composed_image_path for frame in ctx.storyboard.frames] == [
-        str(tmp_path / "00_shell.png"),
-        str(tmp_path / "01_shell.png"),
+    assert core.local_comfyui_sessions == ["enter", "exit", "enter", "exit"]
+    assert [frame.image_path for frame in ctx.storyboard.frames] == [
+        str(tmp_path / "00_raw.png"),
+        str(tmp_path / "01_raw.png"),
     ]
+    assert [frame.composed_image_path for frame in ctx.storyboard.frames] == [None, None]
     assert [frame.video_segment_path for frame in ctx.storyboard.frames] == [None, None]
 
 
@@ -567,6 +566,121 @@ def test_build_hyperframes_visual_clips_carries_element_motion_artifacts(tmp_pat
     assert clips[1].source_kind == "element_motion_video"
     assert clips[1].media_role == "final_frame"
     assert clips[1].source_media_path == str(second_raw)
+
+
+def test_render_manifest_visual_clips_use_raw_media_for_hyperframes_when_shell_exists(
+    tmp_path,
+):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+    ctx.storyboard.total_duration = 3.0
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        frame.composed_image_path = str(tmp_path / f"{frame.index:02d}_shell.png")
+        Path(frame.image_path).write_bytes(b"raw")
+        Path(frame.composed_image_path).write_bytes(b"shell")
+
+    ctx.timing_plan.sentences[0].source_start = 0.0
+    ctx.timing_plan.sentences[0].source_end = 1.2
+    ctx.timing_plan.sentences[1].source_start = 1.2
+    ctx.timing_plan.sentences[1].source_end = 3.0
+
+    clips = pipeline._build_manifest_visual_clips(ctx)
+
+    assert [clip.media_path for clip in clips] == [
+        str(tmp_path / "00_raw.png"),
+        str(tmp_path / "01_raw.png"),
+    ]
+    assert [clip.source_kind for clip in clips] == ["raw_media", "raw_media"]
+
+
+@pytest.mark.asyncio
+async def test_hyperframes_element_motion_uses_raw_media_when_shell_artifact_exists(
+    monkeypatch,
+    tmp_path,
+):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+    ctx.config.element_animation_enabled = True
+    frame = ctx.storyboard.frames[0]
+    frame.media_type = "image"
+    frame.image_path = str(tmp_path / "00_raw.png")
+    frame.composed_image_path = str(tmp_path / "00_shell.png")
+    Path(frame.image_path).write_bytes(b"raw")
+    Path(frame.composed_image_path).write_bytes(b"shell")
+    captured = {}
+
+    class FakeElementMotionMaterializer:
+        def __init__(self, segmentation_service):
+            self.segmentation_service = segmentation_service
+
+        async def materialize_frame(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                manifest_path=str(tmp_path / "element.json"),
+                motion_video_path=str(tmp_path / "element.mp4"),
+            )
+
+    monkeypatch.setattr(
+        "pixelle_video.services.element_motion_materializer.ElementMotionMaterializer",
+        FakeElementMotionMaterializer,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.element_segmentation.ElementSegmentationService",
+        lambda core: object(),
+    )
+
+    await pipeline._materialize_element_motion_for_frame(ctx, frame)
+
+    assert captured["source_image_path"] == frame.image_path
+    assert frame.element_animation_manifest_path == str(tmp_path / "element.json")
+    assert frame.element_motion_video_path == str(tmp_path / "element.mp4")
+
+
+@pytest.mark.asyncio
+async def test_legacy_element_motion_uses_composed_template_frame_when_available(
+    monkeypatch,
+    tmp_path,
+):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, render_backend="legacy")
+    ctx.config.element_animation_enabled = True
+    frame = ctx.storyboard.frames[0]
+    frame.media_type = "image"
+    frame.image_path = str(tmp_path / "00_raw.png")
+    frame.composed_image_path = str(tmp_path / "00_shell.png")
+    Path(frame.image_path).write_bytes(b"raw")
+    Path(frame.composed_image_path).write_bytes(b"shell")
+    captured = {}
+
+    class FakeElementMotionMaterializer:
+        def __init__(self, segmentation_service):
+            self.segmentation_service = segmentation_service
+
+        async def materialize_frame(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                manifest_path=str(tmp_path / "element.json"),
+                motion_video_path=str(tmp_path / "element.mp4"),
+            )
+
+    monkeypatch.setattr(
+        "pixelle_video.services.element_motion_materializer.ElementMotionMaterializer",
+        FakeElementMotionMaterializer,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.element_segmentation.ElementSegmentationService",
+        lambda core: object(),
+    )
+
+    await pipeline._materialize_element_motion_for_frame(ctx, frame)
+
+    assert captured["source_image_path"] == frame.composed_image_path
 
 
 def test_ffmpeg_manifest_rejects_frame_audio_as_master_audio_fallback(monkeypatch, tmp_path):

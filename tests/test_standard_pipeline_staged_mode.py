@@ -95,6 +95,7 @@ def test_resolve_asset_execution_mode_uses_staged_mode_for_default_selfhost_imag
     assert execution_mode.media_domain == "image"
     assert execution_mode.is_runninghub is False
     assert execution_mode.use_staged_mode is True
+    assert execution_mode.local_media_session_policy == "per_frame"
 
 
 def test_resolve_asset_execution_mode_disables_staged_mode_for_explicit_video_workflow():
@@ -107,6 +108,7 @@ def test_resolve_asset_execution_mode_disables_staged_mode_for_explicit_video_wo
     assert execution_mode.media_domain == "video"
     assert execution_mode.media_workflow_key == "selfhost/video_wan2.1_fusionx.json"
     assert execution_mode.use_staged_mode is False
+    assert execution_mode.local_media_session_policy == "none"
 
 
 def test_resolve_asset_execution_mode_uses_staged_mode_for_local_tts_with_selfhost_media():
@@ -118,6 +120,18 @@ def test_resolve_asset_execution_mode_uses_staged_mode_for_local_tts_with_selfho
     assert execution_mode.tts_workflow_key is None
     assert execution_mode.media_workflow_key == "selfhost/image_z_image_turbo_gguf.json"
     assert execution_mode.use_staged_mode is True
+    assert execution_mode.local_media_session_policy == "per_frame"
+
+
+def test_resolve_asset_execution_mode_keeps_non_gguf_selfhost_media_batched():
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = _build_ctx(media_workflow="selfhost/image_z_image_turbo.json")
+
+    execution_mode = pipeline._resolve_asset_execution_mode(ctx)
+
+    assert execution_mode.media_workflow_key == "selfhost/image_z_image_turbo.json"
+    assert execution_mode.use_staged_mode is True
+    assert execution_mode.local_media_session_policy == "batch"
 
 
 def test_resolve_effective_tts_audio_strategy_uses_master_track_for_legacy_comfyui_auto():
@@ -320,6 +334,34 @@ async def test_produce_assets_runs_staged_selfhost_image_flow_in_phase_order(mon
     assert [frame.video_segment_path for frame in ctx.storyboard.frames] == [
         "segment-0.mp4",
         "segment-1.mp4",
+    ]
+    assert core.local_comfyui_sessions == [
+        "enter",
+        "exit",
+        "enter",
+        "exit",
+        "enter",
+        "exit",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_keeps_non_gguf_selfhost_media_in_batch_session(monkeypatch):
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx(media_workflow="selfhost/image_z_image_turbo.json")
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
+
+    await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.calls == [
+        ("media", 0),
+        ("media", 1),
+        ("compose", 0),
+        ("compose", 1),
+        ("segment", 0),
+        ("segment", 1),
     ]
     assert core.local_comfyui_sessions == [
         "enter",
@@ -935,6 +977,8 @@ async def test_produce_assets_stages_mixed_runninghub_tts_and_selfhost_media(mon
         ("segment", 1),
     ]
     assert core.local_comfyui_sessions == [
+        "enter",
+        "exit",
         "enter",
         "exit",
         "enter",

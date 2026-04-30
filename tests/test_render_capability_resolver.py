@@ -20,6 +20,38 @@ def test_resolver_allows_ffmpeg_manifest_for_prerendered_image_template():
     assert result.fallback_reason is None
 
 
+def test_resolver_requires_native_template_for_hyperframes_compiled_backend():
+    result = RenderCapabilityResolver().resolve(
+        RenderCapabilityInput(
+            requested_backend="hyperframes_compiled",
+            template_type="image",
+            media_domain="image",
+            template_prerendered=True,
+            element_motion_backend=None,
+            has_hyperframes_native_template=False,
+        )
+    )
+
+    assert result.effective_backend == "legacy"
+    assert "native HyperFrames template" in result.fallback_reason
+
+
+def test_resolver_allows_hyperframes_compiled_with_native_template():
+    result = RenderCapabilityResolver().resolve(
+        RenderCapabilityInput(
+            requested_backend="hyperframes_compiled",
+            template_type="image",
+            media_domain="image",
+            template_prerendered=False,
+            element_motion_backend=None,
+            has_hyperframes_native_template=True,
+        )
+    )
+
+    assert result.effective_backend == "hyperframes_compiled"
+    assert result.fallback_reason is None
+
+
 def test_resolver_falls_back_when_ffmpeg_manifest_needs_browser_template():
     result = RenderCapabilityResolver().resolve(
         RenderCapabilityInput(

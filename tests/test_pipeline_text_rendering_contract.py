@@ -89,6 +89,13 @@ def test_asset_based_direct_contract_summary_honors_disabled_reason():
             }
         },
         observability={},
+        config=StoryboardConfig(
+            task_id="task-asset-contract",
+            media_width=768,
+            media_height=768,
+            canvas_width=1280,
+            canvas_height=720,
+        ),
     )
 
     pipeline._record_text_rendering_contract_summary(
@@ -103,6 +110,8 @@ def test_asset_based_direct_contract_summary_honors_disabled_reason():
     assert ctx.observability["text_layer_summary"]["disabled_reason"] == (
         "asset_based_overlay_disabled"
     )
+    assert ctx.text_render_package.text_style_profiles[0].scale_basis_width == 1280
+    assert ctx.text_render_package.text_style_profiles[0].scale_basis_height == 720
 
 
 @pytest.mark.asyncio

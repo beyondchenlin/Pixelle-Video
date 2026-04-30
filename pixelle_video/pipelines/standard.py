@@ -131,6 +131,13 @@ from pixelle_video.utils.template_util import (
     resolve_template_path,
     validate_template_canvas_orientation,
 )
+from pixelle_video.utils.workflow_capabilities import (
+    WorkflowCapabilities,
+    get_workflow_capabilities,
+)
+
+
+LocalMediaSessionPolicy = Literal["none", "batch", "per_frame"]
 
 
 @dataclass(frozen=True)
@@ -142,6 +149,7 @@ class AssetExecutionMode:
     is_runninghub: bool
     use_runninghub_parallel: bool
     use_staged_mode: bool
+    local_media_session_policy: LocalMediaSessionPolicy = "none"
 
 
 @asynccontextmanager
@@ -751,11 +759,16 @@ class StandardPipeline(LinearVideoPipeline):
             )["key"]
 
         media_workflow_key = None
+        media_capabilities = WorkflowCapabilities()
         if media_domain != "static":
-            media_workflow_key = self.core.media._resolve_workflow(
+            media_workflow_info = self.core.media._resolve_workflow(
                 workflow=config.media_workflow,
                 workflow_domain=media_domain,
-            )["key"]
+            )
+            media_workflow_key = media_workflow_info["key"]
+            media_capabilities = self._resolve_workflow_capabilities_for_execution(
+                media_workflow_info
+            )
 
         is_runninghub = any(
             key and key.startswith("runninghub/")
@@ -771,6 +784,13 @@ class StandardPipeline(LinearVideoPipeline):
             and media_domain == "image"
             and bool(media_workflow_key and media_workflow_key.startswith("selfhost/"))
         )
+        local_media_session_policy: LocalMediaSessionPolicy = "none"
+        if use_staged_mode:
+            local_media_session_policy = (
+                "per_frame"
+                if media_capabilities.prefers_isolated_local_execution
+                else "batch"
+            )
 
         return AssetExecutionMode(
             template_type=template_type,
@@ -780,7 +800,26 @@ class StandardPipeline(LinearVideoPipeline):
             is_runninghub=is_runninghub,
             use_runninghub_parallel=use_runninghub_parallel,
             use_staged_mode=use_staged_mode,
+            local_media_session_policy=local_media_session_policy,
         )
+
+    def _resolve_workflow_capabilities_for_execution(
+        self,
+        workflow_info: Mapping[str, Any],
+    ) -> WorkflowCapabilities:
+        try:
+            return get_workflow_capabilities(dict(workflow_info))
+        except Exception as exc:
+            logger.warning(
+                "Workflow capability inspection failed for "
+                f"{workflow_info.get('key')!r}; using conservative local execution: {exc}"
+            )
+            if str(workflow_info.get("source") or "").lower() == "selfhost":
+                return WorkflowCapabilities(
+                    local_memory_profile="high",
+                    prefers_isolated_local_execution=True,
+                )
+            return WorkflowCapabilities()
 
     def _resolve_hyperframes_template_id(self, config: StoryboardConfig) -> str:
         template_id = Path(config.frame_template).stem
@@ -853,7 +892,8 @@ class StandardPipeline(LinearVideoPipeline):
             and execution_mode.media_domain == "image"
         )
         if requested_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND:
-            # The current HyperFrames path still requires a native shell template.
+            # Compiled HyperFrames renders native templates from raw media; prerendered
+            # HTML screenshots belong to legacy/ffmpeg-manifest paths only.
             template_prerendered = False
 
         element_motion_backend = None
@@ -1166,6 +1206,7 @@ class StandardPipeline(LinearVideoPipeline):
         ctx: PipelineContext,
         *,
         template_body_text: Optional[str] = None,
+        media_session_policy: LocalMediaSessionPolicy = "batch",
     ):
         storyboard = ctx.storyboard
         config = ctx.config
@@ -1187,25 +1228,12 @@ class StandardPipeline(LinearVideoPipeline):
                     )
                     await self.core.frame_processor._step_generate_audio(frame, config)
 
-        async with _maybe_local_comfyui_workflow_session(self.core):
-            for frame in storyboard.frames:
-                has_existing_media = frame.image_path is not None or frame.video_path is not None
-                needs_generation = frame.image_prompt is not None
-
-                if needs_generation:
-                    self._report_staged_frame_progress(
-                        ctx.progress_callback,
-                        stage_start=0.35,
-                        stage_end=0.50,
-                        frame_current=frame.index + 1,
-                        frame_total=total_frames,
-                        step=2,
-                        action=ProgressFrameAction.MEDIA,
-                    )
-                    await self.core.frame_processor._step_generate_media(frame, config)
-                elif not has_existing_media:
-                    frame.image_path = None
-                    frame.media_type = None
+        await self._produce_staged_media(
+            ctx,
+            stage_start=0.35,
+            stage_end=0.50,
+            media_session_policy=media_session_policy,
+        )
 
         for frame in storyboard.frames:
             self._report_staged_frame_progress(
@@ -1238,6 +1266,88 @@ class StandardPipeline(LinearVideoPipeline):
             await self.core.frame_processor._step_create_video_segment(frame, config)
             storyboard.total_duration += frame.duration
 
+    async def _produce_staged_media(
+        self,
+        ctx: PipelineContext,
+        *,
+        stage_start: float,
+        stage_end: float,
+        media_session_policy: LocalMediaSessionPolicy,
+    ) -> None:
+        storyboard = ctx.storyboard
+        total_frames = len(storyboard.frames)
+
+        if media_session_policy == "per_frame":
+            for frame in storyboard.frames:
+                if frame.image_prompt is None:
+                    await self._produce_staged_media_frame(
+                        ctx,
+                        frame,
+                        stage_start=stage_start,
+                        stage_end=stage_end,
+                        total_frames=total_frames,
+                    )
+                    continue
+
+                async with _maybe_local_comfyui_workflow_session(self.core):
+                    await self._produce_staged_media_frame(
+                        ctx,
+                        frame,
+                        stage_start=stage_start,
+                        stage_end=stage_end,
+                        total_frames=total_frames,
+                    )
+            return
+
+        if media_session_policy == "batch":
+            async with _maybe_local_comfyui_workflow_session(self.core):
+                for frame in storyboard.frames:
+                    await self._produce_staged_media_frame(
+                        ctx,
+                        frame,
+                        stage_start=stage_start,
+                        stage_end=stage_end,
+                        total_frames=total_frames,
+                    )
+            return
+
+        for frame in storyboard.frames:
+            await self._produce_staged_media_frame(
+                ctx,
+                frame,
+                stage_start=stage_start,
+                stage_end=stage_end,
+                total_frames=total_frames,
+            )
+
+    async def _produce_staged_media_frame(
+        self,
+        ctx: PipelineContext,
+        frame: StoryboardFrame,
+        *,
+        stage_start: float,
+        stage_end: float,
+        total_frames: int,
+    ) -> None:
+        config = ctx.config
+        has_existing_media = frame.image_path is not None or frame.video_path is not None
+        needs_generation = frame.image_prompt is not None
+
+        if needs_generation:
+            self._report_staged_frame_progress(
+                ctx.progress_callback,
+                stage_start=stage_start,
+                stage_end=stage_end,
+                frame_current=frame.index + 1,
+                frame_total=total_frames,
+                step=2,
+                action=ProgressFrameAction.MEDIA,
+            )
+            await self.core.frame_processor._step_generate_media(frame, config)
+        elif not has_existing_media:
+            frame.image_path = None
+            frame.media_type = None
+
     async def _materialize_element_motion_for_frame(
         self,
         ctx: PipelineContext,
@@ -1247,7 +1357,7 @@ class StandardPipeline(LinearVideoPipeline):
         if not getattr(config, "element_animation_enabled", False):
             return
 
-        source_image_path = frame.composed_image_path or frame.image_path
+        source_image_path = self._resolve_element_motion_source_image_path(ctx, frame)
         if not source_image_path:
             return
 
@@ -1282,6 +1392,15 @@ class StandardPipeline(LinearVideoPipeline):
         frame.element_animation_manifest_path = artifact.manifest_path
         frame.element_motion_video_path = artifact.motion_video_path
 
+    def _resolve_element_motion_source_image_path(
+        self,
+        ctx: PipelineContext,
+        frame: StoryboardFrame,
+    ) -> str | None:
+        if self._resolve_effective_render_backend(ctx) == HYPERFRAMES_COMPILED_RENDER_BACKEND:
+            return frame.image_path
+        return frame.composed_image_path or frame.image_path
+
     async def produce_assets(self, ctx: PipelineContext):
         """Step 6: Generate audio, images, and render frames (Core processing)."""
         storyboard = ctx.storyboard
@@ -1289,7 +1408,7 @@ class StandardPipeline(LinearVideoPipeline):
         effective_tts_audio_strategy = self._resolve_effective_tts_audio_strategy(ctx)
         if self._is_hyperframes_render_path(ctx):
             await self._produce_assets_hyperframes(ctx)
-            logger.info("All frames processed in HyperFrames image mode")
+            logger.info("All raw media assets prepared for HyperFrames compiled render")
             return
 
         if effective_tts_audio_strategy == MASTER_TRACK_TTS_AUDIO_STRATEGY:
@@ -1309,7 +1428,11 @@ class StandardPipeline(LinearVideoPipeline):
         runninghub_concurrent_limit = config_manager.config.comfyui.runninghub_concurrent_limit or 1
 
         if execution_mode.use_staged_mode:
-            await self._produce_assets_staged(ctx, template_body_text=template_body_text)
+            await self._produce_assets_staged(
+                ctx,
+                template_body_text=template_body_text,
+                media_session_policy=execution_mode.local_media_session_policy,
+            )
             logger.info(
                 f"All frames processed in staged mode (total duration: {storyboard.total_duration:.2f}s)"
             )
@@ -1438,47 +1561,21 @@ class StandardPipeline(LinearVideoPipeline):
 
     async def _produce_assets_hyperframes(self, ctx: PipelineContext):
         storyboard = ctx.storyboard
-        config = ctx.config
-        total_frames = len(storyboard.frames)
+        execution_mode = self._resolve_asset_execution_mode(ctx)
+        media_session_policy = execution_mode.local_media_session_policy
+        if media_session_policy == "none" and execution_mode.media_domain != "static":
+            media_session_policy = "batch"
 
-        logger.info("Using HyperFrames image asset production path")
+        logger.info("Using HyperFrames raw media asset production path")
 
-        async with _maybe_local_comfyui_workflow_session(self.core):
-            for frame in storyboard.frames:
-                has_existing_media = frame.image_path is not None or frame.video_path is not None
-                needs_generation = frame.image_prompt is not None
+        await self._produce_staged_media(
+            ctx,
+            stage_start=0.25,
+            stage_end=0.55,
+            media_session_policy=media_session_policy,
+        )
 
-                if needs_generation:
-                    self._report_staged_frame_progress(
-                        ctx.progress_callback,
-                        stage_start=0.25,
-                        stage_end=0.55,
-                        frame_current=frame.index + 1,
-                        frame_total=total_frames,
-                        step=2,
-                        action=ProgressFrameAction.MEDIA,
-                    )
-                    await self.core.frame_processor._step_generate_media(frame, config)
-                elif not has_existing_media:
-                    frame.image_path = None
-                    frame.media_type = None
-
-        for frame in storyboard.frames:
-            self._report_staged_frame_progress(
-                ctx.progress_callback,
-                stage_start=0.55,
-                stage_end=0.80,
-                frame_current=frame.index + 1,
-                frame_total=total_frames,
-                step=3,
-                action=ProgressFrameAction.COMPOSE,
-            )
-            await self.core.frame_processor._step_compose_frame(
-                frame,
-                storyboard,
-                config,
-                template_body_text="",
-            )
+        logger.info("HyperFrames raw media assets prepared; skipping legacy HTML prerender")
 
     async def post_production(self, ctx: PipelineContext):
         """Step 7: Concatenate videos and add BGM."""
@@ -1720,6 +1817,9 @@ class StandardPipeline(LinearVideoPipeline):
         raise RuntimeError("ffmpeg_manifest render path requires master audio")
 
     def _build_manifest_visual_clips(self, ctx: PipelineContext) -> list[VisualClip]:
+        prefer_template_frame = (
+            self._resolve_effective_render_backend(ctx) != HYPERFRAMES_COMPILED_RENDER_BACKEND
+        )
         windows = {
             window.frame_index: window
             for window in allocate_frame_timing_windows(
@@ -1731,7 +1831,10 @@ class StandardPipeline(LinearVideoPipeline):
         cursor = 0.0
         for frame in ctx.storyboard.frames:
             media_path, media_type, source_kind, source_media_path = (
-                self._resolve_manifest_frame_media(frame)
+                self._resolve_manifest_frame_media(
+                    frame,
+                    prefer_template_frame=prefer_template_frame,
+                )
             )
             if not media_path:
                 logger.warning(
@@ -1779,15 +1882,20 @@ class StandardPipeline(LinearVideoPipeline):
     def _resolve_manifest_frame_media(
         self,
         frame: StoryboardFrame,
+        *,
+        prefer_template_frame: bool = True,
     ) -> tuple[str | None, str, str, str | None]:
         if frame.element_motion_video_path:
+            source_media_path = frame.image_path or frame.video_path
+            if prefer_template_frame and frame.composed_image_path:
+                source_media_path = frame.composed_image_path
             return (
                 frame.element_motion_video_path,
                 "video",
                 "element_motion_video",
-                frame.composed_image_path or frame.image_path or frame.video_path,
+                source_media_path,
             )
-        if frame.composed_image_path:
+        if prefer_template_frame and frame.composed_image_path:
             return (
                 frame.composed_image_path,
                 "image",
@@ -2346,12 +2454,14 @@ class StandardPipeline(LinearVideoPipeline):
             return existing
 
         frame_texts = self._text_rendering_frame_texts(ctx)
+        config = getattr(ctx, "config", None)
         result = TextRenderingOrchestrator().build(
             text_rendering=self._text_rendering_request_for_contract(ctx),
             narrations=frame_texts,
             render_backend=self._resolve_text_rendering_backend_label(ctx),
             frame_count=len(frame_texts),
             task_id=getattr(ctx, "task_id", None),
+            config=config,
         )
         setattr(ctx, "text_rendering_result", result)
         self._set_text_render_package(ctx, result.text_render_package)

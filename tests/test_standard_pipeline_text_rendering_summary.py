@@ -112,6 +112,44 @@ def test_text_rendering_result_persists_caption_style_when_overlay_disabled(tmp_
     assert package_payload["diagnostics"]["disabled_reasons"] == ["overlay_disabled"]
 
 
+def test_text_rendering_result_uses_current_canvas_as_scale_basis(tmp_path):
+    pipeline = StandardPipeline.__new__(StandardPipeline)
+    ctx = SimpleNamespace(
+        params={
+            "text_rendering": {
+                "overlay": {"enabled": False},
+                "caption_style": {
+                    "font_size": 42,
+                },
+            },
+        },
+        narrations=["landscape narration"],
+        task_id="task-landscape-caption-scale",
+        task_dir=str(tmp_path),
+        observability={},
+        config=StoryboardConfig(
+            task_id="task-landscape-caption-scale",
+            media_width=768,
+            media_height=768,
+            canvas_width=1280,
+            canvas_height=720,
+            video_fps=30,
+            frame_template="1920x1080/image_landscape_minimal.html",
+            render_backend="hyperframes_compiled",
+        ),
+    )
+
+    result = pipeline._get_text_rendering_result(ctx)
+
+    assert result.caption_style.scale_basis_width == 1280
+    assert result.caption_style.scale_basis_height == 720
+    package_payload = json.loads(
+        (tmp_path / "text_render_package.json").read_text(encoding="utf-8")
+    )
+    assert package_payload["text_style_profiles"][0]["scale_basis_width"] == 1280
+    assert package_payload["text_style_profiles"][0]["scale_basis_height"] == 720
+
+
 def test_text_rendering_result_attaches_contract_to_creation_package(tmp_path):
     pipeline = StandardPipeline.__new__(StandardPipeline)
     ctx = SimpleNamespace(

@@ -17,14 +17,27 @@ Workflow capability inspection helpers.
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from comfykit.comfyui.workflow_parser import WorkflowParser
+
+LocalMemoryProfile = Literal["standard", "high"]
+
+_GGUF_LOADER_CLASS_TYPES = frozenset(
+    {
+        "UnetLoaderGGUF",
+        "CLIPLoaderGGUF",
+        "DualCLIPLoaderGGUF",
+    }
+)
 
 
 @dataclass(frozen=True)
 class WorkflowCapabilities:
     supports_negative_prompt: bool = False
+    uses_gguf_loaders: bool = False
+    local_memory_profile: LocalMemoryProfile = "standard"
+    prefers_isolated_local_execution: bool = False
 
 
 def infer_media_domain_from_workflow(workflow: str | None) -> str:
@@ -35,11 +48,40 @@ def infer_media_domain_from_workflow(workflow: str | None) -> str:
     return "image"
 
 
+def _workflow_class_types(workflow_path: str | Path) -> set[str]:
+    workflow = json.loads(Path(workflow_path).read_text(encoding="utf-8"))
+    if not isinstance(workflow, dict):
+        return set()
+
+    return {
+        str(node.get("class_type"))
+        for node in workflow.values()
+        if isinstance(node, dict) and node.get("class_type")
+    }
+
+
+def _build_capabilities(
+    *,
+    supports_negative_prompt: bool,
+    class_types: set[str] | None = None,
+) -> WorkflowCapabilities:
+    resolved_class_types = class_types or set()
+    uses_gguf_loaders = bool(resolved_class_types & _GGUF_LOADER_CLASS_TYPES)
+    local_memory_profile: LocalMemoryProfile = "high" if uses_gguf_loaders else "standard"
+    return WorkflowCapabilities(
+        supports_negative_prompt=supports_negative_prompt,
+        uses_gguf_loaders=uses_gguf_loaders,
+        local_memory_profile=local_memory_profile,
+        prefers_isolated_local_execution=local_memory_profile == "high",
+    )
+
+
 def get_workflow_capabilities(workflow_info: dict[str, Any]) -> WorkflowCapabilities:
     if workflow_info["source"] == "selfhost":
         metadata = WorkflowParser().parse_workflow_file(str(workflow_info["path"]))
-        return WorkflowCapabilities(
-            supports_negative_prompt="negative_prompt" in metadata.params
+        return _build_capabilities(
+            supports_negative_prompt="negative_prompt" in metadata.params,
+            class_types=_workflow_class_types(workflow_info["path"]),
         )
 
     wrapper = json.loads(Path(workflow_info["path"]).read_text(encoding="utf-8"))
@@ -49,7 +91,7 @@ def get_workflow_capabilities(workflow_info: dict[str, Any]) -> WorkflowCapabili
         or wrapper.get("inputs")
         or {}
     )
-    return WorkflowCapabilities(
+    return _build_capabilities(
         supports_negative_prompt=bool(declared.get("negative_prompt"))
     )
 

@@ -73,6 +73,18 @@ def test_text_style_profile_rejects_invalid_contract_values(kwargs, message):
 def test_text_style_profile_scale_for_canvas_clamps_canvas_dimensions():
     profile = TextStyleProfile(id="style", name="Style")
 
+    assert profile.scale_for_canvas(540, 960) == 1.0
+    assert profile.scale_for_canvas(0, 0) == 1.0
+
+
+def test_text_style_profile_scales_only_when_scale_basis_is_explicit():
+    profile = TextStyleProfile(
+        id="style",
+        name="Style",
+        scale_basis_width=1080,
+        scale_basis_height=1920,
+    )
+
     assert profile.scale_for_canvas(540, 960) == 0.5
     assert profile.scale_for_canvas(0, 0) == min(1 / 1080, 1 / 1920)
 

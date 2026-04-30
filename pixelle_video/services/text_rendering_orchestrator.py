@@ -58,6 +58,9 @@ class TextRenderingOrchestrator:
         render_backend: str | None = None,
         frame_count: int | None = None,
         task_id: str | None = None,
+        config: Any | None = None,
+        canvas_width: int | None = None,
+        canvas_height: int | None = None,
     ) -> TextRenderingBuildResult:
         request = dict(text_rendering or {})
         settings = build_text_rendering_settings(request)
@@ -66,10 +69,16 @@ class TextRenderingOrchestrator:
         caption_style = _profile_from_request(
             style_id=DEFAULT_CAPTION_STYLE_ID,
             data=_mapping_or_none(request.get("caption_style")),
+            config=config,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
         )
         overlay_style = _profile_from_request(
             style_id=DEFAULT_OVERLAY_STYLE_ID,
             data=_mapping_or_none(request.get("overlay_style")),
+            config=config,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
         )
         caption_settings = _caption_settings_from_request(
             request.get("caption"), caption_style_id=caption_style.id
@@ -126,10 +135,20 @@ class TextRenderingOrchestrator:
 
 
 def _profile_from_request(
-    *, style_id: str, data: Mapping[str, Any] | None
+    *,
+    style_id: str,
+    data: Mapping[str, Any] | None,
+    config: Any | None = None,
+    canvas_width: int | None = None,
+    canvas_height: int | None = None,
 ) -> TextStyleProfile:
     defaults = {
-        profile.id: profile.to_dict() for profile in build_default_text_style_profiles()
+        profile.id: profile.to_dict()
+        for profile in build_default_text_style_profiles(
+            config=config,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+        )
     }
     payload = dict(defaults[style_id])
     if data:
