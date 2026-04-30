@@ -76,6 +76,31 @@ modelscope download --model facebook/w2v-bert-2.0 --local_dir (Join-Path $ModelR
 python tools\patch_indextts2_plugin.py --target E:\ComfyUIData\custom_nodes\ComfyUI-Index-TTS
 ```
 
+### Pixelle 显存释放补丁
+
+`tools/patch_indextts2_plugin.py` 还会为 `ComfyUI-Index-TTS` 安装 `POST /pixelle/indextts2/free` 端点，用于释放插件私有的 IndexTTS2 PyTorch 缓存。这个端点解决的是 ComfyUI 标准 `/free` 管不到的插件全局 loader/cache；它不要求关闭工作流里的 `keep_models_cached`，因此批次内仍可复用模型，批次结束或恢复路径再释放。
+
+执行补丁：
+
+```powershell
+python tools\patch_indextts2_plugin.py --target E:\ComfyUIData\custom_nodes\ComfyUI-Index-TTS
+```
+
+验证端点文件已安装：
+
+```powershell
+Test-Path E:\ComfyUIData\custom_nodes\ComfyUI-Index-TTS\pixelle_routes.py
+Select-String -Path E:\ComfyUIData\custom_nodes\ComfyUI-Index-TTS\pixelle_routes.py -Pattern "/pixelle/indextts2/free"
+```
+
+补丁后需要重启 ComfyUI。重启后可验证 HTTP 端点：
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8188/pixelle/indextts2/free
+```
+
+Pixelle 的 `model_cleanup_mode: comfyui_and_extensions` 会先调用 ComfyUI `/free`，再调用 `/pixelle/indextts2/free`，同时覆盖 z-image 这类标准模型和 IndexTTS2 插件私有缓存。
+
 ## 8. 8G 版关键参数
 
 `workflows/selfhost/tts_index2_8g.json` 相对默认版的主要变化：
