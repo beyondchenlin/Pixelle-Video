@@ -98,7 +98,7 @@
     "size.preset.portrait_4k": "4K portrait",
     "size.preset.square_standard": "Standard square",
     "media_placement.scale": "Media display size",
-    "media_placement.scale_help": "100% is calculated against the final video canvas; 80% keeps the media proportional and leaves background visible.",
+    "media_placement.scale_help": "100% uses the final video canvas contain-fit size; lower values keep the media proportional while leaving more background visible.",
     "media_placement.anchor": "Media position",
     "media_placement.summary": "Media display: {scale}% of video canvas, {anchor}",
     "media_placement.anchor.top_left": "top left",

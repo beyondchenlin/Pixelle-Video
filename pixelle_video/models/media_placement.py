@@ -37,7 +37,7 @@ VALID_MEDIA_PLACEMENT_ANCHORS = (
 class MediaPlacement:
     basis: MediaPlacementBasis = "canvas"
     fit: MediaPlacementFit = "contain"
-    scale_percent: int = 80
+    scale_percent: int = 100
     anchor: MediaPlacementAnchor = "center"
 
     def __post_init__(self) -> None:

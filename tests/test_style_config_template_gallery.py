@@ -349,12 +349,12 @@ def test_render_generation_size_controls_sets_default_media_placement(monkeypatc
 
     style_config._render_generation_size_controls()
 
-    assert fake_st.session_state["media_placement_scale_percent"] == 80
+    assert fake_st.session_state["media_placement_scale_percent"] == 100
     assert fake_st.session_state["media_placement_anchor"] == "center"
     assert fake_st.session_state["media_placement"] == {
         "basis": "canvas",
         "fit": "contain",
-        "scale_percent": 80,
+        "scale_percent": 100,
         "anchor": "center",
     }
 
@@ -370,7 +370,7 @@ def test_render_generation_size_controls_omits_defaults_for_session_widgets(
                 "media_orientation": "square",
                 "media_resolution_preset": "768",
                 "sync_media_size_to_canvas": False,
-                "media_placement_scale_percent": 80,
+                "media_placement_scale_percent": 100,
                 "media_placement_anchor": "center",
             }
             self.segmented_kwargs = {}

@@ -1,5 +1,7 @@
 # Template Media Contract v2 Implementation Plan
 
+> Note (2026-04-29 follow-up): the shipped runtime default `media_placement.scale_percent` is now `100`. References to `80%` below remain as historical implementation context for the earlier iteration.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a platform-level media placement contract so generated image/video media defaults to 80% of the final video canvas, remains aspect-correct, and can be positioned with 9-grid anchors.

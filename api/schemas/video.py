@@ -86,7 +86,7 @@ class MediaPlacementRequest(BaseModel):
         description="Preserve aspect ratio and do not crop.",
     )
     scale_percent: StrictInt = Field(
-        80,
+        100,
         ge=10,
         le=100,
         description="Display size as percent of final video canvas contain-fit size.",

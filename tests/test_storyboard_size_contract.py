@@ -43,7 +43,7 @@ def test_storyboard_config_defaults_media_placement_independently_from_sync_flag
     )
 
     assert config.media_placement == MediaPlacement()
-    assert config.media_placement.scale_percent == 80
+    assert config.media_placement.scale_percent == 100
 
 
 def test_storyboard_config_accepts_media_placement_dict():

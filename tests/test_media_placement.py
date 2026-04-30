@@ -8,17 +8,17 @@ from pixelle_video.models.media_placement import (
 )
 
 
-def test_media_placement_defaults_to_canvas_contain_80_center():
+def test_media_placement_defaults_to_canvas_contain_100_center():
     placement = MediaPlacement()
 
     assert placement.basis == "canvas"
     assert placement.fit == "contain"
-    assert placement.scale_percent == 80
+    assert placement.scale_percent == 100
     assert placement.anchor == "center"
     assert placement.to_dict() == {
         "basis": "canvas",
         "fit": "contain",
-        "scale_percent": 80,
+        "scale_percent": 100,
         "anchor": "center",
     }
 

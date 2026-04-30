@@ -178,7 +178,7 @@ def test_video_generate_request_defaults_media_placement():
     assert request.media_placement.to_dict() == {
         "basis": "canvas",
         "fit": "contain",
-        "scale_percent": 80,
+        "scale_percent": 100,
         "anchor": "center",
     }
 
@@ -873,7 +873,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "media_placement": {
                 "basis": "canvas",
                 "fit": "contain",
-                "scale_percent": 80,
+                "scale_percent": 100,
                 "anchor": "center",
             },
             "media_workflow": None,

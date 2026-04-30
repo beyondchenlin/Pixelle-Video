@@ -149,6 +149,44 @@ def test_hyperframes_compiler_emits_media_placement_variables(tmp_path: Path):
     assert "visual-clip__media" not in index_html
 
 
+def test_hyperframes_compiler_defaults_media_placement_variables_to_full_contain_fit(
+    tmp_path: Path,
+):
+    compiler = HyperFramesCompiler()
+    context = TemplateRenderContext(
+        template_id="image_landscape_minimal",
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=1280,
+        media_height=720,
+        duration=6.0,
+        fps=30,
+        title="Landscape",
+        author="LanRen.AI",
+        footer="LanRen",
+        theme=None,
+        style_profile="image_landscape_minimal",
+        visuals=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0.0,
+                end=6.0,
+                media_path="assets/images/01.png",
+                media_type="image",
+            )
+        ],
+    )
+
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "--pixelle-media-display-width: 1280px" in index_html
+    assert "--pixelle-media-display-height: 720px" in index_html
+    assert "--pixelle-media-left: 0px" in index_html
+    assert "--pixelle-media-top: 0px" in index_html
+
+
 def test_compiler_exposes_clip_level_element_animation_manifest_attribute(
     tmp_path: Path,
 ):
@@ -1198,6 +1236,8 @@ def test_image_landscape_minimal_template_expands_visual_when_media_syncs_to_can
     compiler.compile(project_dir=tmp_path / "project", context=context)
 
     index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
-    assert "--pixelle-media-display-width: 1024px" in index_html
-    assert "--pixelle-media-display-height: 576px" in index_html
+    assert "--pixelle-media-display-width: 1280px" in index_html
+    assert "--pixelle-media-display-height: 720px" in index_html
+    assert "--pixelle-media-left: 0px" in index_html
+    assert "--pixelle-media-top: 0px" in index_html
     assert 'class="clip pixelle-media-clip"' in index_html

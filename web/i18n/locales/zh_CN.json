@@ -99,7 +99,7 @@
     "size.preset.portrait_4k": "4K 竖屏",
     "size.preset.square_standard": "标准方屏",
     "media_placement.scale": "图片显示占比",
-    "media_placement.scale_help": "100% 按最终视频画布计算；80% 会在保持比例的前提下露出背景。",
+    "media_placement.scale_help": "100% 按最终视频画布的 contain 适配尺寸计算；更小的数值会在保持比例的前提下露出更多背景。",
     "media_placement.anchor": "图片位置",
     "media_placement.summary": "图片显示：按视频画布 {scale}%，{anchor}",
     "media_placement.anchor.top_left": "左上",

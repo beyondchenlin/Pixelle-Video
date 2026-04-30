@@ -191,6 +191,35 @@ def test_html_frame_generator_injects_standard_media_layer_css(tmp_path):
     assert '<img class="pixelle-media"' in html
 
 
+def test_html_frame_generator_defaults_standard_media_layer_to_full_contain_fit(
+    tmp_path,
+):
+    template_dir = tmp_path / "templates" / "1920x1080"
+    template_dir.mkdir(parents=True)
+    template = template_dir / "image_standard.html"
+    template.write_text(
+        "<html><head></head><body>{{pixelle_media_layer}}</body></html>",
+        encoding="utf-8",
+    )
+
+    generator = HTMLFrameGenerator(str(template), canvas_width=1280, canvas_height=720)
+    html = generator._build_render_html(
+        title="Demo",
+        text="",
+        image="file:///tmp/source.png",
+        ext={"index": 1},
+        media_placement=None,
+        media_type="image",
+        media_width=1280,
+        media_height=720,
+    )
+
+    assert "--pixelle-media-display-width: 1920px" in html
+    assert "--pixelle-media-display-height: 1080px" in html
+    assert "--pixelle-media-left: 0px" in html
+    assert "--pixelle-media-top: 0px" in html
+
+
 def test_html_frame_generator_injects_video_media_element(tmp_path):
     template_dir = tmp_path / "templates" / "1280x720"
     template_dir.mkdir(parents=True)

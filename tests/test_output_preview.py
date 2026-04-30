@@ -209,7 +209,7 @@ def test_build_single_generation_request_uses_size_contract_not_template_session
     assert request["media_placement"] == {
         "basis": "canvas",
         "fit": "contain",
-        "scale_percent": 80,
+        "scale_percent": 100,
         "anchor": "center",
     }
 
@@ -646,7 +646,7 @@ def test_build_batch_shared_config_uses_size_contract_defaults_and_overrides():
     assert shared_config["media_placement"] == {
         "basis": "canvas",
         "fit": "contain",
-        "scale_percent": 80,
+        "scale_percent": 100,
         "anchor": "center",
     }
 

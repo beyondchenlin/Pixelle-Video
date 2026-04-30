@@ -124,7 +124,7 @@ def test_template_render_context_defaults_media_placement():
         style_profile="image_default",
     )
 
-    assert context.media_placement.to_dict()["scale_percent"] == 80
+    assert context.media_placement.to_dict()["scale_percent"] == 100
 
 
 def test_template_render_context_accepts_media_placement_dict():
