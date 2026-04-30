@@ -1,12 +1,13 @@
 import pytest
 
-from pixelle_video.models.render_package import CaptionCue, TextCue, TextTrack, VisualClip
+from pixelle_video.models.render_package import CaptionCue, RenderManifest, TextCue, TextTrack, VisualClip
 from pixelle_video.models.template_render_context import (
     PHASE1_TEMPLATE_FIELD_INVENTORY,
     TemplateAudioRef,
     TemplateRenderContext,
 )
 from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID, TextStyleProfile
+from pixelle_video.services.hyperframes_project_service import build_template_render_context
 
 
 def test_template_render_context_uses_render_timeline_values():
@@ -163,6 +164,34 @@ def test_template_render_context_preserves_explicit_text_regions_and_title_profi
         "width": 0.4,
         "height": 0.5,
     }
+
+
+def test_build_template_render_context_resolves_default_title_style_profile():
+    title_profile = TextStyleProfile(
+        id=DEFAULT_TITLE_STYLE_ID,
+        name="Title Default",
+        primary_color="#112233",
+    )
+    manifest = RenderManifest(
+        task_id="task-title-style",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        text_style_profiles=[
+            TextStyleProfile(
+                id="caption-yellow",
+                name="Caption Yellow",
+                primary_color="#FFFF00",
+            ),
+            title_profile,
+        ],
+    )
+
+    context = build_template_render_context(manifest, template_params={})
+
+    assert context.title_style_profile is title_profile
 
 
 def test_template_render_context_derives_canvas_media_layout_from_sync_flag():

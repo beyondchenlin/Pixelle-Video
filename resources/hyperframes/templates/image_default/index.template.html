@@ -162,10 +162,14 @@
 
       .video-title {
         margin: 0;
-        font-size: 68px;
-        font-weight: 600;
-        line-height: 1.4;
+        color: var(--title-fill);
+        font-family: var(--title-font-family);
+        font-size: var(--title-font-size);
+        font-weight: var(--title-font-weight);
+        line-height: var(--title-line-height);
+        background: var(--title-background);
         letter-spacing: 2px;
+        -webkit-text-stroke: var(--title-stroke-width) var(--title-stroke-color);
       }
 
       .image-wrapper {
@@ -409,7 +413,7 @@
             <div class="ornament-dot"></div>
             <div class="ornament-line"></div>
           </div>
-          <h1 class="video-title">__TITLE__</h1>
+          <h1 class="video-title" style="__TITLE_STYLE_CSS__">__TITLE__</h1>
         </div>
 
         <div class="pixelle-media-layer">__VISUALS__</div>

@@ -8,7 +8,7 @@ from pixelle_video.models.template_render_context import (
     TemplateAudioRef,
     TemplateRenderContext,
 )
-from pixelle_video.models.text_style import TextStyleProfile
+from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID, TextStyleProfile
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
 
 
@@ -652,6 +652,62 @@ def test_hyperframes_compiler_emits_caption_style_variables(tmp_path: Path):
     assert "<b>" not in html
 
 
+def test_hyperframes_compiler_emits_title_style_variables(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<h1 class="video-title" style="__TITLE_STYLE_CSS__">__TITLE__</h1>',
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    title_style = TextStyleProfile(
+        id=DEFAULT_TITLE_STYLE_ID,
+        name="Title Default",
+        font_size=88,
+        font_weight=800,
+        primary_color="#112233",
+        background_color="#FFFFFF",
+        background_opacity=0.75,
+        stroke_width=3,
+        max_width_ratio=0.5,
+        max_chars_per_line=5,
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="ABCDEFGHIJ<script>alert(1)</script>",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        title_style_profile=title_style,
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "--title-fill: #112233" in html
+    assert "--title-stroke-width: 3px" in html
+    assert "--title-background: rgba(255, 255, 255, 0.75)" in html
+    assert "--title-font-size: 88px" in html
+    assert "--title-max-width: 540px" in html
+    assert "ABCDEFGHIJ" not in html
+    assert "ABCDE<br/>FGHIJ" in html
+    assert "<script>" not in html
+    assert "--text-fill" not in html
+
+
 def test_hyperframes_compiler_copies_custom_font_file_and_emits_font_face(
     tmp_path: Path,
 ):
@@ -826,6 +882,22 @@ def test_phase1_templates_mount_static_text_layer_composition():
         assert 'data-composition-src="compositions/text_layer.html"' in index_content
         assert text_layer_template.exists()
         assert "__TEXT_CUES__" in text_layer_template.read_text(encoding="utf-8")
+
+
+def test_phase1_main_templates_consume_title_style_variables():
+    template_paths = [
+        Path("resources/hyperframes/templates/image_default/index.template.html"),
+        Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_full/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"),
+    ]
+
+    for path in template_paths:
+        content = path.read_text(encoding="utf-8")
+        assert "__TITLE_STYLE_CSS__" in content
+        assert "var(--title-fill)" in content
+        assert "var(--title-font-size)" in content
+        assert "var(--title-background)" in content
 
 
 def test_life_insights_caption_template_does_not_embed_hardcoded_english_label():

@@ -58,7 +58,8 @@ class HyperFramesCompiler:
             "__CANVAS_WIDTH__": str(context.canvas_width),
             "__CANVAS_HEIGHT__": str(context.canvas_height),
             "__DURATION__": str(context.duration),
-            "__TITLE__": escape(context.title),
+            "__TITLE__": self._render_title(context),
+            "__TITLE_STYLE_CSS__": self._render_title_style_css(context),
             "__AUTHOR__": escape(context.author or ""),
             "__AUTHOR_DESC__": escape(str(context.template_params.get("author_desc", ""))),
             "__FOOTER__": escape(context.footer or ""),
@@ -263,6 +264,28 @@ class HyperFramesCompiler:
     def _safe_display_text(self, text: object) -> str:
         return self.text_sanitizer.sanitize(text).display_text
 
+    def _render_title(self, context: TemplateRenderContext) -> str:
+        display_text = self._safe_display_text(context.title)
+        profile = context.title_style_profile
+        if profile is None or not profile.max_chars_per_line:
+            return escape(display_text)
+
+        max_chars = max(1, int(profile.max_chars_per_line))
+        lines = [
+            display_text[index : index + max_chars]
+            for index in range(0, len(display_text), max_chars)
+        ]
+        return "<br/>".join(escape(line) for line in lines)
+
+    def _render_title_style_css(self, context: TemplateRenderContext) -> str:
+        if context.title_style_profile is None:
+            return ""
+        return self._style_profile_css_variables(
+            context.title_style_profile,
+            context,
+            prefix="title",
+        )
+
     def _caption_as_text_cue(self, cue: CaptionCue) -> TextCue:
         return TextCue(
             id=cue.id,
@@ -279,6 +302,8 @@ class HyperFramesCompiler:
         self,
         profile: TextStyleProfile,
         context: TemplateRenderContext,
+        *,
+        prefix: str = "text",
     ) -> str:
         scale = profile.scale_for_canvas(context.canvas_width, context.canvas_height)
         font_size = max(1, int(round(profile.font_size * scale)))
@@ -289,17 +314,17 @@ class HyperFramesCompiler:
         background = self._rgba(profile.background_color, profile.background_opacity)
         return "; ".join(
             [
-                f"--text-fill: {profile.primary_color}",
-                f"--text-stroke-color: {profile.stroke_color}",
-                f"--text-stroke-width: {stroke_width}px",
-                f"--text-background: {background}",
-                f"--text-font-family: {self._css_font_family_value(profile.font_family)}",
-                f"--text-font-size: {font_size}px",
-                f"--text-font-weight: {int(profile.font_weight)}",
-                f"--text-line-height: {float(profile.line_height)}",
-                f"--text-max-width: {max_width}px",
-                f"--text-margin-x: {margin_x}px",
-                f"--text-margin-y: {margin_y}px",
+                f"--{prefix}-fill: {profile.primary_color}",
+                f"--{prefix}-stroke-color: {profile.stroke_color}",
+                f"--{prefix}-stroke-width: {stroke_width}px",
+                f"--{prefix}-background: {background}",
+                f"--{prefix}-font-family: {self._css_font_family_value(profile.font_family)}",
+                f"--{prefix}-font-size: {font_size}px",
+                f"--{prefix}-font-weight: {int(profile.font_weight)}",
+                f"--{prefix}-line-height: {float(profile.line_height)}",
+                f"--{prefix}-max-width: {max_width}px",
+                f"--{prefix}-margin-x: {margin_x}px",
+                f"--{prefix}-margin-y: {margin_y}px",
             ]
         ) + ";"
 

@@ -21,7 +21,7 @@ from pixelle_video.models.render_package import (
 )
 from pixelle_video.models.template_render_context import TemplateAudioRef, TemplateRenderContext
 from pixelle_video.models.template_text_capabilities import TemplateTextCapabilities
-from pixelle_video.models.text_style import DEFAULT_CAPTION_STYLE_ID
+from pixelle_video.models.text_style import DEFAULT_CAPTION_STYLE_ID, DEFAULT_TITLE_STYLE_ID
 from pixelle_video.services.caption_cue_builder import build_caption_cues_from_sentences
 from pixelle_video.services.hyperframes_asset_materializer import HyperFramesAssetMaterializer
 from pixelle_video.services.hyperframes_compiler import HyperFramesCompiler
@@ -62,6 +62,14 @@ def build_template_render_context(
 ) -> TemplateRenderContext:
     params = dict(template_params or {})
     caption_cues = _resolve_caption_cues_for_manifest(manifest)
+    title_style_profile = next(
+        (
+            profile
+            for profile in manifest.text_style_profiles
+            if profile.id == DEFAULT_TITLE_STYLE_ID
+        ),
+        None,
+    )
 
     duration_candidates = [float(manifest.master_audio_duration or 0.0)]
     duration_candidates.extend(float(track.end) for track in manifest.audio_tracks)
@@ -116,6 +124,7 @@ def build_template_render_context(
         visuals=list(manifest.visual_clips),
         captions=caption_cues,
         text_style_profiles=list(manifest.text_style_profiles),
+        title_style_profile=title_style_profile,
         text_tracks=list(manifest.text_tracks),
         text_cues=list(manifest.text_cues),
         audio_tracks=audio_tracks,

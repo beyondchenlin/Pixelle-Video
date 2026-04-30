@@ -104,14 +104,17 @@
       }
 
       .title {
-        font-size: 80px;
-        font-weight: 900;
-        line-height: 1.4;
+        color: var(--title-fill);
+        font-family: var(--title-font-family);
+        font-size: var(--title-font-size);
+        font-weight: var(--title-font-weight);
+        line-height: var(--title-line-height);
         letter-spacing: 3px;
-        background: linear-gradient(135deg, #1a1611 0%, #2c2416 50%, #1a1611 100%);
+        background: var(--title-background);
         -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        -webkit-text-fill-color: var(--title-fill);
         background-clip: text;
+        -webkit-text-stroke: var(--title-stroke-width) var(--title-stroke-color);
         filter: contrast(1.1) brightness(0.9);
       }
 
@@ -217,7 +220,7 @@
       </div>
 
       <div class="header">
-        <div class="title">__TITLE__</div>
+        <div class="title" style="__TITLE_STYLE_CSS__">__TITLE__</div>
       </div>
 
       <div class="pixelle-media-layer">__VISUALS__</div>
