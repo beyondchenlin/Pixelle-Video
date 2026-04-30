@@ -217,6 +217,29 @@ def test_tts_index2_uses_safer_sentence_token_cap():
     assert workflow["5"]["inputs"]["max_tokens_per_sentence"] == 90
 
 
+def test_tts_index2_saves_lossless_flac_audio():
+    workflow = json.loads(Path("workflows/selfhost/tts_index2.json").read_text(encoding="utf-8"))
+
+    save_audio_nodes = {
+        node_id: node
+        for node_id, node in workflow.items()
+        if node["class_type"] in {"SaveAudio", "SaveAudioMP3"}
+    }
+
+    assert save_audio_nodes == {
+        "8": {
+            "inputs": {
+                "filename_prefix": "audio/ComfyUI",
+                "audio": ["5", 0],
+            },
+            "class_type": "SaveAudio",
+            "_meta": {
+                "title": "Save Audio (FLAC)",
+            },
+        }
+    }
+
+
 def test_tts_edge_workflow_is_parseable_and_uses_pixelle_nodes():
     metadata = WorkflowParser().parse_workflow_file(
         str(Path("workflows/selfhost/tts_edge.json"))

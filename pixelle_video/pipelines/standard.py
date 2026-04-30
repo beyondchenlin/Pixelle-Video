@@ -2909,6 +2909,17 @@ class StandardPipeline(LinearVideoPipeline):
             fade_ms=ctx.config.tts_audio_boundary_fade_ms,
         )
         master_audio_duration = self._get_audio_duration(str(master_audio_path))
+
+        release_comfyui_memory = getattr(self.core, "force_release_comfyui_memory", None)
+        if self._uses_index_tts2_workflow(ctx.config) and callable(release_comfyui_memory):
+            try:
+                await release_comfyui_memory(context="post-index-tts2-audio")
+            except Exception as exc:
+                logger.warning(
+                    "Failed to release IndexTTS2 ComfyUI memory after audio synthesis: {}",
+                    exc,
+                )
+
         return str(master_audio_path), master_audio_duration
 
     async def _synthesize_audio_block(
