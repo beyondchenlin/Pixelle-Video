@@ -12,6 +12,7 @@ from pixelle_video.storage.object_store import (
 )
 
 VALID_OBJECT_ID = "00000000000000000000000000000000"
+WINDOWS_RESERVED_WORKSPACE_IDS = ["CON", "PRN", "AUX", "NUL", "COM1", "LPT1"]
 UNSAFE_WORKSPACE_IDS = [
     "a?b",
     "a*b",
@@ -34,6 +35,10 @@ INVALID_STORAGE_KEYS = [
     "payloads/workspace-1/x.json",
     "raw-payloads/workspace-1/x.txt",
     "raw-payloads/workspace-1/.json",
+    "raw-payloads/workspace-1/0.json",
+    "raw-payloads/workspace-1/000000000000000000000000000000000.json",
+    "raw-payloads/workspace-1/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.json",
+    "raw-payloads/workspace-1/gggggggggggggggggggggggggggggggg.json",
     f"raw-payloads/workspace..1/{VALID_OBJECT_ID}.json",
     *[
         f"raw-payloads/{workspace_id}/{VALID_OBJECT_ID}.json"
@@ -79,8 +84,25 @@ async def test_filesystem_dev_store_returns_storage_key_and_round_trips_payload(
     assert not os.path.isabs(storage_key)
     assert "\\" not in storage_key
 
-    written_path = tmp_path / storage_key
-    assert written_path.is_file()
+    assert await store.get_json(storage_key) == payload
+    assert await store.exists(storage_key) is True
+
+
+@pytest.mark.parametrize("workspace_id", WINDOWS_RESERVED_WORKSPACE_IDS)
+async def test_filesystem_dev_store_round_trips_reserved_workspace_ids(
+    tmp_path, workspace_id
+):
+    store = FilesystemDevRawPayloadStore(root=tmp_path)
+    payload = {"workspace_id": workspace_id}
+
+    storage_key = await store.put_json(workspace_id=workspace_id, payload=payload)
+    object_id = storage_key.removeprefix(f"raw-payloads/{workspace_id}/").removesuffix(
+        ".json"
+    )
+
+    assert storage_key.startswith(f"raw-payloads/{workspace_id}/")
+    assert len(object_id) == 32
+    assert all(character in "0123456789abcdef" for character in object_id)
     assert await store.get_json(storage_key) == payload
     assert await store.exists(storage_key) is True
 
@@ -128,9 +150,8 @@ async def test_filesystem_dev_store_get_json_raises_contract_error_for_invalid_p
     tmp_path, stored_text, expected_error
 ):
     store = FilesystemDevRawPayloadStore(root=tmp_path)
-    storage_key = f"raw-payloads/workspace-1/{VALID_OBJECT_ID}.json"
-    target_path = tmp_path / storage_key
-    target_path.parent.mkdir(parents=True)
+    storage_key = await store.put_json(workspace_id="workspace-1", payload={"valid": True})
+    target_path = store._path_for_storage_key(storage_key)
     target_path.write_text(stored_text, encoding="utf-8")
 
     with pytest.raises(expected_error):
@@ -141,9 +162,8 @@ async def test_filesystem_dev_store_get_json_raises_invalid_error_for_invalid_ut
     tmp_path,
 ):
     store = FilesystemDevRawPayloadStore(root=tmp_path)
-    storage_key = f"raw-payloads/workspace-1/{VALID_OBJECT_ID}.json"
-    target_path = tmp_path / storage_key
-    target_path.parent.mkdir(parents=True)
+    storage_key = await store.put_json(workspace_id="workspace-1", payload={"valid": True})
+    target_path = store._path_for_storage_key(storage_key)
     target_path.write_bytes(b"\xff\xfe")
 
     with pytest.raises(RawPayloadInvalidError):

@@ -8,6 +8,7 @@ RAW_PAYLOAD_PREFIX = "raw-payloads"
 OBJECT_ID_HEX_LENGTH = 32
 LOWER_HEX_DIGITS = frozenset("0123456789abcdef")
 WORKSPACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+WORKSPACE_DIR_PREFIX = "workspace-"
 
 
 class RawPayloadReadError(Exception):
@@ -106,10 +107,16 @@ class FilesystemDevRawPayloadStore:
         ):
             raise ValueError("invalid raw payload storage key")
 
-        target_path = self._root.joinpath(*parts).resolve()
+        target_path = self._root.joinpath(
+            parts[0], self._filesystem_workspace_dir(parts[1]), parts[2]
+        ).resolve()
         if not target_path.is_relative_to(self._root):
             raise ValueError("storage key escapes configured root")
         return target_path
+
+    @staticmethod
+    def _filesystem_workspace_dir(workspace_id: str) -> str:
+        return f"{WORKSPACE_DIR_PREFIX}{workspace_id}"
 
     @staticmethod
     def _is_valid_object_filename(filename: str) -> bool:
