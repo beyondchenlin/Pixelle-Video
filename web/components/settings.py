@@ -227,6 +227,11 @@ def render_advanced_settings():
                     "force": tr("settings.comfyui.cleanup_force"),
                     "conservative": tr("settings.comfyui.cleanup_conservative"),
                 }
+                model_cleanup_labels = {
+                    "disabled": tr("settings.comfyui.model_cleanup_disabled"),
+                    "comfyui": tr("settings.comfyui.model_cleanup_comfyui"),
+                    "comfyui_and_extensions": tr("settings.comfyui.model_cleanup_comfyui_and_extensions"),
+                }
                 current_executor_type = comfyui_config.get("executor_type")
                 if current_executor_type in executor_labels:
                     default_executor_type = current_executor_type
@@ -235,6 +240,12 @@ def render_advanced_settings():
                 current_cleanup_mode = comfyui_config.get("pre_generation_cleanup_mode", "force")
                 if current_cleanup_mode not in cleanup_mode_labels:
                     current_cleanup_mode = "force"
+                current_model_cleanup_mode = comfyui_config.get(
+                    "model_cleanup_mode",
+                    "comfyui_and_extensions",
+                )
+                if current_model_cleanup_mode not in model_cleanup_labels:
+                    current_model_cleanup_mode = "comfyui_and_extensions"
                 current_cleanup_timeout_seconds = comfyui_config.get(
                     "pre_generation_cleanup_timeout_seconds",
                     20.0,
@@ -290,6 +301,15 @@ def render_advanced_settings():
                     step=1.0,
                     help=tr("settings.comfyui.pre_generation_cleanup_timeout_help"),
                     key="comfyui_cleanup_timeout_seconds_input",
+                )
+
+                model_cleanup_mode = st.selectbox(
+                    tr("settings.comfyui.model_cleanup_mode"),
+                    options=list(model_cleanup_labels.keys()),
+                    index=list(model_cleanup_labels.keys()).index(current_model_cleanup_mode),
+                    format_func=lambda key: model_cleanup_labels[key],
+                    help=tr("settings.comfyui.model_cleanup_mode_help"),
+                    key="comfyui_model_cleanup_mode_input",
                 )
                 st.caption(tr("settings.comfyui.post_generation_cleanup_notice"))
 
@@ -379,6 +399,7 @@ def render_advanced_settings():
                         executor_type="" if executor_type == "auto" else executor_type,
                         pre_generation_cleanup_mode=cleanup_mode,
                         pre_generation_cleanup_timeout_seconds=float(cleanup_timeout_seconds),
+                        model_cleanup_mode=model_cleanup_mode,
                         comfyui_api_key=comfyui_api_key if comfyui_api_key else None,
                         runninghub_api_key=runninghub_api_key if runninghub_api_key else None,
                         runninghub_concurrent_limit=int(runninghub_concurrent_limit),

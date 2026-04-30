@@ -14,6 +14,9 @@ llm:
 
 comfyui:
   comfyui_url: "http://127.0.0.1:8188"
+  pre_generation_cleanup_mode: "force"
+  pre_generation_cleanup_timeout_seconds: 20
+  model_cleanup_mode: "comfyui_and_extensions"
   comfyui_api_key: ""  # ComfyUI API 密钥（可选）
   runninghub_api_key: ""
   runninghub_concurrent_limit: 1  # 并发限制 (1-10)
@@ -49,7 +52,14 @@ template:
 ### 基础配置
 
 - `comfyui_url`: 本地 ComfyUI 地址（默认 `http://127.0.0.1:8188`）
+- `pre_generation_cleanup_mode`: 本地生成批次前的清理策略
+  - `"force"`：中断并清空繁忙队列，等待 ComfyUI 恢复空闲后再开始 Pixelle 生成
+  - `"conservative"`：不强制干预现有队列
+- `pre_generation_cleanup_timeout_seconds`: 强制清理时等待 ComfyUI 队列恢复空闲的秒数；超时后会快速失败并提示队列可能卡住
+- `model_cleanup_mode`：强制队列清理和显式恢复路径使用的模型显存释放范围。`disabled` 保留模型常驻，`comfyui` 调用 ComfyUI `/free`，`comfyui_and_extensions` 会同时调用 `/free` 和 Pixelle 管理的插件清理端点，例如 `/pixelle/indextts2/free`。
 - `comfyui_api_key`: ComfyUI API 密钥（可选，用于 [Comfy Platform](https://platform.comfy.org/profile/api-keys)）
+
+Pixelle 不再对 selfhost 工作流执行常规生成后自动 `/free`，避免反复卸载模型导致 GGUF 管线不稳定。正常运行会保持模型热加载；OOM 恢复、强制生成前清理以及 IndexTTS2 session 退出会按 `model_cleanup_mode` 执行显式清理。
 
 ### RunningHub 云端配置
 
