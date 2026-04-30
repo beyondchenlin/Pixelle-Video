@@ -26,6 +26,8 @@ Stage 2 负责 IP 和资产合同：
 
 并行开发不是把三个阶段都接进主生成链路，而是让不同小组先实现各自独立的领域合同、服务接口和测试。只有当平台基础合同和上游合同稳定后，才允许下游集成。
 
+文字渲染样式和实施预览属于跨阶段渲染合同，不属于 Stage 1A 的 `PromptPlan`，也不属于 Stage 2 的 IP / AssetBible 风格事实源。`caption_style`、`title_style` 和实施预览只能消费正式渲染契约、模板 preset、`media_placement`、Artifact 和 Object Store，不得在 Stage 1A、Stage 1B 或 Stage 2 中派生第二套事实源。
+
 ---
 
 ## 2. 并行开发红线
@@ -38,6 +40,8 @@ Stage 2 负责 IP 和资产合同：
 - Stage 2 可以读取和填充 Stage 1A 预留的 `character_ids`、`scene_id`、`prop_ids`、`style_id` 字段。
 - Stage 1A、Stage 1B 和 Stage 2 的持久化都必须依赖 Stage 0.5 的 Repository / Store 接口。
 - App/Public API 必须通过 `ResourceResolver` 解析资源 ID，raw 参数只能进入 Internal/Debug 边界。
+- `text_rendering.caption_style` 和 `text_rendering.title_style` 是渲染契约；Stage 1A 不得把它们写进 `PromptPlan` 主结构，Stage 2 不得把它们并入 IP `StyleProfile`。
+- 实施预览区是渲染契约的下游视图；真实预览帧必须通过 Artifact / Object Store 或受控预览 artifact key 表达，不能返回本地路径。
 - FlowGram、SaaS、完整 ProviderCapability、视频片段生成不进入 Stage 1 / Stage 2 并行主线。
 - 所有任务必须能形成原子提交，并按 AGENTS.md 使用中文提交说明。
 
@@ -47,6 +51,8 @@ Stage 2 负责 IP 和资产合同：
 - 在 Stage 2 中提前要求完整参考图、LoRA、图生图或 Provider 路由。
 - 为了并行速度绕过 LLMInteractionTrace。
 - 让前端或 API 直接传本地 workflow 路径、模型路径或任意 provider URL 作为正式合同。
+- 让前端或 API 直接传本地字体路径、预览图片路径或真实预览帧路径作为正式合同。
+- 在工作台、AssetBible 或 PromptComposer 中新增标题/字幕样式默认值副本。
 - 在 active 计划中新增本地 JSON、JSONL、`_runtime` 或 Local*Service 作为正式路径。
 
 ---
@@ -59,6 +65,7 @@ Stage 2 负责 IP 和资产合同：
 | Stage 1A Text / Prompt / Trace | `LLMInteractionTrace`、`PromptPlan`、`ImagePromptDraft`、Trace API、PromptPlanBuilder | Gate 0.5 后才能接入持久化和 LLMService 追踪 | `pixelle_video/models/prompt_plan.py`、`pixelle_video/models/llm_interaction_trace.py`、`pixelle_video/services/llm_interaction_recorder.py`、`pixelle_video/services/prompt_plan_service.py` |
 | Stage 1B Workbench | `Artifact`、`ArtifactVersion`、`GenerationEvent`、工作台 lock/stale 模型、仓储接入 | Gate 0.5；不能执行 PromptPlan 定义任务，必须消费 Stage 1A 合同 | `pixelle_video/models/artifact.py`、`pixelle_video/models/generation_event.py`、`pixelle_video/models/storyboard_workbench.py`、`pixelle_video/services/storyboard_workbench.py` |
 | Stage 2 IP / AssetBible | `AssetBible`、`IPProfile`、`CharacterProfile`、`SceneCast` 模型、校验器、仓储接入 | Gate 0.5；主链路接入必须等 Stage 1A PromptPlan 字段稳定 | `pixelle_video/models/asset_bible.py`、`pixelle_video/models/scene_cast.py`、`pixelle_video/services/scene_casting.py`、`pixelle_video/services/prompt_composer.py` |
+| Rendering / Preview Contract | `title_style`、`caption_style`、模板文字 preset、实施预览快照、真实预览帧缓存合同 | Gate 0.5 后才能持久化真实预览帧；Stage 1B 后优先消费 selected ArtifactVersion | `api/schemas/text_rendering.py`、`pixelle_video/models/text_style.py`、`pixelle_video/services/text_rendering_orchestrator.py`、`web/components/text_rendering_*` |
 | API / Studio | Trace 只读接口、资产库草稿接口、工作台查询接口 | 写入主生成链路必须等对应服务通过测试 | `api/schemas/*`、`api/routers/*`、`web/*` |
 
 ---
@@ -178,4 +185,5 @@ Stage 2：
 - Stage 1B 不再创建或重定义 PromptPlan。
 - Stage 2 在 Gate A 前只实现合同和校验，不接主链路。
 - App/Public API 不再新增 raw path、workflow path、provider URL 或 arbitrary prompt prefix。
+- 标题/字幕样式、字体资源、模板资源和预览帧不绕过 ResourceResolver / Object Store / Artifact 合同。
 - 所有合并都能回答：属于哪个阶段、服务哪个分方案、修改哪个领域合同、是否提前引入后续复杂度、如何测试。

@@ -19,6 +19,7 @@ Stage 1A 输出的 StoryboardPlan / PromptPlan
   -> 候选图
   -> 选择/重抽
   -> 可追踪版本
+  -> 实施预览消费选中版本
 ```
 
 ---
@@ -35,6 +36,7 @@ Stage 1A 输出的 StoryboardPlan / PromptPlan
 - frame lock。
 - stale flags。
 - GenerationTrace 查看入口。
+- 为实施预览区提供当前 selected/candidate ArtifactVersion 引用。
 
 Stage 1B 的前置输入：
 
@@ -49,6 +51,8 @@ Stage 1B 不包含：
 - SaaS 计费。
 - 完整 ProviderCapability 矩阵。
 - 视频片段生成。
+- 标题/字幕样式默认值。
+- 独立图片预览事实源。
 
 ---
 
@@ -83,6 +87,7 @@ StoryboardFrameWorkbenchState
 - 工作台状态可以作为增量模型存在。
 - 所有 frame 必须有稳定 `frame_id`。
 - 所有候选图必须通过 ArtifactVersion 引用。
+- 实施预览区只能读取这些 ArtifactVersion 引用，不得把预览图片路径或缓存文件路径写回工作台状态。
 
 ---
 
@@ -118,6 +123,8 @@ GET  /api/storyboards/{storyboard_id}/frames/{frame_id}/trace
 
 API 不直接接受本地 workflow 文件路径。图片生成参数来自 PromptPlan、资源 ID 和后端 preset。
 
+实施预览相关 API 如需读取当前画面，应返回 selected/candidate `ArtifactVersion`、storage key 或受控访问 URL；不得返回本地绝对路径。
+
 ---
 
 ## 6. 依赖关系
@@ -147,6 +154,7 @@ API 不直接接受本地 workflow 文件路径。图片生成参数来自 Promp
 - 锁定 frame 后，上游变化不会自动替换其选中图。
 - 修改上游文案或 PromptPlan 后，相关 frame 能标记 stale。
 - 每次生成和选择都有 Trace。
+- 实施预览区能消费当前选中图片版本，但工作台不新增第二套预览图片状态。
 
 ---
 

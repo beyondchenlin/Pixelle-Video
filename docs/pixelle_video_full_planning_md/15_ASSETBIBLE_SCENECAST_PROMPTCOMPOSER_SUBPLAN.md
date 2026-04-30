@@ -61,6 +61,8 @@ PromptProjection
 
 PromptPlan 是结构化计划，PromptProjection 是面向某个 Provider 的最终投影。
 
+这里的 `StyleProfile` 是 IP / 视觉风格事实源，用于描述画面风格、世界观和 provider prompt 投影。它不等同于文字渲染的 `TextStyleProfile`，不得承载 `caption_style`、`title_style`、字体文件、字幕背景或标题背景默认值。
+
 ---
 
 ## 3. 阶段拆分
@@ -79,6 +81,7 @@ PromptPlan 是结构化计划，PromptProjection 是面向某个 Provider 的最
 - 实现 SceneCast 校验。
 - 实现 PromptComposer。
 - 让 `prompt_prefix` 退出正式入口，由 `style_id`、`StyleProfile` 和 `ResourceResolver` 接管。
+- 只通过 `style_id` / SceneCast / PromptComposer 影响图片 PromptProjection，不直接改写标题或字幕样式。
 
 后续：
 
@@ -95,6 +98,8 @@ PromptPlan 是结构化计划，PromptProjection 是面向某个 Provider 的最
 - Public API 不能接受任意 `prompt_prefix`。
 - PromptProjection 可以因 Provider 不同而不同，但 PromptPlan 必须稳定。
 - AssetBible 持久化必须通过 `AssetBibleRepository`，不能由 Stage 2 自建本地 JSON 服务作为正式路径。
+- `StyleProfile` 不得成为 `caption_style` 或 `title_style` 的默认值副本；标题/字幕样式由文字渲染契约和模板文字 preset 管理。
+- PromptComposer 不得把 `text_rendering.image_text` 当作第二套图片提示词事实源。
 
 ---
 
@@ -140,6 +145,7 @@ POST /api/prompt-plans/{prompt_plan_id}/projection
 - 修改 CharacterProfile 后，相关 PromptPlan 标记 stale。
 - PromptProjection 可以为不同 Provider 输出不同参数。
 - `prompt_prefix` 不再作为正式事实源。
+- Stage 2 风格事实源与文字渲染样式事实源保持解耦，互不复制默认值。
 
 ---
 

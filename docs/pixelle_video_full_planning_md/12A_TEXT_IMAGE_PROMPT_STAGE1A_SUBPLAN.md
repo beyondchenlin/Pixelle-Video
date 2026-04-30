@@ -37,6 +37,7 @@ Stage 1A 先解决：
 - 每格分镜如何得到图片提示词。
 - PromptPlan 如何预留后续 IP / SceneCast 字段。
 - `prompt_prefix` 如何退出正式事实源，由 `style_id`、`StyleProfile` 和 `ResourceResolver` 接管。
+- `text_rendering.image_text` 如何保持为图中文字抑制/渲染策略，而不是变成第二套图片提示词事实源。
 
 ---
 
@@ -60,6 +61,7 @@ Stage 1A 不包含：
 - 多候选图片生成。
 - 图片选择和重抽。
 - ArtifactVersion 完整选择状态。
+- 标题/字幕样式配置和实施预览区。
 - 完整 AssetBible。
 - 完整 SceneCast 校验。
 - FlowGram。
@@ -128,6 +130,8 @@ UserInput
 Stage 1A 不直接负责调用图片生成 Provider。它只输出稳定、可测试、可追踪的图片提示词和 PromptPlan。
 
 所有服务调用大模型时必须经过统一 `LLMService` 网关，并传入 trace context。业务服务只描述语义上下文，不能各自手写 prompt 日志。
+
+`text_rendering.image_text` 可以作为生成链路的图中文字策略输入，但不能覆盖 `ImagePromptDraft`、`PromptPlan` 或 `PromptProjection`。如果需要向模型提示“少文字、无水印、避免嵌字”，应由 Stage 1A 在 PromptPlan / PromptProjection 中形成可追踪段落，而不是让前端 `text_rendering` 字段成为隐藏 prompt 来源。
 
 ---
 
@@ -217,3 +221,4 @@ Stage 1B 不应该重新定义文案和图片提示词生成逻辑。
 - 不做图片生成和候选图选择。
 - 不做视频生成。
 - 不做 Public API。
+- 不做标题/字幕样式和实施预览区。

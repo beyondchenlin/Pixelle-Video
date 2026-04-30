@@ -786,6 +786,7 @@ GenerationTrace
 - StoryboardFrame 更偏最终媒体输出，缺少工作台选择、重抽、锁定和 stale 状态。
 - API 仍暴露 `tts_workflow`、`ref_audio`、`media_workflow`、`frame_template`、`prompt_prefix`、`bgm_path` 等 raw 参数，需要拆分为 App/Public 与 Internal/Debug 边界。
 - Workflow / FlowGram / SaaS 还不能进入主实施路径。
+- 标题/字幕样式、模板文字 preset、实施预览区和真实预览帧需要明确服从 Stage 0.5 的资源解析、对象存储和 Artifact 边界，避免成为独立 UI 事实源。
 
 因此，下一步应先完成 Stage 0.5 平台基础合同，再并行推进 Stage 1A、Stage 1B 和 Stage 2 的合同与测试。
 
@@ -865,6 +866,7 @@ Pixelle 的正确路线不是：
   -> 并行启动 Stage 1A：文案、分镜规划、图片提示词、PromptPlan 和 LLM Interaction Trace
   -> 并行启动 Stage 1B：分镜图工作台、Artifact、Trace、候选图、选择和重抽
   -> 并行启动 Stage 2A：IPProfile、CharacterProfile、StyleProfile、AssetBible 和 SceneCast 合同
+  -> 渲染契约能力独立服从 Stage 0.5：title_style、caption_style、模板文字 preset、实施预览和真实预览帧不得绕过资源 ID / Object Store / Artifact
   -> 等合同闸门稳定后，再进入 Workflow、Worker、Provider、FlowGram、SaaS、视频扩展
 ```
 
