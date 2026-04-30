@@ -33,6 +33,8 @@ class ResolvedResource:
             raise ResourceResolverError("resolved_value must be a string")
         if not isinstance(self.metadata, MappingABC):
             raise ResourceResolverError("metadata must be a mapping")
+        if not all(isinstance(key, str) for key in self.metadata):
+            raise ResourceResolverError("metadata keys must be strings")
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
 

@@ -144,6 +144,12 @@ def test_resolved_resource_rejects_non_mapping_metadata(metadata):
         ResolvedResource(resource_id="cinematic", resolved_value="value", metadata=metadata)
 
 
+@pytest.mark.parametrize("metadata", [{1: "x"}, {("tuple",): "x"}])
+def test_resolved_resource_rejects_non_string_metadata_keys(metadata):
+    with pytest.raises(ResourceResolverError, match="metadata"):
+        ResolvedResource(resource_id="cinematic", resolved_value="value", metadata=metadata)
+
+
 @pytest.mark.parametrize("resolved_value", [123, None, object()])
 def test_static_resource_resolver_rejects_non_string_mapping_values(resolved_value):
     with pytest.raises(ResourceResolverError, match="resolved_value"):
@@ -163,6 +169,12 @@ def test_resolved_resource_rejects_invalid_resource_id(resource_id):
 def test_static_resource_resolver_rejects_non_mapping_config_values(mapping):
     with pytest.raises(ResourceResolverError, match="mapping"):
         StaticResourceResolver(styles=mapping)
+
+
+@pytest.mark.parametrize("resource_id", [123, None, "bad/id"])
+def test_static_resource_resolver_rejects_invalid_mapping_keys(resource_id):
+    with pytest.raises(ResourceIdInvalidError):
+        StaticResourceResolver(styles={resource_id: "x"})
 
 
 @pytest.mark.parametrize(
