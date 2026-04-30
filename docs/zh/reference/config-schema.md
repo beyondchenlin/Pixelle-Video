@@ -60,7 +60,9 @@ template:
 - `model_cleanup_mode`：本地工作流批次结束和显式恢复路径使用的模型显存释放范围。`disabled` 在批次结束后保留模型常驻，`comfyui` 调用 ComfyUI `/free`，`comfyui_and_extensions` 会同时调用 `/free` 和 Pixelle 管理的插件清理端点，例如 `/pixelle/indextts2/free`。
 - `comfyui_api_key`: ComfyUI API 密钥（可选，用于 [Comfy Platform](https://platform.comfy.org/profile/api-keys)）
 
-Pixelle 不会在本地图片批次的每张图生成前调用 `/free`。批次内会保持 GGUF 和相关模型热加载，避免每帧重复卸载和重载。整个本地工作流批次结束后，`model_cleanup_mode` 决定是否释放 ComfyUI 模型显存以及 Pixelle 管理的插件缓存。OOM 恢复仍会在重试前执行一次高强度显式清理。
+Pixelle 不会在本地图片批次的每张图生成前调用 `/free`。批次内会保持 GGUF 和相关模型热加载，避免每帧重复卸载和重载。整个本地工作流批次结束后，`model_cleanup_mode` 决定是否释放 ComfyUI 模型显存以及 Pixelle 管理的插件缓存。如果本地 IndexTTS2 工作流在 `comfyui_and_extensions` 模式下运行，Pixelle 会在执行工作流前预检必需的 `/pixelle/indextts2/free` 端点，让缺少插件补丁的问题提前失败，而不是静默留下显存占用。OOM 恢复仍会在重试前执行一次高强度显式清理。
+
+任务运行日志会写入结构化的 `local_media_batch` start/end 事件，包含耗时毫秒数和帧数量；也会写入 `comfyui_memory_release` 事件。IndexTTS2 释放响应中如果包含 CUDA allocated/reserved 的 before/after 快照，也会保存在日志字段里。
 
 ### RunningHub 云端配置
 
