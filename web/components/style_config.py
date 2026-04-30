@@ -2263,10 +2263,19 @@ def _render_image_prompt_prefix_library(
     return effective_prefix
 
 
+def _preview_caption_text(value: object) -> str:
+    for line in str(value or "").splitlines():
+        cleaned = line.strip()
+        if cleaned:
+            return cleaned[:80]
+    return tr("text_rendering_preview.default_caption")
+
+
 def render_style_config(
     pixelle_video,
     storyboard_default_enabled: bool = False,
     storyboard_prompt_language: str = CHINESE_PROMPT_LANGUAGE,
+    content_context: dict | None = None,
 ):
     """Render style configuration section (middle column)"""
     # TTS Section (moved from left column)
@@ -2466,11 +2475,6 @@ def render_style_config(
         tts_split_settings = render_tts_split_settings()
 
     element_animation_settings = render_element_animation_controls()
-    text_rendering = render_text_rendering_controls(
-        render_backend,
-        ui=st,
-        translate=tr,
-    )
 
     # ====================================================================
     # Storyboard Template Section
@@ -2779,6 +2783,21 @@ def render_style_config(
         
         # Backward compatibility
         st.session_state['template_requires_image'] = (template_media_type == "image")
+
+        text_rendering = render_text_rendering_controls(
+            render_backend,
+            ui=st,
+            translate=tr,
+            template_id=Path(frame_template).stem,
+            canvas_width=size_contract.canvas_width,
+            canvas_height=size_contract.canvas_height,
+            media_width=media_width,
+            media_height=media_height,
+            media_placement=st.session_state.get("media_placement"),
+            title_text=(content_context or {}).get("title"),
+            caption_text=_preview_caption_text((content_context or {}).get("text")),
+            preview_media_ref=st.session_state.get("text_rendering_preview_media_ref"),
+        )
         
         custom_values_for_video = {}
         if custom_params_for_video:

@@ -612,6 +612,88 @@ def test_text_rendering_controls_render_caption_and_title_tabs(monkeypatch):
     assert payload["title_style"]["position"] == "top_left"
 
 
+def test_preview_caption_text_uses_first_non_empty_line_and_default(monkeypatch):
+    from web.components import style_config
+
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: f"translated:{key}")
+
+    assert style_config._preview_caption_text(" \n第一行内容\n第二行内容") == "第一行内容"
+    assert style_config._preview_caption_text("字" * 90) == "字" * 80
+    assert style_config._preview_caption_text(" \n ") == (
+        "translated:text_rendering_preview.default_caption"
+    )
+
+
+def test_render_style_config_passes_template_contract_and_context_to_text_controls():
+    from web.components import style_config
+
+    source = Path(style_config.__file__).read_text(encoding="utf-8")
+
+    assert "content_context: dict | None = None" in source
+    assert "text_rendering = render_text_rendering_controls(" in source
+    assert "template_id=Path(frame_template).stem" in source
+    assert "canvas_width=size_contract.canvas_width" in source
+    assert "canvas_height=size_contract.canvas_height" in source
+    assert "media_width=media_width" in source
+    assert "media_height=media_height" in source
+    assert "media_placement=st.session_state.get(\"media_placement\")" in source
+    assert "title_text=(content_context or {}).get(\"title\")" in source
+    assert "caption_text=_preview_caption_text((content_context or {}).get(\"text\"))" in source
+    assert "preview_media_ref=st.session_state.get(\"text_rendering_preview_media_ref\")" in source
+
+
+def test_standard_pipeline_passes_content_context_to_style_config(monkeypatch):
+    from web.pipelines import standard as standard_pipeline
+
+    captured = {}
+
+    class _FakeColumn(_NoopContext):
+        pass
+
+    def fake_render_style_config(
+        pixelle_video,
+        storyboard_default_enabled=False,
+        storyboard_prompt_language="zh_CN",
+        content_context=None,
+    ):
+        captured["content_context"] = content_context
+        captured["storyboard_prompt_language"] = storyboard_prompt_language
+        return {"style": "ok"}
+
+    monkeypatch.setattr(
+        standard_pipeline.st,
+        "columns",
+        lambda _sizes: [_FakeColumn(), _FakeColumn(), _FakeColumn()],
+    )
+    monkeypatch.setattr(
+        standard_pipeline,
+        "render_content_input",
+        lambda: {
+            "title": "上下文标题",
+            "text": "第一行字幕\n第二行",
+            "storyboard_prompt_language": "en_US",
+        },
+    )
+    monkeypatch.setattr(standard_pipeline, "render_bgm_section", lambda **_kwargs: {})
+    monkeypatch.setattr(standard_pipeline, "render_version_info", lambda: None)
+    monkeypatch.setattr(standard_pipeline, "render_style_config", fake_render_style_config)
+    monkeypatch.setattr(standard_pipeline, "render_quick_create_flow_diagram", lambda: None)
+    monkeypatch.setattr(
+        standard_pipeline,
+        "render_output_preview",
+        lambda _pixelle_video, _video_params: None,
+    )
+
+    standard_pipeline.StandardPipelineUI().render(object())
+
+    assert captured["storyboard_prompt_language"] == "en_US"
+    assert captured["content_context"] == {
+        "title": "上下文标题",
+        "text": "第一行字幕\n第二行",
+        "storyboard_prompt_language": "en_US",
+    }
+
+
 def test_text_rendering_font_help_translation_keys_exist_in_supported_locales():
     import json
 

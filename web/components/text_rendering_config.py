@@ -43,6 +43,10 @@ from pixelle_video.services.font_discovery import (
     discover_font_families as _discover_font_families,
 )
 from web.i18n import tr
+from web.components.text_rendering_preview import (
+    build_text_rendering_preview_spec,
+    render_text_rendering_preview,
+)
 from web.utils.streamlit_helpers import (
     keyed_widget_default_kwargs,
     session_state_has_key,
@@ -554,6 +558,23 @@ def render_text_rendering_controls(
                     ui=ui,
                     translate=translate,
                 )
+
+        if template_id and canvas_width and canvas_height and media_width and media_height:
+            preview_spec = build_text_rendering_preview_spec(
+                template_id=template_id,
+                render_backend=render_backend,
+                canvas_width=canvas_width,
+                canvas_height=canvas_height,
+                media_width=media_width,
+                media_height=media_height,
+                media_placement=media_placement,
+                preview_media_ref=preview_media_ref,
+                title_text=title_text,
+                caption_text=caption_text,
+                title_style=title_style,
+                caption_style=caption_style,
+            )
+            render_text_rendering_preview(preview_spec, ui=ui, translate=translate)
 
         with _render_middle_column_detail_section(ui, translate("text_layer.title")):
             overlay_policy = render_text_layer_controls(
