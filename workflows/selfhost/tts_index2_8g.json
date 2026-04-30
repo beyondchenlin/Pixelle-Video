@@ -1,0 +1,75 @@
+{
+  "3": {
+    "inputs": {
+      "value": "IndexTTS2 8G sample input."
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "$text.value!"
+    }
+  },
+  "5": {
+    "inputs": {
+      "text": [
+        "3",
+        0
+      ],
+      "mode": "Auto",
+      "do_sample_mode": "on",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "top_k": 20,
+      "num_beams": 1,
+      "repetition_penalty": 10,
+      "length_penalty": 0,
+      "max_mel_tokens": 800,
+      "max_tokens_per_sentence": 60,
+      "seed": 4266796044,
+      "cache_control": [
+        "13",
+        0
+      ],
+      "reference_audio": [
+        "12",
+        0
+      ]
+    },
+    "class_type": "IndexTTS2BaseNode",
+    "_meta": {
+      "title": "Index TTS 2 - Base (8G VRAM)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "filename_prefix": "audio/ComfyUI_8g",
+      "audio": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "SaveAudio",
+    "_meta": {
+      "title": "Save Audio (FLAC)"
+    }
+  },
+  "12": {
+    "inputs": {
+      "audio": "ref_audio.wav",
+      "start_time": 0,
+      "duration": 0
+    },
+    "class_type": "VHS_LoadAudioUpload",
+    "_meta": {
+      "title": "$ref_audio.~audio!"
+    }
+  },
+  "13": {
+    "inputs": {
+      "keep_models_cached": false
+    },
+    "class_type": "IndexTTS2CacheControlNode",
+    "_meta": {
+      "title": "Index TTS 2 Cache Control (8G VRAM)"
+    }
+  }
+}

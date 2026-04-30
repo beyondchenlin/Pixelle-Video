@@ -209,6 +209,22 @@ def test_tts_index2_saves_lossless_flac_audio():
     }
 
 
+def test_tts_index2_8g_workflow_is_parseable_and_uses_low_vram_defaults():
+    metadata = WorkflowParser().parse_workflow_file(
+        str(Path("workflows/selfhost/tts_index2_8g.json"))
+    )
+    workflow = json.loads(Path("workflows/selfhost/tts_index2_8g.json").read_text(encoding="utf-8"))
+
+    assert set(metadata.params.keys()) == {"text", "ref_audio"}
+    assert metadata.params["ref_audio"].required is True
+    assert metadata.params["ref_audio"].need_upload is True
+    assert workflow["5"]["inputs"]["num_beams"] == 1
+    assert workflow["5"]["inputs"]["top_k"] == 20
+    assert workflow["5"]["inputs"]["max_mel_tokens"] == 800
+    assert workflow["5"]["inputs"]["max_tokens_per_sentence"] == 60
+    assert workflow["13"]["inputs"]["keep_models_cached"] is False
+
+
 def test_tts_edge_workflow_is_parseable_and_uses_pixelle_nodes():
     metadata = WorkflowParser().parse_workflow_file(
         str(Path("workflows/selfhost/tts_edge.json"))

@@ -30,6 +30,7 @@ from pixelle_video.config.storyboard_preset_library import (
     build_builtin_world_preset_library_dict,
 )
 from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
+from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
 from pixelle_video.models.storyboard_limits import (
     DEFAULT_STORYBOARD_GENERATION_LIMITS,
     DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
@@ -57,7 +58,7 @@ class TTSLocalConfig(BaseModel):
 class TTSComfyUIConfig(BaseModel):
     """ComfyUI TTS configuration"""
     default_workflow: Optional[str] = Field(
-        default="selfhost/tts_index2.json",
+        default=DEFAULT_TTS_WORKFLOW,
         description="Default TTS workflow (optional)",
     )
 

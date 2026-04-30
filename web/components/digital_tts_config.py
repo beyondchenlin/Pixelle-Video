@@ -20,6 +20,7 @@ import streamlit as st
 from loguru import logger
 
 from pixelle_video.config import config_manager
+from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
 from web.components.selfhost_workflow_notice import render_selfhost_workflow_notice
 from web.components.tts_voice_profile_controls import render_tts_voice_profile_controls
 from web.i18n import get_language, tr
@@ -146,7 +147,7 @@ def render_style_config(pixelle_video):
                 tts_selected_index = tts_workflow_options.index(tts_workflow_display)
                 tts_workflow_key = tts_workflow_keys[tts_selected_index]
             else:
-                tts_workflow_key = "selfhost/tts_index2.json"
+                tts_workflow_key = DEFAULT_TTS_WORKFLOW
 
             render_selfhost_workflow_notice(tts_workflow_key)
             ref_audio_path, ref_audio_text = render_tts_voice_profile_controls(
