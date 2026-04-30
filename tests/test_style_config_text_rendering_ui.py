@@ -65,12 +65,17 @@ class _WidgetDefaultRecordingUI:
         self.text_input_calls = []
         self.number_input_calls = []
         self.color_picker_calls = []
+        self.tabs_calls = []
 
     def expander(self, *_args, **_kwargs):
         return _NoopContext()
 
     def container(self, *_args, **_kwargs):
         return _NoopContext()
+
+    def tabs(self, labels):
+        self.tabs_calls.append(list(labels))
+        return [_NoopContext() for _label in labels]
 
     def markdown(self, *_args, **_kwargs):
         return None
@@ -90,7 +95,7 @@ class _WidgetDefaultRecordingUI:
         return kwargs.get("value", "")
 
     def text_input(self, _label, **kwargs):
-        self.text_input_calls.append(kwargs)
+        self.text_input_calls.append({"label": _label, **kwargs})
         key = kwargs.get("key")
         if key in self.session_state:
             return self.session_state[key]
@@ -112,6 +117,9 @@ class _WidgetDefaultRecordingUI:
 
     def selectbox(self, _label, options, **kwargs):
         index = kwargs.get("index", 0)
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
         return list(options)[index]
 
     def radio(self, _label, options, **kwargs):
@@ -227,6 +235,39 @@ def test_build_text_rendering_payload_keeps_overlay_style_when_overlay_disabled(
         "font_size": 88,
         "position": "center",
     }
+
+
+def test_build_text_rendering_payload_keeps_title_style_and_drops_preview_demo_fields():
+    from web.components.text_rendering_config import build_text_rendering_payload
+
+    payload = build_text_rendering_payload(
+        caption_style={
+            "font_size": 42,
+            "preview_caption_text": "演示字幕",
+            "preview_media_ref": "artifacts/demo.png",
+        },
+        title_style={
+            "font_family": " Noto Sans CJK SC ",
+            "font_size": 96,
+            "background_opacity": 0.8,
+            "preview_title_text": "演示标题",
+            "preview_caption_text": "演示字幕",
+            "preview_media_ref": "artifacts/demo.png",
+        },
+        overlay_policy=None,
+        suppress_embedded_text=False,
+        positive_prompt="",
+    )
+
+    assert payload["title_style"] == {
+        "font_family": "Noto Sans CJK SC",
+        "font_size": 96,
+        "background_opacity": 0.8,
+    }
+    assert payload["caption_style"] == {"font_size": 42}
+    assert "preview_title_text" not in payload["title_style"]
+    assert "preview_caption_text" not in payload["title_style"]
+    assert "preview_media_ref" not in payload["title_style"]
 
 
 def test_caption_style_ui_defaults_match_template_dark_text():
@@ -527,12 +568,57 @@ def test_text_rendering_controls_omit_widget_defaults_for_existing_session_keys(
     }
 
 
+def test_text_rendering_controls_render_caption_and_title_tabs(monkeypatch):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import render_text_rendering_controls
+
+    fake_ui = _WidgetDefaultRecordingUI()
+    fake_ui.session_state.update(
+        {
+            "title_style_font_size": 76,
+            "title_style_primary_color": "#171410",
+            "title_style_background_opacity": 0.88,
+            "title_style_position": "top_left",
+        }
+    )
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
+
+    payload = render_text_rendering_controls(
+        "hyperframes",
+        ui=fake_ui,
+        translate=lambda key: f"translated:{key}",
+        template_id="image_landscape_minimal",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        media_placement={"mode": "cover"},
+        title_text="演示标题",
+        caption_text="演示字幕",
+        preview_media_ref="artifacts/demo.png",
+    )
+
+    assert fake_ui.tabs_calls == [
+        ["translated:caption_style.tab", "translated:title_style.tab"]
+    ]
+    text_input_by_key = {call["key"]: call for call in fake_ui.text_input_calls}
+    assert text_input_by_key["caption_style_font_family"]["label"] == (
+        "translated:caption_style.font_family"
+    )
+    assert text_input_by_key["title_style_font_family"]["label"] == (
+        "translated:title_style.font_family"
+    )
+    assert payload["title_style"]["font_size"] == 76
+    assert payload["title_style"]["position"] == "top_left"
+
+
 def test_text_rendering_font_help_translation_keys_exist_in_supported_locales():
     import json
 
     locale_dir = Path(__file__).resolve().parents[1] / "web" / "i18n" / "locales"
     required_keys = [
         "caption_style.font_family_help",
+        "title_style.font_family_help",
         "overlay_style.font_family_help",
     ]
 

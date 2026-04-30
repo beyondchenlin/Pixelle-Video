@@ -22,6 +22,9 @@ from typing import Any
 import streamlit as st
 
 from pixelle_video.models.text_overlay import DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
+from pixelle_video.models.template_text_style_presets import (
+    resolve_template_text_style_preset,
+)
 from pixelle_video.models.text_style import (
     DEFAULT_CAPTION_FONT_SIZE,
     DEFAULT_CAPTION_PRIMARY_COLOR,
@@ -89,6 +92,11 @@ LEGACY_CAPTION_STYLE_DEFAULTS = {
     "stroke_width": 2,
 }
 CAPTION_DEFAULTS_MIGRATION_KEY = "caption_style_template_defaults_migrated_v2"
+TEXT_STYLE_PREVIEW_ONLY_KEYS = {
+    "preview_title_text",
+    "preview_caption_text",
+    "preview_media_ref",
+}
 
 
 def _resolve_ui(ui: Any | None) -> Any:
@@ -200,6 +208,8 @@ def _clean_text_style_payload(style: Mapping[str, Any] | None) -> dict | None:
 
     payload: dict[str, Any] = {}
     for key, value in style.items():
+        if key in TEXT_STYLE_PREVIEW_ONLY_KEYS:
+            continue
         if value is None:
             continue
         if key in {"font_family", "font_file"}:
@@ -224,6 +234,7 @@ def build_text_rendering_payload(
     suppress_embedded_text: bool,
     positive_prompt: str,
     caption_style: dict | None = None,
+    title_style: dict | None = None,
     overlay_style: dict | None = None,
 ) -> dict:
     """Build the nested text_rendering payload used by API and pipelines."""
@@ -240,11 +251,19 @@ def build_text_rendering_payload(
     if caption_style_payload is not None:
         payload["caption_style"] = caption_style_payload
 
+    title_style_payload = _clean_text_style_payload(title_style)
+    if title_style_payload is not None:
+        payload["title_style"] = title_style_payload
+
     overlay_style_payload = _clean_text_style_payload(overlay_style)
     if overlay_style_payload is not None:
         payload["overlay_style"] = overlay_style_payload
 
     return payload
+
+
+def _title_style_defaults_for_template(template_id: str | None) -> dict[str, Any]:
+    return resolve_template_text_style_preset(template_id).title_style_dict()
 
 
 def _render_text_style_controls(
@@ -499,6 +518,15 @@ def render_text_rendering_controls(
     *,
     ui: Any | None = None,
     translate=None,
+    template_id: str | None = None,
+    canvas_width: int | None = None,
+    canvas_height: int | None = None,
+    media_width: int | None = None,
+    media_height: int | None = None,
+    media_placement: Mapping[str, Any] | None = None,
+    title_text: str | None = None,
+    caption_text: str | None = None,
+    preview_media_ref: str | None = None,
 ) -> dict:
     """Render text rendering controls as independent caption, overlay, and image policy sections."""
     ui = _resolve_ui(ui)
@@ -508,13 +536,24 @@ def render_text_rendering_controls(
         translate("section.text_rendering"),
         expanded=False,
     ):
-        with _render_middle_column_detail_section(ui, translate("caption_style.title")):
-            caption_style = _render_text_style_controls(
-                "caption_style",
-                CAPTION_STYLE_DEFAULTS,
-                ui=ui,
-                translate=translate,
+        with _render_middle_column_detail_section(ui, translate("text_style.tabs_title")):
+            caption_tab, title_tab = ui.tabs(
+                [translate("caption_style.tab"), translate("title_style.tab")]
             )
+            with caption_tab:
+                caption_style = _render_text_style_controls(
+                    "caption_style",
+                    CAPTION_STYLE_DEFAULTS,
+                    ui=ui,
+                    translate=translate,
+                )
+            with title_tab:
+                title_style = _render_text_style_controls(
+                    "title_style",
+                    _title_style_defaults_for_template(template_id),
+                    ui=ui,
+                    translate=translate,
+                )
 
         with _render_middle_column_detail_section(ui, translate("text_layer.title")):
             overlay_policy = render_text_layer_controls(
@@ -560,6 +599,7 @@ def render_text_rendering_controls(
 
     return build_text_rendering_payload(
         caption_style=caption_style,
+        title_style=title_style,
         overlay_policy=overlay_policy,
         overlay_style=overlay_style,
         suppress_embedded_text=suppress_embedded_text,
