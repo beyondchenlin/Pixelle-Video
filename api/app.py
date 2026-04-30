@@ -61,6 +61,7 @@ from api.routers import (
     health_router,
     image_router,
     llm_router,
+    llm_trace_router,
     resources_router,
     tasks_router,
     tts_router,
@@ -144,6 +145,7 @@ app.include_router(health_router)
 
 # API routers (with /api prefix)
 app.include_router(llm_router, prefix=api_config.api_prefix)
+app.include_router(llm_trace_router, prefix=api_config.api_prefix)
 app.include_router(tts_router, prefix=api_config.api_prefix)
 app.include_router(image_router, prefix=api_config.api_prefix)
 app.include_router(content_router, prefix=api_config.api_prefix)
@@ -164,6 +166,7 @@ async def root():
         "health": "/health",
         "api": {
             "llm": f"{api_config.api_prefix}/llm",
+            "llm_traces": f"{api_config.api_prefix}/llm-traces",
             "tts": f"{api_config.api_prefix}/tts",
             "image": f"{api_config.api_prefix}/image",
             "content": f"{api_config.api_prefix}/content",

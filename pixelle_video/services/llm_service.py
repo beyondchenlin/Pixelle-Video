@@ -17,17 +17,21 @@ Supports structured output via response_type parameter (Pydantic model).
 """
 
 import json
-from typing import Optional, Type, TypeVar, Union
+from collections.abc import Mapping
+from types import SimpleNamespace
+from typing import Any, Optional, Type, TypeVar, Union
 from urllib.parse import urlparse
 
 from loguru import logger
 from openai import AsyncOpenAI, BadRequestError
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
+from pixelle_video.models.llm_interaction_trace import LLMTraceContext, LLMTraceStatus
 from pixelle_video.services.llm_capabilities import (
     is_json_object_response_format_unsupported_error,
     structured_output_capabilities,
 )
+from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.utils.json_parsing import parse_llm_json_response
 
 T = TypeVar("T", bound=BaseModel)
@@ -129,6 +133,8 @@ class LLMService:
         temperature: float = 0.7,
         max_tokens: int = 2000,
         response_type: Optional[Type[T]] = None,
+        trace_context: Optional[LLMTraceContext] = None,
+        trace_recorder: Optional[LLMInteractionRecorder] = None,
         **kwargs
     ) -> Union[str, T]:
         """
@@ -186,10 +192,19 @@ class LLMService:
                     response_type=response_type,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
                     **kwargs
                 )
             else:
                 # Standard text output mode
+                request_payload = self._build_request_payload(
+                    model=final_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    extra_parameters=kwargs,
+                )
                 response = await client.chat.completions.create(
                     model=final_model,
                     messages=[{"role": "user", "content": prompt}],
@@ -200,6 +215,18 @@ class LLMService:
                 
                 result = response.choices[0].message.content
                 logger.debug(f"LLM response length: {len(result)} chars")
+                await self._record_llm_trace(
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                    provider=str(client.base_url or ""),
+                    model=final_model,
+                    request_payload=request_payload,
+                    response_payload=self._build_response_payload(
+                        response=response,
+                        content=result,
+                    ),
+                    status=LLMTraceStatus.SUCCESS,
+                )
                 
                 return result
         
@@ -215,6 +242,8 @@ class LLMService:
         response_type: Type[T],
         temperature: float,
         max_tokens: int,
+        trace_context: Optional[LLMTraceContext] = None,
+        trace_recorder: Optional[LLMInteractionRecorder] = None,
         **kwargs
     ) -> T:
         """
@@ -244,6 +273,8 @@ class LLMService:
                 response_type=response_type,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
                 **kwargs
             )
 
@@ -254,6 +285,8 @@ class LLMService:
             response_type=response_type,
             temperature=temperature,
             max_tokens=max_tokens,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
             **kwargs
         )
 
@@ -283,8 +316,18 @@ class LLMService:
         response_type: Type[T],
         temperature: float,
         max_tokens: int,
+        trace_context: Optional[LLMTraceContext] = None,
+        trace_recorder: Optional[LLMInteractionRecorder] = None,
         **kwargs
     ) -> T:
+        request_payload = self._build_request_payload(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_type.__name__,
+            extra_parameters=kwargs,
+        )
         response = await client.beta.chat.completions.parse(
             model=model,
             messages=[{"role": "user", "content": prompt}],
@@ -294,8 +337,21 @@ class LLMService:
             **kwargs
         )
         message = response.choices[0].message
+        response_payload = self._build_response_payload(
+            response=response,
+            content=getattr(message, "content", None) or "",
+        )
         parsed = getattr(message, "parsed", None)
         if parsed is not None:
+            await self._record_llm_trace(
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                provider=str(client.base_url or ""),
+                model=model,
+                request_payload=request_payload,
+                response_payload=response_payload,
+                status=LLMTraceStatus.SUCCESS,
+            )
             return parsed
 
         refusal = getattr(message, "refusal", None)
@@ -304,7 +360,31 @@ class LLMService:
 
         content = getattr(message, "content", None) or ""
         if content:
-            return self._parse_response_as_model(content, response_type)
+            try:
+                parsed_from_content = self._parse_response_as_model(content, response_type)
+            except Exception as exc:
+                await self._record_llm_trace(
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                    provider=str(client.base_url or ""),
+                    model=model,
+                    request_payload=request_payload,
+                    response_payload=response_payload,
+                    status=_trace_status_for_structured_exception(exc),
+                    parse_error=str(exc),
+                    validation_errors=_validation_error_details(exc),
+                )
+                raise
+            await self._record_llm_trace(
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                provider=str(client.base_url or ""),
+                model=model,
+                request_payload=request_payload,
+                response_payload=response_payload,
+                status=LLMTraceStatus.SUCCESS,
+            )
+            return parsed_from_content
 
         raise ValueError(
             f"Structured output response from model {model} did not include parsed content"
@@ -318,6 +398,8 @@ class LLMService:
         response_type: Type[T],
         temperature: float,
         max_tokens: int,
+        trace_context: Optional[LLMTraceContext] = None,
+        trace_recorder: Optional[LLMInteractionRecorder] = None,
         **kwargs
     ) -> T:
         json_schema_instruction = self._get_json_schema_instruction(response_type)
@@ -343,6 +425,7 @@ class LLMService:
         if capabilities.supports_json_object_response_format:
             try:
                 response = await client.chat.completions.create(**json_mode_kwargs)
+                trace_request_kwargs = json_mode_kwargs
             except (BadRequestError, TypeError) as exc:
                 if (
                     not capabilities.retry_prompt_schema_when_json_object_unsupported
@@ -357,16 +440,44 @@ class LLMService:
                     **request_kwargs,
                     max_tokens=max_tokens,
                 )
+                trace_request_kwargs = {**request_kwargs, "max_tokens": max_tokens}
         else:
             response = await client.chat.completions.create(
                 **request_kwargs,
                 max_tokens=max_tokens,
             )
+            trace_request_kwargs = {**request_kwargs, "max_tokens": max_tokens}
         content = response.choices[0].message.content
 
         logger.debug(f"Structured output response length: {len(content)} chars")
 
-        return self._parse_response_as_model(content, response_type)
+        request_payload = self._build_request_payload_from_kwargs(trace_request_kwargs)
+        response_payload = self._build_response_payload(response=response, content=content)
+        try:
+            parsed = self._parse_response_as_model(content, response_type)
+        except Exception as exc:
+            await self._record_llm_trace(
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                provider=str(client.base_url or ""),
+                model=model,
+                request_payload=request_payload,
+                response_payload=response_payload,
+                status=_trace_status_for_structured_exception(exc),
+                parse_error=str(exc),
+                validation_errors=_validation_error_details(exc),
+            )
+            raise
+        await self._record_llm_trace(
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+            provider=str(client.base_url or ""),
+            model=model,
+            request_payload=request_payload,
+            response_payload=response_payload,
+            status=LLMTraceStatus.SUCCESS,
+        )
+        return parsed
     
     def _get_json_schema_instruction(self, response_type: Type[T]) -> str:
         """
@@ -419,6 +530,66 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
             pass
         
         raise ValueError(f"Failed to parse LLM response as {response_type.__name__}: {content[:200]}...")
+
+    def _build_request_payload(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+        extra_parameters: Mapping[str, Any],
+        response_format: Any = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if response_format is not None:
+            payload["response_format"] = response_format
+        if extra_parameters:
+            payload["extra_parameters"] = _json_safe_copy(extra_parameters)
+        return payload
+
+    def _build_request_payload_from_kwargs(self, request_kwargs: Mapping[str, Any]) -> dict[str, Any]:
+        return _json_safe_copy(request_kwargs)
+
+    def _build_response_payload(self, *, response: Any, content: str) -> dict[str, Any]:
+        return {
+            "content": content,
+            "response": _json_safe_copy(response),
+        }
+
+    async def _record_llm_trace(
+        self,
+        *,
+        trace_context: Optional[LLMTraceContext],
+        trace_recorder: Optional[LLMInteractionRecorder],
+        provider: str,
+        model: str,
+        request_payload: Mapping[str, Any],
+        response_payload: Mapping[str, Any] | None,
+        status: LLMTraceStatus,
+        parse_error: str = "",
+        validation_errors: tuple[Mapping[str, Any], ...] = (),
+    ) -> None:
+        if trace_context is None or trace_recorder is None:
+            return
+        try:
+            await trace_recorder.record_interaction(
+                context=trace_context,
+                provider=provider,
+                model=model,
+                request_payload=request_payload,
+                response_payload=response_payload,
+                status=status,
+                parse_error=parse_error,
+                validation_errors=validation_errors,
+            )
+        except Exception as exc:
+            logger.warning("Failed to record LLM interaction trace: {}", exc)
     
     @property
     def active(self) -> str:
@@ -438,3 +609,47 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
         model = self.active
         base_url = self._get_config_value("base_url", "default")
         return f"<LLMService model={model!r} base_url={base_url!r}>"
+
+
+def _trace_status_for_structured_exception(exc: Exception) -> LLMTraceStatus:
+    if isinstance(exc, ValidationError):
+        return LLMTraceStatus.VALIDATION_ERROR
+    return LLMTraceStatus.PARSE_ERROR
+
+
+def _validation_error_details(exc: Exception) -> tuple[Mapping[str, Any], ...]:
+    if not isinstance(exc, ValidationError):
+        return ()
+    return tuple(
+        {
+            "field": ".".join(str(part) for part in error.get("loc", ())),
+            "message": str(error.get("msg", "")),
+            "type": str(error.get("type", "")),
+        }
+        for error in exc.errors()
+    )
+
+
+def _json_safe_copy(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, SimpleNamespace):
+        return {
+            key: _json_safe_copy(item)
+            for key, item in vars(value).items()
+        }
+    if isinstance(value, Mapping):
+        return {
+            str(key): _json_safe_copy(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [
+            _json_safe_copy(item)
+            for item in value
+        ]
+    if isinstance(value, type):
+        return value.__name__
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
