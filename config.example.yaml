@@ -35,6 +35,7 @@ comfyui:
   executor_type: null  # Optional override: null=auto (recommended HTTP default), websocket only for explicit opt-in
   pre_generation_cleanup_mode: force  # force=interrupt/clear busy queue before generation, conservative=leave an idle queue untouched
   pre_generation_cleanup_timeout_seconds: 20  # Fail fast if a forced cleanup cannot drain the ComfyUI queue in time
+  model_cleanup_mode: comfyui_and_extensions  # disabled=no model unload, comfyui=/free only, comfyui_and_extensions=/free plus Pixelle plugin cache cleanup
   # Pixelle intentionally does not call /free automatically after each selfhost batch.
   comfyui_api_key: ""  # ComfyUI API key (optional, get from https://platform.comfy.org/profile/api-keys)
   # Note for Docker users: Use host.docker.internal:8188 (Mac/Windows) or host IP address (Linux)

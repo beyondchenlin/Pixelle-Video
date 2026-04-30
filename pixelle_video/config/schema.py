@@ -467,6 +467,10 @@ class ComfyUIConfig(BaseModel):
         le=120.0,
         description="How long to wait for a forced pre-generation cleanup to drain the ComfyUI queue",
     )
+    model_cleanup_mode: Literal["disabled", "comfyui", "comfyui_and_extensions"] = Field(
+        default="comfyui_and_extensions",
+        description="Model memory cleanup scope used after forced queue cleanup and explicit recovery paths",
+    )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")
     runninghub_concurrent_limit: int = Field(default=1, ge=1, le=10, description="RunningHub concurrent execution limit (1-10)")
