@@ -122,7 +122,7 @@ Test-Path "E:\comfyui\comfyui\models\IndexTTS-2\s2mel.pth"
 
 ### 修插件会不会影响默认工作流？
 
-会让默认工作流里的 `max_tokens_per_sentence` 真正生效。默认工作流当前配置为 `90`，修复后底层会按 `90` 分句，而不是回退到底层默认值。
+会让工作流里的 `max_tokens_per_sentence` 真正生效。原版 `tts_index2.json` 配置为 `90`，8G 版 `tts_index2_8g.json` 配置为 `60`；修复后底层会按所选工作流参数分句，而不是回退到底层默认值。
 
 ### 为什么 8G 版关闭 `keep_models_cached`？
 
