@@ -9,7 +9,11 @@ from pixelle_video.models.render_package import SentenceUnit, TextCue, TextTrack
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.text_overlay import TextOverlayCandidate, TextOverlayPlan
-from pixelle_video.models.text_style import DEFAULT_OVERLAY_STYLE_ID, TextStyleProfile
+from pixelle_video.models.text_style import (
+    DEFAULT_OVERLAY_STYLE_ID,
+    DEFAULT_TITLE_STYLE_ID,
+    TextStyleProfile,
+)
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 
@@ -315,6 +319,7 @@ def test_record_text_layer_summary_only_describes_overlay_text_layer():
     summary = ctx.observability["text_layer_summary"]
 
     assert summary["style_profile_ids"] == [DEFAULT_OVERLAY_STYLE_ID]
+    assert summary["title_style_profile_id"] == DEFAULT_TITLE_STYLE_ID
     assert "caption_cue_count" not in summary
     assert "caption_rendering_summary" not in summary
     assert "caption_rendering_summary" not in ctx.observability
@@ -461,6 +466,7 @@ async def test_legacy_ass_manifest_receives_text_style_profiles_from_package(
     assert manifest is not None
     assert [profile.id for profile in manifest.text_style_profiles] == [
         "caption-default",
+        DEFAULT_TITLE_STYLE_ID,
         DEFAULT_OVERLAY_STYLE_ID,
     ]
     assert manifest.text_style_profiles[0].primary_color == "#FFFF00"

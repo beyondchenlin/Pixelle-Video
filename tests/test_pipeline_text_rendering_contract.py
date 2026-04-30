@@ -149,6 +149,9 @@ async def test_asset_based_pipeline_records_contract_when_overlay_disabled(tmp_p
     assert ctx.observability["text_layer_summary"]["style_profile_ids"] == [
         "overlay-default"
     ]
+    assert ctx.observability["text_layer_summary"]["title_style_profile_id"] == (
+        "title-default"
+    )
     assert ctx.observability["image_text_policy_summary"]["status"] == "not_applicable"
     assert "caption_style" not in ctx.observability["caption_rendering_summary"]
     assert "overlay_style" not in ctx.observability["text_layer_summary"]

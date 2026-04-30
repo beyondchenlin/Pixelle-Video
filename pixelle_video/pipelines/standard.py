@@ -67,6 +67,7 @@ from pixelle_video.models.storyboard import (
     build_storyboard_config_planning_kwargs,
     build_storyboard_frame_planning_kwargs,
 )
+from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID
 from pixelle_video.models.video_generation_contract import StoryboardControlsContract
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
@@ -2584,6 +2585,12 @@ class StandardPipeline(LinearVideoPipeline):
 
         frame_texts = self._text_rendering_frame_texts(ctx)
         config = getattr(ctx, "config", None)
+        template_id = None
+        if config is not None:
+            try:
+                template_id = self._resolve_hyperframes_template_id(config)
+            except Exception:
+                template_id = getattr(config, "frame_template", None)
         result = TextRenderingOrchestrator().build(
             text_rendering=self._text_rendering_request_for_contract(ctx),
             narrations=frame_texts,
@@ -2591,6 +2598,7 @@ class StandardPipeline(LinearVideoPipeline):
             frame_count=len(frame_texts),
             task_id=getattr(ctx, "task_id", None),
             config=config,
+            template_id=template_id,
         )
         setattr(ctx, "text_rendering_result", result)
         self._set_text_render_package(ctx, result.text_render_package)
@@ -2945,6 +2953,8 @@ class StandardPipeline(LinearVideoPipeline):
                 if style_profile
             }
         )
+        text_rendering_result = getattr(ctx, "text_rendering_result", None)
+        title_style = getattr(text_rendering_result, "title_style", None)
         ctx.observability["text_layer_summary"] = {
             "enabled": bool(overlay_tracks or overlay_cues or native_hint_count),
             "renderer": renderer,
@@ -2952,6 +2962,9 @@ class StandardPipeline(LinearVideoPipeline):
             "cue_count": len(overlay_cues),
             "native_prompt_hint_count": native_hint_count,
             "style_profile_ids": style_profile_ids,
+            "title_style_profile_id": getattr(
+                title_style, "id", DEFAULT_TITLE_STYLE_ID
+            ),
             "artifacts": dict(artifacts or {}),
             "fallbacks": [dict(item) if isinstance(item, dict) else item for item in fallbacks],
             "targets": sorted(
