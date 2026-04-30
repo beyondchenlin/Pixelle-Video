@@ -321,6 +321,19 @@ def render_real_preview_status(
             error(translate("text_rendering_preview.real_failed", error=state["error"]))
 
 
+def _http_status_error_message(exc: httpx.HTTPStatusError) -> str:
+    response = exc.response
+    try:
+        detail = response.json().get("detail")
+    except Exception:
+        detail = None
+    if detail:
+        return str(detail)
+    if response.text:
+        return response.text
+    return str(exc)
+
+
 def request_real_preview_frame(
     spec: TextRenderingPreviewSpec,
     text_rendering_payload: Mapping[str, Any],
@@ -355,6 +368,13 @@ def request_real_preview_frame(
             fingerprint=spec.fingerprint,
             error=None,
             frame_fingerprint=data.get("fingerprint"),
+        )
+    except httpx.HTTPStatusError as exc:
+        return build_real_preview_state(
+            storage_key=None,
+            url=None,
+            fingerprint=spec.fingerprint,
+            error=_http_status_error_message(exc),
         )
     except Exception as exc:
         return build_real_preview_state(

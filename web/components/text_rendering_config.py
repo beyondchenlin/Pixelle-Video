@@ -629,12 +629,7 @@ def render_text_rendering_controls(
             )
             render_text_rendering_preview(preview_spec, ui=ui, translate=translate)
             preview_state_key = "text_rendering_real_preview_frame"
-            render_real_preview_status(
-                preview_spec,
-                _session_value(ui, preview_state_key, None),
-                ui,
-                translate,
-            )
+            preview_state = _session_value(ui, preview_state_key, None)
             if _call_control(
                 ui,
                 "button",
@@ -642,20 +637,27 @@ def render_text_rendering_controls(
                 translate("text_rendering_preview.generate_real"),
                 key="text_rendering_generate_real_preview",
             ):
+                preview_state = request_real_preview_frame(
+                    spec=preview_spec,
+                    text_rendering_payload=text_rendering_payload,
+                    api_base_url=_session_value(
+                        ui,
+                        "api_base_url",
+                        "http://localhost:8000/api",
+                    ),
+                    workspace_id=_session_value(ui, "workspace_id", "default"),
+                )
                 _set_session_value(
                     ui,
                     preview_state_key,
-                    request_real_preview_frame(
-                        spec=preview_spec,
-                        text_rendering_payload=text_rendering_payload,
-                        api_base_url=_session_value(
-                            ui,
-                            "api_base_url",
-                            "http://localhost:8000/api",
-                        ),
-                        workspace_id=_session_value(ui, "workspace_id", "default"),
-                    ),
+                    preview_state,
                 )
+            render_real_preview_status(
+                preview_spec,
+                preview_state,
+                ui,
+                translate,
+            )
 
     return text_rendering_payload
 

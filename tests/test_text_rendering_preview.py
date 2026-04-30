@@ -355,6 +355,44 @@ def test_request_real_preview_frame_returns_error_state_on_exception(monkeypatch
     }
 
 
+def test_request_real_preview_frame_uses_http_error_detail(monkeypatch):
+    import httpx
+
+    from web.components import text_rendering_preview
+    from web.components.text_rendering_preview import request_real_preview_frame
+
+    def fake_post(*_args, **_kwargs):
+        return httpx.Response(
+            422,
+            json={"detail": "preview media storage key is invalid"},
+            request=httpx.Request("POST", "http://localhost:8000/api/text-rendering/preview-frame"),
+        )
+
+    monkeypatch.setattr(text_rendering_preview.httpx, "post", fake_post)
+    spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=900,
+        media_height=1200,
+        title_style={},
+        caption_style={},
+    )
+
+    state = request_real_preview_frame(
+        spec=spec,
+        text_rendering_payload={},
+        api_base_url="http://localhost:8000/api",
+        workspace_id="ws",
+    )
+
+    assert state["storage_key"] is None
+    assert state["url"] is None
+    assert state["fingerprint"] == spec.fingerprint
+    assert "preview media storage key is invalid" in state["error"]
+
+
 def test_render_real_preview_status_reports_current_stale_and_error():
     from web.components.text_rendering_preview import (
         build_real_preview_state,

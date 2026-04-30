@@ -685,6 +685,12 @@ def test_text_rendering_controls_real_preview_button_stores_state_without_payloa
         "fingerprint": captured["spec"].fingerprint,
         "error": None,
     }
+    assert fake_ui.image_calls == [
+        {
+            "url": "/api/files/artifacts/ws/rendered.png",
+            "caption": "text_rendering_preview.real_current",
+        }
+    ]
     assert captured["api_base_url"] == "http://localhost:8000/api"
     assert captured["workspace_id"] == "ws"
     assert captured["text_rendering_payload"] == payload
