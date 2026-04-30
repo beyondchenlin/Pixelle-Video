@@ -138,6 +138,12 @@ def test_resolved_resource_rejects_non_string_resolved_value(resolved_value):
         ResolvedResource(resource_id="cinematic", resolved_value=resolved_value)
 
 
+@pytest.mark.parametrize("metadata", [None, ["x"], "abc", object()])
+def test_resolved_resource_rejects_non_mapping_metadata(metadata):
+    with pytest.raises(ResourceResolverError, match="metadata"):
+        ResolvedResource(resource_id="cinematic", resolved_value="value", metadata=metadata)
+
+
 @pytest.mark.parametrize("resolved_value", [123, None, object()])
 def test_static_resource_resolver_rejects_non_string_mapping_values(resolved_value):
     with pytest.raises(ResourceResolverError, match="resolved_value"):
