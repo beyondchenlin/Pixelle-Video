@@ -9,6 +9,9 @@ from pixelle_video.models.render_package import (
     VisualClip,
     resolve_media_layout_mode,
 )
+from pixelle_video.models.template_text_style_presets import (
+    resolve_template_text_style_preset,
+)
 from pixelle_video.models.text_style import TextStyleProfile
 
 # Phase-1 field inventory maps the legacy Pixelle source templates onto the
@@ -90,6 +93,9 @@ class TemplateRenderContext:
     visuals: List[VisualClip] = field(default_factory=list)
     captions: List[CaptionCue] = field(default_factory=list)
     text_style_profiles: List[TextStyleProfile] = field(default_factory=list)
+    title_style_profile: TextStyleProfile | None = None
+    template_title_region: Dict[str, float] = field(default_factory=dict)
+    template_caption_safe_area: Dict[str, float] = field(default_factory=dict)
     text_tracks: List[TextTrack] = field(default_factory=list)
     text_cues: List[TextCue] = field(default_factory=list)
     audio_tracks: List[TemplateAudioRef] = field(default_factory=list)
@@ -103,3 +109,8 @@ class TemplateRenderContext:
             sync_media_size_to_canvas=self.sync_media_size_to_canvas,
         )
         self.media_placement = resolve_media_placement(self.media_placement)
+        preset = resolve_template_text_style_preset(self.template_id)
+        if not self.template_title_region:
+            self.template_title_region = preset.title_region_dict()
+        if not self.template_caption_safe_area:
+            self.template_caption_safe_area = preset.caption_safe_area_dict()

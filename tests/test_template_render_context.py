@@ -6,6 +6,7 @@ from pixelle_video.models.template_render_context import (
     TemplateAudioRef,
     TemplateRenderContext,
 )
+from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID, TextStyleProfile
 
 
 def test_template_render_context_uses_render_timeline_values():
@@ -90,6 +91,78 @@ def test_template_render_context_exposes_phase1_shell_fields():
     assert "footer" in field_names
     assert "style_profile" in field_names
     assert "template_params" in field_names
+    assert "title_style_profile" in field_names
+    assert "template_title_region" in field_names
+    assert "template_caption_safe_area" in field_names
+
+
+def test_template_render_context_defaults_template_text_regions_from_preset():
+    context = TemplateRenderContext(
+        template_id="image_landscape_minimal",
+        canvas_width=1920,
+        canvas_height=1080,
+        duration=2.0,
+        fps=30,
+        title="demo",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_landscape_minimal",
+    )
+
+    assert context.template_title_region == {
+        "x": 0.055,
+        "y": 0.085,
+        "width": 0.44,
+        "height": 0.20,
+    }
+    assert context.template_caption_safe_area == {
+        "x": 0.18,
+        "y": 0.69,
+        "width": 0.64,
+        "height": 0.17,
+    }
+
+
+def test_template_render_context_preserves_explicit_text_regions_and_title_profile():
+    title_style_profile = TextStyleProfile(
+        id=DEFAULT_TITLE_STYLE_ID,
+        name="Title Default",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=2.0,
+        fps=30,
+        title="demo",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        title_style_profile=title_style_profile,
+        template_title_region={"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+        template_caption_safe_area={
+            "x": 0.2,
+            "y": 0.3,
+            "width": 0.4,
+            "height": 0.5,
+        },
+    )
+
+    assert context.title_style_profile is title_style_profile
+    assert context.template_title_region == {
+        "x": 0.1,
+        "y": 0.2,
+        "width": 0.3,
+        "height": 0.4,
+    }
+    assert context.template_caption_safe_area == {
+        "x": 0.2,
+        "y": 0.3,
+        "width": 0.4,
+        "height": 0.5,
+    }
 
 
 def test_template_render_context_derives_canvas_media_layout_from_sync_flag():
