@@ -10,7 +10,8 @@ from shutil import copy2
 from pixelle_video.models.media_placement import calculate_media_box
 from pixelle_video.models.render_package import CaptionCue, TextCue
 from pixelle_video.models.template_render_context import TemplateRenderContext
-from pixelle_video.models.text_style import TextStyleProfile
+from pixelle_video.models.template_text_style_presets import resolve_template_text_style_preset
+from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID, TextStyleProfile
 from pixelle_video.services.font_discovery import resolve_font_file
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
 from pixelle_video.services.text_style_resolver import TextStyleResolver
@@ -278,10 +279,15 @@ class HyperFramesCompiler:
         return "<br/>".join(escape(line) for line in lines)
 
     def _render_title_style_css(self, context: TemplateRenderContext) -> str:
-        if context.title_style_profile is None:
-            return ""
+        profile = context.title_style_profile
+        if profile is None:
+            title_payload = resolve_template_text_style_preset(
+                context.template_id
+            ).title_style_dict()
+            title_payload["id"] = DEFAULT_TITLE_STYLE_ID
+            profile = TextStyleProfile.from_dict(title_payload)
         return self._style_profile_css_variables(
-            context.title_style_profile,
+            profile,
             context,
             prefix="title",
         )

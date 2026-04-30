@@ -104,17 +104,17 @@
       }
 
       .title {
-        color: var(--title-fill);
-        font-family: var(--title-font-family);
-        font-size: var(--title-font-size);
-        font-weight: var(--title-font-weight);
-        line-height: var(--title-line-height);
+        color: var(--title-fill, #5b4631);
+        font-family: var(--title-font-family, var(--hf-font-sans));
+        font-size: var(--title-font-size, 72px);
+        font-weight: var(--title-font-weight, 800);
+        line-height: var(--title-line-height, 1.2);
         letter-spacing: 3px;
-        background: var(--title-background);
+        background: var(--title-background, transparent);
         -webkit-background-clip: text;
-        -webkit-text-fill-color: var(--title-fill);
+        -webkit-text-fill-color: var(--title-fill, #5b4631);
         background-clip: text;
-        -webkit-text-stroke: var(--title-stroke-width) var(--title-stroke-color);
+        -webkit-text-stroke: var(--title-stroke-width, 0) var(--title-stroke-color, #000000);
         filter: contrast(1.1) brightness(0.9);
       }
 

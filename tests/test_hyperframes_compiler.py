@@ -708,6 +708,43 @@ def test_hyperframes_compiler_emits_title_style_variables(tmp_path: Path):
     assert "--text-fill" not in html
 
 
+def test_hyperframes_compiler_emits_fallback_title_style_variables(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<h1 class="video-title" style="__TITLE_STYLE_CSS__">__TITLE__</h1>',
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="Fallback title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "__TITLE_STYLE_CSS__" not in html
+    assert "--title-fill: #2C3E50" in html
+    assert "--title-background: rgba(255, 255, 255, 0.92)" in html
+
+
 def test_hyperframes_compiler_copies_custom_font_file_and_emits_font_face(
     tmp_path: Path,
 ):
@@ -884,20 +921,64 @@ def test_phase1_templates_mount_static_text_layer_composition():
         assert "__TEXT_CUES__" in text_layer_template.read_text(encoding="utf-8")
 
 
-def test_phase1_main_templates_consume_title_style_variables():
-    template_paths = [
-        Path("resources/hyperframes/templates/image_default/index.template.html"),
-        Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
-        Path("resources/hyperframes/templates/image_landscape_full/index.template.html"),
-        Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"),
-    ]
+@pytest.mark.parametrize(
+    "template_id",
+    [
+        "image_default",
+        "image_life_insights_light",
+        "image_landscape_full",
+        "image_landscape_minimal",
+    ],
+)
+def test_phase1_main_templates_compile_with_title_style_variables(
+    tmp_path: Path,
+    template_id: str,
+):
+    title = f"Title for {template_id}"
+    title_style = TextStyleProfile(
+        id=DEFAULT_TITLE_STYLE_ID,
+        name="Title Default",
+        font_size=88,
+        primary_color="#112233",
+        background_color="#445566",
+        background_opacity=0.5,
+        max_chars_per_line=40,
+    )
+    context = TemplateRenderContext(
+        template_id=template_id,
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title=title,
+        author="LanRen.AI",
+        footer="LanRen",
+        theme=None,
+        style_profile=template_id,
+        template_params={"author_desc": "LanRen"},
+        title_style_profile=title_style,
+        visuals=[
+            VisualClip(
+                id="v1",
+                frame_index=0,
+                start=0,
+                end=1,
+                media_path="assets/images/01.png",
+                media_type="image",
+            )
+        ],
+    )
 
-    for path in template_paths:
-        content = path.read_text(encoding="utf-8")
-        assert "__TITLE_STYLE_CSS__" in content
-        assert "var(--title-fill)" in content
-        assert "var(--title-font-size)" in content
-        assert "var(--title-background)" in content
+    HyperFramesCompiler().compile(project_dir=tmp_path / template_id, context=context)
+
+    html = (tmp_path / template_id / "index.html").read_text(encoding="utf-8")
+    assert "__TITLE_STYLE_CSS__" not in html
+    assert "--title-fill: #112233" in html
+    assert "--title-background: rgba(68, 85, 102, 0.5)" in html
+    assert "var(--title-fill," in html
+    assert "var(--title-font-size," in html
+    assert "var(--title-background," in html
+    assert title in html
 
 
 def test_life_insights_caption_template_does_not_embed_hardcoded_english_label():

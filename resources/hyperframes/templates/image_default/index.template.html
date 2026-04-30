@@ -162,14 +162,14 @@
 
       .video-title {
         margin: 0;
-        color: var(--title-fill);
-        font-family: var(--title-font-family);
-        font-size: var(--title-font-size);
-        font-weight: var(--title-font-weight);
-        line-height: var(--title-line-height);
-        background: var(--title-background);
+        color: var(--title-fill, #2c3e50);
+        font-family: var(--title-font-family, var(--hf-font-sans));
+        font-size: var(--title-font-size, 72px);
+        font-weight: var(--title-font-weight, 700);
+        line-height: var(--title-line-height, 1.2);
+        background: var(--title-background, transparent);
         letter-spacing: 2px;
-        -webkit-text-stroke: var(--title-stroke-width) var(--title-stroke-color);
+        -webkit-text-stroke: var(--title-stroke-width, 0) var(--title-stroke-color, #000000);
       }
 
       .image-wrapper {
