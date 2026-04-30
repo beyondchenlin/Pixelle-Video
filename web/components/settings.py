@@ -228,7 +228,6 @@ def render_advanced_settings():
                     "conservative": tr("settings.comfyui.cleanup_conservative"),
                 }
                 model_cleanup_labels = {
-                    "disabled": tr("settings.comfyui.model_cleanup_disabled"),
                     "comfyui": tr("settings.comfyui.model_cleanup_comfyui"),
                     "comfyui_and_extensions": tr("settings.comfyui.model_cleanup_comfyui_and_extensions"),
                 }

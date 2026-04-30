@@ -337,9 +337,15 @@ class PixelleVideoCore:
 
     def _get_comfyui_model_cleanup_mode(self, comfyui_config: dict) -> str:
         mode = (comfyui_config.get("model_cleanup_mode") or "comfyui_and_extensions").lower()
-        if mode not in {"disabled", "comfyui", "comfyui_and_extensions"}:
+        if mode == "disabled":
+            logger.warning(
+                "Retired ComfyUI model cleanup mode 'disabled' was ignored; "
+                "using 'comfyui_and_extensions' so Pixelle-owned stages release models."
+            )
+            return "comfyui_and_extensions"
+        if mode not in {"comfyui", "comfyui_and_extensions"}:
             logger.warning(f"Unsupported ComfyUI model cleanup mode: {mode}")
-            return "disabled"
+            return "comfyui_and_extensions"
         return mode
 
     def _log_comfyui_memory_release(
@@ -393,10 +399,6 @@ class PixelleVideoCore:
             return False
 
         model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
-        if model_cleanup_mode == "disabled":
-            logger.info(f"Skipping ComfyUI {context} memory release by configuration")
-            return False
-
         client = ComfyUIMaintenanceClient(
             base_url,
             api_key=comfyui_config.get("comfyui_api_key"),
@@ -423,6 +425,7 @@ class PixelleVideoCore:
         self,
         *,
         context: str,
+        include_extensions: bool = False,
     ) -> bool:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
@@ -436,16 +439,14 @@ class PixelleVideoCore:
         )
         try:
             model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
-            if model_cleanup_mode == "disabled":
-                return False
-            if model_cleanup_mode == "comfyui":
-                result = await client.free_memory("high")
-            else:
+            if include_extensions or model_cleanup_mode == "comfyui_and_extensions":
                 result = await client.free_memory_with_extensions(
                     "high",
                     extensions=("indextts2",),
                     missing_endpoint="required",
                 )
+            else:
+                result = await client.free_memory("high")
             self._log_comfyui_memory_release(
                 context=context,
                 model_cleanup_mode=model_cleanup_mode,
@@ -465,9 +466,6 @@ class PixelleVideoCore:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
         model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
-        if model_cleanup_mode == "disabled":
-            return False
-
         base_url = comfyui_config.get("comfyui_url")
         if not base_url:
             return False
@@ -642,7 +640,15 @@ class PixelleVideoCore:
                 "Local ComfyUI workflow ran out of memory; releasing memory and "
                 "retrying once after a fresh pre-workflow cleanup."
             )
-            released = await self.force_release_comfyui_memory(context="oom-recovery")
+            if is_index_tts2_workflow_key(workflow_input):
+                released = await self.force_release_comfyui_memory(
+                    context="oom-recovery",
+                    include_extensions=True,
+                )
+            else:
+                released = await self.force_release_comfyui_memory(
+                    context="oom-recovery"
+                )
             if not released:
                 raise RuntimeError(
                     "Local ComfyUI workflow ran out of memory and Pixelle stopped "

@@ -467,12 +467,12 @@ class ComfyUIConfig(BaseModel):
         le=120.0,
         description="How long to wait for a forced pre-generation cleanup to drain the ComfyUI queue",
     )
-    model_cleanup_mode: Literal["disabled", "comfyui", "comfyui_and_extensions"] = Field(
+    model_cleanup_mode: Literal["comfyui", "comfyui_and_extensions"] = Field(
         default="comfyui_and_extensions",
         description=(
             "Model memory cleanup scope used after Pixelle-owned local workflow "
-            "stages; IndexTTS2 TTS plugin cache cleanup is required unless "
-            "cleanup is disabled"
+            "stages; IndexTTS2 TTS plugin cache cleanup is required for local "
+            "IndexTTS2 workflows"
         ),
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
@@ -485,7 +485,7 @@ class ComfyUIConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def drop_legacy_post_generation_cleanup_fields(cls, data: Any):
+    def migrate_legacy_comfyui_cleanup_fields(cls, data: Any):
         if not isinstance(data, dict):
             return data
 
@@ -505,6 +505,18 @@ class ComfyUIConfig(BaseModel):
                 "Use model_cleanup_mode to control model release after local workflow "
                 "batches and explicit recovery paths.",
                 ", ".join(legacy_fields),
+            )
+
+        raw_model_cleanup_mode = normalized.get("model_cleanup_mode")
+        if isinstance(raw_model_cleanup_mode, str):
+            normalized["model_cleanup_mode"] = raw_model_cleanup_mode.strip().lower()
+
+        if normalized.get("model_cleanup_mode") == "disabled":
+            normalized["model_cleanup_mode"] = "comfyui_and_extensions"
+            logger.warning(
+                "Retired ComfyUI model_cleanup_mode 'disabled' was migrated to "
+                "'comfyui_and_extensions'. Pixelle-owned local stages must release "
+                "their models before the next stage."
             )
 
         return normalized

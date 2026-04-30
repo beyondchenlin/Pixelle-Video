@@ -95,6 +95,14 @@ def test_comfyui_model_cleanup_mode_defaults_to_extensions():
     assert config.comfyui.model_cleanup_mode == "comfyui_and_extensions"
 
 
+def test_comfyui_model_cleanup_mode_retires_disabled_value():
+    config = PixelleVideoConfig.model_validate(
+        {"comfyui": {"model_cleanup_mode": " Disabled "}}
+    )
+
+    assert config.comfyui.model_cleanup_mode == "comfyui_and_extensions"
+
+
 def test_comfyui_config_exposes_pre_generation_cleanup_mode(monkeypatch):
     monkeypatch.setattr(
         config_manager,
@@ -140,13 +148,13 @@ def test_comfyui_config_exposes_model_cleanup_mode(monkeypatch):
     assert config_manager.get_comfyui_config()["model_cleanup_mode"] == "comfyui"
 
 
-def test_set_comfyui_config_updates_model_cleanup_mode(monkeypatch):
+def test_set_comfyui_config_retires_disabled_model_cleanup_mode(monkeypatch):
     config = PixelleVideoConfig()
     monkeypatch.setattr(config_manager, "config", config)
 
     config_manager.set_comfyui_config(model_cleanup_mode="disabled")
 
-    assert config_manager.config.comfyui.model_cleanup_mode == "disabled"
+    assert config_manager.config.comfyui.model_cleanup_mode == "comfyui_and_extensions"
 
 
 def test_legacy_post_generation_cleanup_fields_are_not_exposed(monkeypatch):

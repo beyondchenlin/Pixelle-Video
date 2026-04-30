@@ -389,6 +389,90 @@ async def test_core_execute_local_comfy_workflow_recovers_once_after_oom():
 
 
 @pytest.mark.asyncio
+async def test_core_execute_index_tts2_oom_recovery_releases_plugin_cache_in_comfyui_mode(monkeypatch):
+    calls = []
+    attempts = 0
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            nonlocal attempts
+            attempts += 1
+            calls.append(("execute", attempts, workflow_input))
+            if attempts == 1:
+                raise RuntimeError("CUDA out of memory while allocating tensor")
+            return SimpleNamespace(status="completed")
+
+    class _Client:
+        def __init__(self, base_url, *, api_key=None):
+            calls.append(("client", base_url, api_key))
+
+        async def free_memory_with_extensions(
+            self,
+            intensity="high",
+            *,
+            extensions=("indextts2",),
+            missing_endpoint="optional",
+        ):
+            calls.append(
+                ("free_with_extensions", intensity, extensions, missing_endpoint)
+            )
+            return True
+
+        async def free_memory(self, intensity="high"):
+            raise AssertionError("IndexTTS2 OOM recovery must clean plugin caches")
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                comfyui_api_key="secret",
+                model_cleanup_mode="comfyui",
+            )
+        ),
+    )
+    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        calls.append(("prepare",))
+
+    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+        calls.append(("index_tts2_release", context, missing_endpoint))
+        return True
+
+    async def _get_kit():
+        calls.append(("get_kit",))
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_index_tts2_workflow = _release_index_tts2
+    _install_noop_extension_preflight(core)
+    core._get_or_create_comfykit = _get_kit
+
+    result = await core.execute_comfykit_workflow(
+        "workflows/selfhost/tts_index2.json",
+        {},
+        workflow_source="selfhost",
+    )
+
+    assert result.status == "completed"
+    assert calls == [
+        ("prepare",),
+        ("get_kit",),
+        ("execute", 1, "workflows/selfhost/tts_index2.json"),
+        ("client", "http://127.0.0.1:8000", "secret"),
+        ("free_with_extensions", "high", ("indextts2",), "required"),
+        ("prepare",),
+        ("get_kit",),
+        ("execute", 2, "workflows/selfhost/tts_index2.json"),
+        ("index_tts2_release", "post-index-tts2-workflow", "required"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_core_execute_local_comfy_workflow_stops_when_oom_release_fails():
     calls = []
     attempts = 0
