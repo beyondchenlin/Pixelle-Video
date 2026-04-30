@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from os import PathLike
 from typing import Any
 from uuid import uuid4
 
-from pixelle_video.models.artifact import ArtifactVersion
+from pixelle_video.models.artifact import ArtifactVersion, ArtifactVersionStatus
 from pixelle_video.models.generation_event import GenerationEvent, GenerationEventAction
 from pixelle_video.models.storyboard_workbench import (
     StoryboardFrameWorkbenchState,
@@ -15,6 +16,7 @@ from pixelle_video.models.storyboard_workbench import (
 from pixelle_video.repositories.artifacts import ArtifactObjectStore, ArtifactRepository
 from pixelle_video.repositories.prompt_plans import PromptPlanRepository
 from pixelle_video.repositories.trace import TraceRepository
+from pixelle_video.services.generation_coordinator import build_generation_fingerprint
 
 
 class StoryboardWorkbenchError(ValueError):
@@ -31,6 +33,18 @@ class FrameImageLockedError(StoryboardWorkbenchError):
 
 class UnsafeArtifactUrlError(StoryboardWorkbenchError):
     """Raised when an object-store adapter returns a local path-like URL."""
+
+
+@dataclass(frozen=True)
+class FrameImageRegenerationTaskRequest:
+    generation_fingerprint: str
+    request_params: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class FrameImageRegenerationResult:
+    workbench_state: StoryboardFrameWorkbenchState
+    artifact_version: ArtifactVersion
 
 
 @dataclass(frozen=True)
@@ -103,6 +117,43 @@ class StoryboardWorkbenchService:
         self.object_store = object_store
         self.trace_repository = trace_repository
         self.prompt_plan_repository = prompt_plan_repository
+
+    def build_frame_image_regeneration_task_request(
+        self,
+        *,
+        workspace_id: str,
+        storyboard_id: str,
+        state: StoryboardFrameWorkbenchState,
+        artifact_id: str,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> FrameImageRegenerationTaskRequest:
+        self._ensure_state_matches_artifact(state, artifact_id)
+        prompt_plan_id = _require_state_prompt_plan_id(state)
+        request_params = _drop_none_values(
+            {
+                "workspace_id": workspace_id,
+                "storyboard_id": storyboard_id,
+                "frame_id": state.frame_id,
+                "prompt_plan_id": prompt_plan_id,
+                "artifact_id": artifact_id,
+                "selected_image_version_id": state.selected_image_version_id,
+                "provider": provider,
+                "model": model,
+            }
+        )
+        generation_fingerprint = build_generation_fingerprint(
+            text=f"{workspace_id}:{storyboard_id}:{state.frame_id}:{prompt_plan_id}:{artifact_id}",
+            pipeline="storyboard_frame_image_regeneration",
+            params=request_params,
+        )
+        return FrameImageRegenerationTaskRequest(
+            generation_fingerprint=generation_fingerprint,
+            request_params={
+                **request_params,
+                "generation_fingerprint": generation_fingerprint,
+            },
+        )
 
     async def list_image_candidates(
         self,
@@ -235,6 +286,82 @@ class StoryboardWorkbenchService:
         )
         return stale_state
 
+    async def record_frame_image_regeneration_result(
+        self,
+        *,
+        workspace_id: str,
+        task_id: str,
+        state: StoryboardFrameWorkbenchState,
+        artifact_id: str,
+        source_path: str | PathLike[str],
+        provider: str | None = None,
+        provider_metadata: Mapping[str, Any] | None = None,
+        width: int | None = None,
+        height: int | None = None,
+    ) -> FrameImageRegenerationResult:
+        self._ensure_state_matches_artifact(state, artifact_id)
+        prompt_plan_id = _require_state_prompt_plan_id(state)
+        stored_file = await self.object_store.put_file(
+            workspace_id,
+            source_path,
+            metadata={
+                "artifact_id": artifact_id,
+                "frame_id": state.frame_id,
+                "prompt_plan_id": prompt_plan_id,
+                "task_id": task_id,
+            },
+        )
+        event_id = f"generation_event_{uuid4().hex}"
+        artifact_version = ArtifactVersion(
+            version_id=f"artifact_version_{uuid4().hex}",
+            artifact_id=artifact_id,
+            workspace_id=workspace_id,
+            frame_id=state.frame_id,
+            source_prompt_plan_id=prompt_plan_id,
+            storage_key=stored_file.storage_key,
+            status=ArtifactVersionStatus.CANDIDATE,
+            provider=provider,
+            provider_metadata=provider_metadata or {},
+            width=width,
+            height=height,
+            trace_event_id=event_id,
+            metadata={"source_task_id": task_id},
+        )
+        stored_version = await self.artifact_repository.create_artifact_version(
+            workspace_id,
+            artifact_id,
+            artifact_version.to_dict(),
+        )
+        artifact_version = ArtifactVersion.from_dict(stored_version)
+        updated_state = replace(
+            state,
+            selected_image_artifact_id=artifact_id,
+            candidate_image_version_ids=_append_unique(
+                state.candidate_image_version_ids,
+                artifact_version.version_id,
+            ),
+            last_generation_job_id=task_id,
+        )
+        await self._append_generation_event(
+            workspace_id=workspace_id,
+            event_id=event_id,
+            action=GenerationEventAction.REGENERATE,
+            state=updated_state,
+            artifact_id=artifact_id,
+            artifact_version_id=artifact_version.version_id,
+            storage_key=artifact_version.storage_key,
+            task_id=task_id,
+            metadata={
+                "provider": provider,
+                "provider_metadata": _json_safe_copy(provider_metadata or {}),
+                "candidate_image_version_ids": list(updated_state.candidate_image_version_ids),
+            },
+        )
+        return FrameImageRegenerationResult(
+            workbench_state=updated_state,
+            artifact_version=artifact_version,
+        )
+
     async def _load_artifact_versions(
         self,
         *,
@@ -271,16 +398,18 @@ class StoryboardWorkbenchService:
         self,
         *,
         workspace_id: str,
+        event_id: str | None = None,
         action: GenerationEventAction,
         state: StoryboardFrameWorkbenchState,
         artifact_id: str,
         artifact_version_id: str | None = None,
         storage_key: str | None = None,
+        task_id: str | None = None,
         stale_reason: str = "",
         metadata: Mapping[str, Any] | None = None,
     ) -> None:
         event = GenerationEvent(
-            event_id=f"generation_event_{uuid4().hex}",
+            event_id=event_id or f"generation_event_{uuid4().hex}",
             workspace_id=workspace_id,
             action=action,
             frame_id=state.frame_id,
@@ -288,6 +417,7 @@ class StoryboardWorkbenchService:
             artifact_id=artifact_id,
             artifact_version_id=artifact_version_id,
             storage_key=storage_key,
+            task_id=task_id,
             stale_reason=stale_reason,
             metadata=metadata or {},
         )
@@ -323,6 +453,14 @@ def _append_unique(values: tuple[str, ...], value: str) -> tuple[str, ...]:
     return (*values, value)
 
 
+def _drop_none_values(values: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        str(key): value
+        for key, value in values.items()
+        if value is not None
+    }
+
+
 def _validate_access_url(url: str | None) -> str | None:
     if url is None:
         return None
@@ -355,6 +493,8 @@ def _json_safe_copy(value: Any) -> Any:
 __all__ = [
     "ArtifactVersionNotFoundError",
     "FrameImageLockedError",
+    "FrameImageRegenerationResult",
+    "FrameImageRegenerationTaskRequest",
     "StoryboardImageCandidate",
     "StoryboardWorkbenchError",
     "StoryboardWorkbenchService",
