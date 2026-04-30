@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping, Protocol
@@ -27,6 +28,7 @@ class ResolvedResource:
     metadata: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
+        _validate_resource_id(self.resource_id)
         if not isinstance(self.resolved_value, str):
             raise ResourceResolverError("resolved_value must be a string")
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
@@ -116,6 +118,9 @@ def _freeze_mapping(
     resource_type: str,
     mapping: ResourceMapping | None,
 ) -> ResourceMapping:
+    if mapping is not None and not isinstance(mapping, MappingABC):
+        raise ResourceResolverError(f"{resource_type} mapping must be a mapping")
+
     frozen: dict[str, str | ResolvedResource] = {}
     for resource_id, resolved in (mapping or {}).items():
         _validate_resource_id(resource_id)

@@ -146,6 +146,21 @@ def test_static_resource_resolver_rejects_non_string_mapping_values(resolved_val
 
 @pytest.mark.parametrize(
     "resource_id",
+    [123, None, "bad/id", "../x", ""],
+)
+def test_resolved_resource_rejects_invalid_resource_id(resource_id):
+    with pytest.raises(ResourceIdInvalidError):
+        ResolvedResource(resource_id=resource_id, resolved_value="value")
+
+
+@pytest.mark.parametrize("mapping", [123, ["x"], object()])
+def test_static_resource_resolver_rejects_non_mapping_config_values(mapping):
+    with pytest.raises(ResourceResolverError, match="mapping"):
+        StaticResourceResolver(styles=mapping)
+
+
+@pytest.mark.parametrize(
+    "resource_id",
     [
         "C:/foo",
         "C:\\foo",
