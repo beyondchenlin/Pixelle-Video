@@ -1609,7 +1609,8 @@ def test_render_style_config_template_and_image_workflow_help_use_popovers_witho
     assert result["media_workflow"] == "selfhost/image_z_image_turbo_gguf.json"
     assert ("section.image", False) in fake_st.expanders
     assert fake_st.nested_expanders == []
-    assert fake_st.tab_label_sets == [["orientation.portrait"]]
+    assert ["orientation.portrait"] in fake_st.tab_label_sets
+    assert ["caption_style.tab", "title_style.tab"] in fake_st.tab_label_sets
     assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
     expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
     assert "**style.image_model_selection_title**" in expander_html
