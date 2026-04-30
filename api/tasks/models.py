@@ -45,6 +45,7 @@ class ArtifactStatus(str, Enum):
 class TaskType(str, Enum):
     """Task type"""
     VIDEO_GENERATION = "video_generation"
+    FRAME_IMAGE_REGENERATION = "frame_image_regeneration"
 
 
 class TaskProgress(BaseModel):

@@ -14,6 +14,7 @@
 Storyboard data models for video generation
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -26,6 +27,7 @@ from pixelle_video.models.size_contract import (
     DEFAULT_VIDEO_ORIENTATION,
     DEFAULT_VIDEO_RESOLUTION_PRESET,
 )
+from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
 from pixelle_video.models.video_generation_contract import StoryboardControlsContract
 from pixelle_video.prompt_language import (
     DEFAULT_PROMPT_LANGUAGE,
@@ -216,10 +218,18 @@ class StoryboardFrame:
     shot_type: Optional[str] = None
     shot_purpose: Optional[str] = None
     frame_source: Optional[str] = None
+    workbench_state: Optional[StoryboardFrameWorkbenchState] = None
     
     def __post_init__(self):
         if self.created_at is None:
             self.created_at = datetime.now()
+        if isinstance(self.workbench_state, Mapping):
+            self.workbench_state = StoryboardFrameWorkbenchState.from_dict(self.workbench_state)
+        elif self.workbench_state is not None and not isinstance(
+            self.workbench_state,
+            StoryboardFrameWorkbenchState,
+        ):
+            raise ValueError("workbench_state must be StoryboardFrameWorkbenchState")
 
 
 @dataclass

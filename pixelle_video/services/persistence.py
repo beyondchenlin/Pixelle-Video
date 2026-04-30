@@ -36,6 +36,7 @@ from pixelle_video.models.storyboard import (
     StoryboardConfig,
     StoryboardFrame,
 )
+from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
 from pixelle_video.render_backend import (
     DEFAULT_RENDER_BACKEND,
     HYPERFRAMES_COMPILED_RENDER_BACKEND,
@@ -552,6 +553,7 @@ class PersistenceService:
             "shot_type": frame.shot_type,
             "shot_purpose": frame.shot_purpose,
             "frame_source": frame.frame_source,
+            "workbench_state": frame.workbench_state.to_dict() if frame.workbench_state else None,
             "created_at": frame.created_at.isoformat() if frame.created_at else None,
         }
     
@@ -574,6 +576,11 @@ class PersistenceService:
             shot_type=data.get("shot_type"),
             shot_purpose=data.get("shot_purpose"),
             frame_source=data.get("frame_source"),
+            workbench_state=(
+                StoryboardFrameWorkbenchState.from_dict(data["workbench_state"])
+                if data.get("workbench_state")
+                else None
+            ),
             created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None,
         )
     

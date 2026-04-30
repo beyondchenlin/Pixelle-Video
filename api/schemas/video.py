@@ -16,7 +16,14 @@ Video generation API schemas
 
 from typing import Any, Dict, List, Literal, Optional, cast
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from api.schemas.storyboard_contract import (
     StoryboardFrameOverride,
@@ -51,7 +58,6 @@ from pixelle_video.utils.prompt_generation_performance import (
     PROMPT_BATCH_SIZE_MIN,
 )
 from pixelle_video.utils.template_util import (
-    DEFAULT_IMAGE_TEMPLATE,
     get_template_orientation,
     resolve_template_path,
     validate_template_canvas_orientation,
@@ -72,6 +78,23 @@ VideoResolutionPreset = Literal[
     "4k",
 ]
 MediaResolutionPreset = Literal["768", "1k", "2k", "4k"]
+
+
+def validate_public_resource_id(field_name: str, value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    if value != value.strip():
+        raise ValueError(f"{field_name} must be a resource ID, not raw provider or path syntax")
+    if not value:
+        raise ValueError(f"{field_name} must be a resource ID, not raw provider or path syntax")
+    if not value[0].isalnum() or any(
+        char not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+        for char in value
+    ):
+        raise ValueError(f"{field_name} must be a resource ID, not raw provider or path syntax")
+    return value
 
 
 class MediaPlacementRequest(BaseModel):
@@ -132,7 +155,7 @@ class VideoGenerateRequest(BaseModel):
                 "storyboard_mode": "smart",
                 "storyboard_count_mode": "auto",
                 "script_length_mode": "auto",
-                "frame_template": "1080x1920/image_default.html",
+                "template_id": "portrait_default",
                 "render_backend": "legacy",
                 "template_params": {
                     "accent_color": "#3498db",
@@ -192,17 +215,25 @@ class VideoGenerateRequest(BaseModel):
     )
     
     # === TTS Parameters ===
-    tts_workflow: Optional[str] = Field(
-        None, 
-        description="TTS workflow key (e.g., 'runninghub/tts_edge.json'). If not specified, uses default workflow from config."
-    )
-    ref_audio: Optional[str] = Field(
-        None, 
-        description="Reference audio path for voice cloning (optional)"
-    )
     voice_id: Optional[str] = Field(
-        None, 
-        description="(Deprecated) TTS voice ID for legacy compatibility"
+        None,
+        description="Public voice resource ID resolved server-side",
+    )
+    style_id: Optional[str] = Field(
+        None,
+        description="Public visual style resource ID resolved server-side",
+    )
+    template_id: Optional[str] = Field(
+        None,
+        description="Public frame template resource ID resolved server-side",
+    )
+    bgm_id: Optional[str] = Field(
+        None,
+        description="Public background music resource ID resolved server-side",
+    )
+    workflow_preset_id: Optional[str] = Field(
+        None,
+        description="Public media workflow preset resource ID resolved server-side",
     )
     tts_audio_strategy: Optional[StandardTtsAudioStrategy] = Field(
         None,
@@ -314,22 +345,10 @@ class VideoGenerateRequest(BaseModel):
         description="Generated image/video display size and position inside the final video canvas.",
     )
 
-    # === Media Parameters ===
-    media_workflow: Optional[str] = Field(None, description="Custom media workflow (image or video)")
-    
     # === Video Parameters ===
     video_fps: int = Field(30, ge=15, le=60, description="Video FPS")
     
     # === Frame Template ===
-    frame_template: Optional[str] = Field(
-        None, 
-        description=(
-            "HTML template path with template design coordinates/layout "
-            f"(e.g., '{DEFAULT_IMAGE_TEMPLATE}'). Final video output size is "
-            "controlled by explicit canvas fields or the selected video preset."
-        ),
-    )
-    
     # === Template Custom Parameters ===
     template_params: Optional[Dict[str, Any]] = Field(
         None,
@@ -343,9 +362,6 @@ class VideoGenerateRequest(BaseModel):
         description="Render backend: 'legacy' or 'hyperframes_compiled'",
     )
     
-    # === Image Style ===
-    prompt_prefix: Optional[str] = Field(None, description="Image style prefix")
-
     # === Storyboard Planning ===
     world_preset_id: Optional[str] = Field(None, description="Storyboard world preset id")
     shot_preset_id: Optional[str] = Field(None, description="Storyboard shot preset id")
@@ -374,8 +390,18 @@ class VideoGenerateRequest(BaseModel):
     )
     
     # === BGM ===
-    bgm_path: Optional[str] = Field(None, description="Background music path")
     bgm_volume: float = Field(0.3, ge=0.0, le=1.0, description="BGM volume (0.0-1.0)")
+
+    @field_validator(
+        "voice_id",
+        "style_id",
+        "template_id",
+        "bgm_id",
+        "workflow_preset_id",
+    )
+    @classmethod
+    def validate_public_resource_ids(cls, value: str | None, info) -> str | None:
+        return validate_public_resource_id(info.field_name, value)
 
     @model_validator(mode="after")
     def validate_storyboard_generation_contract(self) -> "VideoGenerateRequest":
@@ -439,28 +465,36 @@ class VideoGenerateRequest(BaseModel):
             "media_resolution_preset": self.media_resolution_preset,
             "sync_media_size_to_canvas": self.sync_media_size_to_canvas,
         }
-        if (
-            self.frame_template
-            and self.video_orientation is None
-            and not has_canvas_size_intent(size_params)
-        ):
-            self.video_orientation = get_template_orientation(
-                resolve_template_path(self.frame_template)
-            )
-            size_params["video_orientation"] = self.video_orientation
-
-        size_contract = GenerationSizeContract.from_params(size_params)
-        if self.frame_template:
-            canvas_orientation = orientation_from_dimensions(
-                size_contract.canvas_width,
-                size_contract.canvas_height,
-            )
-            validate_template_canvas_orientation(
-                resolve_template_path(self.frame_template),
-                canvas_orientation,
-            )
+        GenerationSizeContract.from_params(size_params)
 
         return self
+
+
+def validate_raw_frame_template_orientation(
+    *,
+    frame_template: str | None,
+    video_orientation: VideoOrientation | None,
+    size_params: dict[str, Any],
+) -> VideoOrientation | None:
+    if (
+        frame_template
+        and video_orientation is None
+        and not has_canvas_size_intent(size_params)
+    ):
+        video_orientation = get_template_orientation(resolve_template_path(frame_template))
+        size_params["video_orientation"] = video_orientation
+
+    size_contract = GenerationSizeContract.from_params(size_params)
+    if frame_template:
+        canvas_orientation = orientation_from_dimensions(
+            size_contract.canvas_width,
+            size_contract.canvas_height,
+        )
+        validate_template_canvas_orientation(
+            resolve_template_path(frame_template),
+            canvas_orientation,
+        )
+    return video_orientation
 
 
 class VideoGenerateResponse(BaseModel):
