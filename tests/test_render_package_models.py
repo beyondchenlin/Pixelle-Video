@@ -375,6 +375,7 @@ def test_render_manifest_golden_fixture_preserves_text_style_profiles():
     assert restored["version"] == "render_manifest.v1"
     assert [profile["id"] for profile in restored["text_style_profiles"]] == [
         "caption-default",
+        "title-default",
         "overlay-default",
     ]
 
