@@ -56,8 +56,12 @@ class FilesystemDevRawPayloadStore:
             decoded_payload = json.loads(target_path.read_text(encoding="utf-8"))
         except FileNotFoundError as exc:
             raise RawPayloadNotFoundError("raw payload object was not found") from exc
+        except UnicodeDecodeError as exc:
+            raise RawPayloadInvalidError("raw payload object is not valid UTF-8 JSON") from exc
         except json.JSONDecodeError as exc:
             raise RawPayloadInvalidError("raw payload object is not valid JSON") from exc
+        except OSError as exc:
+            raise RawPayloadReadError("raw payload object could not be read") from exc
 
         if not isinstance(decoded_payload, dict):
             raise RawPayloadInvalidError("raw payload object must decode to a JSON object")
@@ -71,14 +75,18 @@ class FilesystemDevRawPayloadStore:
 
     @staticmethod
     def _validate_workspace_id(workspace_id: str) -> None:
-        if (
-            not workspace_id
-            or workspace_id.strip() != workspace_id
-            or "/" in workspace_id
-            or "\\" in workspace_id
-            or ".." in workspace_id
-        ):
+        if not FilesystemDevRawPayloadStore._is_valid_workspace_id(workspace_id):
             raise ValueError("workspace_id must not contain path syntax")
+
+    @staticmethod
+    def _is_valid_workspace_id(workspace_id: str) -> bool:
+        return (
+            bool(workspace_id)
+            and workspace_id.strip() == workspace_id
+            and "/" not in workspace_id
+            and "\\" not in workspace_id
+            and ".." not in workspace_id
+        )
 
     def _path_for_storage_key(self, storage_key: str) -> Path:
         key = PurePosixPath(storage_key)
@@ -94,6 +102,7 @@ class FilesystemDevRawPayloadStore:
             or any(part in {"", ".", ".."} for part in parts)
             or len(parts) != 3
             or parts[0] != RAW_PAYLOAD_PREFIX
+            or not self._is_valid_workspace_id(parts[1])
             or not self._is_valid_object_filename(parts[2])
         ):
             raise ValueError("invalid raw payload storage key")

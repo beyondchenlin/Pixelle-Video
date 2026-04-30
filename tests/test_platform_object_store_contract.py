@@ -7,6 +7,7 @@ from pixelle_video.storage.object_store import (
     FilesystemDevRawPayloadStore,
     RawPayloadInvalidError,
     RawPayloadNotFoundError,
+    RawPayloadReadError,
     RawPayloadStore,
 )
 
@@ -21,6 +22,16 @@ def test_filesystem_dev_store_contract_exposes_async_methods():
     assert inspect.iscoroutinefunction(FilesystemDevRawPayloadStore.put_json)
     assert inspect.iscoroutinefunction(FilesystemDevRawPayloadStore.get_json)
     assert inspect.iscoroutinefunction(FilesystemDevRawPayloadStore.exists)
+
+
+def test_storage_package_exports_public_contract_types():
+    import pixelle_video.storage as storage
+
+    assert storage.FilesystemDevRawPayloadStore is FilesystemDevRawPayloadStore
+    assert storage.RawPayloadStore is RawPayloadStore
+    assert storage.RawPayloadReadError is RawPayloadReadError
+    assert storage.RawPayloadNotFoundError is RawPayloadNotFoundError
+    assert storage.RawPayloadInvalidError is RawPayloadInvalidError
 
 
 async def test_filesystem_dev_store_returns_storage_key_and_round_trips_payload(tmp_path):
@@ -58,6 +69,7 @@ async def test_filesystem_dev_store_returns_storage_key_and_round_trips_payload(
         "payloads/workspace-1/x.json",
         "raw-payloads/workspace-1/x.txt",
         "raw-payloads/workspace-1/.json",
+        "raw-payloads/workspace..1/00000000000000000000000000000000.json",
     ],
 )
 async def test_filesystem_dev_store_exists_rejects_non_canonical_keys(tmp_path, storage_key):
@@ -80,6 +92,7 @@ async def test_filesystem_dev_store_exists_rejects_non_canonical_keys(tmp_path, 
         "payloads/workspace-1/x.json",
         "raw-payloads/workspace-1/x.txt",
         "raw-payloads/workspace-1/.json",
+        "raw-payloads/workspace..1/00000000000000000000000000000000.json",
     ],
 )
 async def test_filesystem_dev_store_get_json_rejects_non_canonical_keys(
@@ -117,6 +130,19 @@ async def test_filesystem_dev_store_get_json_raises_contract_error_for_invalid_p
     target_path.write_text(stored_text, encoding="utf-8")
 
     with pytest.raises(expected_error):
+        await store.get_json(storage_key)
+
+
+async def test_filesystem_dev_store_get_json_raises_invalid_error_for_invalid_utf8(
+    tmp_path,
+):
+    store = FilesystemDevRawPayloadStore(root=tmp_path)
+    storage_key = "raw-payloads/workspace-1/00000000000000000000000000000000.json"
+    target_path = tmp_path / storage_key
+    target_path.parent.mkdir(parents=True)
+    target_path.write_bytes(b"\xff\xfe")
+
+    with pytest.raises(RawPayloadInvalidError):
         await store.get_json(storage_key)
 
 
