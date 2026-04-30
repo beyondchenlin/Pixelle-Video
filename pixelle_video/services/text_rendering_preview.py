@@ -35,8 +35,6 @@ class TextRenderingPreviewFrameRequest:
     render_backend: str | None = None
     fps: int = 30
     preview_media_storage_key: str | None = None
-    preview_media_url: str | None = None
-    template_params: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -53,13 +51,13 @@ class TextRenderingPreviewFrameRenderer(Protocol):
         request: TextRenderingPreviewFrameRequest,
         build_result: TextRenderingBuildResult,
         preview_media_url: str | None,
+        output_path: str | Path,
     ) -> str | Path:
         ...
 
 
 def preview_frame_fingerprint(request: TextRenderingPreviewFrameRequest) -> str:
     payload = asdict(request)
-    payload.pop("preview_media_url", None)
     encoded = json.dumps(
         payload,
         sort_keys=True,
@@ -98,20 +96,22 @@ class TextRenderingPreviewFrameService:
             template_id=request.template_id,
         )
         preview_media_url = await self._resolve_preview_media_url(request)
-        rendered_path = await self._render(
-            request=request,
-            build_result=build_result,
-            preview_media_url=preview_media_url,
-        )
-        stored_file = await self.object_store.put_file(
-            request.workspace_id,
-            rendered_path,
-            metadata={
-                "kind": PREVIEW_ARTIFACT_KIND,
-                "fingerprint": fingerprint,
-                "template_id": request.template_id,
-            },
-        )
+        with tempfile.TemporaryDirectory(prefix="text-rendering-preview-") as staging_dir:
+            rendered_path = await self._render(
+                request=request,
+                build_result=build_result,
+                preview_media_url=preview_media_url,
+                output_path=Path(staging_dir) / "preview.png",
+            )
+            stored_file = await self.object_store.put_file(
+                request.workspace_id,
+                rendered_path,
+                metadata={
+                    "kind": PREVIEW_ARTIFACT_KIND,
+                    "fingerprint": fingerprint,
+                    "template_id": request.template_id,
+                },
+            )
         return TextRenderingPreviewFrameResult(
             storage_key=stored_file.storage_key,
             url=stored_file.url,
@@ -123,8 +123,18 @@ class TextRenderingPreviewFrameService:
         request: TextRenderingPreviewFrameRequest,
     ) -> str | None:
         if request.preview_media_storage_key:
+            self._validate_preview_media_storage_key(
+                request.workspace_id,
+                request.preview_media_storage_key,
+            )
             return await self.object_store.get_file_url(request.preview_media_storage_key)
-        return request.preview_media_url
+        return None
+
+    @staticmethod
+    def _validate_preview_media_storage_key(workspace_id: str, storage_key: str) -> None:
+        parts = storage_key.split("/")
+        if len(parts) != 3 or parts[0] != "artifacts" or parts[1] != workspace_id:
+            raise ValueError("preview_media_storage_key must belong to the request workspace")
 
     async def _render(
         self,
@@ -132,11 +142,13 @@ class TextRenderingPreviewFrameService:
         request: TextRenderingPreviewFrameRequest,
         build_result: TextRenderingBuildResult,
         preview_media_url: str | None,
+        output_path: Path,
     ) -> Path:
         rendered = self.renderer.render_preview_frame(
             request=request,
             build_result=build_result,
             preview_media_url=preview_media_url,
+            output_path=output_path,
         )
         if inspect.isawaitable(rendered):
             rendered = await rendered
@@ -161,31 +173,31 @@ class HyperFramesCompiledPreviewFrameRenderer:
         request: TextRenderingPreviewFrameRequest,
         build_result: TextRenderingBuildResult,
         preview_media_url: str | None,
+        output_path: str | Path,
     ) -> Path:
-        work_dir = Path(
-            tempfile.mkdtemp(
-                prefix="text-rendering-preview-",
-                dir=str(self.work_root) if self.work_root is not None else None,
+        with tempfile.TemporaryDirectory(
+            prefix="text-rendering-preview-render-",
+            dir=str(self.work_root) if self.work_root is not None else None,
+        ) as work_dir:
+            project_dir = Path(work_dir) / "hyperframes"
+            project_dir.mkdir(parents=True, exist_ok=True)
+            self.compiler.compile(
+                project_dir=project_dir,
+                context=self._build_context(
+                    request=request,
+                    build_result=build_result,
+                    preview_media_url=preview_media_url,
+                ),
             )
-        )
-        project_dir = work_dir / "hyperframes"
-        project_dir.mkdir(parents=True, exist_ok=True)
-        output_path = work_dir / "preview.png"
-        self.compiler.compile(
-            project_dir=project_dir,
-            context=self._build_context(
-                request=request,
-                build_result=build_result,
-                preview_media_url=preview_media_url,
-            ),
-        )
-        await self._capture_screenshot(
-            project_dir / "index.html",
-            output_path,
-            width=request.canvas_width,
-            height=request.canvas_height,
-        )
-        return output_path
+            resolved_output_path = Path(output_path)
+            resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
+            await self._capture_screenshot(
+                project_dir / "index.html",
+                resolved_output_path,
+                width=request.canvas_width,
+                height=request.canvas_height,
+            )
+            return resolved_output_path
 
     def _build_context(
         self,
@@ -216,11 +228,11 @@ class HyperFramesCompiledPreviewFrameRenderer:
             duration=1.0,
             fps=request.fps,
             title=request.title_text,
-            author=request.template_params.get("author"),
-            footer=request.template_params.get("footer"),
-            theme=request.template_params.get("theme"),
-            style_profile=str(request.template_params.get("style_profile", request.template_id)),
-            template_params=dict(request.template_params),
+            author=None,
+            footer=None,
+            theme=None,
+            style_profile=request.template_id,
+            template_params={},
             visuals=visuals,
             captions=[
                 CaptionCue(

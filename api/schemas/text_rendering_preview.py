@@ -13,15 +13,14 @@ class TextRenderingPreviewFrameRequest(BaseModel):
     title_text: str = ""
     caption_text: str = ""
     text_rendering: TextRenderingRequest = Field(default_factory=TextRenderingRequest)
-    canvas_width: int = Field(..., gt=0)
-    canvas_height: int = Field(..., gt=0)
-    media_width: int = Field(..., gt=0)
-    media_height: int = Field(..., gt=0)
+    canvas_width: int = Field(..., gt=0, le=8192)
+    canvas_height: int = Field(..., gt=0, le=8192)
+    media_width: int = Field(..., gt=0, le=8192)
+    media_height: int = Field(..., gt=0, le=8192)
     media_placement: Mapping[str, Any] = Field(default_factory=dict)
     render_backend: str | None = None
-    fps: int = Field(30, gt=0)
+    fps: int = Field(30, gt=0, le=120)
     preview_media_storage_key: str | None = None
-    preview_media_url: str | None = None
 
 
 class TextRenderingPreviewFrameResponse(BaseModel):

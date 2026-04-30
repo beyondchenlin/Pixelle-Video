@@ -38,7 +38,6 @@ async def render_text_rendering_preview_frame(
             render_backend=request.render_backend,
             fps=request.fps,
             preview_media_storage_key=request.preview_media_storage_key,
-            preview_media_url=request.preview_media_url,
         )
     )
     return TextRenderingPreviewFrameResponse(

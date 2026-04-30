@@ -11,8 +11,8 @@ from pixelle_video.repositories.artifacts import StoredArtifactFile
 from pixelle_video.storage.object_store import WORKSPACE_ID_PATTERN
 
 ARTIFACT_PREFIX = "artifacts"
-_OBJECT_FILENAME_PATTERN = re.compile(r"^[0-9a-f]{32}\.[A-Za-z0-9][A-Za-z0-9._-]*$")
-_SOURCE_EXTENSION_PATTERN = re.compile(r"^\.[A-Za-z0-9][A-Za-z0-9._-]*$")
+_OBJECT_FILENAME_PATTERN = re.compile(r"^[0-9a-f]{32}\.[A-Za-z0-9][A-Za-z0-9_-]*$")
+_SOURCE_EXTENSION_PATTERN = re.compile(r"^\.[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
 class FilesystemDevArtifactObjectStore:
@@ -34,6 +34,8 @@ class FilesystemDevArtifactObjectStore:
         if not source.is_file():
             raise FileNotFoundError(f"artifact source file not found: {source_path}")
 
+        if "." in source.stem:
+            raise ValueError("artifact source file must use a single extension")
         extension = source.suffix.lower()
         if not _SOURCE_EXTENSION_PATTERN.fullmatch(extension):
             raise ValueError("artifact source file must have a safe extension")
@@ -95,7 +97,7 @@ class FilesystemDevArtifactObjectStore:
             raise ValueError("artifact storage key escapes configured root")
         return target_path
 
-    def _url_for_storage_key(self, storage_key: str) -> str | None:
+    def _url_for_storage_key(self, storage_key: str) -> str:
         if not self._base_url:
-            return None
+            return f"/{storage_key}"
         return f"{self._base_url}/{storage_key}"

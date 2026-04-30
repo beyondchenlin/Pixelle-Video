@@ -154,6 +154,24 @@ async def test_filesystem_dev_artifact_object_store_uses_storage_keys_and_urls(t
 
 
 @pytest.mark.asyncio
+async def test_filesystem_dev_artifact_object_store_uses_single_extension_and_default_url(tmp_path):
+    source_path = tmp_path / "source.preview.png"
+    source_path.write_bytes(b"png")
+    store = FilesystemDevArtifactObjectStore(root=tmp_path / "objects")
+
+    with pytest.raises(ValueError, match="extension"):
+        await store.put_file("workspace_1", source_path)
+
+    safe_source_path = tmp_path / "source.png"
+    safe_source_path.write_bytes(b"png")
+    stored_file = await store.put_file("workspace_1", safe_source_path)
+
+    assert stored_file.storage_key.count(".") == 1
+    assert stored_file.url == f"/{stored_file.storage_key}"
+    assert await store.get_file_url(stored_file.storage_key) == stored_file.url
+
+
+@pytest.mark.asyncio
 async def test_filesystem_dev_artifact_object_store_rejects_invalid_keys(tmp_path):
     source_path = tmp_path / "source.png"
     source_path.write_bytes(b"png")
