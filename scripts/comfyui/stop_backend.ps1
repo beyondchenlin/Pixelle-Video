@@ -44,10 +44,7 @@ if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf)) {
 $managedPid = Read-BackendPid $config
 $launcherPid = Read-BackendLauncherPid $config
 if (-not $managedPid) {
-    Remove-Item -LiteralPath $pidFile -Force
-    if (Test-Path -LiteralPath $launcherPidFile -PathType Leaf) {
-        Remove-Item -LiteralPath $launcherPidFile -Force
-    }
+    Remove-BackendPidFiles $config
     $payload = [ordered]@{
         stopped = $false
         reason = 'pid_file_invalid'
@@ -60,10 +57,7 @@ if (-not $managedPid) {
 
 $processInfo = Get-ProcessInfo $managedPid
 if (-not $processInfo) {
-    Remove-Item -LiteralPath $pidFile -Force
-    if (Test-Path -LiteralPath $launcherPidFile -PathType Leaf) {
-        Remove-Item -LiteralPath $launcherPidFile -Force
-    }
+    Remove-BackendPidFiles $config
     $payload = [ordered]@{
         stopped = $false
         reason = 'process_missing'
@@ -91,12 +85,12 @@ if ($listener) {
             $listenerCommandLine = if ($listenerInfo) { $listenerInfo.CommandLine } else { 'unknown' }
             throw "Port $($config.HostAddress):$($config.Port) is owned by PID $listenerPid, but that process is not the Pixelle-managed ComfyUI backend. Refusing to stop it. Command line: $listenerCommandLine"
         }
-        Stop-Process -Id $listenerPid -Force
+        Stop-ManagedComfyUIProcess $config $listenerPid | Out-Null
         $stoppedListener = $true
     }
 }
 
-Stop-Process -Id $managedPid -Force
+Stop-ManagedComfyUIProcess $config $managedPid | Out-Null
 if ($listenerPid -and $listenerPid -eq $managedPid) {
     $stoppedListener = $true
 }
@@ -108,15 +102,12 @@ if ($launcherPid -and $launcherPid -ne $managedPid) {
         if (-not (Test-ManagedComfyUIProcess $config $launcherPid)) {
             throw "Launcher PID file points to PID $launcherPid, but that process is not the Pixelle-managed ComfyUI backend. Refusing to stop it. Command line: $($launcherInfo.CommandLine)"
         }
-        Stop-Process -Id $launcherPid -Force
+        Stop-ManagedComfyUIProcess $config $launcherPid | Out-Null
         $stoppedLauncher = $true
     }
 }
 
-Remove-Item -LiteralPath $pidFile -Force
-if (Test-Path -LiteralPath $launcherPidFile -PathType Leaf) {
-    Remove-Item -LiteralPath $launcherPidFile -Force
-}
+Remove-BackendPidFiles $config
 
 $payload = [ordered]@{
     stopped = $true

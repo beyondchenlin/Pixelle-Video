@@ -213,6 +213,49 @@ function Test-ManagedComfyUIProcess {
     return ($commandLine -like "*$mainPy*" -and $commandLine -like "*--base-directory*" -and $commandLine -like "*$($Config.DataRoot)*")
 }
 
+function Stop-ManagedComfyUIProcess {
+    param(
+        [hashtable]$Config,
+        [int]$ProcessId
+    )
+
+    if ($ProcessId -le 0) {
+        return $false
+    }
+    if (-not (Test-ManagedComfyUIProcess $Config $ProcessId)) {
+        return $false
+    }
+
+    Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    return $true
+}
+
+function Stop-ManagedComfyUIProcessesForConfig {
+    param([hashtable]$Config)
+
+    $mainPy = Join-Path $Config.ComfyUIRoot 'main.py'
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $commandLine = [string]$_.CommandLine
+            $commandLine -like "*$mainPy*" -and
+            $commandLine -like "*--base-directory*" -and
+            $commandLine -like "*$($Config.DataRoot)*"
+        } |
+        ForEach-Object {
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+}
+
+function Remove-BackendPidFiles {
+    param([hashtable]$Config)
+
+    foreach ($path in @((Get-BackendPidFile $Config), (Get-BackendLauncherPidFile $Config))) {
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            Remove-Item -LiteralPath $path -Force
+        }
+    }
+}
+
 function Read-BackendPid {
     param([hashtable]$Config)
 
@@ -239,7 +282,12 @@ function Read-BackendPidFromFile {
         return $null
     }
 
-    return [int]$rawPid
+    $parsedPid = 0
+    if (-not [int]::TryParse($rawPid, [ref]$parsedPid)) {
+        return $null
+    }
+
+    return $parsedPid
 }
 
 function Write-BackendJson {

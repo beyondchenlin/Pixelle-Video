@@ -43,13 +43,13 @@ if ($listener) {
     if ($managedPid -and $managedPid -eq $ownerPid -and (Test-ManagedComfyUIProcess $config $ownerPid)) {
         $payload = [ordered]@{
             started = $false
-        already_running = $true
-        pid = $ownerPid
-        launched_pid = Read-BackendLauncherPid $config
-        host = $config.HostAddress
-        port = $config.Port
-        pid_file = $pidFile
-        launcher_pid_file = $launcherPidFile
+            already_running = $true
+            pid = $ownerPid
+            launched_pid = Read-BackendLauncherPid $config
+            host = $config.HostAddress
+            port = $config.Port
+            pid_file = $pidFile
+            launcher_pid_file = $launcherPidFile
         }
         Write-BackendMessage -Json:$Json -Payload $payload -Message "ComfyUI backend is already running on $($config.HostAddress):$($config.Port) with PID $ownerPid."
         exit 0
@@ -99,33 +99,44 @@ $process = Start-Process `
 Set-Content -LiteralPath $pidFile -Value ([string]$process.Id) -Encoding ASCII
 Set-Content -LiteralPath $launcherPidFile -Value ([string]$process.Id) -Encoding ASCII
 
-$deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
-do {
-    Start-Sleep -Milliseconds 500
-    $listener = Get-BackendListener $config
-    if ($listener) {
-        $listenerPid = [int]$listener.OwningProcess
-        if (-not (Test-ManagedComfyUIProcess $config $listenerPid)) {
-            $processInfo = Get-ProcessInfo $listenerPid
-            $commandLine = if ($processInfo) { $processInfo.CommandLine } else { 'unknown' }
-            throw "Port $($config.HostAddress):$($config.Port) became occupied by PID $listenerPid, but it is not this ComfyUI backend. Command line: $commandLine"
-        }
+$started = $false
+try {
+    $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
+    do {
+        Start-Sleep -Milliseconds 500
+        $listener = Get-BackendListener $config
+        if ($listener) {
+            $listenerPid = [int]$listener.OwningProcess
+            if (-not (Test-ManagedComfyUIProcess $config $listenerPid)) {
+                $processInfo = Get-ProcessInfo $listenerPid
+                $commandLine = if ($processInfo) { $processInfo.CommandLine } else { 'unknown' }
+                throw "Port $($config.HostAddress):$($config.Port) became occupied by PID $listenerPid, but it is not this ComfyUI backend. Command line: $commandLine"
+            }
 
-        Set-Content -LiteralPath $pidFile -Value ([string]$listenerPid) -Encoding ASCII
-        $payload = [ordered]@{
-            started = $true
-            pid = $listenerPid
-            launched_pid = [int]$process.Id
-            host = $config.HostAddress
-            port = $config.Port
-            pid_file = $pidFile
-            launcher_pid_file = $launcherPidFile
-            stdout_log = $stdoutLog
-            stderr_log = $stderrLog
+            Set-Content -LiteralPath $pidFile -Value ([string]$listenerPid) -Encoding ASCII
+            $started = $true
+            $payload = [ordered]@{
+                started = $true
+                pid = $listenerPid
+                launched_pid = [int]$process.Id
+                host = $config.HostAddress
+                port = $config.Port
+                pid_file = $pidFile
+                launcher_pid_file = $launcherPidFile
+                stdout_log = $stdoutLog
+                stderr_log = $stderrLog
+            }
+            Write-BackendMessage -Json:$Json -Payload $payload -Message "Started ComfyUI backend on $($config.HostAddress):$($config.Port) with listener PID $listenerPid."
+            exit 0
         }
-        Write-BackendMessage -Json:$Json -Payload $payload -Message "Started ComfyUI backend on $($config.HostAddress):$($config.Port) with listener PID $listenerPid."
-        exit 0
+    } while ((Get-Date) -lt $deadline)
+
+    throw "Started ComfyUI backend PID $($process.Id), but it did not listen on $($config.HostAddress):$($config.Port) within $ReadyTimeoutSeconds seconds. Check logs: $stdoutLog ; $stderrLog"
+}
+catch {
+    if (-not $started) {
+        Stop-ManagedComfyUIProcessesForConfig $config
+        Remove-BackendPidFiles $config
     }
-} while ((Get-Date) -lt $deadline)
-
-throw "Started ComfyUI backend PID $($process.Id), but it did not listen on $($config.HostAddress):$($config.Port) within $ReadyTimeoutSeconds seconds. Check logs: $stdoutLog ; $stderrLog"
+    throw
+}

@@ -70,6 +70,28 @@ def write_fake_listening_main_py(comfyui_root: Path) -> None:
     )
 
 
+def write_fake_hanging_main_py(comfyui_root: Path) -> None:
+    (comfyui_root / "main.py").write_text(
+        "\n".join(
+            [
+                "import argparse",
+                "import time",
+                "parser = argparse.ArgumentParser()",
+                "parser.add_argument('--listen', default='127.0.0.1')",
+                "parser.add_argument('--port', type=int, required=True)",
+                "parser.add_argument('--user-directory')",
+                "parser.add_argument('--input-directory')",
+                "parser.add_argument('--output-directory')",
+                "parser.add_argument('--base-directory')",
+                "args, _ = parser.parse_known_args()",
+                "print('fake comfyui started without listener', flush=True)",
+                "time.sleep(30)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 def write_fake_reexec_main_py(comfyui_root: Path) -> None:
     (comfyui_root / "main.py").write_text(
         "\n".join(
@@ -269,6 +291,29 @@ def test_stop_backend_without_pid_file_is_safe_noop(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert payload["stopped"] is False
     assert payload["reason"] == "pid_file_missing"
+
+
+def test_stop_backend_removes_invalid_pid_files(tmp_path: Path) -> None:
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    pid_file = runtime_dir / "comfyui-backend.pid"
+    launcher_pid_file = runtime_dir / "comfyui-backend.launcher.pid"
+    pid_file.write_text("not-a-pid", encoding="ascii")
+    launcher_pid_file.write_text("also-not-a-pid", encoding="ascii")
+
+    result = run_powershell(
+        SCRIPT_DIR / "stop_backend.ps1",
+        "-Json",
+        "-RuntimeDir",
+        runtime_dir,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["stopped"] is False
+    assert payload["reason"] == "pid_file_invalid"
+    assert not pid_file.exists()
+    assert not launcher_pid_file.exists()
 
 
 def test_check_backend_reports_clear_port_without_side_effects(tmp_path: Path) -> None:
@@ -484,6 +529,66 @@ def test_stop_backend_stops_listener_when_pid_file_points_to_launcher(tmp_path: 
         payload = json.loads(stop.stdout)
         assert payload["stopped"] is True
         assert payload["stopped_listener"] is True
+
+        check = run_powershell(
+            SCRIPT_DIR / "check_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+        )
+        assert check.returncode == 0, check.stderr
+        assert json.loads(check.stdout)["listener_present"] is False
+    finally:
+        kill_fake_comfyui_processes(comfyui_root)
+
+
+def test_start_backend_cleans_up_when_backend_never_listens(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_hanging_main_py(comfyui_root)
+    runtime_dir = tmp_path / "runtime"
+    logs_dir = tmp_path / "logs"
+    port = reserve_free_port()
+
+    try:
+        result = run_powershell(
+            SCRIPT_DIR / "start_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-LogsDir",
+            logs_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+            "-ReadyTimeoutSeconds",
+            "1",
+        )
+
+        assert result.returncode != 0
+        assert "did not listen" in (result.stdout + result.stderr)
+        assert not (runtime_dir / "comfyui-backend.pid").exists()
+        assert not (runtime_dir / "comfyui-backend.launcher.pid").exists()
 
         check = run_powershell(
             SCRIPT_DIR / "check_backend.ps1",
