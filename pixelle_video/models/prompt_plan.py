@@ -177,6 +177,76 @@ class PromptProjection:
         }
 
 
+@dataclass(frozen=True)
+class PromptPlanBundle:
+    storyboard_plan_id: str
+    image_prompt_drafts: tuple[ImagePromptDraft, ...]
+    prompt_plans: tuple[PromptPlan, ...]
+    source_trace_id: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "storyboard_plan_id",
+            _require_non_empty("storyboard_plan_id", self.storyboard_plan_id),
+        )
+        drafts = tuple(self.image_prompt_drafts)
+        plans = tuple(self.prompt_plans)
+        if not drafts:
+            raise ValueError("image_prompt_drafts must not be empty")
+        if len(drafts) != len(plans):
+            raise ValueError("image_prompt_drafts and prompt_plans must have the same length")
+        drafts_by_id = {draft.image_prompt_draft_id: draft for draft in drafts}
+        for plan in plans:
+            draft = drafts_by_id.get(plan.image_prompt_draft_id)
+            if draft is None:
+                raise ValueError("prompt_plans must reference bundle image_prompt_drafts")
+            if plan.storyboard_plan_id != self.storyboard_plan_id:
+                raise ValueError("prompt_plans must match bundle storyboard_plan_id")
+            if draft.storyboard_plan_id != self.storyboard_plan_id:
+                raise ValueError("image_prompt_drafts must match bundle storyboard_plan_id")
+            if plan.frame_id != draft.frame_id:
+                raise ValueError("prompt_plans must reference drafts from the same frame")
+        object.__setattr__(self, "image_prompt_drafts", drafts)
+        object.__setattr__(self, "prompt_plans", plans)
+        object.__setattr__(self, "source_trace_id", _optional_str(self.source_trace_id))
+        object.__setattr__(self, "metadata", _deep_freeze_mapping(self.metadata))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "storyboard_plan_id": self.storyboard_plan_id,
+            "image_prompt_drafts": [
+                draft.to_dict()
+                for draft in self.image_prompt_drafts
+            ],
+            "prompt_plans": [
+                plan.to_dict()
+                for plan in self.prompt_plans
+            ],
+            "source_trace_id": self.source_trace_id,
+            "metadata": _json_safe_copy(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "PromptPlanBundle":
+        if not isinstance(payload, Mapping):
+            raise ValueError("PromptPlanBundle payload must be a mapping")
+        return cls(
+            storyboard_plan_id=payload.get("storyboard_plan_id", ""),
+            image_prompt_drafts=tuple(
+                ImagePromptDraft.from_dict(draft)
+                for draft in payload.get("image_prompt_drafts") or ()
+            ),
+            prompt_plans=tuple(
+                PromptPlan.from_dict(plan)
+                for plan in payload.get("prompt_plans") or ()
+            ),
+            source_trace_id=payload.get("source_trace_id"),
+            metadata=payload.get("metadata") or {},
+        )
+
+
 def _require_non_empty(field_name: str, value: Any) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must not be empty")
@@ -241,5 +311,6 @@ def _json_safe_copy(value: Any) -> Any:
 __all__ = [
     "ImagePromptDraft",
     "PromptPlan",
+    "PromptPlanBundle",
     "PromptProjection",
 ]
