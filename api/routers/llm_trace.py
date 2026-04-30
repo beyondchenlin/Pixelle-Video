@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from ipaddress import ip_address
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -43,7 +44,7 @@ async def get_llm_trace_raw_payload(
     request: Request,
     x_pixelle_local_debug: str | None = Header(default=None, alias="x-pixelle-local-debug"),
 ) -> LLMTraceRawPayloadResponse:
-    if str(x_pixelle_local_debug or "").lower() != "true":
+    if not _has_local_debug_raw_access(request, x_pixelle_local_debug):
         raise HTTPException(status_code=403, detail="raw LLM trace payload requires local debug access")
     if payload_kind not in {"request", "response"}:
         raise HTTPException(status_code=404, detail="unknown raw payload kind")
@@ -85,6 +86,27 @@ def _get_raw_payload_store(request: Request):
     return raw_payload_store
 
 
+def _has_local_debug_raw_access(request: Request, debug_header: str | None) -> bool:
+    if str(debug_header or "").lower() != "true":
+        return False
+    if getattr(request.app.state, "local_debug_enabled", False) is not True:
+        return False
+    return _is_loopback_client(request)
+
+
+def _is_loopback_client(request: Request) -> bool:
+    if request.client is None or not request.client.host:
+        return False
+    try:
+        remote_address = ip_address(request.client.host)
+    except ValueError:
+        return False
+    if remote_address.is_loopback:
+        return True
+    ipv4_mapped = getattr(remote_address, "ipv4_mapped", None)
+    return ipv4_mapped is not None and ipv4_mapped.is_loopback
+
+
 def _to_trace_summary(trace: Mapping[str, Any]) -> LLMTraceSummary:
     context_payload = _mapping_or_empty(trace.get("context"))
     return LLMTraceSummary(
@@ -111,6 +133,7 @@ def _to_trace_summary(trace: Mapping[str, Any]) -> LLMTraceSummary:
             else None
         ),
         parse_error=str(trace.get("parse_error", "")),
+        error_message=str(trace.get("error_message", "")),
         validation_errors=[
             dict(_mapping_or_empty(error))
             for error in trace.get("validation_errors") or []

@@ -18,6 +18,7 @@ Supports structured output via response_type parameter (Pydantic model).
 
 import json
 from collections.abc import Mapping
+from time import perf_counter
 from types import SimpleNamespace
 from typing import Any, Optional, Type, TypeVar, Union
 from urllib.parse import urlparse
@@ -205,27 +206,45 @@ class LLMService:
                     max_tokens=max_tokens,
                     extra_parameters=kwargs,
                 )
-                response = await client.chat.completions.create(
-                    model=final_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    **kwargs
-                )
+                started_at = perf_counter()
+                try:
+                    response = await client.chat.completions.create(
+                        model=final_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        **kwargs
+                    )
+                except Exception as exc:
+                    await self._record_llm_trace(
+                        trace_context=trace_context,
+                        trace_recorder=trace_recorder,
+                        provider=str(client.base_url or ""),
+                        model=final_model,
+                        request_payload=request_payload,
+                        response_payload=None,
+                        status=LLMTraceStatus.ERROR,
+                        elapsed_ms=_elapsed_ms(started_at),
+                        error_message=str(exc),
+                    )
+                    raise
                 
                 result = response.choices[0].message.content
                 logger.debug(f"LLM response length: {len(result)} chars")
+                response_payload = self._build_response_payload(
+                    response=response,
+                    content=result,
+                )
                 await self._record_llm_trace(
                     trace_context=trace_context,
                     trace_recorder=trace_recorder,
                     provider=str(client.base_url or ""),
                     model=final_model,
                     request_payload=request_payload,
-                    response_payload=self._build_response_payload(
-                        response=response,
-                        content=result,
-                    ),
+                    response_payload=response_payload,
                     status=LLMTraceStatus.SUCCESS,
+                    elapsed_ms=_elapsed_ms(started_at),
+                    token_usage=_extract_token_usage(response),
                 )
                 
                 return result
@@ -328,19 +347,36 @@ class LLMService:
             response_format=response_type.__name__,
             extra_parameters=kwargs,
         )
-        response = await client.beta.chat.completions.parse(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format=response_type,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs
-        )
+        started_at = perf_counter()
+        try:
+            response = await client.beta.chat.completions.parse(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format=response_type,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs
+            )
+        except Exception as exc:
+            await self._record_llm_trace(
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                provider=str(client.base_url or ""),
+                model=model,
+                request_payload=request_payload,
+                response_payload=None,
+                status=LLMTraceStatus.ERROR,
+                elapsed_ms=_elapsed_ms(started_at),
+                error_message=str(exc),
+            )
+            raise
         message = response.choices[0].message
         response_payload = self._build_response_payload(
             response=response,
             content=getattr(message, "content", None) or "",
         )
+        elapsed_ms = _elapsed_ms(started_at)
+        token_usage = _extract_token_usage(response)
         parsed = getattr(message, "parsed", None)
         if parsed is not None:
             await self._record_llm_trace(
@@ -351,12 +387,27 @@ class LLMService:
                 request_payload=request_payload,
                 response_payload=response_payload,
                 status=LLMTraceStatus.SUCCESS,
+                elapsed_ms=elapsed_ms,
+                token_usage=token_usage,
             )
             return parsed
 
         refusal = getattr(message, "refusal", None)
         if refusal:
-            raise ValueError(f"Structured output request refused by model: {refusal}")
+            error_message = f"Structured output request refused by model: {refusal}"
+            await self._record_llm_trace(
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                provider=str(client.base_url or ""),
+                model=model,
+                request_payload=request_payload,
+                response_payload=response_payload,
+                status=LLMTraceStatus.ERROR,
+                elapsed_ms=elapsed_ms,
+                token_usage=token_usage,
+                error_message=error_message,
+            )
+            raise ValueError(error_message)
 
         content = getattr(message, "content", None) or ""
         if content:
@@ -371,6 +422,8 @@ class LLMService:
                     request_payload=request_payload,
                     response_payload=response_payload,
                     status=_trace_status_for_structured_exception(exc),
+                    elapsed_ms=elapsed_ms,
+                    token_usage=token_usage,
                     parse_error=str(exc),
                     validation_errors=_validation_error_details(exc),
                 )
@@ -383,12 +436,27 @@ class LLMService:
                 request_payload=request_payload,
                 response_payload=response_payload,
                 status=LLMTraceStatus.SUCCESS,
+                elapsed_ms=elapsed_ms,
+                token_usage=token_usage,
             )
             return parsed_from_content
 
-        raise ValueError(
+        error_message = (
             f"Structured output response from model {model} did not include parsed content"
         )
+        await self._record_llm_trace(
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+            provider=str(client.base_url or ""),
+            model=model,
+            request_payload=request_payload,
+            response_payload=response_payload,
+            status=LLMTraceStatus.ERROR,
+            elapsed_ms=elapsed_ms,
+            token_usage=token_usage,
+            error_message=error_message,
+        )
+        raise ValueError(error_message)
 
     async def _call_with_prompt_schema_structured_output(
         self,
@@ -422,32 +490,68 @@ class LLMService:
         if not capabilities.omit_max_tokens_with_json_object:
             json_mode_kwargs["max_tokens"] = max_tokens
 
+        started_at = perf_counter()
         if capabilities.supports_json_object_response_format:
+            trace_request_kwargs = json_mode_kwargs
             try:
                 response = await client.chat.completions.create(**json_mode_kwargs)
-                trace_request_kwargs = json_mode_kwargs
             except (BadRequestError, TypeError) as exc:
                 if (
                     not capabilities.retry_prompt_schema_when_json_object_unsupported
                     or not is_json_object_response_format_unsupported_error(exc)
                 ):
+                    await self._record_llm_trace(
+                        trace_context=trace_context,
+                        trace_recorder=trace_recorder,
+                        provider=str(client.base_url or ""),
+                        model=model,
+                        request_payload=self._build_request_payload_from_kwargs(trace_request_kwargs),
+                        response_payload=None,
+                        status=LLMTraceStatus.ERROR,
+                        elapsed_ms=_elapsed_ms(started_at),
+                        error_message=str(exc),
+                    )
                     raise
                 logger.warning(
                     "Provider rejected JSON mode for structured output; retrying with prompt-only schema: {}",
                     exc,
                 )
-                response = await client.chat.completions.create(
-                    **request_kwargs,
-                    max_tokens=max_tokens,
-                )
                 trace_request_kwargs = {**request_kwargs, "max_tokens": max_tokens}
+                try:
+                    response = await client.chat.completions.create(**trace_request_kwargs)
+                except Exception as retry_exc:
+                    await self._record_llm_trace(
+                        trace_context=trace_context,
+                        trace_recorder=trace_recorder,
+                        provider=str(client.base_url or ""),
+                        model=model,
+                        request_payload=self._build_request_payload_from_kwargs(trace_request_kwargs),
+                        response_payload=None,
+                        status=LLMTraceStatus.ERROR,
+                        elapsed_ms=_elapsed_ms(started_at),
+                        error_message=str(retry_exc),
+                    )
+                    raise
         else:
-            response = await client.chat.completions.create(
-                **request_kwargs,
-                max_tokens=max_tokens,
-            )
             trace_request_kwargs = {**request_kwargs, "max_tokens": max_tokens}
+            try:
+                response = await client.chat.completions.create(**trace_request_kwargs)
+            except Exception as exc:
+                await self._record_llm_trace(
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                    provider=str(client.base_url or ""),
+                    model=model,
+                    request_payload=self._build_request_payload_from_kwargs(trace_request_kwargs),
+                    response_payload=None,
+                    status=LLMTraceStatus.ERROR,
+                    elapsed_ms=_elapsed_ms(started_at),
+                    error_message=str(exc),
+                )
+                raise
         content = response.choices[0].message.content
+        elapsed_ms = _elapsed_ms(started_at)
+        token_usage = _extract_token_usage(response)
 
         logger.debug(f"Structured output response length: {len(content)} chars")
 
@@ -464,6 +568,8 @@ class LLMService:
                 request_payload=request_payload,
                 response_payload=response_payload,
                 status=_trace_status_for_structured_exception(exc),
+                elapsed_ms=elapsed_ms,
+                token_usage=token_usage,
                 parse_error=str(exc),
                 validation_errors=_validation_error_details(exc),
             )
@@ -476,6 +582,8 @@ class LLMService:
             request_payload=request_payload,
             response_payload=response_payload,
             status=LLMTraceStatus.SUCCESS,
+            elapsed_ms=elapsed_ms,
+            token_usage=token_usage,
         )
         return parsed
     
@@ -572,7 +680,10 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
         request_payload: Mapping[str, Any],
         response_payload: Mapping[str, Any] | None,
         status: LLMTraceStatus,
+        elapsed_ms: int | None = None,
+        token_usage: Mapping[str, int] | None = None,
         parse_error: str = "",
+        error_message: str = "",
         validation_errors: tuple[Mapping[str, Any], ...] = (),
     ) -> None:
         if trace_context is None or trace_recorder is None:
@@ -585,7 +696,10 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
                 request_payload=request_payload,
                 response_payload=response_payload,
                 status=status,
+                elapsed_ms=elapsed_ms,
+                token_usage=token_usage,
                 parse_error=parse_error,
+                error_message=error_message,
                 validation_errors=validation_errors,
             )
         except Exception as exc:
@@ -628,6 +742,33 @@ def _validation_error_details(exc: Exception) -> tuple[Mapping[str, Any], ...]:
         }
         for error in exc.errors()
     )
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, int((perf_counter() - started_at) * 1000))
+
+
+def _extract_token_usage(response: Any) -> Mapping[str, int] | None:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+
+    normalized: dict[str, int] = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = getattr(usage, key, None)
+        if type(value) is int and value >= 0:
+            normalized[key] = value
+    if normalized:
+        return normalized
+
+    usage_payload = _json_safe_copy(usage)
+    if not isinstance(usage_payload, Mapping):
+        return None
+
+    for key, value in usage_payload.items():
+        if type(value) is int and value >= 0:
+            normalized[str(key)] = value
+    return normalized or None
 
 
 def _json_safe_copy(value: Any) -> Any:

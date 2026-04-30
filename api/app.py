@@ -126,6 +126,7 @@ app = FastAPI(
     openapi_url=api_config.openapi_url,
     lifespan=lifespan,
 )
+app.state.local_debug_enabled = api_config.runtime_profile == "dev"
 install_exception_handlers(app)
 
 # Add CORS middleware

@@ -27,6 +27,7 @@ class LLMTraceSummary(BaseModel):
     elapsed_ms: int | None = None
     token_usage: dict[str, int] | None = None
     parse_error: str = ""
+    error_message: str = ""
     validation_errors: list[dict[str, Any]] = Field(default_factory=list)
     created_at: str
 

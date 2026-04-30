@@ -49,14 +49,21 @@ class FakeRawPayloadStore:
         return self.payloads[storage_key]
 
 
-def _client(*, trace_repository=None, raw_payload_store=None):
+def _client(
+    *,
+    trace_repository=None,
+    raw_payload_store=None,
+    local_debug_enabled=False,
+    client_host="testclient",
+):
     app = FastAPI()
     if trace_repository is not None:
         app.state.trace_repository = trace_repository
     if raw_payload_store is not None:
         app.state.raw_payload_store = raw_payload_store
+    app.state.local_debug_enabled = local_debug_enabled
     app.include_router(llm_trace_router)
-    return TestClient(app)
+    return TestClient(app, client=(client_host, 50000))
 
 
 def _trace():
@@ -116,7 +123,7 @@ def test_llm_trace_summary_fails_fast_when_repository_is_not_injected():
     assert "trace repository is not configured" in response.json()["detail"]
 
 
-def test_llm_trace_raw_payload_requires_debug_header():
+def test_llm_trace_raw_payload_rejects_spoofed_debug_header_without_local_debug_capability():
     trace_repository = FakeTraceRepository([_trace()])
     raw_payload_store = FakeRawPayloadStore(
         {"raw-payloads/workspace_1/request.json": {"raw": "request"}}
@@ -126,12 +133,15 @@ def test_llm_trace_raw_payload_requires_debug_header():
         raw_payload_store=raw_payload_store,
     )
 
-    response = client.get("/llm-traces/workspace_1/trace_001/raw/request")
+    response = client.get(
+        "/llm-traces/workspace_1/trace_001/raw/request",
+        headers={"x-pixelle-local-debug": "true"},
+    )
 
     assert response.status_code == 403
 
 
-def test_llm_trace_raw_payload_reads_by_object_key_when_debug_header_is_present():
+def test_llm_trace_raw_payload_requires_loopback_local_debug_request():
     trace_repository = FakeTraceRepository([_trace()])
     raw_payload_store = FakeRawPayloadStore(
         {"raw-payloads/workspace_1/request.json": {"raw": "request"}}
@@ -139,6 +149,28 @@ def test_llm_trace_raw_payload_reads_by_object_key_when_debug_header_is_present(
     client = _client(
         trace_repository=trace_repository,
         raw_payload_store=raw_payload_store,
+        local_debug_enabled=True,
+        client_host="203.0.113.10",
+    )
+
+    response = client.get(
+        "/llm-traces/workspace_1/trace_001/raw/request",
+        headers={"x-pixelle-local-debug": "true"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_llm_trace_raw_payload_reads_by_object_key_when_local_debug_is_authorized():
+    trace_repository = FakeTraceRepository([_trace()])
+    raw_payload_store = FakeRawPayloadStore(
+        {"raw-payloads/workspace_1/request.json": {"raw": "request"}}
+    )
+    client = _client(
+        trace_repository=trace_repository,
+        raw_payload_store=raw_payload_store,
+        local_debug_enabled=True,
+        client_host="127.0.0.1",
     )
 
     response = client.get(

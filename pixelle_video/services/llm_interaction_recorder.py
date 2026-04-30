@@ -37,6 +37,7 @@ class LLMInteractionRecorder:
         elapsed_ms: int | None = None,
         token_usage: Mapping[str, int] | None = None,
         parse_error: str = "",
+        error_message: str = "",
         validation_errors: tuple[Mapping[str, Any], ...] | list[Mapping[str, Any]] = (),
     ) -> LLMInteractionTrace:
         request_payload_key = await self._raw_payload_store.put_json(
@@ -63,6 +64,7 @@ class LLMInteractionRecorder:
             elapsed_ms=elapsed_ms,
             token_usage=token_usage,
             parse_error=parse_error,
+            error_message=error_message,
             validation_errors=validation_errors,
         )
         await self._trace_repository.append_llm_interaction(

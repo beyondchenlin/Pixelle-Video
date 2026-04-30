@@ -81,6 +81,7 @@ class LLMInteractionTrace:
     elapsed_ms: int | None = None
     token_usage: Mapping[str, int] | None = None
     parse_error: str = ""
+    error_message: str = ""
     validation_errors: tuple[Mapping[str, Any], ...] = ()
     created_at: str = field(default_factory=_utc_timestamp)
 
@@ -108,6 +109,7 @@ class LLMInteractionTrace:
         object.__setattr__(self, "elapsed_ms", _optional_non_negative_int("elapsed_ms", self.elapsed_ms))
         object.__setattr__(self, "token_usage", _freeze_token_usage(self.token_usage))
         object.__setattr__(self, "parse_error", str(self.parse_error or ""))
+        object.__setattr__(self, "error_message", str(self.error_message or ""))
         object.__setattr__(
             self,
             "validation_errors",
@@ -131,6 +133,7 @@ class LLMInteractionTrace:
         elapsed_ms: int | None = None,
         token_usage: Mapping[str, int] | None = None,
         parse_error: str = "",
+        error_message: str = "",
         validation_errors: tuple[Mapping[str, Any], ...] | list[Mapping[str, Any]] = (),
         created_at: str | None = None,
     ) -> "LLMInteractionTrace":
@@ -163,6 +166,7 @@ class LLMInteractionTrace:
             elapsed_ms=elapsed_ms,
             token_usage=token_usage,
             parse_error=parse_error,
+            error_message=error_message,
             validation_errors=tuple(validation_errors),
             created_at=created_at or _utc_timestamp(),
         )
@@ -187,6 +191,7 @@ class LLMInteractionTrace:
                 else None
             ),
             "parse_error": self.parse_error,
+            "error_message": self.error_message,
             "validation_errors": [
                 _json_safe_copy(error)
                 for error in self.validation_errors
@@ -213,6 +218,7 @@ class LLMInteractionTrace:
             elapsed_ms=payload.get("elapsed_ms"),
             token_usage=payload.get("token_usage"),
             parse_error=payload.get("parse_error", ""),
+            error_message=payload.get("error_message", ""),
             validation_errors=tuple(payload.get("validation_errors") or ()),
             created_at=payload.get("created_at", ""),
         )
