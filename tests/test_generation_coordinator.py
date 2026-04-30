@@ -245,7 +245,7 @@ async def test_core_execute_local_comfy_workflow_runs_cleanup_around_execute():
 
 
 @pytest.mark.asyncio
-async def test_core_execute_standalone_index_tts2_workflow_releases_extension_after_execute():
+async def test_core_execute_standalone_index_tts2_workflow_releases_models_after_execute():
     calls = []
 
     class _Kit:
@@ -259,10 +259,10 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_extension_af
         calls.append(("prepare",))
 
     async def _release_workflow():
-        raise AssertionError("standalone IndexTTS2 workflow should release extension cache")
+        raise AssertionError("standalone IndexTTS2 workflow should use the IndexTTS2 release path")
 
-    async def _release_extension(*, context, missing_endpoint="optional"):
-        calls.append(("extension_release", context, missing_endpoint))
+    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+        calls.append(("index_tts2_release", context, missing_endpoint))
         return True
 
     async def _preflight(*, context, extensions=("indextts2",)):
@@ -275,7 +275,7 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_extension_af
 
     core.prepare_comfyui_for_local_workflow = _prepare
     core.release_comfyui_after_local_workflow = _release_workflow
-    core.release_comfyui_extension_models_when_idle = _release_extension
+    core.release_comfyui_after_index_tts2_workflow = _release_index_tts2
     core.preflight_comfyui_extension_release_endpoints = _preflight
     core._get_or_create_comfykit = _get_kit
 
@@ -291,7 +291,7 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_extension_af
         ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("get_kit",),
         ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "demo"}),
-        ("extension_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
     ]
 
 
@@ -616,7 +616,7 @@ async def test_local_comfyui_workflow_session_keeps_lifecycle_open_across_batch(
 
 
 @pytest.mark.asyncio
-async def test_index_tts2_workflow_session_releases_extension_once_at_session_exit():
+async def test_index_tts2_workflow_session_releases_models_once_at_session_exit():
     events = []
 
     class _Kit:
@@ -629,8 +629,8 @@ async def test_index_tts2_workflow_session_releases_extension_once_at_session_ex
     async def _prepare():
         events.append(("prepare",))
 
-    async def _release_extension(*, context, missing_endpoint="optional"):
-        events.append(("extension_release", context, missing_endpoint))
+    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+        events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
     async def _get_kit():
@@ -638,7 +638,7 @@ async def test_index_tts2_workflow_session_releases_extension_once_at_session_ex
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
-    core.release_comfyui_extension_models_when_idle = _release_extension
+    core.release_comfyui_after_index_tts2_workflow = _release_index_tts2
     _install_noop_extension_preflight(core)
     core._get_or_create_comfykit = _get_kit
 
@@ -662,12 +662,12 @@ async def test_index_tts2_workflow_session_releases_extension_once_at_session_ex
         ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "first"}),
         ("get_kit",),
         ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "second"}),
-        ("extension_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
     ]
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_workflow_session_releases_extension_for_renamed_index_tts2_file(tmp_path):
+async def test_local_comfyui_workflow_session_releases_models_for_renamed_index_tts2_file(tmp_path):
     workflow_path = tmp_path / "voice_batch.json"
     workflow_path.write_text(
         json.dumps(
@@ -692,8 +692,8 @@ async def test_local_comfyui_workflow_session_releases_extension_for_renamed_ind
     async def _prepare():
         events.append(("prepare",))
 
-    async def _release_extension(*, context, missing_endpoint="optional"):
-        events.append(("extension_release", context, missing_endpoint))
+    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+        events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
     async def _preflight(*, context, extensions=("indextts2",)):
@@ -705,7 +705,7 @@ async def test_local_comfyui_workflow_session_releases_extension_for_renamed_ind
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
-    core.release_comfyui_extension_models_when_idle = _release_extension
+    core.release_comfyui_after_index_tts2_workflow = _release_index_tts2
     core.preflight_comfyui_extension_release_endpoints = _preflight
     core._get_or_create_comfykit = _get_kit
 
@@ -722,12 +722,12 @@ async def test_local_comfyui_workflow_session_releases_extension_for_renamed_ind
         ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("get_kit",),
         ("execute", str(workflow_path), {"prompt": "first"}),
-        ("extension_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
     ]
 
 
 @pytest.mark.asyncio
-async def test_index_tts2_workflow_session_releases_extension_at_session_exit():
+async def test_index_tts2_workflow_session_releases_models_at_session_exit():
     events = []
 
     class _Kit:
@@ -740,15 +740,15 @@ async def test_index_tts2_workflow_session_releases_extension_at_session_exit():
     async def _prepare():
         events.append(("prepare",))
 
-    async def _release_extension(*, context, missing_endpoint="optional"):
-        events.append(("extension_release", context, missing_endpoint))
+    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+        events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
     async def _get_kit():
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
-    core.release_comfyui_extension_models_when_idle = _release_extension
+    core.release_comfyui_after_index_tts2_workflow = _release_index_tts2
     _install_noop_extension_preflight(core)
     core._get_or_create_comfykit = _get_kit
 
@@ -763,7 +763,7 @@ async def test_index_tts2_workflow_session_releases_extension_at_session_exit():
     assert events == [
         ("prepare",),
         ("execute", "workflows/selfhost/tts_index2.json"),
-        ("extension_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
     ]
 
 
@@ -785,8 +785,8 @@ async def test_index_tts2_workflow_preflights_required_extension_endpoint_before
         events.append(("preflight", context, extensions))
         return True
 
-    async def _release_extension(*, context, missing_endpoint="optional"):
-        events.append(("extension_release", context, missing_endpoint))
+    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+        events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
     async def _get_kit():
@@ -794,7 +794,7 @@ async def test_index_tts2_workflow_preflights_required_extension_endpoint_before
 
     core.prepare_comfyui_for_local_workflow = _prepare
     core.preflight_comfyui_extension_release_endpoints = _preflight
-    core.release_comfyui_extension_models_when_idle = _release_extension
+    core.release_comfyui_after_index_tts2_workflow = _release_index_tts2
     core._get_or_create_comfykit = _get_kit
 
     async with core.local_comfyui_workflow_session():
@@ -808,7 +808,7 @@ async def test_index_tts2_workflow_preflights_required_extension_endpoint_before
         ("prepare",),
         ("preflight", "pre-index-tts2-workflow", ("indextts2",)),
         ("execute", "workflows/selfhost/tts_index2.json"),
-        ("extension_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
     ]
 
 
@@ -826,8 +826,8 @@ async def test_index_tts2_workflow_session_does_not_force_release_on_normal_comp
     async def _prepare():
         events.append(("prepare",))
 
-    async def _release_extension(*, context, missing_endpoint="optional"):
-        events.append(("extension_release", context, missing_endpoint))
+    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+        events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
     async def _force_release(*, context):
@@ -838,7 +838,7 @@ async def test_index_tts2_workflow_session_does_not_force_release_on_normal_comp
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
-    core.release_comfyui_extension_models_when_idle = _release_extension
+    core.release_comfyui_after_index_tts2_workflow = _release_index_tts2
     core.force_release_comfyui_memory = _force_release
     _install_noop_extension_preflight(core)
     core._get_or_create_comfykit = _get_kit
@@ -854,13 +854,13 @@ async def test_index_tts2_workflow_session_does_not_force_release_on_normal_comp
         assert events == [
             ("prepare",),
             ("execute", "workflows/selfhost/tts_index2.json"),
-            ("extension_release", "post-index-tts2-workflow", "optional"),
+            ("index_tts2_release", "post-index-tts2-workflow", "optional"),
         ]
 
     assert events == [
         ("prepare",),
         ("execute", "workflows/selfhost/tts_index2.json"),
-        ("extension_release", "post-index-tts2-workflow", "optional"),
+        ("index_tts2_release", "post-index-tts2-workflow", "optional"),
     ]
 
 
@@ -1014,15 +1014,16 @@ async def test_release_comfyui_after_local_workflow_releases_models_after_batch(
         def __init__(self, base_url, *, api_key=None):
             events.append(("client", base_url, api_key))
 
-        async def free_memory_with_extensions_when_idle(
+        async def free_memory_when_idle(
             self,
             *,
             intensity,
-            extensions=("indextts2",),
-            missing_endpoint="optional",
         ):
-            events.append(("idle_release_with_extensions", intensity, extensions, missing_endpoint))
+            events.append(("idle_release", intensity))
             return True
+
+        async def free_memory_with_extensions_when_idle(self, **kwargs):
+            raise AssertionError("image/media phase release must not call extension cleanup")
 
     monkeypatch.setattr(
         service_module.config_manager,
@@ -1041,7 +1042,7 @@ async def test_release_comfyui_after_local_workflow_releases_models_after_batch(
     assert await core.release_comfyui_after_local_workflow() is True
     assert events == [
         ("client", "http://127.0.0.1:8000", "secret"),
-        ("idle_release_with_extensions", "high", ("indextts2",), "optional"),
+        ("idle_release", "high"),
     ]
 
 
@@ -1068,18 +1069,7 @@ async def test_release_comfyui_after_local_workflow_logs_structured_release_resu
             "released": True,
             "comfyui_released": True,
             "skipped": False,
-            "extension_results": [
-                {
-                    "extension": "indextts2",
-                    "endpoint": "/pixelle/indextts2/free",
-                    "released": True,
-                    "missing_endpoint": False,
-                    "vram": {
-                        "cuda_allocated_before": 2048,
-                        "cuda_allocated_after": 512,
-                    },
-                }
-            ],
+            "extension_results": [],
         },
     )
 
@@ -1087,12 +1077,10 @@ async def test_release_comfyui_after_local_workflow_logs_structured_release_resu
         def __init__(self, base_url, *, api_key=None):
             pass
 
-        async def free_memory_with_extensions_when_idle(
+        async def free_memory_when_idle(
             self,
             *,
             intensity,
-            extensions=("indextts2",),
-            missing_endpoint="optional",
         ):
             return release_result
 
@@ -1124,20 +1112,51 @@ async def test_release_comfyui_after_local_workflow_logs_structured_release_resu
                 "released": True,
                 "comfyui_released": True,
                 "skipped": False,
-                "extension_results": [
-                    {
-                        "extension": "indextts2",
-                        "endpoint": "/pixelle/indextts2/free",
-                        "released": True,
-                        "missing_endpoint": False,
-                        "vram": {
-                            "cuda_allocated_before": 2048,
-                            "cuda_allocated_after": 512,
-                        },
-                    }
-                ],
+                "extension_results": [],
             },
         )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_release_comfyui_after_index_tts2_workflow_releases_standard_and_plugin_models(monkeypatch):
+    events = []
+
+    class _Client:
+        def __init__(self, base_url, *, api_key=None):
+            events.append(("client", base_url, api_key))
+
+        async def free_memory_with_extensions_when_idle(
+            self,
+            *,
+            intensity,
+            extensions=("indextts2",),
+            missing_endpoint="optional",
+        ):
+            events.append(("idle_release_with_extensions", intensity, extensions, missing_endpoint))
+            return True
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                comfyui_api_key="secret",
+            )
+        ),
+    )
+    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+
+    core = PixelleVideoCore()
+
+    assert await core.release_comfyui_after_index_tts2_workflow(
+        context="post-index-tts2-workflow",
+        missing_endpoint="optional",
+    ) is True
+    assert events == [
+        ("client", "http://127.0.0.1:8000", "secret"),
+        ("idle_release_with_extensions", "high", ("indextts2",), "optional"),
     ]
 
 

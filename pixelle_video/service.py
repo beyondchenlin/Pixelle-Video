@@ -378,7 +378,13 @@ class PixelleVideoCore:
             ],
         ).info(f"ComfyUI {context} extension release preflight completed")
 
-    async def _release_comfyui_memory_when_idle(self, context: str) -> bool:
+    async def _release_comfyui_memory_when_idle(
+        self,
+        context: str,
+        *,
+        include_extensions: bool = False,
+        missing_endpoint: str = "optional",
+    ) -> bool:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
         base_url = comfyui_config.get("comfyui_url")
@@ -395,14 +401,14 @@ class PixelleVideoCore:
             api_key=comfyui_config.get("comfyui_api_key"),
         )
         try:
-            if model_cleanup_mode == "comfyui":
-                result = await client.free_memory_when_idle(intensity="high")
-            else:
+            if include_extensions and model_cleanup_mode == "comfyui_and_extensions":
                 result = await client.free_memory_with_extensions_when_idle(
                     intensity="high",
                     extensions=("indextts2",),
-                    missing_endpoint="optional",
+                    missing_endpoint=missing_endpoint,
                 )
+            else:
+                result = await client.free_memory_when_idle(intensity="high")
             self._log_comfyui_memory_release(
                 context=context,
                 model_cleanup_mode=model_cleanup_mode,
@@ -485,45 +491,8 @@ class PixelleVideoCore:
         )
         return True
 
-    async def release_comfyui_extension_models_when_idle(
-        self,
-        *,
-        context: str,
-        missing_endpoint: str = "optional",
-    ) -> bool:
-        self.config = config_manager.config.to_dict()
-        comfyui_config = self.config.get("comfyui", {})
-        if self._get_comfyui_model_cleanup_mode(comfyui_config) != "comfyui_and_extensions":
-            return False
-
-        base_url = comfyui_config.get("comfyui_url")
-        if not base_url:
-            return False
-
-        client = ComfyUIMaintenanceClient(
-            base_url,
-            api_key=comfyui_config.get("comfyui_api_key"),
-        )
-        try:
-            result = await client.free_extension_models_when_idle(
-                extensions=("indextts2",),
-                missing_endpoint=missing_endpoint,
-            )
-            self._log_comfyui_memory_release(
-                context=context,
-                model_cleanup_mode="comfyui_and_extensions",
-                result=result,
-            )
-            released = bool(result)
-            if released:
-                logger.info(f"Released ComfyUI extension model cache after {context}")
-            return released
-        except Exception as e:
-            logger.warning(f"ComfyUI {context} extension memory release failed, continuing: {e}")
-            return False
-
     async def release_comfyui_after_local_workflow(self) -> bool:
-        """Release self-hosted ComfyUI model/cache state after a local workflow batch."""
+        """Release standard ComfyUI model/cache state after an image or video workflow batch."""
         released = await self._release_comfyui_memory_when_idle("post-workflow")
         if released:
             self._mark_local_comfyui_released()
@@ -533,6 +502,22 @@ class PixelleVideoCore:
         """Fallback release once no local video task is active."""
         async with self._local_comfyui_execution_lock:
             return await self._release_comfyui_memory_when_idle("post-task")
+
+    async def release_comfyui_after_index_tts2_workflow(
+        self,
+        *,
+        context: str,
+        missing_endpoint: str = "optional",
+    ) -> bool:
+        """Release standard ComfyUI memory plus IndexTTS2 plugin-private model cache."""
+        released = await self._release_comfyui_memory_when_idle(
+            context,
+            include_extensions=True,
+            missing_endpoint=missing_endpoint,
+        )
+        if released:
+            self._mark_local_comfyui_released()
+        return released
 
     def _mark_local_comfyui_released(self) -> None:
         scope = self._local_comfyui_task_scope.get()
@@ -547,12 +532,11 @@ class PixelleVideoCore:
             return
 
         if session.used_index_tts2:
-            released = await self.release_comfyui_extension_models_when_idle(
+            released = await self.release_comfyui_after_index_tts2_workflow(
                 context="post-index-tts2-workflow",
                 missing_endpoint="optional",
             )
             if released:
-                self._mark_local_comfyui_released()
                 scope = self._local_comfyui_task_scope.get()
                 if scope is not None:
                     scope.pending_extension_memory_release = False
@@ -718,13 +702,12 @@ class PixelleVideoCore:
                         should_release = self._local_comfyui_active_task_count == 0
 
                 if scope.pending_extension_memory_release and should_release:
-                    released = await self.release_comfyui_extension_models_when_idle(
+                    released = await self.release_comfyui_after_index_tts2_workflow(
                         context="post-task-index-tts2-fallback",
                         missing_endpoint="optional",
                     )
                     if released:
                         scope.pending_extension_memory_release = False
-                        self._mark_local_comfyui_released()
 
                 if scope.used_local_comfyui and scope.pending_memory_release and should_release:
                     await self.release_comfyui_after_local_task()
@@ -767,7 +750,7 @@ class PixelleVideoCore:
             finally:
                 if self._should_release_local_comfyui_after_workflow():
                     if used_index_tts2:
-                        await self.release_comfyui_extension_models_when_idle(
+                        await self.release_comfyui_after_index_tts2_workflow(
                             context="post-index-tts2-workflow",
                             missing_endpoint="optional",
                         )

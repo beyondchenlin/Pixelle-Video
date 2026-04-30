@@ -57,10 +57,10 @@ template:
   - `"conservative"`：不强制干预现有队列
   - 这里只做队列清理，不会在每张图片生成前卸载模型
 - `pre_generation_cleanup_timeout_seconds`: 强制清理时等待 ComfyUI 队列恢复空闲的秒数；超时后会快速失败并提示队列可能卡住
-- `model_cleanup_mode`：本地工作流批次结束和显式恢复路径使用的模型显存释放范围。`disabled` 在批次结束后保留模型常驻，`comfyui` 调用 ComfyUI `/free`，`comfyui_and_extensions` 会同时调用 `/free` 和 Pixelle 管理的插件清理端点，例如 `/pixelle/indextts2/free`。
+- `model_cleanup_mode`：Pixelle 本地工作流阶段边界和显式恢复路径使用的模型显存释放范围。`disabled` 在阶段结束后保留模型常驻，`comfyui` 调用 ComfyUI `/free`，`comfyui_and_extensions` 会在需要插件私有缓存释放的阶段额外调用 Pixelle 管理的插件清理端点，例如 IndexTTS2 TTS。
 - `comfyui_api_key`: ComfyUI API 密钥（可选，用于 [Comfy Platform](https://platform.comfy.org/profile/api-keys)）
 
-Pixelle 不会在本地图片批次的每张图生成前调用 `/free`。批次内会保持 GGUF 和相关模型热加载，避免每帧重复卸载和重载。整个本地工作流批次结束后，`model_cleanup_mode` 决定是否释放 ComfyUI 模型显存以及 Pixelle 管理的插件缓存。如果本地 IndexTTS2 工作流在 `comfyui_and_extensions` 模式下运行，Pixelle 会在执行工作流前预检无副作用的 `/pixelle/indextts2/health` 端点，让缺少插件补丁的问题提前失败，同时不会卸载热加载模型。OOM 恢复仍会在重试前执行一次高强度显式清理。
+Pixelle 假设配置的自托管 ComfyUI 实例由 Pixelle 独占。Pixelle 不会在本地图片批次的每张图生成前调用 `/free`；批次内会保持 GGUF 和相关模型热加载，避免每帧重复卸载和重载。图片阶段结束后，Pixelle 会释放 ComfyUI 标准模型显存，再进入下一阶段。IndexTTS2 TTS 阶段结束后，Pixelle 会释放 ComfyUI 标准模型，并额外调用补丁端点 `/pixelle/indextts2/free` 释放插件私有缓存。如果本地 IndexTTS2 工作流在 `comfyui_and_extensions` 模式下运行，Pixelle 会在执行工作流前预检无副作用的 `/pixelle/indextts2/health` 端点，让缺少插件补丁的问题提前失败，同时不会卸载热加载模型。OOM 恢复仍会在重试前执行一次高强度显式清理。
 
 任务运行日志会写入结构化的 `local_media_batch` start/end 事件，包含耗时毫秒数和帧数量；也会写入 `comfyui_memory_release` 事件。ComfyUI `/free` 释放会在 `/system_stats` 可用时记录释放前后的显存快照；IndexTTS2 释放响应中如果包含 CUDA allocated/reserved 的 before/after 快照，也会保存在日志字段里。
 

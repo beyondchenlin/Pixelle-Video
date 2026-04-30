@@ -469,7 +469,10 @@ class ComfyUIConfig(BaseModel):
     )
     model_cleanup_mode: Literal["disabled", "comfyui", "comfyui_and_extensions"] = Field(
         default="comfyui_and_extensions",
-        description="Model memory cleanup scope used after local workflow batches and explicit recovery paths",
+        description=(
+            "Model memory cleanup scope used after Pixelle-owned local workflow "
+            "stages and explicit recovery paths"
+        ),
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")

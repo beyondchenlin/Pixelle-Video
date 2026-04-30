@@ -1289,7 +1289,10 @@ class StandardPipeline(LinearVideoPipeline):
 
         logger.info("Using staged selfhost image processing")
 
-        async with _maybe_local_comfyui_workflow_session(self.core):
+        async with _maybe_local_comfyui_workflow_session(
+            self.core,
+            release_after_session=True,
+        ):
             for frame in storyboard.frames:
                 if not frame.audio_path:
                     self._report_staged_frame_progress(
@@ -3016,7 +3019,10 @@ class StandardPipeline(LinearVideoPipeline):
         block_paths: List[str] = []
         cursor = 0.0
 
-        async with _maybe_local_comfyui_workflow_session(self.core):
+        async with _maybe_local_comfyui_workflow_session(
+            self.core,
+            release_after_session=True,
+        ):
             for block in ctx.timing_plan.blocks:
                 block_output_path = task_audio_dir / f"{block.id}.wav"
                 normalized_audio_path = await self._synthesize_audio_block(

@@ -20,9 +20,11 @@ class _FakeCore:
     def __init__(self):
         self.tts = _RecordingTts()
         self.session_events = []
+        self.session_release_options = []
 
     @asynccontextmanager
-    async def local_comfyui_workflow_session(self):
+    async def local_comfyui_workflow_session(self, *, release_after_session=False):
+        self.session_release_options.append(release_after_session)
         self.session_events.append("enter")
         try:
             yield
@@ -69,6 +71,7 @@ async def test_frame_processor_external_only_splits_index_tts2_per_frame_audio(m
     assert len(synthesized_texts) > 1
     assert all(Path(call["output_path"]).suffix == ".flac" for call in core.tts.calls)
     assert core.session_events == ["enter", "exit"]
+    assert core.session_release_options == [True]
     assert concat_calls
     assert concat_calls[0][2]["fade_ms"] == config.tts_audio_boundary_fade_ms
 
@@ -110,3 +113,5 @@ async def test_frame_processor_single_index_tts2_uses_flac_source_and_wav_frame_
     assert Path(normalize_calls[0][0]).suffix == ".flac"
     assert Path(normalize_calls[0][1]).suffix == ".wav"
     assert Path(frame.audio_path).suffix == ".wav"
+    assert core.session_events == ["enter", "exit"]
+    assert core.session_release_options == [True]

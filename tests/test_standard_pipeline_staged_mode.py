@@ -343,7 +343,7 @@ async def test_produce_assets_batches_default_gguf_media_generation(monkeypatch)
         "enter",
         "exit",
     ]
-    assert core.local_comfyui_session_release_options == [False, True]
+    assert core.local_comfyui_session_release_options == [True, True]
 
 
 @pytest.mark.asyncio
@@ -370,7 +370,7 @@ async def test_produce_assets_keeps_non_gguf_selfhost_media_in_batch_session(mon
         "enter",
         "exit",
     ]
-    assert core.local_comfyui_session_release_options == [False, True]
+    assert core.local_comfyui_session_release_options == [True, True]
 
 
 @pytest.mark.asyncio
@@ -1034,7 +1034,7 @@ async def test_produce_assets_stages_mixed_runninghub_tts_and_selfhost_media(mon
         "enter",
         "exit",
     ]
-    assert core.local_comfyui_session_release_options == [False, True]
+    assert core.local_comfyui_session_release_options == [True, True]
 
 
 @pytest.mark.asyncio

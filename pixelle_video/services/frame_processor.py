@@ -20,6 +20,7 @@ Key Feature:
   to ensure perfect sync between audio and video (no padding, no trimming needed)
 """
 
+import inspect
 import os
 import shutil
 import subprocess
@@ -46,10 +47,32 @@ IMAGE_SEGMENT_MIN_FPS = 90
 
 
 @asynccontextmanager
-async def _maybe_local_comfyui_workflow_session(core):
+async def _maybe_local_comfyui_workflow_session(
+    core,
+    *,
+    release_after_session: bool = False,
+):
     session_factory = getattr(core, "local_comfyui_workflow_session", None)
     if callable(session_factory):
-        async with session_factory():
+        try:
+            signature = inspect.signature(session_factory)
+        except (TypeError, ValueError):
+            supports_release_after_session = True
+        else:
+            supports_release_after_session = (
+                "release_after_session" in signature.parameters
+                or any(
+                    parameter.kind == inspect.Parameter.VAR_KEYWORD
+                    for parameter in signature.parameters.values()
+                )
+            )
+
+        session_context = (
+            session_factory(release_after_session=release_after_session)
+            if supports_release_after_session
+            else session_factory()
+        )
+        async with session_context:
             yield
         return
 
@@ -240,7 +263,10 @@ class FrameProcessor:
             final_output_path = str(Path(output_path).with_suffix(".wav"))
             segment_paths = []
             output_base = Path(final_output_path)
-            async with _maybe_local_comfyui_workflow_session(self.core):
+            async with _maybe_local_comfyui_workflow_session(
+                self.core,
+                release_after_session=True,
+            ):
                 for index, segment_text in enumerate(segment_texts, start=1):
                     segment_output_path = str(
                         output_base.with_name(
@@ -269,24 +295,42 @@ class FrameProcessor:
             source_output_path = str(
                 output_base.with_name(f"{output_base.stem}_source{source_extension}")
             )
-            await self.core.tts(
-                **self._build_tts_params(
-                    text=segment_texts[0],
-                    output_path=source_output_path,
-                    config=config,
-                    index=frame.index + 1,
+            async with _maybe_local_comfyui_workflow_session(
+                self.core,
+                release_after_session=True,
+            ):
+                await self.core.tts(
+                    **self._build_tts_params(
+                        text=segment_texts[0],
+                        output_path=source_output_path,
+                        config=config,
+                        index=frame.index + 1,
+                    )
                 )
-            )
             audio_path = self._normalize_audio_for_frame(source_output_path, final_output_path)
         else:
-            audio_path = await self.core.tts(
-                **self._build_tts_params(
-                    text=segment_texts[0],
-                    output_path=output_path,
-                    config=config,
-                    index=frame.index + 1,
+            if config.tts_inference_mode == "comfyui":
+                async with _maybe_local_comfyui_workflow_session(
+                    self.core,
+                    release_after_session=True,
+                ):
+                    audio_path = await self.core.tts(
+                        **self._build_tts_params(
+                            text=segment_texts[0],
+                            output_path=output_path,
+                            config=config,
+                            index=frame.index + 1,
+                        )
+                    )
+            else:
+                audio_path = await self.core.tts(
+                    **self._build_tts_params(
+                        text=segment_texts[0],
+                        output_path=output_path,
+                        config=config,
+                        index=frame.index + 1,
+                    )
                 )
-            )
 
         frame.audio_path = audio_path
 
