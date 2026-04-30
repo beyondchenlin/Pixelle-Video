@@ -17,6 +17,7 @@ from api.schemas.video import (
     VideoGenerateRequest,
     VideoResolutionPreset,
 )
+from api.schemas.video_internal import VideoGenerateInternalRequest
 from pixelle_video.models.size_contract import (
     STANDARD_VIDEO_SIZE_PRESETS,
     VALID_MEDIA_RESOLUTION_PRESETS,
@@ -53,7 +54,6 @@ def test_video_generate_request_rejects_removed_hyperframes_alias():
     with pytest.raises(ValidationError, match="hyperframes_compiled"):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             render_backend="hyperframes",
         )
 
@@ -106,7 +106,6 @@ def test_video_generate_request_rejects_unknown_text_rendering_keys(text_renderi
 def test_video_generate_request_accepts_tts_text_policy_controls():
     request = VideoGenerateRequest(
         text="demo",
-        frame_template="1080x1920/image_default.html",
         tts_split_mode="external_only",
         max_chars_per_tts_segment=88,
         tts_split_overflow_policy="hard_limit",
@@ -128,7 +127,6 @@ def test_video_generate_request_accepts_tts_text_policy_controls():
 def test_video_generate_request_accepts_prompt_generation_performance_controls():
     request = VideoGenerateRequest(
         text="demo",
-        frame_template="1080x1920/image_default.html",
         llm_prompt_batch_size=8,
         llm_prompt_batch_concurrent_limit=3,
     )
@@ -162,9 +160,9 @@ def test_video_generate_request_accepts_size_contract_controls():
     assert request.sync_media_size_to_canvas is False
 
 
-def test_video_generate_request_rejects_template_canvas_orientation_mismatch():
+def test_internal_video_request_rejects_template_canvas_orientation_mismatch():
     with pytest.raises(ValidationError, match="Template orientation"):
-        VideoGenerateRequest(
+        VideoGenerateInternalRequest(
             text="demo",
             frame_template="1080x1920/image_default.html",
             video_orientation="landscape",
@@ -323,7 +321,6 @@ def test_video_generate_request_rejects_video_preset_for_media_resolution():
 def test_video_generate_request_accepts_storyboard_generation_contract_fields():
     request = VideoGenerateRequest(
         text="demo",
-        frame_template="1080x1920/image_default.html",
         mode="generate",
         storyboard_mode="smart",
         storyboard_count_mode="manual",
@@ -344,7 +341,6 @@ def test_video_generate_request_accepts_storyboard_generation_contract_fields():
 def test_video_generate_request_defaults_punctuation_max_scene_count_for_punctuation_mode():
     request = VideoGenerateRequest(
         text="demo",
-        frame_template="1080x1920/image_default.html",
         storyboard_mode="punctuation",
     )
 
@@ -354,7 +350,6 @@ def test_video_generate_request_defaults_punctuation_max_scene_count_for_punctua
 def test_video_generate_request_defaults_deterministic_max_scene_count_for_sentence_mode():
     request = VideoGenerateRequest(
         text="demo",
-        frame_template="1080x1920/image_default.html",
         storyboard_mode="sentence",
     )
 
@@ -374,7 +369,6 @@ def test_video_generate_request_clamps_deterministic_default_to_configured_limit
 
     request = VideoGenerateRequest(
         text="demo",
-        frame_template="1080x1920/image_default.html",
         storyboard_mode="punctuation",
     )
 
@@ -382,19 +376,15 @@ def test_video_generate_request_clamps_deterministic_default_to_configured_limit
 
 
 def test_video_generate_request_defaults_storyboard_prompt_language_to_english_for_api_compatibility():
-    request = VideoGenerateRequest(
-        text="demo",
-        frame_template="1080x1920/image_default.html",
-    )
+    request = VideoGenerateRequest(text="demo")
 
     assert request.storyboard_prompt_language == "zh_CN"
-    assert request.video_orientation == "portrait"
+    assert request.video_orientation is None
 
 
 def test_video_generate_request_accepts_plan_identity_frame_overrides():
     request = VideoGenerateRequest(
         text="demo",
-        frame_template="1080x1920/image_default.html",
         frame_overrides=[
             {
                 "plan_id": "plan_abc",
@@ -416,7 +406,6 @@ def test_video_generate_request_rejects_removed_narration_text_frame_override():
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             frame_overrides=[
                 {
                     "plan_id": "plan_abc",
@@ -442,7 +431,6 @@ def test_video_generate_request_rejects_non_sha256_frame_override_source_digest(
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             frame_overrides=[
                 {
                     "plan_id": "plan_abc",
@@ -467,7 +455,6 @@ def test_video_generate_request_rejects_legacy_storyboard_fields(legacy_payload)
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             **legacy_payload,
         )
 
@@ -492,7 +479,6 @@ def test_video_generate_request_rejects_invalid_storyboard_contract_combinations
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             **payload,
         )
 
@@ -511,7 +497,6 @@ def test_video_generate_request_rejects_deterministic_scene_limit_above_configur
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             storyboard_mode="sentence",
             storyboard_max_scene_count=41,
         )
@@ -527,7 +512,6 @@ def test_video_generate_request_rejects_scene_count_above_configured_limit(monke
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             storyboard_count_mode="manual",
             storyboard_scene_count=5,
         )
@@ -549,7 +533,6 @@ def test_video_generate_request_rejects_invalid_prompt_generation_performance_co
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             **{field_name: value},
         )
 
@@ -579,7 +562,6 @@ async def test_generate_video_sync_passes_tts_text_policy_controls_to_video_core
     await generate_video_sync(
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             tts_split_mode="external_only",
             max_chars_per_tts_segment=88,
             tts_split_overflow_policy="hard_limit",
@@ -634,7 +616,6 @@ async def test_generate_video_sync_passes_prompt_generation_performance_controls
     await generate_video_sync(
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             llm_prompt_batch_size=8,
             llm_prompt_batch_concurrent_limit=3,
         ),
@@ -705,7 +686,6 @@ def test_video_generate_request_rejects_invalid_storyboard_controls(field_name: 
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             **{field_name: value},
         )
 
@@ -729,7 +709,6 @@ def test_video_generate_request_rejects_malformed_frame_overrides(frame_override
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             frame_overrides=frame_overrides,
         )
 
@@ -738,7 +717,6 @@ def test_video_generate_request_rejects_legacy_scene_identity_frame_override():
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             frame_overrides=[
                 {
                     "scene_id": "scene-1",
@@ -754,7 +732,6 @@ def test_video_generate_request_rejects_narration_text_frame_override():
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             frame_overrides=[
                 {
                     "plan_id": "plan_abc",
@@ -773,7 +750,6 @@ def test_video_generate_request_rejects_unsupported_tts_audio_strategy(tts_audio
     with pytest.raises(ValidationError):
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             tts_audio_strategy=tts_audio_strategy,
         )
 
@@ -801,7 +777,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
     monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
 
     await generate_video_sync(
-        VideoGenerateRequest(
+        VideoGenerateInternalRequest(
             text="demo",
             frame_template="1080x1920/image_default.html",
             render_backend="hyperframes_compiled",
@@ -957,7 +933,6 @@ async def test_generate_video_async_reuses_active_duplicate_task(monkeypatch, tm
     response = await generate_video_async(
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
         ),
         fake_pixelle_video,
         SimpleNamespace(base_url="http://testserver/"),
@@ -1019,7 +994,6 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
     response = await generate_video_async(
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             text_rendering={
                 "overlay": {
                     "enabled": True,
@@ -1086,7 +1060,6 @@ async def test_generate_video_async_preserves_explicit_text_styles(monkeypatch, 
     await generate_video_async(
         VideoGenerateRequest(
             text="demo",
-            frame_template="1080x1920/image_default.html",
             text_rendering={
                 "caption_style": {
                     "font_size": 72,

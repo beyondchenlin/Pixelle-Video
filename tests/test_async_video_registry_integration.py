@@ -44,10 +44,7 @@ class FakeTaskManager:
 
 
 def build_request() -> VideoGenerateRequest:
-    return VideoGenerateRequest(
-        text="demo",
-        frame_template="1080x1920/image_default.html",
-    )
+    return VideoGenerateRequest(text="demo")
 
 
 @pytest.mark.asyncio
@@ -83,3 +80,23 @@ async def test_async_video_endpoint_executes_new_task_in_embedded_mode(monkeypat
     request_params = manager.reserve_calls[0]["request_params"]
     assert request_params["generation_fingerprint"]
     assert request_params["request_id"].startswith("req_")
+
+
+@pytest.mark.asyncio
+async def test_async_video_generation_fingerprint_ignores_request_id(monkeypatch):
+    manager = FakeTaskManager(created=False)
+    request_ids = iter(["req_first", "req_second"])
+    monkeypatch.setattr(video, "task_manager", manager)
+    monkeypatch.setattr(video, "new_correlation_id", lambda _prefix: next(request_ids))
+
+    for _ in range(2):
+        await video.generate_video_async(
+            build_request(),
+            pixelle_video=SimpleNamespace(),
+            request=SimpleNamespace(base_url="http://test/"),
+        )
+
+    first_call, second_call = manager.reserve_calls
+    assert first_call["request_params"]["request_id"] == "req_first"
+    assert second_call["request_params"]["request_id"] == "req_second"
+    assert first_call["generation_fingerprint"] == second_call["generation_fingerprint"]
