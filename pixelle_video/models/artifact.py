@@ -23,8 +23,12 @@ class ArtifactStatus(str, Enum):
 class ArtifactVersionStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    CANDIDATE = "candidate"
+    SELECTED = "selected"
+    REJECTED = "rejected"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    ARCHIVED = "archived"
 
 
 @dataclass(frozen=True)

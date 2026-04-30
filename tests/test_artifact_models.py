@@ -70,6 +70,29 @@ def test_artifact_selection_returns_new_artifact_without_overwriting_old_version
 
 
 @pytest.mark.parametrize(
+    "status",
+    [
+        "candidate",
+        "selected",
+        "rejected",
+        "archived",
+    ],
+)
+def test_artifact_version_supports_workbench_lifecycle_statuses(status):
+    version = ArtifactVersion(
+        version_id=f"artifact_version_{status}",
+        artifact_id="artifact_frame_001",
+        workspace_id="workspace_1",
+        frame_id="frame_0001",
+        source_prompt_plan_id="prompt_plan_001",
+        storage_key=f"artifacts/workspace_1/frame_0001/{status}.png",
+        status=status,
+    )
+
+    assert version.to_dict()["status"] == status
+
+
+@pytest.mark.parametrize(
     "storage_key",
     [
         r"D:\demo1\Pixelle\output\frame.png",
