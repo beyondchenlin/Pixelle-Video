@@ -507,6 +507,170 @@ async def test_local_comfyui_workflow_session_keeps_lifecycle_open_across_batch(
 
 
 @pytest.mark.asyncio
+async def test_local_comfyui_workflow_session_force_releases_index_tts2_once_after_batch():
+    events = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(("execute", workflow_input, workflow_params))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append(("prepare",))
+
+    async def _release_workflow():
+        events.append(("workflow_release",))
+        return True
+
+    async def _force_release(*, context):
+        events.append(("force_release", context))
+        return True
+
+    async def _get_kit():
+        events.append(("get_kit",))
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release_workflow
+    core.force_release_comfyui_memory = _force_release
+    core._get_or_create_comfykit = _get_kit
+
+    async with core.local_comfyui_workflow_session():
+        first = await core.execute_comfykit_workflow(
+            "workflows/selfhost/tts_index2.json",
+            {"prompt": "first"},
+            workflow_source="selfhost",
+        )
+        second = await core.execute_comfykit_workflow(
+            "workflows/selfhost/tts_index2.json",
+            {"prompt": "second"},
+            workflow_source="selfhost",
+        )
+
+    assert first.status == "completed"
+    assert second.status == "completed"
+    assert events == [
+        ("prepare",),
+        ("get_kit",),
+        ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "first"}),
+        ("get_kit",),
+        ("execute", "workflows/selfhost/tts_index2.json", {"prompt": "second"}),
+        ("force_release", "post-index-tts2-workflow-session"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_local_comfyui_workflow_session_force_releases_renamed_index_tts2_file(tmp_path):
+    workflow_path = tmp_path / "voice_batch.json"
+    workflow_path.write_text(
+        json.dumps(
+            {
+                "5": {
+                    "inputs": {"text": ["3", 0]},
+                    "class_type": "IndexTTS2BaseNode",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    events = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(("execute", workflow_input, workflow_params))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append(("prepare",))
+
+    async def _release_workflow():
+        events.append(("workflow_release",))
+        return True
+
+    async def _force_release(*, context):
+        events.append(("force_release", context))
+        return True
+
+    async def _get_kit():
+        events.append(("get_kit",))
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release_workflow
+    core.force_release_comfyui_memory = _force_release
+    core._get_or_create_comfykit = _get_kit
+
+    async with core.local_comfyui_workflow_session():
+        result = await core.execute_comfykit_workflow(
+            str(workflow_path),
+            {"prompt": "first"},
+            workflow_source="selfhost",
+        )
+
+    assert result.status == "completed"
+    assert events == [
+        ("prepare",),
+        ("get_kit",),
+        ("execute", str(workflow_path), {"prompt": "first"}),
+        ("force_release", "post-index-tts2-workflow-session"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_index_tts2_workflow_session_marks_task_scope_released_after_force_release():
+    events = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(("execute", workflow_input))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append(("prepare",))
+
+    async def _release_workflow():
+        events.append(("workflow_release",))
+        return True
+
+    async def _release_task():
+        events.append(("task_release",))
+        return True
+
+    async def _force_release(*, context):
+        events.append(("force_release", context))
+        return True
+
+    async def _get_kit():
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release_workflow
+    core.release_comfyui_after_local_task = _release_task
+    core.force_release_comfyui_memory = _force_release
+    core._get_or_create_comfykit = _get_kit
+
+    async with core.local_comfyui_task_scope():
+        async with core.local_comfyui_workflow_session():
+            await core.execute_comfykit_workflow(
+                "workflows/selfhost/tts_index2.json",
+                {},
+                workflow_source="selfhost",
+            )
+
+    assert events == [
+        ("prepare",),
+        ("execute", "workflows/selfhost/tts_index2.json"),
+        ("force_release", "post-index-tts2-workflow-session"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_local_comfyui_task_scope_releases_at_task_exit_after_workflow_session():
     events = []
 

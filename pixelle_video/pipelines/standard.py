@@ -103,7 +103,11 @@ from pixelle_video.tts_audio_strategy import (
     SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES,
 )
 from pixelle_video.tts_split_strategy import INTERNAL_ONLY_TTS_SPLIT_MODE
-from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
+from pixelle_video.tts_workflow_contract import (
+    is_index_tts2_workflow_key,
+    resolve_workflow_output_audio_extension_from_info,
+    resolve_workflow_output_audio_extension_from_key,
+)
 from pixelle_video.utils.content_generators import (
     generate_title,
 )
@@ -1017,6 +1021,28 @@ class StandardPipeline(LinearVideoPipeline):
                 workflow_key = config.tts_workflow or workflow_key
 
         return is_index_tts2_workflow_key(workflow_key)
+
+    def _resolve_tts_source_extension(self, config: StoryboardConfig) -> str:
+        if config.tts_inference_mode != "comfyui":
+            return ".mp3"
+
+        tts_service = getattr(self.core, "tts", None)
+        if tts_service is not None and hasattr(tts_service, "_resolve_workflow"):
+            try:
+                workflow_info = tts_service._resolve_workflow(workflow=config.tts_workflow)
+                extension = resolve_workflow_output_audio_extension_from_info(
+                    workflow_info,
+                    default=".mp3",
+                )
+                return extension or ".mp3"
+            except Exception:
+                pass
+
+        extension = resolve_workflow_output_audio_extension_from_key(
+            config.tts_workflow,
+            default=".mp3",
+        )
+        return extension or ".mp3"
 
     async def _prepare_legacy_master_track_audio(self, ctx: PipelineContext) -> None:
         storyboard = ctx.storyboard
@@ -2910,16 +2936,6 @@ class StandardPipeline(LinearVideoPipeline):
         )
         master_audio_duration = self._get_audio_duration(str(master_audio_path))
 
-        release_comfyui_memory = getattr(self.core, "force_release_comfyui_memory", None)
-        if self._uses_index_tts2_workflow(ctx.config) and callable(release_comfyui_memory):
-            try:
-                await release_comfyui_memory(context="post-index-tts2-audio")
-            except Exception as exc:
-                logger.warning(
-                    "Failed to release IndexTTS2 ComfyUI memory after audio synthesis: {}",
-                    exc,
-                )
-
         return str(master_audio_path), master_audio_duration
 
     async def _synthesize_audio_block(
@@ -2948,8 +2964,9 @@ class StandardPipeline(LinearVideoPipeline):
             self._record_tts_segmentation_plan(ctx, plan)
             segments = [segment.text for segment in plan.segments] or [block_text]
 
+        source_extension = self._resolve_tts_source_extension(ctx.config)
         if len(segments) == 1:
-            block_source_path = task_audio_dir / f"{block_id}_source.mp3"
+            block_source_path = task_audio_dir / f"{block_id}_source{source_extension}"
             tts_params = self._build_tts_params(
                 config=ctx.config,
                 text=segments[0],
@@ -2964,7 +2981,9 @@ class StandardPipeline(LinearVideoPipeline):
 
         segment_paths: List[str] = []
         for index, segment_text in enumerate(segments, start=1):
-            segment_source_path = task_audio_dir / f"{block_id}_segment_{index}_source.mp3"
+            segment_source_path = task_audio_dir / (
+                f"{block_id}_segment_{index}_source{source_extension}"
+            )
             segment_output_path = task_audio_dir / f"{block_id}_segment_{index}.wav"
             tts_params = self._build_tts_params(
                 config=ctx.config,

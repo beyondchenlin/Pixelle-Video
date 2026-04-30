@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from pixelle_video.models.render_package import AudioBlock
@@ -226,64 +228,12 @@ async def test_standard_pipeline_external_only_synthesizes_deterministic_segment
     assert len(synthesized_texts) > 1
     assert all("。" not in text for text in synthesized_texts)
     assert all("split_strategy" not in call for call in core.tts.calls)
+    assert all(Path(call["output_path"]).suffix == ".flac" for call in core.tts.calls)
     assert [call["workflow_params_text"] for call in ctx.observability["tts_synthesis"]["calls"]] == synthesized_texts
     plans = ctx.observability["tts_segmentation"]["plans"]
     assert plans[0]["source_unit_id"] == "block-1"
     assert len(plans[0]["segments"]) == len(synthesized_texts)
     assert plans[0]["segments"][0]["synthesis_mode"] == "external_pre_split"
-
-
-@pytest.mark.asyncio
-async def test_standard_pipeline_releases_index_tts2_comfyui_memory_after_master_audio(monkeypatch, tmp_path):
-    events = []
-
-    class RecordingTts:
-        async def __call__(self, **params):
-            events.append(("tts", params["output_path"]))
-            return params["output_path"]
-
-    class ReleasingCore(_FakeCore):
-        def __init__(self):
-            super().__init__()
-            self.tts = RecordingTts()
-
-        async def force_release_comfyui_memory(self, *, context):
-            events.append(("release", context))
-            return True
-
-    core = ReleasingCore()
-    pipeline = StandardPipeline(core)
-    config = StoryboardConfig(
-        media_width=1080,
-        media_height=1920,
-        task_id="task-index-tts2-release",
-        tts_inference_mode="comfyui",
-        tts_workflow="selfhost/tts_index2.json",
-    )
-    ctx = PipelineContext(input_text="demo", params={})
-    ctx.task_id = config.task_id
-    ctx.task_dir = str(tmp_path)
-    ctx.config = config
-    ctx.timing_plan = TimingPlan(
-        blocks=[
-            AudioBlock(id="block-1", text="first block.", source_frame_indices=[0]),
-            AudioBlock(id="block-2", text="second block.", source_frame_indices=[1]),
-        ]
-    )
-
-    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", lambda source, output: output)
-    monkeypatch.setattr(pipeline, "_get_audio_duration", lambda path: 1.0)
-
-    def record_concat(paths, output, **kwargs):
-        events.append(("concat", output))
-
-    monkeypatch.setattr(pipeline, "_concat_audio_files", record_concat)
-
-    await pipeline._synthesize_hyperframes_audio(ctx)
-
-    assert events[-1] == ("release", "post-index-tts2-audio")
-    assert [event[0] for event in events].count("release") == 1
-    assert [event[0] for event in events] == ["tts", "tts", "concat", "release"]
 
 
 @pytest.mark.asyncio
