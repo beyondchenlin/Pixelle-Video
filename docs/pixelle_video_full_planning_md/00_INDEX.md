@@ -85,6 +85,9 @@
 26. `23_STAGE1_STAGE2_PARALLEL_DEVELOPMENT_STRATEGY.md`
     Stage 1A、Stage 1B 和 Stage 2 的并行开发策略，明确可并行范围、文件边界、集成闸门和禁止项。
 
+27. `24_PLATFORM_FOUNDATION_ZERO_TECH_DEBT_SUBPLAN.md`
+    Stage 0.5 平台基础与零技术债分方案，约束 Repository、Object Store、ResourceResolver、API raw 边界和并行开发闸门。
+
 ## 推荐阅读顺序
 
 如果是让 Codex 直接辅助开发，建议按这个顺序：
@@ -98,7 +101,7 @@ MASTER ->
 
 ```text
 MASTER ->
-02 -> 04 -> 05 -> 12A -> 12B -> 15
+24 -> 02 -> 04 -> 05 -> 12A -> 12B -> 15
 ```
 
 如果是先做商业化后端规划，建议按这个顺序：
@@ -112,7 +115,7 @@ MASTER ->
 
 ```text
 MASTER ->
-02 -> 03 -> 04 -> 05 -> 12A -> 12B -> 13 -> 14 -> 15
+24 -> 02 -> 03 -> 04 -> 05 -> 12A -> 12B -> 13 -> 14 -> 15
 ```
 
 如果是理解完整平台化路线，建议按这个顺序：

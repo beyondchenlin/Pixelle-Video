@@ -58,7 +58,7 @@ Stage 1A 必须包含：
 - `LLMInteractionTrace` 领域模型。
 - `LLMTraceContext` 语义上下文。
 - `LLMInteractionRecorder` 记录器。
-- `LocalLLMTraceStore` 本地落盘实现。
+- `TraceRepository` 和 `RawPayloadStore` 接口接入。
 - `LLMService` 网关级追踪接入。
 - ScriptDraft / StoryboardPlan / ImagePromptDraft / PromptPlan 生成服务传入 trace context。
 - Trace API 或内部读取接口。
@@ -146,13 +146,14 @@ output/{task_id}/trace/
     {interaction_id}_error.json
 ```
 
-没有 `task_id` 的内容 API 调用，可以临时使用：
+没有 `task_id` 的内容 API 调用，必须创建 `trace_session_id` 并通过 `TraceRepository` 保存：
 
 ```text
-_runtime/trace/{request_id}/
+trace_sessions/{trace_session_id}
+raw-payloads/{workspace_id}/{object_id}.json
 ```
 
-这个 fallback 只用于本地开发和无任务上下文的调试入口，不能成为长期产品合同。
+该路径是对象存储 key 和领域 ID，不是本地目录。Local Debug 可以由 `FilesystemDevRawPayloadStore` 物化到本地文件，但业务服务和 API 响应不能暴露本地绝对路径。
 
 ---
 

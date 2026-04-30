@@ -43,7 +43,8 @@ SceneCast
 PromptPlan
   prompt_plan_id
   frame_id
-  storyboard_panel_id
+  storyboard_plan_id
+  image_prompt_draft_id
   scene_cast_id
   character_ids
   scene_id
@@ -74,10 +75,10 @@ PromptPlan 是结构化计划，PromptProjection 是面向某个 Provider 的最
 
 阶段 2：
 
-- 实现 Prompt-only AssetBible。
+- 实现 AssetBible 草稿事实源。
 - 实现 SceneCast 校验。
 - 实现 PromptComposer。
-- 将 `prompt_prefix` 降级为 legacy/debug 字段。
+- 让 `prompt_prefix` 退出正式入口，由 `style_id`、`StyleProfile` 和 `ResourceResolver` 接管。
 
 后续：
 
@@ -93,6 +94,7 @@ PromptPlan 是结构化计划，PromptProjection 是面向某个 Provider 的最
 - PromptComposer 不允许直接读取本地任意路径。
 - Public API 不能接受任意 `prompt_prefix`。
 - PromptProjection 可以因 Provider 不同而不同，但 PromptPlan 必须稳定。
+- AssetBible 持久化必须通过 `AssetBibleRepository`，不能由 Stage 2 自建本地 JSON 服务作为正式路径。
 
 ---
 

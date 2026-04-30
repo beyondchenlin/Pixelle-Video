@@ -28,7 +28,7 @@ Stage 1A 输出的 StoryboardPlan / PromptPlan
 阶段 1 必须包含：
 
 - StoryboardPanel / StoryboardFrame 工作台扩展。
-- PromptPlan 基础结构。
+- 消费 Stage 1A 产出的 PromptPlan，不重新定义 PromptPlan。
 - 每格候选图列表。
 - 当前选中图片版本。
 - 图片重抽。

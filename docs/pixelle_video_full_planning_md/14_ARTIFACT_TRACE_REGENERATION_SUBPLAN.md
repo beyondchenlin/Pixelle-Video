@@ -149,18 +149,19 @@ locked_all
 阶段 1：
 
 ```text
-LocalJsonArtifactService
-LocalJsonTraceService
+ArtifactRepository
+ArtifactObjectStore
+TraceRepository
 ```
 
-阶段 3 以后：
+生产实现：
 
 ```text
 PostgreSQL: artifacts / artifact_versions / generation_events
 Object Storage: binary assets
 ```
 
-业务代码只能依赖服务接口，不能依赖本地目录结构。
+本地开发可以注入 InMemory 或 Filesystem dev adapter，但业务代码只能依赖 Repository / Store 接口，不能依赖本地目录结构。
 
 ---
 
@@ -178,5 +179,5 @@ Object Storage: binary assets
 ## 10. 非目标
 
 - 阶段 1 不做复杂质量评分。
-- 阶段 1 不做完整对象存储迁移。
+- 阶段 1 不实现完整 S3/MinIO 客户端，但必须使用对象存储 key 合同。
 - 阶段 1 不做完整 UsageLedger。

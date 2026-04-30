@@ -266,15 +266,16 @@ Worker 重启后重复扣费
 重复改 selected version
 ```
 
-## 13. MVP 过渡方案
+## 13. Stage 0.5 执行原则
 
-第一阶段可以先：
+第一阶段可以先不实现所有生产数据库表和对象存储客户端，但不能把 SQLite / JSON 文件作为领域事实源合同。必须先定义并使用：
 
 ```text
-PostgreSQL 暂缓
-用 SQLite / JSON 文件
-Redis 队列
-MinIO 对象存储
+Repository / Store interfaces
+PostgreSQL schema contract
+Object Storage key contract
+InMemory / Filesystem dev adapters
+Production fail-fast config
 ```
 
-但数据结构按上面设计，后面迁移数据库更容易。
+本地开发适配器只能在 dev/test profile 下由工厂注入。生产 profile 缺少 PostgreSQL、Redis 或对象存储配置时必须启动失败，避免把临时本地文件误认为可部署架构。

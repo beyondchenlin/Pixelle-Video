@@ -36,7 +36,7 @@ Stage 1A 先解决：
 - 剧本文案如何变成稳定分镜。
 - 每格分镜如何得到图片提示词。
 - PromptPlan 如何预留后续 IP / SceneCast 字段。
-- `prompt_prefix` 如何从正式事实源降级为 legacy/debug 辅助字段。
+- `prompt_prefix` 如何退出正式事实源，由 `style_id`、`StyleProfile` 和 `ResourceResolver` 接管。
 
 ---
 
@@ -49,7 +49,7 @@ Stage 1A 必须包含：
 - 每格视觉描述和图片提示词生成。
 - PromptPlan 基础结构。
 - PromptPlan 预留 `character_ids`、`scene_id`、`prop_ids`、`style_id`。
-- 最小 Prompt-only IP 输入字段。
+- 资产引用字段只保存 Stage 2 合同产生的 ID。
 - 图片提示词生成服务与测试。
 - 文案、分镜、图片提示词的基础 Trace 入口。
 - LLMInteractionTrace 基础设施，记录每一次大模型调用的输入、输出、解析结果和错误。
@@ -100,7 +100,8 @@ ImagePromptDraft
 PromptPlan
   prompt_plan_id
   frame_id
-  storyboard_panel_id
+  storyboard_plan_id
+  image_prompt_draft_id
   character_ids
   scene_id
   prop_ids
@@ -130,19 +131,19 @@ Stage 1A 不直接负责调用图片生成 Provider。它只输出稳定、可�
 
 ---
 
-## 6. 最小 IP 策略
+## 6. IP / Asset 引用策略
 
-Stage 1A 可以支持最小 Prompt-only IP 输入：
+Stage 1A 不再创建基于自然语言提示的 IP 平行事实源。它只允许在 PromptPlan 中保留由 Stage 2 或草稿资产接口产生的资源 ID：
 
 ```text
-ip_name
-style_hint
-character_hint
-world_hint
-forbidden_elements
+asset_bible_id
+style_id
+character_ids
+scene_id
+prop_ids
 ```
 
-这些字段只作为 PromptPlan 的上游提示，不建立完整 IPProfile / CharacterProfile 表。
+如果用户在 Stage 1A 输入了“角色形象”“世界观”“风格方向”等自然语言提示，必须被转交给 Stage 2 AssetBible 草稿能力，生成 `IPProfile`、`CharacterProfile` 或 `StyleProfile` 后再以 ID 回填。Stage 1A 不保存这些提示作为长期事实源。
 
 完整 IP / AssetBible 放到 Stage 2。
 

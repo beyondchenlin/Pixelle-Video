@@ -55,18 +55,18 @@ The missing source-level capability is that `LLMService` does not yet persist a 
 4. The frontend panel reads structured trace records, not terminal logs.
 5. Trace records must link to domain outputs such as ScriptDraft, StoryboardPlan, ImagePromptDraft, and PromptPlan.
 6. Summary visibility and raw visibility must be permission-separated from the beginning.
-7. The design must work locally first and migrate to database/object storage later without changing the domain contract.
+7. The design must define repository and object-store contracts first; local execution is a dev/test adapter, not the domain contract.
 
 ## Architecture
 
 ```text
 ScriptDraftService / StoryboardPlanner / ImagePromptComposer / PromptPlanBuilder
-  -> LLMService
+      -> LLMService
       -> LLMInteractionRecorder
-          -> LocalLLMTraceStore
-              -> output/{task_id}/trace/llm_interactions.jsonl
-              -> output/{task_id}/trace/raw/{interaction_id}_request.json
-              -> output/{task_id}/trace/raw/{interaction_id}_response.json
+          -> TraceRepository
+              -> PostgreSQL generation/LLM trace records
+          -> RawPayloadStore
+              -> object-storage keys for raw request/response/debug payloads
   -> GenerationTraceService
       -> event timeline
   -> Studio Trace Panel
@@ -125,30 +125,31 @@ class LLMInteractionTrace(BaseModel):
     visibility: Literal["summary", "debug_raw"] = "summary"
 ```
 
-The trace record keeps safe previews inline and stores full raw payloads behind object keys. For local MVP those object keys are relative file paths. In SaaS they become object storage keys.
+The trace record keeps safe previews inline and stores full raw payloads behind object keys. Dev/test adapters may materialize those keys on local disk, but services and APIs must treat them as storage keys, not relative file paths.
 
-## Storage Layout
+## Storage Contract
 
-Local Stage 1A storage:
-
-```text
-output/{task_id}/trace/
-  events.jsonl
-  llm_interactions.jsonl
-  raw/
-    {interaction_id}_request.json
-    {interaction_id}_response.json
-    {interaction_id}_parsed.json
-    {interaction_id}_error.json
-```
-
-When a task ID is not available, local development traces may fall back to:
+Stage 1A storage contract:
 
 ```text
-_runtime/trace/{request_id}/
+TraceRepository:
+  append_llm_interaction()
+  list_llm_interactions()
+
+RawPayloadStore:
+  put_json()
+  get_json()
+  exists()
 ```
 
-The fallback is only for development entrypoints that call content APIs without creating a full generation task.
+When a task ID is not available, content APIs create a trace session:
+
+```text
+trace_sessions/{trace_session_id}
+raw-payloads/{workspace_id}/{object_id}.json
+```
+
+The trace session is a domain identifier and object-storage key prefix. It must not be implemented as a hard-coded runtime directory in business services.
 
 ## Stage 1A Integration
 
@@ -283,7 +284,7 @@ Minimum tests:
 
 ### Stage 1A-Trace-1: Domain Contract
 
-Define `LLMInteractionTrace`, `LLMTraceContext`, and local trace store interfaces.
+Define `LLMInteractionTrace`, `LLMTraceContext`, `TraceRepository`, and `RawPayloadStore` interfaces.
 
 ### Stage 1A-Trace-2: Gateway Capture
 

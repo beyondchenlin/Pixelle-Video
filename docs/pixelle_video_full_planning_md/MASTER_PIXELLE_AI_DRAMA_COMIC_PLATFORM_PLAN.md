@@ -85,7 +85,7 @@ WorkflowRun / NodeRun
 SaaS 权限计费
 ```
 
-这些方向正确，但实施顺序偏早。团队评审和 v2 反馈的修正更合理：第一阶段先完成用户能感知的创作链路和分镜图工作台闭环，同时只预埋最小合同，避免后续接 Workflow 和 FlowGram 时返工。
+这些方向正确，但实施顺序偏早。新的修正原则是：先建立 Stage 0.5 平台基础合同，再并行推进 Stage 1A、Stage 1B 和 Stage 2。不能为了速度把本地 JSON、`_runtime`、legacy raw 字段或“后续迁移”当作阶段合同。
 
 ### 3.3 `ALL_IN_ONE` 的定位
 
@@ -164,8 +164,9 @@ Execution Layer
   Provider routing
 
 Storage Layer
-  Local JSON / JSONL first
-  PostgreSQL / Redis / MinIO later
+  Repository / Store / Resolver interfaces first
+  PostgreSQL / Redis / Object Storage as production contract
+  InMemory / Filesystem adapters only for dev and tests
 ```
 
 分层原则：
@@ -176,6 +177,8 @@ Storage Layer
 - Artifact 和 Trace 是生产记录，不是临时日志。
 - FlowGram 是可视化编排外壳，不是 Pixelle 的领域核心。
 - Provider 是能力实现，不是业务模型。
+- 业务服务不能直接依赖本地 JSON、JSONL、`output/{task_id}` 或 `_runtime` 路径。
+- 本地适配器只能由配置工厂注入，不能成为领域服务命名或事实源。
 
 ---
 
@@ -257,7 +260,7 @@ GenerationTrace
 目标：
 
 - 建立 IPProfile、CharacterProfile、AssetProfile、WorldProfile、StyleProfile。
-- 第一阶段支持 Prompt-only IP。
+- Stage 2A 支持 Structured IP 和 AssetBible 草稿事实源。
 - 为后续 reference-augmented IP 预留字段。
 
 验收：
@@ -288,7 +291,7 @@ GenerationTrace
 
 - 先稳定 `主题/文案 -> ScriptDraft -> StoryboardPlan -> 图片提示词 -> PromptPlan`。
 - PromptPlan 预留 `character_ids`、`scene_id`、`prop_ids`、`style_id`。
-- 支持最小 Prompt-only IP 输入，但不实现完整 AssetBible。
+- 可以携带 Stage 2 产出的资产 ID 或草稿资产 profile ID，但不建立基于自然语言提示的 IP 平行事实源。
 - 让 Stage 1B 的工作台、候选图、重抽和 Artifact 有稳定上游。
 
 验收：
@@ -339,7 +342,7 @@ GenerationTrace
 
 - 区分稳定逻辑产物 `Artifact` 和具体生成版本 `ArtifactVersion`。
 - 用 GenerationTrace 记录每次生成、重抽、失败、选择和导出。
-- 第一阶段本地 JSON / JSONL 落盘，后续迁移到 PostgreSQL / Object Storage。
+- 第一阶段就通过 `ArtifactRepository`、`TraceRepository` 和对象存储 key 建立正式合同；本地文件只能作为 dev/test adapter。
 
 验收：
 
@@ -491,6 +494,30 @@ GenerationTrace
 - 每个阶段有明确输入、输出和禁止项。
 - 阶段一被拆成 Stage 1A 和 Stage 1B，已有工作台计划挂到 Stage 1B 下，不再被误认为完整总方案。
 
+### 阶段 0.5：平台基础与零技术债闸门
+
+新增分方案：
+
+`24_PLATFORM_FOUNDATION_ZERO_TECH_DEBT_SUBPLAN.md`
+
+新增实施计划：
+
+`../superpowers/plans/2026-04-30-platform-foundation-zero-technical-debt-implementation.md`
+
+目标：
+
+- 定义 `TraceRepository`、`RawPayloadStore`、`ArtifactRepository`、`ArtifactObjectStore`、`AssetBibleRepository`、`PromptPlanRepository` 和 `ResourceResolver`。
+- 明确 PostgreSQL / Object Storage 是生产级事实源。
+- 明确 InMemory / Filesystem 只能作为 dev/test adapter。
+- 建立生产配置缺失数据库或对象存储时 fail fast 的规则。
+- 建立 App/Public API 与 Internal/Debug API 的 raw 参数隔离。
+
+禁止：
+
+- Stage 1A/1B/2 各自实现本地 JSON、JSONL 或 `_runtime` 服务。
+- 把 legacy/deprecated 标记当作 raw 参数治理终点。
+- 让业务服务直接依赖本地路径、workflow 文件路径或 provider URL。
+
 ### 阶段 1A：文案与图片提示词生成基础
 
 新增分方案：
@@ -506,7 +533,7 @@ GenerationTrace
 - 每格视觉目标和图片提示词。
 - PromptPlan 基础结构。
 - PromptPlan 预留 `character_ids`、`scene_id`、`prop_ids`、`style_id`。
-- 最小 Prompt-only IP 输入字段。
+- 资产引用字段只保存 Stage 2 合同产生的 ID，不保存自然语言 IP 平行事实。
 - 文案、分镜、图片提示词基础 Trace 入口。
 - LLMInteractionTrace。
 - 左侧或侧边大模型交互追踪展示区。
@@ -536,8 +563,8 @@ GenerationTrace
 - GenerationTrace。
 - frame lock / stale flags。
 - image candidates / select / regenerate。
-- LocalJsonArtifactService / LocalJsonTraceService。
-- raw 参数开始收口。
+- `ArtifactRepository`、`ArtifactObjectStore`、`TraceRepository` 接入。
+- raw 参数拆分到 Internal/Debug API，App/Public API 使用资源 ID 和 `ResourceResolver`。
 - 最小 ContractLite，不做完整 Workflow Engine。
 
 禁止：
@@ -554,7 +581,7 @@ GenerationTrace
 - IPProfile / CharacterProfile / SceneAsset / PropAsset / StyleProfile。
 - SceneCast 校验。
 - PromptPlan -> PromptProjection。
-- prompt_prefix 降级为 legacy/debug 字段。
+- `prompt_prefix` 不再作为正式入口；风格来自 `style_id` / `StyleProfile` / `ResourceResolver`。
 
 依赖：
 
@@ -739,13 +766,14 @@ GenerationTrace
 
 ```text
 阶段 0：总方案收敛
-阶段 1A：文案与图片提示词生成基础准备开始
+阶段 0.5：平台基础与零技术债闸门
+阶段 1A / 1B / 2A：按合同并行推进
 ```
 
 已有可复用基础：
 
 - `StoryboardPlan` 已有 `frame_id` 和 `source_spans` 基础。
-- `PersistenceService` 已有本地 JSON 持久化思路。
+- `PersistenceService` 已有本地快照能力，但不能作为新领域事实源。
 - `api/tasks` 已有 lease / heartbeat / PostgreSQL task 基础。
 - 图像、TTS、视频、帧渲染已有局部服务能力。
 
@@ -756,10 +784,10 @@ GenerationTrace
 - Artifact / ArtifactVersion 未成为统一领域模型。
 - GenerationTrace 仍未成为所有生成步骤的统一事实记录。
 - StoryboardFrame 更偏最终媒体输出，缺少工作台选择、重抽、锁定和 stale 状态。
-- API 仍暴露 `tts_workflow`、`ref_audio`、`media_workflow`、`frame_template`、`prompt_prefix`、`bgm_path` 等 raw 参数。
+- API 仍暴露 `tts_workflow`、`ref_audio`、`media_workflow`、`frame_template`、`prompt_prefix`、`bgm_path` 等 raw 参数，需要拆分为 App/Public 与 Internal/Debug 边界。
 - Workflow / FlowGram / SaaS 还不能进入主实施路径。
 
-因此，下一步应先围绕阶段 1A 补齐实施计划，再进入阶段 1B 工作台闭环。
+因此，下一步应先完成 Stage 0.5 平台基础合同，再并行推进 Stage 1A、Stage 1B 和 Stage 2 的合同与测试。
 
 ---
 
@@ -776,19 +804,9 @@ GenerationTrace
     -> superpowers/plans 下的阶段实施计划
 ```
 
-`01-12` 文档继续作为能力域资料。正式能力分方案已经从 `13_STORYBOARD_WORKBENCH_SUBPLAN.md` 到 `22_QUALITY_EVALUATION_ADMIN_SUBPLAN.md` 建立，后续评审和实施应优先引用这些分方案。
+`01-12` 文档继续作为能力域资料。正式能力分方案已经从 `13_STORYBOARD_WORKBENCH_SUBPLAN.md` 到 `24_PLATFORM_FOUNDATION_ZERO_TECH_DEBT_SUBPLAN.md` 建立，后续评审和实施应优先引用这些分方案。
 
-已有阶段一工作台实施计划继续有效，但它的定位调整为：
-
-```text
-阶段 1B 子计划：分镜图工作台核心
-```
-
-不是：
-
-```text
-全项目总方案
-```
+当前 active 阶段计划继续有效，但必须服从 Stage 0.5 零技术债闸门。旧的本地 JSON 版本只保留在 `docs/superpowers/plans/archive/` 作为历史资料，不再作为执行入口。任何单个阶段计划都不是全项目总方案，只是对应分方案的施工图。
 
 ---
 
@@ -799,6 +817,7 @@ GenerationTrace
 ```text
 12A_TEXT_IMAGE_PROMPT_STAGE1A_SUBPLAN.md
 12B_LLM_INTERACTION_TRACE_STAGE1A_SUBPLAN.md
+24_PLATFORM_FOUNDATION_ZERO_TECH_DEBT_SUBPLAN.md
 13_STORYBOARD_WORKBENCH_SUBPLAN.md
 14_ARTIFACT_TRACE_REGENERATION_SUBPLAN.md
 15_ASSETBIBLE_SCENECAST_PROMPTCOMPOSER_SUBPLAN.md
@@ -811,7 +830,7 @@ GenerationTrace
 22_QUALITY_EVALUATION_ADMIN_SUBPLAN.md
 ```
 
-每份分方案确认后，再生成对应阶段或子阶段实施计划。已有阶段一工作台计划继续作为 `13_STORYBOARD_WORKBENCH_SUBPLAN.md` 的 Stage 1B 实施计划；Stage 1A 需要新增独立实施计划后再进入代码实现。Stage 1A 实施计划必须同时覆盖 `12A` 和 `12B`，不能先实现黑盒文案/提示词生成再补 Trace。
+每份分方案确认后，再生成对应阶段或子阶段实施计划。Stage 0.5 平台基础计划是 Stage 1A、Stage 1B 和 Stage 2 的前置闸门。Stage 1A 实施计划必须同时覆盖 `12A` 和 `12B`，不能先实现黑盒文案/提示词生成再补 Trace。
 
 ---
 
@@ -842,9 +861,11 @@ Pixelle 的正确路线不是：
 
 ```text
 确认本总控方案
-  -> 先启动 Stage 1A：文案、分镜规划、图片提示词、PromptPlan 和 LLM Interaction Trace
-  -> 再启动 Stage 1B：分镜图工作台、Artifact、Trace、候选图、选择和重抽
-  -> 等工作台闭环稳定后，再进入完整 AssetBible、SceneCast、Workflow、Worker、Provider、FlowGram、SaaS、视频扩展
+  -> 先启动 Stage 0.5：Repository、Object Store、ResourceResolver、API raw 边界
+  -> 并行启动 Stage 1A：文案、分镜规划、图片提示词、PromptPlan 和 LLM Interaction Trace
+  -> 并行启动 Stage 1B：分镜图工作台、Artifact、Trace、候选图、选择和重抽
+  -> 并行启动 Stage 2A：IPProfile、CharacterProfile、StyleProfile、AssetBible 和 SceneCast 合同
+  -> 等合同闸门稳定后，再进入 Workflow、Worker、Provider、FlowGram、SaaS、视频扩展
 ```
 
 这样既不会丢掉大平台方向，也不会被平台复杂度拖住第一阶段产品价值。

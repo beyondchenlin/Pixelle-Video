@@ -28,11 +28,11 @@ IPProfile
   └─ PreviewArtifacts
 ```
 
-## 3. 两种 IP 模式
+## 3. 两种 IP 能力层
 
-### 3.1 Prompt-only IP
+### 3.1 Structured IP
 
-适合当前本地 Z-Image 文生图模式。
+适合 Stage 2A 的第一版资产事实源。
 
 特点：
 
@@ -40,7 +40,8 @@ IPProfile
 不依赖参考图
 不依赖 LoRA
 不依赖图生图
-只通过结构化提示词约束角色
+通过 IPProfile / CharacterProfile / StyleProfile / SceneCast 约束角色和世界观
+以资源 ID 进入 PromptPlan，不把自然语言提示当长期事实源
 ```
 
 ### 3.2 Reference-augmented IP
@@ -58,7 +59,7 @@ Embedding
 ControlNet / IP-Adapter / 其他参考机制
 ```
 
-第一阶段先做 Prompt-only IP，但数据结构要为未来 reference 模式预留字段。
+Stage 1A 只预留资源 ID 字段。Stage 2A 先做 Structured IP 和 AssetBible 草稿事实源，后续再扩展 reference 模式。
 
 ## 4. 核心模型
 

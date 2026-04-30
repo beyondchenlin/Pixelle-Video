@@ -70,13 +70,15 @@ class SceneCast(BaseModel):
 
 ```python
 class PromptComposeInput(BaseModel):
-    base_prompt: str
-    narration: str
-    ip_profile: IPProfile | None = None
-    style_profile: StyleProfile | None = None
-    world_profile: WorldProfile | None = None
-    characters: list[CharacterProfile] = []
-    assets: list[AssetProfile] = []
+    frame_id: str
+    storyboard_plan_id: str
+    image_prompt_draft_id: str
+    prompt_sections: dict
+    final_prompt: str
+    asset_bible_id: str | None = None
+    style_id: str | None = None
+    character_ids: list[str] = []
+    prop_ids: list[str] = []
     scene_cast: SceneCast | None = None
     continuity_memory: dict | None = None
 ```
@@ -151,7 +153,7 @@ pixelle_video/models/scene_cast.py
 ```text
 generate_image_prompts()
   ↓
-build_image_prompt(base_prompt, prompt_prefix)
+PromptPlanBuilder
 ```
 
 建议改成：
@@ -177,7 +179,7 @@ ctx.image_prompts = final_prompts
 场景目的
 出场角色
 道具
-base prompt
+PromptPlan prompt_sections
 final prompt
 negative prompt
 当前图片
