@@ -108,6 +108,33 @@ class ComfyUIMaintenanceClient:
             missing_endpoint=missing_endpoint,
         )
 
+    async def free_memory_with_extensions_when_idle(
+        self,
+        *,
+        intensity: ComfyUIReleaseIntensity = "high",
+        extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
+        missing_endpoint: ComfyUIExtensionMissingEndpointMode = "optional",
+    ) -> bool:
+        queue = await self._get_queue()
+        running, pending = self._queue_counts(queue)
+        if running or pending:
+            logger.info(
+                "Skipping ComfyUI memory and extension release because queue is busy "
+                f"(running={running}, pending={pending})"
+            )
+            return False
+
+        logger.info(
+            "Releasing ComfyUI memory and extension caches after idle workflow "
+            f"completion ({intensity})"
+        )
+        await self.free_memory(intensity)
+        await self.free_extension_models(
+            extensions=extensions,
+            missing_endpoint=missing_endpoint,
+        )
+        return True
+
     async def free_extension_models(
         self,
         *,

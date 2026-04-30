@@ -157,6 +157,40 @@ async def test_free_memory_with_extensions_calls_comfyui_free_then_indextts2_end
 
 
 @pytest.mark.asyncio
+async def test_free_memory_with_extensions_when_idle_checks_queue_before_release():
+    transport = _RecordingTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    released = await client.free_memory_with_extensions_when_idle(
+        intensity="high",
+        extensions=("indextts2",),
+    )
+
+    assert released is True
+    assert transport.calls == [
+        ("GET", "/queue", None),
+        ("POST", "/free", {"unload_models": True, "free_memory": True}),
+        ("POST", "/pixelle/indextts2/free", {}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_free_memory_with_extensions_when_idle_skips_busy_queue():
+    transport = _RecordingTransport(
+        queue_payload={"queue_running": [["running"]], "queue_pending": []}
+    )
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    released = await client.free_memory_with_extensions_when_idle(
+        intensity="high",
+        extensions=("indextts2",),
+    )
+
+    assert released is False
+    assert transport.calls == [("GET", "/queue", None)]
+
+
+@pytest.mark.asyncio
 async def test_free_extension_models_treats_missing_optional_endpoint_as_warning():
     class _MissingEndpointTransport(_RecordingTransport):
         async def handle_async_request(self, request: httpx.Request) -> httpx.Response:

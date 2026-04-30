@@ -19,6 +19,7 @@ Refactored to use LinearVideoPipeline (Template Method Pattern).
 """
 
 import asyncio
+import inspect
 import json
 import os
 import shutil
@@ -155,10 +156,32 @@ class AssetExecutionMode:
 
 
 @asynccontextmanager
-async def _maybe_local_comfyui_workflow_session(core: Any):
+async def _maybe_local_comfyui_workflow_session(
+    core: Any,
+    *,
+    release_after_session: bool = False,
+):
     session_factory = getattr(core, "local_comfyui_workflow_session", None)
     if callable(session_factory):
-        async with session_factory():
+        try:
+            signature = inspect.signature(session_factory)
+        except (TypeError, ValueError):
+            supports_release_after_session = True
+        else:
+            supports_release_after_session = (
+                "release_after_session" in signature.parameters
+                or any(
+                    parameter.kind == inspect.Parameter.VAR_KEYWORD
+                    for parameter in signature.parameters.values()
+                )
+            )
+
+        session_context = (
+            session_factory(release_after_session=release_after_session)
+            if supports_release_after_session
+            else session_factory()
+        )
+        async with session_context:
             yield
         return
 
@@ -1340,7 +1363,10 @@ class StandardPipeline(LinearVideoPipeline):
                     )
                     continue
 
-                async with _maybe_local_comfyui_workflow_session(self.core):
+                async with _maybe_local_comfyui_workflow_session(
+                    self.core,
+                    release_after_session=True,
+                ):
                     await self._produce_staged_media_frame(
                         ctx,
                         frame,
@@ -1351,7 +1377,10 @@ class StandardPipeline(LinearVideoPipeline):
             return
 
         if media_session_policy == "batch":
-            async with _maybe_local_comfyui_workflow_session(self.core):
+            async with _maybe_local_comfyui_workflow_session(
+                self.core,
+                release_after_session=True,
+            ):
                 for frame in storyboard.frames:
                     await self._produce_staged_media_frame(
                         ctx,

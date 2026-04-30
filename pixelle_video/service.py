@@ -58,12 +58,13 @@ from pixelle_video.utils.os_util import get_output_path
 
 
 class _LocalComfyUIWorkflowSession:
-    def __init__(self) -> None:
+    def __init__(self, *, release_after_session: bool = False) -> None:
         self.init_lock = asyncio.Lock()
         self.execute_lock = asyncio.Lock()
         self.lock_acquired = False
         self.prepared = False
         self.used_index_tts2 = False
+        self.release_after_session = release_after_session
 
 
 class _LocalComfyUITaskScope:
@@ -329,16 +330,6 @@ class PixelleVideoCore:
         )
         try:
             await client.cleanup_before_generation(mode)
-            if mode == "force":
-                model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
-                if model_cleanup_mode == "comfyui":
-                    await client.free_memory("high")
-                elif model_cleanup_mode == "comfyui_and_extensions":
-                    await client.free_memory_with_extensions(
-                        "high",
-                        extensions=("indextts2",),
-                        missing_endpoint="optional",
-                    )
         except Exception as e:
             raise RuntimeError(f"ComfyUI pre-workflow cleanup failed: {e}") from e
 
@@ -356,13 +347,26 @@ class PixelleVideoCore:
         if not base_url:
             return False
 
-        logger.debug(
-            "Skipping automatic ComfyUI {} memory release because Pixelle keeps "
-            "selfhost models loaded by design and reserves /free for explicit forced "
-            "cleanup paths.",
-            context,
+        model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
+        if model_cleanup_mode == "disabled":
+            logger.info(f"Skipping ComfyUI {context} memory release by configuration")
+            return False
+
+        client = ComfyUIMaintenanceClient(
+            base_url,
+            api_key=comfyui_config.get("comfyui_api_key"),
         )
-        return False
+        try:
+            if model_cleanup_mode == "comfyui":
+                return await client.free_memory_when_idle(intensity="high")
+            return await client.free_memory_with_extensions_when_idle(
+                intensity="high",
+                extensions=("indextts2",),
+                missing_endpoint="optional",
+            )
+        except Exception as e:
+            logger.warning(f"ComfyUI {context} memory release failed, continuing: {e}")
+            return False
 
     async def force_release_comfyui_memory(
         self,
@@ -463,7 +467,10 @@ class PixelleVideoCore:
                     scope.pending_extension_memory_release = False
             return
 
-        if self._should_release_local_comfyui_after_workflow():
+        if (
+            session.release_after_session
+            or self._should_release_local_comfyui_after_workflow()
+        ):
             await self.release_comfyui_after_local_workflow()
 
     async def _register_local_comfyui_task_use(self) -> None:
@@ -548,14 +555,22 @@ class PixelleVideoCore:
             return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
 
     @asynccontextmanager
-    async def local_comfyui_workflow_session(self):
+    async def local_comfyui_workflow_session(
+        self,
+        *,
+        release_after_session: bool = False,
+    ):
         """Keep local ComfyUI prepared across a deliberate batch of selfhost workflows."""
         existing_session = self._local_comfyui_workflow_session.get()
         if existing_session is not None:
+            if release_after_session:
+                existing_session.release_after_session = True
             yield
             return
 
-        session = _LocalComfyUIWorkflowSession()
+        session = _LocalComfyUIWorkflowSession(
+            release_after_session=release_after_session
+        )
         token = self._local_comfyui_workflow_session.set(session)
         try:
             yield

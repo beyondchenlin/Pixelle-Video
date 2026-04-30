@@ -40,6 +40,7 @@ class _DummyCore:
     def __init__(self, *, tts_defaults=None, media_defaults=None):
         self.config = {}
         self.local_comfyui_sessions = []
+        self.local_comfyui_session_release_options = []
         self.llm = object()
         self.video = object()
         self.frame_processor = SimpleNamespace()
@@ -53,7 +54,8 @@ class _DummyCore:
         )
 
     @asynccontextmanager
-    async def local_comfyui_workflow_session(self):
+    async def local_comfyui_workflow_session(self, *, release_after_session=False):
+        self.local_comfyui_session_release_options.append(release_after_session)
         self.local_comfyui_sessions.append("enter")
         try:
             yield
@@ -83,7 +85,7 @@ def _build_ctx(
     return ctx
 
 
-def test_resolve_asset_execution_mode_uses_staged_mode_for_default_selfhost_image_workflows():
+def test_resolve_asset_execution_mode_batches_default_selfhost_gguf_image_workflows():
     pipeline = StandardPipeline(_DummyCore())
     ctx = _build_ctx()
 
@@ -95,7 +97,7 @@ def test_resolve_asset_execution_mode_uses_staged_mode_for_default_selfhost_imag
     assert execution_mode.media_domain == "image"
     assert execution_mode.is_runninghub is False
     assert execution_mode.use_staged_mode is True
-    assert execution_mode.local_media_session_policy == "per_frame"
+    assert execution_mode.local_media_session_policy == "batch"
 
 
 def test_resolve_asset_execution_mode_disables_staged_mode_for_explicit_video_workflow():
@@ -111,7 +113,7 @@ def test_resolve_asset_execution_mode_disables_staged_mode_for_explicit_video_wo
     assert execution_mode.local_media_session_policy == "none"
 
 
-def test_resolve_asset_execution_mode_uses_staged_mode_for_local_tts_with_selfhost_media():
+def test_resolve_asset_execution_mode_batches_local_tts_with_selfhost_media():
     pipeline = StandardPipeline(_DummyCore())
     ctx = _build_ctx(tts_inference_mode="local")
 
@@ -120,7 +122,7 @@ def test_resolve_asset_execution_mode_uses_staged_mode_for_local_tts_with_selfho
     assert execution_mode.tts_workflow_key is None
     assert execution_mode.media_workflow_key == "selfhost/image_z_image_turbo_gguf.json"
     assert execution_mode.use_staged_mode is True
-    assert execution_mode.local_media_session_policy == "per_frame"
+    assert execution_mode.local_media_session_policy == "batch"
 
 
 def test_resolve_asset_execution_mode_keeps_non_gguf_selfhost_media_batched():
@@ -313,7 +315,7 @@ def _patch_master_track_audio_prepared(monkeypatch, pipeline: StandardPipeline) 
 
 
 @pytest.mark.asyncio
-async def test_produce_assets_runs_staged_selfhost_image_flow_in_phase_order(monkeypatch):
+async def test_produce_assets_batches_default_gguf_media_generation(monkeypatch):
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor()
     pipeline = StandardPipeline(core)
@@ -340,9 +342,8 @@ async def test_produce_assets_runs_staged_selfhost_image_flow_in_phase_order(mon
         "exit",
         "enter",
         "exit",
-        "enter",
-        "exit",
     ]
+    assert core.local_comfyui_session_release_options == [False, True]
 
 
 @pytest.mark.asyncio
@@ -369,6 +370,7 @@ async def test_produce_assets_keeps_non_gguf_selfhost_media_in_batch_session(mon
         "enter",
         "exit",
     ]
+    assert core.local_comfyui_session_release_options == [False, True]
 
 
 @pytest.mark.asyncio
@@ -981,9 +983,8 @@ async def test_produce_assets_stages_mixed_runninghub_tts_and_selfhost_media(mon
         "exit",
         "enter",
         "exit",
-        "enter",
-        "exit",
     ]
+    assert core.local_comfyui_session_release_options == [False, True]
 
 
 @pytest.mark.asyncio

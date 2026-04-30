@@ -469,7 +469,7 @@ class ComfyUIConfig(BaseModel):
     )
     model_cleanup_mode: Literal["disabled", "comfyui", "comfyui_and_extensions"] = Field(
         default="comfyui_and_extensions",
-        description="Model memory cleanup scope used after forced queue cleanup and explicit recovery paths",
+        description="Model memory cleanup scope used after local workflow batches and explicit recovery paths",
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")
@@ -498,8 +498,8 @@ class ComfyUIConfig(BaseModel):
         if legacy_fields:
             logger.warning(
                 "Ignoring legacy ComfyUI config field(s): {}. "
-                "Pixelle no longer performs automatic post-generation /free cleanup "
-                "for selfhost workflows.",
+                "Use model_cleanup_mode to control model release after local workflow "
+                "batches and explicit recovery paths.",
                 ", ".join(legacy_fields),
             )
 

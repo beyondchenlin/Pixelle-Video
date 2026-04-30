@@ -72,7 +72,7 @@ def _build_capabilities(
         supports_negative_prompt=supports_negative_prompt,
         uses_gguf_loaders=uses_gguf_loaders,
         local_memory_profile=local_memory_profile,
-        prefers_isolated_local_execution=local_memory_profile == "high",
+        prefers_isolated_local_execution=False,
     )
 
 

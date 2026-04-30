@@ -55,11 +55,12 @@ template:
 - `pre_generation_cleanup_mode`: 本地生成批次前的清理策略
   - `"force"`：中断并清空繁忙队列，等待 ComfyUI 恢复空闲后再开始 Pixelle 生成
   - `"conservative"`：不强制干预现有队列
+  - 这里只做队列清理，不会在每张图片生成前卸载模型
 - `pre_generation_cleanup_timeout_seconds`: 强制清理时等待 ComfyUI 队列恢复空闲的秒数；超时后会快速失败并提示队列可能卡住
-- `model_cleanup_mode`：强制队列清理和显式恢复路径使用的模型显存释放范围。`disabled` 保留模型常驻，`comfyui` 调用 ComfyUI `/free`，`comfyui_and_extensions` 会同时调用 `/free` 和 Pixelle 管理的插件清理端点，例如 `/pixelle/indextts2/free`。
+- `model_cleanup_mode`：本地工作流批次结束和显式恢复路径使用的模型显存释放范围。`disabled` 在批次结束后保留模型常驻，`comfyui` 调用 ComfyUI `/free`，`comfyui_and_extensions` 会同时调用 `/free` 和 Pixelle 管理的插件清理端点，例如 `/pixelle/indextts2/free`。
 - `comfyui_api_key`: ComfyUI API 密钥（可选，用于 [Comfy Platform](https://platform.comfy.org/profile/api-keys)）
 
-Pixelle 不再对 selfhost 工作流执行常规生成后自动 `/free`，避免反复卸载模型导致 GGUF 管线不稳定。正常运行会保持模型热加载；OOM 恢复、强制生成前清理以及 IndexTTS2 session 退出会按 `model_cleanup_mode` 执行显式清理。
+Pixelle 不会在本地图片批次的每张图生成前调用 `/free`。批次内会保持 GGUF 和相关模型热加载，避免每帧重复卸载和重载。整个本地工作流批次结束后，`model_cleanup_mode` 决定是否释放 ComfyUI 模型显存以及 Pixelle 管理的插件缓存。OOM 恢复仍会在重试前执行一次高强度显式清理。
 
 ### RunningHub 云端配置
 

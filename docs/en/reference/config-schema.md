@@ -55,11 +55,12 @@ template:
 - `pre_generation_cleanup_mode`: Cleanup before a local generation batch
   - `"force"`: Interrupt and clear a busy queue, then wait for ComfyUI to become idle before Pixelle starts
   - `"conservative"`: Leave the existing queue untouched and avoid forced cleanup
+  - This is queue cleanup only; it does not unload models before each generated image.
 - `pre_generation_cleanup_timeout_seconds`: How long a forced cleanup waits for the ComfyUI queue to become idle before Pixelle fails fast with an actionable error
-- `model_cleanup_mode`: Model memory cleanup scope used after forced queue cleanup and explicit recovery paths. `disabled` leaves models loaded, `comfyui` calls ComfyUI `/free`, and `comfyui_and_extensions` calls `/free` plus Pixelle-managed extension cleanup endpoints such as `/pixelle/indextts2/free`.
+- `model_cleanup_mode`: Model memory cleanup scope used after local workflow batches and explicit recovery paths. `disabled` leaves models loaded after the batch, `comfyui` calls ComfyUI `/free`, and `comfyui_and_extensions` calls `/free` plus Pixelle-managed extension cleanup endpoints such as `/pixelle/indextts2/free`.
 - `comfyui_api_key`: ComfyUI API key (optional, for [Comfy Platform](https://platform.comfy.org/profile/api-keys))
 
-Pixelle no longer performs automatic post-generation `/free` cleanup for selfhost workflows because repeated model unloads can destabilize GGUF-based pipelines. Models stay loaded during normal operation, while OOM recovery still triggers an explicit high-intensity forced cleanup.
+Pixelle does not call `/free` before each image in a local image batch. The batch keeps GGUF and related models hot so every frame does not pay the unload/reload cost. When that local workflow batch finishes, `model_cleanup_mode` controls whether Pixelle releases ComfyUI model memory and Pixelle-managed extension caches. OOM recovery still triggers an explicit high-intensity cleanup before one retry.
 
 ### RunningHub Cloud Configuration
 

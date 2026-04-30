@@ -849,6 +849,52 @@ async def test_local_comfyui_task_scope_releases_at_task_exit_after_workflow_ses
 
 
 @pytest.mark.asyncio
+async def test_local_comfyui_workflow_session_can_release_at_batch_exit_inside_task_scope():
+    events = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            events.append(("execute", workflow_input))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append(("prepare",))
+
+    async def _release_workflow():
+        events.append(("workflow_release",))
+        core._mark_local_comfyui_released()
+        return True
+
+    async def _release_task():
+        events.append(("task_release",))
+        return True
+
+    async def _get_kit():
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release_workflow
+    core.release_comfyui_after_local_task = _release_task
+    core._get_or_create_comfykit = _get_kit
+
+    async with core.local_comfyui_task_scope():
+        async with core.local_comfyui_workflow_session(release_after_session=True):
+            await core.execute_comfykit_workflow(
+                "image_batch.json",
+                {},
+                workflow_source="selfhost",
+            )
+
+    assert events == [
+        ("prepare",),
+        ("execute", "image_batch.json"),
+        ("workflow_release",),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_local_comfyui_task_scope_uses_task_exit_as_release_fallback():
     events = []
 
@@ -894,15 +940,21 @@ async def test_local_comfyui_task_scope_uses_task_exit_as_release_fallback():
 
 
 @pytest.mark.asyncio
-async def test_release_comfyui_after_local_workflow_skips_automatic_free_even_when_idle_is_configured(monkeypatch):
+async def test_release_comfyui_after_local_workflow_releases_models_after_batch(monkeypatch):
     events = []
 
     class _Client:
         def __init__(self, base_url, *, api_key=None):
             events.append(("client", base_url, api_key))
 
-        async def free_memory_when_idle(self, *, intensity):
-            events.append(("idle_release", intensity))
+        async def free_memory_with_extensions_when_idle(
+            self,
+            *,
+            intensity,
+            extensions=("indextts2",),
+            missing_endpoint="optional",
+        ):
+            events.append(("idle_release_with_extensions", intensity, extensions, missing_endpoint))
             return True
 
     monkeypatch.setattr(
@@ -919,12 +971,15 @@ async def test_release_comfyui_after_local_workflow_skips_automatic_free_even_wh
 
     core = PixelleVideoCore()
 
-    assert await core.release_comfyui_after_local_workflow() is False
-    assert events == []
+    assert await core.release_comfyui_after_local_workflow() is True
+    assert events == [
+        ("client", "http://127.0.0.1:8000", "secret"),
+        ("idle_release_with_extensions", "high", ("indextts2",), "optional"),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_prepare_comfyui_for_local_workflow_releases_models_when_configured(monkeypatch):
+async def test_prepare_comfyui_for_local_workflow_only_cleans_queue(monkeypatch):
     events = []
 
     class _Client:
@@ -973,7 +1028,6 @@ async def test_prepare_comfyui_for_local_workflow_releases_models_when_configure
     assert events == [
         ("client", "http://127.0.0.1:8000", "secret", 20.0),
         ("cleanup", "force"),
-        ("free_with_extensions", "high", ("indextts2",), "optional"),
     ]
 
 
