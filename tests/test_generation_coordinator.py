@@ -273,6 +273,62 @@ async def test_core_execute_local_comfy_workflow_releases_after_failure():
 
 
 @pytest.mark.asyncio
+async def test_core_execute_local_comfy_workflow_recovers_once_after_oom():
+    calls = []
+    attempts = 0
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            nonlocal attempts
+            attempts += 1
+            calls.append(("execute", attempts, workflow_input, workflow_params))
+            if attempts == 1:
+                raise RuntimeError(
+                    "[enforce fail at alloc_cpu.cpp:117] data. "
+                    "DefaultCPUAllocator: not enough memory: you tried to allocate 11141120 bytes."
+                )
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        calls.append(("prepare",))
+
+    async def _release():
+        calls.append(("release",))
+        return True
+
+    async def _get_kit():
+        calls.append(("get_kit",))
+        return _Kit()
+
+    async def _force_release(*, context):
+        calls.append(("force_release", context))
+        return True
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.force_release_comfyui_memory = _force_release
+    core._get_or_create_comfykit = _get_kit
+
+    result = await core.execute_comfykit_workflow(
+        "workflow.json",
+        {"prompt": "demo"},
+        workflow_source="selfhost",
+    )
+
+    assert result.status == "completed"
+    assert calls == [
+        ("prepare",),
+        ("get_kit",),
+        ("execute", 1, "workflow.json", {"prompt": "demo"}),
+        ("force_release", "oom-recovery"),
+        ("prepare",),
+        ("get_kit",),
+        ("execute", 2, "workflow.json", {"prompt": "demo"}),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_core_execute_local_comfy_workflow_stops_when_cleanup_fails():
     calls = []
 
@@ -451,7 +507,7 @@ async def test_local_comfyui_workflow_session_keeps_lifecycle_open_across_batch(
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_task_scope_releases_at_workflow_session_boundary():
+async def test_local_comfyui_task_scope_releases_at_task_exit_after_workflow_session():
     events = []
 
     class _Kit:
@@ -492,13 +548,12 @@ async def test_local_comfyui_task_scope_releases_at_workflow_session_boundary():
         assert events == [
             ("prepare",),
             ("execute", "first.json"),
-            ("workflow_release",),
         ]
 
     assert events == [
         ("prepare",),
         ("execute", "first.json"),
-        ("workflow_release",),
+        ("task_release",),
     ]
 
 
@@ -543,13 +598,12 @@ async def test_local_comfyui_task_scope_uses_task_exit_as_release_fallback():
     assert events == [
         ("prepare",),
         ("execute", "first.json"),
-        ("workflow_release_failed",),
         ("task_release",),
     ]
 
 
 @pytest.mark.asyncio
-async def test_release_comfyui_after_local_workflow_uses_idle_configured_intensity(monkeypatch):
+async def test_release_comfyui_after_local_workflow_skips_automatic_free_even_when_idle_is_configured(monkeypatch):
     events = []
 
     class _Client:
@@ -566,7 +620,6 @@ async def test_release_comfyui_after_local_workflow_uses_idle_configured_intensi
         PixelleVideoConfig(
             comfyui=ComfyUIConfig(
                 comfyui_url="http://127.0.0.1:8000",
-                post_generation_cleanup_intensity="low",
                 comfyui_api_key="secret",
             )
         ),
@@ -575,10 +628,85 @@ async def test_release_comfyui_after_local_workflow_uses_idle_configured_intensi
 
     core = PixelleVideoCore()
 
-    assert await core.release_comfyui_after_local_workflow() is True
+    assert await core.release_comfyui_after_local_workflow() is False
+    assert events == []
+
+
+@pytest.mark.asyncio
+async def test_force_release_comfyui_memory_always_uses_high_intensity(monkeypatch):
+    events = []
+
+    class _Client:
+        def __init__(self, base_url, *, api_key=None):
+            events.append(("client", base_url, api_key))
+
+        async def free_memory(self, intensity="high"):
+            events.append(("force_release", intensity))
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "comfyui_url": "http://127.0.0.1:8000",
+                    "post_generation_cleanup_intensity": "low",
+                    "comfyui_api_key": "secret",
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+
+    core = PixelleVideoCore()
+
+    assert await core.force_release_comfyui_memory(context="oom-recovery") is True
     assert events == [
         ("client", "http://127.0.0.1:8000", "secret"),
-        ("idle_release", "low"),
+        ("force_release", "high"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_prepare_comfyui_for_local_workflow_uses_configured_cleanup_timeout(monkeypatch):
+    events = []
+
+    class _Client:
+        def __init__(
+            self,
+            base_url,
+            *,
+            api_key=None,
+            timeout=5.0,
+            transport=None,
+            idle_wait_timeout=15.0,
+        ):
+            events.append(("client", base_url, api_key, idle_wait_timeout))
+
+        async def cleanup_before_generation(self, mode):
+            events.append(("cleanup", mode))
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                comfyui_api_key="secret",
+                pre_generation_cleanup_mode="conservative",
+                pre_generation_cleanup_timeout_seconds=45.0,
+            )
+        ),
+    )
+    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+
+    core = PixelleVideoCore()
+
+    await core.prepare_comfyui_for_local_workflow()
+
+    assert events == [
+        ("client", "http://127.0.0.1:8000", "secret", 45.0),
+        ("cleanup", "conservative"),
     ]
 
 

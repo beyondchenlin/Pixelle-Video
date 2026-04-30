@@ -17,6 +17,7 @@ Single source of truth for all configuration defaults and validation.
 """
 from typing import Any, Literal, Optional
 
+from loguru import logger
 from pydantic import BaseModel, Field, model_validator
 
 from pixelle_video.config.prompt_prefix_library import (
@@ -459,13 +460,11 @@ class ComfyUIConfig(BaseModel):
         default="force",
         description="ComfyUI cleanup mode before video generation",
     )
-    post_generation_cleanup_mode: Literal["idle", "disabled"] = Field(
-        default="idle",
-        description="ComfyUI memory release mode after a local workflow batch",
-    )
-    post_generation_cleanup_intensity: Literal["high", "low"] = Field(
-        default="high",
-        description="ComfyUI memory release intensity after a local workflow batch",
+    pre_generation_cleanup_timeout_seconds: float = Field(
+        default=20.0,
+        ge=1.0,
+        le=120.0,
+        description="How long to wait for a forced pre-generation cleanup to drain the ComfyUI queue",
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")
@@ -474,6 +473,32 @@ class ComfyUIConfig(BaseModel):
     tts: TTSSubConfig = Field(default_factory=TTSSubConfig, description="TTS-specific configuration")
     image: ImageSubConfig = Field(default_factory=ImageSubConfig, description="Image-specific configuration")
     video: VideoSubConfig = Field(default_factory=VideoSubConfig, description="Video-specific configuration")
+
+    @model_validator(mode="before")
+    @classmethod
+    def drop_legacy_post_generation_cleanup_fields(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+        legacy_fields = []
+        for field_name in (
+            "post_generation_cleanup_mode",
+            "post_generation_cleanup_intensity",
+        ):
+            if field_name in normalized:
+                legacy_fields.append(field_name)
+                normalized.pop(field_name, None)
+
+        if legacy_fields:
+            logger.warning(
+                "Ignoring legacy ComfyUI config field(s): {}. "
+                "Pixelle no longer performs automatic post-generation /free cleanup "
+                "for selfhost workflows.",
+                ", ".join(legacy_fields),
+            )
+
+        return normalized
 
 
 class TemplateConfig(BaseModel):

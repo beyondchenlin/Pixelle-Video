@@ -17,25 +17,40 @@ Supports both image and video generation workflows.
 Automatically detects output type based on ExecuteResult.
 """
 
+import os
 from typing import Optional
 
 from loguru import logger
 
 from pixelle_video.models.media import MediaResult
 from pixelle_video.services.comfy_base_service import ComfyBaseService
+from pixelle_video.services.comfyui_errors import looks_like_memory_exhaustion
 
 
 def _looks_like_memory_exhaustion(error_message: str) -> bool:
-    lowered = error_message.lower()
+    return looks_like_memory_exhaustion(error_message)
+
+
+def _looks_like_selfhost_connection_failure(error_message: str) -> bool:
+    lowered = (error_message or "").lower()
     return any(
         marker in lowered
         for marker in (
-            "not enough memory",
-            "out of memory",
-            "defaultcpuallocator",
-            "std::bad_alloc",
+            "cannot connect to host",
+            "connection refused",
+            "failed to establish a new connection",
+            "actively refused",
         )
     )
+
+
+def _resolve_comfyui_url_for_error_message(configured_url: str | None) -> str:
+    resolved = (
+        configured_url
+        or os.getenv("COMFYUI_BASE_URL")
+        or "http://127.0.0.1:8188"
+    )
+    return str(resolved).strip() or "http://127.0.0.1:8188"
 
 
 def _build_media_generation_error_message(
@@ -43,8 +58,21 @@ def _build_media_generation_error_message(
     error_message: str,
     workflow_key: str,
     media_type: str,
+    comfyui_url: str | None = None,
 ) -> str:
     cleaned = (error_message or "Unknown error").strip()
+    if workflow_key.startswith("selfhost/") and _looks_like_selfhost_connection_failure(cleaned):
+        resolved_comfyui_url = _resolve_comfyui_url_for_error_message(comfyui_url)
+        guidance = [
+            f"Media generation failed: {cleaned}",
+            f"Self-hosted workflow '{workflow_key}' requires a reachable ComfyUI server.",
+            f"Current ComfyUI URL: {resolved_comfyui_url}.",
+            "Start ComfyUI or update Settings -> ComfyUI Server URL (or config.yaml) to a running ComfyUI instance.",
+        ]
+        if resolved_comfyui_url != "http://127.0.0.1:8188":
+            guidance.append("If you're using the default local setup, try http://127.0.0.1:8188.")
+        return " ".join(guidance)
+
     if not _looks_like_memory_exhaustion(cleaned):
         return f"Media generation failed: {cleaned}"
 
@@ -331,6 +359,7 @@ class MediaService(ComfyBaseService):
                     error_message=message,
                     workflow_key=workflow_info["key"],
                     media_type=media_type,
+                    comfyui_url=comfyui_url or self.global_config.get("comfyui_url"),
                 )
             )
             logger.error(f"Media generation error: {formatted_error}")

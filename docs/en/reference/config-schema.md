@@ -15,8 +15,7 @@ llm:
 comfyui:
   comfyui_url: "http://127.0.0.1:8188"
   pre_generation_cleanup_mode: "force"
-  post_generation_cleanup_mode: "idle"
-  post_generation_cleanup_intensity: "high"
+  pre_generation_cleanup_timeout_seconds: 20
   comfyui_api_key: ""  # ComfyUI API key (optional)
   runninghub_api_key: ""
   runninghub_concurrent_limit: 1  # Concurrent limit (1-10)
@@ -53,15 +52,12 @@ template:
 
 - `comfyui_url`: Local ComfyUI address (default `http://127.0.0.1:8188`)
 - `pre_generation_cleanup_mode`: Cleanup before a local generation batch
-  - `"force"`: Interrupt, clear queue, and request memory release before Pixelle starts
-  - `"conservative"`: Only request memory release when the ComfyUI queue is idle
-- `post_generation_cleanup_mode`: Cleanup after each local workflow batch
-  - `"idle"`: Request memory release after the batch finishes and the ComfyUI queue is idle
-  - `"disabled"`: Keep models loaded and leave cleanup to the user
-- `post_generation_cleanup_intensity`: Cleanup strength after each local workflow batch
-  - `"high"`: Unload models and clear memory (default)
-  - `"low"`: Unload models without forcing the full memory reset
+  - `"force"`: Interrupt and clear a busy queue, then wait for ComfyUI to become idle before Pixelle starts
+  - `"conservative"`: Leave the existing queue untouched and avoid forced cleanup
+- `pre_generation_cleanup_timeout_seconds`: How long a forced cleanup waits for the ComfyUI queue to become idle before Pixelle fails fast with an actionable error
 - `comfyui_api_key`: ComfyUI API key (optional, for [Comfy Platform](https://platform.comfy.org/profile/api-keys))
+
+Pixelle no longer performs automatic post-generation `/free` cleanup for selfhost workflows because repeated model unloads can destabilize GGUF-based pipelines. Models stay loaded during normal operation, while OOM recovery still triggers an explicit high-intensity forced cleanup.
 
 ### RunningHub Cloud Configuration
 

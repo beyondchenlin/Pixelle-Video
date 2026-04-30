@@ -36,6 +36,7 @@ from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.alignment_service import AlignmentService
 from pixelle_video.services.audio_edit_service import AudioEditService
+from pixelle_video.services.comfyui_errors import looks_like_memory_exhaustion
 from pixelle_video.services.comfyui_maintenance import ComfyUIMaintenanceClient
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.generation_coordinator import (
@@ -165,13 +166,11 @@ class PixelleVideoCore:
         executor_type = comfyui_config.get("executor_type")
         if executor_type:
             kit_config["executor_type"] = executor_type
-        elif comfyui_config.get("comfyui_api_key"):
-            # WebSocketExecutor in the current ComfyKit version does not send
-            # bearer auth headers during the WS handshake, so authenticated
-            # selfhost deployments need HTTP unless the user overrides it.
-            kit_config["executor_type"] = "http"
         else:
-            kit_config["executor_type"] = "websocket"
+            # Prefer HTTP for selfhost auto mode. It is compatible with token-auth
+            # setups and avoids the repeated-workflow instability we observed with
+            # the current WebSocket execution path.
+            kit_config["executor_type"] = "http"
         if comfyui_config.get("comfyui_api_key"):
             kit_config["api_key"] = comfyui_config["comfyui_api_key"]
         if comfyui_config.get("runninghub_api_key"):
@@ -319,9 +318,11 @@ class PixelleVideoCore:
             logger.warning(f"Unsupported ComfyUI pre-generation cleanup mode: {mode}")
             return
 
+        cleanup_timeout_seconds = comfyui_config.get("pre_generation_cleanup_timeout_seconds") or 20.0
         client = ComfyUIMaintenanceClient(
             base_url,
             api_key=comfyui_config.get("comfyui_api_key"),
+            idle_wait_timeout=cleanup_timeout_seconds,
         )
         try:
             await client.cleanup_before_generation(mode)
@@ -335,25 +336,32 @@ class PixelleVideoCore:
         if not base_url:
             return False
 
-        mode = (comfyui_config.get("post_generation_cleanup_mode") or "idle").lower()
-        if mode == "disabled":
-            logger.info("Skipping ComfyUI post-generation memory release by configuration")
-            return False
-        if mode != "idle":
-            logger.warning(f"Unsupported ComfyUI post-generation cleanup mode: {mode}")
-            return False
+        logger.debug(
+            "Skipping automatic ComfyUI {} memory release because Pixelle keeps "
+            "selfhost models loaded by design and reserves /free for explicit forced "
+            "cleanup paths.",
+            context,
+        )
+        return False
 
-        intensity = (comfyui_config.get("post_generation_cleanup_intensity") or "high").lower()
-        if intensity not in {"high", "low"}:
-            logger.warning(f"Unsupported ComfyUI post-generation cleanup intensity: {intensity}")
-            intensity = "high"
+    async def force_release_comfyui_memory(
+        self,
+        *,
+        context: str,
+    ) -> bool:
+        self.config = config_manager.config.to_dict()
+        comfyui_config = self.config.get("comfyui", {})
+        base_url = comfyui_config.get("comfyui_url")
+        if not base_url:
+            return False
 
         client = ComfyUIMaintenanceClient(
             base_url,
             api_key=comfyui_config.get("comfyui_api_key"),
         )
         try:
-            return await client.free_memory_when_idle(intensity=intensity)
+            await client.free_memory("high")
+            return True
         except Exception as e:
             logger.warning(f"ComfyUI {context} memory release failed, continuing: {e}")
             return False
@@ -390,9 +398,31 @@ class PixelleVideoCore:
                 self._local_comfyui_active_task_count += 1
                 scope.registered_active_task = True
 
-    async def _execute_local_comfykit_workflow(self, workflow_input, workflow_params: dict):
+    async def _execute_local_comfykit_workflow_once(self, workflow_input, workflow_params: dict):
         kit = await self._get_or_create_comfykit()
         return await kit.execute(workflow_input, workflow_params)
+
+    async def _execute_local_comfykit_workflow(self, workflow_input, workflow_params: dict):
+        try:
+            return await self._execute_local_comfykit_workflow_once(
+                workflow_input,
+                workflow_params,
+            )
+        except Exception as exc:
+            if not looks_like_memory_exhaustion(str(exc)):
+                raise
+
+            logger.warning(
+                "Local ComfyUI workflow ran out of memory; releasing memory and "
+                "retrying once after a fresh pre-workflow cleanup."
+            )
+            await self.force_release_comfyui_memory(context="oom-recovery")
+            await self.prepare_comfyui_for_local_workflow()
+            await self._register_local_comfyui_task_use()
+            return await self._execute_local_comfykit_workflow_once(
+                workflow_input,
+                workflow_params,
+            )
 
     async def _execute_scoped_local_comfykit_workflow(self, workflow_input, workflow_params: dict):
         session = self._local_comfyui_workflow_session.get()
@@ -429,7 +459,7 @@ class PixelleVideoCore:
             yield
         finally:
             try:
-                if session.prepared:
+                if session.prepared and self._should_release_local_comfyui_after_workflow():
                     await self.release_comfyui_after_local_workflow()
             finally:
                 if session.lock_acquired:
@@ -464,6 +494,12 @@ class PixelleVideoCore:
             if scope.used_local_comfyui and scope.pending_memory_release and should_release:
                 await self.release_comfyui_after_local_task()
 
+    def _should_release_local_comfyui_after_workflow(self) -> bool:
+        # A task scope means more selfhost workflows are likely imminent inside the
+        # same Pixelle pipeline. Deferring release to task exit avoids unload/reload
+        # thrash and the server-side GGUF unload crashes we observed between frames.
+        return self._local_comfyui_task_scope.get() is None
+
     async def execute_comfykit_workflow(
         self,
         workflow_input,
@@ -488,7 +524,8 @@ class PixelleVideoCore:
             try:
                 return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
             finally:
-                await self.release_comfyui_after_local_workflow()
+                if self._should_release_local_comfyui_after_workflow():
+                    await self.release_comfyui_after_local_workflow()
 
     async def execute_comfykit_workflow_file(
         self,

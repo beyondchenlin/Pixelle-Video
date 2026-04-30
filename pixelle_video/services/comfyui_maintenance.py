@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Literal
 
 import httpx
@@ -7,6 +8,7 @@ from loguru import logger
 
 ComfyUICleanupMode = Literal["force", "conservative"]
 ComfyUIReleaseIntensity = Literal["high", "low"]
+_IDLE_POLL_INTERVAL_SECONDS = 0.2
 
 
 _FREE_MEMORY_PAYLOADS: dict[ComfyUIReleaseIntensity, dict[str, bool]] = {
@@ -25,11 +27,15 @@ class ComfyUIMaintenanceClient:
         api_key: str | None = None,
         timeout: float = 5.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        idle_wait_timeout: float = 20.0,
     ) -> None:
+        if idle_wait_timeout <= 0:
+            raise ValueError("idle_wait_timeout must be positive")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
         self.transport = transport
+        self.idle_wait_timeout = idle_wait_timeout
 
     async def cleanup_before_generation(self, mode: ComfyUICleanupMode) -> None:
         if mode == "force":
@@ -41,24 +47,31 @@ class ComfyUIMaintenanceClient:
         raise ValueError(f"Unsupported ComfyUI cleanup mode: {mode}")
 
     async def _force_cleanup(self) -> None:
-        logger.info("Running force ComfyUI cleanup before video generation")
+        queue = await self._get_queue()
+        running, pending = self._queue_counts(queue)
+        if running == 0 and pending == 0:
+            logger.info("Skipping force ComfyUI queue cleanup because queue is already idle")
+            return
+
+        logger.info(
+            "Running force ComfyUI queue cleanup before video generation "
+            f"(running={running}, pending={pending})"
+        )
         await self._post("/interrupt", {})
         await self._post("/queue", {"clear": True})
-        await self.free_memory()
+        await self._wait_until_idle()
 
     async def _conservative_cleanup(self) -> None:
         queue = await self._get_queue()
-        running = queue.get("queue_running") or []
-        pending = queue.get("queue_pending") or []
+        running, pending = self._queue_counts(queue)
         if running or pending:
             logger.info(
                 "Skipping conservative ComfyUI cleanup because queue is busy "
-                f"(running={len(running)}, pending={len(pending)})"
+                f"(running={running}, pending={pending})"
             )
             return
 
-        logger.info("Running conservative ComfyUI cleanup before video generation")
-        await self.free_memory()
+        logger.info("Skipping conservative ComfyUI cleanup because queue is already idle")
 
     async def free_memory(self, intensity: ComfyUIReleaseIntensity = "high") -> None:
         payload = _FREE_MEMORY_PAYLOADS.get(intensity)
@@ -72,12 +85,11 @@ class ComfyUIMaintenanceClient:
         intensity: ComfyUIReleaseIntensity = "high",
     ) -> bool:
         queue = await self._get_queue()
-        running = queue.get("queue_running") or []
-        pending = queue.get("queue_pending") or []
+        running, pending = self._queue_counts(queue)
         if running or pending:
             logger.info(
                 "Skipping ComfyUI memory release because queue is busy "
-                f"(running={len(running)}, pending={len(pending)})"
+                f"(running={running}, pending={pending})"
             )
             return False
 
@@ -89,6 +101,27 @@ class ComfyUIMaintenanceClient:
         response = await self._request("GET", "/queue")
         data = response.json()
         return data if isinstance(data, dict) else {}
+
+    async def _wait_until_idle(self) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.idle_wait_timeout
+        while True:
+            queue = await self._get_queue()
+            running, pending = self._queue_counts(queue)
+            if running == 0 and pending == 0:
+                return
+            if loop.time() >= deadline:
+                raise TimeoutError(
+                    "Timed out waiting for ComfyUI queue to become idle after "
+                    f"{self.idle_wait_timeout:g}s (running={running}, pending={pending}). "
+                    "Check the ComfyUI queue for a stuck prompt before retrying."
+                )
+            await asyncio.sleep(_IDLE_POLL_INTERVAL_SECONDS)
+
+    def _queue_counts(self, queue: dict) -> tuple[int, int]:
+        running = queue.get("queue_running") or []
+        pending = queue.get("queue_pending") or []
+        return len(running), len(pending)
 
     async def _post(self, path: str, payload: dict) -> None:
         await self._request("POST", path, json=payload)

@@ -227,14 +227,6 @@ def render_advanced_settings():
                     "force": tr("settings.comfyui.cleanup_force"),
                     "conservative": tr("settings.comfyui.cleanup_conservative"),
                 }
-                post_cleanup_mode_labels = {
-                    "idle": tr("settings.comfyui.cleanup_idle"),
-                    "disabled": tr("settings.comfyui.cleanup_disabled"),
-                }
-                post_cleanup_intensity_labels = {
-                    "high": tr("settings.comfyui.cleanup_intensity_high"),
-                    "low": tr("settings.comfyui.cleanup_intensity_low"),
-                }
                 current_executor_type = comfyui_config.get("executor_type")
                 if current_executor_type in executor_labels:
                     default_executor_type = current_executor_type
@@ -243,12 +235,12 @@ def render_advanced_settings():
                 current_cleanup_mode = comfyui_config.get("pre_generation_cleanup_mode", "force")
                 if current_cleanup_mode not in cleanup_mode_labels:
                     current_cleanup_mode = "force"
-                current_post_cleanup_mode = comfyui_config.get("post_generation_cleanup_mode", "idle")
-                if current_post_cleanup_mode not in post_cleanup_mode_labels:
-                    current_post_cleanup_mode = "idle"
-                current_post_cleanup_intensity = comfyui_config.get("post_generation_cleanup_intensity", "high")
-                if current_post_cleanup_intensity not in post_cleanup_intensity_labels:
-                    current_post_cleanup_intensity = "high"
+                current_cleanup_timeout_seconds = comfyui_config.get(
+                    "pre_generation_cleanup_timeout_seconds",
+                    20.0,
+                )
+                if not isinstance(current_cleanup_timeout_seconds, (int, float)):
+                    current_cleanup_timeout_seconds = 20.0
 
                 url_col, key_col, executor_col = st.columns(3)
                 with url_col:
@@ -273,10 +265,10 @@ def render_advanced_settings():
                         index=list(executor_labels.keys()).index(default_executor_type),
                         format_func=lambda key: executor_labels[key],
                         help=(
-                            "Auto will choose HTTP when a ComfyUI API key is set, "
-                            "otherwise WebSocket."
+                            "Auto uses HTTP for selfhost reliability. Choose "
+                            "WebSocket only when you explicitly want that path."
                             if get_language() != "zh_CN"
-                            else "自动模式下，如果配置了 ComfyUI API Key 会优先使用 HTTP，否则使用 WebSocket。"
+                            else "自动模式默认使用 HTTP 以获得更稳定的自托管执行，WebSocket 仅在你明确需要时再选择。"
                         ),
                         key="comfyui_executor_type_input"
                     )
@@ -290,25 +282,16 @@ def render_advanced_settings():
                     key="comfyui_cleanup_mode_input",
                 )
 
-                post_mode_col, post_intensity_col = st.columns(2)
-                with post_mode_col:
-                    post_cleanup_mode = st.selectbox(
-                        tr("settings.comfyui.post_generation_cleanup_mode"),
-                        options=list(post_cleanup_mode_labels.keys()),
-                        index=list(post_cleanup_mode_labels.keys()).index(current_post_cleanup_mode),
-                        format_func=lambda key: post_cleanup_mode_labels[key],
-                        help=tr("settings.comfyui.post_generation_cleanup_mode_help"),
-                        key="comfyui_post_cleanup_mode_input",
-                    )
-                with post_intensity_col:
-                    post_cleanup_intensity = st.selectbox(
-                        tr("settings.comfyui.post_generation_cleanup_intensity"),
-                        options=list(post_cleanup_intensity_labels.keys()),
-                        index=list(post_cleanup_intensity_labels.keys()).index(current_post_cleanup_intensity),
-                        format_func=lambda key: post_cleanup_intensity_labels[key],
-                        help=tr("settings.comfyui.post_generation_cleanup_intensity_help"),
-                        key="comfyui_post_cleanup_intensity_input",
-                    )
+                cleanup_timeout_seconds = st.number_input(
+                    tr("settings.comfyui.pre_generation_cleanup_timeout"),
+                    min_value=1.0,
+                    max_value=120.0,
+                    value=float(current_cleanup_timeout_seconds),
+                    step=1.0,
+                    help=tr("settings.comfyui.pre_generation_cleanup_timeout_help"),
+                    key="comfyui_cleanup_timeout_seconds_input",
+                )
+                st.caption(tr("settings.comfyui.post_generation_cleanup_notice"))
 
                 # Test connection button
                 if st.button(tr("btn.test_connection"), key="test_comfyui", width="stretch"):
@@ -395,8 +378,7 @@ def render_advanced_settings():
                         comfyui_url=comfyui_url if comfyui_url else None,
                         executor_type="" if executor_type == "auto" else executor_type,
                         pre_generation_cleanup_mode=cleanup_mode,
-                        post_generation_cleanup_mode=post_cleanup_mode,
-                        post_generation_cleanup_intensity=post_cleanup_intensity,
+                        pre_generation_cleanup_timeout_seconds=float(cleanup_timeout_seconds),
                         comfyui_api_key=comfyui_api_key if comfyui_api_key else None,
                         runninghub_api_key=runninghub_api_key if runninghub_api_key else None,
                         runninghub_concurrent_limit=int(runninghub_concurrent_limit),

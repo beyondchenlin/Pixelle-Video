@@ -8,6 +8,7 @@ from pixelle_video.config.workflow_defaults import (
 )
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.services.media import MediaService
+from pixelle_video.utils.workflow_capabilities import get_workflow_capabilities
 from web.utils.workflow_defaults import resolve_selectbox_default_index
 
 
@@ -270,6 +271,26 @@ def test_schema_bootstrap_defaults_match_the_new_image_workflow():
     assert config.comfyui.video.default_workflow == "runninghub/video_wan2.1_fusionx.json"
 
 
+def test_workflow_capabilities_mark_gguf_loaders_as_high_memory():
+    capabilities = get_workflow_capabilities(
+        _workflow_info("selfhost/image_z_image_turbo_gguf.json")
+    )
+
+    assert capabilities.uses_gguf_loaders is True
+    assert capabilities.local_memory_profile == "high"
+    assert capabilities.prefers_isolated_local_execution is True
+
+
+def test_workflow_capabilities_keep_standard_selfhost_image_workflows_batchable():
+    capabilities = get_workflow_capabilities(
+        _workflow_info("selfhost/image_z_image_turbo.json")
+    )
+
+    assert capabilities.uses_gguf_loaders is False
+    assert capabilities.local_memory_profile == "standard"
+    assert capabilities.prefers_isolated_local_execution is False
+
+
 @pytest.mark.asyncio
 async def test_media_service_surfaces_actionable_oom_guidance(monkeypatch):
     class _FailedResult:
@@ -330,3 +351,39 @@ async def test_media_service_formats_direct_execute_oom_exceptions(monkeypatch):
 
     with pytest.raises(RuntimeError, match="ran out of memory"):
         await service(prompt="a cat", media_type="image")
+
+
+@pytest.mark.asyncio
+async def test_media_service_formats_selfhost_connection_errors_with_comfyui_guidance(
+    monkeypatch,
+):
+    class _ExplodingCore:
+        async def execute_comfykit_workflow(self, workflow_input, workflow_params, *, workflow_source):
+            raise RuntimeError(
+                "Cannot connect to host 127.0.0.1:8000 ssl:default [Connection refused]"
+            )
+
+    service = MediaService(
+        {
+            "comfyui": {
+                "comfyui_url": "http://127.0.0.1:8000",
+                "image": {"default_workflow": None},
+            }
+        },
+        core=_ExplodingCore(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_resolve_workflow",
+        lambda workflow=None, workflow_domain=None: _workflow_info(
+            "selfhost/image_z_image_turbo_gguf.json"
+        ),
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await service(prompt="a cat", media_type="image")
+
+    message = str(exc_info.value)
+    assert "Self-hosted workflow 'selfhost/image_z_image_turbo_gguf.json'" in message
+    assert "Current ComfyUI URL: http://127.0.0.1:8000" in message
+    assert "http://127.0.0.1:8188" in message
