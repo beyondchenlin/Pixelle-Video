@@ -15,6 +15,7 @@ class _ProjectionFakeUI:
         self.text_inputs = []
         self.buttons = []
         self.selectboxes = []
+        self.expanders = []
         self.markdowns = []
         self.captions = []
         self.json_calls = []
@@ -25,7 +26,8 @@ class _ProjectionFakeUI:
     def container(self, *_args, **_kwargs):
         return _NoopContext()
 
-    def expander(self, *_args, **_kwargs):
+    def expander(self, label, **kwargs):
+        self.expanders.append({"label": label, **kwargs})
         return _NoopContext()
 
     def columns(self, count):
@@ -1280,11 +1282,54 @@ def test_render_projection_preview_does_not_render_style_or_path_inputs():
     labels = " ".join(item["label"] for item in fake_ui.text_inputs).lower()
     assert "project" in labels
     assert "workspace" in labels
-    assert "asset bible" in labels
-    assert "scene cast" in labels
     assert "storyboard" in labels
     assert "frame" in labels
     assert "title_style" not in labels
     assert "caption_style" not in labels
     assert "font" not in labels
     assert "path" not in labels
+
+
+def test_render_projection_preview_hides_manual_asset_ids_in_default_flow():
+    from web.components.asset_prompt_plan_projection import (
+        render_asset_prompt_plan_projection_preview,
+    )
+
+    fake_ui = _ProjectionFakeUI()
+
+    render_asset_prompt_plan_projection_preview(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    projection_labels = {
+        item["key"]: item["label"]
+        for item in fake_ui.text_inputs
+        if item.get("key", "").startswith("projection_")
+    }
+    assert "projection_asset_bible_id" not in projection_labels
+    assert "projection_scene_cast_id" not in projection_labels
+    assert fake_ui.expanders == []
+
+
+def test_render_projection_preview_shows_manual_asset_ids_in_advanced_debug():
+    from web.components.asset_prompt_plan_projection import (
+        render_asset_prompt_plan_projection_preview,
+    )
+
+    fake_ui = _ProjectionFakeUI()
+    fake_ui.session_state["projection_advanced_debug"] = True
+
+    render_asset_prompt_plan_projection_preview(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    projection_labels = {
+        item["key"]: item["label"]
+        for item in fake_ui.text_inputs
+        if item.get("key", "").startswith("projection_")
+    }
+    assert fake_ui.expanders == [{"label": "Advanced Debug", "expanded": False}]
+    assert projection_labels["projection_asset_bible_id"] == "Asset Bible ID"
+    assert projection_labels["projection_scene_cast_id"] == "Scene Cast ID"

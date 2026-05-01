@@ -93,6 +93,8 @@ def render_asset_prompt_plan_projection_preview(
 
     asset_bibles = _list_of_dicts(ui.session_state.get("projection_asset_bibles"))
     asset_bible_id = _render_asset_bible_selector(ui, asset_bibles)
+    if not asset_bible_id:
+        asset_bible_id = _existing_projection_id(ui.session_state, "projection_asset_bible_id")
     if (
         asset_bibles
         and asset_bible_id
@@ -106,17 +108,24 @@ def render_asset_prompt_plan_projection_preview(
             workspace_id=workspace_id,
             asset_bible_id=asset_bible_id,
         )
-    if not asset_bible_id:
-        asset_bible_id = _text_input(
-            ui,
-            "Asset Bible ID",
-            key="projection_asset_bible_id",
-        )
 
     scene_casts = _list_of_dicts(ui.session_state.get("projection_scene_casts"))
     scene_cast_id = _render_scene_cast_selector(ui, scene_casts)
     if not scene_cast_id:
-        scene_cast_id = _text_input(ui, "Scene Cast ID", key="projection_scene_cast_id")
+        scene_cast_id = _existing_projection_id(ui.session_state, "projection_scene_cast_id")
+    if not asset_bible_id or not scene_cast_id:
+        debug_ids = _render_advanced_debug_ids(
+            ui,
+            current_asset_bible_id=asset_bible_id,
+            current_scene_cast_id=scene_cast_id,
+        )
+        asset_bible_id = asset_bible_id or debug_ids["asset_bible_id"]
+        scene_cast_id = scene_cast_id or debug_ids["scene_cast_id"]
+        if not asset_bible_id or not scene_cast_id:
+            ui.caption(
+                "普通预览流程需要先加载或创建 AssetBible / SceneCast 草稿；"
+                "手动 ID 只保留在 Advanced Debug 中。"
+            )
 
     left, right = ui.columns(2)
     with left:
@@ -324,6 +333,32 @@ def _render_scene_cast_selector(ui, scene_casts: list[dict[str, Any]]) -> str:
     return selected_id
 
 
+def _render_advanced_debug_ids(
+    ui,
+    *,
+    current_asset_bible_id: str,
+    current_scene_cast_id: str,
+) -> dict[str, str]:
+    if not ui.session_state.get("projection_advanced_debug"):
+        return {"asset_bible_id": "", "scene_cast_id": ""}
+    with ui.expander("Advanced Debug", expanded=False):
+        ui.caption("仅用于调试已有后端资源 ID；普通预览应通过加载或创建草稿获得选择项。")
+        asset_bible_id = current_asset_bible_id or _text_input(
+            ui,
+            "Asset Bible ID",
+            key="projection_asset_bible_id",
+        )
+        scene_cast_id = current_scene_cast_id or _text_input(
+            ui,
+            "Scene Cast ID",
+            key="projection_scene_cast_id",
+        )
+    return {
+        "asset_bible_id": asset_bible_id,
+        "scene_cast_id": scene_cast_id,
+    }
+
+
 def _render_projection_result(result: dict[str, Any], *, ui=st) -> None:
     projection = _as_dict(result.get("projection"))
     prompt_plan = _as_dict(projection.get("prompt_plan"))
@@ -372,6 +407,13 @@ def _text_input(ui, label: str, *, key: str, value: str = "") -> str:
     if key in ui.session_state:
         return ui.text_input(label, key=key)
     return ui.text_input(label, value=value, key=key)
+
+
+def _existing_projection_id(session_state: dict[str, Any], key: str) -> str:
+    value = session_state.get(key)
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
 
 
 def _has_missing_context(*, project_id: str, workspace_id: str) -> bool:
