@@ -58,10 +58,153 @@ if ($MarkReviewGate -ne "none") {
 Assert-CleanGitWorktree $ResolvedRepoRoot
 
 $Tasks = Get-TaskDefinitions $TaskDefinitionPath
+
+function New-ReportDirectory {
+    param([string]$Root)
+    $dir = Join-Path $Root "_runtime/stage_closeout"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    return $dir
+}
+
+function Get-CurrentCommit {
+    param([string]$Root)
+    $commit = (& git -C $Root rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        return "unknown"
+    }
+    return $commit
+}
+
+function Get-CurrentBranch {
+    param([string]$Root)
+    $branch = (& git -C $Root branch --show-current).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $branch) {
+        return "unknown"
+    }
+    return $branch
+}
+
+function Invoke-VerificationCommand {
+    param(
+        [string]$Root,
+        [string]$Command
+    )
+    Push-Location $Root
+    try {
+        $output = & powershell -NoProfile -ExecutionPolicy Bypass -Command $Command 2>&1
+        $code = $LASTEXITCODE
+        if ($null -eq $code) {
+            $code = 0
+        }
+        return [PSCustomObject]@{
+            Command = $Command
+            ExitCode = [int]$code
+            Output = @($output | ForEach-Object { [string]$_ })
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function New-CloseoutReport {
+    param(
+        [string]$Root,
+        [object]$Task,
+        [object[]]$Results,
+        [string]$Status
+    )
+    $dir = New-ReportDirectory $Root
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $path = Join-Path $dir "$timestamp`_$($Task.id).md"
+    $commit = Get-CurrentCommit $Root
+    $branch = Get-CurrentBranch $Root
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add("<!-- stage-closeout")
+    $lines.Add("task_id: $($Task.id)")
+    $lines.Add("status: $Status")
+    $lines.Add("review_gate_1: pending")
+    $lines.Add("review_gate_2: pending")
+    $lines.Add("-->")
+    $lines.Add("")
+    $lines.Add("# Stage Closeout Report: $($Task.title)")
+    $lines.Add("")
+    $lines.Add("- task_id: $($Task.id)")
+    $lines.Add("- stage: $($Task.stage)")
+    $lines.Add("- status: $Status")
+    $lines.Add("- branch: $branch")
+    $lines.Add("- commit: $commit")
+    $lines.Add("")
+    $lines.Add("## Verification Commands")
+    foreach ($result in $Results) {
+        $lines.Add("")
+        $lines.Add('```powershell')
+        $lines.Add($result.Command)
+        $lines.Add('```')
+        $lines.Add("")
+        $lines.Add("exit_code: $($result.ExitCode)")
+        $lines.Add("")
+        $lines.Add('```text')
+        foreach ($item in $result.Output) {
+            $lines.Add($item)
+        }
+        $lines.Add('```')
+    }
+    $lines.Add("")
+    $lines.Add("## Review Gate 1")
+    $lines.Add("")
+    $lines.Add("- [ ] Stage1 / Stage2 boundary still matches the original plan.")
+    $lines.Add("- [ ] No second source of truth was introduced.")
+    $lines.Add("- [ ] Preview-only features remain out of the main generation path.")
+    $lines.Add("- [ ] No local paths, provider URLs, workflow paths, raw prompts, or raw responses are exposed.")
+    $lines.Add("- [ ] Title/subtitle/text-rendering changes do not conflict with this task.")
+    $lines.Add("")
+    $lines.Add("## Review Gate 2")
+    $lines.Add("")
+    $lines.Add("- [ ] Tests cover the core regression risks.")
+    $lines.Add("- [ ] Failures identify a specific task and command.")
+    $lines.Add("- [ ] No hidden persistence side effects were introduced.")
+    $lines.Add("- [ ] No cross-module duplicate state was introduced.")
+    $lines.Add("- [ ] Next task can proceed without splitting this task further.")
+    Set-Content -LiteralPath $path -Value $lines -Encoding UTF8
+    return $path
+}
+
+function Select-Task {
+    param(
+        [object[]]$Tasks,
+        [string]$RequestedTaskId
+    )
+    if ($RequestedTaskId) {
+        $match = @($Tasks | Where-Object { $_.id -eq $RequestedTaskId })
+        if ($match.Count -ne 1) {
+            Write-RunnerLine "task was not found: $RequestedTaskId"
+            exit 3
+        }
+        return $match[0]
+    }
+    return $Tasks[0]
+}
+
 if (-not $Tasks -or $Tasks.Count -eq 0) {
     Write-RunnerLine "no closeout tasks are available"
     exit 3
 }
 
-Write-RunnerLine "closeout runner skeleton verified"
+$Task = Select-Task $Tasks $TaskId
+$Results = New-Object System.Collections.Generic.List[object]
+foreach ($command in @($Task.verification_commands)) {
+    $result = Invoke-VerificationCommand $ResolvedRepoRoot ([string]$command)
+    $Results.Add($result)
+    if ($result.ExitCode -ne 0) {
+        $report = New-CloseoutReport -Root $ResolvedRepoRoot -Task $Task -Results @($Results.ToArray()) -Status "verification_failed"
+        Write-RunnerLine "status: verification_failed"
+        Write-RunnerLine "report: $report"
+        exit 1
+    }
+}
+
+$reportPath = New-CloseoutReport -Root $ResolvedRepoRoot -Task $Task -Results @($Results.ToArray()) -Status "needs_review"
+Write-RunnerLine "status: needs_review"
+Write-RunnerLine "report: $reportPath"
 exit 0

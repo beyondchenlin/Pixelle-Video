@@ -92,3 +92,33 @@ def test_closeout_runner_fails_fast_when_repo_is_dirty(tmp_path: Path) -> None:
     assert result.returncode == 2
     assert "git worktree is not clean" in result.stdout
     assert not marker.exists()
+
+
+def test_closeout_runner_runs_one_task_and_writes_needs_review_report(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    task_file = _write_task_file(
+        repo,
+        command="Write-Output 'verification-ok'",
+    )
+
+    result = _run_runner(
+        "-RepoRoot",
+        str(repo),
+        "-TaskDefinitionPath",
+        str(task_file),
+    )
+
+    assert result.returncode == 0
+    assert "status: needs_review" in result.stdout
+    reports = sorted((repo / "_runtime" / "stage_closeout").glob("*_fixture-task.md"))
+    assert len(reports) == 1
+    report = reports[0].read_text(encoding="utf-8")
+    assert "task_id: fixture-task" in report
+    assert "status: needs_review" in report
+    assert "review_gate_1: pending" in report
+    assert "review_gate_2: pending" in report
+    assert "verification-ok" in report
+    assert "Review Gate 1" in report
+    assert "Review Gate 2" in report
