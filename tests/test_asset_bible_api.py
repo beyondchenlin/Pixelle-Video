@@ -280,6 +280,28 @@ def test_scene_cast_api_loads_draft_from_repository():
     assert body["scene_cast"]["style_id"] == "style_warm_comic"
 
 
+def test_scene_cast_api_load_revalidates_asset_references():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+    repository.scene_casts[("workspace_1", "cast_frame_1")] = {
+        **_scene_cast_payload(character_ids=["char_missing"]),
+        "project_id": "project_1",
+        "asset_bible_id": "bible_demo",
+    }
+
+    response = client.get(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1",
+        params={"workspace_id": "workspace_1"},
+    )
+
+    assert response.status_code == 422
+    assert "char_missing" in response.json()["detail"]
+
+
 def test_scene_cast_api_updates_draft_through_repository():
     repository = FakeAssetBibleRepository()
     client = _client(repository)

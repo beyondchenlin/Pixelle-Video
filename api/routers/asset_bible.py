@@ -122,6 +122,7 @@ async def create_scene_cast_draft(
             saved,
             project_id=project_id,
             asset_bible_id=asset_bible_id,
+            asset_bible=asset_bible,
         )
     )
 
@@ -142,6 +143,11 @@ async def load_scene_cast_draft(
     scene_cast_id = _validate_public_id("scene_cast_id", scene_cast_id)
     workspace_id = _validate_public_id("workspace_id", workspace_id)
     repository = _get_asset_bible_repository(request)
+    asset_bible = await _load_asset_bible_for_scene_cast(
+        repository,
+        workspace_id=workspace_id,
+        asset_bible_id=asset_bible_id,
+    )
     loaded = await repository.load_scene_cast(workspace_id, scene_cast_id)
     if loaded is None:
         raise HTTPException(status_code=404, detail="scene cast draft was not found")
@@ -150,6 +156,7 @@ async def load_scene_cast_draft(
             loaded,
             project_id=project_id,
             asset_bible_id=asset_bible_id,
+            asset_bible=asset_bible,
             scene_cast_id=scene_cast_id,
         )
     )
@@ -195,6 +202,7 @@ async def update_scene_cast_draft(
             saved,
             project_id=project_id,
             asset_bible_id=asset_bible_id,
+            asset_bible=asset_bible,
             scene_cast_id=scene_cast_id,
         )
     )
@@ -266,6 +274,7 @@ def _scene_cast_response(
     *,
     project_id: str,
     asset_bible_id: str,
+    asset_bible: AssetBible | None = None,
     scene_cast_id: str | None = None,
 ) -> dict[str, Any]:
     scene_cast = SceneCast.from_dict(payload)
@@ -275,6 +284,8 @@ def _scene_cast_response(
         raise HTTPException(status_code=502, detail="scene cast asset bible does not match request")
     if scene_cast_id is not None and scene_cast.scene_cast_id != scene_cast_id:
         raise HTTPException(status_code=502, detail="scene cast ID does not match request")
+    if asset_bible is not None:
+        _validate_scene_cast_for_api(scene_cast, asset_bible)
     return scene_cast.to_dict()
 
 
