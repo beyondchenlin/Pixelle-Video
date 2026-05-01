@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
+    [string]$RepoRoot = "",
     [string]$TaskDefinitionPath = "",
     [string]$TaskId = "",
     [switch]$ContinueAfterReviewed,
@@ -22,7 +22,10 @@ function Write-RunnerLine {
 
 function Resolve-RepoRoot {
     param([string]$PathValue)
-    return (Resolve-Path -LiteralPath $PathValue).Path
+    if ($PathValue) {
+        return (Resolve-Path -LiteralPath $PathValue).Path
+    }
+    return (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 }
 
 function Assert-CleanGitWorktree {
@@ -39,13 +42,56 @@ function Assert-CleanGitWorktree {
     }
 }
 
+function Get-BuiltinCloseoutTasks {
+    return @(
+        [PSCustomObject]@{
+            id = "stage1a-contract"
+            title = "Stage1A contract verification"
+            stage = "stage1a"
+            description = "Verify LLM trace, PromptPlan, ImagePromptComposer, and StandardPipeline planning contracts."
+            verification_commands = @(
+                "python -m pytest -q tests/test_llm_interaction_trace_model.py tests/test_llm_interaction_recorder.py tests/test_llm_service_trace_capture.py tests/test_llm_trace_api.py tests/test_prompt_plan_model.py tests/test_prompt_plan_service.py tests/test_image_prompt_composer.py tests/test_standard_pipeline_storyboard_generation.py"
+            )
+        },
+        [PSCustomObject]@{
+            id = "stage1b-workbench-stale-artifact"
+            title = "Stage1B Workbench stale artifact verification"
+            stage = "stage1b"
+            description = "Verify Workbench, stale propagation, artifact bridge, regeneration, API, and UI contracts."
+            verification_commands = @(
+                "python -m pytest -q tests/test_storyboard_workbench_artifact_bridge.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_service.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_frame_regeneration.py tests/test_stale_dependency_models.py tests/test_stale_dependency_repository_contract.py tests/test_stale_dependency_read_model.py tests/test_stale_dependency_propagation.py tests/test_stale_dependency_api.py tests/test_stale_write_integration.py"
+            )
+        },
+        [PSCustomObject]@{
+            id = "stage2-assetbible-scenecast-projection"
+            title = "Stage2 AssetBible SceneCast projection verification"
+            stage = "stage2"
+            description = "Verify AssetBible, SceneCast, PromptPlan projection preview, API, and UI contracts."
+            verification_commands = @(
+                "python -m pytest -q tests/test_asset_bible_models.py tests/test_scene_cast_model.py tests/test_scene_casting_validation.py tests/test_prompt_composer_asset_projection.py tests/test_asset_prompt_plan_composer.py tests/test_asset_bible_api.py tests/test_asset_prompt_plan_projection_ui.py tests/test_stage2_projection_pipeline_ui.py"
+            )
+        },
+        [PSCustomObject]@{
+            id = "stage1-stage2-boundary"
+            title = "Stage1 Stage2 boundary verification"
+            stage = "cross-stage"
+            description = "Verify global lint, staged/hyperframes pipeline, and text rendering contracts."
+            verification_commands = @(
+                "python -m ruff check pixelle_video api web tests",
+                "python -m pytest -q tests/test_standard_pipeline_staged_mode.py tests/test_standard_pipeline_hyperframes_mode.py tests/test_pipeline_text_rendering_contract.py tests/test_text_rendering_preview_service.py tests/test_text_rendering_preview_api.py",
+                "git diff --check"
+            )
+        }
+    )
+}
+
 function Get-TaskDefinitions {
     param([string]$PathValue)
     if ($PathValue) {
         $raw = Get-Content -Raw -LiteralPath $PathValue
         return @($raw | ConvertFrom-Json)
     }
-    return @()
+    return Get-BuiltinCloseoutTasks
 }
 
 function New-ReportDirectory {
@@ -282,6 +328,14 @@ function Select-NextTaskWithReports {
     exit 0
 }
 
+$Tasks = Get-TaskDefinitions $TaskDefinitionPath
+if ($ListTasks) {
+    foreach ($task in $Tasks) {
+        Write-RunnerLine "$($task.id)`t$($task.stage)`t$($task.title)"
+    }
+    exit 0
+}
+
 $ResolvedRepoRoot = Resolve-RepoRoot $RepoRoot
 
 if ($MarkReviewGate -ne "none") {
@@ -291,7 +345,6 @@ if ($MarkReviewGate -ne "none") {
 
 Assert-CleanGitWorktree $ResolvedRepoRoot
 
-$Tasks = Get-TaskDefinitions $TaskDefinitionPath
 if (-not $Tasks -or $Tasks.Count -eq 0) {
     Write-RunnerLine "no closeout tasks are available"
     exit 3

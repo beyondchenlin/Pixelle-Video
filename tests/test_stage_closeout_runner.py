@@ -255,3 +255,13 @@ def test_closeout_runner_marks_review_gate_without_clean_worktree(tmp_path: Path
 
     assert gate_one.returncode == 0
     assert "review_gate_1: passed" in report.read_text(encoding="utf-8")
+
+
+def test_closeout_runner_lists_builtin_stage_tasks() -> None:
+    result = _run_runner("-ListTasks")
+
+    assert result.returncode == 0
+    assert "stage1a-contract" in result.stdout
+    assert "stage1b-workbench-stale-artifact" in result.stdout
+    assert "stage2-assetbible-scenecast-projection" in result.stdout
+    assert "stage1-stage2-boundary" in result.stdout
