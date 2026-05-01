@@ -9,6 +9,8 @@ from web.components.asset_bible_draft_setup import render_asset_bible_draft_setu
 from web.components.stage2_projection_state import (
     build_projection_context_source,
     clear_loaded_projection_context,
+    clear_projection_asset_selection,
+    clear_projection_preview_result,
     clear_projection_scene_cast_selection,
 )
 from web.utils.asset_bible_api import (
@@ -130,6 +132,16 @@ def render_asset_prompt_plan_projection_preview(
         "只调用后端 projection preview endpoint；不会写入 AssetBible、PromptPlan，"
         "也不会接入主生成链路。"
     )
+    _clear_preview_result_if_request_source_changed(
+        ui=ui,
+        api_base_url=api_base_url,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        asset_bible_id=asset_bible_id,
+        scene_cast_id=scene_cast_id,
+        storyboard_plan_id=storyboard_plan_id,
+        frame_id=frame_id,
+    )
 
     if not ui.button(t("projection.preview.submit"), key="projection_preview_submit"):
         return ui.session_state.get("projection_preview_result")
@@ -168,6 +180,15 @@ def render_asset_prompt_plan_projection_preview(
         return None
 
     ui.session_state["projection_preview_result"] = result
+    ui.session_state["projection_preview_result_source"] = _preview_result_source(
+        api_base_url=api_base_url,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        asset_bible_id=asset_bible_id,
+        scene_cast_id=scene_cast_id,
+        storyboard_plan_id=storyboard_plan_id,
+        frame_id=frame_id,
+    )
     _render_projection_result(result, ui=ui)
     return result
 
@@ -204,7 +225,7 @@ def _load_projection_context(
         current_id=ui.session_state.get("projection_asset_bible_id"),
     )
     if not asset_bible_id:
-        ui.session_state["projection_scene_casts"] = []
+        clear_projection_asset_selection(ui.session_state)
         ui.caption("没有可用的 AssetBible 草稿；仍可手动输入 ID 调试。")
         return
 
@@ -229,6 +250,7 @@ def _load_scene_cast_context(
     ui.session_state["projection_scene_casts"] = []
     ui.session_state["projection_scene_cast_asset_bible_id"] = asset_bible_id
     clear_projection_scene_cast_selection(ui.session_state)
+    clear_projection_preview_result(ui.session_state)
 
     try:
         scene_casts = list_scene_casts(
@@ -349,6 +371,56 @@ def _clear_loaded_context_if_source_changed(
     )
     if loaded_source != current_source:
         clear_loaded_projection_context(ui.session_state)
+
+
+def _clear_preview_result_if_request_source_changed(
+    *,
+    ui,
+    api_base_url: str,
+    project_id: str,
+    workspace_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+    storyboard_plan_id: str,
+    frame_id: str,
+) -> None:
+    result_source = ui.session_state.get("projection_preview_result_source")
+    if not result_source:
+        return
+    current_source = _preview_result_source(
+        api_base_url=api_base_url,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        asset_bible_id=asset_bible_id,
+        scene_cast_id=scene_cast_id,
+        storyboard_plan_id=storyboard_plan_id,
+        frame_id=frame_id,
+    )
+    if result_source != current_source:
+        clear_projection_preview_result(ui.session_state)
+
+
+def _preview_result_source(
+    *,
+    api_base_url: str,
+    project_id: str,
+    workspace_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+    storyboard_plan_id: str,
+    frame_id: str,
+) -> dict[str, str]:
+    return {
+        **build_projection_context_source(
+            api_base_url=api_base_url,
+            project_id=project_id,
+            workspace_id=workspace_id,
+        ),
+        "asset_bible_id": asset_bible_id.strip(),
+        "scene_cast_id": scene_cast_id.strip(),
+        "storyboard_plan_id": storyboard_plan_id.strip(),
+        "frame_id": frame_id.strip(),
+    }
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

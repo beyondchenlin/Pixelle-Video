@@ -975,6 +975,89 @@ def test_render_projection_preview_clears_loaded_choices_when_context_changes():
     assert fake_ui.selectboxes == []
 
 
+def test_render_projection_preview_clears_choices_when_reload_returns_no_asset_bibles(
+    monkeypatch,
+):
+    from web.components import asset_prompt_plan_projection
+
+    fake_ui = _ProjectionFakeUI()
+    fake_ui.session_state.update(
+        {
+            "api_base_url": "http://localhost:8000/api",
+            "projection_project_id": "project_1",
+            "projection_workspace_id": "ws_1",
+            "projection_context_source": {
+                "api_base_url": "http://localhost:8000/api",
+                "project_id": "project_1",
+                "workspace_id": "ws_1",
+            },
+            "projection_context_load": True,
+            "projection_asset_bibles": [{"asset_bible_id": "bible_old"}],
+            "projection_asset_bible_id": "bible_old",
+            "projection_asset_bible_select": "bible_old",
+            "projection_scene_casts": [{"scene_cast_id": "cast_old"}],
+            "projection_scene_cast_id": "cast_old",
+            "projection_scene_cast_select": "cast_old",
+            "projection_storyboard_plan_id": "storyboard_old",
+            "projection_frame_id": "frame_old",
+            "projection_preview_result": {"projection": {"source": {"scene_cast_id": "cast_old"}}},
+        }
+    )
+
+    monkeypatch.setattr(
+        asset_prompt_plan_projection,
+        "list_asset_bibles",
+        lambda **_kwargs: [],
+    )
+
+    asset_prompt_plan_projection.render_asset_prompt_plan_projection_preview(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert fake_ui.session_state["projection_asset_bibles"] == []
+    assert fake_ui.session_state["projection_scene_casts"] == []
+    assert "projection_asset_bible_id" not in fake_ui.session_state
+    assert "projection_scene_cast_id" not in fake_ui.session_state
+    assert "projection_preview_result" not in fake_ui.session_state
+
+
+def test_render_projection_preview_drops_cached_result_when_request_source_changes():
+    from web.components import asset_prompt_plan_projection
+
+    fake_ui = _ProjectionFakeUI()
+    fake_ui.session_state.update(
+        {
+            "api_base_url": "http://localhost:8000/api",
+            "projection_project_id": "project_1",
+            "projection_workspace_id": "ws_1",
+            "projection_asset_bible_id": "bible_1",
+            "projection_scene_cast_id": "cast_1",
+            "projection_storyboard_plan_id": "storyboard_1",
+            "projection_frame_id": "frame_002",
+            "projection_preview_result_source": {
+                "api_base_url": "http://localhost:8000/api",
+                "project_id": "project_1",
+                "workspace_id": "ws_1",
+                "asset_bible_id": "bible_1",
+                "scene_cast_id": "cast_1",
+                "storyboard_plan_id": "storyboard_1",
+                "frame_id": "frame_001",
+            },
+            "projection_preview_result": {"projection": {"source": {"scene_cast_id": "cast_1"}}},
+        }
+    )
+
+    result = asset_prompt_plan_projection.render_asset_prompt_plan_projection_preview(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert result is None
+    assert "projection_preview_result" not in fake_ui.session_state
+    assert "projection_preview_result_source" not in fake_ui.session_state
+
+
 def test_render_projection_result_uses_workbench_sections(monkeypatch):
     from web.components import asset_prompt_plan_projection
 

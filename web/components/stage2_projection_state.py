@@ -21,6 +21,7 @@ def build_projection_context_source(
 
 def clear_projection_preview_result(session_state: SessionState) -> None:
     session_state.pop("projection_preview_result", None)
+    session_state.pop("projection_preview_result_source", None)
 
 
 def clear_projection_scene_cast_selection(session_state: SessionState) -> None:
@@ -33,12 +34,16 @@ def clear_projection_scene_cast_selection(session_state: SessionState) -> None:
         session_state.pop(key, None)
 
 
-def clear_loaded_projection_context(session_state: SessionState) -> None:
-    session_state.pop("projection_context_source", None)
-    session_state["projection_asset_bibles"] = []
+def clear_projection_asset_selection(session_state: SessionState) -> None:
     session_state["projection_scene_casts"] = []
     session_state.pop("projection_asset_bible_id", None)
     session_state.pop("projection_asset_bible_select", None)
     session_state.pop("projection_scene_cast_asset_bible_id", None)
     clear_projection_preview_result(session_state)
     clear_projection_scene_cast_selection(session_state)
+
+
+def clear_loaded_projection_context(session_state: SessionState) -> None:
+    session_state.pop("projection_context_source", None)
+    session_state["projection_asset_bibles"] = []
+    clear_projection_asset_selection(session_state)
