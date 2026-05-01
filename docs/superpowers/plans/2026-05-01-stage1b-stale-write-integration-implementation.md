@@ -26,12 +26,18 @@ Hard boundaries:
 - Do not expose local paths, workflow paths, provider URLs, or storage paths as dependency IDs.
 - Keep text rendering fields out of PromptPlan projection and AssetBible `StyleProfile.metadata`.
 
+Naming note: the design document calls the image artifact edge writer `StaleAwareArtifactWriteService`. This implementation plan uses `ArtifactDependencyWriteService` because the component does not save artifacts or trigger stale propagation; it only records the `image_artifact.generated_from_prompt_plan` dependency edge after the real artifact write point succeeds.
+
 ## File Structure
 
 - Create `pixelle_video/services/dependency_versions.py`: stable public version token generator.
 - Create `tests/test_dependency_versions.py`: deterministic token and path/URL boundary tests.
-- Create `pixelle_video/services/stale_write_integration.py`: stale-aware write services and result dataclasses.
-- Create `tests/test_stale_write_integration.py`: unit tests for AssetBible, SceneCast, PromptPlan, and artifact dependency recording.
+- Create `pixelle_video/services/stale_write_integration.py`: stale-aware AssetBible, SceneCast, and PromptPlan write services plus shared result dataclasses.
+- Create `pixelle_video/services/artifact_dependency_integration.py`: image artifact dependency edge recording service.
+- Create `tests/test_stale_write_integration.py`: unit tests for AssetBible, SceneCast, and PromptPlan write coordination.
+- Create `tests/test_artifact_dependency_integration.py`: unit tests for image artifact dependency edge recording.
+- Modify `pixelle_video/services/storyboard_workbench.py`: optionally record image artifact dependency edges after regeneration results are persisted.
+- Modify `tests/test_storyboard_frame_regeneration.py`: regression coverage for real workbench artifact dependency recording.
 - Modify `api/routers/asset_bible.py`: route save endpoints through `StaleAwareAssetBibleWriteService` when stale repositories are configured.
 - Modify `tests/test_asset_bible_api.py`: route-level coverage for stale write integration and fallback dependency errors.
 - Modify `tests/test_asset_bible_api.py`: boundary test proving projection preview does not call stale-aware write service.
@@ -491,9 +497,21 @@ class StaleWriteDependencyNotFoundError(StaleWriteIntegrationError):
 @dataclass(frozen=True)
 class StaleAwareWriteResult:
     saved_payload: Mapping[str, Any]
-    version_token: str
-    propagation_summary: StalePropagationSummary
+    version_tokens: tuple[str, ...]
+    propagation_summaries: tuple[StalePropagationSummary, ...]
     dependency_edges: tuple[DependencyEdge, ...] = field(default_factory=tuple)
+
+    @property
+    def version_token(self) -> str:
+        if len(self.version_tokens) != 1:
+            raise StaleWriteIntegrationError("write result contains multiple version tokens")
+        return self.version_tokens[0]
+
+    @property
+    def propagation_summary(self) -> StalePropagationSummary:
+        if len(self.propagation_summaries) != 1:
+            raise StaleWriteIntegrationError("write result contains multiple propagation summaries")
+        return self.propagation_summaries[0]
 
 
 class StaleAwareAssetBibleWriteService:
@@ -530,8 +548,8 @@ class StaleAwareAssetBibleWriteService:
         )
         return StaleAwareWriteResult(
             saved_payload=saved_model.to_dict(),
-            version_token=version_token,
-            propagation_summary=summary,
+            version_tokens=(version_token,),
+            propagation_summaries=(summary,),
         )
 
     async def save_scene_cast(self, workspace_id: str, scene_cast: SceneCast) -> StaleAwareWriteResult:
@@ -570,8 +588,8 @@ class StaleAwareAssetBibleWriteService:
         )
         return StaleAwareWriteResult(
             saved_payload=saved_model.to_dict(),
-            version_token=scene_cast_version,
-            propagation_summary=summary,
+            version_tokens=(scene_cast_version,),
+            propagation_summaries=(summary,),
             dependency_edges=(edge,),
         )
 ```
@@ -717,6 +735,53 @@ async def test_save_prompt_plan_bundle_without_public_dependency_source_does_not
     assert edges.edges == {}
     assert result.propagation_summary.upstream_type == "prompt_plan"
     assert result.propagation_summary.upstream_id == "prompt_plan_1"
+
+
+@pytest.mark.asyncio
+async def test_save_prompt_plan_bundle_preserves_every_prompt_plan_propagation_summary():
+    assets = FakeAssetBibleRepository()
+    await assets.save_asset_bible("workspace_1", _asset_bible().to_dict())
+    await assets.save_scene_cast("workspace_1", _scene_cast().to_dict())
+    prompts = FakePromptPlanRepository()
+    edges = FakeDependencyEdgeRepository()
+    stale = FakeStaleMarkRepository()
+    first_bundle = _prompt_plan_bundle_with_scene_cast()
+    second_draft = ImagePromptDraft(
+        image_prompt_draft_id="draft_2",
+        storyboard_plan_id="storyboard_plan_1",
+        frame_id="frame_0002",
+        prompt_text="Show Luna entering the observatory.",
+    )
+    second_plan = PromptPlan(
+        prompt_plan_id="prompt_plan_2",
+        storyboard_plan_id="storyboard_plan_1",
+        frame_id="frame_0002",
+        image_prompt_draft_id="draft_2",
+        prompt_sections={"visual_goal": "Show Luna entering the observatory."},
+        final_prompt="Show Luna entering the observatory.",
+        metadata={"scene_cast_id": "cast_frame_0001"},
+    )
+    bundle = PromptPlanBundle(
+        storyboard_plan_id="storyboard_plan_1",
+        image_prompt_drafts=(*first_bundle.image_prompt_drafts, second_draft),
+        prompt_plans=(*first_bundle.prompt_plans, second_plan),
+    )
+    service = StaleAwarePromptPlanWriteService(
+        prompt_plan_repository=prompts,
+        asset_bible_repository=assets,
+        edge_repository=edges,
+        stale_repository=stale,
+    )
+
+    result = await service.save_prompt_plan_bundle("workspace_1", "project_1", bundle)
+
+    assert tuple(summary.upstream_id for summary in result.propagation_summaries) == (
+        "prompt_plan_1",
+        "prompt_plan_2",
+    )
+    assert len(result.version_tokens) == 2
+    assert all(version.startswith("prompt_plan_rev_") for version in result.version_tokens)
+    assert len(result.dependency_edges) == 2
 ```
 
 - [ ] **Step 2: Run PromptPlan tests to verify RED**
@@ -724,7 +789,7 @@ async def test_save_prompt_plan_bundle_without_public_dependency_source_does_not
 Run:
 
 ```powershell
-python -m pytest -q tests/test_stale_write_integration.py::test_save_prompt_plan_bundle_writes_scene_cast_dependency_edge_and_triggers_prompt_plan_propagation tests/test_stale_write_integration.py::test_save_prompt_plan_bundle_without_public_dependency_source_does_not_guess_edges
+python -m pytest -q tests/test_stale_write_integration.py::test_save_prompt_plan_bundle_writes_scene_cast_dependency_edge_and_triggers_prompt_plan_propagation tests/test_stale_write_integration.py::test_save_prompt_plan_bundle_without_public_dependency_source_does_not_guess_edges tests/test_stale_write_integration.py::test_save_prompt_plan_bundle_preserves_every_prompt_plan_propagation_summary
 ```
 
 Expected: FAIL because `StaleAwarePromptPlanWriteService` does not exist.
@@ -771,31 +836,33 @@ class StaleAwarePromptPlanWriteService:
         saved = await self.prompt_plan_repository.save_prompt_plan_bundle(workspace_id, bundle.to_dict())
         saved_bundle = PromptPlanBundle.from_dict(saved)
         edges: list[DependencyEdge] = []
-        latest_summary: StalePropagationSummary | None = None
-        latest_version = ""
+        summaries: list[StalePropagationSummary] = []
+        version_tokens: list[str] = []
         for prompt_plan in saved_bundle.prompt_plans:
             prompt_plan_version = self.version_service.version_for_prompt_plan(prompt_plan)
-            latest_version = prompt_plan_version
+            version_tokens.append(prompt_plan_version)
             edge = pending_edges.get(prompt_plan.prompt_plan_id)
             if edge is not None:
                 await self.edge_repository.save_dependency_edge(workspace_id, edge.to_dict())
                 edges.append(edge)
-            latest_summary = await self.propagation_service.propagate_upstream_change(
-                UpstreamChangeEvent(
-                    workspace_id=workspace_id,
-                    project_id=project_id,
-                    upstream_type="prompt_plan",
-                    upstream_id=prompt_plan.prompt_plan_id,
-                    upstream_version=prompt_plan_version,
-                    reason_code="prompt_plan_changed",
+            summaries.append(
+                await self.propagation_service.propagate_upstream_change(
+                    UpstreamChangeEvent(
+                        workspace_id=workspace_id,
+                        project_id=project_id,
+                        upstream_type="prompt_plan",
+                        upstream_id=prompt_plan.prompt_plan_id,
+                        upstream_version=prompt_plan_version,
+                        reason_code="prompt_plan_changed",
+                    )
                 )
             )
-        if latest_summary is None:
+        if not summaries:
             raise StaleWriteIntegrationError("prompt plan bundle must include at least one prompt plan")
         return StaleAwareWriteResult(
             saved_payload=saved_bundle.to_dict(),
-            version_token=latest_version,
-            propagation_summary=latest_summary,
+            version_tokens=tuple(version_tokens),
+            propagation_summaries=tuple(summaries),
             dependency_edges=tuple(edges),
         )
 
@@ -866,23 +933,52 @@ git push origin dev
 ## Task 4: Image Artifact Dependency Recording
 
 **Files:**
-- Modify: `pixelle_video/services/stale_write_integration.py`
-- Modify: `tests/test_stale_write_integration.py`
+- Create: `pixelle_video/services/artifact_dependency_integration.py`
+- Create: `tests/test_artifact_dependency_integration.py`
 
 - [ ] **Step 1: Add failing artifact dependency test**
 
-Append to `tests/test_stale_write_integration.py`:
+Create `tests/test_artifact_dependency_integration.py`:
 
 ```python
+from dataclasses import dataclass, field
+from typing import Any
+
+import pytest
+
 from pixelle_video.models.artifact import ArtifactVersion, ArtifactVersionStatus
-from pixelle_video.services.stale_write_integration import StaleAwareArtifactWriteService
+from pixelle_video.models.prompt_plan import PromptPlan
+from pixelle_video.services.artifact_dependency_integration import ArtifactDependencyWriteService
+
+
+@dataclass
+class FakeDependencyEdgeRepository:
+    edges: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
+
+    async def save_dependency_edge(self, workspace_id: str, edge: dict[str, Any]) -> dict[str, Any]:
+        self.edges[(workspace_id, edge["edge_id"])] = dict(edge)
+        return dict(edge)
+
+    async def list_downstream_edges(self, workspace_id: str, upstream_type: str, upstream_id: str) -> list[dict[str, Any]]:
+        return []
+
+
+def _prompt_plan() -> PromptPlan:
+    return PromptPlan(
+        prompt_plan_id="prompt_plan_1",
+        storyboard_plan_id="storyboard_plan_1",
+        frame_id="frame_0001",
+        image_prompt_draft_id="draft_1",
+        prompt_sections={"visual_goal": "Show Luna in the lab."},
+        final_prompt="Show Luna in the lab.",
+    )
 
 
 @pytest.mark.asyncio
 async def test_record_image_artifact_dependency_writes_prompt_plan_edge_without_storage_path_identity():
     edges = FakeDependencyEdgeRepository()
-    service = StaleAwareArtifactWriteService(edge_repository=edges)
-    prompt_plan = _prompt_plan_bundle_with_scene_cast().prompt_plans[0]
+    service = ArtifactDependencyWriteService(edge_repository=edges)
+    prompt_plan = _prompt_plan()
     version = ArtifactVersion(
         version_id="artifact_version_1",
         artifact_id="artifact_frame_0001_image",
@@ -917,21 +1013,30 @@ async def test_record_image_artifact_dependency_writes_prompt_plan_edge_without_
 Run:
 
 ```powershell
-python -m pytest -q tests/test_stale_write_integration.py::test_record_image_artifact_dependency_writes_prompt_plan_edge_without_storage_path_identity
+python -m pytest -q tests/test_artifact_dependency_integration.py
 ```
 
-Expected: FAIL because `StaleAwareArtifactWriteService` does not exist.
+Expected: FAIL because `ArtifactDependencyWriteService` does not exist.
 
 - [ ] **Step 3: Implement artifact dependency writer**
 
-Append to `pixelle_video/services/stale_write_integration.py`:
+Create `pixelle_video/services/artifact_dependency_integration.py`:
 
 ```python
+from __future__ import annotations
+
 from pixelle_video.models.artifact import ArtifactVersion
 from pixelle_video.models.prompt_plan import PromptPlan
+from pixelle_video.models.stale_dependency import DependencyEdge
+from pixelle_video.repositories.stale_dependencies import DependencyEdgeRepository
+from pixelle_video.services.dependency_versions import DependencyVersionService
 
 
-class StaleAwareArtifactWriteService:
+class ArtifactDependencyIntegrationError(ValueError):
+    pass
+
+
+class ArtifactDependencyWriteService:
     def __init__(
         self,
         *,
@@ -950,7 +1055,9 @@ class StaleAwareArtifactWriteService:
         prompt_plan: PromptPlan,
     ) -> DependencyEdge:
         if artifact_version.source_prompt_plan_id != prompt_plan.prompt_plan_id:
-            raise StaleWriteIntegrationError("artifact version source prompt plan does not match prompt plan")
+            raise ArtifactDependencyIntegrationError(
+                "artifact version source prompt plan does not match prompt plan"
+            )
         edge = DependencyEdge(
             edge_id=(
                 f"dep_image_artifact_{artifact_version.artifact_id}_"
@@ -974,7 +1081,7 @@ class StaleAwareArtifactWriteService:
 Run:
 
 ```powershell
-python -m pytest -q tests/test_dependency_versions.py tests/test_stale_write_integration.py tests/test_stale_dependency_propagation.py
+python -m pytest -q tests/test_dependency_versions.py tests/test_artifact_dependency_integration.py tests/test_stale_dependency_propagation.py
 ```
 
 Expected: all tests pass.
@@ -984,12 +1091,184 @@ Expected: all tests pass.
 Run:
 
 ```powershell
-git add pixelle_video/services/stale_write_integration.py tests/test_stale_write_integration.py
+git add pixelle_video/services/artifact_dependency_integration.py tests/test_artifact_dependency_integration.py
 git commit -m "feat: 记录 image artifact stale 依赖边"
 git push origin dev
 ```
 
-## Task 5: AssetBible API Route Integration And Stage 2 Boundary Tests
+## Task 5: Storyboard Workbench Artifact Dependency Hook
+
+**Files:**
+- Modify: `pixelle_video/services/storyboard_workbench.py`
+- Modify: `tests/test_storyboard_frame_regeneration.py`
+
+- [ ] **Step 1: Add failing workbench integration test**
+
+Append to `tests/test_storyboard_frame_regeneration.py`:
+
+```python
+from pixelle_video.models.prompt_plan import PromptPlan
+from pixelle_video.services.artifact_dependency_integration import ArtifactDependencyWriteService
+
+
+@dataclass
+class RecordingDependencyEdgeRepository:
+    edges: list[dict[str, object]] = field(default_factory=list)
+
+    async def save_dependency_edge(self, workspace_id: str, edge: Mapping[str, object]) -> dict[str, object]:
+        payload = dict(edge)
+        self.edges.append(payload)
+        return payload
+
+    async def list_downstream_edges(
+        self,
+        workspace_id: str,
+        upstream_type: str,
+        upstream_id: str,
+    ) -> list[dict[str, object]]:
+        return []
+
+
+def _prompt_plan() -> PromptPlan:
+    return PromptPlan(
+        prompt_plan_id="prompt_plan_001",
+        storyboard_plan_id="storyboard_001",
+        frame_id="frame_0001",
+        image_prompt_draft_id="draft_001",
+        prompt_sections={"visual_goal": "Show Luna in the lab."},
+        final_prompt="Show Luna in the lab.",
+    )
+
+
+@pytest.mark.asyncio
+async def test_frame_image_regeneration_result_records_prompt_plan_dependency_edge(tmp_path):
+    generated_file = tmp_path / "generated.png"
+    generated_file.write_bytes(b"image")
+    artifact_repository = RecordingArtifactRepository(created_versions=[])
+    object_store = RecordingObjectStore(uploaded_files=[])
+    trace_repository = RecordingTraceRepository(events=[])
+    edge_repository = RecordingDependencyEdgeRepository()
+    service = StoryboardWorkbenchService(
+        artifact_repository=artifact_repository,
+        object_store=object_store,
+        trace_repository=trace_repository,
+        prompt_plan_repository=UnusedPromptPlanRepository(),
+        artifact_dependency_service=ArtifactDependencyWriteService(edge_repository=edge_repository),
+    )
+
+    result = await service.record_frame_image_regeneration_result(
+        workspace_id="workspace_1",
+        project_id="project_1",
+        task_id="regen-task-1",
+        state=_state(),
+        artifact_id="artifact_frame_0001_image",
+        source_path=generated_file,
+        prompt_plan=_prompt_plan(),
+        provider="comfyui",
+    )
+
+    assert result.artifact_version.artifact_id == "artifact_frame_0001_image"
+    assert edge_repository.edges[0]["relation"] == "image_artifact.generated_from_prompt_plan"
+    assert edge_repository.edges[0]["upstream_id"] == "prompt_plan_001"
+    assert edge_repository.edges[0]["downstream_id"] == "artifact_frame_0001_image"
+    assert "storage_key" not in str(edge_repository.edges[0])
+```
+
+Also update the existing test imports in `tests/test_storyboard_frame_regeneration.py` from `from dataclasses import dataclass` to `from dataclasses import dataclass, field`.
+
+- [ ] **Step 2: Run workbench test to verify RED**
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_storyboard_frame_regeneration.py::test_frame_image_regeneration_result_records_prompt_plan_dependency_edge
+```
+
+Expected: FAIL because `StoryboardWorkbenchService.__init__()` does not accept `artifact_dependency_service`.
+
+- [ ] **Step 3: Implement optional artifact dependency hook**
+
+Update `pixelle_video/services/storyboard_workbench.py`:
+
+```python
+from pixelle_video.models.prompt_plan import PromptPlan
+from pixelle_video.services.artifact_dependency_integration import ArtifactDependencyWriteService
+```
+
+Update constructor:
+
+```python
+    def __init__(
+        self,
+        *,
+        artifact_repository: ArtifactRepository,
+        object_store: ArtifactObjectStore,
+        trace_repository: TraceRepository,
+        prompt_plan_repository: PromptPlanRepository,
+        artifact_dependency_service: ArtifactDependencyWriteService | None = None,
+    ) -> None:
+        self.artifact_repository = artifact_repository
+        self.object_store = object_store
+        self.trace_repository = trace_repository
+        self.prompt_plan_repository = prompt_plan_repository
+        self.artifact_dependency_service = artifact_dependency_service
+```
+
+Update `record_frame_image_regeneration_result()` signature:
+
+```python
+    async def record_frame_image_regeneration_result(
+        self,
+        *,
+        workspace_id: str,
+        task_id: str,
+        state: StoryboardFrameWorkbenchState,
+        artifact_id: str,
+        source_path: str | PathLike[str],
+        project_id: str | None = None,
+        prompt_plan: PromptPlan | None = None,
+        provider: str | None = None,
+        provider_metadata: Mapping[str, Any] | None = None,
+        width: int | None = None,
+        height: int | None = None,
+    ) -> FrameImageRegenerationResult:
+```
+
+After `artifact_version = ArtifactVersion.from_dict(stored_version)` add:
+
+```python
+        if self.artifact_dependency_service is not None and project_id is not None and prompt_plan is not None:
+            await self.artifact_dependency_service.record_image_artifact_dependency(
+                workspace_id=workspace_id,
+                project_id=project_id,
+                artifact_version=artifact_version,
+                prompt_plan=prompt_plan,
+            )
+```
+
+Do not load PromptPlan by path, workflow, provider metadata, or storage key. If the caller does not pass `project_id` and `prompt_plan`, skip edge recording instead of guessing.
+
+- [ ] **Step 4: Run workbench regression tests**
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_artifact_dependency_integration.py tests/test_storyboard_frame_regeneration.py tests/test_storyboard_workbench_service.py
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 5: Commit**
+
+Run:
+
+```powershell
+git add pixelle_video/services/storyboard_workbench.py tests/test_storyboard_frame_regeneration.py
+git commit -m "feat: 接入工作台 image artifact 依赖记录"
+git push origin dev
+```
+
+## Task 6: AssetBible API Route Integration And Stage 2 Boundary Tests
 
 **Files:**
 - Modify: `api/routers/asset_bible.py`
@@ -1114,11 +1393,19 @@ def _client(
     edge_repository: FakeDependencyEdgeRepository | None = None,
     stale_repository: FakeStaleMarkRepository | None = None,
 ) -> TestClient:
-    ...
+    from api.routers.asset_bible import router as asset_bible_router
+
+    app = FastAPI()
+    if repository is not None:
+        app.state.asset_bible_repository = repository
+    if prompt_plan_repository is not None:
+        app.state.prompt_plan_repository = prompt_plan_repository
     if edge_repository is not None:
         app.state.dependency_edge_repository = edge_repository
     if stale_repository is not None:
         app.state.stale_mark_repository = stale_repository
+    app.include_router(asset_bible_router)
+    return TestClient(app)
 ```
 
 - [ ] **Step 2: Run route tests to verify RED**
@@ -1225,7 +1512,7 @@ git push origin dev
 Run all targeted suites:
 
 ```powershell
-python -m pytest -q tests/test_dependency_versions.py tests/test_stale_dependency_models.py tests/test_stale_dependency_repository_contract.py tests/test_stale_dependency_propagation.py tests/test_stale_write_integration.py
+python -m pytest -q tests/test_dependency_versions.py tests/test_stale_dependency_models.py tests/test_stale_dependency_repository_contract.py tests/test_stale_dependency_propagation.py tests/test_stale_write_integration.py tests/test_artifact_dependency_integration.py
 ```
 
 Expected: all stale domain, repository, propagation, and write integration tests pass.
@@ -1233,7 +1520,7 @@ Expected: all stale domain, repository, propagation, and write integration tests
 Run API and Stage 2 regressions:
 
 ```powershell
-python -m pytest -q tests/test_asset_bible_api.py tests/test_asset_prompt_plan_composer.py tests/test_prompt_composer_asset_projection.py tests/test_scene_casting_validation.py tests/test_stage2_projection_pipeline_ui.py
+python -m pytest -q tests/test_asset_bible_api.py tests/test_asset_prompt_plan_composer.py tests/test_prompt_composer_asset_projection.py tests/test_scene_casting_validation.py tests/test_stage2_projection_pipeline_ui.py tests/test_storyboard_frame_regeneration.py tests/test_storyboard_workbench_service.py
 ```
 
 Expected: AssetBible/SceneCast routes pass and Stage 2 projection preview remains preview-only.
@@ -1241,7 +1528,7 @@ Expected: AssetBible/SceneCast routes pass and Stage 2 projection preview remain
 Run lint:
 
 ```powershell
-python -m ruff check pixelle_video/services/dependency_versions.py pixelle_video/services/stale_write_integration.py pixelle_video/models/stale_dependency.py pixelle_video/repositories/stale_dependencies.py pixelle_video/services/stale_dependency_propagation.py api/routers/asset_bible.py tests/test_dependency_versions.py tests/test_stale_write_integration.py tests/test_asset_bible_api.py
+python -m ruff check pixelle_video/services/dependency_versions.py pixelle_video/services/stale_write_integration.py pixelle_video/services/artifact_dependency_integration.py pixelle_video/services/storyboard_workbench.py pixelle_video/models/stale_dependency.py pixelle_video/repositories/stale_dependencies.py pixelle_video/services/stale_dependency_propagation.py api/routers/asset_bible.py tests/test_dependency_versions.py tests/test_stale_write_integration.py tests/test_artifact_dependency_integration.py tests/test_asset_bible_api.py tests/test_storyboard_frame_regeneration.py
 ```
 
 Expected: no lint errors.
@@ -1249,7 +1536,7 @@ Expected: no lint errors.
 Run boundary search:
 
 ```powershell
-rg -n "D:\\\\|://|workflows/|workflow_path|provider_url|save_prompt_plan_bundle|stage2_projection|asset_prompt_plan_composer" pixelle_video/services/dependency_versions.py pixelle_video/services/stale_write_integration.py pixelle_video/services/stale_dependency_propagation.py api/routers/asset_bible.py tests/test_dependency_versions.py tests/test_stale_write_integration.py tests/test_asset_bible_api.py
+rg -n "D:\\\\|://|workflows/|workflow_path|provider_url|save_prompt_plan_bundle|stage2_projection|asset_prompt_plan_composer" pixelle_video/services/dependency_versions.py pixelle_video/services/stale_write_integration.py pixelle_video/services/artifact_dependency_integration.py pixelle_video/services/storyboard_workbench.py pixelle_video/services/stale_dependency_propagation.py api/routers/asset_bible.py tests/test_dependency_versions.py tests/test_stale_write_integration.py tests/test_artifact_dependency_integration.py tests/test_asset_bible_api.py tests/test_storyboard_frame_regeneration.py
 ```
 
 Expected: production code contains no provider URL, local path, workflow path, Stage 2 persistence, or provider routing coupling. Test hits must be negative fixtures or explicit boundary assertions only.
@@ -1259,23 +1546,25 @@ Expected: production code contains no provider URL, local path, workflow path, S
 Safe parallel groups:
 
 - Task 1 is a prerequisite for all implementation tasks.
-- After Task 1, Task 2 and Task 4 can proceed in parallel if their write scopes are split carefully:
-  - Task 2 owns `StaleAwareAssetBibleWriteService`.
-  - Task 4 owns `StaleAwareArtifactWriteService`.
+- After Task 1, Task 2 and Task 4 can proceed in parallel because they have disjoint production files:
+  - Task 2 owns `pixelle_video/services/stale_write_integration.py` for AssetBible/SceneCast only.
+  - Task 4 owns `pixelle_video/services/artifact_dependency_integration.py`.
 - Task 3 depends on Task 2 because it extends `stale_write_integration.py` and shared fakes.
-- Task 5 depends on Task 2 and should run after Task 3 if the same file has changed, to avoid merge conflicts.
+- Task 5 depends on Task 4 because it injects `ArtifactDependencyWriteService` into `StoryboardWorkbenchService`.
+- Task 6 depends on Task 2 and should run after Task 3 if the same API test file has changed, to avoid merge conflicts.
 
 Recommended execution:
 
 1. Task 1 inline or one worker.
 2. Task 2 worker and Task 4 worker in separate worktrees only if available.
 3. Task 3 after Task 2 lands.
-4. Task 5 last.
-5. Final verification and review twice before continuing.
+4. Task 5 after Task 4 lands.
+5. Task 6 last.
+6. Final verification and review twice before continuing.
 
 ## Plan Self-Review
 
-- Spec coverage: Every design component has an implementation task: version tokens, AssetBible/SceneCast writes, PromptPlan writes, artifact dependency edge, API wiring, Stage 2 boundary tests.
+- Spec coverage: Every design component has an implementation task: version tokens, AssetBible/SceneCast writes, PromptPlan writes, artifact dependency edge, real workbench hook, API wiring, Stage 2 boundary tests.
 - Placeholder scan: No open-ended placeholder instructions remain; each task has concrete files, tests, commands, and expected results.
-- Type consistency: `StaleAwareWriteResult`, `DependencyVersionService`, `StaleAwareAssetBibleWriteService`, `StaleAwarePromptPlanWriteService`, and `StaleAwareArtifactWriteService` names are consistent across tasks.
+- Type consistency: `StaleAwareWriteResult`, `DependencyVersionService`, `StaleAwareAssetBibleWriteService`, `StaleAwarePromptPlanWriteService`, and `ArtifactDependencyWriteService` names are consistent across tasks.
 - Scope control: Plan does not persist Stage 2 projection, does not call provider routing, does not add front-end UI, and does not implement video segment/final video real repositories.
