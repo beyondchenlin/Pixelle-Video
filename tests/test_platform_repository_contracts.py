@@ -64,8 +64,10 @@ def test_repository_protocols_expose_required_methods():
         {
             "save_asset_bible",
             "load_asset_bible",
+            "list_asset_bibles",
             "save_scene_cast",
             "load_scene_cast",
+            "list_scene_casts",
         },
     )
     assert_protocol_exposes_async_methods(
@@ -117,6 +119,18 @@ def test_repository_protocols_expose_required_signatures():
         ["self", "workspace_id", "asset_bible"],
         {"asset_bible": Mapping[str, object]},
         dict[str, object],
+    )
+    assert_signature(
+        assets.AssetBibleRepository.list_asset_bibles,
+        ["self", "workspace_id", "project_id"],
+        {},
+        list[dict[str, object]],
+    )
+    assert_signature(
+        assets.AssetBibleRepository.list_scene_casts,
+        ["self", "workspace_id", "project_id", "asset_bible_id"],
+        {},
+        list[dict[str, object]],
     )
     assert_signature(
         prompt_plans.PromptPlanRepository.save_prompt_plan_bundle,
