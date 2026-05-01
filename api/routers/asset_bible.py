@@ -8,11 +8,14 @@ from pydantic import ValidationError
 
 from api.schemas.asset_bible import (
     AssetBibleDraftRequest,
+    AssetBibleListResponse,
     AssetBibleResponse,
     PromptPlanProjectionPreviewRequest,
     PromptPlanProjectionPreviewResponse,
     SceneCastDraftRequest,
+    SceneCastListResponse,
     SceneCastResponse,
+    reject_unsafe_public_metadata,
 )
 from api.schemas.storyboard_workbench import validate_public_reference_id
 from pixelle_video.models.asset_bible import AssetBible
@@ -32,6 +35,27 @@ from pixelle_video.services.scene_casting import (
 )
 
 router = APIRouter(prefix="/projects", tags=["Asset Bible"])
+
+
+@router.get(
+    "/{project_id}/asset-bible",
+    response_model=AssetBibleListResponse,
+)
+async def list_asset_bible_drafts(
+    project_id: str,
+    workspace_id: str,
+    request: Request,
+) -> AssetBibleListResponse:
+    project_id = _validate_public_id("project_id", project_id)
+    workspace_id = _validate_public_id("workspace_id", workspace_id)
+    repository = _get_asset_bible_repository(request)
+    loaded = await repository.list_asset_bibles(workspace_id, project_id)
+    return AssetBibleListResponse(
+        asset_bibles=[
+            _asset_bible_response(item, project_id=project_id)
+            for item in loaded
+        ]
+    )
 
 
 @router.post(
@@ -115,6 +139,43 @@ async def update_asset_bible_draft(
             project_id=project_id,
             asset_bible_id=asset_bible_id,
         )
+    )
+
+
+@router.get(
+    "/{project_id}/asset-bible/{asset_bible_id}/scene-casts",
+    response_model=SceneCastListResponse,
+)
+async def list_scene_cast_drafts(
+    project_id: str,
+    asset_bible_id: str,
+    workspace_id: str,
+    request: Request,
+) -> SceneCastListResponse:
+    project_id = _validate_public_id("project_id", project_id)
+    asset_bible_id = _validate_public_id("asset_bible_id", asset_bible_id)
+    workspace_id = _validate_public_id("workspace_id", workspace_id)
+    repository = _get_asset_bible_repository(request)
+    asset_bible = await _load_asset_bible_for_scene_cast(
+        repository,
+        workspace_id=workspace_id,
+        asset_bible_id=asset_bible_id,
+    )
+    loaded = await repository.list_scene_casts(
+        workspace_id,
+        project_id,
+        asset_bible_id,
+    )
+    return SceneCastListResponse(
+        scene_casts=[
+            _scene_cast_response(
+                item,
+                project_id=project_id,
+                asset_bible_id=asset_bible_id,
+                asset_bible=asset_bible,
+            )
+            for item in loaded
+        ]
     )
 
 
@@ -358,6 +419,7 @@ def _asset_bible_response(
         raise HTTPException(status_code=502, detail="asset bible project does not match request")
     if asset_bible_id is not None and asset_bible.asset_bible_id != asset_bible_id:
         raise HTTPException(status_code=502, detail="asset bible ID does not match request")
+    _validate_response_metadata(asset_bible.to_dict())
     return asset_bible.to_dict()
 
 
@@ -378,7 +440,27 @@ def _scene_cast_response(
         raise HTTPException(status_code=502, detail="scene cast ID does not match request")
     if asset_bible is not None:
         _validate_scene_cast_for_api(scene_cast, asset_bible)
+    _validate_response_metadata(scene_cast.to_dict())
     return scene_cast.to_dict()
+
+
+def _validate_response_metadata(payload: Mapping[str, Any]) -> None:
+    try:
+        _validate_response_metadata_item("response", payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+def _validate_response_metadata_item(path: str, value: Any) -> None:
+    if isinstance(value, Mapping):
+        metadata = value.get("metadata")
+        if isinstance(metadata, dict):
+            reject_unsafe_public_metadata(f"{path}.metadata", metadata)
+        for key, item in value.items():
+            _validate_response_metadata_item(f"{path}.{key}", item)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_response_metadata_item(f"{path}[{index}]", item)
 
 
 def _validate_public_id(field_name: str, value: str) -> str:

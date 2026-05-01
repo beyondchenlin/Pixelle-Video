@@ -21,6 +21,7 @@ class PublicMetadataModel(BaseModel):
     @classmethod
     def validate_public_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
         _reject_path_like_metadata("metadata", value)
+        _reject_text_rendering_metadata("metadata", value)
         return value
 
 
@@ -189,6 +190,12 @@ class AssetBibleResponse(BaseModel):
     asset_bible: dict[str, Any]
 
 
+class AssetBibleListResponse(BaseModel):
+    success: bool = True
+    message: str = "Success"
+    asset_bibles: list[dict[str, Any]]
+
+
 class SceneCastDraftRequest(PublicMetadataModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -244,6 +251,12 @@ class SceneCastResponse(BaseModel):
     success: bool = True
     message: str = "Success"
     scene_cast: dict[str, Any]
+
+
+class SceneCastListResponse(BaseModel):
+    success: bool = True
+    message: str = "Success"
+    scene_casts: list[dict[str, Any]]
 
 
 class PromptPlanProjectionPreviewRequest(BaseModel):
@@ -347,6 +360,11 @@ def _reject_path_like_metadata(path: str, value: Any) -> None:
             _reject_path_like_metadata_value(child_path, item)
 
 
+def reject_unsafe_public_metadata(path: str, value: dict[str, Any]) -> None:
+    _reject_path_like_metadata(path, value)
+    _reject_text_rendering_metadata(path, value)
+
+
 def _reject_path_like_metadata_value(path: str, value: Any) -> None:
     if isinstance(value, dict):
         _reject_path_like_metadata(path, value)
@@ -367,6 +385,26 @@ def _is_path_metadata_key(key: str) -> bool:
     )
 
 
+def _reject_text_rendering_metadata(path: str, value: Any) -> None:
+    if not isinstance(value, dict):
+        return
+    disallowed_keys = {
+        "caption_style",
+        "title_style",
+    }
+    for raw_key, item in value.items():
+        key = str(raw_key).strip()
+        child_path = f"{path}.{key}"
+        lowered = key.lower()
+        if lowered in disallowed_keys or lowered.startswith("font_"):
+            raise ValueError(f"{child_path} must not carry text-rendering style fields")
+        if isinstance(item, dict):
+            _reject_text_rendering_metadata(child_path, item)
+        elif isinstance(item, list):
+            for index, child in enumerate(item):
+                _reject_text_rendering_metadata(f"{child_path}[{index}]", child)
+
+
 def _looks_like_path_or_url(value: str) -> bool:
     stripped = value.strip()
     return (
@@ -381,6 +419,7 @@ def _looks_like_path_or_url(value: str) -> bool:
 
 __all__ = [
     "AssetBibleDraftRequest",
+    "AssetBibleListResponse",
     "AssetBibleResponse",
     "CharacterProfileDraft",
     "PromptPlanProjectionPayload",
@@ -389,8 +428,10 @@ __all__ = [
     "PromptPlanProjectionPreviewResponse",
     "PromptPlanProjectionSourceResponse",
     "PropAssetDraft",
+    "reject_unsafe_public_metadata",
     "SceneAssetDraft",
     "SceneCastDraftRequest",
+    "SceneCastListResponse",
     "SceneCastResponse",
     "StyleProfileDraft",
 ]

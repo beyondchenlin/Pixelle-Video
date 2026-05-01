@@ -15,6 +15,8 @@ class FakeAssetBibleRepository:
     scene_casts: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     load_asset_bible_calls: list[tuple[str, str]] = field(default_factory=list)
     load_scene_cast_calls: list[tuple[str, str]] = field(default_factory=list)
+    list_asset_bible_calls: list[tuple[str, str]] = field(default_factory=list)
+    list_scene_cast_calls: list[tuple[str, str, str]] = field(default_factory=list)
     saved_asset_bible_id_override: str | None = None
     saved_scene_cast_id_override: str | None = None
 
@@ -38,6 +40,19 @@ class FakeAssetBibleRepository:
         self.load_asset_bible_calls.append((workspace_id, asset_bible_id))
         return self.asset_bibles.get((workspace_id, asset_bible_id))
 
+    async def list_asset_bibles(
+        self,
+        workspace_id: str,
+        project_id: str,
+    ) -> list[dict[str, Any]]:
+        self.list_asset_bible_calls.append((workspace_id, project_id))
+        return [
+            payload
+            for (stored_workspace_id, _), payload in self.asset_bibles.items()
+            if stored_workspace_id == workspace_id
+            and payload.get("project_id") == project_id
+        ]
+
     async def save_scene_cast(
         self,
         workspace_id: str,
@@ -57,6 +72,21 @@ class FakeAssetBibleRepository:
     ) -> dict[str, Any] | None:
         self.load_scene_cast_calls.append((workspace_id, scene_cast_id))
         return self.scene_casts.get((workspace_id, scene_cast_id))
+
+    async def list_scene_casts(
+        self,
+        workspace_id: str,
+        project_id: str,
+        asset_bible_id: str,
+    ) -> list[dict[str, Any]]:
+        self.list_scene_cast_calls.append((workspace_id, project_id, asset_bible_id))
+        return [
+            payload
+            for (stored_workspace_id, _), payload in self.scene_casts.items()
+            if stored_workspace_id == workspace_id
+            and payload.get("project_id") == project_id
+            and payload.get("asset_bible_id") == asset_bible_id
+        ]
 
 
 @dataclass
@@ -255,6 +285,79 @@ def test_asset_bible_api_loads_draft_from_repository():
     assert body["asset_bible"]["style_profiles"][0]["style_id"] == "style_warm_comic"
 
 
+def test_asset_bible_api_lists_drafts_by_workspace_and_project():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(asset_bible_id="bible_demo"),
+    ).status_code == 201
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(asset_bible_id="bible_alt"),
+    ).status_code == 201
+    assert client.post(
+        "/projects/project_2/asset-bible",
+        json=_asset_bible_payload(asset_bible_id="bible_other_project"),
+    ).status_code == 201
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(
+            workspace_id="workspace_2",
+            asset_bible_id="bible_other_workspace",
+        ),
+    ).status_code == 201
+
+    response = client.get(
+        "/projects/project_1/asset-bible",
+        params={"workspace_id": "workspace_1"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["asset_bible_id"] for item in body["asset_bibles"]] == [
+        "bible_demo",
+        "bible_alt",
+    ]
+    assert repository.list_asset_bible_calls == [("workspace_1", "project_1")]
+    assert "C:\\" not in str(body)
+    assert "local_path" not in str(body)
+
+
+def test_asset_bible_api_list_rejects_path_like_ids_before_repository_call():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+
+    response = client.get(
+        "/projects/project_1/asset-bible",
+        params={"workspace_id": "C:\\workspace"},
+    )
+
+    assert response.status_code == 422
+    assert repository.list_asset_bible_calls == []
+
+
+def test_asset_bible_api_list_rejects_path_like_repository_metadata():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+    stored = dict(repository.asset_bibles[("workspace_1", "bible_demo")])
+    stored["metadata"] = {"local_path": "C:\\assets\\bible.json"}
+    repository.asset_bibles[("workspace_1", "bible_demo")] = stored
+
+    response = client.get(
+        "/projects/project_1/asset-bible",
+        params={"workspace_id": "workspace_1"},
+    )
+
+    assert response.status_code == 502
+    assert "metadata.local_path" in response.json()["detail"]
+    assert "C:\\" not in response.json()["detail"]
+
+
 def test_asset_bible_api_load_rejects_mismatched_repository_id():
     repository = FakeAssetBibleRepository()
     client = _client(repository)
@@ -344,7 +447,21 @@ def test_asset_bible_api_rejects_text_rendering_style_metadata():
     )
 
     assert response.status_code == 422
-    assert "caption_style" in response.json()["detail"]
+    assert "caption_style" in str(response.json()["detail"])
+    assert repository.saved == []
+
+
+def test_asset_bible_api_rejects_font_prefixed_metadata():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+
+    response = client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(metadata={"font_color": "#fff"}),
+    )
+
+    assert response.status_code == 422
+    assert "font_color" in str(response.json()["detail"])
     assert repository.saved == []
 
 
@@ -421,6 +538,86 @@ def test_scene_cast_api_loads_draft_from_repository():
     body = response.json()
     assert body["scene_cast"]["frame_id"] == "frame_0001"
     assert body["scene_cast"]["style_id"] == "style_warm_comic"
+
+
+def test_scene_cast_api_lists_drafts_by_asset_bible():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+    assert client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        json=_scene_cast_payload(scene_cast_id="cast_frame_1"),
+    ).status_code == 201
+    assert client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        json=_scene_cast_payload(
+            scene_cast_id="cast_frame_2",
+            frame_id="frame_0002",
+        ),
+    ).status_code == 201
+    repository.scene_casts[("workspace_1", "cast_other_bible")] = {
+        **_scene_cast_payload(scene_cast_id="cast_other_bible"),
+        "project_id": "project_1",
+        "asset_bible_id": "bible_other",
+    }
+
+    response = client.get(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        params={"workspace_id": "workspace_1"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["scene_cast_id"] for item in body["scene_casts"]] == [
+        "cast_frame_1",
+        "cast_frame_2",
+    ]
+    assert repository.list_scene_cast_calls == [
+        ("workspace_1", "project_1", "bible_demo")
+    ]
+    assert "C:\\" not in str(body)
+    assert "local_path" not in str(body)
+
+
+def test_scene_cast_api_list_rejects_path_like_ids_before_repository_call():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+
+    response = client.get(
+        "/projects/project_1/asset-bible/C:\\bibles\\1/scene-casts",
+        params={"workspace_id": "workspace_1"},
+    )
+
+    assert response.status_code == 422
+    assert repository.list_scene_cast_calls == []
+
+
+def test_scene_cast_api_list_rejects_path_like_repository_metadata():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+    assert client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        json=_scene_cast_payload(),
+    ).status_code == 201
+    stored = dict(repository.scene_casts[("workspace_1", "cast_frame_1")])
+    stored["metadata"] = {"local_path": "C:\\casts\\cast.json"}
+    repository.scene_casts[("workspace_1", "cast_frame_1")] = stored
+
+    response = client.get(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        params={"workspace_id": "workspace_1"},
+    )
+
+    assert response.status_code == 502
+    assert "metadata.local_path" in response.json()["detail"]
+    assert "C:\\" not in response.json()["detail"]
 
 
 def test_scene_cast_api_load_revalidates_asset_references():
