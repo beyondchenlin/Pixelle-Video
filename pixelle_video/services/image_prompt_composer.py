@@ -14,6 +14,7 @@ from pixelle_video.models.video_generation_contract import (
     normalize_plan_frame_overrides,
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
+from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 
 
@@ -90,6 +91,10 @@ class ImagePromptComposer:
 
         planning_snapshot = dict(batch.planning_snapshot or {})
         planning_snapshot["storyboard_generation"] = storyboard_plan.to_dict()
+        planning_snapshot["prompt_plan_bundle"] = build_prompt_plan_bundle(
+            storyboard_plan=storyboard_plan,
+            image_prompts=batch.prompts,
+        ).to_dict()
         return StyledImagePromptBatch(
             prompts=batch.prompts,
             negative_prompt=batch.negative_prompt,

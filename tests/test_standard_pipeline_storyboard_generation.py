@@ -219,6 +219,113 @@ async def test_plan_visuals_uses_image_prompt_composer(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_plan_visuals_persists_prompt_plan_bundle_to_repository(monkeypatch):
+    class RecordingPromptPlanRepository:
+        def __init__(self):
+            self.saved_bundles = []
+
+        async def save_prompt_plan_bundle(self, workspace_id, bundle):
+            self.saved_bundles.append((workspace_id, dict(bundle)))
+            return dict(bundle)
+
+        async def load_prompt_plans_by_storyboard(self, workspace_id, storyboard_id):
+            return []
+
+        async def mark_prompt_plan_stale(self, workspace_id, prompt_plan_id, reason=None):
+            return {"prompt_plan_id": prompt_plan_id}
+
+    async def fake_compose(self, **kwargs):
+        plan = kwargs["storyboard_plan"]
+        return StyledImagePromptBatch(
+            prompts=["prompt one", "prompt two"],
+            negative_prompt=None,
+            resolved_style=None,
+            planning_snapshot={
+                "storyboard_generation": plan.to_dict(),
+                "prompt_plan_bundle": {
+                    "storyboard_plan_id": plan.plan_id,
+                    "image_prompt_drafts": [
+                        {
+                            "image_prompt_draft_id": "draft_frame_1",
+                            "storyboard_plan_id": plan.plan_id,
+                            "frame_id": plan.frames[0].frame_id,
+                            "prompt_text": "prompt one",
+                            "source_trace_id": None,
+                            "metadata": {"frame_index": 1},
+                        },
+                        {
+                            "image_prompt_draft_id": "draft_frame_2",
+                            "storyboard_plan_id": plan.plan_id,
+                            "frame_id": plan.frames[1].frame_id,
+                            "prompt_text": "prompt two",
+                            "source_trace_id": None,
+                            "metadata": {"frame_index": 2},
+                        },
+                    ],
+                    "prompt_plans": [
+                        {
+                            "prompt_plan_id": "prompt_plan_frame_1",
+                            "storyboard_plan_id": plan.plan_id,
+                            "frame_id": plan.frames[0].frame_id,
+                            "image_prompt_draft_id": "draft_frame_1",
+                            "prompt_sections": {"generated_prompt": "prompt one"},
+                            "final_prompt": "prompt one",
+                            "source_trace_id": None,
+                            "character_ids": [],
+                            "scene_id": None,
+                            "prop_ids": [],
+                            "style_id": None,
+                            "metadata": {"frame_index": 1},
+                        },
+                        {
+                            "prompt_plan_id": "prompt_plan_frame_2",
+                            "storyboard_plan_id": plan.plan_id,
+                            "frame_id": plan.frames[1].frame_id,
+                            "image_prompt_draft_id": "draft_frame_2",
+                            "prompt_sections": {"generated_prompt": "prompt two"},
+                            "final_prompt": "prompt two",
+                            "source_trace_id": None,
+                            "character_ids": [],
+                            "scene_id": None,
+                            "prop_ids": [],
+                            "style_id": None,
+                            "metadata": {"frame_index": 2},
+                        },
+                    ],
+                    "source_trace_id": None,
+                    "metadata": {},
+                },
+            },
+        )
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.ImagePromptComposer.compose",
+        fake_compose,
+    )
+
+    prompt_repository = RecordingPromptPlanRepository()
+    core = _DummyCore()
+    core.prompt_plan_repository = prompt_repository
+    ctx = PipelineContext(
+        input_text="first. second.",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "workspace_id": "workspace_demo",
+        },
+    )
+    ctx.task_id = "task-persist-prompt-plan"
+    ctx.storyboard_plan = _plan()
+
+    await StandardPipeline(core).plan_visuals(ctx)
+
+    assert len(prompt_repository.saved_bundles) == 1
+    workspace_id, saved_bundle = prompt_repository.saved_bundles[0]
+    assert workspace_id == "workspace_demo"
+    assert saved_bundle == ctx.planning_snapshot["prompt_plan_bundle"]
+    assert saved_bundle["prompt_plans"][0]["frame_id"] == ctx.storyboard_plan.frames[0].frame_id
+
+
+@pytest.mark.asyncio
 async def test_plan_visuals_defaults_template_to_canvas_orientation(monkeypatch):
     captured_resolver = {}
 

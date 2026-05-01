@@ -525,6 +525,7 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.resolved_style = styled_batch.resolved_style
             ctx.media_negative_prompt = styled_batch.negative_prompt
             ctx.planning_snapshot = dict(styled_batch.planning_snapshot or {}) or None
+            await self._persist_prompt_plan_bundle(ctx)
             
             logger.info(f"✅ Generated {len(ctx.image_prompts)} image prompts")
         else:
@@ -1514,7 +1515,7 @@ class StandardPipeline(LinearVideoPipeline):
 
         bridge = StoryboardWorkbenchArtifactBridge(**dependencies)
         state = await bridge.attach_generated_image(
-            workspace_id=self._resolve_workbench_workspace_id(ctx),
+            workspace_id=self._resolve_workspace_id(ctx),
             storyboard_id=storyboard_id,
             frame=frame,
             frame_id=frame_id,
@@ -1548,6 +1549,18 @@ class StandardPipeline(LinearVideoPipeline):
             "object_store": object_store,
             "trace_repository": trace_repository,
         }
+
+    async def _persist_prompt_plan_bundle(self, ctx: PipelineContext) -> None:
+        prompt_plan_repository = getattr(self.core, "prompt_plan_repository", None)
+        if prompt_plan_repository is None or not isinstance(ctx.planning_snapshot, Mapping):
+            return
+        bundle = ctx.planning_snapshot.get("prompt_plan_bundle")
+        if not isinstance(bundle, Mapping):
+            return
+        await prompt_plan_repository.save_prompt_plan_bundle(
+            self._resolve_workspace_id(ctx),
+            dict(bundle),
+        )
 
     def _resolve_frame_prompt_plan(
         self,
@@ -1589,7 +1602,7 @@ class StandardPipeline(LinearVideoPipeline):
         return str(frame_payload.get("frame_id") or "").strip()
 
     @staticmethod
-    def _resolve_workbench_workspace_id(ctx: PipelineContext) -> str:
+    def _resolve_workspace_id(ctx: PipelineContext) -> str:
         return str(
             ctx.params.get("workspace_id")
             or ctx.params.get("project_id")
@@ -1615,7 +1628,7 @@ class StandardPipeline(LinearVideoPipeline):
         if state_store is None:
             return
         await state_store.save_frame_state(
-            self._resolve_workbench_workspace_id(ctx),
+            self._resolve_workspace_id(ctx),
             storyboard_id,
             frame_id,
             workbench_state,
