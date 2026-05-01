@@ -262,6 +262,21 @@ async def test_list_image_candidates_returns_storage_keys_and_controlled_urls():
 
 
 @pytest.mark.asyncio
+async def test_list_image_candidates_accepts_controlled_relative_access_urls():
+    service, _, object_store, _, _ = _service()
+    object_store.urls_by_storage_key[
+        "artifacts/workspace_1/frame_0001/artifact_version_001.png"
+    ] = "/api/files/artifacts/workspace_1/frame_0001/artifact_version_001.png"
+
+    candidates = await service.list_image_candidates(
+        workspace_id="workspace_1",
+        artifact_id="artifact_frame_0001_image",
+    )
+
+    assert candidates[0].url == "/api/files/artifacts/workspace_1/frame_0001/artifact_version_001.png"
+
+
+@pytest.mark.asyncio
 async def test_list_image_candidates_accepts_candidate_lifecycle_status():
     service, artifact_repository, _, _, _ = _service()
     artifact_repository.versions_by_artifact_id["artifact_frame_0001_image"] = [

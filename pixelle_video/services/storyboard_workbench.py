@@ -17,6 +17,7 @@ from pixelle_video.models.storyboard_workbench import (
 from pixelle_video.repositories.artifacts import ArtifactObjectStore, ArtifactRepository
 from pixelle_video.repositories.prompt_plans import PromptPlanRepository
 from pixelle_video.repositories.trace import TraceRepository
+from pixelle_video.services.artifact_access_urls import normalize_artifact_access_url
 from pixelle_video.services.artifact_dependency_integration import ArtifactDependencyWriteService
 from pixelle_video.services.generation_coordinator import build_generation_fingerprint
 
@@ -475,24 +476,10 @@ def _drop_none_values(values: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _validate_access_url(url: str | None) -> str | None:
-    if url is None:
-        return None
-    normalized = str(url).strip()
-    if (
-        normalized.lower().startswith("file:")
-        or "\\" in normalized
-        or normalized.startswith("/")
-        or normalized.startswith("~")
-        or normalized.startswith("../")
-        or "/../" in normalized
-        or _looks_like_windows_path(normalized)
-    ):
-        raise UnsafeArtifactUrlError("object-store URL must not be a local path")
-    return normalized
-
-
-def _looks_like_windows_path(value: str) -> bool:
-    return len(value) >= 3 and value[1] == ":" and value[2] in {"/", "\\"}
+    try:
+        return normalize_artifact_access_url(url)
+    except ValueError as exc:
+        raise UnsafeArtifactUrlError("object-store URL must not be a local path") from exc
 
 
 def _json_safe_copy(value: Any) -> Any:

@@ -62,6 +62,52 @@ def test_list_storyboard_image_candidates_builds_public_endpoint(monkeypatch):
     assert result["candidates"][0]["version_id"] == "artifact_version_001"
 
 
+def test_list_storyboard_image_candidates_accepts_controlled_relative_urls(monkeypatch):
+    from web.utils import storyboard_workbench_api
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "success": True,
+                "workspace_id": "workspace_1",
+                "storyboard_id": "storyboard_001",
+                "frame_id": "frame_0001",
+                "artifact_id": "artifact_frame_0001_image",
+                "candidates": [
+                    {
+                        "artifact_id": "artifact_frame_0001_image",
+                        "version_id": "artifact_version_001",
+                        "frame_id": "frame_0001",
+                        "prompt_plan_id": "prompt_plan_001",
+                        "storage_key": "artifacts/workspace_1/frame_0001/artifact_version_001.png",
+                        "status": "succeeded",
+                        "url": "/api/files/artifacts/workspace_1/frame_0001/artifact_version_001.png",
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(
+        storyboard_workbench_api.httpx,
+        "get",
+        lambda *_args, **_kwargs: _Response(),
+    )
+
+    result = storyboard_workbench_api.list_storyboard_image_candidates(
+        api_base_url="http://localhost:8000/api",
+        workspace_id="workspace_1",
+        storyboard_id="storyboard_001",
+        frame_id="frame_0001",
+        artifact_id="artifact_frame_0001_image",
+    )
+
+    assert result["candidates"][0]["url"] == (
+        "/api/files/artifacts/workspace_1/frame_0001/artifact_version_001.png"
+    )
+
+
 def test_storyboard_workbench_api_rejects_path_like_ids_before_http(monkeypatch):
     from web.utils import storyboard_workbench_api
 

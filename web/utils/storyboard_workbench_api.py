@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import httpx
 
 from api.schemas.storyboard_workbench import validate_public_reference_id
+from pixelle_video.services.artifact_access_urls import is_safe_artifact_access_url
 
 
 def build_storyboard_frame_images_endpoint(
@@ -255,11 +256,7 @@ def _is_unsafe_storage_key(value: str) -> bool:
 def _is_safe_access_url(value: Any) -> bool:
     if not isinstance(value, str):
         return False
-    normalized = value.strip()
-    if _looks_like_local_path(normalized):
-        return False
-    parsed = urlparse(normalized)
-    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    return is_safe_artifact_access_url(value)
 
 
 def _looks_like_local_path(value: str) -> bool:
