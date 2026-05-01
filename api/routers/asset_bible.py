@@ -59,7 +59,13 @@ async def load_asset_bible_draft(
     loaded = await repository.load_asset_bible(workspace_id, asset_bible_id)
     if loaded is None:
         raise HTTPException(status_code=404, detail="asset bible draft was not found")
-    return AssetBibleResponse(asset_bible=_asset_bible_response(loaded, project_id=project_id))
+    return AssetBibleResponse(
+        asset_bible=_asset_bible_response(
+            loaded,
+            project_id=project_id,
+            asset_bible_id=asset_bible_id,
+        )
+    )
 
 
 @router.put(
@@ -262,10 +268,17 @@ def _validate_scene_cast_for_api(scene_cast: SceneCast, asset_bible: AssetBible)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-def _asset_bible_response(payload: Mapping[str, Any], *, project_id: str) -> dict[str, Any]:
+def _asset_bible_response(
+    payload: Mapping[str, Any],
+    *,
+    project_id: str,
+    asset_bible_id: str | None = None,
+) -> dict[str, Any]:
     asset_bible = AssetBible.from_dict(payload)
     if asset_bible.project_id != project_id:
         raise HTTPException(status_code=502, detail="asset bible project does not match request")
+    if asset_bible_id is not None and asset_bible.asset_bible_id != asset_bible_id:
+        raise HTTPException(status_code=502, detail="asset bible ID does not match request")
     return asset_bible.to_dict()
 
 

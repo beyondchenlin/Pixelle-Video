@@ -164,6 +164,26 @@ def test_asset_bible_api_loads_draft_from_repository():
     assert body["asset_bible"]["style_profiles"][0]["style_id"] == "style_warm_comic"
 
 
+def test_asset_bible_api_load_rejects_mismatched_repository_id():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+    stored = dict(repository.asset_bibles[("workspace_1", "bible_demo")])
+    stored["asset_bible_id"] = "other_bible"
+    repository.asset_bibles[("workspace_1", "bible_demo")] = stored
+
+    response = client.get(
+        "/projects/project_1/asset-bible/bible_demo",
+        params={"workspace_id": "workspace_1"},
+    )
+
+    assert response.status_code == 502
+    assert "asset bible ID" in response.json()["detail"]
+
+
 def test_asset_bible_api_updates_draft_through_repository():
     repository = FakeAssetBibleRepository()
     client = _client(repository)
