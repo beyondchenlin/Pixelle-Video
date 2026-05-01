@@ -265,9 +265,11 @@ function Set-ReviewGateResult {
 
     if ($Result -eq "failed") {
         $updated = $updated -replace "(?m)^status:\s*\w+", "status: review_failed"
+        $updated = $updated -replace "(?m)^- status:\s*\w+", "- status: review_failed"
     }
     elseif ($Result -eq "passed" -and $otherResult -eq "passed") {
         $updated = $updated -replace "(?m)^status:\s*\w+", "status: passed"
+        $updated = $updated -replace "(?m)^- status:\s*\w+", "- status: passed"
     }
 
     Set-Content -LiteralPath $PathValue -Value $updated -Encoding UTF8

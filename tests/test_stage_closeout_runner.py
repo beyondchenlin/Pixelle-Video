@@ -215,7 +215,9 @@ def test_closeout_runner_requires_two_review_gates_before_next_task(tmp_path: Pa
         "passed",
     )
     assert gate_two.returncode == 0
-    assert "status: passed" in first_report.read_text(encoding="utf-8")
+    first_report_text = first_report.read_text(encoding="utf-8")
+    assert "status: passed" in first_report_text
+    assert "- status: passed" in first_report_text
 
     second = _run_runner(
         "-RepoRoot",
