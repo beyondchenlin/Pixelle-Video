@@ -48,17 +48,6 @@ function Get-TaskDefinitions {
     return @()
 }
 
-$ResolvedRepoRoot = Resolve-RepoRoot $RepoRoot
-
-if ($MarkReviewGate -ne "none") {
-    Write-RunnerLine "review gate marking is not implemented yet"
-    exit 3
-}
-
-Assert-CleanGitWorktree $ResolvedRepoRoot
-
-$Tasks = Get-TaskDefinitions $TaskDefinitionPath
-
 function New-ReportDirectory {
     param([string]$Root)
     $dir = Join-Path $Root "_runtime/stage_closeout"
@@ -186,12 +175,130 @@ function Select-Task {
     return $Tasks[0]
 }
 
+function Get-ReportMetadata {
+    param([string]$PathValue)
+    $content = Get-Content -Raw -LiteralPath $PathValue
+    $metadata = @{}
+    foreach ($line in ($content -split "`r?`n")) {
+        if ($line -match "^task_id:\s*(.+)$") {
+            $metadata["task_id"] = $Matches[1].Trim()
+        }
+        elseif ($line -match "^status:\s*(.+)$") {
+            $metadata["status"] = $Matches[1].Trim()
+        }
+        elseif ($line -match "^review_gate_1:\s*(.+)$") {
+            $metadata["review_gate_1"] = $Matches[1].Trim()
+        }
+        elseif ($line -match "^review_gate_2:\s*(.+)$") {
+            $metadata["review_gate_2"] = $Matches[1].Trim()
+        }
+        elseif ($line -eq "-->") {
+            break
+        }
+    }
+    return $metadata
+}
+
+function Set-ReviewGateResult {
+    param(
+        [string]$PathValue,
+        [string]$Gate,
+        [string]$Result
+    )
+    if (-not $PathValue) {
+        Write-RunnerLine "ReportPath is required when marking a review gate"
+        exit 3
+    }
+
+    $content = Get-Content -Raw -LiteralPath $PathValue
+    $field = "review_gate_$Gate"
+    $updated = $content -replace "(?m)^${field}:\s*\w+", "${field}: $Result"
+    $metadata = Get-ReportMetadata $PathValue
+    $otherGate = if ($Gate -eq "1") { "review_gate_2" } else { "review_gate_1" }
+    $otherResult = if ($metadata.ContainsKey($otherGate)) { $metadata[$otherGate] } else { "pending" }
+
+    if ($Result -eq "failed") {
+        $updated = $updated -replace "(?m)^status:\s*\w+", "status: review_failed"
+    }
+    elseif ($Result -eq "passed" -and $otherResult -eq "passed") {
+        $updated = $updated -replace "(?m)^status:\s*\w+", "status: passed"
+    }
+
+    Set-Content -LiteralPath $PathValue -Value $updated -Encoding UTF8
+    Write-RunnerLine "review_gate_${Gate}: $Result"
+}
+
+function Get-LatestReportForTask {
+    param(
+        [string]$Root,
+        [string]$TaskIdValue
+    )
+    $dir = Join-Path $Root "_runtime/stage_closeout"
+    if (-not (Test-Path -LiteralPath $dir)) {
+        return $null
+    }
+
+    $reports = @(Get-ChildItem -LiteralPath $dir -Filter "*_$TaskIdValue.md" | Sort-Object LastWriteTime -Descending)
+    if ($reports.Count -eq 0) {
+        return $null
+    }
+    return $reports[0].FullName
+}
+
+function Select-NextTaskWithReports {
+    param(
+        [string]$Root,
+        [object[]]$Tasks,
+        [string]$RequestedTaskId,
+        [bool]$AllowContinue
+    )
+    if ($RequestedTaskId) {
+        return Select-Task $Tasks $RequestedTaskId
+    }
+
+    $sawPassedTask = $false
+    foreach ($task in $Tasks) {
+        $report = Get-LatestReportForTask $Root ([string]$task.id)
+        if ($null -eq $report) {
+            if ($sawPassedTask -and -not $AllowContinue) {
+                Write-RunnerLine "previous task passed; rerun with -ContinueAfterReviewed to advance"
+                exit 3
+            }
+            return $task
+        }
+
+        $metadata = Get-ReportMetadata $report
+        if ($metadata["status"] -eq "passed") {
+            $sawPassedTask = $true
+            continue
+        }
+
+        Write-RunnerLine "review gates are not complete for task: $($task.id)"
+        Write-RunnerLine "report: $report"
+        exit 3
+    }
+
+    Write-RunnerLine "all closeout tasks are passed"
+    exit 0
+}
+
+$ResolvedRepoRoot = Resolve-RepoRoot $RepoRoot
+
+if ($MarkReviewGate -ne "none") {
+    Set-ReviewGateResult $ReportPath $MarkReviewGate $ReviewResult
+    exit 0
+}
+
+Assert-CleanGitWorktree $ResolvedRepoRoot
+
+$Tasks = Get-TaskDefinitions $TaskDefinitionPath
 if (-not $Tasks -or $Tasks.Count -eq 0) {
     Write-RunnerLine "no closeout tasks are available"
     exit 3
 }
 
-$Task = Select-Task $Tasks $TaskId
+$Task = Select-NextTaskWithReports $ResolvedRepoRoot $Tasks $TaskId ([bool]$ContinueAfterReviewed)
+Write-RunnerLine "task: $($Task.id)"
 $Results = New-Object System.Collections.Generic.List[object]
 foreach ($command in @($Task.verification_commands)) {
     $result = Invoke-VerificationCommand $ResolvedRepoRoot ([string]$command)
