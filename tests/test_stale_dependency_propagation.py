@@ -306,3 +306,78 @@ def test_stale_service_module_does_not_import_stage2_projection_or_provider_rout
     assert "provider routing" not in source.lower()
     assert "workflow_path" not in source
     assert "save_prompt_plan_bundle" not in source
+
+
+@pytest.mark.asyncio
+async def test_prompt_plan_change_marks_image_artifact_video_segment_and_final_video_stale():
+    edges = InMemoryDependencyEdgeRepository()
+    stale = InMemoryStaleMarkRepository()
+    await seed_edge(
+        edges,
+        upstream_type="prompt_plan",
+        upstream_id="prompt_plan_001",
+        upstream_version="prompt_plan_rev_5",
+        downstream_type="image_artifact",
+        downstream_id="image_artifact_001",
+        relation="image_artifact.generated_from_prompt_plan",
+    )
+    await seed_edge(
+        edges,
+        upstream_type="image_artifact",
+        upstream_id="image_artifact_001",
+        upstream_version="image_artifact_rev_1",
+        downstream_type="video_segment",
+        downstream_id="video_segment_001",
+        relation="video_segment.uses_image_artifact",
+    )
+    await seed_edge(
+        edges,
+        upstream_type="video_segment",
+        upstream_id="video_segment_001",
+        upstream_version="video_segment_rev_1",
+        downstream_type="final_video",
+        downstream_id="final_video_001",
+        relation="final_video.uses_video_segment",
+    )
+    service = StaleDependencyPropagationService(edge_repository=edges, stale_repository=stale)
+
+    summary = await service.propagate_upstream_change(
+        UpstreamChangeEvent(
+            workspace_id="workspace_1",
+            project_id="project_1",
+            upstream_type="prompt_plan",
+            upstream_id="prompt_plan_001",
+            upstream_version="prompt_plan_rev_6",
+            reason_code="prompt_plan_changed",
+        )
+    )
+
+    assert summary.visited_edge_count == 3
+    assert summary.stale_created_count == 3
+    assert set(summary.marked_target_ids) == {
+        "image_artifact_001",
+        "video_segment_001",
+        "final_video_001",
+    }
+    assert stale.marks[
+        (
+            "workspace_1",
+            "video_segment",
+            "video_segment_001",
+            "prompt_plan_changed_via_image_artifact",
+            "prompt_plan",
+            "prompt_plan_001",
+            "prompt_plan_rev_6",
+        )
+    ]["reason_code"] == "prompt_plan_changed_via_image_artifact"
+    assert stale.marks[
+        (
+            "workspace_1",
+            "final_video",
+            "final_video_001",
+            "prompt_plan_changed_via_video_segment",
+            "prompt_plan",
+            "prompt_plan_001",
+            "prompt_plan_rev_6",
+        )
+    ]["reason_code"] == "prompt_plan_changed_via_video_segment"

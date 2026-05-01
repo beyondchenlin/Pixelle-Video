@@ -119,5 +119,9 @@ def _reason_for(*, downstream_type: str, incoming_reason: str, relation: str) ->
         ("image_artifact", "asset_bible_changed_via_scene_cast"): "asset_bible_changed_via_prompt_plan",
         ("prompt_plan", "scene_cast_changed"): "scene_cast_changed",
         ("image_artifact", "scene_cast_changed"): "scene_cast_changed_via_prompt_plan",
+        ("image_artifact", "prompt_plan_changed"): "prompt_plan_changed",
+        ("video_segment", "prompt_plan_changed"): "prompt_plan_changed_via_image_artifact",
+        ("video_segment", "prompt_plan_changed_via_image_artifact"): "prompt_plan_changed_via_image_artifact",
+        ("final_video", "prompt_plan_changed_via_image_artifact"): "prompt_plan_changed_via_video_segment",
     }
     return mapping.get((downstream_type, incoming_reason), incoming_reason)
