@@ -32,6 +32,11 @@ from pixelle_video.services.scene_casting import (
     SceneCastValidationError,
     validate_scene_cast,
 )
+from pixelle_video.services.stale_write_integration import (
+    StaleAwareAssetBibleWriteService,
+    StaleWriteDependencyNotFoundError,
+    StaleWriteIntegrationError,
+)
 
 router = APIRouter(prefix="/projects", tags=["Asset Bible"])
 
@@ -70,10 +75,18 @@ async def create_asset_bible_draft(
     project_id = _validate_public_id("project_id", project_id)
     repository = _get_asset_bible_repository(request)
     asset_bible = _request_to_model(payload, project_id=project_id)
-    saved = await repository.save_asset_bible(
-        payload.workspace_id,
-        asset_bible.to_dict(),
-    )
+    service = _build_stale_asset_write_service(request)
+    if service is None:
+        saved = await repository.save_asset_bible(
+            payload.workspace_id,
+            asset_bible.to_dict(),
+        )
+    else:
+        try:
+            result = await service.save_asset_bible(payload.workspace_id, asset_bible)
+        except StaleWriteIntegrationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        saved = result.saved_payload
     return _build_asset_bible_response(
         asset_bible=_asset_bible_response(
             saved,
@@ -128,10 +141,18 @@ async def update_asset_bible_draft(
         )
     repository = _get_asset_bible_repository(request)
     asset_bible = _request_to_model(payload, project_id=project_id)
-    saved = await repository.save_asset_bible(
-        payload.workspace_id,
-        asset_bible.to_dict(),
-    )
+    service = _build_stale_asset_write_service(request)
+    if service is None:
+        saved = await repository.save_asset_bible(
+            payload.workspace_id,
+            asset_bible.to_dict(),
+        )
+    else:
+        try:
+            result = await service.save_asset_bible(payload.workspace_id, asset_bible)
+        except StaleWriteIntegrationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        saved = result.saved_payload
     return _build_asset_bible_response(
         asset_bible=_asset_bible_response(
             saved,
@@ -203,10 +224,20 @@ async def create_scene_cast_draft(
         asset_bible_id=asset_bible_id,
     )
     _validate_scene_cast_for_api(scene_cast, asset_bible)
-    saved = await repository.save_scene_cast(
-        payload.workspace_id,
-        scene_cast.to_dict(),
-    )
+    service = _build_stale_asset_write_service(request)
+    if service is None:
+        saved = await repository.save_scene_cast(
+            payload.workspace_id,
+            scene_cast.to_dict(),
+        )
+    else:
+        try:
+            result = await service.save_scene_cast(payload.workspace_id, scene_cast)
+        except StaleWriteDependencyNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except StaleWriteIntegrationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        saved = result.saved_payload
     return _build_scene_cast_response(
         scene_cast=_scene_cast_response(
             saved,
@@ -284,10 +315,20 @@ async def update_scene_cast_draft(
         asset_bible_id=asset_bible_id,
     )
     _validate_scene_cast_for_api(scene_cast, asset_bible)
-    saved = await repository.save_scene_cast(
-        payload.workspace_id,
-        scene_cast.to_dict(),
-    )
+    service = _build_stale_asset_write_service(request)
+    if service is None:
+        saved = await repository.save_scene_cast(
+            payload.workspace_id,
+            scene_cast.to_dict(),
+        )
+    else:
+        try:
+            result = await service.save_scene_cast(payload.workspace_id, scene_cast)
+        except StaleWriteDependencyNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except StaleWriteIntegrationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        saved = result.saved_payload
     return _build_scene_cast_response(
         scene_cast=_scene_cast_response(
             saved,
@@ -361,6 +402,31 @@ def _get_prompt_plan_repository(request: Request):
             detail="prompt plan repository is not configured",
         )
     return repository
+
+
+def _get_dependency_edge_repository(request: Request):
+    return getattr(request.app.state, "dependency_edge_repository", None)
+
+
+def _get_stale_mark_repository(request: Request):
+    return getattr(request.app.state, "stale_mark_repository", None)
+
+
+def _build_stale_asset_write_service(request: Request) -> StaleAwareAssetBibleWriteService | None:
+    edge_repository = _get_dependency_edge_repository(request)
+    stale_repository = _get_stale_mark_repository(request)
+    if edge_repository is None and stale_repository is None:
+        return None
+    if edge_repository is None or stale_repository is None:
+        raise HTTPException(
+            status_code=503,
+            detail="stale write repositories are not fully configured",
+        )
+    return StaleAwareAssetBibleWriteService(
+        asset_bible_repository=_get_asset_bible_repository(request),
+        edge_repository=edge_repository,
+        stale_repository=stale_repository,
+    )
 
 
 def _build_asset_bible_response(*, asset_bible: dict[str, Any]) -> AssetBibleResponse:

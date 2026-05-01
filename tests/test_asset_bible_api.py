@@ -103,10 +103,65 @@ class FakePromptPlanRepository:
         return self.prompt_plans.get((workspace_id, storyboard_id), [])
 
 
+@dataclass
+class FakeDependencyEdgeRepository:
+    edges: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
+
+    async def save_dependency_edge(self, workspace_id: str, edge: dict[str, Any]) -> dict[str, Any]:
+        self.edges[(workspace_id, edge["edge_id"])] = dict(edge)
+        return dict(edge)
+
+    async def list_downstream_edges(
+        self,
+        workspace_id: str,
+        upstream_type: str,
+        upstream_id: str,
+    ) -> list[dict[str, Any]]:
+        return [
+            edge
+            for (stored_workspace_id, _), edge in self.edges.items()
+            if stored_workspace_id == workspace_id
+            and edge["upstream_type"] == upstream_type
+            and edge["upstream_id"] == upstream_id
+        ]
+
+
+@dataclass
+class FakeStaleMarkRepository:
+    marks: dict[tuple[str, str, str, str, str, str, str], dict[str, Any]] = field(
+        default_factory=dict
+    )
+
+    async def mark_stale(self, workspace_id: str, mark: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        key = (
+            workspace_id,
+            mark["target_type"],
+            mark["target_id"],
+            mark["reason_code"],
+            mark["upstream_type"],
+            mark["upstream_id"],
+            mark["upstream_version"],
+        )
+        if key in self.marks:
+            return dict(self.marks[key]), False
+        self.marks[key] = dict(mark)
+        return dict(mark), True
+
+    async def list_stale_marks(
+        self,
+        workspace_id: str,
+        target_type: str,
+        target_id: str,
+    ) -> list[dict[str, Any]]:
+        return []
+
+
 def _client(
     repository: FakeAssetBibleRepository | None = None,
     *,
     prompt_plan_repository: FakePromptPlanRepository | None = None,
+    edge_repository: FakeDependencyEdgeRepository | None = None,
+    stale_repository: FakeStaleMarkRepository | None = None,
 ) -> TestClient:
     from api.routers.asset_bible import router as asset_bible_router
 
@@ -115,6 +170,10 @@ def _client(
         app.state.asset_bible_repository = repository
     if prompt_plan_repository is not None:
         app.state.prompt_plan_repository = prompt_plan_repository
+    if edge_repository is not None:
+        app.state.dependency_edge_repository = edge_repository
+    if stale_repository is not None:
+        app.state.stale_mark_repository = stale_repository
     app.include_router(asset_bible_router)
     return TestClient(app)
 
@@ -419,6 +478,26 @@ def test_asset_bible_api_updates_draft_through_repository():
     assert repository.saved[-1][1]["asset_bible_id"] == "bible_demo"
 
 
+def test_asset_bible_api_update_uses_stale_aware_write_service_when_configured():
+    repository = FakeAssetBibleRepository()
+    edge_repository = FakeDependencyEdgeRepository()
+    stale_repository = FakeStaleMarkRepository()
+    client = _client(
+        repository,
+        edge_repository=edge_repository,
+        stale_repository=stale_repository,
+    )
+
+    response = client.put(
+        "/projects/project_1/asset-bible/bible_demo",
+        json=_asset_bible_payload(ip_name="Updated IP"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["asset_bible"]["asset_bible_id"] == "bible_demo"
+    assert repository.saved[-1][1]["asset_bible_id"] == "bible_demo"
+
+
 def test_asset_bible_api_rejects_path_like_ids_before_repository_call():
     repository = FakeAssetBibleRepository()
     client = _client(repository)
@@ -710,6 +789,32 @@ def test_scene_cast_api_updates_draft_through_repository():
     assert repository.saved_scene_casts[-1][1]["scene_cast_id"] == "cast_frame_1"
 
 
+def test_scene_cast_api_update_uses_stale_aware_write_service_and_writes_dependency_edge():
+    repository = FakeAssetBibleRepository()
+    edge_repository = FakeDependencyEdgeRepository()
+    stale_repository = FakeStaleMarkRepository()
+    client = _client(
+        repository,
+        edge_repository=edge_repository,
+        stale_repository=stale_repository,
+    )
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+
+    response = client.put(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1",
+        json=_scene_cast_payload(continuity_notes=["Updated continuity."]),
+    )
+
+    assert response.status_code == 200
+    assert any(
+        edge["relation"] == "scene_cast.references_asset_bible"
+        for edge in edge_repository.edges.values()
+    )
+
+
 def test_scene_cast_api_rejects_unknown_asset_references_before_save():
     repository = FakeAssetBibleRepository()
     client = _client(repository)
@@ -815,6 +920,23 @@ def test_prompt_plan_projection_api_returns_preview_through_repositories():
     }
     assert "C:\\" not in str(body)
     assert "local_path" not in str(body)
+
+
+def test_projection_preview_does_not_use_stale_write_repositories():
+    client, _, _ = _client_with_projection_dependencies()
+    edge_repository = FakeDependencyEdgeRepository()
+    stale_repository = FakeStaleMarkRepository()
+    client.app.state.dependency_edge_repository = edge_repository
+    client.app.state.stale_mark_repository = stale_repository
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 200
+    assert edge_repository.edges == {}
+    assert stale_repository.marks == {}
 
 
 def test_prompt_plan_projection_api_rejects_text_rendering_metadata_from_repository():
