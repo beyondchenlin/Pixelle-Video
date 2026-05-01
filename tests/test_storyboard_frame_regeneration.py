@@ -146,6 +146,7 @@ class RecordingDependencyEdgeRepository:
     async def list_downstream_edges(
         self,
         workspace_id: str,
+        project_id: str,
         upstream_type: str,
         upstream_id: str,
     ) -> list[dict[str, object]]:

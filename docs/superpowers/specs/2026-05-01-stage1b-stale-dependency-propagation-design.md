@@ -75,6 +75,7 @@ stale 标记表示下游对象仍可被查看和审计，但它依赖的上游�
 {
   "stale_id": "stale_001",
   "workspace_id": "workspace_1",
+  "project_id": "project_1",
   "target_type": "prompt_plan",
   "target_id": "prompt_plan_001",
   "reason_code": "scene_cast_changed",
@@ -86,7 +87,7 @@ stale 标记表示下游对象仍可被查看和审计，但它依赖的上游�
 }
 ```
 
-同一个 `workspace_id + target_type + target_id + reason_code + upstream_type + upstream_id + upstream_version` 重复标记必须幂等，不得重复写入同义审计记录。
+同一个 `workspace_id + project_id + target_type + target_id + reason_code + upstream_type + upstream_id + upstream_version` 重复标记必须幂等，不得重复写入同义审计记录。`project_id` 是 stale 标记的一等身份字段；项目级 API 查询 stale target 或 upstream downstream 时，仓储必须同时按 `workspace_id` 和 `project_id` 过滤，避免同一工作区下不同项目的同名对象互相污染。
 
 ### Version Token
 
@@ -219,8 +220,8 @@ lock 阻止自动重写，不阻止 stale 标记。
 
 建议新增 focused repository protocols：
 
-- `DependencyEdgeRepository`：保存、查询依赖边。
-- `StaleMarkRepository`：幂等写入和读取 stale 标记。
+- `DependencyEdgeRepository`：保存、查询依赖边；`list_downstream_edges()` 必须按 `workspace_id + project_id + upstream_type + upstream_id` 查询。
+- `StaleMarkRepository`：幂等写入和读取 stale 标记；`list_stale_marks()` 必须按 `workspace_id + project_id + target_type + target_id` 查询。
 
 建议新增 focused service：
 

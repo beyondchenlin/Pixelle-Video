@@ -85,6 +85,7 @@ class DependencyEdge:
 class StaleMark:
     stale_id: str
     workspace_id: str
+    project_id: str
     target_type: str
     target_id: str
     reason_code: str
@@ -97,6 +98,7 @@ class StaleMark:
     def __post_init__(self) -> None:
         object.__setattr__(self, "stale_id", _public_id("stale_id", self.stale_id))
         object.__setattr__(self, "workspace_id", _public_id("workspace_id", self.workspace_id))
+        object.__setattr__(self, "project_id", _public_id("project_id", self.project_id))
         object.__setattr__(self, "target_type", _dependency_type("target_type", self.target_type))
         object.__setattr__(self, "target_id", _public_id("target_id", self.target_id))
         object.__setattr__(self, "reason_code", _relation("reason_code", self.reason_code))
@@ -110,6 +112,7 @@ class StaleMark:
         return {
             "stale_id": self.stale_id,
             "workspace_id": self.workspace_id,
+            "project_id": self.project_id,
             "target_type": self.target_type,
             "target_id": self.target_id,
             "reason_code": self.reason_code,
@@ -126,6 +129,7 @@ class StaleMark:
         return cls(
             stale_id=payload.get("stale_id", ""),
             workspace_id=payload.get("workspace_id", ""),
+            project_id=payload.get("project_id", ""),
             target_type=payload.get("target_type", ""),
             target_id=payload.get("target_id", ""),
             reason_code=payload.get("reason_code", ""),

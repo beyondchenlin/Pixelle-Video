@@ -15,6 +15,7 @@ class DependencyEdgeRepository(Protocol):
     async def list_downstream_edges(
         self,
         workspace_id: str,
+        project_id: str,
         upstream_type: str,
         upstream_id: str,
     ) -> list[dict[str, object]]:
@@ -33,6 +34,7 @@ class StaleMarkRepository(Protocol):
     async def list_stale_marks(
         self,
         workspace_id: str,
+        project_id: str,
         target_type: str,
         target_id: str,
     ) -> list[dict[str, object]]:

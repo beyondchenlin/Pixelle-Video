@@ -114,6 +114,7 @@ class FakeDependencyEdgeRepository:
     async def list_downstream_edges(
         self,
         workspace_id: str,
+        project_id: str,
         upstream_type: str,
         upstream_id: str,
     ) -> list[dict[str, Any]]:
@@ -121,6 +122,7 @@ class FakeDependencyEdgeRepository:
             edge
             for (stored_workspace_id, _), edge in self.edges.items()
             if stored_workspace_id == workspace_id
+            and edge["project_id"] == project_id
             and edge["upstream_type"] == upstream_type
             and edge["upstream_id"] == upstream_id
         ]
@@ -128,13 +130,14 @@ class FakeDependencyEdgeRepository:
 
 @dataclass
 class FakeStaleMarkRepository:
-    marks: dict[tuple[str, str, str, str, str, str, str], dict[str, Any]] = field(
+    marks: dict[tuple[str, str, str, str, str, str, str, str], dict[str, Any]] = field(
         default_factory=dict
     )
 
     async def mark_stale(self, workspace_id: str, mark: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         key = (
             workspace_id,
+            mark["project_id"],
             mark["target_type"],
             mark["target_id"],
             mark["reason_code"],
@@ -150,6 +153,7 @@ class FakeStaleMarkRepository:
     async def list_stale_marks(
         self,
         workspace_id: str,
+        project_id: str,
         target_type: str,
         target_id: str,
     ) -> list[dict[str, Any]]:

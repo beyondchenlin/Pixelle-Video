@@ -47,11 +47,14 @@ class StaleDependencyPropagationService:
             is_direct_event_upstream = upstream_type == event.upstream_type and upstream_id == event.upstream_id
             edges = await self.edge_repository.list_downstream_edges(
                 event.workspace_id,
+                event.project_id,
                 upstream_type,
                 upstream_id,
             )
             for payload in edges:
                 edge = DependencyEdge.from_dict(payload)
+                if edge.project_id != event.project_id:
+                    continue
                 edge_key = (
                     edge.workspace_id,
                     edge.project_id,
@@ -77,6 +80,7 @@ class StaleDependencyPropagationService:
                         f"{event.upstream_type}_{event.upstream_id}_{event.upstream_version}"
                     ),
                     workspace_id=event.workspace_id,
+                    project_id=event.project_id,
                     target_type=edge.downstream_type,
                     target_id=edge.downstream_id,
                     reason_code=reason,

@@ -69,6 +69,7 @@ def test_stale_mark_records_reason_upstream_version_and_timestamp():
     mark = StaleMark(
         stale_id="stale_001",
         workspace_id="workspace_1",
+        project_id="project_1",
         target_type="prompt_plan",
         target_id="prompt_plan_001",
         reason_code="scene_cast_changed",
@@ -82,6 +83,7 @@ def test_stale_mark_records_reason_upstream_version_and_timestamp():
     payload = mark.to_dict()
 
     assert StaleMark.from_dict(payload) == mark
+    assert payload["project_id"] == "project_1"
     assert payload["reason_code"] == "scene_cast_changed"
     assert payload["upstream_version"] == "scene_cast_rev_4"
     assert payload["marked_at"] == "2026-05-01T10:03:00Z"

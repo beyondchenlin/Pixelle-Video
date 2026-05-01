@@ -13,6 +13,7 @@ class StaleMarkPayloadResponse(BaseModel):
 
     stale_id: str
     workspace_id: str
+    project_id: str
     target_type: str
     target_id: str
     reason_code: str
@@ -25,6 +26,7 @@ class StaleMarkPayloadResponse(BaseModel):
     @field_validator(
         "stale_id",
         "workspace_id",
+        "project_id",
         "target_type",
         "target_id",
         "reason_code",

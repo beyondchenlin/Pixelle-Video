@@ -18,6 +18,7 @@ class InMemoryDependencyEdgeRepository:
     async def list_downstream_edges(
         self,
         workspace_id: str,
+        project_id: str,
         upstream_type: str,
         upstream_id: str,
     ) -> list[dict[str, Any]]:
@@ -25,6 +26,7 @@ class InMemoryDependencyEdgeRepository:
             edge
             for edge in self.edges
             if edge["workspace_id"] == workspace_id
+            and edge["project_id"] == project_id
             and edge["upstream_type"] == upstream_type
             and edge["upstream_id"] == upstream_id
         ]
@@ -42,14 +44,16 @@ class InMemoryStaleMarkRepository:
     async def list_stale_marks(
         self,
         workspace_id: str,
+        project_id: str,
         target_type: str,
         target_id: str,
     ) -> list[dict[str, Any]]:
-        self.list_calls.append((workspace_id, target_type, target_id))
+        self.list_calls.append((workspace_id, project_id, target_type, target_id))
         return [
             mark
             for mark in self.marks
             if mark["workspace_id"] == workspace_id
+            and mark["project_id"] == project_id
             and mark["target_type"] == target_type
             and mark["target_id"] == target_id
         ]
@@ -61,6 +65,7 @@ async def test_target_stale_summary_reports_reasons_and_upstream_refs():
     mark = StaleMark(
         stale_id="stale_prompt_plan_1",
         workspace_id="workspace_1",
+        project_id="project_1",
         target_type="prompt_plan",
         target_id="prompt_plan_001",
         reason_code="scene_cast_changed",
@@ -161,6 +166,61 @@ async def test_downstream_summary_lists_dependency_edges_and_public_refs():
 
 
 @pytest.mark.asyncio
+async def test_downstream_summary_is_scoped_to_project_id():
+    edge_repository = InMemoryDependencyEdgeRepository()
+    await edge_repository.save_dependency_edge(
+        "workspace_1",
+        DependencyEdge(
+            edge_id="dep_project_1",
+            workspace_id="workspace_1",
+            project_id="project_1",
+            upstream_type="prompt_plan",
+            upstream_id="prompt_plan_shared",
+            upstream_version="prompt_plan_rev_1",
+            downstream_type="image_artifact",
+            downstream_id="artifact_project_1",
+            relation="image_artifact.generated_from_prompt_plan",
+        ).to_dict(),
+    )
+    await edge_repository.save_dependency_edge(
+        "workspace_1",
+        DependencyEdge(
+            edge_id="dep_project_2",
+            workspace_id="workspace_1",
+            project_id="project_2",
+            upstream_type="prompt_plan",
+            upstream_id="prompt_plan_shared",
+            upstream_version="prompt_plan_rev_2",
+            downstream_type="image_artifact",
+            downstream_id="artifact_project_2",
+            relation="image_artifact.generated_from_prompt_plan",
+        ).to_dict(),
+    )
+    service = StaleDependencyReadService(
+        edge_repository=edge_repository,
+        stale_repository=InMemoryStaleMarkRepository(),
+    )
+
+    summary = await service.get_downstream_summary(
+        workspace_id="workspace_1",
+        project_id="project_1",
+        upstream_type="prompt_plan",
+        upstream_id="prompt_plan_shared",
+    )
+
+    assert summary.project_id == "project_1"
+    assert tuple(edge.edge_id for edge in summary.dependency_edges) == ("dep_project_1",)
+    assert summary.downstream_refs == (
+        {
+            "downstream_type": "image_artifact",
+            "downstream_id": "artifact_project_1",
+            "relation": "image_artifact.generated_from_prompt_plan",
+            "upstream_version": "prompt_plan_rev_1",
+        },
+    )
+
+
+@pytest.mark.asyncio
 async def test_target_summary_rejects_unknown_target_type_before_repository_call():
     stale_repository = InMemoryStaleMarkRepository()
     service = StaleDependencyReadService(
@@ -177,6 +237,56 @@ async def test_target_summary_rejects_unknown_target_type_before_repository_call
         )
 
     assert stale_repository.list_calls == []
+
+
+@pytest.mark.asyncio
+async def test_target_stale_summary_is_scoped_to_project_id():
+    stale_repository = InMemoryStaleMarkRepository()
+    await stale_repository.mark_stale(
+        "workspace_1",
+        StaleMark(
+            stale_id="stale_project_1",
+            workspace_id="workspace_1",
+            project_id="project_1",
+            target_type="prompt_plan",
+            target_id="prompt_plan_shared",
+            reason_code="scene_cast_changed",
+            upstream_type="scene_cast",
+            upstream_id="cast_project_1",
+            upstream_version="scene_cast_rev_1",
+            marked_at="2026-05-01T10:00:00Z",
+        ).to_dict(),
+    )
+    await stale_repository.mark_stale(
+        "workspace_1",
+        StaleMark(
+            stale_id="stale_project_2",
+            workspace_id="workspace_1",
+            project_id="project_2",
+            target_type="prompt_plan",
+            target_id="prompt_plan_shared",
+            reason_code="asset_bible_changed",
+            upstream_type="asset_bible",
+            upstream_id="bible_project_2",
+            upstream_version="asset_bible_rev_2",
+            marked_at="2026-05-01T10:01:00Z",
+        ).to_dict(),
+    )
+    service = StaleDependencyReadService(
+        edge_repository=InMemoryDependencyEdgeRepository(),
+        stale_repository=stale_repository,
+    )
+
+    summary = await service.get_target_summary(
+        workspace_id="workspace_1",
+        project_id="project_1",
+        target_type="prompt_plan",
+        target_id="prompt_plan_shared",
+    )
+
+    assert summary.project_id == "project_1"
+    assert tuple(mark.stale_id for mark in summary.stale_marks) == ("stale_project_1",)
+    assert summary.primary_reasons == ("scene_cast_changed",)
 
 
 @pytest.mark.asyncio

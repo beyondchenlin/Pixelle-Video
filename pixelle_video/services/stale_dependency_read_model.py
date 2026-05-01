@@ -90,6 +90,7 @@ class StaleDependencyReadService:
             )
         payloads = await self.stale_repository.list_stale_marks(
             workspace_id,
+            project_id,
             target_type,
             target_id,
         )
@@ -120,6 +121,7 @@ class StaleDependencyReadService:
             )
         payloads = await self.edge_repository.list_downstream_edges(
             workspace_id,
+            project_id,
             upstream_type,
             upstream_id,
         )

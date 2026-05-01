@@ -10,7 +10,7 @@ from pixelle_video.models.stale_dependency import DependencyEdge, StaleMark
 @dataclass
 class FakeDependencyEdgeRepository:
     edges: list[dict[str, Any]] = field(default_factory=list)
-    list_calls: list[tuple[str, str, str]] = field(default_factory=list)
+    list_calls: list[tuple[str, str, str, str]] = field(default_factory=list)
 
     async def save_dependency_edge(self, workspace_id: str, edge: dict[str, Any]) -> dict[str, Any]:
         self.edges.append(dict(edge))
@@ -19,14 +19,16 @@ class FakeDependencyEdgeRepository:
     async def list_downstream_edges(
         self,
         workspace_id: str,
+        project_id: str,
         upstream_type: str,
         upstream_id: str,
     ) -> list[dict[str, Any]]:
-        self.list_calls.append((workspace_id, upstream_type, upstream_id))
+        self.list_calls.append((workspace_id, project_id, upstream_type, upstream_id))
         return [
             edge
             for edge in self.edges
             if edge["workspace_id"] == workspace_id
+            and edge["project_id"] == project_id
             and edge["upstream_type"] == upstream_type
             and edge["upstream_id"] == upstream_id
         ]
@@ -35,7 +37,7 @@ class FakeDependencyEdgeRepository:
 @dataclass
 class FakeStaleMarkRepository:
     marks: list[dict[str, Any]] = field(default_factory=list)
-    list_calls: list[tuple[str, str, str]] = field(default_factory=list)
+    list_calls: list[tuple[str, str, str, str]] = field(default_factory=list)
 
     async def mark_stale(self, workspace_id: str, mark: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         self.marks.append(dict(mark))
@@ -44,14 +46,16 @@ class FakeStaleMarkRepository:
     async def list_stale_marks(
         self,
         workspace_id: str,
+        project_id: str,
         target_type: str,
         target_id: str,
     ) -> list[dict[str, Any]]:
-        self.list_calls.append((workspace_id, target_type, target_id))
+        self.list_calls.append((workspace_id, project_id, target_type, target_id))
         return [
             mark
             for mark in self.marks
             if mark["workspace_id"] == workspace_id
+            and mark["project_id"] == project_id
             and mark["target_type"] == target_type
             and mark["target_id"] == target_id
         ]
@@ -79,6 +83,7 @@ def test_target_stale_api_returns_readable_stale_summary():
         StaleMark(
             stale_id="stale_prompt_plan_1",
             workspace_id="workspace_1",
+            project_id="project_1",
             target_type="prompt_plan",
             target_id="prompt_plan_001",
             reason_code="scene_cast_changed",

@@ -27,7 +27,7 @@
 - **应用服务编排，不污染仓储语义**：仓储继续负责保存/加载数据；新增 stale-aware 写入协调服务负责版本 token、依赖边和传播编排。
 - **edge-driven，避免路径扫描**：所有传播都从 `DependencyEdgeRepository.list_downstream_edges()` 出发，不扫描文件路径、workflow、provider metadata 或生成目录。
 - **保存后始终触发传播**：写入协调服务在保存上游对象后始终触发对应 `UpstreamChangeEvent`。是否真正产生 stale 标记由传播服务根据依赖边版本过滤决定。这样即使上一次保存成功但传播失败，重试同一保存仍能补齐传播，不会因为“内容未变化”而跳过。
-- **重试安全**：依赖边保存必须按 `edge_id` 幂等 upsert；stale 标记已按 `workspace_id + target + reason + upstream` 幂等。
+- **重试安全**：依赖边保存必须按 `edge_id` 幂等 upsert；stale 标记已按 `workspace_id + project_id + target + reason + upstream` 幂等。所有 stale 读取和 downstream edge 查询也必须按 `workspace_id + project_id` 隔离。
 - **版本 token 是公开 token，不是路径**：如果当前模型没有显式 revision 字段，使用 canonical public payload hash 生成稳定 token，例如 `asset_bible_rev_8f3a1c2d4e6b`。
 - **Stage 2 边界不变**：Stage 2 projection preview 不创建依赖边，不保存 projected PromptPlan，不触发 stale，不调用生成或 provider routing。
 - **锁定语义不变**：lock 只阻止自动改写/自动替换，不阻止 stale 标记；stale metadata 继续保留 `auto_rewrite_allowed: False`。

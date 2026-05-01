@@ -18,6 +18,7 @@ class InMemoryDependencyEdgeRepository:
     async def list_downstream_edges(
         self,
         workspace_id: str,
+        project_id: str,
         upstream_type: str,
         upstream_id: str,
     ) -> list[dict[str, Any]]:
@@ -25,6 +26,7 @@ class InMemoryDependencyEdgeRepository:
             edge
             for edge in self.edges
             if edge["workspace_id"] == workspace_id
+            and edge["project_id"] == project_id
             and edge["upstream_type"] == upstream_type
             and edge["upstream_id"] == upstream_id
         ]
@@ -32,11 +34,12 @@ class InMemoryDependencyEdgeRepository:
 
 @dataclass
 class InMemoryStaleMarkRepository:
-    marks: dict[tuple[str, str, str, str, str, str, str], dict[str, Any]] = field(default_factory=dict)
+    marks: dict[tuple[str, str, str, str, str, str, str, str], dict[str, Any]] = field(default_factory=dict)
 
     async def mark_stale(self, workspace_id: str, mark: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         key = (
             workspace_id,
+            mark["project_id"],
             mark["target_type"],
             mark["target_id"],
             mark["reason_code"],
@@ -52,13 +55,17 @@ class InMemoryStaleMarkRepository:
     async def list_stale_marks(
         self,
         workspace_id: str,
+        project_id: str,
         target_type: str,
         target_id: str,
     ) -> list[dict[str, Any]]:
         return [
             mark
             for key, mark in self.marks.items()
-            if key[0] == workspace_id and key[1] == target_type and key[2] == target_id
+            if key[0] == workspace_id
+            and key[1] == project_id
+            and key[2] == target_type
+            and key[3] == target_id
         ]
 
 
@@ -125,6 +132,7 @@ async def test_asset_bible_change_marks_scene_cast_prompt_plan_and_image_artifac
     assert stale.marks[
         (
             "workspace_1",
+            "project_1",
             "prompt_plan",
             "prompt_plan_001",
             "asset_bible_changed_via_scene_cast",
@@ -203,6 +211,7 @@ async def test_direct_asset_bible_to_prompt_plan_edge_uses_direct_reason():
 
     assert summary.stale_created_count == 1
     mark = next(iter(stale.marks.values()))
+    assert mark["project_id"] == "project_1"
     assert mark["target_type"] == "prompt_plan"
     assert mark["target_id"] == "prompt_plan_direct"
     assert mark["reason_code"] == "asset_bible_changed"
@@ -284,6 +293,7 @@ async def test_recursive_propagation_does_not_compare_original_version_to_interm
     assert set(summary.marked_target_ids) == {"cast_frame_0001", "prompt_plan_001"}
     assert (
         "workspace_1",
+        "project_1",
         "prompt_plan",
         "prompt_plan_001",
         "asset_bible_changed_via_scene_cast",
@@ -362,6 +372,7 @@ async def test_prompt_plan_change_marks_image_artifact_video_segment_and_final_v
     assert stale.marks[
         (
             "workspace_1",
+            "project_1",
             "video_segment",
             "video_segment_001",
             "prompt_plan_changed_via_image_artifact",
@@ -373,6 +384,7 @@ async def test_prompt_plan_change_marks_image_artifact_video_segment_and_final_v
     assert stale.marks[
         (
             "workspace_1",
+            "project_1",
             "final_video",
             "final_video_001",
             "prompt_plan_changed_via_video_segment",
