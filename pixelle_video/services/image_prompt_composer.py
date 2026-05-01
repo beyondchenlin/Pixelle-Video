@@ -91,15 +91,21 @@ class ImagePromptComposer:
 
         planning_snapshot = dict(batch.planning_snapshot or {})
         planning_snapshot["storyboard_generation"] = storyboard_plan.to_dict()
-        planning_snapshot["prompt_plan_bundle"] = build_prompt_plan_bundle(
+        prompt_plan_bundle = build_prompt_plan_bundle(
             storyboard_plan=storyboard_plan,
             image_prompts=batch.prompts,
-        ).to_dict()
+        )
+        planning_snapshot["prompt_plan_bundle_ref"] = {
+            "storyboard_plan_id": prompt_plan_bundle.storyboard_plan_id,
+            "prompt_plan_count": len(prompt_plan_bundle.prompt_plans),
+            "image_prompt_draft_count": len(prompt_plan_bundle.image_prompt_drafts),
+        }
         return StyledImagePromptBatch(
             prompts=batch.prompts,
             negative_prompt=batch.negative_prompt,
             resolved_style=batch.resolved_style,
             planning_snapshot=planning_snapshot,
+            prompt_plan_bundle=prompt_plan_bundle,
         )
 
 

@@ -6,7 +6,7 @@ from typing import Mapping
 
 import pytest
 
-from pixelle_video.models.prompt_plan import PromptPlan
+from pixelle_video.models.prompt_plan import ImagePromptDraft, PromptPlan, PromptPlanBundle
 from pixelle_video.models.storyboard import StoryboardFrame
 from pixelle_video.repositories.artifacts import StoredArtifactFile
 
@@ -341,6 +341,75 @@ async def test_standard_pipeline_registers_generated_images_when_repositories_ex
         "artifact_storyboard_001_frame_0001_image"
     )
     assert _Core.artifact_repository.created_versions[0][2]["status"] == "selected"
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_registers_generated_images_from_runtime_prompt_plan_bundle(tmp_path):
+    from pixelle_video.models.storyboard import Storyboard, StoryboardConfig
+    from pixelle_video.pipelines.linear import PipelineContext
+    from pixelle_video.pipelines.standard import StandardPipeline
+
+    class _Core(_PipelineCore):
+        artifact_repository = _RecordingArtifactRepository([], [])
+        artifact_object_store = _RecordingObjectStore([])
+        trace_repository = _RecordingTraceRepository([])
+        storyboard_workbench_state_store = _RecordingWorkbenchStateStore([])
+
+    image_path = tmp_path / "frame.png"
+    image_path.write_bytes(b"fake-png")
+    frame = StoryboardFrame(
+        index=0,
+        narration="Scene one",
+        image_prompt="Show a cinematic lab.",
+        image_path=str(image_path),
+    )
+    ctx = PipelineContext(
+        input_text="demo",
+        params={"workspace_id": "workspace_1"},
+    )
+    ctx.task_id = "task_001"
+    ctx.storyboard = Storyboard(
+        title="Demo",
+        config=StoryboardConfig(
+            task_id="task_001",
+            media_width=1024,
+            media_height=1024,
+        ),
+        frames=[frame],
+        planning_snapshot={
+            "storyboard_generation": {
+                "plan_id": "storyboard_001",
+                "frames": [{"frame_id": "frame_0001"}],
+            },
+            "prompt_plan_bundle_ref": {
+                "storyboard_plan_id": "storyboard_001",
+                "prompt_plan_count": 1,
+                "image_prompt_draft_count": 1,
+            },
+        },
+    )
+    ctx.planning_snapshot = ctx.storyboard.planning_snapshot
+    ctx.prompt_plan_bundle = PromptPlanBundle(
+        storyboard_plan_id="storyboard_001",
+        image_prompt_drafts=(
+            ImagePromptDraft(
+                image_prompt_draft_id="draft_001",
+                storyboard_plan_id="storyboard_001",
+                frame_id="frame_0001",
+                prompt_text="Show a cinematic lab.",
+            ),
+        ),
+        prompt_plans=(_prompt_plan(),),
+    )
+
+    await StandardPipeline(_Core())._register_storyboard_workbench_artifacts(ctx)
+
+    assert frame.workbench_state is not None
+    assert frame.workbench_state.prompt_plan_id == "prompt_plan_001"
+    assert "prompt_plan_bundle" not in ctx.storyboard.planning_snapshot
+    assert _Core.storyboard_workbench_state_store.states[-1][3]["prompt_plan_id"] == (
+        "prompt_plan_001"
+    )
 
 
 @pytest.mark.asyncio

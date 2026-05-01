@@ -43,7 +43,7 @@ from pixelle_video.models.progress import (
     ProgressFrameAction,
     ProgressI18nMessage,
 )
-from pixelle_video.models.prompt_plan import PromptPlan
+from pixelle_video.models.prompt_plan import PromptPlan, PromptPlanBundle
 from pixelle_video.models.render_execution_plan import (
     RenderExecutionArtifact,
     RenderExecutionPlan,
@@ -525,6 +525,7 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.resolved_style = styled_batch.resolved_style
             ctx.media_negative_prompt = styled_batch.negative_prompt
             ctx.planning_snapshot = dict(styled_batch.planning_snapshot or {}) or None
+            ctx.prompt_plan_bundle = styled_batch.prompt_plan_bundle
             await self._persist_prompt_plan_bundle(ctx)
             
             logger.info(f"✅ Generated {len(ctx.image_prompts)} image prompts")
@@ -539,6 +540,7 @@ class StandardPipeline(LinearVideoPipeline):
                 if ctx.storyboard_plan is not None
                 else None
             )
+            ctx.prompt_plan_bundle = None
             emit_stage_event(
                 channel="ai_creation",
                 stage="image_prompt_batch",
@@ -1552,14 +1554,14 @@ class StandardPipeline(LinearVideoPipeline):
 
     async def _persist_prompt_plan_bundle(self, ctx: PipelineContext) -> None:
         prompt_plan_repository = getattr(self.core, "prompt_plan_repository", None)
-        if prompt_plan_repository is None or not isinstance(ctx.planning_snapshot, Mapping):
+        if prompt_plan_repository is None:
             return
-        bundle = ctx.planning_snapshot.get("prompt_plan_bundle")
-        if not isinstance(bundle, Mapping):
+        bundle = self._resolve_runtime_prompt_plan_bundle(ctx)
+        if bundle is None:
             return
         await prompt_plan_repository.save_prompt_plan_bundle(
             self._resolve_workspace_id(ctx),
-            dict(bundle),
+            bundle.to_dict(),
         )
 
     def _resolve_frame_prompt_plan(
@@ -1575,18 +1577,29 @@ class StandardPipeline(LinearVideoPipeline):
         frame_id = self._resolve_snapshot_frame_id(snapshot, frame.index)
         if not storyboard_id or not frame_id:
             return "", "", None
-        bundle = snapshot.get("prompt_plan_bundle")
-        if not isinstance(bundle, Mapping):
-            return storyboard_id, frame_id, None
-        plans = bundle.get("prompt_plans")
-        if not isinstance(plans, list):
-            return storyboard_id, frame_id, None
-        for plan_payload in plans:
-            if not isinstance(plan_payload, Mapping):
-                continue
-            if str(plan_payload.get("frame_id") or "").strip() == frame_id:
-                return storyboard_id, frame_id, PromptPlan.from_dict(plan_payload)
+        runtime_bundle = self._resolve_runtime_prompt_plan_bundle(ctx)
+        if runtime_bundle is not None:
+            for prompt_plan in runtime_bundle.prompt_plans:
+                if prompt_plan.frame_id == frame_id:
+                    return storyboard_id, frame_id, prompt_plan
+
+        legacy_bundle = snapshot.get("prompt_plan_bundle")
+        if isinstance(legacy_bundle, Mapping):
+            plans = legacy_bundle.get("prompt_plans")
+            if isinstance(plans, list):
+                for plan_payload in plans:
+                    if not isinstance(plan_payload, Mapping):
+                        continue
+                    if str(plan_payload.get("frame_id") or "").strip() == frame_id:
+                        return storyboard_id, frame_id, PromptPlan.from_dict(plan_payload)
         return storyboard_id, frame_id, None
+
+    @staticmethod
+    def _resolve_runtime_prompt_plan_bundle(ctx: PipelineContext) -> PromptPlanBundle | None:
+        bundle = getattr(ctx, "prompt_plan_bundle", None)
+        if isinstance(bundle, PromptPlanBundle):
+            return bundle
+        return None
 
     @staticmethod
     def _resolve_snapshot_frame_id(snapshot: Mapping[str, Any], frame_index: int) -> str:

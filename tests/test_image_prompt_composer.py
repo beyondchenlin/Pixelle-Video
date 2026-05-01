@@ -76,14 +76,19 @@ async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
     assert result.prompts == ["prompt one", "prompt two"]
     assert result.planning_snapshot["frames"] == [{"scene_id": "1"}, {"scene_id": "2"}]
     assert result.planning_snapshot["storyboard_generation"]["resolved_scene_count"] == 2
-    prompt_plan_bundle = result.planning_snapshot["prompt_plan_bundle"]
-    assert prompt_plan_bundle["storyboard_plan_id"] == plan.plan_id
-    assert [plan["frame_id"] for plan in prompt_plan_bundle["prompt_plans"]] == [
+    assert "prompt_plan_bundle" not in result.planning_snapshot
+    prompt_plan_ref = result.planning_snapshot["prompt_plan_bundle_ref"]
+    assert prompt_plan_ref["storyboard_plan_id"] == plan.plan_id
+    assert prompt_plan_ref["prompt_plan_count"] == 2
+    prompt_plan_bundle = result.prompt_plan_bundle
+    assert prompt_plan_bundle is not None
+    assert prompt_plan_bundle.storyboard_plan_id == plan.plan_id
+    assert [plan.frame_id for plan in prompt_plan_bundle.prompt_plans] == [
         plan.frames[0].frame_id,
         plan.frames[1].frame_id,
     ]
-    assert prompt_plan_bundle["prompt_plans"][0]["final_prompt"] == "prompt one"
-    assert prompt_plan_bundle["image_prompt_drafts"][0]["prompt_text"] == "prompt one"
+    assert prompt_plan_bundle.prompt_plans[0].final_prompt == "prompt one"
+    assert prompt_plan_bundle.image_prompt_drafts[0].prompt_text == "prompt one"
 
 
 @pytest.mark.asyncio

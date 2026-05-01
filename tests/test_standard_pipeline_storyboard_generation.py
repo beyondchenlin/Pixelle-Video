@@ -1,6 +1,7 @@
 import pytest
 
 from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
+from pixelle_video.models.prompt_plan import PromptPlanBundle
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.pipelines.linear import PipelineContext
@@ -242,7 +243,14 @@ async def test_plan_visuals_persists_prompt_plan_bundle_to_repository(monkeypatc
             resolved_style=None,
             planning_snapshot={
                 "storyboard_generation": plan.to_dict(),
-                "prompt_plan_bundle": {
+                "prompt_plan_bundle_ref": {
+                    "storyboard_plan_id": plan.plan_id,
+                    "prompt_plan_count": 2,
+                    "image_prompt_draft_count": 2,
+                },
+            },
+            prompt_plan_bundle=PromptPlanBundle.from_dict(
+                {
                     "storyboard_plan_id": plan.plan_id,
                     "image_prompt_drafts": [
                         {
@@ -294,8 +302,8 @@ async def test_plan_visuals_persists_prompt_plan_bundle_to_repository(monkeypatc
                     ],
                     "source_trace_id": None,
                     "metadata": {},
-                },
-            },
+                }
+            ),
         )
 
     monkeypatch.setattr(
@@ -321,8 +329,14 @@ async def test_plan_visuals_persists_prompt_plan_bundle_to_repository(monkeypatc
     assert len(prompt_repository.saved_bundles) == 1
     workspace_id, saved_bundle = prompt_repository.saved_bundles[0]
     assert workspace_id == "workspace_demo"
-    assert saved_bundle == ctx.planning_snapshot["prompt_plan_bundle"]
+    assert saved_bundle == ctx.prompt_plan_bundle.to_dict()
     assert saved_bundle["prompt_plans"][0]["frame_id"] == ctx.storyboard_plan.frames[0].frame_id
+    assert "prompt_plan_bundle" not in ctx.planning_snapshot
+    assert ctx.planning_snapshot["prompt_plan_bundle_ref"] == {
+        "storyboard_plan_id": ctx.storyboard_plan.plan_id,
+        "prompt_plan_count": 2,
+        "image_prompt_draft_count": 2,
+    }
 
 
 @pytest.mark.asyncio

@@ -21,6 +21,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from pixelle_video.models.prompt_plan import PromptPlanBundle
+
 StyleKind = Literal["visual_only", "ip_world", "hybrid"]
 StyleSourceOrigin = Literal["request", "library", "legacy"]
 
@@ -136,6 +138,7 @@ class StyledImagePromptBatch:
     negative_prompt: Optional[str]
     resolved_style: Optional[ResolvedStyleSpec]
     planning_snapshot: Optional[dict[str, Any]] = None
+    prompt_plan_bundle: Optional[PromptPlanBundle] = None
 
 
 __all__ = [
