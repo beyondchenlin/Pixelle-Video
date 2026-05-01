@@ -126,3 +126,74 @@ def test_delivery_loop_fails_fast_when_repo_is_dirty_for_acceptance(tmp_path: Pa
     assert result.returncode == 2
     assert "git worktree is not clean" in result.stdout
     assert not marker.exists()
+
+
+def test_delivery_loop_runs_acceptance_and_writes_needs_review_report(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    definition = _write_acceptance_definition(
+        repo,
+        command="Write-Output 'acceptance-ok'",
+    )
+
+    result = _run_runner(
+        "-RepoRoot",
+        str(repo),
+        "-AcceptanceDefinitionPath",
+        str(definition),
+        "-RunIntegrationAcceptance",
+    )
+
+    assert result.returncode == 0
+    assert "status: needs_review" in result.stdout
+    reports = sorted((repo / "_runtime" / "integration_acceptance").glob("*_fixture-cycle.md"))
+    assert len(reports) == 1
+    report = reports[0].read_text(encoding="utf-8")
+    assert "cycle_id: fixture-cycle" in report
+    assert "phase: integration_acceptance" in report
+    assert "status: needs_review" in report
+    assert "review_gate_1: pending" in report
+    assert "review_gate_2: pending" in report
+    assert "acceptance-ok" in report
+    assert "Review Gate 1" in report
+    assert "Review Gate 2" in report
+
+
+def test_delivery_loop_stops_on_first_failing_acceptance_check(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    marker = repo / "should-not-run.txt"
+    definition = _write_acceptance_definition(
+        repo,
+        checks=[
+            {
+                "id": "failing-check",
+                "title": "Failing check",
+                "command": "Write-Output 'before-failure'; exit 9",
+            },
+            {
+                "id": "must-not-run",
+                "title": "Must not run",
+                "command": f"Set-Content -LiteralPath '{marker}' -Value 'ran'",
+            },
+        ],
+    )
+
+    result = _run_runner(
+        "-RepoRoot",
+        str(repo),
+        "-AcceptanceDefinitionPath",
+        str(definition),
+        "-RunIntegrationAcceptance",
+    )
+
+    assert result.returncode == 1
+    assert "status: verification_failed" in result.stdout
+    assert not marker.exists()
+    report = sorted((repo / "_runtime" / "integration_acceptance").glob("*_fixture-cycle.md"))[0]
+    report_text = report.read_text(encoding="utf-8")
+    assert "status: verification_failed" in report_text
+    assert "before-failure" in report_text
+    assert "must-not-run" not in report_text
