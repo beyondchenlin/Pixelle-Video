@@ -381,3 +381,75 @@ async def test_prompt_plan_change_marks_image_artifact_video_segment_and_final_v
             "prompt_plan_rev_6",
         )
     ]["reason_code"] == "prompt_plan_changed_via_video_segment"
+
+
+@pytest.mark.asyncio
+async def test_lock_policy_does_not_block_stale_marking():
+    edges = InMemoryDependencyEdgeRepository()
+    stale = InMemoryStaleMarkRepository()
+    await seed_edge(
+        edges,
+        upstream_type="prompt_plan",
+        upstream_id="prompt_plan_001",
+        upstream_version="prompt_plan_rev_5",
+        downstream_type="image_artifact",
+        downstream_id="image_artifact_001",
+        relation="image_artifact.generated_from_prompt_plan",
+        metadata={"lock_policy": "locked_artifact"},
+    )
+    service = StaleDependencyPropagationService(edge_repository=edges, stale_repository=stale)
+
+    summary = await service.propagate_upstream_change(
+        UpstreamChangeEvent(
+            workspace_id="workspace_1",
+            project_id="project_1",
+            upstream_type="prompt_plan",
+            upstream_id="prompt_plan_001",
+            upstream_version="prompt_plan_rev_6",
+            reason_code="prompt_plan_changed",
+        )
+    )
+
+    assert summary.stale_created_count == 1
+    mark = next(iter(stale.marks.values()))
+    assert mark["target_id"] == "image_artifact_001"
+    assert mark["metadata"]["lock_policy"] == "locked_artifact"
+    assert mark["metadata"]["auto_rewrite_allowed"] is False
+
+
+@pytest.mark.asyncio
+async def test_repeating_same_upstream_version_is_idempotent_and_auditable():
+    edges = InMemoryDependencyEdgeRepository()
+    stale = InMemoryStaleMarkRepository()
+    await seed_edge(
+        edges,
+        upstream_type="scene_cast",
+        upstream_id="cast_frame_0001",
+        upstream_version="scene_cast_rev_2",
+        downstream_type="prompt_plan",
+        downstream_id="prompt_plan_001",
+        relation="prompt_plan.uses_scene_cast",
+    )
+    service = StaleDependencyPropagationService(edge_repository=edges, stale_repository=stale)
+    event = UpstreamChangeEvent(
+        workspace_id="workspace_1",
+        project_id="project_1",
+        upstream_type="scene_cast",
+        upstream_id="cast_frame_0001",
+        upstream_version="scene_cast_rev_3",
+        reason_code="scene_cast_changed",
+    )
+
+    first = await service.propagate_upstream_change(event)
+    second = await service.propagate_upstream_change(event)
+
+    assert first.stale_created_count == 1
+    assert first.stale_existing_count == 0
+    assert second.stale_created_count == 0
+    assert second.stale_existing_count == 1
+    assert len(stale.marks) == 1
+    mark = next(iter(stale.marks.values()))
+    assert mark["reason_code"] == "scene_cast_changed"
+    assert mark["upstream_version"] == "scene_cast_rev_3"
+    assert mark["marked_at"].endswith("Z")
+    assert mark["metadata"]["auto_rewrite_allowed"] is False

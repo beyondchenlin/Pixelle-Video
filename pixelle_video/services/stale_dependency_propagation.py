@@ -83,12 +83,7 @@ class StaleDependencyPropagationService:
                     upstream_type=event.upstream_type,
                     upstream_id=event.upstream_id,
                     upstream_version=event.upstream_version,
-                    metadata={
-                        "source_edge_id": edge.edge_id,
-                        "source_edge_version": edge.upstream_version,
-                        "via_relation": edge.relation,
-                        "is_direct_event_upstream": is_direct_event_upstream,
-                    },
+                    metadata=_metadata_for(edge=edge, is_direct_event_upstream=is_direct_event_upstream),
                 )
                 _, created = await self.stale_repository.mark_stale(event.workspace_id, mark.to_dict())
                 if created:
@@ -125,3 +120,17 @@ def _reason_for(*, downstream_type: str, incoming_reason: str, relation: str) ->
         ("final_video", "prompt_plan_changed_via_image_artifact"): "prompt_plan_changed_via_video_segment",
     }
     return mapping.get((downstream_type, incoming_reason), incoming_reason)
+
+
+def _metadata_for(*, edge: DependencyEdge, is_direct_event_upstream: bool) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "source_edge_id": edge.edge_id,
+        "source_edge_version": edge.upstream_version,
+        "via_relation": edge.relation,
+        "is_direct_event_upstream": is_direct_event_upstream,
+        "auto_rewrite_allowed": False,
+    }
+    lock_policy = edge.metadata.get("lock_policy")
+    if isinstance(lock_policy, str) and lock_policy:
+        metadata["lock_policy"] = lock_policy
+    return metadata
