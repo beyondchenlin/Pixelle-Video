@@ -662,6 +662,7 @@ def test_render_projection_preview_clears_loaded_choices_when_context_changes():
             "projection_scene_cast_select": "cast_old",
             "projection_storyboard_plan_id": "storyboard_old",
             "projection_frame_id": "frame_old",
+            "projection_preview_result": {"projection": {"source": {"scene_cast_id": "cast_old"}}},
         }
     )
 
@@ -675,7 +676,64 @@ def test_render_projection_preview_clears_loaded_choices_when_context_changes():
     assert fake_ui.session_state["projection_scene_casts"] == []
     assert "projection_asset_bible_id" not in fake_ui.session_state
     assert "projection_scene_cast_id" not in fake_ui.session_state
+    assert "projection_preview_result" not in fake_ui.session_state
     assert fake_ui.selectboxes == []
+
+
+def test_render_projection_result_uses_workbench_sections(monkeypatch):
+    from web.components import asset_prompt_plan_projection
+
+    fake_ui = _ProjectionFakeUI()
+    fake_ui.session_state.update(
+        {
+            "api_base_url": "http://localhost:8000/api",
+            "projection_project_id": "project_1",
+            "projection_workspace_id": "ws_1",
+            "projection_asset_bible_id": "asset_1",
+            "projection_scene_cast_id": "cast_1",
+            "projection_storyboard_plan_id": "storyboard_1",
+            "projection_frame_id": "frame_001",
+            "projection_preview_submit": True,
+        }
+    )
+
+    def fake_preview_prompt_plan_projection(**_kwargs):
+        return {
+            "success": True,
+            "projection": {
+                "prompt_plan": {
+                    "final_prompt": "wide shot of a clockwork library",
+                    "prompt_sections": {"scene": "library"},
+                    "character_ids": ["char_archivist"],
+                    "scene_id": "scene_library",
+                    "prop_ids": ["prop_key"],
+                    "style_id": "style_etching",
+                },
+                "source": {
+                    "asset_bible_id": "asset_1",
+                    "scene_cast_id": "cast_1",
+                    "prompt_plan_id": "prompt_1",
+                },
+            },
+        }
+
+    monkeypatch.setattr(
+        asset_prompt_plan_projection,
+        "preview_prompt_plan_projection",
+        fake_preview_prompt_plan_projection,
+    )
+
+    asset_prompt_plan_projection.render_asset_prompt_plan_projection_preview(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    rendered_markdown = "\n".join(item["message"] for item in fake_ui.markdowns)
+    assert "Projection Workbench" in rendered_markdown
+    assert "PromptPlan Output" in rendered_markdown
+    assert "Reserved Asset References" in rendered_markdown
+    assert "Source Metadata" in rendered_markdown
+    assert "Provider" not in rendered_markdown
 
 
 def test_render_projection_preview_does_not_render_style_or_path_inputs():

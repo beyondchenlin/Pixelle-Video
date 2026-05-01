@@ -291,20 +291,21 @@ def _render_projection_result(result: dict[str, Any], *, ui=st) -> None:
     source = _as_dict(projection.get("source"))
 
     ui.success("Projection preview 已返回；结果仅用于调试预览，不保存，不触发生成。")
-    ui.markdown("#### final_prompt")
-    ui.code(str(prompt_plan.get("final_prompt") or ""), language="text")
-
-    ui.markdown("#### prompt_sections")
-    ui.json(_as_dict(prompt_plan.get("prompt_sections")))
-
-    ui.markdown("#### Asset references")
-    ui.markdown(f"- character_ids: {_format_list(prompt_plan.get('character_ids'))}")
-    ui.markdown(f"- scene_id: {prompt_plan.get('scene_id') or ''}")
-    ui.markdown(f"- prop_ids: {_format_list(prompt_plan.get('prop_ids'))}")
-    ui.markdown(f"- style_id: {prompt_plan.get('style_id') or ''}")
-
-    ui.markdown("#### source")
-    ui.json(source)
+    ui.markdown("#### Projection Workbench")
+    left, right = ui.columns(2)
+    with left:
+        ui.markdown("##### PromptPlan Output")
+        ui.code(str(prompt_plan.get("final_prompt") or ""), language="text")
+        ui.markdown("##### prompt_sections")
+        ui.json(_as_dict(prompt_plan.get("prompt_sections")))
+    with right:
+        ui.markdown("##### Reserved Asset References")
+        ui.markdown(f"- character_ids: {_format_list(prompt_plan.get('character_ids'))}")
+        ui.markdown(f"- scene_id: {prompt_plan.get('scene_id') or ''}")
+        ui.markdown(f"- prop_ids: {_format_list(prompt_plan.get('prop_ids'))}")
+        ui.markdown(f"- style_id: {prompt_plan.get('style_id') or ''}")
+        ui.markdown("##### Source Metadata")
+        ui.json(source)
 
 
 def _text_input(ui, label: str, *, key: str, value: str = "") -> str:
@@ -356,6 +357,7 @@ def _clear_loaded_context(ui) -> None:
     ui.session_state.pop("projection_asset_bible_id", None)
     ui.session_state.pop("projection_asset_bible_select", None)
     ui.session_state.pop("projection_scene_cast_asset_bible_id", None)
+    ui.session_state.pop("projection_preview_result", None)
     _clear_scene_cast_selection(ui)
 
 
