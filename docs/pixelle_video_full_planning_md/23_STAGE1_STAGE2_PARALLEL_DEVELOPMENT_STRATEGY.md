@@ -38,12 +38,14 @@ Stage 2 负责 IP 和资产合同：
 - Stage 1B 只能消费 Stage 1A 的 `PromptPlan`，不能重新定义 `PromptPlan` 或 `PromptPlanBuilder`。
 - Stage 2 可以实现 `AssetBible`、`IPProfile`、`CharacterProfile` 和 `SceneCast`，但不能直接改 Stage 1A 的主生成流程。
 - Stage 2 可以读取和填充 Stage 1A 预留的 `character_ids`、`scene_id`、`prop_ids`、`style_id` 字段。
-- Gate A 的 PromptPlan 预留字段和 Gate C 的 AssetBible / SceneCast 校验稳定后，Stage 2 可以暴露非持久化 `PromptPlanProjectionPreview` App API，用于验证 `SceneCast -> PromptPlan reserved fields` 的结果。
+- Gate A 的 PromptPlan 预留字段和 Gate C 的 AssetBible / SceneCast 校验稳定后，Stage 2 已暴露非持久化 `PromptPlanProjectionPreview` App API，用于验证 `SceneCast -> PromptPlan reserved fields` 的结果。
 - `PromptPlanProjectionPreview` 不等于 Provider 级 `PromptProjection`；它不得生成 `provider_params`，不得执行最终 prompt 参数化，也不得接入 Provider 路由。
 - `PromptPlanProjectionPreview` 不得保存 PromptPlan，不得标记 stale，不得触发主生成链路或图片生成。
+- `PromptPlanProjectionPreview` 的完成范围到预览闭环为止；Provider routing / projection、stale 依赖传播、projected PromptPlan 持久化和主生成链路接入均保留为后续单独计划。
 - Stage 1A、Stage 1B 和 Stage 2 的持久化都必须依赖 Stage 0.5 的 Repository / Store 接口。
 - App/Public API 必须通过 `ResourceResolver` 解析资源 ID，raw 参数只能进入 Internal/Debug 边界。
 - `text_rendering.caption_style` 和 `text_rendering.title_style` 是渲染契约；Stage 1A 不得把它们写进 `PromptPlan` 主结构，Stage 2 不得把它们并入 IP `StyleProfile`。
+- `title_style`、`caption_style`、`subtitle_style`、`overlay_style` 和 `font*` 不得进入 Stage 2 PromptPlan projection，也不得进入 AssetBible `StyleProfile.metadata`。
 - 实施预览区是渲染契约的下游视图；真实预览帧必须通过 Artifact / Object Store 或受控预览 artifact key 表达，不能返回本地路径。
 - FlowGram、SaaS、完整 ProviderCapability、视频片段生成不进入 Stage 1 / Stage 2 并行主线。
 - 所有任务必须能形成原子提交，并按 AGENTS.md 使用中文提交说明。
@@ -129,11 +131,12 @@ Stage 2 负责 IP 和资产合同：
 - `SceneCast` 引用的 ID 必须属于当前 AssetBible。
 - `PromptComposer` 只填充 Stage 1A 的 reserved fields，不改 PromptPlan 主结构。
 - 结构校验覆盖无效角色 ID、无效场景 ID 和重复资产 ID。
+- `PromptPlanProjectionPreview` 预览闭环已完成：通过仓储加载 AssetBible / SceneCast / PromptPlan，返回应用 SceneCast 后的新 PromptPlan，并保持源 PromptPlan 不被原地修改。
 
 通过后允许：
 
-- 暴露非持久化 `PromptPlanProjectionPreview` App API，用于验证或前端 UX 预览 SceneCast 应用到 PromptPlan 后的结果。
-- 将 IP 形象一致性接入正式生成链路，但必须通过后续单独计划处理 stale、持久化和主链路接入。
+- 暴露非持久化 `PromptPlanProjectionPreview` App API，用于验证或前端 UX 预览 SceneCast 应用到 PromptPlan 后的结果；该项已完成。
+- 将 IP 形象一致性接入正式生成链路必须通过后续单独计划处理 stale、持久化和主链路接入，当前 Gate C 收口不放行主链路接入。
 - 后续增加参考图、角色资产库和 Provider 级 PromptProjection；这些能力不属于当前 Stage 2 预览 API。
 
 ---
@@ -189,7 +192,7 @@ Stage 2：
 - Gate 0.5 先于任何持久化服务接入。
 - Stage 1B 不再创建或重定义 PromptPlan。
 - Stage 2 在 Gate A 前只实现合同和校验，不接主链路。
-- Stage 2 的 PromptPlan 预览只返回非持久化结果，不保存 PromptPlan、不标记 stale、不接 Provider 路由。
+- Stage 2 的 PromptPlan 预览闭环已完成，且只返回非持久化结果，不保存 PromptPlan、不标记 stale、不接 Provider 路由、不进入主生成链路。
 - App/Public API 不再新增 raw path、workflow path、provider URL 或 arbitrary prompt prefix。
 - 标题/字幕样式、字体资源、模板资源和预览帧不绕过 ResourceResolver / Object Store / Artifact 合同。
 - 所有合并都能回答：属于哪个阶段、服务哪个分方案、修改哪个领域合同、是否提前引入后续复杂度、如何测试。

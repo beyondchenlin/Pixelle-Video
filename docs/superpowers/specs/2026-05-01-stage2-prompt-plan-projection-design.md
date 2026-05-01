@@ -1,5 +1,11 @@
 # Stage 2 PromptPlan Projection Design
 
+## Stage 2 Gate C Closeout
+
+Status: completed for the preview loop. Stage 2 now has a repository-backed `PromptPlanProjectionPreview` path that loads a validated `SceneCast`, applies its asset references to an existing `PromptPlan`, and returns a new projected PromptPlan preview.
+
+This closeout does not change the boundary: the projected PromptPlan is not persisted, stale state is not marked or propagated, Provider routing/projection is not performed, and the preview endpoint is not part of the main generation path.
+
 ## Goal
 
 Build a controlled backend loop that projects a validated `SceneCast` onto an existing `PromptPlan` and returns a preview of the projected PromptPlan. This turns Stage 2 AssetBible and SceneCast contracts into a usable workflow entry without connecting them to the main video generation pipeline.
@@ -24,6 +30,8 @@ This design does not implement:
 - Local JSON or JSONL services.
 - Reference image, LoRA, image-to-image, provider routing, billing, or permissions.
 - Frontend UI.
+- Exposing local paths, workflow paths, provider URLs, or raw provider parameters as public contracts.
+- Adding `title_style`, `caption_style`, `subtitle_style`, `overlay_style`, or `font*` fields to Stage 2 PromptPlan projection or AssetBible `StyleProfile.metadata`.
 
 ## API Contract
 
@@ -183,9 +191,9 @@ API tests:
 
 ## Acceptance Criteria
 
-- The new endpoint works through repository injection only.
+- The endpoint works through repository injection only.
 - No local JSON, JSONL, or filesystem service is introduced.
 - No main video generation pipeline code is modified.
 - No title, subtitle, caption, font, or text rendering style fields enter `StyleProfile`, `SceneCast`, or PromptPlan projection.
 - The projection preview can be used by a future frontend without creating fake UI-only state.
-- Targeted tests and full test suite pass before pushing.
+- Targeted tests cover projection, non-mutation, missing resources, invalid references, path-like IDs, safe error mapping, and text rendering metadata rejection.

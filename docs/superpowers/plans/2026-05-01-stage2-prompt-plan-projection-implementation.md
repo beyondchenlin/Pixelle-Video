@@ -2,6 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Stage 2 Gate C Closeout
+
+Status: completed for the preview loop. The implemented scope is the backend/App API `PromptPlanProjectionPreview` path only: it validates repository-backed AssetBible / SceneCast references, selects the requested frame PromptPlan, returns a new projected PromptPlan preview, and leaves the source PromptPlan unchanged.
+
+Closed boundaries remain in force: no projected PromptPlan persistence, no stale marking or dependency propagation, no Provider routing/projection, no image generation, and no main generation path integration. Public contracts must not expose local paths, workflow paths, provider URLs, or raw provider parameters. `title_style`, `caption_style`, `subtitle_style`, `overlay_style`, and `font*` remain outside Stage 2 PromptPlan projection and AssetBible `StyleProfile.metadata`.
+
+This document is retained as implementation history. The unchecked task lists, commit commands, and push commands below are archived implementation instructions from the completed pass; do not execute them as the current active plan. The current follow-up plan is the separate Stage 1B stale dependency propagation plan, and it must not turn this Stage 2 preview into persistence, stale mutation, Provider routing/projection, or main generation integration.
+
 **Goal:** Add a backend-only preview endpoint that projects a validated `SceneCast` onto an existing `PromptPlan` without persisting the projected plan.
 
 **Architecture:** Add a focused orchestration service that depends only on `AssetBibleRepository`, `PromptPlanRepository`, current domain models, `validate_scene_cast()`, and `apply_scene_cast_to_prompt_plan()`. The FastAPI router performs public ID validation, repository injection, HTTP error mapping, and response serialization.
@@ -758,3 +766,4 @@ Only run the commit if the plan file was not already committed before implementa
 - Spec coverage: service orchestration, API endpoint, validation, error mapping, non-persistence, no main pipeline integration, and full PromptPlan response are covered.
 - Type consistency: service returns `PromptPlanProjectionPreview`, API serializes `preview.to_dict()`, schemas model `projection.prompt_plan` as a full dictionary and `projection.source` as typed IDs.
 - Scope control: implementation is backend-only and does not alter generation pipeline, repository contracts, text rendering styles, or frontend state.
+- Gate C closeout: preview loop is complete, while persistence, stale propagation, Provider routing/projection, public raw paths/URLs, and text-rendering style metadata remain explicitly out of scope.
