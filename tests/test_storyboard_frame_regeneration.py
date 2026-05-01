@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from os import PathLike
 from typing import Mapping
 
@@ -12,8 +12,10 @@ from api.tasks.lease import InMemoryGenerationLease
 from api.tasks.registry import GenerationRegistry
 from api.tasks.store import InMemoryTaskStore
 from pixelle_video.models.generation_event import GenerationEventAction
+from pixelle_video.models.prompt_plan import PromptPlan
 from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
 from pixelle_video.repositories.artifacts import StoredArtifactFile
+from pixelle_video.services.artifact_dependency_integration import ArtifactDependencyWriteService
 from pixelle_video.services.storyboard_workbench import StoryboardWorkbenchService
 
 
@@ -128,6 +130,28 @@ class RecordingTraceRepository:
         return list(self.events)
 
 
+@dataclass
+class RecordingDependencyEdgeRepository:
+    edges: list[dict[str, object]] = field(default_factory=list)
+
+    async def save_dependency_edge(
+        self,
+        workspace_id: str,
+        edge: Mapping[str, object],
+    ) -> dict[str, object]:
+        payload = dict(edge)
+        self.edges.append(payload)
+        return payload
+
+    async def list_downstream_edges(
+        self,
+        workspace_id: str,
+        upstream_type: str,
+        upstream_id: str,
+    ) -> list[dict[str, object]]:
+        return []
+
+
 class UnusedPromptPlanRepository:
     async def save_prompt_plan_bundle(
         self,
@@ -159,6 +183,17 @@ def _state() -> StoryboardFrameWorkbenchState:
         selected_image_artifact_id="artifact_frame_0001_image",
         selected_image_version_id="artifact_version_001",
         candidate_image_version_ids=("artifact_version_001",),
+    )
+
+
+def _prompt_plan() -> PromptPlan:
+    return PromptPlan(
+        prompt_plan_id="prompt_plan_001",
+        storyboard_plan_id="storyboard_001",
+        frame_id="frame_0001",
+        image_prompt_draft_id="draft_001",
+        prompt_sections={"visual_goal": "Show Luna in the lab."},
+        final_prompt="Show Luna in the lab.",
     )
 
 
@@ -285,3 +320,37 @@ async def test_frame_image_regeneration_result_writes_candidate_version_and_trac
     assert trace_repository.events[-1]["storage_key"] == (
         "artifacts/workspace_1/frame_0001/regenerated.png"
     )
+
+
+@pytest.mark.asyncio
+async def test_frame_image_regeneration_result_records_prompt_plan_dependency_edge(tmp_path):
+    generated_file = tmp_path / "generated.png"
+    generated_file.write_bytes(b"image")
+    artifact_repository = RecordingArtifactRepository(created_versions=[])
+    object_store = RecordingObjectStore(uploaded_files=[])
+    trace_repository = RecordingTraceRepository(events=[])
+    edge_repository = RecordingDependencyEdgeRepository()
+    service = StoryboardWorkbenchService(
+        artifact_repository=artifact_repository,
+        object_store=object_store,
+        trace_repository=trace_repository,
+        prompt_plan_repository=UnusedPromptPlanRepository(),
+        artifact_dependency_service=ArtifactDependencyWriteService(edge_repository=edge_repository),
+    )
+
+    result = await service.record_frame_image_regeneration_result(
+        workspace_id="workspace_1",
+        project_id="project_1",
+        task_id="regen-task-1",
+        state=_state(),
+        artifact_id="artifact_frame_0001_image",
+        source_path=generated_file,
+        prompt_plan=_prompt_plan(),
+        provider="comfyui",
+    )
+
+    assert result.artifact_version.artifact_id == "artifact_frame_0001_image"
+    assert edge_repository.edges[0]["relation"] == "image_artifact.generated_from_prompt_plan"
+    assert edge_repository.edges[0]["upstream_id"] == "prompt_plan_001"
+    assert edge_repository.edges[0]["downstream_id"] == "artifact_frame_0001_image"
+    assert "storage_key" not in str(edge_repository.edges[0])

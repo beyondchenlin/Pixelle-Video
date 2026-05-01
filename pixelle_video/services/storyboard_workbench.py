@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from pixelle_video.models.artifact import ArtifactVersion, ArtifactVersionStatus
 from pixelle_video.models.generation_event import GenerationEvent, GenerationEventAction
+from pixelle_video.models.prompt_plan import PromptPlan
 from pixelle_video.models.storyboard_workbench import (
     StoryboardFrameWorkbenchState,
     mark_frame_stale_after_prompt_plan_change,
@@ -16,6 +17,7 @@ from pixelle_video.models.storyboard_workbench import (
 from pixelle_video.repositories.artifacts import ArtifactObjectStore, ArtifactRepository
 from pixelle_video.repositories.prompt_plans import PromptPlanRepository
 from pixelle_video.repositories.trace import TraceRepository
+from pixelle_video.services.artifact_dependency_integration import ArtifactDependencyWriteService
 from pixelle_video.services.generation_coordinator import build_generation_fingerprint
 
 
@@ -112,11 +114,13 @@ class StoryboardWorkbenchService:
         object_store: ArtifactObjectStore,
         trace_repository: TraceRepository,
         prompt_plan_repository: PromptPlanRepository,
+        artifact_dependency_service: ArtifactDependencyWriteService | None = None,
     ) -> None:
         self.artifact_repository = artifact_repository
         self.object_store = object_store
         self.trace_repository = trace_repository
         self.prompt_plan_repository = prompt_plan_repository
+        self.artifact_dependency_service = artifact_dependency_service
 
     def build_frame_image_regeneration_task_request(
         self,
@@ -294,6 +298,8 @@ class StoryboardWorkbenchService:
         state: StoryboardFrameWorkbenchState,
         artifact_id: str,
         source_path: str | PathLike[str],
+        project_id: str | None = None,
+        prompt_plan: PromptPlan | None = None,
         provider: str | None = None,
         provider_metadata: Mapping[str, Any] | None = None,
         width: int | None = None,
@@ -333,6 +339,13 @@ class StoryboardWorkbenchService:
             artifact_version.to_dict(),
         )
         artifact_version = ArtifactVersion.from_dict(stored_version)
+        if self.artifact_dependency_service is not None and project_id is not None and prompt_plan is not None:
+            await self.artifact_dependency_service.record_image_artifact_dependency(
+                workspace_id=workspace_id,
+                project_id=project_id,
+                artifact_version=artifact_version,
+                prompt_plan=prompt_plan,
+            )
         updated_state = replace(
             state,
             selected_image_artifact_id=artifact_id,
