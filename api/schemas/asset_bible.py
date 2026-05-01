@@ -246,6 +246,88 @@ class SceneCastResponse(BaseModel):
     scene_cast: dict[str, Any]
 
 
+class PromptPlanProjectionPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    storyboard_plan_id: str
+    frame_id: str
+
+    @field_validator("workspace_id", "storyboard_plan_id", "frame_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+
+class PromptPlanProjectionSourceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    asset_bible_id: str
+    scene_cast_id: str
+    prompt_plan_id: str
+
+    @field_validator("asset_bible_id", "scene_cast_id", "prompt_plan_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+
+class PromptPlanProjectionPromptPlanResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt_plan_id: str
+    storyboard_plan_id: str
+    frame_id: str
+    image_prompt_draft_id: str
+    prompt_sections: dict[str, str]
+    final_prompt: str
+    source_trace_id: str | None = None
+    character_ids: list[str] = Field(default_factory=list)
+    scene_id: str | None = None
+    prop_ids: list[str] = Field(default_factory=list)
+    style_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("prompt_plan_id", "storyboard_plan_id", "frame_id", "image_prompt_draft_id")
+    @classmethod
+    def validate_required_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("source_trace_id", "scene_id", "style_id")
+    @classmethod
+    def validate_optional_ids(cls, value: str | None, info) -> str | None:
+        if value is None:
+            return None
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("character_ids", "prop_ids")
+    @classmethod
+    def validate_reference_id_lists(cls, value: list[str], info) -> list[str]:
+        return [
+            validate_public_reference_id(info.field_name, item)
+            for item in value
+        ]
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_projection_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        _reject_path_like_metadata("metadata", value)
+        return value
+
+
+class PromptPlanProjectionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt_plan: PromptPlanProjectionPromptPlanResponse
+    source: PromptPlanProjectionSourceResponse
+
+
+class PromptPlanProjectionPreviewResponse(BaseModel):
+    success: bool = True
+    message: str = "Success"
+    projection: PromptPlanProjectionPayload
+
+
 def _reject_path_like_metadata(path: str, value: Any) -> None:
     if not isinstance(value, dict):
         raise ValueError(f"{path} must be a mapping")
@@ -301,6 +383,11 @@ __all__ = [
     "AssetBibleDraftRequest",
     "AssetBibleResponse",
     "CharacterProfileDraft",
+    "PromptPlanProjectionPayload",
+    "PromptPlanProjectionPromptPlanResponse",
+    "PromptPlanProjectionPreviewRequest",
+    "PromptPlanProjectionPreviewResponse",
+    "PromptPlanProjectionSourceResponse",
     "PropAssetDraft",
     "SceneAssetDraft",
     "SceneCastDraftRequest",

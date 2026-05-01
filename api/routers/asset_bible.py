@@ -4,16 +4,28 @@ from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import ValidationError
 
 from api.schemas.asset_bible import (
     AssetBibleDraftRequest,
     AssetBibleResponse,
+    PromptPlanProjectionPreviewRequest,
+    PromptPlanProjectionPreviewResponse,
     SceneCastDraftRequest,
     SceneCastResponse,
 )
 from api.schemas.storyboard_workbench import validate_public_reference_id
 from pixelle_video.models.asset_bible import AssetBible
 from pixelle_video.models.scene_cast import SceneCast
+from pixelle_video.services.asset_prompt_plan_composer import (
+    AssetBibleNotFoundError,
+    AssetPromptPlanComposerService,
+    ProjectionDependencyError,
+    PromptPlanNotFoundError,
+    PromptPlanProjectionValidationError,
+    RepositoryIdentityError,
+    SceneCastNotFoundError,
+)
 from pixelle_video.services.scene_casting import (
     SceneCastValidationError,
     validate_scene_cast,
@@ -227,12 +239,66 @@ async def update_scene_cast_draft(
     )
 
 
+@router.post(
+    "/{project_id}/asset-bible/{asset_bible_id}/scene-casts/{scene_cast_id}/prompt-plan-projection",
+    response_model=PromptPlanProjectionPreviewResponse,
+)
+async def preview_prompt_plan_projection(
+    project_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+    payload: PromptPlanProjectionPreviewRequest,
+    request: Request,
+) -> PromptPlanProjectionPreviewResponse:
+    project_id = _validate_public_id("project_id", project_id)
+    asset_bible_id = _validate_public_id("asset_bible_id", asset_bible_id)
+    scene_cast_id = _validate_public_id("scene_cast_id", scene_cast_id)
+    service = AssetPromptPlanComposerService(
+        asset_bible_repository=_get_asset_bible_repository(request),
+        prompt_plan_repository=_get_prompt_plan_repository(request),
+    )
+    try:
+        preview = await service.preview_prompt_plan_projection(
+            workspace_id=payload.workspace_id,
+            project_id=project_id,
+            asset_bible_id=asset_bible_id,
+            scene_cast_id=scene_cast_id,
+            storyboard_plan_id=payload.storyboard_plan_id,
+            frame_id=payload.frame_id,
+        )
+    except (AssetBibleNotFoundError, SceneCastNotFoundError, PromptPlanNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PromptPlanProjectionValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RepositoryIdentityError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ProjectionDependencyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        return PromptPlanProjectionPreviewResponse(projection=preview.to_dict())
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=_safe_projection_response_validation_detail(exc),
+        ) from exc
+
+
 def _get_asset_bible_repository(request: Request):
     repository = getattr(request.app.state, "asset_bible_repository", None)
     if repository is None:
         raise HTTPException(
             status_code=503,
             detail="asset bible repository is not configured",
+        )
+    return repository
+
+
+def _get_prompt_plan_repository(request: Request):
+    repository = getattr(request.app.state, "prompt_plan_repository", None)
+    if repository is None:
+        raise HTTPException(
+            status_code=503,
+            detail="prompt plan repository is not configured",
         )
     return repository
 
@@ -320,6 +386,32 @@ def _validate_public_id(field_name: str, value: str) -> str:
         return validate_public_reference_id(field_name, value)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _safe_projection_response_validation_detail(exc: ValidationError) -> str:
+    first_error = exc.errors()[0] if exc.errors() else {}
+    location = first_error.get("loc") or ()
+    field_path = ".".join(str(item) for item in location) or "projection"
+    reason = _safe_projection_response_error_reason(first_error.get("ctx"))
+    if reason:
+        return f"prompt plan projection response is invalid: {field_path} ({reason})"
+    return f"prompt plan projection response is invalid: {field_path}"
+
+
+def _safe_projection_response_error_reason(context: object) -> str | None:
+    if not isinstance(context, Mapping):
+        return None
+    error = context.get("error")
+    if not isinstance(error, ValueError):
+        return None
+    message = str(error)
+    if _looks_safe_projection_validation_message(message):
+        return message
+    return None
+
+
+def _looks_safe_projection_validation_message(message: str) -> bool:
+    return "\\" not in message and "/" not in message and ":" not in message
 
 
 __all__ = ["router"]
