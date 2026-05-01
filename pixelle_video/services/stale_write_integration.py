@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pixelle_video.models.asset_bible import AssetBible
+from pixelle_video.models.prompt_plan import PromptPlan, PromptPlanBundle
 from pixelle_video.models.scene_cast import SceneCast
 from pixelle_video.models.stale_dependency import (
     DependencyEdge,
@@ -12,6 +13,7 @@ from pixelle_video.models.stale_dependency import (
     UpstreamChangeEvent,
 )
 from pixelle_video.repositories.assets import AssetBibleRepository
+from pixelle_video.repositories.prompt_plans import PromptPlanRepository
 from pixelle_video.repositories.stale_dependencies import (
     DependencyEdgeRepository,
     StaleMarkRepository,
@@ -126,3 +128,121 @@ class StaleAwareAssetBibleWriteService:
             propagation_summaries=(summary,),
             dependency_edges=(edge,),
         )
+
+
+class StaleAwarePromptPlanWriteService:
+    def __init__(
+        self,
+        *,
+        prompt_plan_repository: PromptPlanRepository,
+        asset_bible_repository: AssetBibleRepository,
+        edge_repository: DependencyEdgeRepository,
+        stale_repository: StaleMarkRepository,
+        version_service: DependencyVersionService | None = None,
+    ) -> None:
+        self.prompt_plan_repository = prompt_plan_repository
+        self.asset_bible_repository = asset_bible_repository
+        self.edge_repository = edge_repository
+        self.version_service = version_service or DependencyVersionService()
+        self.propagation_service = StaleDependencyPropagationService(
+            edge_repository=edge_repository,
+            stale_repository=stale_repository,
+        )
+
+    async def save_prompt_plan_bundle(
+        self,
+        workspace_id: str,
+        project_id: str,
+        bundle: PromptPlanBundle,
+    ) -> StaleAwareWriteResult:
+        pending_edges: dict[str, DependencyEdge] = {}
+        for prompt_plan in bundle.prompt_plans:
+            edge = await self._edge_for_prompt_plan(workspace_id, project_id, prompt_plan)
+            if edge is not None:
+                pending_edges[prompt_plan.prompt_plan_id] = edge
+
+        saved = await self.prompt_plan_repository.save_prompt_plan_bundle(
+            workspace_id,
+            bundle.to_dict(),
+        )
+        saved_bundle = PromptPlanBundle.from_dict(saved)
+        edges: list[DependencyEdge] = []
+        summaries: list[StalePropagationSummary] = []
+        version_tokens: list[str] = []
+
+        for prompt_plan in saved_bundle.prompt_plans:
+            prompt_plan_version = self.version_service.version_for_prompt_plan(prompt_plan)
+            version_tokens.append(prompt_plan_version)
+            edge = pending_edges.get(prompt_plan.prompt_plan_id)
+            if edge is not None:
+                await self.edge_repository.save_dependency_edge(workspace_id, edge.to_dict())
+                edges.append(edge)
+            summaries.append(
+                await self.propagation_service.propagate_upstream_change(
+                    UpstreamChangeEvent(
+                        workspace_id=workspace_id,
+                        project_id=project_id,
+                        upstream_type="prompt_plan",
+                        upstream_id=prompt_plan.prompt_plan_id,
+                        upstream_version=prompt_plan_version,
+                        reason_code="prompt_plan_changed",
+                    )
+                )
+            )
+
+        if not summaries:
+            raise StaleWriteIntegrationError("prompt plan bundle must include at least one prompt plan")
+        return StaleAwareWriteResult(
+            saved_payload=saved_bundle.to_dict(),
+            version_tokens=tuple(version_tokens),
+            propagation_summaries=tuple(summaries),
+            dependency_edges=tuple(edges),
+        )
+
+    async def _edge_for_prompt_plan(
+        self,
+        workspace_id: str,
+        project_id: str,
+        prompt_plan: PromptPlan,
+    ) -> DependencyEdge | None:
+        scene_cast_id = prompt_plan.metadata.get("scene_cast_id")
+        asset_bible_id = prompt_plan.metadata.get("asset_bible_id")
+        if isinstance(scene_cast_id, str) and scene_cast_id:
+            scene_cast_payload = await self.asset_bible_repository.load_scene_cast(
+                workspace_id,
+                scene_cast_id,
+            )
+            if scene_cast_payload is None:
+                raise StaleWriteDependencyNotFoundError("scene cast draft was not found")
+            scene_cast = SceneCast.from_dict(scene_cast_payload)
+            return DependencyEdge(
+                edge_id=f"dep_prompt_plan_{prompt_plan.prompt_plan_id}_scene_cast_{scene_cast.scene_cast_id}",
+                workspace_id=workspace_id,
+                project_id=project_id,
+                upstream_type="scene_cast",
+                upstream_id=scene_cast.scene_cast_id,
+                upstream_version=self.version_service.version_for_scene_cast(scene_cast),
+                downstream_type="prompt_plan",
+                downstream_id=prompt_plan.prompt_plan_id,
+                relation="prompt_plan.uses_scene_cast",
+            )
+        if isinstance(asset_bible_id, str) and asset_bible_id:
+            asset_bible_payload = await self.asset_bible_repository.load_asset_bible(
+                workspace_id,
+                asset_bible_id,
+            )
+            if asset_bible_payload is None:
+                raise StaleWriteDependencyNotFoundError("asset bible draft was not found")
+            asset_bible = AssetBible.from_dict(asset_bible_payload)
+            return DependencyEdge(
+                edge_id=f"dep_prompt_plan_{prompt_plan.prompt_plan_id}_asset_bible_{asset_bible.asset_bible_id}",
+                workspace_id=workspace_id,
+                project_id=project_id,
+                upstream_type="asset_bible",
+                upstream_id=asset_bible.asset_bible_id,
+                upstream_version=self.version_service.version_for_asset_bible(asset_bible),
+                downstream_type="prompt_plan",
+                downstream_id=prompt_plan.prompt_plan_id,
+                relation="prompt_plan.references_asset_bible",
+            )
+        return None
