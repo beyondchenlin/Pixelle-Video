@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import nullcontext
 from html import escape
+from inspect import Parameter, signature
 from textwrap import dedent
 
 import streamlit as st
@@ -34,6 +35,7 @@ from pixelle_video.models.video_generation_contract import (
 )
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from web.components.storyboard_preview import render_storyboard_preview
+from web.components.storyboard_workbench_stale import build_stale_panel_context
 from web.i18n import tr
 from web.utils.streamlit_helpers import keyed_widget_default_kwargs
 
@@ -195,6 +197,18 @@ STORYBOARD_GUIDE_NOTE_SPECS: tuple[dict[str, str], ...] = (
         "body_color": "#44403c",
     },
 )
+
+
+def _preview_renderer_accepts_stale_context(preview_renderer: Callable[..., list[dict]]) -> bool:
+    try:
+        parameters = signature(preview_renderer).parameters
+    except (TypeError, ValueError):
+        return False
+    stale_context_parameter = parameters.get("stale_context")
+    return stale_context_parameter is not None or any(
+        parameter.kind is Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
 
 
 def _normalize_storyboard_guide_html(html: str) -> str:
@@ -580,7 +594,14 @@ def render_storyboard_advanced_controls(
     if hasattr(ui, "container"):
         preview_context = ui.container()
     with preview_context:
-        storyboard_frame_overrides = preview_renderer(preview_snapshot)
+        stale_context = build_stale_panel_context(session_state)
+        if _preview_renderer_accepts_stale_context(preview_renderer):
+            storyboard_frame_overrides = preview_renderer(
+                preview_snapshot,
+                stale_context=stale_context,
+            )
+        else:
+            storyboard_frame_overrides = preview_renderer(preview_snapshot)
 
     return build_storyboard_control_payload(
         world_preset_id=storyboard_world_preset_id,

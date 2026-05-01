@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from typing import Any, Mapping, Sequence
 
 import streamlit as st
 
+from web.components.storyboard_workbench_stale import render_prompt_plan_stale_panel
 from web.i18n import tr
 
 EDITABLE_STORYBOARD_FIELDS: tuple[str, ...] = (
@@ -208,7 +210,12 @@ def build_storyboard_preview_rows(planning_snapshot: Mapping[str, Any] | None) -
     return rows
 
 
-def render_storyboard_preview(planning_snapshot: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+def render_storyboard_preview(
+    planning_snapshot: Mapping[str, Any] | None,
+    *,
+    stale_context: Mapping[str, str] | None = None,
+    stale_renderer: Callable[..., None] | None = render_prompt_plan_stale_panel,
+) -> list[dict[str, Any]]:
     """Render a minimal frame override editor from the latest planning snapshot."""
     rows = build_storyboard_preview_rows(planning_snapshot)
     if not rows:
@@ -219,6 +226,16 @@ def render_storyboard_preview(planning_snapshot: Mapping[str, Any] | None) -> li
     draft_entries: list[dict[str, Any]] = []
     with st.expander(tr("storyboard.preview.title"), expanded=False):
         st.caption(tr("storyboard.preview.help"))
+        if stale_renderer is not None:
+            context = stale_context or {}
+            stale_renderer(
+                prompt_plan_id=rows[0]["plan_id"],
+                ui=st,
+                translate=tr,
+                api_base_url=context.get("api_base_url"),
+                workspace_id=context.get("workspace_id"),
+                project_id=context.get("project_id"),
+            )
         for row in rows:
             scene_id = row["scene_id"]
             with st.container(border=True):

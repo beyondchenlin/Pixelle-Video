@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a read-only stale dependency radar to the existing Storyboard Preview / Workbench frame UI.
+**Goal:** Add a read-only stale dependency radar to the existing Storyboard Preview / Workbench planning UI.
 
-**Architecture:** Keep stale API fetching in a focused Workbench stale component and keep the generic stale panel renderer unchanged. The Storyboard Preview passes per-frame `prompt_plan_id` and optional frontend context into the stale component, which fails closed when required context is missing.
+**Architecture:** Keep stale API fetching in a focused Workbench stale component and keep the generic stale panel renderer unchanged. The Storyboard Preview passes the current unique `prompt_plan_id` and optional frontend context into the stale component, which fails closed when required context is missing.
 
 **Tech Stack:** Python, Streamlit component helpers, existing `web.utils.stale_api`, pytest fake UI tests, ruff.
 
@@ -16,8 +16,8 @@
 
 ## File Structure
 
-- Create `web/components/storyboard_workbench_stale.py`: context resolution, safe API call, and per-frame stale panel rendering.
-- Modify `web/components/storyboard_preview.py`: accept stale context/renderer and call it inside each frame card.
+- Create `web/components/storyboard_workbench_stale.py`: context resolution, safe API call, and plan-level stale panel rendering.
+- Modify `web/components/storyboard_preview.py`: accept stale context/renderer and call it once before frame cards.
 - Modify `web/components/storyboard_planning_controls.py`: pass stale context from session state into preview renderer.
 - Add `tests/test_storyboard_workbench_stale_ui.py`: component and integration tests.
 - Optionally modify `web/i18n/locales/en_US.json` and `web/i18n/locales/zh_CN.json` only if existing translation fallback is insufficient for user-visible labels.
@@ -33,7 +33,7 @@
 
 Create tests that prove:
 
-- `render_frame_stale_panel()` calls the stale API when `api_base_url`, `workspace_id`, `project_id`, and `prompt_plan_id` are present.
+- `render_prompt_plan_stale_panel()` calls the stale API when `api_base_url`, `workspace_id`, `project_id`, and `prompt_plan_id` are present.
 - It passes `target_type="prompt_plan"` and the current `prompt_plan_id`.
 - It renders the existing stale panel output.
 - It does not call the API when context is missing.
@@ -54,7 +54,7 @@ Expected: fail because `web.components.storyboard_workbench_stale` does not exis
 Implement:
 
 - `build_stale_panel_context(session_state=None, api_base_url=None, workspace_id=None, project_id=None) -> dict[str, str]`
-- `render_frame_stale_panel(prompt_plan_id, *, ui=st, translate=tr, stale_summary_loader=get_stale_target_summary, panel_renderer=render_stale_target_panel, api_base_url=None, workspace_id=None, project_id=None) -> None`
+- `render_prompt_plan_stale_panel(prompt_plan_id, *, ui=st, translate=tr, stale_summary_loader=get_stale_target_summary, panel_renderer=render_stale_target_panel, api_base_url=None, workspace_id=None, project_id=None) -> None`
 
 Rules:
 
@@ -87,7 +87,7 @@ Expected: all tests in the new file pass.
 
 Add tests that prove:
 
-- `render_storyboard_preview(planning_snapshot, stale_context=..., stale_renderer=...)` invokes the stale renderer once per frame with the frame row `plan_id`.
+- `render_storyboard_preview(planning_snapshot, stale_context=..., stale_renderer=...)` invokes the stale renderer once for the unique current `plan_id`.
 - Existing frame override payload collection still returns the same valid override shape.
 - `render_storyboard_advanced_controls()` can pass `stale_context` into its preview renderer without changing existing payload semantics.
 
@@ -106,8 +106,8 @@ Expected: fail because `render_storyboard_preview()` does not accept stale integ
 Implement:
 
 - Add optional `stale_context: Mapping[str, str] | None = None` to `render_storyboard_preview()`.
-- Add optional `stale_renderer: Callable[..., None] | None = render_frame_stale_panel`.
-- Inside each frame card, call stale renderer after editable fields:
+- Add optional `stale_renderer: Callable[..., None] | None = render_prompt_plan_stale_panel`.
+- Inside the preview expander, call stale renderer once before frame cards:
   - `prompt_plan_id=row["plan_id"]`
   - `api_base_url=stale_context.get("api_base_url")`
   - `workspace_id=stale_context.get("workspace_id")`
@@ -171,6 +171,7 @@ Review pass 1, requirement compliance:
 - Stale panel is read-only.
 - Missing context does not call stale API.
 - API errors do not leak sensitive details.
+- Same PromptPlan is queried once per preview render, not once per frame.
 - Stage 2 projection preview remains preview-only.
 - Title/subtitle rendering remains separate.
 
