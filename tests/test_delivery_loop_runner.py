@@ -197,3 +197,77 @@ def test_delivery_loop_stops_on_first_failing_acceptance_check(tmp_path: Path) -
     assert "status: verification_failed" in report_text
     assert "before-failure" in report_text
     assert "must-not-run" not in report_text
+
+
+def test_delivery_loop_requires_acceptance_review_before_feature_delivery(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_git_repo(repo)
+    definition = _write_acceptance_definition(
+        repo,
+        command="Write-Output 'acceptance-ok'",
+    )
+
+    acceptance = _run_runner(
+        "-RepoRoot",
+        str(repo),
+        "-AcceptanceDefinitionPath",
+        str(definition),
+        "-RunIntegrationAcceptance",
+    )
+    assert acceptance.returncode == 0
+    report = sorted((repo / "_runtime" / "integration_acceptance").glob("*_fixture-cycle.md"))[0]
+
+    blocked = _run_runner(
+        "-RepoRoot",
+        str(repo),
+        "-StartFeatureDelivery",
+    )
+    assert blocked.returncode == 3
+    assert "integration acceptance review gates are not complete" in blocked.stdout
+
+    gate_one = _run_runner(
+        "-RepoRoot",
+        str(repo),
+        "-ReportPath",
+        str(report),
+        "-MarkReviewGate",
+        "1",
+        "-ReviewResult",
+        "passed",
+    )
+    assert gate_one.returncode == 0
+    assert "review_gate_1: passed" in report.read_text(encoding="utf-8")
+    assert "- status: needs_review" in report.read_text(encoding="utf-8")
+
+    still_blocked = _run_runner(
+        "-RepoRoot",
+        str(repo),
+        "-StartFeatureDelivery",
+    )
+    assert still_blocked.returncode == 3
+    assert "integration acceptance review gates are not complete" in still_blocked.stdout
+
+    gate_two = _run_runner(
+        "-RepoRoot",
+        str(repo),
+        "-ReportPath",
+        str(report),
+        "-MarkReviewGate",
+        "2",
+        "-ReviewResult",
+        "passed",
+    )
+    assert gate_two.returncode == 0
+    report_text = report.read_text(encoding="utf-8")
+    assert "status: passed" in report_text
+    assert "- status: passed" in report_text
+
+    feature = _run_runner(
+        "-RepoRoot",
+        str(repo),
+        "-StartFeatureDelivery",
+    )
+    assert feature.returncode == 0
+    assert "status: feature_delivery_ready" in feature.stdout
+    assert "implement exactly one approved feature unit" in feature.stdout

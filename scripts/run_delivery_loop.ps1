@@ -198,6 +198,102 @@ function New-IntegrationAcceptanceReport {
     return $path
 }
 
+function Get-ReportMetadata {
+    param([string]$PathValue)
+
+    $content = Get-Content -Raw -LiteralPath $PathValue
+    $metadata = @{}
+    foreach ($line in ($content -split "`r?`n")) {
+        if ($line -match "^phase:\s*(.+)$") {
+            $metadata["phase"] = $Matches[1].Trim()
+        }
+        elseif ($line -match "^cycle_id:\s*(.+)$") {
+            $metadata["cycle_id"] = $Matches[1].Trim()
+        }
+        elseif ($line -match "^status:\s*(.+)$") {
+            $metadata["status"] = $Matches[1].Trim()
+        }
+        elseif ($line -match "^review_gate_1:\s*(.+)$") {
+            $metadata["review_gate_1"] = $Matches[1].Trim()
+        }
+        elseif ($line -match "^review_gate_2:\s*(.+)$") {
+            $metadata["review_gate_2"] = $Matches[1].Trim()
+        }
+        elseif ($line -eq "-->") {
+            break
+        }
+    }
+
+    return $metadata
+}
+
+function Set-ReviewGateResult {
+    param(
+        [string]$PathValue,
+        [string]$Gate,
+        [string]$Result
+    )
+
+    if (-not $PathValue) {
+        Write-RunnerLine "ReportPath is required when marking a review gate"
+        exit 3
+    }
+
+    $content = Get-Content -Raw -LiteralPath $PathValue
+    $field = "review_gate_$Gate"
+    $updated = $content -replace "(?m)^${field}:\s*\w+", "${field}: $Result"
+    $metadata = Get-ReportMetadata $PathValue
+    $otherGate = if ($Gate -eq "1") { "review_gate_2" } else { "review_gate_1" }
+    $otherResult = if ($metadata.ContainsKey($otherGate)) { $metadata[$otherGate] } else { "pending" }
+
+    if ($Result -eq "failed") {
+        $updated = $updated -replace "(?m)^status:\s*\w+", "status: review_failed"
+        $updated = $updated -replace "(?m)^- status:\s*\w+", "- status: review_failed"
+    }
+    elseif ($Result -eq "passed" -and $otherResult -eq "passed") {
+        $updated = $updated -replace "(?m)^status:\s*\w+", "status: passed"
+        $updated = $updated -replace "(?m)^- status:\s*\w+", "- status: passed"
+    }
+
+    Set-Content -LiteralPath $PathValue -Value $updated -Encoding UTF8
+    Write-RunnerLine "review_gate_${Gate}: $Result"
+}
+
+function Get-LatestIntegrationAcceptanceReport {
+    param([string]$Root)
+
+    $dir = Join-Path $Root "_runtime/integration_acceptance"
+    if (-not (Test-Path -LiteralPath $dir)) {
+        return $null
+    }
+
+    $reports = @(Get-ChildItem -LiteralPath $dir -Filter "*.md" | Sort-Object LastWriteTime -Descending)
+    if ($reports.Count -eq 0) {
+        return $null
+    }
+
+    return $reports[0].FullName
+}
+
+function Assert-IntegrationAcceptancePassed {
+    param([string]$Root)
+
+    $report = Get-LatestIntegrationAcceptanceReport $Root
+    if ($null -eq $report) {
+        Write-RunnerLine "integration acceptance report was not found"
+        exit 3
+    }
+
+    $metadata = Get-ReportMetadata $report
+    if ($metadata["phase"] -ne "integration_acceptance" -or $metadata["status"] -ne "passed") {
+        Write-RunnerLine "integration acceptance review gates are not complete"
+        Write-RunnerLine "report: $report"
+        exit 3
+    }
+
+    return $report
+}
+
 function Write-PhaseList {
     Write-RunnerLine "integration_acceptance`tRun real frontend/backend acceptance checks"
     Write-RunnerLine "feature_delivery`tImplement exactly one approved feature unit"
@@ -209,8 +305,8 @@ if ($ListPhases) {
 }
 
 if ($MarkReviewGate -ne "none") {
-    Write-RunnerLine "review gate marking is not implemented yet"
-    exit 3
+    Set-ReviewGateResult $ReportPath $MarkReviewGate $ReviewResult
+    exit 0
 }
 
 $ResolvedRepoRoot = Resolve-RepoRoot $RepoRoot
@@ -237,8 +333,11 @@ if ($RunIntegrationAcceptance) {
 }
 
 if ($StartFeatureDelivery) {
-    Write-RunnerLine "feature delivery checkpoint is not implemented yet"
-    exit 3
+    $report = Assert-IntegrationAcceptancePassed $ResolvedRepoRoot
+    Write-RunnerLine "status: feature_delivery_ready"
+    Write-RunnerLine "integration_acceptance_report: $report"
+    Write-RunnerLine "next: implement exactly one approved feature unit"
+    exit 0
 }
 
 Write-RunnerLine "no delivery loop action was requested"
