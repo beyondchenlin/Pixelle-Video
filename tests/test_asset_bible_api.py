@@ -498,6 +498,24 @@ def test_asset_bible_api_update_uses_stale_aware_write_service_when_configured()
     assert repository.saved[-1][1]["asset_bible_id"] == "bible_demo"
 
 
+def test_asset_bible_api_update_rejects_partial_stale_repository_configuration():
+    repository = FakeAssetBibleRepository()
+    edge_repository = FakeDependencyEdgeRepository()
+    client = _client(
+        repository,
+        edge_repository=edge_repository,
+    )
+
+    response = client.put(
+        "/projects/project_1/asset-bible/bible_demo",
+        json=_asset_bible_payload(ip_name="Updated IP"),
+    )
+
+    assert response.status_code == 503
+    assert "stale write repositories are not fully configured" in response.json()["detail"]
+    assert repository.saved == []
+
+
 def test_asset_bible_api_rejects_path_like_ids_before_repository_call():
     repository = FakeAssetBibleRepository()
     client = _client(repository)
