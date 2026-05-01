@@ -11,6 +11,7 @@ from typing import Any
 from loguru import logger
 
 from api.config import APIConfig, api_config
+from api.platform_dependencies import attach_platform_dependencies, build_platform_dependencies
 from api.tasks.artifacts import ArtifactStore
 from api.tasks.factory import build_task_manager
 from api.tasks.models import TaskType
@@ -128,8 +129,7 @@ class GenerationWorker:
 
 async def run_worker_forever(config: APIConfig = api_config) -> None:
     manager = build_task_manager(config)
-    core = PixelleVideoCore()
-    await core.initialize()
+    core = await build_worker_core(config=config)
     worker = GenerationWorker(
         registry=manager.registry,
         core=core,
@@ -145,6 +145,13 @@ async def run_worker_forever(config: APIConfig = api_config) -> None:
                 await asyncio.sleep(config.worker_poll_interval_seconds)
     finally:
         await core.cleanup()
+
+
+async def build_worker_core(*, config: APIConfig = api_config) -> PixelleVideoCore:
+    core = PixelleVideoCore()
+    attach_platform_dependencies(core, build_platform_dependencies(config))
+    await core.initialize()
+    return core
 
 
 def main() -> None:

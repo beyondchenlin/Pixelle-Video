@@ -11,6 +11,7 @@ from typing import Any, Mapping, Sequence
 
 import streamlit as st
 
+from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 from web.components.storyboard_workbench_stale import render_prompt_plan_stale_panel
 from web.i18n import tr
 
@@ -203,6 +204,7 @@ def build_storyboard_preview_rows(planning_snapshot: Mapping[str, Any] | None) -
                 "frame_id": frame_id,
                 "source_digest": source_digest,
                 "scene_id": scene_id,
+                "workbench": _extract_frame_workbench_context(frame),
                 "locked_fields": list(frame.get("locked_fields") or []),
                 "values": values,
             }
@@ -215,6 +217,7 @@ def render_storyboard_preview(
     *,
     stale_context: Mapping[str, str] | None = None,
     stale_renderer: Callable[..., None] | None = render_prompt_plan_stale_panel,
+    workbench_renderer: Callable[..., None] | None = render_storyboard_workbench_panel,
 ) -> list[dict[str, Any]]:
     """Render a minimal frame override editor from the latest planning snapshot."""
     rows = build_storyboard_preview_rows(planning_snapshot)
@@ -285,7 +288,49 @@ def render_storyboard_preview(
                         "values": values,
                     }
                 )
+                if workbench_renderer is not None:
+                    workbench_context = dict(row.get("workbench") or {})
+                    if workbench_context.get("artifact_id"):
+                        context = stale_context or {}
+                        workbench_renderer(
+                            api_base_url=context.get("api_base_url"),
+                            workspace_id=context.get("workspace_id"),
+                            storyboard_id=workbench_context.get("storyboard_id")
+                            or context.get("storyboard_id"),
+                            frame_id=row["frame_id"],
+                            artifact_id=workbench_context.get("artifact_id"),
+                            selected_version_id=workbench_context.get("selected_version_id"),
+                            ui=st,
+                            translate=tr,
+                        )
 
     return collect_storyboard_preview_overrides(
         draft_entries,
     )
+
+
+def _extract_frame_workbench_context(frame: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        "storyboard_id": _first_frame_text(
+            frame.get("storyboard_id"),
+            frame.get("source_storyboard_id"),
+        ),
+        "artifact_id": _first_frame_text(
+            frame.get("selected_image_artifact_id"),
+            frame.get("image_artifact_id"),
+            frame.get("artifact_id"),
+        ),
+        "selected_version_id": _first_frame_text(
+            frame.get("selected_image_version_id"),
+        ),
+    }
+
+
+def _first_frame_text(*values: Any) -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""

@@ -43,6 +43,7 @@ from pixelle_video.models.progress import (
     ProgressFrameAction,
     ProgressI18nMessage,
 )
+from pixelle_video.models.prompt_plan import PromptPlan
 from pixelle_video.models.render_execution_plan import (
     RenderExecutionArtifact,
     RenderExecutionPlan,
@@ -90,6 +91,9 @@ from pixelle_video.services.render_capability_resolver import (
 )
 from pixelle_video.services.script_generation import ScriptGenerationService
 from pixelle_video.services.storyboard_generation import StoryboardGenerationService
+from pixelle_video.services.storyboard_workbench_artifact_bridge import (
+    StoryboardWorkbenchArtifactBridge,
+)
 from pixelle_video.services.text_cue_compiler import TextCueCompiler
 from pixelle_video.services.text_rendering_contract_summary import (
     TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
@@ -1479,9 +1483,186 @@ class StandardPipeline(LinearVideoPipeline):
                 action=ProgressFrameAction.MEDIA,
             )
             await self.core.frame_processor._step_generate_media(frame, config)
+            await self._register_storyboard_workbench_frame_artifact(ctx, frame)
         elif not has_existing_media:
             frame.image_path = None
             frame.media_type = None
+
+    async def _register_storyboard_workbench_artifacts(self, ctx: PipelineContext) -> None:
+        storyboard = ctx.storyboard
+        if storyboard is None:
+            return
+        for frame in storyboard.frames:
+            await self._register_storyboard_workbench_frame_artifact(ctx, frame)
+
+    async def _register_storyboard_workbench_frame_artifact(
+        self,
+        ctx: PipelineContext,
+        frame: StoryboardFrame,
+    ) -> None:
+        if frame.workbench_state is not None or not frame.image_path:
+            return
+        dependencies = self._resolve_storyboard_workbench_dependencies()
+        if dependencies is None:
+            return
+        storyboard_id, frame_id, prompt_plan = self._resolve_frame_prompt_plan(
+            ctx,
+            frame,
+        )
+        if not storyboard_id or not frame_id or prompt_plan is None:
+            return
+
+        bridge = StoryboardWorkbenchArtifactBridge(**dependencies)
+        state = await bridge.attach_generated_image(
+            workspace_id=self._resolve_workbench_workspace_id(ctx),
+            storyboard_id=storyboard_id,
+            frame=frame,
+            frame_id=frame_id,
+            prompt_plan=prompt_plan,
+            source_path=frame.image_path,
+            provider=self._resolve_workbench_provider(ctx),
+            width=getattr(ctx.config, "media_width", None),
+            height=getattr(ctx.config, "media_height", None),
+        )
+        if state is not None:
+            await self._persist_storyboard_workbench_state(
+                ctx,
+                storyboard_id=storyboard_id,
+                frame_id=frame_id,
+                workbench_state=state.to_dict(),
+            )
+            self._sync_workbench_artifact_ref_to_planning_snapshot(
+                ctx,
+                frame_id=frame_id,
+                artifact_id=state.selected_image_artifact_id,
+            )
+
+    def _resolve_storyboard_workbench_dependencies(self) -> dict[str, Any] | None:
+        artifact_repository = getattr(self.core, "artifact_repository", None)
+        object_store = getattr(self.core, "artifact_object_store", None)
+        trace_repository = getattr(self.core, "trace_repository", None)
+        if artifact_repository is None or object_store is None or trace_repository is None:
+            return None
+        return {
+            "artifact_repository": artifact_repository,
+            "object_store": object_store,
+            "trace_repository": trace_repository,
+        }
+
+    def _resolve_frame_prompt_plan(
+        self,
+        ctx: PipelineContext,
+        frame: StoryboardFrame,
+    ) -> tuple[str, str, PromptPlan | None]:
+        snapshot = ctx.planning_snapshot or getattr(ctx.storyboard, "planning_snapshot", None) or {}
+        generation = snapshot.get("storyboard_generation")
+        if not isinstance(generation, Mapping):
+            return "", "", None
+        storyboard_id = str(generation.get("plan_id") or "").strip()
+        frame_id = self._resolve_snapshot_frame_id(snapshot, frame.index)
+        if not storyboard_id or not frame_id:
+            return "", "", None
+        bundle = snapshot.get("prompt_plan_bundle")
+        if not isinstance(bundle, Mapping):
+            return storyboard_id, frame_id, None
+        plans = bundle.get("prompt_plans")
+        if not isinstance(plans, list):
+            return storyboard_id, frame_id, None
+        for plan_payload in plans:
+            if not isinstance(plan_payload, Mapping):
+                continue
+            if str(plan_payload.get("frame_id") or "").strip() == frame_id:
+                return storyboard_id, frame_id, PromptPlan.from_dict(plan_payload)
+        return storyboard_id, frame_id, None
+
+    @staticmethod
+    def _resolve_snapshot_frame_id(snapshot: Mapping[str, Any], frame_index: int) -> str:
+        generation = snapshot.get("storyboard_generation")
+        if not isinstance(generation, Mapping):
+            return ""
+        frames = generation.get("frames")
+        if not isinstance(frames, list) or frame_index >= len(frames):
+            return ""
+        frame_payload = frames[frame_index]
+        if not isinstance(frame_payload, Mapping):
+            return ""
+        return str(frame_payload.get("frame_id") or "").strip()
+
+    @staticmethod
+    def _resolve_workbench_workspace_id(ctx: PipelineContext) -> str:
+        return str(
+            ctx.params.get("workspace_id")
+            or ctx.params.get("project_id")
+            or ctx.session_id
+            or "workspace_1"
+        ).strip()
+
+    @staticmethod
+    def _resolve_workbench_provider(ctx: PipelineContext) -> str | None:
+        if ctx.params.get("media_workflow"):
+            return "media_workflow"
+        return None
+
+    async def _persist_storyboard_workbench_state(
+        self,
+        ctx: PipelineContext,
+        *,
+        storyboard_id: str,
+        frame_id: str,
+        workbench_state: dict[str, Any],
+    ) -> None:
+        state_store = getattr(self.core, "storyboard_workbench_state_store", None)
+        if state_store is None:
+            return
+        await state_store.save_frame_state(
+            self._resolve_workbench_workspace_id(ctx),
+            storyboard_id,
+            frame_id,
+            workbench_state,
+        )
+
+    def _sync_workbench_artifact_ref_to_planning_snapshot(
+        self,
+        ctx: PipelineContext,
+        *,
+        frame_id: str,
+        artifact_id: str | None,
+    ) -> None:
+        if not artifact_id:
+            return
+        if ctx.planning_snapshot is None:
+            ctx.planning_snapshot = {}
+        snapshots = [ctx.planning_snapshot]
+        if ctx.storyboard is not None:
+            if ctx.storyboard.planning_snapshot is None:
+                ctx.storyboard.planning_snapshot = ctx.planning_snapshot
+            elif ctx.storyboard.planning_snapshot is not ctx.planning_snapshot:
+                snapshots.append(ctx.storyboard.planning_snapshot)
+
+        for snapshot in snapshots:
+            generation = snapshot.get("storyboard_generation")
+            if isinstance(generation, dict):
+                for frame_payload in generation.get("frames") or ():
+                    if (
+                        isinstance(frame_payload, dict)
+                        and str(frame_payload.get("frame_id") or "").strip() == frame_id
+                    ):
+                        frame_payload["image_artifact_id"] = artifact_id
+            display_frames = snapshot.get("frames")
+            generation_frames = (
+                generation.get("frames")
+                if isinstance(generation, Mapping)
+                else None
+            )
+            for index, frame_payload in enumerate(display_frames or ()):
+                if isinstance(frame_payload, dict):
+                    candidate_id = str(frame_payload.get("frame_id") or "").strip()
+                    if not candidate_id and isinstance(generation_frames, list) and index < len(generation_frames):
+                        identity_frame = generation_frames[index]
+                        if isinstance(identity_frame, Mapping):
+                            candidate_id = str(identity_frame.get("frame_id") or "").strip()
+                    if candidate_id == frame_id:
+                        frame_payload["image_artifact_id"] = artifact_id
 
     async def _materialize_element_motion_for_frame(
         self,
@@ -1543,6 +1724,7 @@ class StandardPipeline(LinearVideoPipeline):
         effective_tts_audio_strategy = self._resolve_effective_tts_audio_strategy(ctx)
         if self._is_hyperframes_render_path(ctx):
             await self._produce_assets_hyperframes(ctx)
+            await self._register_storyboard_workbench_artifacts(ctx)
             logger.info("All raw media assets prepared for HyperFrames compiled render")
             return
 
@@ -1568,6 +1750,7 @@ class StandardPipeline(LinearVideoPipeline):
                 template_body_text=template_body_text,
                 media_session_policy=execution_mode.local_media_session_policy,
             )
+            await self._register_storyboard_workbench_artifacts(ctx)
             logger.info(
                 f"All frames processed in staged mode (total duration: {storyboard.total_duration:.2f}s)"
             )
@@ -1641,6 +1824,7 @@ class StandardPipeline(LinearVideoPipeline):
             for idx, processed_frame in sorted(results, key=lambda x: x[0]):
                 storyboard.frames[idx] = processed_frame
                 storyboard.total_duration += processed_frame.duration
+            await self._register_storyboard_workbench_parallel_results(ctx, results)
             
             logger.info(f"✅ All frames processed in parallel (total duration: {storyboard.total_duration:.2f}s)")
         else:
@@ -1692,6 +1876,7 @@ class StandardPipeline(LinearVideoPipeline):
                     **frame_processor_kwargs
                 )
                 storyboard.total_duration += processed_frame.duration
+                await self._register_storyboard_workbench_frame_artifact(ctx, processed_frame)
                 logger.info(f"✅ Frame {i+1} completed ({processed_frame.duration:.2f}s)")
 
     async def _produce_assets_hyperframes(self, ctx: PipelineContext):
@@ -1710,6 +1895,14 @@ class StandardPipeline(LinearVideoPipeline):
         )
 
         logger.info("HyperFrames raw media assets prepared; skipping legacy HTML prerender")
+
+    async def _register_storyboard_workbench_parallel_results(
+        self,
+        ctx: PipelineContext,
+        results: list[tuple[int, StoryboardFrame]],
+    ) -> None:
+        for _idx, processed_frame in sorted(results, key=lambda item: item[0]):
+            await self._register_storyboard_workbench_frame_artifact(ctx, processed_frame)
 
     async def post_production(self, ctx: PipelineContext):
         """Step 7: Concatenate videos and add BGM."""

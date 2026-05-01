@@ -13,7 +13,7 @@
 """
 FastAPI Dependencies
 
-Provides dependency injection for PixelleVideoCore and other services.
+Provides dependency injection for PixelleVideoCore and shared platform services.
 """
 
 from typing import Annotated
@@ -21,41 +21,59 @@ from typing import Annotated
 from fastapi import Depends
 from loguru import logger
 
+from api.config import api_config
+from api.platform_dependencies import (
+    PlatformDependencies,
+    attach_platform_dependencies,
+    build_platform_dependencies,
+)
 from pixelle_video.service import PixelleVideoCore
 
-# Global Pixelle-Video instance
-_pixelle_video_instance: PixelleVideoCore = None
+_pixelle_video_instance: PixelleVideoCore | None = None
+_platform_dependencies: PlatformDependencies | None = None
 
 
 async def get_pixelle_video() -> PixelleVideoCore:
-    """
-    Get Pixelle-Video core instance (dependency injection)
-    
-    Returns:
-        PixelleVideoCore instance
-    """
+    """Get the API-scoped PixelleVideoCore instance."""
     global _pixelle_video_instance
-    
+
     if _pixelle_video_instance is None:
         _pixelle_video_instance = PixelleVideoCore()
+        attach_platform_dependencies(
+            _pixelle_video_instance,
+            get_or_create_platform_dependencies(),
+        )
         await _pixelle_video_instance.initialize()
-        logger.info("✅ Pixelle-Video initialized for API")
-    
+        logger.info("Pixelle-Video initialized for API")
+
     return _pixelle_video_instance
 
 
-async def shutdown_pixelle_video():
-    """Shutdown Pixelle-Video instance and cleanup resources"""
-    global _pixelle_video_instance
+async def shutdown_pixelle_video() -> None:
+    """Shutdown Pixelle-Video instance and cleanup resources."""
+    global _pixelle_video_instance, _platform_dependencies
     if _pixelle_video_instance:
         logger.info("Shutting down Pixelle-Video...")
         await _pixelle_video_instance.cleanup()
         _pixelle_video_instance = None
-    
+    _platform_dependencies = None
+
     from pixelle_video.services.frame_html import HTMLFrameGenerator
+
     await HTMLFrameGenerator.close_browser()
 
 
-# Type alias for dependency injection
+def get_or_create_platform_dependencies() -> PlatformDependencies:
+    global _platform_dependencies
+    if _platform_dependencies is None:
+        _platform_dependencies = build_platform_dependencies(api_config)
+    return _platform_dependencies
+
+
+def set_platform_dependencies(dependencies: PlatformDependencies) -> None:
+    global _platform_dependencies
+    _platform_dependencies = dependencies
+
+
 PixelleVideoDep = Annotated[PixelleVideoCore, Depends(get_pixelle_video)]
 

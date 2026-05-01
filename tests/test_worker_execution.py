@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from api.config import APIConfig
 from api.tasks.artifacts import LocalArtifactStore
 from api.tasks.lease import InMemoryGenerationLease
 from api.tasks.models import TaskStatus, TaskType
@@ -177,3 +178,20 @@ async def test_worker_leaves_cancelled_task_cancelled_after_generation_finishes(
     assert await worker.run_once() is True
     task = await registry.get_task("task-1")
     assert task.status == TaskStatus.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_worker_core_factory_attaches_platform_dependencies(tmp_path):
+    from api.tasks.worker import build_worker_core
+
+    core = await build_worker_core(
+        config=APIConfig(
+            runtime_profile="dev",
+            artifact_base_path=str(tmp_path / "output"),
+        )
+    )
+    try:
+        assert hasattr(core, "artifact_repository")
+        assert hasattr(core, "storyboard_workbench_state_store")
+    finally:
+        await core.cleanup()

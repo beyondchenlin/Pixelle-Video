@@ -94,6 +94,8 @@ def _planning_snapshot() -> dict[str, Any]:
                 {
                     "frame_id": "frame_0001",
                     "index": 1,
+                    "image_artifact_id": "artifact_frame_0001_image",
+                    "selected_image_version_id": "artifact_version_001",
                     "shot_type": "medium_shot",
                     "shot_purpose": "context",
                     "primary_subject": "coach",
@@ -305,10 +307,12 @@ def test_storyboard_preview_invokes_stale_renderer_once_per_prompt_plan_without_
         _planning_snapshot(),
         stale_context={
             "api_base_url": "http://localhost:8000/api",
+            "storyboard_id": "storyboard_001",
             "project_id": "project_1",
             "workspace_id": "workspace_1",
         },
         stale_renderer=stale_renderer,
+        workbench_renderer=None,
     )
 
     assert [call["prompt_plan_id"] for call in calls] == ["prompt_plan_1"]
@@ -324,6 +328,43 @@ def test_storyboard_preview_invokes_stale_renderer_once_per_prompt_plan_without_
             "locked_fields": ["shot_type"],
             "shot_type": "medium_shot",
             "override_source": "user_preview",
+        }
+    ]
+
+
+def test_storyboard_preview_invokes_workbench_renderer_for_frames_with_artifact_context(monkeypatch):
+    from web.components import storyboard_preview
+
+    fake_ui = _FakeUI()
+    calls: list[dict[str, Any]] = []
+
+    def workbench_renderer(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(storyboard_preview, "st", fake_ui)
+
+    storyboard_preview.render_storyboard_preview(
+        _planning_snapshot(),
+        stale_context={
+            "api_base_url": "http://localhost:8000/api",
+            "storyboard_id": "storyboard_001",
+            "project_id": "project_1",
+            "workspace_id": "workspace_1",
+        },
+        stale_renderer=None,
+        workbench_renderer=workbench_renderer,
+    )
+
+    assert calls == [
+        {
+            "api_base_url": "http://localhost:8000/api",
+            "workspace_id": "workspace_1",
+            "storyboard_id": "storyboard_001",
+            "frame_id": "frame_0001",
+            "artifact_id": "artifact_frame_0001_image",
+            "selected_version_id": "artifact_version_001",
+            "ui": fake_ui,
+            "translate": storyboard_preview.tr,
         }
     ]
 

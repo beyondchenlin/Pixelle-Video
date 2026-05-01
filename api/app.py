@@ -51,7 +51,8 @@ import api.routers.tasks as tasks_router_module
 import api.routers.video as video_router_module
 import api.tasks.manager as task_manager_module
 from api.config import api_config
-from api.dependencies import shutdown_pixelle_video
+from api.dependencies import set_platform_dependencies, shutdown_pixelle_video
+from api.platform_dependencies import configure_platform_dependencies
 
 # Import routers
 from api.routers import (
@@ -89,6 +90,8 @@ async def lifespan(app: FastAPI):
     tasks_router_module.task_manager = manager
     video_router_module.task_manager = manager
     app.state.task_manager = manager
+    platform_dependencies = configure_platform_dependencies(app, api_config)
+    set_platform_dependencies(platform_dependencies)
     await manager.start()
     logger.info("✅ Pixelle-Video API started successfully\n")
     
