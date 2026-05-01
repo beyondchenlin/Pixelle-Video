@@ -10,6 +10,7 @@ from pixelle_video.models.scene_cast import SceneCast
 from pixelle_video.repositories.assets import AssetBibleRepository
 from pixelle_video.repositories.prompt_plans import PromptPlanRepository
 from pixelle_video.services.prompt_composer import apply_scene_cast_to_prompt_plan
+from pixelle_video.services.public_ids import validate_public_reference_id
 from pixelle_video.services.scene_casting import (
     SceneCastValidationError,
     validate_scene_cast,
@@ -178,6 +179,7 @@ class AssetPromptPlanComposerService:
         if loaded is None:
             raise SceneCastNotFoundError("scene cast draft was not found")
         scene_cast = _parse_scene_cast(loaded)
+        _validate_scene_cast_public_references(scene_cast)
         _require_identity(
             value=scene_cast.workspace_id,
             expected=workspace_id,
@@ -252,6 +254,32 @@ def _parse_prompt_plan(payload: Mapping[str, Any]) -> PromptPlan:
         return PromptPlan.from_dict(payload)
     except ValueError as exc:
         raise RepositoryIdentityError("prompt plan repository payload is invalid") from exc
+
+
+def _validate_scene_cast_public_references(scene_cast: SceneCast) -> None:
+    _require_public_reference("scene cast workspace_id", scene_cast.workspace_id)
+    _require_public_reference("scene cast project_id", scene_cast.project_id)
+    _require_public_reference("scene cast asset_bible_id", scene_cast.asset_bible_id)
+    _require_public_reference("scene cast scene_cast_id", scene_cast.scene_cast_id)
+    _require_public_reference("scene cast storyboard_plan_id", scene_cast.storyboard_plan_id)
+    _require_public_reference("scene cast frame_id", scene_cast.frame_id)
+    for character_id in scene_cast.character_ids:
+        _require_public_reference("scene cast character_ids", character_id)
+    if scene_cast.scene_id is not None:
+        _require_public_reference("scene cast scene_id", scene_cast.scene_id)
+    for prop_id in scene_cast.prop_ids:
+        _require_public_reference("scene cast prop_ids", prop_id)
+    if scene_cast.style_id is not None:
+        _require_public_reference("scene cast style_id", scene_cast.style_id)
+
+
+def _require_public_reference(field_name: str, value: str) -> None:
+    try:
+        validate_public_reference_id(field_name, value)
+    except ValueError as exc:
+        raise RepositoryIdentityError(
+            f"{field_name} in repository payload is invalid"
+        ) from exc
 
 
 def _require_identity(*, value: str, expected: str, message: str) -> None:

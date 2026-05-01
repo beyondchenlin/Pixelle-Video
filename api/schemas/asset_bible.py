@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -502,6 +503,21 @@ class PromptPlanProjectionPromptPlanResponse(BaseModel):
     def validate_required_ids(cls, value: str, info) -> str:
         return validate_public_reference_id(info.field_name, value)
 
+    @field_validator("prompt_sections")
+    @classmethod
+    def validate_prompt_sections(cls, value: dict[str, str]) -> dict[str, str]:
+        for key, item in value.items():
+            if _contains_path_or_url_reference(key) or _contains_path_or_url_reference(item):
+                raise ValueError("prompt_sections must not contain path-like references")
+        return value
+
+    @field_validator("final_prompt")
+    @classmethod
+    def validate_final_prompt(cls, value: str) -> str:
+        if _contains_path_or_url_reference(value):
+            raise ValueError("final_prompt must not contain path-like references")
+        return value
+
     @field_validator("source_trace_id", "scene_id", "style_id")
     @classmethod
     def validate_optional_ids(cls, value: str | None, info) -> str | None:
@@ -545,6 +561,8 @@ def _reject_path_like_metadata(path: str, value: Any) -> None:
         if not key:
             raise ValueError(f"{path} keys must not be empty")
         child_path = f"{path}.{key}"
+        if _looks_like_path_or_url(key):
+            raise ValueError(f"{path} keys must not be local paths, URLs, or storage references")
         if _is_path_metadata_key(key):
             raise ValueError(f"{child_path} must not carry local paths, URLs, or storage references")
         if isinstance(item, dict):
@@ -584,21 +602,56 @@ def _is_path_metadata_key(key: str) -> bool:
 def _reject_text_rendering_metadata(path: str, value: Any) -> None:
     if not isinstance(value, dict):
         return
-    disallowed_keys = {
-        "caption_style",
-        "title_style",
-    }
     for raw_key, item in value.items():
         key = str(raw_key).strip()
         child_path = f"{path}.{key}"
-        lowered = key.lower()
-        if lowered in disallowed_keys or lowered.startswith("font_"):
+        if _is_text_rendering_metadata_key(key):
             raise ValueError(f"{child_path} must not carry text-rendering style fields")
         if isinstance(item, dict):
             _reject_text_rendering_metadata(child_path, item)
         elif isinstance(item, list):
             for index, child in enumerate(item):
                 _reject_text_rendering_metadata(f"{child_path}[{index}]", child)
+
+
+def _is_text_rendering_metadata_key(key: str) -> bool:
+    lowered = key.lower()
+    normalized = lowered.replace("-", "_")
+    compact = normalized.replace("_", "")
+    return (
+        normalized in {
+            "background_color",
+            "caption_style",
+            "font",
+            "fontcolor",
+            "fontsize",
+            "overlay_style",
+            "subtitle_style",
+            "text_rendering_style",
+            "title_style",
+        }
+        or compact in {
+            "backgroundcolor",
+            "captionstyle",
+            "font",
+            "fontcolor",
+            "fontsize",
+            "overlaystyle",
+            "subtitlestyle",
+            "textrenderingstyle",
+            "titlefont",
+            "titlestyle",
+        }
+        or compact.startswith("font")
+        or normalized.startswith("font_")
+        or normalized.startswith("caption_")
+        or normalized.startswith("subtitle_")
+        or normalized.startswith("title_")
+        or normalized.startswith("text_rendering_")
+        or normalized.endswith("_font")
+        or normalized.endswith("_font_size")
+        or normalized.endswith("_font_color")
+    )
 
 
 def _looks_like_path_or_url(value: str) -> bool:
@@ -611,6 +664,24 @@ def _looks_like_path_or_url(value: str) -> bool:
         or stripped.startswith("~")
         or (len(stripped) >= 2 and stripped[1] == ":" and stripped[0].isalpha())
     )
+
+
+_PATH_OR_URL_REFERENCE_RE = re.compile(
+    r"(?ix)"
+    r"(://|\\|"
+    r"(?:^|[\s\"'`(])"
+    r"(?:"
+    r"[A-Za-z]:[\\/]|"
+    r"~[\\/]|"
+    r"\.{1,2}[\\/]|"
+    r"/[\w.-]+|"
+    r"[\w.-]+[\\/][\w./-]*\.[A-Za-z0-9]{2,8}"
+    r"))"
+)
+
+
+def _contains_path_or_url_reference(value: str) -> bool:
+    return bool(_PATH_OR_URL_REFERENCE_RE.search(value.strip()))
 
 
 __all__ = [

@@ -915,6 +915,24 @@ def test_prompt_plan_projection_api_maps_scene_cast_validation_to_422():
     assert "char_missing" in response.json()["detail"]
 
 
+def test_prompt_plan_projection_api_rejects_path_like_scene_cast_references_from_repository():
+    client, repository, _ = _client_with_projection_dependencies()
+    repository.scene_casts[("workspace_1", "cast_frame_1")] = {
+        **_scene_cast_payload(character_ids=["C:\\secret\\char"]),
+        "project_id": "project_1",
+        "asset_bible_id": "bible_demo",
+    }
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "scene cast" in response.json()["detail"]
+    assert "C:\\" not in response.json()["detail"]
+
+
 def test_prompt_plan_projection_api_maps_repository_identity_to_502():
     client, repository, _ = _client_with_projection_dependencies()
     stored = dict(repository.asset_bibles[("workspace_1", "bible_demo")])
@@ -976,6 +994,134 @@ def test_prompt_plan_projection_api_rejects_path_like_prompt_plan_response_ids()
     assert response.status_code == 502
     assert "prompt_plan_id" in response.json()["detail"]
     assert "C:\\" not in response.json()["detail"]
+
+
+def test_prompt_plan_projection_api_rejects_path_like_source_response_ids():
+    client, repository, _ = _client_with_projection_dependencies()
+    stored_asset_bible = dict(repository.asset_bibles[("workspace_1", "bible_demo")])
+    stored_scene_cast = dict(repository.scene_casts[("workspace_1", "cast_frame_1")])
+    stored_asset_bible["asset_bible_id"] = "C:\\bibles\\demo"
+    stored_scene_cast["asset_bible_id"] = "C:\\bibles\\demo"
+    repository.asset_bibles[("workspace_1", "bible_demo")] = stored_asset_bible
+    repository.scene_casts[("workspace_1", "cast_frame_1")] = stored_scene_cast
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "asset bible" in response.json()["detail"]
+    assert "C:\\" not in response.json()["detail"]
+
+
+def test_prompt_plan_projection_api_rejects_path_like_prompt_text_from_repository():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(
+            final_prompt="Show Luna with C:\\renders\\private_ref.png",
+        )
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "final_prompt" in response.json()["detail"]
+    assert "C:\\" not in response.json()["detail"]
+
+
+def test_prompt_plan_projection_api_rejects_url_prompt_sections_from_repository():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(
+            prompt_sections={"reference": "use https://example.test/private.png"},
+        )
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "prompt_sections" in response.json()["detail"]
+    assert "example.test" not in response.json()["detail"]
+
+
+def test_prompt_plan_projection_api_allows_non_path_slashes_in_prompt_text():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(
+            final_prompt="Show Luna in a warm/cool contrast study.",
+            prompt_sections={"style_note": "anime/cel shaded lighting"},
+        )
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["projection"]["prompt_plan"]["final_prompt"] == (
+        "Show Luna in a warm/cool contrast study."
+    )
+
+
+def test_prompt_plan_projection_api_rejects_path_like_prompt_plan_metadata_keys():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(metadata={"C:\\plans\\secret.json": "hidden"})
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "metadata" in response.json()["detail"]
+    assert "C:\\" not in response.json()["detail"]
+
+
+def test_prompt_plan_projection_api_rejects_url_prompt_plan_metadata_keys():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(metadata={"https://example.test/private.json": "hidden"})
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "metadata" in response.json()["detail"]
+    assert "example.test" not in response.json()["detail"]
+
+
+def test_prompt_plan_projection_api_rejects_text_rendering_metadata_aliases():
+    for metadata in (
+        {"overlay_style": {"opacity": 0.9}},
+        {"subtitle_style": {"font_size": 28}},
+        {"fontSize": 28},
+    ):
+        client, _, prompt_plan_repository = _client_with_projection_dependencies()
+        prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+            _prompt_plan_payload(metadata=metadata)
+        ]
+
+        response = client.post(
+            "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+            json=_projection_request_payload(),
+        )
+
+        assert response.status_code == 502
+        assert "metadata" in response.json()["detail"]
 
 
 def test_prompt_plan_projection_api_rejects_path_like_prompt_plan_metadata():
