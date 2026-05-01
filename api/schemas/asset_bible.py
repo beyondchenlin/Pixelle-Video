@@ -13,6 +13,7 @@ from pixelle_video.models.asset_bible import (
     SceneAsset,
     StyleProfile,
 )
+from pixelle_video.models.scene_cast import SceneCast
 
 
 class CharacterProfileDraft(BaseModel):
@@ -180,11 +181,70 @@ class AssetBibleResponse(BaseModel):
     asset_bible: dict[str, Any]
 
 
+class SceneCastDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    scene_cast_id: str
+    storyboard_plan_id: str
+    frame_id: str
+    character_ids: list[str] = Field(default_factory=list)
+    scene_id: str | None = None
+    prop_ids: list[str] = Field(default_factory=list)
+    style_id: str | None = None
+    continuity_notes: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("workspace_id", "scene_cast_id", "storyboard_plan_id", "frame_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("scene_id", "style_id")
+    @classmethod
+    def validate_optional_ids(cls, value: str | None, info) -> str | None:
+        if value is None:
+            return None
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("character_ids", "prop_ids")
+    @classmethod
+    def validate_reference_id_lists(cls, value: list[str], info) -> list[str]:
+        return [
+            validate_public_reference_id(info.field_name, item)
+            for item in value
+        ]
+
+    def to_model(self, *, project_id: str, asset_bible_id: str) -> SceneCast:
+        return SceneCast(
+            scene_cast_id=self.scene_cast_id,
+            workspace_id=self.workspace_id,
+            project_id=project_id,
+            storyboard_plan_id=self.storyboard_plan_id,
+            frame_id=self.frame_id,
+            asset_bible_id=asset_bible_id,
+            character_ids=tuple(self.character_ids),
+            scene_id=self.scene_id,
+            prop_ids=tuple(self.prop_ids),
+            style_id=self.style_id,
+            continuity_notes=tuple(self.continuity_notes),
+            metadata=self.metadata,
+        )
+
+
+class SceneCastResponse(BaseModel):
+    success: bool = True
+    message: str = "Success"
+    scene_cast: dict[str, Any]
+
+
 __all__ = [
     "AssetBibleDraftRequest",
     "AssetBibleResponse",
     "CharacterProfileDraft",
     "PropAssetDraft",
     "SceneAssetDraft",
+    "SceneCastDraftRequest",
+    "SceneCastResponse",
     "StyleProfileDraft",
 ]

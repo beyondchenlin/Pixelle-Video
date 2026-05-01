@@ -10,7 +10,9 @@ from fastapi.testclient import TestClient
 @dataclass
 class FakeAssetBibleRepository:
     saved: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    saved_scene_casts: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     asset_bibles: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
+    scene_casts: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
 
     async def save_asset_bible(
         self,
@@ -28,6 +30,23 @@ class FakeAssetBibleRepository:
         asset_bible_id: str,
     ) -> dict[str, Any] | None:
         return self.asset_bibles.get((workspace_id, asset_bible_id))
+
+    async def save_scene_cast(
+        self,
+        workspace_id: str,
+        scene_cast: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(scene_cast)
+        self.saved_scene_casts.append((workspace_id, payload))
+        self.scene_casts[(workspace_id, payload["scene_cast_id"])] = payload
+        return payload
+
+    async def load_scene_cast(
+        self,
+        workspace_id: str,
+        scene_cast_id: str,
+    ) -> dict[str, Any] | None:
+        return self.scene_casts.get((workspace_id, scene_cast_id))
 
 
 def _client(repository: FakeAssetBibleRepository | None = None) -> TestClient:
@@ -80,6 +99,22 @@ def _asset_bible_payload(**overrides) -> dict[str, Any]:
                 "provider_prompt": "warm comic, clean line art",
             }
         ],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _scene_cast_payload(**overrides) -> dict[str, Any]:
+    payload = {
+        "workspace_id": "workspace_1",
+        "scene_cast_id": "cast_frame_1",
+        "storyboard_plan_id": "storyboard_plan_1",
+        "frame_id": "frame_0001",
+        "character_ids": ["char_luna"],
+        "scene_id": "scene_lab",
+        "prop_ids": ["prop_compass"],
+        "style_id": "style_warm_comic",
+        "continuity_notes": ["Keep Luna's round goggles visible."],
     }
     payload.update(overrides)
     return payload
@@ -195,3 +230,133 @@ def test_asset_bible_api_fails_fast_without_repository():
 
     assert response.status_code == 503
     assert "asset bible repository is not configured" in response.json()["detail"]
+
+
+def test_scene_cast_api_creates_draft_after_asset_bible_validation():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        json=_scene_cast_payload(),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["success"] is True
+    assert body["scene_cast"]["scene_cast_id"] == "cast_frame_1"
+    assert body["scene_cast"]["project_id"] == "project_1"
+    assert body["scene_cast"]["asset_bible_id"] == "bible_demo"
+    assert body["scene_cast"]["character_ids"] == ["char_luna"]
+    assert "local_path" not in str(body)
+    assert "C:\\" not in str(body)
+    assert repository.saved_scene_casts[0][0] == "workspace_1"
+
+
+def test_scene_cast_api_loads_draft_from_repository():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+    assert client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        json=_scene_cast_payload(),
+    ).status_code == 201
+
+    response = client.get(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1",
+        params={"workspace_id": "workspace_1"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scene_cast"]["frame_id"] == "frame_0001"
+    assert body["scene_cast"]["style_id"] == "style_warm_comic"
+
+
+def test_scene_cast_api_updates_draft_through_repository():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+
+    response = client.put(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1",
+        json=_scene_cast_payload(continuity_notes=["Updated continuity."]),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scene_cast"]["continuity_notes"] == ["Updated continuity."]
+    assert repository.saved_scene_casts[-1][1]["scene_cast_id"] == "cast_frame_1"
+
+
+def test_scene_cast_api_rejects_unknown_asset_references_before_save():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        json=_scene_cast_payload(character_ids=["char_missing"]),
+    )
+
+    assert response.status_code == 422
+    assert "char_missing" in response.json()["detail"]
+    assert repository.saved_scene_casts == []
+
+
+def test_scene_cast_api_rejects_missing_asset_bible_before_save():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        json=_scene_cast_payload(),
+    )
+
+    assert response.status_code == 404
+    assert "asset bible draft was not found" in response.json()["detail"]
+    assert repository.saved_scene_casts == []
+
+
+def test_scene_cast_api_rejects_mismatched_route_scene_cast_id():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+
+    response = client.put(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/other_cast",
+        json=_scene_cast_payload(),
+    )
+
+    assert response.status_code == 422
+    assert "scene_cast_id" in response.json()["detail"]
+    assert repository.saved_scene_casts == []
+
+
+def test_scene_cast_api_rejects_path_like_ids_before_repository_call():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        json=_scene_cast_payload(frame_id="C:\\frames\\1"),
+    )
+
+    assert response.status_code == 422
+    assert repository.saved_scene_casts == []
