@@ -228,6 +228,15 @@ def test_render_prompt_plan_stale_panel_fails_closed_without_required_context():
     assert fake_ui.errors == []
 
 
+def test_workbench_stale_translations_have_user_facing_fallbacks():
+    import web.i18n as i18n
+
+    for language in ("en_US", "zh_CN"):
+        translations = i18n._locales[language]["t"]
+        assert translations["stale.workbench.missing_context"] != "stale.workbench.missing_context"
+        assert translations["stale.workbench.unavailable"] != "stale.workbench.unavailable"
+
+
 def test_render_prompt_plan_stale_panel_hides_loader_exception_details():
     from web.components.storyboard_workbench_stale import render_prompt_plan_stale_panel
 

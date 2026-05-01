@@ -952,6 +952,8 @@
     "storyboard.preview.field_value.continuity_anchors": "连续性锚点（逗号分隔）",
     "storyboard.preview.field_value.focus_detail": "聚焦细节值",
     "storyboard.preview.field_value.prompt_intent": "提示意图值",
+    "stale.workbench.missing_context": "需要先设置项目和工作区上下文，才能显示依赖雷达。",
+    "stale.workbench.unavailable": "依赖雷达暂时不可用。",
     "history.detail.render_backend": "渲染后端",
     "history.detail.render_backend_fallback": "渲染后端回退",
     "history.detail.render_backend_fallback_reason": "原因：{reason}",

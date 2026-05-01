@@ -952,6 +952,8 @@
     "storyboard.preview.field_value.continuity_anchors": "Continuity anchors (comma separated)",
     "storyboard.preview.field_value.focus_detail": "Focus detail value",
     "storyboard.preview.field_value.prompt_intent": "Prompt intent value",
+    "stale.workbench.missing_context": "Dependency radar is unavailable until project and workspace context are set.",
+    "stale.workbench.unavailable": "Dependency radar is temporarily unavailable.",
     "history.detail.render_backend": "Render Backend",
     "history.detail.render_backend_fallback": "Backend fallback",
     "history.detail.render_backend_fallback_reason": "Reason: {reason}",
