@@ -347,6 +347,301 @@ def test_list_helpers_reject_malformed_response_items(monkeypatch):
         )
 
 
+def test_create_asset_bible_posts_minimal_draft_payload(monkeypatch):
+    from web.utils import asset_bible_api
+
+    captured = {}
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "success": True,
+                "asset_bible": {
+                    "asset_bible_id": "bible_1",
+                    "workspace_id": "ws_1",
+                    "project_id": "project_1",
+                    "ip_profiles": [{"name": "Demo IP"}],
+                },
+            }
+
+    def fake_post(endpoint, json, timeout):
+        captured["endpoint"] = endpoint
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(asset_bible_api.httpx, "post", fake_post)
+
+    result = asset_bible_api.create_asset_bible(
+        api_base_url="http://localhost:8000/api/",
+        project_id=" project_1 ",
+        workspace_id=" ws_1 ",
+        asset_bible_id=" bible_1 ",
+        ip_name=" Demo IP ",
+        world_hint=" sky city ",
+        style_hint=" clean comic ",
+    )
+
+    assert captured == {
+        "endpoint": "http://localhost:8000/api/project_1/asset-bible",
+        "json": {
+            "workspace_id": "ws_1",
+            "asset_bible_id": "bible_1",
+            "ip_name": "Demo IP",
+            "world_hint": "sky city",
+            "style_hint": "clean comic",
+        },
+        "timeout": 30.0,
+    }
+    assert result["asset_bible"]["asset_bible_id"] == "bible_1"
+
+
+def test_create_scene_cast_posts_minimal_draft_payload(monkeypatch):
+    from web.utils import asset_bible_api
+
+    captured = {}
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "success": True,
+                "scene_cast": {
+                    "scene_cast_id": "cast_1",
+                    "workspace_id": "ws_1",
+                    "project_id": "project_1",
+                    "asset_bible_id": "bible_1",
+                    "storyboard_plan_id": "storyboard_1",
+                    "frame_id": "frame_001",
+                    "character_ids": ["char_luna"],
+                    "scene_id": "scene_lab",
+                    "prop_ids": ["prop_compass"],
+                    "style_id": "style_warm_comic",
+                },
+            }
+
+    def fake_post(endpoint, json, timeout):
+        captured["endpoint"] = endpoint
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(asset_bible_api.httpx, "post", fake_post)
+
+    result = asset_bible_api.create_scene_cast(
+        api_base_url="http://localhost:8000/api/",
+        project_id=" project_1 ",
+        workspace_id=" ws_1 ",
+        asset_bible_id=" bible_1 ",
+        scene_cast_id=" cast_1 ",
+        storyboard_plan_id=" storyboard_1 ",
+        frame_id=" frame_001 ",
+        character_ids=[" char_luna ", ""],
+        scene_id=" scene_lab ",
+        prop_ids=[" prop_compass "],
+        style_id=" style_warm_comic ",
+    )
+
+    assert captured == {
+        "endpoint": "http://localhost:8000/api/project_1/asset-bible/bible_1/scene-casts",
+        "json": {
+            "workspace_id": "ws_1",
+            "scene_cast_id": "cast_1",
+            "storyboard_plan_id": "storyboard_1",
+            "frame_id": "frame_001",
+            "character_ids": ["char_luna"],
+            "scene_id": "scene_lab",
+            "prop_ids": ["prop_compass"],
+            "style_id": "style_warm_comic",
+        },
+        "timeout": 30.0,
+    }
+    assert result["scene_cast"]["scene_cast_id"] == "cast_1"
+
+
+def test_render_asset_bible_draft_setup_creates_asset_bible(monkeypatch):
+    from web.components import asset_bible_draft_setup
+
+    fake_ui = _ProjectionFakeUI()
+    fake_ui.session_state.update(
+        {
+            "projection_context_source": {
+                "api_base_url": "http://localhost:8000/api",
+                "project_id": "project_1",
+                "workspace_id": "ws_1",
+            },
+            "projection_scene_casts": [{"scene_cast_id": "cast_old"}],
+            "projection_scene_cast_id": "cast_old",
+            "projection_scene_cast_select": "cast_old",
+            "projection_storyboard_plan_id": "storyboard_old",
+            "projection_frame_id": "frame_old",
+            "projection_preview_result": {"projection": {"source": {"scene_cast_id": "cast_old"}}},
+            "stage2_asset_bible_id": "bible_1",
+            "stage2_ip_name": "Demo IP",
+            "stage2_world_hint": "sky city",
+            "stage2_style_hint": "clean comic",
+            "stage2_create_asset_bible_submit": True,
+        }
+    )
+    captured = {}
+
+    def fake_create_asset_bible(**kwargs):
+        captured.update(kwargs)
+        return {
+            "success": True,
+            "asset_bible": {
+                "asset_bible_id": "bible_1",
+                "workspace_id": "ws_1",
+                "project_id": "project_1",
+                "ip_profiles": [{"name": "Demo IP"}],
+            },
+        }
+
+    monkeypatch.setattr(
+        asset_bible_draft_setup,
+        "create_asset_bible",
+        fake_create_asset_bible,
+    )
+
+    asset_bible_draft_setup.render_asset_bible_draft_setup(
+        ui=fake_ui,
+        api_base_url="http://localhost:8000/api",
+        project_id="project_1",
+        workspace_id="ws_1",
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert captured == {
+        "api_base_url": "http://localhost:8000/api",
+        "project_id": "project_1",
+        "workspace_id": "ws_1",
+        "asset_bible_id": "bible_1",
+        "ip_name": "Demo IP",
+        "world_hint": "sky city",
+        "style_hint": "clean comic",
+    }
+    assert fake_ui.session_state["projection_asset_bible_id"] == "bible_1"
+    assert fake_ui.session_state["projection_context_source"] == {
+        "api_base_url": "http://localhost:8000/api",
+        "project_id": "project_1",
+        "workspace_id": "ws_1",
+    }
+    assert fake_ui.session_state["projection_asset_bibles"] == [
+        {
+            "asset_bible_id": "bible_1",
+            "workspace_id": "ws_1",
+            "project_id": "project_1",
+            "ip_profiles": [{"name": "Demo IP"}],
+        }
+    ]
+    assert fake_ui.session_state["projection_scene_casts"] == []
+    assert "projection_scene_cast_id" not in fake_ui.session_state
+    assert "projection_scene_cast_select" not in fake_ui.session_state
+    assert "projection_storyboard_plan_id" not in fake_ui.session_state
+    assert "projection_frame_id" not in fake_ui.session_state
+    assert "projection_preview_result" not in fake_ui.session_state
+    assert fake_ui.successes == ["stage2.asset_bible.created"]
+
+
+def test_render_asset_bible_draft_setup_creates_scene_cast(monkeypatch):
+    from web.components import asset_bible_draft_setup
+
+    fake_ui = _ProjectionFakeUI()
+    fake_ui.session_state.update(
+        {
+            "projection_asset_bible_id": "bible_old",
+            "projection_asset_bible_select": "bible_1",
+            "stage2_scene_cast_id": "cast_1",
+            "stage2_storyboard_plan_id": "storyboard_1",
+            "stage2_frame_id": "frame_001",
+            "stage2_character_ids": "char_luna, char_milo",
+            "stage2_scene_id": "scene_lab",
+            "stage2_prop_ids": "prop_compass",
+            "stage2_style_id": "style_warm_comic",
+            "stage2_create_scene_cast_submit": True,
+            "projection_preview_result": {"projection": {"source": {"scene_cast_id": "cast_old"}}},
+        }
+    )
+    captured = {}
+
+    def fake_create_scene_cast(**kwargs):
+        captured.update(kwargs)
+        return {
+            "success": True,
+            "scene_cast": {
+                "scene_cast_id": "cast_1",
+                "workspace_id": "ws_1",
+                "project_id": "project_1",
+                "asset_bible_id": "bible_1",
+                "storyboard_plan_id": "storyboard_1",
+                "frame_id": "frame_001",
+                "character_ids": ["char_luna", "char_milo"],
+                "scene_id": "scene_lab",
+                "prop_ids": ["prop_compass"],
+                "style_id": "style_warm_comic",
+            },
+        }
+
+    monkeypatch.setattr(
+        asset_bible_draft_setup,
+        "create_scene_cast",
+        fake_create_scene_cast,
+    )
+
+    asset_bible_draft_setup.render_asset_bible_draft_setup(
+        ui=fake_ui,
+        api_base_url="http://localhost:8000/api",
+        project_id="project_1",
+        workspace_id="ws_1",
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert captured == {
+        "api_base_url": "http://localhost:8000/api",
+        "project_id": "project_1",
+        "workspace_id": "ws_1",
+        "asset_bible_id": "bible_1",
+        "scene_cast_id": "cast_1",
+        "storyboard_plan_id": "storyboard_1",
+        "frame_id": "frame_001",
+        "character_ids": ["char_luna", "char_milo"],
+        "scene_id": "scene_lab",
+        "prop_ids": ["prop_compass"],
+        "style_id": "style_warm_comic",
+    }
+    assert fake_ui.session_state["projection_scene_cast_id"] == "cast_1"
+    assert fake_ui.session_state["projection_asset_bible_id"] == "bible_1"
+    assert fake_ui.session_state["projection_asset_bible_select"] == "bible_1"
+    assert fake_ui.session_state["projection_context_source"] == {
+        "api_base_url": "http://localhost:8000/api",
+        "project_id": "project_1",
+        "workspace_id": "ws_1",
+    }
+    assert fake_ui.session_state["projection_storyboard_plan_id"] == "storyboard_1"
+    assert fake_ui.session_state["projection_frame_id"] == "frame_001"
+    assert fake_ui.session_state["projection_scene_casts"] == [
+        {
+            "scene_cast_id": "cast_1",
+            "workspace_id": "ws_1",
+            "project_id": "project_1",
+            "asset_bible_id": "bible_1",
+            "storyboard_plan_id": "storyboard_1",
+            "frame_id": "frame_001",
+            "character_ids": ["char_luna", "char_milo"],
+            "scene_id": "scene_lab",
+            "prop_ids": ["prop_compass"],
+            "style_id": "style_warm_comic",
+        }
+    ]
+    assert "projection_preview_result" not in fake_ui.session_state
+    assert fake_ui.successes == ["stage2.scene_cast.created"]
+
+
 def test_render_projection_preview_calls_api_and_displays_projection_fields(monkeypatch):
     from web.components import asset_prompt_plan_projection
 

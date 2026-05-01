@@ -5,6 +5,12 @@ from typing import Any, Callable
 import httpx
 import streamlit as st
 
+from web.components.asset_bible_draft_setup import render_asset_bible_draft_setup
+from web.components.stage2_projection_state import (
+    build_projection_context_source,
+    clear_loaded_projection_context,
+    clear_projection_scene_cast_selection,
+)
 from web.utils.asset_bible_api import (
     build_prompt_plan_projection_payload,
     list_asset_bibles,
@@ -74,6 +80,14 @@ def render_asset_prompt_plan_projection_preview(
                     project_id=project_id,
                     workspace_id=workspace_id,
                 )
+
+    render_asset_bible_draft_setup(
+        ui=ui,
+        api_base_url=api_base_url,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        translate=t,
+    )
 
     asset_bibles = _list_of_dicts(ui.session_state.get("projection_asset_bibles"))
     asset_bible_id = _render_asset_bible_selector(ui, asset_bibles)
@@ -179,7 +193,7 @@ def _load_projection_context(
         return
 
     ui.session_state["projection_asset_bibles"] = asset_bibles
-    ui.session_state["projection_context_source"] = _context_source(
+    ui.session_state["projection_context_source"] = build_projection_context_source(
         api_base_url=api_base_url,
         project_id=project_id,
         workspace_id=workspace_id,
@@ -214,7 +228,7 @@ def _load_scene_cast_context(
 ) -> None:
     ui.session_state["projection_scene_casts"] = []
     ui.session_state["projection_scene_cast_asset_bible_id"] = asset_bible_id
-    _clear_scene_cast_selection(ui)
+    clear_projection_scene_cast_selection(ui.session_state)
 
     try:
         scene_casts = list_scene_casts(
@@ -328,37 +342,13 @@ def _clear_loaded_context_if_source_changed(
     loaded_source = ui.session_state.get("projection_context_source")
     if not loaded_source:
         return
-    current_source = _context_source(
+    current_source = build_projection_context_source(
         api_base_url=api_base_url,
         project_id=project_id,
         workspace_id=workspace_id,
     )
     if loaded_source != current_source:
-        _clear_loaded_context(ui)
-
-
-def _context_source(
-    *,
-    api_base_url: str,
-    project_id: str,
-    workspace_id: str,
-) -> dict[str, str]:
-    return {
-        "api_base_url": api_base_url.rstrip("/"),
-        "project_id": project_id.strip(),
-        "workspace_id": workspace_id.strip(),
-    }
-
-
-def _clear_loaded_context(ui) -> None:
-    ui.session_state.pop("projection_context_source", None)
-    ui.session_state["projection_asset_bibles"] = []
-    ui.session_state["projection_scene_casts"] = []
-    ui.session_state.pop("projection_asset_bible_id", None)
-    ui.session_state.pop("projection_asset_bible_select", None)
-    ui.session_state.pop("projection_scene_cast_asset_bible_id", None)
-    ui.session_state.pop("projection_preview_result", None)
-    _clear_scene_cast_selection(ui)
+        clear_loaded_projection_context(ui.session_state)
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -424,16 +414,6 @@ def _sync_scene_cast_selection(ui, scene_cast: dict[str, Any]) -> None:
         ui.session_state["projection_storyboard_plan_id"] = storyboard_plan_id
     if isinstance(frame_id, str):
         ui.session_state["projection_frame_id"] = frame_id
-
-
-def _clear_scene_cast_selection(ui) -> None:
-    for key in (
-        "projection_scene_cast_id",
-        "projection_scene_cast_select",
-        "projection_storyboard_plan_id",
-        "projection_frame_id",
-    ):
-        ui.session_state.pop(key, None)
 
 
 def _format_asset_bible_option(asset_bible: dict[str, Any]) -> str:
