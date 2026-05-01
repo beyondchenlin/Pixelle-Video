@@ -669,6 +669,38 @@ def test_prompt_plan_projection_api_maps_repository_identity_to_502():
     assert "asset bible" in response.json()["detail"]
 
 
+def test_prompt_plan_projection_api_maps_scene_cast_repository_identity_to_502():
+    client, repository, _ = _client_with_projection_dependencies()
+    repository.scene_casts[("workspace_1", "cast_frame_1")] = {
+        **_scene_cast_payload(scene_cast_id="other_cast"),
+        "project_id": "project_1",
+        "asset_bible_id": "bible_demo",
+    }
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "scene cast ID" in response.json()["detail"]
+
+
+def test_prompt_plan_projection_api_maps_prompt_plan_repository_identity_to_502():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(storyboard_plan_id="other_storyboard")
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "prompt plan storyboard" in response.json()["detail"]
+
+
 def test_prompt_plan_projection_api_rejects_path_like_prompt_plan_response_ids():
     client, _, prompt_plan_repository = _client_with_projection_dependencies()
     prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [

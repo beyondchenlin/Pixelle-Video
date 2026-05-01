@@ -193,10 +193,10 @@ class AssetPromptPlanComposerService:
             expected=asset_bible_id,
             message="scene cast asset bible does not match request",
         )
-        _require_projection_identity(
+        _require_identity(
             value=scene_cast.scene_cast_id,
             expected=scene_cast_id,
-            field_name="scene_cast_id",
+            message="scene cast ID does not match request",
         )
         _require_projection_identity(
             value=scene_cast.storyboard_plan_id,
@@ -223,10 +223,10 @@ class AssetPromptPlanComposerService:
         )
         for loaded in loaded_plans:
             prompt_plan = _parse_prompt_plan(loaded)
-            _require_projection_identity(
+            _require_identity(
                 value=prompt_plan.storyboard_plan_id,
                 expected=storyboard_plan_id,
-                field_name="storyboard_plan_id",
+                message="prompt plan storyboard does not match request",
             )
             if prompt_plan.frame_id == frame_id:
                 return prompt_plan

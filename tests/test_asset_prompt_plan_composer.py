@@ -259,3 +259,41 @@ async def test_preview_prompt_plan_projection_rejects_scene_cast_frame_mismatch(
         )
 
     assert "frame_id" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_preview_prompt_plan_projection_rejects_mismatched_scene_cast_repository_id():
+    service, asset_repository, _ = service_with_defaults()
+    asset_repository.scene_casts[("workspace_1", "cast_frame_1")] = scene_cast_payload(scene_cast_id="other_cast")
+
+    with pytest.raises(RepositoryIdentityError) as exc_info:
+        await service.preview_prompt_plan_projection(
+            workspace_id="workspace_1",
+            project_id="project_1",
+            asset_bible_id="bible_demo",
+            scene_cast_id="cast_frame_1",
+            storyboard_plan_id="storyboard_plan_1",
+            frame_id="frame_0001",
+        )
+
+    assert "scene cast ID" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_preview_prompt_plan_projection_rejects_mismatched_prompt_plan_repository_storyboard():
+    service, _, prompt_repository = service_with_defaults()
+    prompt_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        prompt_plan_payload(storyboard_plan_id="other_storyboard")
+    ]
+
+    with pytest.raises(RepositoryIdentityError) as exc_info:
+        await service.preview_prompt_plan_projection(
+            workspace_id="workspace_1",
+            project_id="project_1",
+            asset_bible_id="bible_demo",
+            scene_cast_id="cast_frame_1",
+            storyboard_plan_id="storyboard_plan_1",
+            frame_id="frame_0001",
+        )
+
+    assert "prompt plan storyboard" in str(exc_info.value)
