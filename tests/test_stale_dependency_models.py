@@ -38,6 +38,33 @@ def test_dependency_edge_round_trips_with_public_ids_only():
         edge.metadata["frame_id"] = "changed"
 
 
+def test_dependency_edge_metadata_is_deeply_immutable():
+    edge = DependencyEdge(
+        edge_id="dep_edge_001",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        upstream_type="asset_bible",
+        upstream_id="bible_demo",
+        upstream_version="asset_bible_rev_3",
+        downstream_type="scene_cast",
+        downstream_id="cast_frame_0001",
+        relation="scene_cast.references_asset_bible",
+        metadata={
+            "audit": {"frame_id": "frame_0001"},
+            "source_ids": ["character_1", "prop_1"],
+        },
+    )
+
+    with pytest.raises(TypeError):
+        edge.metadata["audit"]["frame_id"] = "changed"
+    with pytest.raises(TypeError):
+        edge.metadata["source_ids"][0] = "changed"
+    assert edge.to_dict()["metadata"] == {
+        "audit": {"frame_id": "frame_0001"},
+        "source_ids": ["character_1", "prop_1"],
+    }
+
+
 def test_stale_mark_records_reason_upstream_version_and_timestamp():
     mark = StaleMark(
         stale_id="stale_001",

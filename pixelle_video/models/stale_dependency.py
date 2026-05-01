@@ -277,8 +277,28 @@ def _non_negative(field_name: str, value: object) -> int:
 
 
 def _deep_freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
-    return MappingProxyType(_json_safe_copy(value))
+    return MappingProxyType({str(key): _deep_freeze_value(item) for key, item in dict(value).items()})
 
 
 def _json_safe_copy(value: Mapping[str, Any]) -> dict[str, Any]:
-    return deepcopy(dict(value))
+    return {str(key): _json_safe_value(item) for key, item in dict(value).items()}
+
+
+def _deep_freeze_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(key): _deep_freeze_value(item) for key, item in dict(value).items()})
+    if isinstance(value, list | tuple):
+        return tuple(_deep_freeze_value(item) for item in value)
+    if isinstance(value, set | frozenset):
+        return frozenset(_deep_freeze_value(item) for item in value)
+    return deepcopy(value)
+
+
+def _json_safe_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe_value(item) for key, item in dict(value).items()}
+    if isinstance(value, tuple | list):
+        return [_json_safe_value(item) for item in value]
+    if isinstance(value, frozenset | set):
+        return [_json_safe_value(item) for item in value]
+    return deepcopy(value)
