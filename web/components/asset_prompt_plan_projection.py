@@ -44,13 +44,13 @@ def render_asset_prompt_plan_projection_preview(
     t = translate or (lambda key, **_kwargs: key)
 
     ui.markdown("### Stage 2 PromptPlan Projection")
-    ui.caption("非持久化预览 / 不保存 / 不触发生成")
+    ui.caption("PromptPlan 投影预览 / 不保存投影结果 / 不触发生成")
 
     with ui.container(border=True):
         ui.markdown("**Preview-only guardrails**")
         ui.caption(
             "这个入口只用于验证 SceneCast -> PromptPlan 预留字段投影。"
-            "它不会保存 PromptPlan，不会标记 stale，也不会触发图片或视频生成。"
+            "它不会保存投影后的 PromptPlan，不会标记 stale，也不会触发图片或视频生成。"
         )
 
     api_base_url = _text_input(

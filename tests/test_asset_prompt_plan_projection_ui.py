@@ -713,9 +713,11 @@ def test_render_projection_preview_calls_api_and_displays_projection_fields(monk
         + fake_ui.captions
         + [item["value"] for item in fake_ui.code_calls]
     )
-    assert "非持久化预览" in rendered_text
+    assert "PromptPlan 投影预览" in rendered_text
     assert "不保存" in rendered_text
     assert "不触发生成" in rendered_text
+    assert "非持久化预览 / 不保存 / 不触发生成" not in rendered_text
+    assert "投影后的 PromptPlan" in rendered_text
     assert "wide shot of a clockwork library" in rendered_text
     assert "Projection Lab" in rendered_text
     assert "IP Context" in rendered_text
