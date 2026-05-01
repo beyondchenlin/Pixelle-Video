@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import ValidationError
 
 from api.schemas.asset_bible import (
     AssetBibleDraftRequest,
@@ -273,7 +274,13 @@ async def preview_prompt_plan_projection(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ProjectionDependencyError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return PromptPlanProjectionPreviewResponse(projection=preview.to_dict())
+    try:
+        return PromptPlanProjectionPreviewResponse(projection=preview.to_dict())
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=_safe_projection_response_validation_detail(exc),
+        ) from exc
 
 
 def _get_asset_bible_repository(request: Request):
@@ -379,6 +386,32 @@ def _validate_public_id(field_name: str, value: str) -> str:
         return validate_public_reference_id(field_name, value)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _safe_projection_response_validation_detail(exc: ValidationError) -> str:
+    first_error = exc.errors()[0] if exc.errors() else {}
+    location = first_error.get("loc") or ()
+    field_path = ".".join(str(item) for item in location) or "projection"
+    reason = _safe_projection_response_error_reason(first_error.get("ctx"))
+    if reason:
+        return f"prompt plan projection response is invalid: {field_path} ({reason})"
+    return f"prompt plan projection response is invalid: {field_path}"
+
+
+def _safe_projection_response_error_reason(context: object) -> str | None:
+    if not isinstance(context, Mapping):
+        return None
+    error = context.get("error")
+    if not isinstance(error, ValueError):
+        return None
+    message = str(error)
+    if _looks_safe_projection_validation_message(message):
+        return message
+    return None
+
+
+def _looks_safe_projection_validation_message(message: str) -> bool:
+    return "\\" not in message and "/" not in message and ":" not in message
 
 
 __all__ = ["router"]

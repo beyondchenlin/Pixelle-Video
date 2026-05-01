@@ -667,3 +667,35 @@ def test_prompt_plan_projection_api_maps_repository_identity_to_502():
 
     assert response.status_code == 502
     assert "asset bible" in response.json()["detail"]
+
+
+def test_prompt_plan_projection_api_rejects_path_like_prompt_plan_response_ids():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(prompt_plan_id="C:\\plans\\1")
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "prompt_plan_id" in response.json()["detail"]
+    assert "C:\\" not in response.json()["detail"]
+
+
+def test_prompt_plan_projection_api_rejects_path_like_prompt_plan_metadata():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(metadata={"local_path": "C:\\plans\\1.json"})
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "metadata.local_path" in response.json()["detail"]
+    assert "C:\\" not in response.json()["detail"]
