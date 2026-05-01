@@ -236,6 +236,7 @@ class StyleProfile:
         object.__setattr__(self, "world_style", _optional_str(self.world_style))
         object.__setattr__(self, "provider_prompt", _optional_str(self.provider_prompt))
         object.__setattr__(self, "negative_prompt", _optional_str(self.negative_prompt))
+        _reject_text_style_keys(self.metadata, path="metadata")
         object.__setattr__(self, "metadata", _deep_freeze_mapping(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
@@ -428,7 +429,7 @@ def _normalize_asset_tuple(
     return normalized
 
 
-def _reject_text_style_keys(payload: Mapping[str, Any]) -> None:
+def _reject_text_style_keys(payload: Mapping[str, Any], *, path: str = "StyleProfile") -> None:
     disallowed_keys = {
         "caption_style",
         "title_style",
@@ -438,12 +439,30 @@ def _reject_text_style_keys(payload: Mapping[str, Any]) -> None:
         "font_size",
         "background_color",
     }
-    present = sorted(disallowed_keys.intersection(payload))
+    present = _find_text_style_keys(payload, disallowed_keys, path)
     if present:
         raise ValueError(
             "StyleProfile must not carry text-rendering style fields: "
             + ", ".join(present)
         )
+
+
+def _find_text_style_keys(
+    payload: Mapping[str, Any],
+    disallowed_keys: set[str],
+    path: str,
+) -> list[str]:
+    if not isinstance(payload, Mapping):
+        return []
+    present: list[str] = []
+    for key, item in payload.items():
+        key_name = str(key)
+        key_path = f"{path}.{key_name}"
+        if key_name in disallowed_keys:
+            present.append(key_path)
+        if isinstance(item, Mapping):
+            present.extend(_find_text_style_keys(item, disallowed_keys, key_path))
+    return sorted(present)
 
 
 def _deep_freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:

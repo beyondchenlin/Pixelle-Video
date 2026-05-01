@@ -171,6 +171,22 @@ def test_asset_bible_api_maps_domain_validation_errors_to_422():
     assert repository.saved == []
 
 
+def test_asset_bible_api_rejects_text_rendering_style_metadata():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+
+    payload = _asset_bible_payload()
+    payload["style_profiles"][0]["metadata"] = {"caption_style": {"font_size": 24}}
+    response = client.post(
+        "/projects/project_1/asset-bible",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert "caption_style" in response.json()["detail"]
+    assert repository.saved == []
+
+
 def test_asset_bible_api_fails_fast_without_repository():
     response = _client().post(
         "/projects/project_1/asset-bible",

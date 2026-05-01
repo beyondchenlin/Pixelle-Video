@@ -135,6 +135,18 @@ def test_asset_bible_rejects_invalid_or_cross_project_assets(payload):
         AssetBible.from_dict(payload)
 
 
+def test_style_profile_rejects_text_rendering_style_metadata():
+    with pytest.raises(ValueError, match="caption_style"):
+        StyleProfile(
+            style_id="style_warm_comic",
+            workspace_id="workspace_1",
+            project_id="project_1",
+            display_name="Warm Comic",
+            visual_style="warm comic panels",
+            metadata={"caption_style": {"font_size": 24}},
+        )
+
+
 @pytest.mark.parametrize(
     "asset_factory, field_name",
     [
