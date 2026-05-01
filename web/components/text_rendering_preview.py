@@ -177,6 +177,7 @@ def _position_css(
     position: str,
     margin_x_percent: float,
     margin_y_percent: float,
+    region: Mapping[str, float] | None = None,
 ) -> dict[str, str]:
     css = {
         "left": "auto",
@@ -185,6 +186,58 @@ def _position_css(
         "bottom": "auto",
         "transform": "none",
     }
+    if region is not None:
+        x = _region_fraction(region.get("x"), 0.0)
+        y = _region_fraction(region.get("y"), 0.0)
+        width = min(_region_fraction(region.get("width"), 1.0), max(0.0, 1.0 - x))
+        height = min(_region_fraction(region.get("height"), 1.0), max(0.0, 1.0 - y))
+        left_gap = x * 100.0
+        right_gap = max(0.0, (1.0 - x - width) * 100.0)
+        top_gap = y * 100.0
+        bottom_gap = max(0.0, (1.0 - y - height) * 100.0)
+        center_x = (x + width / 2.0) * 100.0
+        center_y = (y + height / 2.0) * 100.0
+
+        if position == "center":
+            css.update(
+                left=f"{center_x:.3f}%",
+                top=f"{center_y:.3f}%",
+                transform="translate(-50%, -50%)",
+            )
+        elif position in {"bottom", "lower_third"}:
+            css.update(
+                left=f"{center_x:.3f}%",
+                bottom=f"{max(bottom_gap, margin_y_percent):.3f}%",
+                transform="translateX(-50%)",
+            )
+        elif position == "top":
+            css.update(
+                left=f"{center_x:.3f}%",
+                top=f"{max(top_gap, margin_y_percent):.3f}%",
+                transform="translateX(-50%)",
+            )
+        elif position == "top_left":
+            css.update(
+                left=f"{max(left_gap, margin_x_percent):.3f}%",
+                top=f"{max(top_gap, margin_y_percent):.3f}%",
+            )
+        elif position == "top_right":
+            css.update(
+                right=f"{max(right_gap, margin_x_percent):.3f}%",
+                top=f"{max(top_gap, margin_y_percent):.3f}%",
+            )
+        elif position == "bottom_left":
+            css.update(
+                left=f"{max(left_gap, margin_x_percent):.3f}%",
+                bottom=f"{max(bottom_gap, margin_y_percent):.3f}%",
+            )
+        elif position == "bottom_right":
+            css.update(
+                right=f"{max(right_gap, margin_x_percent):.3f}%",
+                bottom=f"{max(bottom_gap, margin_y_percent):.3f}%",
+            )
+        return css
+
     if position == "center":
         css.update(left="50%", top="50%", transform="translate(-50%, -50%)")
     elif position in {"bottom", "lower_third"}:
@@ -200,6 +253,16 @@ def _position_css(
     elif position == "bottom_right":
         css.update(right=f"{margin_x_percent:.3f}%", bottom=f"{margin_y_percent:.3f}%")
     return css
+
+
+def _region_fraction(value: Any, default: float) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        numeric = default
+    if not isfinite(numeric):
+        numeric = default
+    return min(max(numeric, 0.0), 1.0)
 
 
 def _justify_content(alignment: str) -> str:
@@ -232,11 +295,15 @@ def _style_css(
     if raw_position in TEXT_POSITIONS:
         margin_x = _safe_float(style.get("margin_x"), 80.0, minimum=0.0, maximum=2000.0)
         margin_y = _safe_float(style.get("margin_y"), 140.0, minimum=0.0, maximum=2000.0)
-        max_width_ratio = _safe_float(
-            style.get("max_width_ratio"),
-            float(region.get("width", 0.86)),
-            minimum=0.05,
-            maximum=1.0,
+        region_width_ratio = _region_fraction(region.get("width"), 1.0)
+        max_width_ratio = min(
+            _safe_float(
+                style.get("max_width_ratio"),
+                region_width_ratio,
+                minimum=0.05,
+                maximum=1.0,
+            ),
+            max(region_width_ratio, 0.05),
         )
         margin_x_percent = margin_x / max(float(canvas_width), 1.0) * 100.0
         margin_y_percent = margin_y / max(float(canvas_height), 1.0) * 100.0
@@ -248,8 +315,24 @@ def _style_css(
             position=raw_position,
             margin_x_percent=margin_x_percent,
             margin_y_percent=margin_y_percent,
+            region=region,
         )
-        width = max_width_ratio * 100.0
+        region_x = _region_fraction(region.get("x"), 0.0)
+        region_width = min(region_width_ratio, max(0.0, 1.0 - region_x))
+        region_left_bound = region_x * 100.0
+        region_right_bound = max(0.0, (1.0 - region_x - region_width) * 100.0)
+        left_bound = region_left_bound
+        right_bound = region_right_bound
+        if raw_position in {"top_left", "bottom_left"}:
+            left_bound = _css_percent_to_float(position_css["left"])
+        elif raw_position in {"top_right", "bottom_right"}:
+            right_bound = _css_percent_to_float(position_css["right"])
+        available_width = max(0.0, 100.0 - left_bound - right_bound)
+        width = min(region_width * 100.0, max_width_ratio * 100.0, available_width)
+        max_width = (
+            f"min({width:.3f}%, "
+            f"calc(100% - {left_bound:.3f}% - {right_bound:.3f}%))"
+        )
     else:
         position_css = {
             "left": f"{float(region.get('x', 0.0)) * 100:.3f}%",
@@ -277,6 +360,19 @@ def _style_css(
         f"justify-content:{_justify_content(alignment)};"
         f"-webkit-text-stroke:{stroke_width}px {stroke_color};"
     )
+
+
+def _css_percent_to_float(value: str) -> float:
+    cleaned = str(value).strip()
+    if not cleaned.endswith("%"):
+        return 0.0
+    try:
+        numeric = float(cleaned[:-1])
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    if not isfinite(numeric):
+        return 0.0
+    return numeric
 
 
 def _media_box_css(spec: TextRenderingPreviewSpec) -> str:

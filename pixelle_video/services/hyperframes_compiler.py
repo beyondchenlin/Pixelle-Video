@@ -23,6 +23,22 @@ class _CustomFontAsset:
     file_name: str
 
 
+@dataclass(frozen=True)
+class _LayoutRegion:
+    left: float
+    top: float
+    width: float
+    height: float
+
+    @property
+    def right(self) -> float:
+        return self.left + self.width
+
+    @property
+    def bottom(self) -> float:
+        return self.top + self.height
+
+
 class HyperFramesCompiler:
     def __init__(
         self,
@@ -322,7 +338,23 @@ class HyperFramesCompiler:
         stroke_width = max(0, int(round(profile.stroke_width * scale)))
         margin_x = max(0, int(round(profile.margin_x * scale)))
         margin_y = max(0, int(round(profile.margin_y * scale)))
+        layout_region = (
+            self._title_layout_region(context) if prefix == "title" else None
+        )
+        position_declarations, available_width = (
+            self._style_profile_position_css_variables(
+                profile=profile,
+                canvas_width=context.canvas_width,
+                canvas_height=context.canvas_height,
+                margin_x=margin_x,
+                margin_y=margin_y,
+                prefix=prefix,
+                region=layout_region,
+            )
+        )
         max_width = max(1, int(round(context.canvas_width * profile.max_width_ratio)))
+        if available_width is not None:
+            max_width = min(max_width, max(1, int(round(available_width))))
         background = self._rgba(profile.background_color, profile.background_opacity)
         declarations = [
             f"--{prefix}-fill: {profile.primary_color}",
@@ -340,29 +372,78 @@ class HyperFramesCompiler:
             f"--{prefix}-text-align: {profile.alignment}",
             f"--{prefix}-justify-content: {self._justify_content(profile.alignment)}",
         ]
-        declarations.extend(
-            self._style_profile_position_css_variables(
-                profile=profile,
-                margin_x=margin_x,
-                margin_y=margin_y,
-                prefix=prefix,
-            )
-        )
+        declarations.extend(position_declarations)
         return "; ".join(declarations) + ";"
 
     @staticmethod
     def _style_profile_position_css_variables(
         *,
         profile: TextStyleProfile,
+        canvas_width: int,
+        canvas_height: int,
         margin_x: int,
         margin_y: int,
         prefix: str,
-    ) -> list[str]:
+        region: _LayoutRegion | None = None,
+    ) -> tuple[list[str], float | None]:
         left = "auto"
         right = "auto"
         top = "auto"
         bottom = "auto"
         transform = "none"
+        available_width: float | None = None
+
+        if region is not None:
+            left_gap = max(0.0, region.left)
+            right_gap = max(0.0, float(canvas_width) - region.right)
+            top_gap = max(0.0, region.top)
+            bottom_gap = max(0.0, float(canvas_height) - region.bottom)
+            center_x = region.left + region.width / 2.0
+            center_y = region.top + region.height / 2.0
+
+            if profile.position == "center":
+                left = f"{round(center_x)}px"
+                top = f"{round(center_y)}px"
+                transform = "translate(-50%, -50%)"
+                available_width = region.width
+            elif profile.position in {"bottom", "lower_third"}:
+                left = f"{round(center_x)}px"
+                bottom = f"{round(max(bottom_gap, float(margin_y)))}px"
+                transform = "translateX(-50%)"
+                available_width = region.width
+            elif profile.position == "top":
+                left = f"{round(center_x)}px"
+                top = f"{round(max(top_gap, float(margin_y)))}px"
+                transform = "translateX(-50%)"
+                available_width = region.width
+            elif profile.position == "top_left":
+                left_offset = max(left_gap, float(margin_x))
+                left = f"{round(left_offset)}px"
+                top = f"{round(max(top_gap, float(margin_y)))}px"
+                available_width = max(1.0, region.right - left_offset)
+            elif profile.position == "top_right":
+                right_offset = max(right_gap, float(margin_x))
+                right = f"{round(right_offset)}px"
+                top = f"{round(max(top_gap, float(margin_y)))}px"
+                available_width = max(1.0, float(canvas_width) - right_offset - region.left)
+            elif profile.position == "bottom_left":
+                left_offset = max(left_gap, float(margin_x))
+                left = f"{round(left_offset)}px"
+                bottom = f"{round(max(bottom_gap, float(margin_y)))}px"
+                available_width = max(1.0, region.right - left_offset)
+            elif profile.position == "bottom_right":
+                right_offset = max(right_gap, float(margin_x))
+                right = f"{round(right_offset)}px"
+                bottom = f"{round(max(bottom_gap, float(margin_y)))}px"
+                available_width = max(1.0, float(canvas_width) - right_offset - region.left)
+
+            return [
+                f"--{prefix}-left: {left}",
+                f"--{prefix}-right: {right}",
+                f"--{prefix}-top: {top}",
+                f"--{prefix}-bottom: {bottom}",
+                f"--{prefix}-transform: {transform}",
+            ], available_width
 
         if profile.position == "center":
             left = "50%"
@@ -395,7 +476,31 @@ class HyperFramesCompiler:
             f"--{prefix}-top: {top}",
             f"--{prefix}-bottom: {bottom}",
             f"--{prefix}-transform: {transform}",
-        ]
+        ], available_width
+
+    @classmethod
+    def _title_layout_region(cls, context: TemplateRenderContext) -> _LayoutRegion:
+        region = context.template_title_region or {}
+        x = cls._region_fraction(region.get("x"), 0.0)
+        y = cls._region_fraction(region.get("y"), 0.0)
+        width = cls._region_fraction(region.get("width"), 1.0)
+        height = cls._region_fraction(region.get("height"), 1.0)
+        width = min(width, max(0.0, 1.0 - x))
+        height = min(height, max(0.0, 1.0 - y))
+        return _LayoutRegion(
+            left=float(context.canvas_width) * x,
+            top=float(context.canvas_height) * y,
+            width=max(1.0, float(context.canvas_width) * width),
+            height=max(1.0, float(context.canvas_height) * height),
+        )
+
+    @staticmethod
+    def _region_fraction(value: object, default: float) -> float:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError, OverflowError):
+            numeric = default
+        return max(0.0, min(numeric, 1.0))
 
     @staticmethod
     def _justify_content(alignment: str) -> str:
