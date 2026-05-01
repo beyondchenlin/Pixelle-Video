@@ -909,6 +909,42 @@ async def test_scene_cast_change_marks_prompt_plan_and_image_artifact_stale():
 
 
 @pytest.mark.asyncio
+async def test_direct_asset_bible_to_prompt_plan_edge_uses_direct_reason():
+    edges = InMemoryDependencyEdgeRepository()
+    stale = InMemoryStaleMarkRepository()
+    await seed_edge(
+        edges,
+        upstream_type="asset_bible",
+        upstream_id="bible_demo",
+        upstream_version="asset_bible_rev_3",
+        downstream_type="prompt_plan",
+        downstream_id="prompt_plan_direct",
+        relation="prompt_plan.references_asset_bible",
+    )
+    service = StaleDependencyPropagationService(edge_repository=edges, stale_repository=stale)
+
+    summary = await service.propagate_upstream_change(
+        UpstreamChangeEvent(
+            workspace_id="workspace_1",
+            project_id="project_1",
+            upstream_type="asset_bible",
+            upstream_id="bible_demo",
+            upstream_version="asset_bible_rev_4",
+            reason_code="asset_bible_changed",
+        )
+    )
+
+    assert summary.stale_created_count == 1
+    mark = next(iter(stale.marks.values()))
+    assert mark["target_type"] == "prompt_plan"
+    assert mark["target_id"] == "prompt_plan_direct"
+    assert mark["reason_code"] == "asset_bible_changed"
+    assert mark["metadata"]["source_edge_id"] == "dep_edge_1"
+    assert mark["metadata"]["source_edge_version"] == "asset_bible_rev_3"
+    assert mark["metadata"]["is_direct_event_upstream"] is True
+
+
+@pytest.mark.asyncio
 async def test_direct_edge_on_current_upstream_version_is_not_marked_stale():
     edges = InMemoryDependencyEdgeRepository()
     stale = InMemoryStaleMarkRepository()
@@ -939,6 +975,69 @@ async def test_direct_edge_on_current_upstream_version_is_not_marked_stale():
     assert summary.stale_existing_count == 0
     assert summary.marked_target_ids == ()
     assert stale.marks == {}
+
+
+@pytest.mark.asyncio
+async def test_recursive_propagation_does_not_compare_original_version_to_intermediate_edges():
+    edges = InMemoryDependencyEdgeRepository()
+    stale = InMemoryStaleMarkRepository()
+    await seed_edge(
+        edges,
+        upstream_type="asset_bible",
+        upstream_id="bible_demo",
+        upstream_version="asset_bible_rev_3",
+        downstream_type="scene_cast",
+        downstream_id="cast_frame_0001",
+        relation="scene_cast.references_asset_bible",
+    )
+    await seed_edge(
+        edges,
+        upstream_type="scene_cast",
+        upstream_id="cast_frame_0001",
+        upstream_version="asset_bible_rev_4",
+        downstream_type="prompt_plan",
+        downstream_id="prompt_plan_001",
+        relation="prompt_plan.uses_scene_cast",
+    )
+    service = StaleDependencyPropagationService(edge_repository=edges, stale_repository=stale)
+
+    summary = await service.propagate_upstream_change(
+        UpstreamChangeEvent(
+            workspace_id="workspace_1",
+            project_id="project_1",
+            upstream_type="asset_bible",
+            upstream_id="bible_demo",
+            upstream_version="asset_bible_rev_4",
+            reason_code="asset_bible_changed",
+        )
+    )
+
+    assert summary.visited_edge_count == 2
+    assert summary.stale_created_count == 2
+    assert set(summary.marked_target_ids) == {"cast_frame_0001", "prompt_plan_001"}
+    assert (
+        "workspace_1",
+        "prompt_plan",
+        "prompt_plan_001",
+        "asset_bible_changed_via_scene_cast",
+        "asset_bible",
+        "bible_demo",
+        "asset_bible_rev_4",
+    ) in stale.marks
+
+
+def test_stale_service_module_does_not_import_stage2_projection_or_provider_routing():
+    import inspect
+    import pixelle_video.services.stale_dependency_propagation as module
+
+    source = inspect.getsource(module)
+
+    assert "stage2_projection" not in source
+    assert "asset_prompt_plan_composer" not in source
+    assert "comfyui" not in source.lower()
+    assert "provider routing" not in source.lower()
+    assert "workflow_path" not in source
+    assert "save_prompt_plan_bundle" not in source
 ```
 
 - [ ] **Step 2: Run service tests to verify RED**
@@ -992,7 +1091,7 @@ class StaleDependencyPropagationService:
             raise StaleDependencyRepositoryNotConfiguredError("stale mark repository is not configured")
 
     async def propagate_upstream_change(self, event: UpstreamChangeEvent) -> StalePropagationSummary:
-        visited_edge_keys: set[tuple[str, str, str]] = set()
+        visited_edge_keys: set[tuple[str, str, str, str, str, str, str]] = set()
         marked_target_ids: list[str] = []
         created_count = 0
         existing_count = 0
@@ -1010,12 +1109,25 @@ class StaleDependencyPropagationService:
             )
             for payload in edges:
                 edge = DependencyEdge.from_dict(payload)
-                edge_key = (edge.upstream_type, edge.upstream_id, edge.downstream_id)
+                edge_key = (
+                    edge.workspace_id,
+                    edge.project_id,
+                    edge.edge_id,
+                    edge.upstream_type,
+                    edge.upstream_id,
+                    edge.downstream_type,
+                    edge.downstream_id,
+                )
                 if edge_key in visited_edge_keys:
                     continue
                 if is_direct_event_upstream and edge.upstream_version == event.upstream_version:
                     continue
                 visited_edge_keys.add(edge_key)
+                reason = _reason_for(
+                    downstream_type=edge.downstream_type,
+                    incoming_reason=reason_code,
+                    relation=edge.relation,
+                )
                 mark = StaleMark(
                     stale_id=(
                         f"stale_{edge.downstream_type}_{edge.downstream_id}_"
@@ -1024,11 +1136,16 @@ class StaleDependencyPropagationService:
                     workspace_id=event.workspace_id,
                     target_type=edge.downstream_type,
                     target_id=edge.downstream_id,
-                    reason_code=_reason_for(edge.downstream_type, reason_code),
+                    reason_code=reason,
                     upstream_type=event.upstream_type,
                     upstream_id=event.upstream_id,
                     upstream_version=event.upstream_version,
-                    metadata={"via_relation": edge.relation},
+                    metadata={
+                        "source_edge_id": edge.edge_id,
+                        "source_edge_version": edge.upstream_version,
+                        "via_relation": edge.relation,
+                        "is_direct_event_upstream": is_direct_event_upstream,
+                    },
                 )
                 _, created = await self.stale_repository.mark_stale(event.workspace_id, mark.to_dict())
                 if created:
@@ -1050,10 +1167,12 @@ class StaleDependencyPropagationService:
         )
 ```
 
-Implement `_reason_for()` with explicit mappings:
+Implement `_reason_for()` with explicit mappings and relation-aware direct AssetBible handling:
 
 ```python
-def _reason_for(downstream_type: str, incoming_reason: str) -> str:
+def _reason_for(*, downstream_type: str, incoming_reason: str, relation: str) -> str:
+    if incoming_reason == "asset_bible_changed" and relation == "prompt_plan.references_asset_bible":
+        return "asset_bible_changed"
     mapping = {
         ("scene_cast", "asset_bible_changed"): "asset_bible_changed",
         ("prompt_plan", "asset_bible_changed"): "asset_bible_changed_via_scene_cast",
@@ -1064,7 +1183,7 @@ def _reason_for(downstream_type: str, incoming_reason: str) -> str:
     return mapping.get((downstream_type, incoming_reason), incoming_reason)
 ```
 
-- [ ] **Step 4: Run AssetBible and SceneCast service tests to verify GREEN**
+- [ ] **Step 4: Run AssetBible, SceneCast, version-filter, audit, and boundary tests to verify GREEN**
 
 Run:
 
@@ -1072,7 +1191,7 @@ Run:
 python -m pytest -q tests/test_stale_dependency_propagation.py
 ```
 
-Expected: the AssetBible and SceneCast propagation tests pass.
+Expected: the AssetBible, SceneCast, direct AssetBible-to-PromptPlan, recursive version-filter, audit metadata, and Stage 2/provider boundary tests pass.
 
 - [ ] **Step 5: Commit propagation task**
 
@@ -1335,26 +1454,19 @@ git commit -m "feat: 保留 stale 标记的锁定审计语义"
 ## Task 6: Boundary Guard Tests
 
 **Files:**
-- Modify: `tests/test_stale_dependency_propagation.py`
 - Test: existing Stage 2 projection tests
 
-- [ ] **Step 1: Add boundary assertions**
+- [ ] **Step 1: Confirm boundary assertions remain in place**
 
-Append to `tests/test_stale_dependency_propagation.py`:
+Task 3 already adds `test_stale_service_module_does_not_import_stage2_projection_or_provider_routing()` to `tests/test_stale_dependency_propagation.py`. Do not append a duplicate test with the same name. Confirm the existing assertion still checks:
 
-```python
-def test_stale_service_module_does_not_import_stage2_projection_or_provider_routing():
-    import inspect
-    import pixelle_video.services.stale_dependency_propagation as module
-
-    source = inspect.getsource(module)
-
-    assert "stage2_projection" not in source
-    assert "asset_prompt_plan_composer" not in source
-    assert "comfyui" not in source.lower()
-    assert "provider routing" not in source.lower()
-    assert "workflow_path" not in source
-    assert "save_prompt_plan_bundle" not in source
+```text
+stage2_projection
+asset_prompt_plan_composer
+comfyui
+provider routing
+workflow_path
+save_prompt_plan_bundle
 ```
 
 - [ ] **Step 2: Run boundary tests**
