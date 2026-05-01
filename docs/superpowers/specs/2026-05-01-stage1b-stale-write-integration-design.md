@@ -100,7 +100,7 @@ SceneCast 保存流程：
 
 方法：
 
-- `save_prompt_plan_bundle(workspace_id, bundle) -> StaleAwareWriteResult`
+- `save_prompt_plan_bundle(workspace_id, project_id, bundle) -> StaleAwareWriteResult`
 
 依赖来源：
 
@@ -110,7 +110,7 @@ SceneCast 保存流程：
 
 PromptPlan 保存流程：
 
-1. 解析 `PromptPlanBundle`。
+1. 解析 `PromptPlanBundle`，并从调用方接收当前路由或应用上下文中的 `project_id`。
 2. 从每个 PromptPlan 的 public metadata 提取 `scene_cast_id` 或 `asset_bible_id`。
 3. 对有依赖来源的 PromptPlan，加载对应 SceneCast 或 AssetBible，生成上游版本 token。
 4. 调用 `PromptPlanRepository.save_prompt_plan_bundle()`。
@@ -127,11 +127,11 @@ PromptPlan 保存流程：
 
 方法：
 
-- `record_image_artifact_dependency(workspace_id, artifact_version) -> DependencyEdge`
+- `record_image_artifact_dependency(workspace_id, project_id, artifact_version, prompt_plan) -> DependencyEdge`
 
 流程：
 
-1. 解析 `ArtifactVersion`。
+1. 解析 `ArtifactVersion`，并从调用方接收当前项目 `project_id`。
 2. 使用 `source_prompt_plan_id` 加载或接收对应 PromptPlan public payload。
 3. 生成 `prompt_plan_rev_<hash>`。
 4. upsert 依赖边：
