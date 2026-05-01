@@ -8,12 +8,23 @@ from fastapi import APIRouter, HTTPException, Request, status
 from api.schemas.asset_bible import (
     AssetBibleDraftRequest,
     AssetBibleResponse,
+    PromptPlanProjectionPreviewRequest,
+    PromptPlanProjectionPreviewResponse,
     SceneCastDraftRequest,
     SceneCastResponse,
 )
 from api.schemas.storyboard_workbench import validate_public_reference_id
 from pixelle_video.models.asset_bible import AssetBible
 from pixelle_video.models.scene_cast import SceneCast
+from pixelle_video.services.asset_prompt_plan_composer import (
+    AssetBibleNotFoundError,
+    AssetPromptPlanComposerService,
+    ProjectionDependencyError,
+    PromptPlanNotFoundError,
+    PromptPlanProjectionValidationError,
+    RepositoryIdentityError,
+    SceneCastNotFoundError,
+)
 from pixelle_video.services.scene_casting import (
     SceneCastValidationError,
     validate_scene_cast,
@@ -227,12 +238,60 @@ async def update_scene_cast_draft(
     )
 
 
+@router.post(
+    "/{project_id}/asset-bible/{asset_bible_id}/scene-casts/{scene_cast_id}/prompt-plan-projection",
+    response_model=PromptPlanProjectionPreviewResponse,
+)
+async def preview_prompt_plan_projection(
+    project_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+    payload: PromptPlanProjectionPreviewRequest,
+    request: Request,
+) -> PromptPlanProjectionPreviewResponse:
+    project_id = _validate_public_id("project_id", project_id)
+    asset_bible_id = _validate_public_id("asset_bible_id", asset_bible_id)
+    scene_cast_id = _validate_public_id("scene_cast_id", scene_cast_id)
+    service = AssetPromptPlanComposerService(
+        asset_bible_repository=_get_asset_bible_repository(request),
+        prompt_plan_repository=_get_prompt_plan_repository(request),
+    )
+    try:
+        preview = await service.preview_prompt_plan_projection(
+            workspace_id=payload.workspace_id,
+            project_id=project_id,
+            asset_bible_id=asset_bible_id,
+            scene_cast_id=scene_cast_id,
+            storyboard_plan_id=payload.storyboard_plan_id,
+            frame_id=payload.frame_id,
+        )
+    except (AssetBibleNotFoundError, SceneCastNotFoundError, PromptPlanNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PromptPlanProjectionValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RepositoryIdentityError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ProjectionDependencyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return PromptPlanProjectionPreviewResponse(projection=preview.to_dict())
+
+
 def _get_asset_bible_repository(request: Request):
     repository = getattr(request.app.state, "asset_bible_repository", None)
     if repository is None:
         raise HTTPException(
             status_code=503,
             detail="asset bible repository is not configured",
+        )
+    return repository
+
+
+def _get_prompt_plan_repository(request: Request):
+    repository = getattr(request.app.state, "prompt_plan_repository", None)
+    if repository is None:
+        raise HTTPException(
+            status_code=503,
+            detail="prompt plan repository is not configured",
         )
     return repository
 

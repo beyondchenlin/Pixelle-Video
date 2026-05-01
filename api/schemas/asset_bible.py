@@ -246,6 +246,40 @@ class SceneCastResponse(BaseModel):
     scene_cast: dict[str, Any]
 
 
+class PromptPlanProjectionPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    storyboard_plan_id: str
+    frame_id: str
+
+    @field_validator("workspace_id", "storyboard_plan_id", "frame_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+
+class PromptPlanProjectionSourceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    asset_bible_id: str
+    scene_cast_id: str
+    prompt_plan_id: str
+
+
+class PromptPlanProjectionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt_plan: dict[str, Any]
+    source: PromptPlanProjectionSourceResponse
+
+
+class PromptPlanProjectionPreviewResponse(BaseModel):
+    success: bool = True
+    message: str = "Success"
+    projection: PromptPlanProjectionPayload
+
+
 def _reject_path_like_metadata(path: str, value: Any) -> None:
     if not isinstance(value, dict):
         raise ValueError(f"{path} must be a mapping")
@@ -301,6 +335,10 @@ __all__ = [
     "AssetBibleDraftRequest",
     "AssetBibleResponse",
     "CharacterProfileDraft",
+    "PromptPlanProjectionPayload",
+    "PromptPlanProjectionPreviewRequest",
+    "PromptPlanProjectionPreviewResponse",
+    "PromptPlanProjectionSourceResponse",
     "PropAssetDraft",
     "SceneAssetDraft",
     "SceneCastDraftRequest",
