@@ -1,6 +1,8 @@
+import web.components.content_input as content_input
+from pixelle_video.config import config_manager
 from pixelle_video.models.storyboard_limits import (
-    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_DEFAULT,
     DEFAULT_STORYBOARD_GENERATION_LIMITS,
+    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_DEFAULT,
     StoryboardGenerationLimits,
     current_storyboard_generation_limits,
     storyboard_generation_limits_from_config,
@@ -10,8 +12,6 @@ from pixelle_video.models.video_generation_contract import (
     StoryboardControlsContract,
 )
 from pixelle_video.services.storyboard_generation import StoryboardGenerationService
-import web.components.content_input as content_input
-from pixelle_video.config import config_manager
 
 
 def test_storyboard_generation_limits_keep_default_product_constant_for_schema():

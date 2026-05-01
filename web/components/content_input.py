@@ -36,7 +36,6 @@ from web.components.storyboard_planning_controls import (
 from web.i18n import tr
 from web.utils.async_helpers import get_project_version
 
-
 SCRIPT_TARGET_WORDS_MIN = 50
 SCRIPT_TARGET_WORDS_DEFAULT = 200
 SCRIPT_TARGET_WORDS_STEP = 50

@@ -4,7 +4,6 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-
 _ASS_OVERRIDE_PATTERN = re.compile(r"\{\\[^{}]*\}")
 _SCRIPT_BLOCK_PATTERN = re.compile(
     r"<\s*script\b[^>]*>.*?<\s*/\s*script\s*>",

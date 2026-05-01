@@ -1,6 +1,6 @@
+from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.prompts.image_generation import build_image_prompt_prompt
 from pixelle_video.prompts.video_generation import build_video_prompt_prompt
-from pixelle_video.models.prompt_context import PromptContextEnvelope
 
 
 def _prompt_contexts():

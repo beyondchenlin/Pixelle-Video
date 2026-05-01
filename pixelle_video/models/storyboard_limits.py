@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-
 DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN = 1
 DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_DEFAULT = 60
 DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX = 200

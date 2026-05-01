@@ -3,7 +3,6 @@ import httpx
 from web.components import style_config
 from web.utils.preview_media import PreviewMediaData, load_preview_media
 
-
 PNG_BYTES = b"fake-png-bytes"
 VIDEO_BYTES = b"fake-video-bytes"
 

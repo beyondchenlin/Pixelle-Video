@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pixelle_video.models.llm_limits import LLM_MAX_OUTPUT_TOKENS
 
-
 SCRIPT_TARGET_WORDS_MIN = 1
 SCRIPT_TARGET_WORDS_MAX = 10000
 SCRIPT_GENERATION_AUTO_MAX_TOKENS = 2000

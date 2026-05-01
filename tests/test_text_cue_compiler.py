@@ -1,10 +1,10 @@
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.render_package import SentenceUnit
+from pixelle_video.models.text_overlay import TextOverlayCandidate, TextOverlayPlan
 from pixelle_video.models.text_style import (
     DEFAULT_CAPTION_STYLE_ID,
     DEFAULT_OVERLAY_STYLE_ID,
 )
-from pixelle_video.models.text_overlay import TextOverlayCandidate, TextOverlayPlan
 from pixelle_video.services.text_cue_compiler import TextCueCompiler
 
 

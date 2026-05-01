@@ -4,7 +4,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeAlias
 
-
 _PLAN_CONTEXT_KEYS = frozenset(
     {
         "plan_id",

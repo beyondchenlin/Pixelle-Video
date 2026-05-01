@@ -1,6 +1,12 @@
 import pytest
 
-from pixelle_video.models.render_package import CaptionCue, RenderManifest, TextCue, TextTrack, VisualClip
+from pixelle_video.models.render_package import (
+    CaptionCue,
+    RenderManifest,
+    TextCue,
+    TextTrack,
+    VisualClip,
+)
 from pixelle_video.models.template_render_context import (
     PHASE1_TEMPLATE_FIELD_INVENTORY,
     TemplateAudioRef,

@@ -29,7 +29,6 @@ from loguru import logger
 from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
 
 from pixelle_video.config import config_manager
-from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
 from pixelle_video.config.prompt_prefix_library import (
     build_prompt_prefix_workflow_preview_record,
     filter_prompt_prefix_items,
@@ -38,6 +37,7 @@ from pixelle_video.config.prompt_prefix_library import (
     get_prompt_prefix_workflow_preview_asset_path,
     resolve_prompt_prefix_gallery_cover,
 )
+from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
 from pixelle_video.models.media_placement import (
     VALID_MEDIA_PLACEMENT_ANCHORS,
     MediaPlacement,

@@ -4,7 +4,6 @@ from pathlib import Path
 from pixelle_video.models.render_package import RenderManifest
 from pixelle_video.models.text_render_package import TextRenderPackage
 
-
 FIXTURE_DIR = Path("tests/fixtures/text_rendering")
 
 

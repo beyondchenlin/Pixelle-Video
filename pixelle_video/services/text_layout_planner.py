@@ -7,7 +7,6 @@ from typing import Any, Mapping
 from pixelle_video.models.text_overlay import thaw_json_value
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
 
-
 _CAPTION_SAFE_AREA_SLOTS = {"bottom", "lower_third"}
 _TEXT_SAFE_AREA_SLOTS = {"center", "top", "top_left", "top_right", "bottom_left", "bottom_right"}
 

@@ -1,7 +1,6 @@
 import ast
 from pathlib import Path
 
-
 EXPECTED_BROWSER_TITLES = {
     "web/app.py": "懒人同城 - AI Video Generator",
     "web/pages/1_🎬_Home.py": "Home - 懒人同城",

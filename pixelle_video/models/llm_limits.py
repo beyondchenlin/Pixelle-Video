@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 LLM_MAX_OUTPUT_TOKENS = 32000
 
 

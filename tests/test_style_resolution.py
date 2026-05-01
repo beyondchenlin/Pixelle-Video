@@ -13,9 +13,9 @@ from pixelle_video.prompts.style_resolution import build_style_resolution_prompt
 from pixelle_video.utils.style_resolution import (
     RESOLVER_VERSION,
     build_style_resolution_cache_key,
+    reset_style_resolution_cache,
     resolve_style_source,
     resolve_style_spec,
-    reset_style_resolution_cache,
 )
 
 

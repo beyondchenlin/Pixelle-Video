@@ -147,7 +147,6 @@ class ImagePromptGenerateRequest(BaseModel):
         if self.frame_overrides and self.storyboard_generation is None:
             raise ValueError("storyboard_generation is required when frame_overrides are provided")
         if self.storyboard_generation is not None:
-            original_source_texts = self.storyboard_generation.source_texts()
             effective_source_texts = self._compute_effective_source_texts()
             if self.narrations != effective_source_texts:
                 raise ValueError(

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from pixelle_video.models.script_generation import ScriptGenerationResponse
 from pixelle_video.models.script_generation_limits import (
@@ -10,7 +9,6 @@ from pixelle_video.models.script_generation_limits import (
 )
 from pixelle_video.models.storyboard_plan import ScriptLengthMode
 from pixelle_video.prompts.script_generation import build_script_generation_prompt
-
 
 DEFAULT_SCRIPT_LENGTH_WORDS = {
     ScriptLengthMode.SHORT: 120,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
 from pixelle_video.utils.text_normalization import normalize_generated_source_text
 
 

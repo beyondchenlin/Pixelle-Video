@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
+from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
+from pixelle_video.models.storyboard_limits import (
+    DEFAULT_STORYBOARD_GENERATION_LIMITS,
+    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
+    StoryboardGenerationLimits,
+    storyboard_generation_limits_from_config,
+)
 from pixelle_video.models.storyboard_plan import (
     ScriptLengthMode,
     StoryboardCountMode,
     StoryboardGenerationMode,
     StoryboardPlan,
 )
-from pixelle_video.models.storyboard_limits import (
-    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
-    DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
-    DEFAULT_STORYBOARD_GENERATION_LIMITS,
-    StoryboardGenerationLimits,
-    storyboard_generation_limits_from_config,
-)
-from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
 from pixelle_video.prompt_language import (
     DEFAULT_PROMPT_LANGUAGE,
     PromptLanguage,

@@ -17,7 +17,7 @@ For generating video prompts from storyboard frame context.
 """
 
 import json
-from typing import Any, List, Mapping, Optional, Sequence
+from typing import Any, List, Optional
 
 from pixelle_video.models.prompt_context import PromptContextInput, prompt_context_payload
 from pixelle_video.prompt_language import (

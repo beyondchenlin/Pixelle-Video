@@ -1,6 +1,6 @@
-import tools.sync_pixelle_tts_custom_node as sync_module
-
 import pytest
+
+import tools.sync_pixelle_tts_custom_node as sync_module
 
 
 def test_sync_tree_replaces_existing_files(tmp_path):

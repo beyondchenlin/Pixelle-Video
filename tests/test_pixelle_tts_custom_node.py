@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 PLUGIN_PATH = Path("tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS/pixelle_edge_tts.py")
 
 

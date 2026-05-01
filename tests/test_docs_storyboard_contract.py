@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 REFERENCE_DOCS = (
     Path("docs/en/reference/api-overview.md"),
     Path("docs/zh/reference/api-overview.md"),

@@ -3,7 +3,6 @@ from pathlib import Path
 
 from web.components import content_input
 
-
 LOCALE_DIR = Path(__file__).resolve().parents[1] / "web" / "i18n" / "locales"
 
 

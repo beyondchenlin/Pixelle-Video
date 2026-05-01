@@ -5,8 +5,8 @@ import pytest
 from pixelle_video.models.render_package import RenderManifest
 from pixelle_video.models.text_render_package import TextRenderPackage
 from pixelle_video.services.text_renderer_adapter import (
-    TextRenderExportResult,
     TextRendererAdapter,
+    TextRenderExportResult,
 )
 
 

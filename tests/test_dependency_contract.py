@@ -1,8 +1,7 @@
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 from pixelle_video.models.storyboard import StoryboardConfig
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 

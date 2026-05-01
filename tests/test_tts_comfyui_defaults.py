@@ -11,7 +11,6 @@ from pixelle_video.services.persistence import PersistenceService
 from web.pipelines.digital_human import build_tts_generation_kwargs
 from web.utils.tts_ui import resolve_configured_tts_mode
 
-
 DEFAULT_TTS_WORKFLOW = "selfhost/tts_index2_8g.json"
 
 
