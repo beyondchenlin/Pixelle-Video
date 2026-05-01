@@ -16,7 +16,15 @@ from pixelle_video.models.asset_bible import (
 from pixelle_video.models.scene_cast import SceneCast
 
 
-class CharacterProfileDraft(BaseModel):
+class PublicMetadataModel(BaseModel):
+    @field_validator("metadata", check_fields=False)
+    @classmethod
+    def validate_public_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        _reject_path_like_metadata("metadata", value)
+        return value
+
+
+class CharacterProfileDraft(PublicMetadataModel):
     model_config = ConfigDict(extra="forbid")
 
     character_id: str
@@ -33,7 +41,7 @@ class CharacterProfileDraft(BaseModel):
         return validate_public_reference_id(info.field_name, value)
 
 
-class SceneAssetDraft(BaseModel):
+class SceneAssetDraft(PublicMetadataModel):
     model_config = ConfigDict(extra="forbid")
 
     scene_id: str
@@ -48,7 +56,7 @@ class SceneAssetDraft(BaseModel):
         return validate_public_reference_id(info.field_name, value)
 
 
-class PropAssetDraft(BaseModel):
+class PropAssetDraft(PublicMetadataModel):
     model_config = ConfigDict(extra="forbid")
 
     prop_id: str
@@ -63,7 +71,7 @@ class PropAssetDraft(BaseModel):
         return validate_public_reference_id(info.field_name, value)
 
 
-class StyleProfileDraft(BaseModel):
+class StyleProfileDraft(PublicMetadataModel):
     model_config = ConfigDict(extra="forbid")
 
     style_id: str
@@ -80,7 +88,7 @@ class StyleProfileDraft(BaseModel):
         return validate_public_reference_id(info.field_name, value)
 
 
-class AssetBibleDraftRequest(BaseModel):
+class AssetBibleDraftRequest(PublicMetadataModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: str
@@ -181,7 +189,7 @@ class AssetBibleResponse(BaseModel):
     asset_bible: dict[str, Any]
 
 
-class SceneCastDraftRequest(BaseModel):
+class SceneCastDraftRequest(PublicMetadataModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: str
@@ -236,6 +244,57 @@ class SceneCastResponse(BaseModel):
     success: bool = True
     message: str = "Success"
     scene_cast: dict[str, Any]
+
+
+def _reject_path_like_metadata(path: str, value: Any) -> None:
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} must be a mapping")
+    for raw_key, item in value.items():
+        key = str(raw_key).strip()
+        if not key:
+            raise ValueError(f"{path} keys must not be empty")
+        child_path = f"{path}.{key}"
+        if _is_path_metadata_key(key):
+            raise ValueError(f"{child_path} must not carry local paths, URLs, or storage references")
+        if isinstance(item, dict):
+            _reject_path_like_metadata(child_path, item)
+        elif isinstance(item, list):
+            for index, child in enumerate(item):
+                _reject_path_like_metadata_value(f"{child_path}[{index}]", child)
+        else:
+            _reject_path_like_metadata_value(child_path, item)
+
+
+def _reject_path_like_metadata_value(path: str, value: Any) -> None:
+    if isinstance(value, dict):
+        _reject_path_like_metadata(path, value)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _reject_path_like_metadata_value(f"{path}[{index}]", child)
+    elif isinstance(value, str) and _looks_like_path_or_url(value):
+        raise ValueError(f"{path} must not contain path-like string values")
+
+
+def _is_path_metadata_key(key: str) -> bool:
+    lowered = key.lower()
+    return (
+        lowered in {"path", "url", "uri", "file", "storage_key"}
+        or lowered.endswith("_path")
+        or lowered.endswith("_url")
+        or lowered.endswith("_uri")
+    )
+
+
+def _looks_like_path_or_url(value: str) -> bool:
+    stripped = value.strip()
+    return (
+        "\\" in stripped
+        or "/" in stripped
+        or "://" in stripped
+        or stripped in {".", ".."}
+        or stripped.startswith("~")
+        or (len(stripped) >= 2 and stripped[1] == ":" and stripped[0].isalpha())
+    )
 
 
 __all__ = [

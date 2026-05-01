@@ -212,6 +212,21 @@ def test_asset_bible_api_rejects_path_like_ids_before_repository_call():
     assert repository.saved == []
 
 
+def test_asset_bible_api_rejects_path_like_metadata_before_repository_call():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+
+    payload = _asset_bible_payload()
+    payload["character_profiles"][0]["metadata"] = {"local_path": "C:\\assets\\luna.png"}
+    response = client.post(
+        "/projects/project_1/asset-bible",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert repository.saved == []
+
+
 def test_asset_bible_api_maps_domain_validation_errors_to_422():
     repository = FakeAssetBibleRepository()
     client = _client(repository)
@@ -398,6 +413,23 @@ def test_scene_cast_api_rejects_path_like_ids_before_repository_call():
     response = client.post(
         "/projects/project_1/asset-bible/bible_demo/scene-casts",
         json=_scene_cast_payload(frame_id="C:\\frames\\1"),
+    )
+
+    assert response.status_code == 422
+    assert repository.saved_scene_casts == []
+
+
+def test_scene_cast_api_rejects_path_like_metadata_before_repository_call():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        json=_scene_cast_payload(metadata={"source_url": "https://example.test/ref"}),
     )
 
     assert response.status_code == 422
