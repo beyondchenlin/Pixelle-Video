@@ -15,7 +15,6 @@ from api.schemas.asset_bible import (
     SceneCastDraftRequest,
     SceneCastListResponse,
     SceneCastResponse,
-    reject_unsafe_public_metadata,
 )
 from api.schemas.storyboard_workbench import validate_public_reference_id
 from pixelle_video.models.asset_bible import AssetBible
@@ -50,7 +49,7 @@ async def list_asset_bible_drafts(
     workspace_id = _validate_public_id("workspace_id", workspace_id)
     repository = _get_asset_bible_repository(request)
     loaded = await repository.list_asset_bibles(workspace_id, project_id)
-    return AssetBibleListResponse(
+    return _build_asset_bible_list_response(
         asset_bibles=[
             _asset_bible_response(item, project_id=project_id)
             for item in loaded
@@ -75,7 +74,7 @@ async def create_asset_bible_draft(
         payload.workspace_id,
         asset_bible.to_dict(),
     )
-    return AssetBibleResponse(
+    return _build_asset_bible_response(
         asset_bible=_asset_bible_response(
             saved,
             project_id=project_id,
@@ -101,7 +100,7 @@ async def load_asset_bible_draft(
     loaded = await repository.load_asset_bible(workspace_id, asset_bible_id)
     if loaded is None:
         raise HTTPException(status_code=404, detail="asset bible draft was not found")
-    return AssetBibleResponse(
+    return _build_asset_bible_response(
         asset_bible=_asset_bible_response(
             loaded,
             project_id=project_id,
@@ -133,7 +132,7 @@ async def update_asset_bible_draft(
         payload.workspace_id,
         asset_bible.to_dict(),
     )
-    return AssetBibleResponse(
+    return _build_asset_bible_response(
         asset_bible=_asset_bible_response(
             saved,
             project_id=project_id,
@@ -166,7 +165,7 @@ async def list_scene_cast_drafts(
         project_id,
         asset_bible_id,
     )
-    return SceneCastListResponse(
+    return _build_scene_cast_list_response(
         scene_casts=[
             _scene_cast_response(
                 item,
@@ -208,7 +207,7 @@ async def create_scene_cast_draft(
         payload.workspace_id,
         scene_cast.to_dict(),
     )
-    return SceneCastResponse(
+    return _build_scene_cast_response(
         scene_cast=_scene_cast_response(
             saved,
             project_id=project_id,
@@ -243,7 +242,7 @@ async def load_scene_cast_draft(
     loaded = await repository.load_scene_cast(workspace_id, scene_cast_id)
     if loaded is None:
         raise HTTPException(status_code=404, detail="scene cast draft was not found")
-    return SceneCastResponse(
+    return _build_scene_cast_response(
         scene_cast=_scene_cast_response(
             loaded,
             project_id=project_id,
@@ -289,7 +288,7 @@ async def update_scene_cast_draft(
         payload.workspace_id,
         scene_cast.to_dict(),
     )
-    return SceneCastResponse(
+    return _build_scene_cast_response(
         scene_cast=_scene_cast_response(
             saved,
             project_id=project_id,
@@ -364,6 +363,52 @@ def _get_prompt_plan_repository(request: Request):
     return repository
 
 
+def _build_asset_bible_response(*, asset_bible: dict[str, Any]) -> AssetBibleResponse:
+    try:
+        return AssetBibleResponse(asset_bible=asset_bible)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=_safe_response_validation_detail(exc, response_name="asset bible response"),
+        ) from exc
+
+
+def _build_asset_bible_list_response(
+    *,
+    asset_bibles: list[dict[str, Any]],
+) -> AssetBibleListResponse:
+    try:
+        return AssetBibleListResponse(asset_bibles=asset_bibles)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=_safe_response_validation_detail(exc, response_name="asset bible list response"),
+        ) from exc
+
+
+def _build_scene_cast_response(*, scene_cast: dict[str, Any]) -> SceneCastResponse:
+    try:
+        return SceneCastResponse(scene_cast=scene_cast)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=_safe_response_validation_detail(exc, response_name="scene cast response"),
+        ) from exc
+
+
+def _build_scene_cast_list_response(
+    *,
+    scene_casts: list[dict[str, Any]],
+) -> SceneCastListResponse:
+    try:
+        return SceneCastListResponse(scene_casts=scene_casts)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=_safe_response_validation_detail(exc, response_name="scene cast list response"),
+        ) from exc
+
+
 def _request_to_model(payload: AssetBibleDraftRequest, *, project_id: str) -> AssetBible:
     try:
         return payload.to_model(project_id=project_id)
@@ -419,7 +464,6 @@ def _asset_bible_response(
         raise HTTPException(status_code=502, detail="asset bible project does not match request")
     if asset_bible_id is not None and asset_bible.asset_bible_id != asset_bible_id:
         raise HTTPException(status_code=502, detail="asset bible ID does not match request")
-    _validate_response_metadata(asset_bible.to_dict())
     return asset_bible.to_dict()
 
 
@@ -440,27 +484,7 @@ def _scene_cast_response(
         raise HTTPException(status_code=502, detail="scene cast ID does not match request")
     if asset_bible is not None:
         _validate_scene_cast_for_api(scene_cast, asset_bible)
-    _validate_response_metadata(scene_cast.to_dict())
     return scene_cast.to_dict()
-
-
-def _validate_response_metadata(payload: Mapping[str, Any]) -> None:
-    try:
-        _validate_response_metadata_item("response", payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-
-def _validate_response_metadata_item(path: str, value: Any) -> None:
-    if isinstance(value, Mapping):
-        metadata = value.get("metadata")
-        if isinstance(metadata, dict):
-            reject_unsafe_public_metadata(f"{path}.metadata", metadata)
-        for key, item in value.items():
-            _validate_response_metadata_item(f"{path}.{key}", item)
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            _validate_response_metadata_item(f"{path}[{index}]", item)
 
 
 def _validate_public_id(field_name: str, value: str) -> str:
@@ -471,13 +495,26 @@ def _validate_public_id(field_name: str, value: str) -> str:
 
 
 def _safe_projection_response_validation_detail(exc: ValidationError) -> str:
+    return _safe_response_validation_detail(
+        exc,
+        response_name="prompt plan projection response",
+        default_field_path="projection",
+    )
+
+
+def _safe_response_validation_detail(
+    exc: ValidationError,
+    *,
+    response_name: str,
+    default_field_path: str | None = None,
+) -> str:
     first_error = exc.errors()[0] if exc.errors() else {}
     location = first_error.get("loc") or ()
-    field_path = ".".join(str(item) for item in location) or "projection"
+    field_path = ".".join(str(item) for item in location) or default_field_path or "response"
     reason = _safe_projection_response_error_reason(first_error.get("ctx"))
     if reason:
-        return f"prompt plan projection response is invalid: {field_path} ({reason})"
-    return f"prompt plan projection response is invalid: {field_path}"
+        return f"{response_name} is invalid: {field_path} ({reason})"
+    return f"{response_name} is invalid: {field_path}"
 
 
 def _safe_projection_response_error_reason(context: object) -> str | None:

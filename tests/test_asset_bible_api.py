@@ -358,6 +358,32 @@ def test_asset_bible_api_list_rejects_path_like_repository_metadata():
     assert "C:\\" not in response.json()["detail"]
 
 
+def test_asset_bible_api_list_rejects_path_like_repository_asset_ids():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+    stored = dict(repository.asset_bibles[("workspace_1", "bible_demo")])
+    stored["character_profiles"] = [
+        {
+            **stored["character_profiles"][0],
+            "character_id": "C:\\characters\\luna",
+        }
+    ]
+    repository.asset_bibles[("workspace_1", "bible_demo")] = stored
+
+    response = client.get(
+        "/projects/project_1/asset-bible",
+        params={"workspace_id": "workspace_1"},
+    )
+
+    assert response.status_code == 502
+    assert "character_profiles.0.character_id" in response.json()["detail"]
+    assert "C:\\" not in response.json()["detail"]
+
+
 def test_asset_bible_api_load_rejects_mismatched_repository_id():
     repository = FakeAssetBibleRepository()
     client = _client(repository)
@@ -617,6 +643,29 @@ def test_scene_cast_api_list_rejects_path_like_repository_metadata():
 
     assert response.status_code == 502
     assert "metadata.local_path" in response.json()["detail"]
+    assert "C:\\" not in response.json()["detail"]
+
+
+def test_scene_cast_api_list_rejects_path_like_repository_ids():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+    repository.scene_casts[("workspace_1", "cast_bad")] = {
+        **_scene_cast_payload(scene_cast_id="C:\\casts\\1"),
+        "project_id": "project_1",
+        "asset_bible_id": "bible_demo",
+    }
+
+    response = client.get(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        params={"workspace_id": "workspace_1"},
+    )
+
+    assert response.status_code == 502
+    assert "scene_cast_id" in response.json()["detail"]
     assert "C:\\" not in response.json()["detail"]
 
 

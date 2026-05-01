@@ -187,13 +187,13 @@ class AssetBibleDraftRequest(PublicMetadataModel):
 class AssetBibleResponse(BaseModel):
     success: bool = True
     message: str = "Success"
-    asset_bible: dict[str, Any]
+    asset_bible: "AssetBiblePayloadResponse"
 
 
 class AssetBibleListResponse(BaseModel):
     success: bool = True
     message: str = "Success"
-    asset_bibles: list[dict[str, Any]]
+    asset_bibles: list["AssetBiblePayloadResponse"]
 
 
 class SceneCastDraftRequest(PublicMetadataModel):
@@ -250,13 +250,209 @@ class SceneCastDraftRequest(PublicMetadataModel):
 class SceneCastResponse(BaseModel):
     success: bool = True
     message: str = "Success"
-    scene_cast: dict[str, Any]
+    scene_cast: "SceneCastPayloadResponse"
 
 
 class SceneCastListResponse(BaseModel):
     success: bool = True
     message: str = "Success"
-    scene_casts: list[dict[str, Any]]
+    scene_casts: list["SceneCastPayloadResponse"]
+
+
+class IPProfileResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ip_profile_id: str
+    workspace_id: str
+    project_id: str
+    name: str
+    logline: str | None = None
+    world_hint: str | None = None
+    style_hint: str | None = None
+    forbidden_elements: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("ip_profile_id", "workspace_id", "project_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        reject_unsafe_public_metadata("metadata", value)
+        return value
+
+
+class CharacterProfileResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    character_id: str
+    workspace_id: str
+    project_id: str
+    display_name: str
+    role: str | None = None
+    visual_description: str | None = None
+    personality: str | None = None
+    continuity_notes: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("character_id", "workspace_id", "project_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        reject_unsafe_public_metadata("metadata", value)
+        return value
+
+
+class SceneAssetResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scene_id: str
+    workspace_id: str
+    project_id: str
+    display_name: str
+    visual_description: str | None = None
+    environment_notes: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("scene_id", "workspace_id", "project_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        reject_unsafe_public_metadata("metadata", value)
+        return value
+
+
+class PropAssetResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prop_id: str
+    workspace_id: str
+    project_id: str
+    display_name: str
+    visual_description: str | None = None
+    usage_notes: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("prop_id", "workspace_id", "project_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        reject_unsafe_public_metadata("metadata", value)
+        return value
+
+
+class StyleProfileResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    style_id: str
+    workspace_id: str
+    project_id: str
+    display_name: str
+    visual_style: str
+    world_style: str | None = None
+    provider_prompt: str | None = None
+    negative_prompt: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("style_id", "workspace_id", "project_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        reject_unsafe_public_metadata("metadata", value)
+        return value
+
+
+class AssetBiblePayloadResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    asset_bible_id: str
+    workspace_id: str
+    project_id: str
+    ip_profiles: list[IPProfileResponse] = Field(default_factory=list)
+    character_profiles: list[CharacterProfileResponse] = Field(default_factory=list)
+    scene_assets: list[SceneAssetResponse] = Field(default_factory=list)
+    prop_assets: list[PropAssetResponse] = Field(default_factory=list)
+    style_profiles: list[StyleProfileResponse] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("asset_bible_id", "workspace_id", "project_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        reject_unsafe_public_metadata("metadata", value)
+        return value
+
+
+class SceneCastPayloadResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scene_cast_id: str
+    workspace_id: str
+    project_id: str
+    storyboard_plan_id: str
+    frame_id: str
+    asset_bible_id: str
+    character_ids: list[str] = Field(default_factory=list)
+    scene_id: str | None = None
+    prop_ids: list[str] = Field(default_factory=list)
+    style_id: str | None = None
+    continuity_notes: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator(
+        "scene_cast_id",
+        "workspace_id",
+        "project_id",
+        "storyboard_plan_id",
+        "frame_id",
+        "asset_bible_id",
+    )
+    @classmethod
+    def validate_required_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("scene_id", "style_id")
+    @classmethod
+    def validate_optional_ids(cls, value: str | None, info) -> str | None:
+        if value is None:
+            return None
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("character_ids", "prop_ids")
+    @classmethod
+    def validate_reference_id_lists(cls, value: list[str], info) -> list[str]:
+        return [
+            validate_public_reference_id(info.field_name, item)
+            for item in value
+        ]
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        reject_unsafe_public_metadata("metadata", value)
+        return value
 
 
 class PromptPlanProjectionPreviewRequest(BaseModel):

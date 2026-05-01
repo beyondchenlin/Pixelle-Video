@@ -4,6 +4,8 @@ from typing import Any
 
 import httpx
 
+from api.schemas.storyboard_workbench import validate_public_reference_id
+
 
 def build_prompt_plan_projection_endpoint(
     *,
@@ -70,20 +72,4 @@ def preview_prompt_plan_projection(
 
 
 def _validate_public_reference_id(field_name: str, value: str) -> str:
-    stripped = value.strip()
-    if not stripped:
-        raise ValueError(f"{field_name} must not be empty")
-    if _looks_path_like(stripped):
-        raise ValueError(f"{field_name} must not be a local path, URL, or storage reference")
-    return stripped
-
-
-def _looks_path_like(value: str) -> bool:
-    return (
-        "\\" in value
-        or "/" in value
-        or "://" in value
-        or value in {".", ".."}
-        or value.startswith("~")
-        or (len(value) >= 2 and value[1] == ":" and value[0].isalpha())
-    )
+    return validate_public_reference_id(field_name, value)
