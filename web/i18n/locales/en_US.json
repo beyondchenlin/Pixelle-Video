@@ -574,6 +574,8 @@
     "pipeline.action_transfer.description": "One image, one video, recreate amazing moves",
     "pipeline.stage2_projection.name": "Stage 2 Projection Preview",
     "pipeline.stage2_projection.description": "Non-persistent debug entry: previews SceneCast filling PromptPlan reserved fields without saving or triggering generation.",
+    "projection.context.load": "Load AssetBible / SceneCast",
+    "projection.preview.submit": "Preview PromptPlan Projection",
     "asset_based.section.assets": "📦 Asset Upload",
     "asset_based.section.video_info": "📝 Video Information",
     "asset_based.section.source": "⚙️ Service Configuration",

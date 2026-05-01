@@ -575,6 +575,8 @@
     "pipeline.action_transfer.description": "一张图、一段视频，复刻精彩动作",
     "pipeline.stage2_projection.name": "Stage 2 投影预览",
     "pipeline.stage2_projection.description": "非持久化调试入口：只预览 SceneCast 填充 PromptPlan 预留字段，不保存、不触发生成。",
+    "projection.context.load": "加载 AssetBible / SceneCast",
+    "projection.preview.submit": "预览 PromptPlan 投影",
     "asset_based.section.assets": "📦 素材上传",
     "asset_based.section.video_info": "📝 视频信息",
     "asset_based.section.source": "⚙️ 服务配置",

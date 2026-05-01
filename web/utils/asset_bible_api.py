@@ -24,6 +24,26 @@ def build_prompt_plan_projection_endpoint(
     )
 
 
+def build_asset_bible_list_endpoint(
+    *,
+    api_base_url: str,
+    project_id: str,
+) -> str:
+    project_id = _validate_public_reference_id("project_id", project_id)
+    return f"{api_base_url.rstrip('/')}/{project_id}/asset-bible"
+
+
+def build_scene_cast_list_endpoint(
+    *,
+    api_base_url: str,
+    project_id: str,
+    asset_bible_id: str,
+) -> str:
+    project_id = _validate_public_reference_id("project_id", project_id)
+    asset_bible_id = _validate_public_reference_id("asset_bible_id", asset_bible_id)
+    return f"{api_base_url.rstrip('/')}/{project_id}/asset-bible/{asset_bible_id}/scene-casts"
+
+
 def build_prompt_plan_projection_payload(
     *,
     workspace_id: str,
@@ -69,6 +89,69 @@ def preview_prompt_plan_projection(
     if not isinstance(data, dict):
         raise ValueError("prompt plan projection response must be a JSON object")
     return data
+
+
+def list_asset_bibles(
+    *,
+    api_base_url: str,
+    project_id: str,
+    workspace_id: str,
+    timeout: float = 30.0,
+) -> list[dict[str, Any]]:
+    endpoint = build_asset_bible_list_endpoint(
+        api_base_url=api_base_url,
+        project_id=project_id,
+    )
+    params = {
+        "workspace_id": _validate_public_reference_id("workspace_id", workspace_id),
+    }
+
+    response = httpx.get(endpoint, params=params, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("asset bible list response must be a JSON object")
+    asset_bibles = data.get("asset_bibles")
+    if not isinstance(asset_bibles, list):
+        raise ValueError("asset bible list response must include asset_bibles")
+    return _require_dict_items("asset_bibles", asset_bibles)
+
+
+def list_scene_casts(
+    *,
+    api_base_url: str,
+    project_id: str,
+    workspace_id: str,
+    asset_bible_id: str,
+    timeout: float = 30.0,
+) -> list[dict[str, Any]]:
+    endpoint = build_scene_cast_list_endpoint(
+        api_base_url=api_base_url,
+        project_id=project_id,
+        asset_bible_id=asset_bible_id,
+    )
+    params = {
+        "workspace_id": _validate_public_reference_id("workspace_id", workspace_id),
+    }
+
+    response = httpx.get(endpoint, params=params, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("scene cast list response must be a JSON object")
+    scene_casts = data.get("scene_casts")
+    if not isinstance(scene_casts, list):
+        raise ValueError("scene cast list response must include scene_casts")
+    return _require_dict_items("scene_casts", scene_casts)
+
+
+def _require_dict_items(field_name: str, items: list[Any]) -> list[dict[str, Any]]:
+    typed_items: list[dict[str, Any]] = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise ValueError(f"{field_name}[{index}] must be a JSON object")
+        typed_items.append(item)
+    return typed_items
 
 
 def _validate_public_reference_id(field_name: str, value: str) -> str:
