@@ -129,8 +129,8 @@ def render_asset_prompt_plan_projection_preview(
         frame_id = _text_input(ui, "Frame ID", key="projection_frame_id")
 
     ui.caption(
-        "只调用后端 projection preview endpoint；不会写入 AssetBible、PromptPlan，"
-        "也不会接入主生成链路。"
+        "只调用后端 projection preview endpoint；不会保存投影后的 PromptPlan，"
+        "不会标记 stale，也不会接入主生成链路。"
     )
     _clear_preview_result_if_request_source_changed(
         ui=ui,
@@ -144,7 +144,11 @@ def render_asset_prompt_plan_projection_preview(
     )
 
     if not ui.button(t("projection.preview.submit"), key="projection_preview_submit"):
-        return ui.session_state.get("projection_preview_result")
+        cached_result = ui.session_state.get("projection_preview_result")
+        if isinstance(cached_result, dict):
+            _render_projection_result(cached_result, ui=ui)
+            return cached_result
+        return None
 
     missing = [
         label
@@ -248,7 +252,6 @@ def _load_scene_cast_context(
     asset_bible_id: str,
 ) -> None:
     ui.session_state["projection_scene_casts"] = []
-    ui.session_state["projection_scene_cast_asset_bible_id"] = asset_bible_id
     clear_projection_scene_cast_selection(ui.session_state)
     clear_projection_preview_result(ui.session_state)
 
@@ -325,23 +328,44 @@ def _render_projection_result(result: dict[str, Any], *, ui=st) -> None:
     projection = _as_dict(result.get("projection"))
     prompt_plan = _as_dict(projection.get("prompt_plan"))
     source = _as_dict(projection.get("source"))
+    prompt_sections = _as_dict(prompt_plan.get("prompt_sections"))
 
-    ui.success("Projection preview 已返回；结果仅用于调试预览，不保存，不触发生成。")
-    ui.markdown("#### Projection Workbench")
+    ui.success("Projection preview 已返回；投影后的 PromptPlan 仅用于预览，不保存，不触发生成。")
+    ui.markdown("#### Projection Lab")
+    ui.caption("只读投影预览：确认 SceneCast 是否正确落到 PromptPlan 预留资产字段。")
+
     left, right = ui.columns(2)
     with left:
-        ui.markdown("##### PromptPlan Output")
-        ui.code(str(prompt_plan.get("final_prompt") or ""), language="text")
-        ui.markdown("##### prompt_sections")
-        ui.json(_as_dict(prompt_plan.get("prompt_sections")))
+        ui.markdown("##### IP Context")
+        ui.markdown(f"- AssetBible: {_safe_text(source.get('asset_bible_id'))}")
+        ui.markdown(f"- SceneCast: {_safe_text(source.get('scene_cast_id'))}")
+        ui.markdown(f"- PromptPlan: {_safe_text(source.get('prompt_plan_id'))}")
+        ui.markdown("##### Prompt Output")
+        ui.markdown(_format_prompt_preview(prompt_plan.get("final_prompt")))
     with right:
-        ui.markdown("##### Reserved Asset References")
-        ui.markdown(f"- character_ids: {_format_list(prompt_plan.get('character_ids'))}")
-        ui.markdown(f"- scene_id: {prompt_plan.get('scene_id') or ''}")
-        ui.markdown(f"- prop_ids: {_format_list(prompt_plan.get('prop_ids'))}")
-        ui.markdown(f"- style_id: {prompt_plan.get('style_id') or ''}")
-        ui.markdown("##### Source Metadata")
-        ui.json(source)
+        ui.markdown("##### Asset Locks")
+        ui.markdown(f"- Characters: {_format_list(prompt_plan.get('character_ids'))}")
+        ui.markdown(f"- Scene: {_safe_text(prompt_plan.get('scene_id'))}")
+        ui.markdown(f"- Props: {_format_list(prompt_plan.get('prop_ids'))}")
+        ui.markdown(f"- Style: {_safe_text(prompt_plan.get('style_id'))}")
+        ui.markdown("##### Source Trace")
+        ui.markdown(
+            "- "
+            + " / ".join(
+                item
+                for item in (
+                    _safe_text(source.get("asset_bible_id")),
+                    _safe_text(source.get("scene_cast_id")),
+                    _safe_text(source.get("prompt_plan_id")),
+                )
+                if item
+            )
+        )
+
+    if prompt_sections:
+        ui.markdown("##### Prompt Sections")
+        for key, value in prompt_sections.items():
+            ui.markdown(f"- {_safe_text(key)}: {_safe_text(value)}")
 
 
 def _text_input(ui, label: str, *, key: str, value: str = "") -> str:
@@ -386,6 +410,8 @@ def _clear_preview_result_if_request_source_changed(
 ) -> None:
     result_source = ui.session_state.get("projection_preview_result_source")
     if not result_source:
+        if "projection_preview_result" in ui.session_state:
+            clear_projection_preview_result(ui.session_state)
         return
     current_source = _preview_result_source(
         api_base_url=api_base_url,
@@ -437,6 +463,17 @@ def _format_list(value: Any) -> str:
     if not isinstance(value, list):
         return ""
     return ", ".join(str(item) for item in value)
+
+
+def _safe_text(value: Any) -> str:
+    return str(value).strip() if value is not None else ""
+
+
+def _format_prompt_preview(value: Any) -> str:
+    prompt = _safe_text(value)
+    if not prompt:
+        return "_No final prompt returned._"
+    return f"> {prompt}"
 
 
 def _item_ids(items: list[dict[str, Any]], id_field: str) -> list[str]:
