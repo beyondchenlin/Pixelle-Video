@@ -32,6 +32,7 @@ for _pipeline_module in (
     "asset_based",
     "digital_human",
     "i2v",
+    "stage2_projection",
 ):
     import_module(f"web.pipelines.{_pipeline_module}")
 
