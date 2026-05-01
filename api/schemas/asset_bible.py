@@ -324,7 +324,7 @@ class PromptPlanProjectionPromptPlanResponse(BaseModel):
     @field_validator("metadata")
     @classmethod
     def validate_projection_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
-        _reject_path_like_metadata("metadata", value)
+        reject_unsafe_public_metadata("metadata", value)
         return value
 
 

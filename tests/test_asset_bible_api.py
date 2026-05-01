@@ -768,6 +768,21 @@ def test_prompt_plan_projection_api_returns_preview_through_repositories():
     assert "local_path" not in str(body)
 
 
+def test_prompt_plan_projection_api_rejects_text_rendering_metadata_from_repository():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    prompt_plan_repository.prompt_plans[("workspace_1", "storyboard_plan_1")] = [
+        _prompt_plan_payload(metadata={"caption_style": {"font_size": 72}})
+    ]
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "metadata.caption_style" in response.json()["detail"]
+
+
 def test_prompt_plan_projection_api_fails_fast_without_prompt_plan_repository():
     repository = FakeAssetBibleRepository()
     client = _client(repository)
