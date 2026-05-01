@@ -1,3 +1,6 @@
+import pytest
+
+
 class _NoopContext:
     def __enter__(self):
         return self
@@ -124,6 +127,26 @@ def test_preview_prompt_plan_projection_posts_to_non_persistent_endpoint(monkeyp
     }
     assert captured["timeout"] == 30.0
     assert result["projection"]["prompt_plan"]["final_prompt"] == "cinematic castle"
+
+
+def test_preview_prompt_plan_projection_rejects_path_like_ids_before_http(monkeypatch):
+    from web.utils import asset_bible_api
+
+    def fail_post(*_args, **_kwargs):
+        raise AssertionError("httpx.post must not be called for path-like IDs")
+
+    monkeypatch.setattr(asset_bible_api.httpx, "post", fail_post)
+
+    with pytest.raises(ValueError, match="project_id"):
+        asset_bible_api.preview_prompt_plan_projection(
+            api_base_url="http://localhost:8000/api",
+            project_id="C:\\projects\\1",
+            asset_bible_id="asset_1",
+            scene_cast_id="cast_1",
+            workspace_id="ws_1",
+            storyboard_plan_id="storyboard_1",
+            frame_id="frame_001",
+        )
 
 
 def test_render_projection_preview_calls_api_and_displays_projection_fields(monkeypatch):
