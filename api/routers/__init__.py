@@ -23,6 +23,7 @@ from api.routers.image import router as image_router
 from api.routers.llm import router as llm_router
 from api.routers.llm_trace import router as llm_trace_router
 from api.routers.resources import router as resources_router
+from api.routers.stale_dependencies import router as stale_dependencies_router
 from api.routers.storyboard_workbench import router as storyboard_workbench_router
 from api.routers.tasks import router as tasks_router
 from api.routers.text_rendering_preview import router as text_rendering_preview_router
@@ -41,6 +42,7 @@ __all__ = [
     "tasks_router",
     "files_router",
     "resources_router",
+    "stale_dependencies_router",
     "frame_router",
     "storyboard_workbench_router",
     "text_rendering_preview_router",

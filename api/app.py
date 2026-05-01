@@ -64,6 +64,7 @@ from api.routers import (
     llm_router,
     llm_trace_router,
     resources_router,
+    stale_dependencies_router,
     storyboard_workbench_router,
     tasks_router,
     text_rendering_preview_router,
@@ -158,6 +159,7 @@ app.include_router(video_router, prefix=api_config.api_prefix)
 app.include_router(tasks_router, prefix=api_config.api_prefix)
 app.include_router(files_router, prefix=api_config.api_prefix)
 app.include_router(resources_router, prefix=api_config.api_prefix)
+app.include_router(stale_dependencies_router, prefix=api_config.api_prefix)
 app.include_router(frame_router, prefix=api_config.api_prefix)
 app.include_router(storyboard_workbench_router, prefix=api_config.api_prefix)
 app.include_router(text_rendering_preview_router, prefix=api_config.api_prefix)
