@@ -13,6 +13,8 @@ class FakeAssetBibleRepository:
     saved_scene_casts: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     asset_bibles: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     scene_casts: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
+    saved_asset_bible_id_override: str | None = None
+    saved_scene_cast_id_override: str | None = None
 
     async def save_asset_bible(
         self,
@@ -20,6 +22,8 @@ class FakeAssetBibleRepository:
         asset_bible: dict[str, Any],
     ) -> dict[str, Any]:
         payload = dict(asset_bible)
+        if self.saved_asset_bible_id_override is not None:
+            payload["asset_bible_id"] = self.saved_asset_bible_id_override
         self.saved.append((workspace_id, payload))
         self.asset_bibles[(workspace_id, payload["asset_bible_id"])] = payload
         return payload
@@ -37,6 +41,8 @@ class FakeAssetBibleRepository:
         scene_cast: dict[str, Any],
     ) -> dict[str, Any]:
         payload = dict(scene_cast)
+        if self.saved_scene_cast_id_override is not None:
+            payload["scene_cast_id"] = self.saved_scene_cast_id_override
         self.saved_scene_casts.append((workspace_id, payload))
         self.scene_casts[(workspace_id, payload["scene_cast_id"])] = payload
         return payload
@@ -142,6 +148,19 @@ def test_asset_bible_api_creates_draft_through_repository_without_local_paths():
     assert "local_path" not in str(body)
     assert "C:\\" not in str(body)
     assert repository.saved[0][0] == "workspace_1"
+
+
+def test_asset_bible_api_create_rejects_mismatched_repository_id():
+    repository = FakeAssetBibleRepository(saved_asset_bible_id_override="other_bible")
+    client = _client(repository)
+
+    response = client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "asset bible ID" in response.json()["detail"]
 
 
 def test_asset_bible_api_loads_draft_from_repository():
@@ -290,6 +309,23 @@ def test_scene_cast_api_creates_draft_after_asset_bible_validation():
     assert "local_path" not in str(body)
     assert "C:\\" not in str(body)
     assert repository.saved_scene_casts[0][0] == "workspace_1"
+
+
+def test_scene_cast_api_create_rejects_mismatched_repository_id():
+    repository = FakeAssetBibleRepository(saved_scene_cast_id_override="other_cast")
+    client = _client(repository)
+    assert client.post(
+        "/projects/project_1/asset-bible",
+        json=_asset_bible_payload(),
+    ).status_code == 201
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts",
+        json=_scene_cast_payload(),
+    )
+
+    assert response.status_code == 502
+    assert "scene cast ID" in response.json()["detail"]
 
 
 def test_scene_cast_api_loads_draft_from_repository():

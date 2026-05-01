@@ -39,7 +39,13 @@ async def create_asset_bible_draft(
         payload.workspace_id,
         asset_bible.to_dict(),
     )
-    return AssetBibleResponse(asset_bible=_asset_bible_response(saved, project_id=project_id))
+    return AssetBibleResponse(
+        asset_bible=_asset_bible_response(
+            saved,
+            project_id=project_id,
+            asset_bible_id=payload.asset_bible_id,
+        )
+    )
 
 
 @router.get(
@@ -91,7 +97,13 @@ async def update_asset_bible_draft(
         payload.workspace_id,
         asset_bible.to_dict(),
     )
-    return AssetBibleResponse(asset_bible=_asset_bible_response(saved, project_id=project_id))
+    return AssetBibleResponse(
+        asset_bible=_asset_bible_response(
+            saved,
+            project_id=project_id,
+            asset_bible_id=asset_bible_id,
+        )
+    )
 
 
 @router.post(
@@ -129,6 +141,7 @@ async def create_scene_cast_draft(
             project_id=project_id,
             asset_bible_id=asset_bible_id,
             asset_bible=asset_bible,
+            scene_cast_id=payload.scene_cast_id,
         )
     )
 
