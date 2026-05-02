@@ -11,6 +11,7 @@ from pixelle_video.platform_context import (
     first_explicit_text,
 )
 from web.i18n import tr
+from web.utils.artifact_display_urls import artifact_url_for_streamlit
 from web.utils.storyboard_workbench_api import (
     list_storyboard_image_candidates,
     regenerate_storyboard_frame_image,
@@ -108,7 +109,12 @@ def _render_candidate_grid(
         version_id = _first_text(candidate.get("version_id"))
         with columns[index % len(columns)]:
             with ui.container(border=True):
-                _render_candidate_image(candidate, version_id=version_id, ui=ui)
+                _render_candidate_image(
+                    candidate,
+                    version_id=version_id,
+                    api_base_url=context["api_base_url"],
+                    ui=ui,
+                )
                 _render_candidate_summary(
                     candidate,
                     version_id=version_id,
@@ -127,12 +133,24 @@ def _render_candidate_grid(
                     )
 
 
-def _render_candidate_image(candidate: Mapping[str, Any], *, version_id: str, ui) -> None:
+def _render_candidate_image(
+    candidate: Mapping[str, Any],
+    *,
+    version_id: str,
+    api_base_url: str,
+    ui,
+) -> None:
     url = _first_text(candidate.get("url"))
     if url:
-        ui.image(url, caption=version_id, width="stretch")
-    else:
-        ui.caption(version_id)
+        try:
+            display_url = artifact_url_for_streamlit(url, api_base_url=api_base_url)
+        except ValueError:
+            ui.caption(version_id)
+            return
+        if display_url:
+            ui.image(display_url, caption=version_id, width="stretch")
+            return
+    ui.caption(version_id)
 
 
 def _render_candidate_summary(

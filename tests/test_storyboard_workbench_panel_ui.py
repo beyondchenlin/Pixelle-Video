@@ -204,6 +204,40 @@ def test_render_storyboard_workbench_panel_lists_candidates_and_actions():
     assert "workbench.panel.regenerate" in button_labels
 
 
+def test_render_storyboard_workbench_panel_resolves_relative_candidate_urls_for_streamlit():
+    from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
+
+    fake_ui = _WorkbenchFakeUI()
+    response = _candidate_response()
+    response["candidates"][0]["url"] = (
+        "/api/files/artifacts/workspace_1/frame_0001/artifact_version_001.png"
+    )
+    response["candidates"] = response["candidates"][:1]
+
+    render_storyboard_workbench_panel(
+        api_base_url="http://localhost:8001/api",
+        workspace_id="workspace_1",
+        storyboard_id="storyboard_001",
+        frame_id="frame_0001",
+        artifact_id="artifact_frame_0001_image",
+        selected_version_id="artifact_version_001",
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+        candidate_loader=lambda **_kwargs: response,
+    )
+
+    assert fake_ui.images == [
+        {
+            "image": (
+                "http://localhost:8001/api/files/artifacts/workspace_1/"
+                "frame_0001/artifact_version_001.png"
+            ),
+            "caption": "artifact_version_001",
+            "width": "stretch",
+        }
+    ]
+
+
 def test_render_storyboard_workbench_panel_selects_candidate_and_refreshes_state():
     from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 
