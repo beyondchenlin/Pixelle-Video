@@ -83,8 +83,6 @@ class ImagePromptGenerateRequest(BaseModel):
                 ],
                 "min_words": 30,
                 "max_words": 60,
-                "prompt_prefix": "angry birds world",
-                "workflow": "selfhost/image_z_image_turbo_gguf.json",
             }
         }
     )
@@ -103,14 +101,6 @@ class ImagePromptGenerateRequest(BaseModel):
         ge=PROMPT_BATCH_CONCURRENT_LIMIT_MIN,
         le=PROMPT_BATCH_CONCURRENT_LIMIT_MAX,
         description="Request-scoped LLM prompt batch concurrency override",
-    )
-    prompt_prefix: Optional[str] = Field(
-        None,
-        description="Request-scoped image style prefix override",
-    )
-    workflow: Optional[str] = Field(
-        None,
-        description="Workflow key used for capability-gated optional fields",
     )
     storyboard_prompt_language: StoryboardPromptLanguage = Field(
         "zh_CN",

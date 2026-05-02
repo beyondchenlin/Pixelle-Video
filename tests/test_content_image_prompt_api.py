@@ -1,7 +1,11 @@
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from api.dependencies import get_pixelle_video
 from api.routers.content import generate_image_prompt
+from api.routers.content import router as content_router
 from api.schemas.content import (
     ImagePromptGenerateRequest,
 )
@@ -135,6 +139,45 @@ def test_image_prompt_generate_request_accepts_prompt_generation_performance_con
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [
+        ("prompt_prefix", "angry birds world"),
+        ("workflow", "selfhost/image_z_image_turbo_gguf.json"),
+    ],
+)
+def test_image_prompt_generate_request_rejects_raw_api_boundary_fields(field_name: str, value: str):
+    with pytest.raises(ValidationError):
+        ImagePromptGenerateRequest(
+            narrations=["scene one"],
+            **{field_name: value},
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("prompt_prefix", "angry birds world"),
+        ("workflow", "selfhost/image_z_image_turbo_gguf.json"),
+    ],
+)
+def test_image_prompt_endpoint_rejects_raw_api_boundary_fields(field_name: str, value: str):
+    app = FastAPI()
+    app.dependency_overrides[get_pixelle_video] = lambda: _FakePixelleVideo()
+    app.include_router(content_router)
+    client = TestClient(app)
+
+    response = client.post(
+        "/content/image-prompt",
+        json={
+            "narrations": ["scene one"],
+            field_name: value,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
         ("llm_prompt_batch_size", 0),
         ("llm_prompt_batch_size", 51),
         ("llm_prompt_batch_concurrent_limit", 0),
@@ -166,10 +209,11 @@ def test_image_prompt_generate_request_rejects_legacy_text_fields():
     )
 
 
-def test_image_prompt_generate_request_example_uses_gguf_default_workflow():
+def test_image_prompt_generate_request_example_omits_raw_api_boundary_fields():
     example = ImagePromptGenerateRequest.model_config["json_schema_extra"]["example"]
 
-    assert example["workflow"] == "selfhost/image_z_image_turbo_gguf.json"
+    assert "prompt_prefix" not in example
+    assert "workflow" not in example
 
 
 @pytest.mark.parametrize(
@@ -190,8 +234,8 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
     plan = _storyboard_plan()
 
     async def fake_compose(self, **kwargs):
-        assert kwargs["prompt_prefix"] == "angry birds world"
-        assert kwargs["workflow"] == "selfhost/image_z_image_turbo.json"
+        assert kwargs["prompt_prefix"] is None
+        assert kwargs["workflow"] is None
         assert kwargs["batch_size"] == 8
         assert kwargs["max_concurrency"] == 3
         assert kwargs["prompt_language"] == "zh_CN"
@@ -224,35 +268,34 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
         fake_compose,
     )
 
-    response = await generate_image_prompt(
-        ImagePromptGenerateRequest(
-            narrations=plan.source_texts(),
-            prompt_prefix="angry birds world",
-            workflow="selfhost/image_z_image_turbo.json",
-            llm_prompt_batch_size=8,
-            llm_prompt_batch_concurrent_limit=3,
-            storyboard_prompt_language="zh_CN",
-            world_preset_id="neutral_knowledge_storyboard",
-            shot_preset_id="balanced_explainer",
-            consistency_strength="strong",
-            content_mode="concept_explainer",
-            role_strategy="auto",
-            role_locking_strength="strong",
-            shot_strategy="strict",
-            storyboard_generation=plan.to_dict(),
-            frame_overrides=[
-                {
-                    "plan_id": plan.plan_id,
-                    "plan_revision": plan.revision,
-                    "frame_id": plan.frames[0].frame_id,
-                    "source_digest": plan.source_digest,
-                    "locked_fields": ["shot_type"],
-                    "shot_type": "medium_shot",
-                }
-            ],
-        ),
-        _FakePixelleVideo(),
+    request = ImagePromptGenerateRequest(
+        narrations=plan.source_texts(),
+        llm_prompt_batch_size=8,
+        llm_prompt_batch_concurrent_limit=3,
+        storyboard_prompt_language="zh_CN",
+        world_preset_id="neutral_knowledge_storyboard",
+        shot_preset_id="balanced_explainer",
+        consistency_strength="strong",
+        content_mode="concept_explainer",
+        role_strategy="auto",
+        role_locking_strength="strong",
+        shot_strategy="strict",
+        storyboard_generation=plan.to_dict(),
+        frame_overrides=[
+            {
+                "plan_id": plan.plan_id,
+                "plan_revision": plan.revision,
+                "frame_id": plan.frames[0].frame_id,
+                "source_digest": plan.source_digest,
+                "locked_fields": ["shot_type"],
+                "shot_type": "medium_shot",
+            }
+        ],
     )
+    object.__setattr__(request, "prompt_prefix", "angry birds world")
+    object.__setattr__(request, "workflow", "selfhost/image_z_image_turbo.json")
+
+    response = await generate_image_prompt(request, _FakePixelleVideo())
 
     assert response.image_prompts == ["styled prompt"]
 
