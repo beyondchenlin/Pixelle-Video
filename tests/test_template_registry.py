@@ -62,6 +62,33 @@ def test_registry_merges_system_and_user_presets_into_single_card_shape(tmp_path
     assert presets[1] == user
 
 
+def test_registry_exposes_unified_list_presets_protocol(tmp_path: Path):
+    templates_root = tmp_path / "templates"
+    _write_template(templates_root, "1080x1920/image_default.html")
+    repository = TemplatePresetRepository(tmp_path / "repository")
+    user = repository.save(_user_preset("user:demo", "User Demo"))
+    repository.touch_last_used(user.preset_id)
+    registry = TemplateRegistry(
+        repository=repository,
+        templates_root=templates_root,
+    )
+
+    assert [preset.source for preset in registry.list_presets(source="all")] == [
+        "system",
+        "user",
+    ]
+    assert [preset.source for preset in registry.list_presets(source="system")] == [
+        "system"
+    ]
+    assert registry.list_presets(source="user") == [repository.get(user.preset_id)]
+    assert [preset.preset_id for preset in registry.list_presets(source="recent")] == [
+        user.preset_id
+    ]
+
+    with pytest.raises(ValueError, match="source"):
+        registry.list_presets(source="unknown")
+
+
 def test_registry_builds_complete_non_editable_spec_for_legacy_system_templates(
     tmp_path: Path,
 ):

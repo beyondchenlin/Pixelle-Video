@@ -8,6 +8,7 @@ import shutil
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
+from json import JSONDecodeError
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
@@ -23,7 +24,7 @@ class TemplatePresetRepository:
         self.manifest_path = self.root_dir / "presets.json"
 
     def save(self, preset: TemplatePreset) -> TemplatePreset:
-        self._validate_asset_refs(preset)
+        self._validate_persistable_preset(preset)
         manifest = self._load_manifest()
         presets = list(manifest["presets"])
         now = _utc_now()
@@ -103,10 +104,25 @@ class TemplatePresetRepository:
     def _load_manifest(self) -> dict[str, Any]:
         if not self.manifest_path.exists():
             return {"version": MANIFEST_VERSION, "presets": []}
-        payload = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        except JSONDecodeError as exc:
+            raise ValueError(
+                f"template preset manifest is invalid JSON: {self.manifest_path}"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise ValueError("template preset manifest must be a JSON object")
+        version = payload.get("version", MANIFEST_VERSION)
+        if version != MANIFEST_VERSION:
+            raise ValueError(
+                f"template preset manifest version must be {MANIFEST_VERSION}"
+            )
+        presets = payload.get("presets", [])
+        if not isinstance(presets, list):
+            raise ValueError("template preset manifest presets must be a list")
         return {
-            "version": payload.get("version", MANIFEST_VERSION),
-            "presets": list(payload.get("presets", [])),
+            "version": version,
+            "presets": list(presets),
         }
 
     def _write_manifest(self, manifest: Mapping[str, Any]) -> None:
@@ -118,17 +134,36 @@ class TemplatePresetRepository:
             json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-        os.replace(temp_path, self.manifest_path)
+        try:
+            os.replace(temp_path, self.manifest_path)
+        except Exception:
+            temp_path.unlink(missing_ok=True)
+            raise
 
-    @staticmethod
-    def _validate_asset_refs(preset: TemplatePreset) -> None:
+    def _validate_persistable_preset(self, preset: TemplatePreset) -> None:
         for layer in preset.spec.layers:
             if layer.source is None or layer.source.kind != "asset":
                 continue
-            if not _is_repository_asset_key(layer.source.ref):
+            if not self._is_owned_asset_ref(layer.source.ref, preset.preset_id):
                 raise ValueError(
                     "asset layer source refs must use repository-owned assets/ keys"
                 )
+        if (
+            preset.thumbnail_ref is not None
+            and not self._is_owned_asset_ref(preset.thumbnail_ref, preset.preset_id)
+        ):
+            raise ValueError(
+                "thumbnail_ref must use a repository-owned assets/ key for this preset"
+            )
+
+    def _is_owned_asset_ref(self, value: str, preset_id: str) -> bool:
+        if not _is_repository_asset_key(value):
+            return False
+        expected_dir = PurePosixPath("assets") / _safe_path_part(preset_id)
+        asset_path = PurePosixPath(value)
+        if asset_path.parent != expected_dir:
+            return False
+        return (self.root_dir / Path(*asset_path.parts)).is_file()
 
 
 def _preset_to_dict(preset: TemplatePreset) -> dict[str, Any]:

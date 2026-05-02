@@ -16,11 +16,27 @@ class TemplateRegistry:
     def __init__(
         self,
         *,
-        preset_repository: TemplatePresetRepository,
+        preset_repository: TemplatePresetRepository | None = None,
+        repository: TemplatePresetRepository | None = None,
         templates_root: str | Path = "templates",
     ) -> None:
-        self.preset_repository = preset_repository
+        if preset_repository is not None and repository is not None:
+            raise ValueError("provide either preset_repository or repository, not both")
+        self.preset_repository = preset_repository or repository or TemplatePresetRepository(
+            "data/template_presets"
+        )
         self.templates_root = Path(templates_root)
+
+    def list_presets(self, *, source: str = "all") -> list[TemplatePreset]:
+        if source == "all":
+            return self.list_all()
+        if source == "system":
+            return self.list_system()
+        if source == "user":
+            return self.list_user()
+        if source == "recent":
+            return self.list_recent(limit=5)
+        raise ValueError("source must be one of: all, system, user, recent")
 
     def list_system(self) -> list[TemplatePreset]:
         if not self.templates_root.exists():

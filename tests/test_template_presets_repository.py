@@ -40,6 +40,7 @@ def _preset(
     *,
     name: str = "User Demo",
     spec: LayeredTemplateSpec | None = None,
+    thumbnail_ref: str | None = None,
 ) -> TemplatePreset:
     return TemplatePreset(
         preset_id=preset_id,
@@ -48,6 +49,7 @@ def _preset(
         orientation="portrait",
         template_type="image",
         spec=spec or _spec(template_id=preset_id, name=name),
+        thumbnail_ref=thumbnail_ref,
     )
 
 
@@ -158,8 +160,99 @@ def test_repository_rejects_asset_refs_that_escape_repository(
         repository.save(_preset(spec=_spec(layers=(layer,))))
 
 
+def test_repository_rejects_cross_preset_and_dangling_asset_refs(tmp_path: Path):
+    repository = TemplatePresetRepository(tmp_path)
+    source = tmp_path / "upload.png"
+    source.write_bytes(b"image")
+    owned_key = repository.persist_asset(source, "user:demo")
+    cross_preset_key = repository.persist_asset(source, "user:other")
+    dangling_key = "assets/user_demo/missing.png"
+
+    for asset_ref in (cross_preset_key, dangling_key):
+        layer = TemplateLayer(
+            id="image-1",
+            type="image",
+            name="Image",
+            rect=RectSpec(x=0, y=0, width=100, height=100),
+            z_index=1,
+            opacity=1.0,
+            rotation=0.0,
+            locked=False,
+            source=LayerSourceSpec(kind="asset", ref=asset_ref),
+            style={},
+        )
+
+        with pytest.raises(ValueError, match="repository-owned"):
+            repository.save(_preset("user:demo", spec=_spec(layers=(layer,))))
+
+    assert owned_key.startswith("assets/user_demo/")
+
+
+def test_repository_validates_thumbnail_ref_as_repository_owned_asset(
+    tmp_path: Path,
+):
+    repository = TemplatePresetRepository(tmp_path)
+    thumbnail = tmp_path / "thumbnail.png"
+    thumbnail.write_bytes(b"thumbnail")
+    owned_thumbnail = repository.persist_asset(thumbnail, "user:demo")
+
+    saved = repository.save(_preset("user:demo", thumbnail_ref=owned_thumbnail))
+
+    assert saved.thumbnail_ref == owned_thumbnail
+
+    with pytest.raises(ValueError, match="thumbnail_ref"):
+        repository.save(_preset("user:bad", thumbnail_ref="assets/../thumbnail.png"))
+
+
+def test_repository_rejects_invalid_manifest_schema(tmp_path: Path):
+    repository = TemplatePresetRepository(tmp_path)
+    (tmp_path / "presets.json").write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest"):
+        repository.list_all()
+
+    (tmp_path / "presets.json").write_text(
+        json.dumps({"version": 999, "presets": []}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="manifest version"):
+        repository.list_all()
+
+    (tmp_path / "presets.json").write_text(
+        json.dumps({"version": 1, "presets": {}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="presets"):
+        repository.list_all()
+
+
+def test_repository_cleans_temporary_manifest_on_atomic_write_failure(
+    tmp_path: Path,
+    monkeypatch,
+):
+    repository = TemplatePresetRepository(tmp_path)
+
+    def fail_replace(_source, _target):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(
+        "pixelle_video.repositories.template_presets.os.replace",
+        fail_replace,
+    )
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        repository.save(_preset())
+
+    assert list(tmp_path.glob("presets.json.*.tmp")) == []
+
+
 def test_repository_accepts_repository_owned_asset_refs(tmp_path: Path):
     repository = TemplatePresetRepository(tmp_path)
+    source = tmp_path / "source.png"
+    source.write_bytes(b"image")
+    asset_key = repository.persist_asset(source, "user:demo")
     layer = TemplateLayer(
         id="image-1",
         type="image",
@@ -169,10 +262,10 @@ def test_repository_accepts_repository_owned_asset_refs(tmp_path: Path):
         opacity=1.0,
         rotation=0.0,
         locked=False,
-        source=LayerSourceSpec(kind="asset", ref="assets/user_demo/source.png"),
+        source=LayerSourceSpec(kind="asset", ref=asset_key),
         style={},
     )
 
     saved = repository.save(_preset(spec=_spec(layers=(layer,))))
 
-    assert saved.spec.layers[0].source.ref == "assets/user_demo/source.png"
+    assert saved.spec.layers[0].source.ref == asset_key
