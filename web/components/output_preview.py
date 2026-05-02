@@ -378,6 +378,12 @@ def build_batch_shared_config(video_params):
     copy_prompt_generation_performance_params(video_params, shared_config)
     if video_params.get("text_rendering") is not None:
         shared_config["text_rendering"] = video_params["text_rendering"]
+    if video_params.get("layered_template_spec") is not None:
+        shared_config["layered_template_spec"] = video_params["layered_template_spec"]
+    if video_params.get("selected_template_preset_id"):
+        shared_config["selected_template_preset_id"] = video_params[
+            "selected_template_preset_id"
+        ]
     return shared_config
 
 
