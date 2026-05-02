@@ -16,6 +16,16 @@ from pixelle_video.models.layered_template import LayeredTemplateSpec
 from pixelle_video.models.template_preset import TemplatePreset
 
 MANIFEST_VERSION = 1
+PRESET_RECORD_REQUIRED_KEYS = frozenset(
+    {
+        "preset_id",
+        "name",
+        "source",
+        "orientation",
+        "template_type",
+        "spec",
+    }
+)
 
 
 class TemplatePresetRepository:
@@ -120,6 +130,18 @@ class TemplatePresetRepository:
         presets = payload.get("presets", [])
         if not isinstance(presets, list):
             raise ValueError("template preset manifest presets must be a list")
+        for index, preset_payload in enumerate(presets):
+            if not isinstance(preset_payload, dict):
+                raise ValueError(
+                    f"template preset manifest preset record {index} must be an object"
+                )
+            missing = PRESET_RECORD_REQUIRED_KEYS.difference(preset_payload)
+            if missing:
+                missing_fields = ", ".join(sorted(missing))
+                raise ValueError(
+                    "template preset manifest preset record "
+                    f"{index} is missing required fields: {missing_fields}"
+                )
         return {
             "version": version,
             "presets": list(presets),

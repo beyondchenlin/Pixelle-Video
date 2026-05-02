@@ -227,6 +227,14 @@ def test_repository_rejects_invalid_manifest_schema(tmp_path: Path):
     with pytest.raises(ValueError, match="presets"):
         repository.list_all()
 
+    (tmp_path / "presets.json").write_text(
+        json.dumps({"version": 1, "presets": [{}]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="preset record"):
+        repository.list_all()
+
 
 def test_repository_cleans_temporary_manifest_on_atomic_write_failure(
     tmp_path: Path,
