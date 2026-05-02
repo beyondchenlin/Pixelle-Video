@@ -55,4 +55,3 @@ class TextRenderingPreviewFrameResponse(BaseModel):
 
     storage_key: str
     url: str | None = None
-    fingerprint: str

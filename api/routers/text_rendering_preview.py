@@ -1,6 +1,5 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
-from api.config import api_config
 from api.schemas.text_rendering_preview import (
     TextRenderingPreviewFrameRequest as TextRenderingPreviewFrameAPIRequest,
 )
@@ -11,7 +10,7 @@ from pixelle_video.services.text_rendering_preview import (
     TextRenderingPreviewFrameRequestError,
     TextRenderingPreviewFrameService,
 )
-from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
+from pixelle_video.repositories.artifacts import ArtifactObjectStore
 
 router = APIRouter(prefix="/text-rendering", tags=["Text Rendering"])
 
@@ -34,15 +33,26 @@ def _validated_preview_template_id(template_id: str) -> str:
     return raw_template_id
 
 
-@router.post("/preview-frame", response_model=TextRenderingPreviewFrameResponse)
+def _get_artifact_object_store(request: Request) -> ArtifactObjectStore:
+    object_store = getattr(request.app.state, "artifact_object_store", None)
+    if object_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Artifact object store is not configured",
+        )
+    return object_store
+
+
+@router.post(
+    "/preview-frame",
+    response_model=TextRenderingPreviewFrameResponse,
+)
 async def render_text_rendering_preview_frame(
+    http_request: Request,
     request: TextRenderingPreviewFrameAPIRequest,
 ) -> TextRenderingPreviewFrameResponse:
     template_id = _validated_preview_template_id(request.template_id)
-    object_store = FilesystemDevArtifactObjectStore(
-        root=api_config.artifact_base_path,
-        base_url=api_config.artifact_base_url,
-    )
+    object_store = _get_artifact_object_store(http_request)
     service = TextRenderingPreviewFrameService(object_store=object_store)
     try:
         result = await service.render_preview_frame(
@@ -70,5 +80,4 @@ async def render_text_rendering_preview_frame(
     return TextRenderingPreviewFrameResponse(
         storage_key=result.storage_key,
         url=result.url,
-        fingerprint=result.fingerprint,
     )

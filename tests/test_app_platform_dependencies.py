@@ -91,6 +91,9 @@ def test_api_app_lifespan_mounts_storyboard_workbench_dependencies(monkeypatch, 
         assert dependencies_module.get_or_create_platform_dependencies().artifact_repository is (
             client.app.state.artifact_repository
         )
+        assert dependencies_module.get_or_create_platform_dependencies().artifact_object_store is (
+            client.app.state.artifact_object_store
+        )
 
 
 def test_in_memory_artifact_repository_keeps_single_selected_version():
