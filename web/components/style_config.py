@@ -72,6 +72,7 @@ from web.components.selfhost_workflow_notice import (
     is_selfhost_workflow,
     render_selfhost_workflow_notice,
 )
+from web.components.layered_template_state import ensure_layered_template_editor_state
 from web.components.storyboard_preview import render_storyboard_preview  # noqa: F401
 from web.components.text_rendering_config import (
     DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,  # noqa: F401
@@ -2779,6 +2780,13 @@ def render_style_config(
         
         # Backward compatibility
         st.session_state['template_requires_image'] = (template_media_type == "image")
+        layered_template_state = ensure_layered_template_editor_state(
+            session_state=st.session_state,
+            canvas_width=size_contract.canvas_width,
+            canvas_height=size_contract.canvas_height,
+            media_width=media_width,
+            media_height=media_height,
+        )
 
         custom_values_for_video = {}
         if custom_params_for_video:
@@ -3136,6 +3144,14 @@ def render_style_config(
             prompt_prefix = ""
     
     # Return all style configuration parameters
+    selected_template_preset_id = Path(frame_template).stem
+    layered_template_spec = layered_template_state.build_spec(
+        template_id=selected_template_preset_id,
+        template_name=selected_template_name or selected_template_preset_id,
+        template_type=template_media_type,
+        metadata={},
+    ).to_dict()
+
     result = {
         "tts_inference_mode": tts_mode,
         "tts_voice": selected_voice if tts_mode == "local" else None,
@@ -3157,6 +3173,8 @@ def render_style_config(
             MediaPlacement().to_dict(),
         ),
         "text_rendering": text_rendering,
+        "layered_template_spec": layered_template_spec,
+        "selected_template_preset_id": selected_template_preset_id,
         **element_animation_settings,
     }
     return result

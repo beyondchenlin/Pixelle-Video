@@ -199,11 +199,18 @@ def test_text_rendering_request_accepts_caption_style_and_forbids_unknown_fields
 
 def test_text_rendering_controls_live_in_focused_component():
     component = Path("web/components/text_rendering_config.py")
+    preview_component = Path("web/components/text_rendering_preview.py")
     style_config = Path("web/components/style_config.py")
 
     assert component.exists()
     assert "render_text_rendering_controls" in component.read_text(encoding="utf-8")
     assert "caption_style" in component.read_text(encoding="utf-8")
+    component_source = component.read_text(encoding="utf-8")
+    assert "build_text_rendering_preview_spec" not in component_source
+    assert "render_text_rendering_preview" not in component_source
+    assert "request_real_preview_frame" not in component_source
+    assert "render_real_preview_status" not in component_source
+    assert "build_text_rendering_preview_spec" in preview_component.read_text(encoding="utf-8")
     assert "def render_text_rendering_controls" not in style_config.read_text(encoding="utf-8")
 
 
@@ -668,11 +675,10 @@ def test_text_style_controls_return_full_layout_fields(monkeypatch):
     assert style["max_width_ratio"] == 0.4
 
 
-def test_text_rendering_controls_real_preview_button_stores_state_without_payload_leak(
-    monkeypatch,
-):
+def test_text_rendering_preview_helper_remains_separate_from_text_controls(monkeypatch):
     from web.components import text_rendering_config
     from web.components.text_rendering_config import render_text_rendering_controls
+    from web.components.text_rendering_preview import build_text_rendering_preview_spec
 
     fake_ui = _WidgetDefaultRecordingUI()
     fake_ui.session_state.update(
@@ -683,23 +689,7 @@ def test_text_rendering_controls_real_preview_button_stores_state_without_payloa
             "title_style_font_size": 76,
         }
     )
-    captured = {}
-
-    def fake_request_real_preview_frame(**kwargs):
-        captured.update(kwargs)
-        return {
-            "storage_key": "artifacts/ws/rendered.png",
-            "url": "/api/files/artifacts/ws/rendered.png",
-            "fingerprint": kwargs["spec"].fingerprint,
-            "error": None,
-        }
-
     monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
-    monkeypatch.setattr(
-        text_rendering_config,
-        "request_real_preview_frame",
-        fake_request_real_preview_frame,
-    )
 
     payload = render_text_rendering_controls(
         "hyperframes",
@@ -716,25 +706,27 @@ def test_text_rendering_controls_real_preview_button_stores_state_without_payloa
         preview_media_ref="artifacts/ws/source.png",
     )
 
-    assert fake_ui.button_calls[0]["key"] == "text_rendering_generate_real_preview"
-    assert fake_ui.button_calls[0]["label"] == "text_rendering_preview.generate_real"
-    assert fake_ui.session_state["text_rendering_real_preview_frame"] == {
-        "storage_key": "artifacts/ws/rendered.png",
-        "url": "/api/files/artifacts/ws/rendered.png",
-        "fingerprint": captured["spec"].fingerprint,
-        "error": None,
-    }
-    assert fake_ui.image_calls == [
-        {
-            "url": "/api/files/artifacts/ws/rendered.png",
-            "caption": "text_rendering_preview.real_current",
-        }
-    ]
-    assert captured["api_base_url"] == "http://localhost:8000/api"
-    assert captured["workspace_id"] == "ws"
-    assert captured["text_rendering_payload"] == payload
+    preview_spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=900,
+        media_height=1200,
+        media_placement={"anchor": "center"},
+        preview_media_ref="artifacts/ws/source.png",
+        title_text="Preview title",
+        caption_text="Preview caption",
+        title_style=payload["title_style"],
+        caption_style=payload["caption_style"],
+    )
+
+    assert fake_ui.button_calls == []
+    assert fake_ui.image_calls == []
+    assert preview_spec.template_id == "image_default"
+    assert preview_spec.preview_media_ref == "artifacts/ws/source.png"
     assert "text_rendering_real_preview_frame" not in payload
-    assert "preview_media_url" not in captured["text_rendering_payload"]
+    assert "preview_media_url" not in payload
 
 
 def test_preview_caption_text_uses_first_non_empty_line_and_default(monkeypatch):

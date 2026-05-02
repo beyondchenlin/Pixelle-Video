@@ -42,12 +42,6 @@ from pixelle_video.services.font_discovery import (
 from pixelle_video.services.font_discovery import (
     discover_font_families as _discover_font_families,
 )
-from web.components.text_rendering_preview import (
-    build_text_rendering_preview_spec,
-    render_real_preview_status,
-    render_text_rendering_preview,
-    request_real_preview_frame,
-)
 from web.i18n import tr
 from web.utils.streamlit_helpers import (
     keyed_widget_default_kwargs,
@@ -679,53 +673,6 @@ def render_text_rendering_controls(
             suppress_embedded_text=suppress_embedded_text,
             positive_prompt=positive_prompt,
         )
-
-        if template_id and canvas_width and canvas_height and media_width and media_height:
-            preview_spec = build_text_rendering_preview_spec(
-                template_id=template_id,
-                render_backend=render_backend,
-                canvas_width=canvas_width,
-                canvas_height=canvas_height,
-                media_width=media_width,
-                media_height=media_height,
-                media_placement=media_placement,
-                preview_media_ref=preview_media_ref,
-                title_text=title_text,
-                caption_text=caption_text,
-                title_style=title_style,
-                caption_style=caption_style,
-            )
-            render_text_rendering_preview(preview_spec, ui=ui, translate=translate)
-            preview_state_key = "text_rendering_real_preview_frame"
-            preview_state = _session_value(ui, preview_state_key, None)
-            if _call_control(
-                ui,
-                "button",
-                False,
-                translate("text_rendering_preview.generate_real"),
-                key="text_rendering_generate_real_preview",
-            ):
-                preview_state = request_real_preview_frame(
-                    spec=preview_spec,
-                    text_rendering_payload=text_rendering_payload,
-                    api_base_url=_session_value(
-                        ui,
-                        "api_base_url",
-                        "http://localhost:8000/api",
-                    ),
-                    workspace_id=_session_value(ui, "workspace_id", "default"),
-                )
-                _set_session_value(
-                    ui,
-                    preview_state_key,
-                    preview_state,
-                )
-            render_real_preview_status(
-                preview_spec,
-                preview_state,
-                ui,
-                translate,
-            )
 
     return text_rendering_payload
 
