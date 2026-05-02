@@ -296,7 +296,8 @@ def render_storyboard_preview(
                             api_base_url=context.get("api_base_url"),
                             workspace_id=context.get("workspace_id"),
                             storyboard_id=workbench_context.get("storyboard_id")
-                            or context.get("storyboard_id"),
+                            or context.get("storyboard_id")
+                            or row["plan_id"],
                             frame_id=row["frame_id"],
                             artifact_id=workbench_context.get("artifact_id"),
                             selected_version_id=workbench_context.get("selected_version_id"),

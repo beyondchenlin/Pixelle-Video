@@ -30,6 +30,9 @@ from web.state.async_runtime import (
 )
 from web.utils.async_helpers import run_async
 
+DEFAULT_PROJECT_ID = "project_1"
+DEFAULT_WORKSPACE_ID = "workspace_1"
+
 
 @dataclass
 class _PixelleVideoSessionState:
@@ -66,6 +69,10 @@ def init_session_state():
     """Initialize session state variables."""
     if "language" not in st.session_state:
         st.session_state.language = get_language()
+    if "workspace_id" not in st.session_state:
+        st.session_state.workspace_id = DEFAULT_WORKSPACE_ID
+    if "project_id" not in st.session_state:
+        st.session_state.project_id = DEFAULT_PROJECT_ID
 
 
 def init_i18n():
@@ -80,6 +87,8 @@ def get_pixelle_video():
     """
     Get initialized Pixelle-Video instance with session-scoped async resource management.
     """
+    from api.dependencies import get_or_create_platform_dependencies
+    from api.platform_dependencies import attach_platform_dependencies
     from pixelle_video.config import config_manager
     from pixelle_video.service import PixelleVideoCore
 
@@ -110,6 +119,10 @@ def get_pixelle_video():
 
     if need_recreate:
         pixelle_video = PixelleVideoCore()
+        attach_platform_dependencies(
+            pixelle_video,
+            get_or_create_platform_dependencies(),
+        )
         run_async(pixelle_video.initialize())
         state.pixelle_video = pixelle_video
         state.config_hash = config_hash

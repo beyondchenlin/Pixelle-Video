@@ -292,6 +292,18 @@ def test_render_prompt_plan_stale_panel_uses_session_context_defaults():
     assert calls[0]["workspace_id"] == "workspace_1"
 
 
+def test_build_stale_panel_context_uses_repo_defaults_without_session_state():
+    from web.components.storyboard_workbench_stale import build_stale_panel_context
+
+    context = build_stale_panel_context({})
+
+    assert context == {
+        "api_base_url": "http://localhost:8000/api",
+        "workspace_id": "workspace_1",
+        "project_id": "project_1",
+    }
+
+
 def test_storyboard_preview_invokes_stale_renderer_once_per_prompt_plan_without_changing_overrides(monkeypatch):
     from web.components import storyboard_preview
 
@@ -367,6 +379,33 @@ def test_storyboard_preview_invokes_workbench_renderer_for_frames_with_artifact_
             "translate": storyboard_preview.tr,
         }
     ]
+
+
+def test_storyboard_preview_uses_plan_id_as_workbench_storyboard_id_when_missing(monkeypatch):
+    from web.components import storyboard_preview
+
+    fake_ui = _FakeUI()
+    calls: list[dict[str, Any]] = []
+    snapshot = _planning_snapshot()
+    snapshot["storyboard_generation"]["plan_id"] = "storyboard_plan_001"
+
+    def workbench_renderer(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(storyboard_preview, "st", fake_ui)
+
+    storyboard_preview.render_storyboard_preview(
+        snapshot,
+        stale_context={
+            "api_base_url": "http://localhost:8000/api",
+            "project_id": "project_1",
+            "workspace_id": "workspace_1",
+        },
+        stale_renderer=None,
+        workbench_renderer=workbench_renderer,
+    )
+
+    assert calls[0]["storyboard_id"] == "storyboard_plan_001"
 
 
 def test_storyboard_advanced_controls_passes_stale_context_to_preview_renderer(monkeypatch):

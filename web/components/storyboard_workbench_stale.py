@@ -10,6 +10,8 @@ from web.i18n import tr
 from web.utils.stale_api import get_stale_target_summary
 
 DEFAULT_API_BASE_URL = "http://localhost:8000/api"
+DEFAULT_PROJECT_ID = "project_1"
+DEFAULT_WORKSPACE_ID = "workspace_1"
 Translate = Callable[..., str]
 StaleSummaryLoader = Callable[..., dict[str, Any]]
 StalePanelRenderer = Callable[..., None]
@@ -27,8 +29,8 @@ def build_stale_panel_context(
     resolved_api_base_url = _first_text(api_base_url, state.get("api_base_url"), DEFAULT_API_BASE_URL)
     return {
         "api_base_url": resolved_api_base_url.rstrip("/"),
-        "workspace_id": _first_text(workspace_id, state.get("workspace_id")),
-        "project_id": _first_text(project_id, state.get("project_id")),
+        "workspace_id": _first_context_text(workspace_id, state.get("workspace_id"), DEFAULT_WORKSPACE_ID),
+        "project_id": _first_context_text(project_id, state.get("project_id"), DEFAULT_PROJECT_ID),
     }
 
 
@@ -89,8 +91,16 @@ def _first_text(*values: Any) -> str:
     return ""
 
 
+def _first_context_text(explicit_value: Any, *fallback_values: Any) -> str:
+    if explicit_value is not None:
+        return str(explicit_value).strip()
+    return _first_text(*fallback_values)
+
+
 __all__ = [
     "DEFAULT_API_BASE_URL",
+    "DEFAULT_PROJECT_ID",
+    "DEFAULT_WORKSPACE_ID",
     "build_stale_panel_context",
     "render_prompt_plan_stale_panel",
 ]

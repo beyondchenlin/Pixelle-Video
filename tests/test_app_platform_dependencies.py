@@ -75,6 +75,41 @@ def test_platform_dependencies_attach_same_objects_to_core(tmp_path):
     assert Path(tmp_path / "output" / "_objects").is_dir()
 
 
+def test_web_session_pixelle_video_mounts_storyboard_workbench_dependencies(monkeypatch, tmp_path):
+    from api import dependencies as api_dependencies
+    from api.config import api_config
+    from web.state import session as web_session
+    from web.state.async_runtime import shutdown_all_async_runtimes
+
+    monkeypatch.setattr(api_config, "artifact_base_path", str(tmp_path / "output"))
+    api_dependencies._platform_dependencies = None
+    web_session._PIXELLE_VIDEO_SESSIONS.clear()
+    monkeypatch.setattr(web_session, "get_current_session_key", lambda: "test_web_session")
+    monkeypatch.setattr(web_session, "register_async_cleanup", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(web_session, "session_exists", lambda _session_key: True)
+
+    core = None
+    try:
+        core = web_session.get_pixelle_video()
+
+        dependencies = api_dependencies.get_or_create_platform_dependencies()
+        for attr_name in (
+            "artifact_repository",
+            "artifact_object_store",
+            "trace_repository",
+            "prompt_plan_repository",
+            "storyboard_workbench_state_store",
+            "storyboard_workbench_service",
+        ):
+            assert getattr(core, attr_name) is getattr(dependencies, attr_name)
+    finally:
+        if core is not None:
+            web_session.run_async(core.cleanup())
+        web_session._PIXELLE_VIDEO_SESSIONS.clear()
+        shutdown_all_async_runtimes()
+        api_dependencies._platform_dependencies = None
+
+
 def test_api_app_lifespan_mounts_storyboard_workbench_dependencies(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
 

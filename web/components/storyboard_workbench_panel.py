@@ -5,7 +5,7 @@ from typing import Any
 
 import streamlit as st
 
-from web.components.storyboard_workbench_stale import DEFAULT_API_BASE_URL
+from web.components.storyboard_workbench_stale import DEFAULT_API_BASE_URL, DEFAULT_WORKSPACE_ID
 from web.i18n import tr
 from web.utils.storyboard_workbench_api import (
     list_storyboard_image_candidates,
@@ -200,10 +200,10 @@ def _build_workbench_context(
     state = session_state or {}
     return {
         "api_base_url": _first_text(api_base_url, state.get("api_base_url"), DEFAULT_API_BASE_URL).rstrip("/"),
-        "workspace_id": _first_text(workspace_id, state.get("workspace_id")),
-        "storyboard_id": _first_text(storyboard_id, state.get("storyboard_id")),
-        "frame_id": _first_text(frame_id),
-        "artifact_id": _first_text(artifact_id),
+        "workspace_id": _first_context_text(workspace_id, state.get("workspace_id"), DEFAULT_WORKSPACE_ID),
+        "storyboard_id": _first_context_text(storyboard_id, state.get("storyboard_id")),
+        "frame_id": _first_context_text(frame_id),
+        "artifact_id": _first_context_text(artifact_id),
     }
 
 
@@ -260,6 +260,12 @@ def _first_text(*values: Any) -> str:
         if text:
             return text
     return ""
+
+
+def _first_context_text(explicit_value: Any, *fallback_values: Any) -> str:
+    if explicit_value is not None:
+        return str(explicit_value).strip()
+    return _first_text(*fallback_values)
 
 
 __all__ = ["render_storyboard_workbench_panel"]

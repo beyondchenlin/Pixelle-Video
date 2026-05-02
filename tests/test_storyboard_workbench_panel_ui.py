@@ -118,6 +118,38 @@ def test_render_storyboard_workbench_panel_requires_context_before_api_calls():
     assert fake_ui.errors == []
 
 
+def test_render_storyboard_workbench_panel_uses_default_workspace_context():
+    from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
+
+    fake_ui = _WorkbenchFakeUI()
+    calls: list[dict[str, Any]] = []
+
+    def loader(**kwargs):
+        calls.append(kwargs)
+        return {**_candidate_response(), "candidates": []}
+
+    render_storyboard_workbench_panel(
+        workspace_id=None,
+        storyboard_id="storyboard_001",
+        frame_id="frame_0001",
+        artifact_id="artifact_frame_0001_image",
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+        candidate_loader=loader,
+    )
+
+    assert calls == [
+        {
+            "api_base_url": "http://localhost:8000/api",
+            "workspace_id": "workspace_1",
+            "storyboard_id": "storyboard_001",
+            "frame_id": "frame_0001",
+            "artifact_id": "artifact_frame_0001_image",
+        }
+    ]
+    assert fake_ui.captions == ["workbench.panel.help", "workbench.panel.empty"]
+
+
 def test_render_storyboard_workbench_panel_lists_candidates_and_actions():
     from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 
