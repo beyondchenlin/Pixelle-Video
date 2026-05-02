@@ -179,6 +179,69 @@ def test_render_style_config_returns_layered_template_spec_payload(monkeypatch):
     assert "preview_media_url" not in result
 
 
+def test_render_style_config_adds_layers_from_layered_template_editor_buttons(monkeypatch):
+    from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
+    from web.components import style_config
+
+    fake_st = _FakeStreamlit()
+    fake_st.session_state.update(
+        {
+            "template_type_selector": "image",
+            "layered_template_editor_state": LayeredTemplateEditorState.empty(
+                canvas_width=720,
+                canvas_height=1280,
+                media_width=768,
+                media_height=768,
+            ),
+        }
+    )
+    clicked_keys = {
+        "layered_template_add_background_layer",
+        "layered_template_add_image_layer",
+        "layered_template_add_text_layer",
+    }
+
+    def fake_button(_label, **kwargs):
+        return kwargs.get("key") in clicked_keys
+
+    fake_st.button = fake_button
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **_kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "hyperframes")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_tts_split_settings", lambda: {})
+    monkeypatch.setattr(style_config, "render_element_animation_controls", lambda: {})
+    monkeypatch.setattr(style_config, "render_text_rendering_controls", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(style_config.config_manager, "get_comfyui_config", _fake_comfyui_config)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_supported_template_orientations", lambda _template_type: ["portrait"])
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_default_template_for_type_and_orientation", lambda *_args: "1080x1920/image_default.html")
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_compatible_template_for_orientation", lambda current_template, **_kwargs: current_template)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_template_type", lambda _template_name: "image")
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type", lambda _template_type: _template_groups())
+    monkeypatch.setattr("pixelle_video.utils.template_util.parse_template_size", lambda _path: (1080, 1920))
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
+    monkeypatch.setattr("pixelle_video.services.frame_html.HTMLFrameGenerator", _FakeFrameGenerator)
+
+    result = style_config.render_style_config(
+        _FakeVideo(),
+        content_context={"title": "Runtime Title", "text": "Runtime Caption"},
+    )
+
+    spec = result["layered_template_spec"]
+    assert [layer["type"] for layer in spec["layers"]] == ["background", "image", "text"]
+    assert [layer["name"] for layer in spec["layers"]] == [
+        "Background layer 1",
+        "Image layer 1",
+        "Text layer 1",
+    ]
+    assert [
+        layer.type
+        for layer in fake_st.session_state["layered_template_editor_state"].layers
+    ] == ["background", "image", "text"]
+
+
 def _fake_comfyui_config():
     return {
         "tts": {

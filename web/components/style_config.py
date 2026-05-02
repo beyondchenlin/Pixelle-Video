@@ -72,7 +72,11 @@ from web.components.selfhost_workflow_notice import (
     is_selfhost_workflow,
     render_selfhost_workflow_notice,
 )
-from web.components.layered_template_state import ensure_layered_template_editor_state
+from web.components.layered_template_state import (
+    LAYERED_TEMPLATE_EDITOR_STATE_KEY,
+    LayeredTemplateEditorState,
+    ensure_layered_template_editor_state,
+)
 from web.components.storyboard_preview import render_storyboard_preview  # noqa: F401
 from web.components.text_rendering_config import (
     DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT,  # noqa: F401
@@ -329,6 +333,63 @@ def _render_media_placement_controls() -> MediaPlacement:
             f"X {placement.offset_x}px · Y {placement.offset_y}px"
         )
     return placement
+
+
+def _render_layered_template_editor(
+    state: LayeredTemplateEditorState,
+) -> LayeredTemplateEditorState:
+    with render_middle_column_collapsible_section(
+        tr("layered_template.editor.title"),
+        expanded=False,
+    ):
+        st.caption(tr("layered_template.editor.caption"))
+        add_background_col, add_image_col, add_text_col = st.columns(3)
+        next_counts = {
+            "background": sum(1 for layer in state.layers if layer.type == "background") + 1,
+            "image": sum(1 for layer in state.layers if layer.type == "image") + 1,
+            "text": sum(1 for layer in state.layers if layer.type == "text") + 1,
+        }
+
+        with add_background_col:
+            if st.button(
+                tr("layered_template.editor.add_background"),
+                key="layered_template_add_background_layer",
+                width="stretch",
+            ):
+                state = state.append_background_layer(
+                    f"Background layer {next_counts['background']}"
+                )
+        with add_image_col:
+            if st.button(
+                tr("layered_template.editor.add_image"),
+                key="layered_template_add_image_layer",
+                width="stretch",
+            ):
+                state = state.append_image_layer(
+                    f"Image layer {next_counts['image']}"
+                )
+        with add_text_col:
+            if st.button(
+                tr("layered_template.editor.add_text"),
+                key="layered_template_add_text_layer",
+                width="stretch",
+            ):
+                state = state.append_text_layer(
+                    f"Text layer {next_counts['text']}"
+                )
+
+        if state.layers:
+            for layer in sorted(state.layers, key=lambda item: item.z_index):
+                st.markdown(
+                    f"- **{escape(layer.name)}** "
+                    f"`{escape(layer.type)}` "
+                    f"{int(layer.rect.width)}x{int(layer.rect.height)}"
+                )
+        else:
+            st.info(tr("layered_template.editor.empty"))
+
+    st.session_state[LAYERED_TEMPLATE_EDITOR_STATE_KEY] = state
+    return state
 
 
 def _build_template_gallery_tab_label(display_info, orientation_labels: dict[str, str]) -> str:
@@ -2787,6 +2848,7 @@ def render_style_config(
             media_width=media_width,
             media_height=media_height,
         )
+        layered_template_state = _render_layered_template_editor(layered_template_state)
 
         custom_values_for_video = {}
         if custom_params_for_video:
