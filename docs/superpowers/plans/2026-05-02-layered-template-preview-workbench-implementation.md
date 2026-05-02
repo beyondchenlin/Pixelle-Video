@@ -35,6 +35,20 @@ Design: `docs/superpowers/specs/2026-05-02-layered-template-preview-workbench-de
 - ffmpeg_manifest 不重新解释多图层布局；它只消费同一 spec 预物化后的视觉资产。
 - 系统模板、我的模板、最近模板必须走同一份 registry 读取协议，不能保留两套模板卡片数据结构。
 
+## Review Corrections Before Execution
+
+这两轮 review 发现计划里有几处容易把新架构重新拖回旧技术债的点。执行时必须按下面修正后的约束落地，后续任务中的代码片段如果与本节冲突，以本节为准。
+
+1. 严禁新增 `spec=None` 的 `TemplatePreset`。系统模板进入 registry 时也必须生成真实的 `LayeredTemplateSpec`，无法完整表达旧 HTML 内部结构时，用 `metadata={"source_kind": "legacy_html", "legacy_template_path": ...}` 标记，并设置 `editable=False`。
+2. API 边界不得使用裸 `spec: dict` 作为长期契约。必须新增 Pydantic schema 校验 `LayeredTemplateSpec` 的完整字段，API 入站先 `to_model()`，再向内部传递 normalized `to_dict()` snapshot。
+3. 测试里的 `layered_template_spec` 不允许使用 `{"template_id": "demo", "layers": []}` 这种不完整 payload。所有测试必须使用完整 `version/template_name/template_type/canvas/media/safe_area/layers/metadata`。
+4. `HTMLFrameGenerator("templates/1080x1920/image_default.html")` 不能作为渲染任意 HTML 的通用入口。必须抽出不依赖具体 legacy template path 的 `HTMLDocumentFrameRenderer` 或等价 raw-document renderer，并显式传入 `base_path`。
+5. 上传的图片/文件/背景层保存模板前必须物化为 repository asset key；禁止把 Streamlit `UploadedFile`、本地临时文件句柄、preview-only URL 持久化到 preset。
+6. 保存“我的模板”必须先生成缩略图；缩略图失败则整个保存失败，不能产生半成品 preset。
+7. 最近 5 个模板必须来自持久化的 `last_used_at`，点击模板时必须更新 usage history 并回填完整 spec。
+8. 旧 `text_rendering_preview` API 可以暂时保留兼容，但 `text_rendering_config.py` 不再渲染它；新右栏工作台必须只消费 `LayeredTemplateSpec`。
+9. `RenderManifest`、`StoryboardConfig`、`TemplateRenderContext` 中的 layered template 字段必须在入口归一化。允许内部为了序列化保存 dict snapshot，但不能绕过 `LayeredTemplateSpec.from_dict(...)` 校验。
+
 ## File Structure
 
 - Create `pixelle_video/models/layered_template.py`: `RectSpec`、`LayerSourceSpec`、`TemplateLayer`、`LayeredTemplateSpec`、fingerprint 和 JSON round-trip。
@@ -702,11 +716,37 @@ def test_repository_saves_loads_and_touches_last_used(tmp_path: Path):
 Create `tests/test_template_registry.py`:
 
 ```python
+from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
 from pixelle_video.models.template_preset import TemplatePreset
 from pixelle_video.services.template_registry import TemplateRegistry
 
 
+def _demo_spec() -> LayeredTemplateSpec:
+    return LayeredTemplateSpec(
+        version="layered_template.v1",
+        template_id="preset-demo",
+        template_name="Demo",
+        template_type="image",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        safe_area=RectSpec(x=64, y=64, width=952, height=1792),
+        layers=(),
+        metadata={},
+    )
+
+
 def test_registry_merges_system_and_user_presets(monkeypatch):
+    system_spec = _demo_spec()
+    user_spec = LayeredTemplateSpec(
+        **{
+            **system_spec.to_dict(),
+            "template_id": "user-demo",
+            "template_name": "My Demo",
+        }
+    )
+
     monkeypatch.setattr(
         "pixelle_video.services.template_registry.build_system_template_presets",
         lambda: [
@@ -716,7 +756,7 @@ def test_registry_merges_system_and_user_presets(monkeypatch):
                 source="system",
                 orientation="portrait",
                 template_type="image",
-                spec=None,  # type: ignore[arg-type]
+                spec=system_spec,
                 editable=False,
             )
         ],
@@ -731,7 +771,7 @@ def test_registry_merges_system_and_user_presets(monkeypatch):
                     source="user",
                     orientation="portrait",
                     template_type="image",
-                    spec=None,  # type: ignore[arg-type]
+                    spec=user_spec,
                 )
             ]
 
@@ -761,6 +801,8 @@ Create `pixelle_video/repositories/template_presets.py`:
 from __future__ import annotations
 
 import json
+import hashlib
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -776,19 +818,43 @@ class TemplatePresetRepository:
         self.thumbnails_dir = self.root / "thumbnails"
 ```
 
-Implement atomic persistence and query helpers:
+Implement asset persistence, atomic preset writes, and query helpers. Layer sources whose `kind=="asset"` must reference repository-owned keys before save:
 
 ```python
+    def persist_asset(self, *, source_path: str | Path, preset_id: str) -> str:
+        source = Path(source_path)
+        if not source.exists() or not source.is_file():
+            raise FileNotFoundError(f"template asset not found: {source}")
+        safe_preset_id = "".join(
+            char if char.isalnum() or char in {"-", "_"} else "_"
+            for char in preset_id
+        )
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
+        suffix = source.suffix.lower()
+        target = self.assets_dir / safe_preset_id / f"{digest}{suffix}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            shutil.copy2(source, target)
+        return str(target.relative_to(self.root)).replace("\\", "/")
+
     def save(self, preset: TemplatePreset) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         self.assets_dir.mkdir(parents=True, exist_ok=True)
         self.thumbnails_dir.mkdir(parents=True, exist_ok=True)
+        self._validate_persistable_spec(preset)
         records = {item.preset_id: item for item in self.list_all()}
         records[preset.preset_id] = preset
         payload = [self._to_record(item) for item in records.values()]
         temp_path = self.index_path.with_suffix(".json.tmp")
         temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         temp_path.replace(self.index_path)
+
+    def _validate_persistable_spec(self, preset: TemplatePreset) -> None:
+        for layer in preset.spec.layers:
+            if layer.source and layer.source.kind == "asset":
+                ref = str(layer.source.ref)
+                if not ref.startswith("assets/"):
+                    raise ValueError("asset layers must reference repository asset keys before saving")
 ```
 
 Create `pixelle_video/services/template_registry.py`:
@@ -796,14 +862,40 @@ Create `pixelle_video/services/template_registry.py`:
 ```python
 from __future__ import annotations
 
+from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
 from pixelle_video.models.template_preset import TemplatePreset
 from pixelle_video.repositories.template_presets import TemplatePresetRepository
 from pixelle_video.utils.template_util import get_all_templates_with_info
+from pixelle_video.utils.template_util import parse_template_size
+from datetime import datetime, timezone
+
+
+def build_layered_spec_from_template_descriptor(item) -> LayeredTemplateSpec:
+    canvas_width, canvas_height = parse_template_size(item.template_path)
+    orientation = item.display_info.orientation
+    return LayeredTemplateSpec(
+        version="layered_template.v1",
+        template_id=f"system:{item.template_path}",
+        template_name=item.display_info.name,
+        template_type=item.display_info.name.split("_", 1)[0],
+        canvas_width=canvas_width,
+        canvas_height=canvas_height,
+        media_width=canvas_width,
+        media_height=canvas_height,
+        safe_area=RectSpec(x=0, y=0, width=canvas_width, height=canvas_height),
+        layers=(),
+        metadata={
+            "source_kind": "legacy_html",
+            "legacy_template_path": item.template_path,
+            "orientation": orientation,
+        },
+    )
 
 
 def build_system_template_presets() -> list[TemplatePreset]:
     presets: list[TemplatePreset] = []
     for item in get_all_templates_with_info():
+        spec = build_layered_spec_from_template_descriptor(item)
         presets.append(
             TemplatePreset(
                 preset_id=f"system:{item.template_path}",
@@ -811,7 +903,7 @@ def build_system_template_presets() -> list[TemplatePreset]:
                 source="system",
                 orientation=item.display_info.orientation,
                 template_type=item.display_info.name.split("_", 1)[0],
-                spec=None,  # type: ignore[arg-type]
+                spec=spec,
                 editable=False,
             )
         )
@@ -835,6 +927,12 @@ class TemplateRegistry:
         if source == "recent":
             return self.repository.list_recent(limit=5)
         return system_presets + user_presets
+
+    def mark_used(self, preset_id: str, used_at: str | None = None) -> None:
+        self.repository.touch_last_used(
+            preset_id,
+            used_at or datetime.now(timezone.utc).isoformat(),
+        )
 ```
 
 - [ ] **Step 4: Run focused tests**
@@ -1025,9 +1123,29 @@ class LayeredTemplateService:
         )
 ```
 
-In `pixelle_video/services/frame_html.py`, add a raw-HTML render helper that later tasks can reuse:
+In `pixelle_video/services/frame_html.py`, add a raw-HTML renderer that later tasks can reuse. This must not require a legacy HTML template path:
 
 ```python
+class HTMLDocumentFrameRenderer:
+    def __init__(
+        self,
+        *,
+        base_path: str | Path | None = None,
+        render_readiness: FrameRenderReadiness | None = None,
+    ) -> None:
+        self.base_path = Path(base_path).resolve() if base_path else None
+        self.render_readiness = render_readiness or FrameRenderReadiness()
+
+    def _prepare_html_for_render(self, html: str) -> str:
+        if self.base_path is None or re.search(r"<base\b", html, flags=re.IGNORECASE):
+            return html
+        base_tag = f'<base href="{self.base_path.as_uri().rstrip("/")}/">'
+        head_match = re.search(r"<head[^>]*>", html, flags=re.IGNORECASE)
+        if head_match:
+            insert_at = head_match.end()
+            return f"{html[:insert_at]}{base_tag}{html[insert_at:]}"
+        return f"<head>{base_tag}</head>{html}"
+
     async def render_html_document(
         self,
         *,
@@ -1042,7 +1160,7 @@ In `pixelle_video/services/frame_html.py`, add a raw-HTML render helper that lat
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
         prepared_html = self._prepare_html_for_render(html)
-        browser = await self._ensure_browser()
+        browser = await HTMLFrameGenerator._ensure_browser()
         page = await browser.new_page(
             viewport={"width": int(width), "height": int(height)},
             device_scale_factor=1,
@@ -1079,6 +1197,105 @@ In `pixelle_video/services/frame_html.py`, add a raw-HTML render helper that lat
 Create API schema `api/schemas/layered_template_preview.py`:
 
 ```python
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from api.schemas.text_rendering import TextRenderingRequest
+from pixelle_video.models.layered_template import (
+    LayeredTemplateSpec,
+    LayerSourceSpec,
+    RectSpec,
+    TemplateLayer,
+)
+
+
+class RectSpecRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x: float
+    y: float
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    unit: Literal["px"] = "px"
+
+    def to_model(self) -> RectSpec:
+        return RectSpec(x=self.x, y=self.y, width=self.width, height=self.height, unit=self.unit)
+
+
+class LayerSourceSpecRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["color", "asset", "generated_media", "gradient"]
+    ref: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def to_model(self) -> LayerSourceSpec:
+        return LayerSourceSpec(kind=self.kind, ref=self.ref, metadata=self.metadata)
+
+
+class TemplateLayerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    type: Literal["text", "image", "background", "generated_media"]
+    name: str = Field(min_length=1)
+    rect: RectSpecRequest
+    z_index: int
+    opacity: float = Field(ge=0.0, le=1.0)
+    rotation: float = 0.0
+    locked: bool = False
+    source: LayerSourceSpecRequest | None = None
+    style: dict[str, Any] = Field(default_factory=dict)
+    role: str | None = None
+
+    def to_model(self) -> TemplateLayer:
+        return TemplateLayer(
+            id=self.id,
+            type=self.type,
+            name=self.name,
+            rect=self.rect.to_model(),
+            z_index=self.z_index,
+            opacity=self.opacity,
+            rotation=self.rotation,
+            locked=self.locked,
+            source=self.source.to_model() if self.source else None,
+            style=self.style,
+            role=self.role,
+        )
+
+
+class LayeredTemplateSpecRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal["layered_template.v1"]
+    template_id: str = Field(min_length=1)
+    template_name: str = Field(min_length=1)
+    template_type: str = Field(min_length=1)
+    canvas_width: int = Field(gt=0)
+    canvas_height: int = Field(gt=0)
+    media_width: int = Field(gt=0)
+    media_height: int = Field(gt=0)
+    safe_area: RectSpecRequest
+    layers: list[TemplateLayerRequest] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def to_model(self) -> LayeredTemplateSpec:
+        return LayeredTemplateSpec(
+            version=self.version,
+            template_id=self.template_id,
+            template_name=self.template_name,
+            template_type=self.template_type,
+            canvas_width=self.canvas_width,
+            canvas_height=self.canvas_height,
+            media_width=self.media_width,
+            media_height=self.media_height,
+            safe_area=self.safe_area.to_model(),
+            layers=tuple(layer.to_model() for layer in self.layers),
+            metadata=self.metadata,
+        )
+
+
 class LayeredTemplatePreviewFrameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1086,7 +1303,10 @@ class LayeredTemplatePreviewFrameRequest(BaseModel):
     title_text: str = ""
     caption_text: str = ""
     text_rendering: TextRenderingRequest = Field(default_factory=TextRenderingRequest)
-    spec: dict
+    spec: LayeredTemplateSpecRequest
+
+    def normalized_spec(self) -> dict[str, Any]:
+        return self.spec.to_model().to_dict()
 ```
 
 Create router `api/routers/layered_template_preview.py`:
@@ -1099,7 +1319,13 @@ router = APIRouter(prefix="/layered-templates", tags=["Layered Templates"])
 async def render_layered_template_preview_frame(http_request: Request, request: LayeredTemplatePreviewFrameRequest):
     object_store = _get_artifact_object_store(http_request)
     service = LayeredTemplateService(object_store=object_store)
-    result = await service.render_preview_frame(request)
+    result = await service.render_preview_frame(
+        workspace_id=request.workspace_id,
+        spec=request.spec.to_model(),
+        title_text=request.title_text,
+        caption_text=request.caption_text,
+        text_rendering=request.text_rendering.model_dump(exclude_none=True),
+    )
     return LayeredTemplatePreviewFrameResponse(storage_key=result["storage_key"], url=result.get("url"))
 ```
 
@@ -1278,6 +1504,38 @@ Add append/build helpers:
         return replace(self, layers=(*self.layers, layer), selected_layer_id=layer.id)
 ```
 
+Add update/load helpers used by the workbench and asset controls:
+
+```python
+    def update_layer_source(
+        self,
+        layer_id: str,
+        source: LayerSourceSpec,
+    ) -> "LayeredTemplateEditorState":
+        layers = tuple(
+            replace(layer, source=source) if layer.id == layer_id else layer
+            for layer in self.layers
+        )
+        return replace(self, layers=layers)
+
+
+def load_layered_template_spec_into_editor_state(
+    session_state,
+    spec_payload: dict,
+) -> LayeredTemplateEditorState:
+    spec = LayeredTemplateSpec.from_dict(spec_payload)
+    state = LayeredTemplateEditorState(
+        canvas_width=spec.canvas_width,
+        canvas_height=spec.canvas_height,
+        media_width=spec.media_width,
+        media_height=spec.media_height,
+        layers=spec.layers,
+        selected_layer_id=spec.layers[0].id if spec.layers else None,
+    )
+    session_state["layered_template_editor_state"] = state
+    return state
+```
+
 In `web/components/text_rendering_config.py`, remove the block that calls `build_text_rendering_preview_spec(...)`, `render_text_rendering_preview(...)`, `request_real_preview_frame(...)`, and `render_real_preview_status(...)`. The function should now stop after building `text_rendering_payload` and return it.
 
 In `web/components/style_config.py`, replace the current template parameter-only editing flow with:
@@ -1298,6 +1556,26 @@ if col_add_image.button(tr("template_editor.add_image"), width="stretch"):
     editor_state = editor_state.append_image_layer(tr("template_editor.default_image"))
 if col_add_background.button(tr("template_editor.add_background"), width="stretch"):
     editor_state = editor_state.append_background_layer(tr("template_editor.default_background"))
+```
+
+Image/file/background layer uploads must be persisted through `TemplatePresetRepository.persist_asset(...)` before building a saveable preset. Keep temporary upload objects only in the Streamlit edit cache, never in `LayeredTemplateSpec`.
+
+```python
+uploaded = st.file_uploader(
+    tr("template_editor.layer_asset"),
+    type=["png", "jpg", "jpeg", "webp"],
+    key=f"layer_asset_{selected_layer.id}",
+)
+if uploaded is not None:
+    temp_path = write_uploaded_file_to_temp(uploaded)
+    asset_ref = TemplatePresetRepository().persist_asset(
+        source_path=temp_path,
+        preset_id=current_preset_id,
+    )
+    editor_state = editor_state.update_layer_source(
+        selected_layer.id,
+        LayerSourceSpec(kind="asset", ref=asset_ref),
+    )
 ```
 
 Return the normalized spec from `render_style_config(...)`:
@@ -1424,7 +1702,9 @@ def render_layout_preview_workbench(*, spec, title_text, caption_text, text_rend
     with st.container(border=True):
         st.markdown("**即时预览工作台**")
         for item in sort_recent_template_shortcuts(recent_templates, limit=5):
-            st.button(item["name"], key=f"recent_template_{item['preset_id']}", width="stretch")
+            if st.button(item["name"], key=f"recent_template_{item['preset_id']}", width="stretch"):
+                TemplateRegistry().mark_used(item["preset_id"])
+                load_layered_template_spec_into_editor_state(item["spec"])
         st.caption(f"{spec.canvas_width}x{spec.canvas_height} · {len(spec.layers)} layers")
         st.markdown(
             render_layered_template_preview_html(
@@ -1436,6 +1716,8 @@ def render_layout_preview_workbench(*, spec, title_text, caption_text, text_rend
             unsafe_allow_html=True,
         )
 ```
+
+The `item["spec"]` above must be a full normalized `LayeredTemplateSpec` payload. Do not pass only a preset id and then rebuild from scattered session keys.
 
 In `web/components/output_preview.py`, split `render_single_output(...)` into explicit sections:
 
@@ -1495,36 +1777,65 @@ def test_build_single_generation_request_includes_layered_template_snapshot():
     def _progress(_event):
         return None
 
+    spec = {
+        "version": "layered_template.v1",
+        "template_id": "demo",
+        "template_name": "Demo",
+        "template_type": "image",
+        "canvas_width": 1080,
+        "canvas_height": 1920,
+        "media_width": 1080,
+        "media_height": 1920,
+        "safe_area": {"x": 64, "y": 64, "width": 952, "height": 1792, "unit": "px"},
+        "layers": [],
+        "metadata": {},
+    }
+
     request = output_preview.build_single_generation_request(
         {
             "text": "demo",
             "mode": "generate",
-            "layered_template_spec": {"template_id": "demo", "layers": []},
+            "layered_template_spec": spec,
             "selected_template_preset_id": "user:demo",
         },
         progress_callback=_progress,
         session_state={},
     )
 
-    assert request["layered_template_spec"] == {"template_id": "demo", "layers": []}
+    assert request["layered_template_spec"] == spec
     assert request["selected_template_preset_id"] == "user:demo"
 ```
 
 Create `tests/test_standard_pipeline_layered_template.py`:
 
 ```python
+from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
 from pixelle_video.models.storyboard import StoryboardConfig
 
 
 def test_storyboard_config_accepts_layered_template_snapshot():
+    spec = LayeredTemplateSpec(
+        version="layered_template.v1",
+        template_id="demo",
+        template_name="Demo",
+        template_type="image",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        safe_area=RectSpec(x=64, y=64, width=952, height=1792),
+        layers=(),
+        metadata={},
+    ).to_dict()
+
     config = StoryboardConfig(
         media_width=1080,
         media_height=1920,
-        layered_template_spec={"template_id": "demo", "layers": []},
+        layered_template_spec=spec,
         selected_template_preset_id="user:demo",
     )
 
-    assert config.layered_template_spec == {"template_id": "demo", "layers": []}
+    assert config.layered_template_spec == spec
     assert config.selected_template_preset_id == "user:demo"
 ```
 
@@ -1543,15 +1854,33 @@ Expected: FAIL because request builder and `StoryboardConfig` do not accept thes
 In `api/schemas/video.py`, add fields:
 
 ```python
-layered_template_spec: dict | None = None
+layered_template_spec: LayeredTemplateSpecRequest | None = None
 selected_template_preset_id: str | None = None
 ```
 
-In `pixelle_video/models/storyboard.py`, extend `StoryboardConfig`:
+In `api/routers/video.py`, normalize the request before passing it to generation:
+
+```python
+if request_body.layered_template_spec is not None:
+    video_params["layered_template_spec"] = (
+        request_body.layered_template_spec.to_model().to_dict()
+    )
+if request_body.selected_template_preset_id:
+    video_params["selected_template_preset_id"] = request_body.selected_template_preset_id
+```
+
+In `pixelle_video/models/storyboard.py`, extend `StoryboardConfig` and validate snapshots in `__post_init__`:
 
 ```python
 layered_template_spec: Optional[Dict[str, Any]] = None
 selected_template_preset_id: Optional[str] = None
+
+...
+
+if self.layered_template_spec is not None:
+    self.layered_template_spec = LayeredTemplateSpec.from_dict(
+        self.layered_template_spec
+    ).to_dict()
 ```
 
 In `pixelle_video/models/render_package.py`, extend `RenderManifest`:
@@ -1560,10 +1889,34 @@ In `pixelle_video/models/render_package.py`, extend `RenderManifest`:
 layered_template_spec: Mapping[str, Any] | None = None
 ```
 
+Its `__init__`, `to_dict()`, and `from_dict()` must normalize and serialize this field:
+
+```python
+self.layered_template_spec = (
+    LayeredTemplateSpec.from_dict(layered_template_spec).to_dict()
+    if layered_template_spec is not None
+    else None
+)
+...
+if self.layered_template_spec is not None:
+    data["layered_template_spec"] = dict(self.layered_template_spec)
+...
+layered_template_spec=data.get("layered_template_spec"),
+```
+
 In `pixelle_video/models/template_render_context.py`, extend the compiler context:
 
 ```python
 layered_template_spec: Mapping[str, Any] | None = None
+```
+
+Normalize it in `__post_init__` the same way:
+
+```python
+if self.layered_template_spec is not None:
+    self.layered_template_spec = LayeredTemplateSpec.from_dict(
+        self.layered_template_spec
+    ).to_dict()
 ```
 
 In `pixelle_video/pipelines/standard.py`, add the new fields at the existing config and manifest construction points.
@@ -1681,7 +2034,19 @@ async def test_template_visual_materializer_uses_layered_adapter_when_spec_prese
         template_id="image_default",
         output_path=tmp_path / "frame.png",
         text_policy="caption_renderer",
-        layered_template_spec={"template_id": "demo", "layers": []},
+        layered_template_spec={
+            "version": "layered_template.v1",
+            "template_id": "demo",
+            "template_name": "Demo",
+            "template_type": "image",
+            "canvas_width": 1080,
+            "canvas_height": 1920,
+            "media_width": 1080,
+            "media_height": 1920,
+            "safe_area": {"x": 64, "y": 64, "width": 952, "height": 1792, "unit": "px"},
+            "layers": [],
+            "metadata": {},
+        },
     )
 
     assert asset.path == str(tmp_path / "frame.png")
@@ -1693,10 +2058,10 @@ Add to `tests/test_frame_html.py`:
 ```python
 @pytest.mark.asyncio
 async def test_render_html_document_captures_raw_html(tmp_path):
-    generator = HTMLFrameGenerator("templates/1080x1920/image_default.html")
+    renderer = HTMLDocumentFrameRenderer()
 
     output = tmp_path / "preview.png"
-    result = await generator.render_html_document(
+    result = await renderer.render_html_document(
         html="<html><body><div id='demo'>hello</div></body></html>",
         output_path=str(output),
         width=320,
@@ -1716,7 +2081,47 @@ python -m pytest tests/test_template_visual_materializer.py tests/test_frame_htm
 
 Expected: FAIL because the layered adapter entry point and `render_html_document(...)` helper are missing.
 
-- [ ] **Step 3: Implement HTML frame adapter and materializer switch**
+- [ ] **Step 3: Implement HTML document renderer, HTML frame adapter, and materializer switch**
+
+In `pixelle_video/services/frame_html.py`, create a raw document renderer that does not require any legacy template path:
+
+```python
+class HTMLDocumentFrameRenderer:
+    def __init__(self, *, base_path: str | Path | None = None, render_readiness: FrameRenderReadiness | None = None) -> None:
+        self.base_path = Path(base_path).resolve() if base_path else None
+        self.render_readiness = render_readiness or FrameRenderReadiness()
+
+    def _prepare_html_for_render(self, html: str) -> str:
+        if self.base_path is None or re.search(r"<base\b", html, flags=re.IGNORECASE):
+            return html
+        base_href = self.base_path.as_uri().rstrip("/") + "/"
+        base_tag = f'<base href="{base_href}">'
+        head_match = re.search(r"<head[^>]*>", html, flags=re.IGNORECASE)
+        if head_match:
+            return f"{html[:head_match.end()]}{base_tag}{html[head_match.end():]}"
+        return f"<head>{base_tag}</head>{html}"
+
+    async def render_html_document(self, *, html: str, output_path: str, width: int, height: int) -> str:
+        if width <= 0 or height <= 0:
+            raise ValueError("width and height must be positive")
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        prepared_html = self._prepare_html_for_render(html)
+        browser = await HTMLFrameGenerator._ensure_browser()
+        page = await browser.new_page(viewport={"width": int(width), "height": int(height)}, device_scale_factor=1)
+        tmp_html_path = None
+        try:
+            fd, tmp_html_path = tempfile.mkstemp(suffix=".html", prefix="pv_raw_html_", dir=get_temp_path())
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(prepared_html)
+            await page.goto(Path(tmp_html_path).as_uri(), wait_until=self.render_readiness.navigation_wait_until, timeout=self.render_readiness.navigation_timeout_ms)
+            await self.render_readiness.wait(page)
+            await page.screenshot(path=output_path, type="png", omit_background=True)
+            return output_path
+        finally:
+            await page.close()
+            if tmp_html_path and os.path.exists(tmp_html_path):
+                os.unlink(tmp_html_path)
+```
 
 Create `pixelle_video/services/layered_template_adapters/html_frame.py`:
 
@@ -1724,7 +2129,7 @@ Create `pixelle_video/services/layered_template_adapters/html_frame.py`:
 from __future__ import annotations
 
 from pixelle_video.models.layered_template import LayeredTemplateSpec
-from pixelle_video.services.frame_html import HTMLFrameGenerator
+from pixelle_video.services.frame_html import HTMLDocumentFrameRenderer
 from pixelle_video.services.layered_template_service import LayeredTemplateService
 
 
@@ -1732,7 +2137,16 @@ class LayeredTemplateHTMLFrameAdapter:
     def __init__(self, service: LayeredTemplateService | None = None) -> None:
         self.service = service or LayeredTemplateService()
 
-    async def materialize(self, *, layered_template_spec: dict, title: str, caption_text: str, text_rendering: dict, output_path: str) -> str:
+    async def materialize(
+        self,
+        *,
+        layered_template_spec: dict,
+        title: str,
+        caption_text: str,
+        text_rendering: dict,
+        output_path: str,
+        base_path: str | None = None,
+    ) -> str:
         spec = LayeredTemplateSpec.from_dict(layered_template_spec)
         html = self.service.render_preview_html(
             spec=spec,
@@ -1740,8 +2154,8 @@ class LayeredTemplateHTMLFrameAdapter:
             caption_text=caption_text,
             text_rendering=text_rendering,
         )
-        generator = HTMLFrameGenerator("templates/1080x1920/image_default.html")
-        return await generator.render_html_document(
+        renderer = HTMLDocumentFrameRenderer(base_path=base_path)
+        return await renderer.render_html_document(
             html=html,
             output_path=output_path,
             width=spec.canvas_width,
@@ -1765,6 +2179,7 @@ if layered_template_spec:
         caption_text=body_text,
         text_rendering={},
         output_path=str(output_path),
+        base_path=Path(template_path).parent if template_path else None,
     )
     spec = LayeredTemplateSpec.from_dict(layered_template_spec)
     return TemplateVisualAsset(
@@ -1821,6 +2236,19 @@ Add to `tests/test_hyperframes_compiler.py`:
 ```python
 def test_hyperframes_compiler_injects_layered_template_composition(tmp_path):
     compiler = HyperFramesCompiler()
+    spec = {
+        "version": "layered_template.v1",
+        "template_id": "demo",
+        "template_name": "Demo",
+        "template_type": "image",
+        "canvas_width": 1080,
+        "canvas_height": 1920,
+        "media_width": 1080,
+        "media_height": 1920,
+        "safe_area": {"x": 64, "y": 64, "width": 952, "height": 1792, "unit": "px"},
+        "layers": [],
+        "metadata": {},
+    }
     context = TemplateRenderContext(
         template_id="image_default",
         canvas_width=1080,
@@ -1832,7 +2260,7 @@ def test_hyperframes_compiler_injects_layered_template_composition(tmp_path):
         footer=None,
         theme=None,
         style_profile="image_default",
-        layered_template_spec={"template_id": "demo", "layers": []},
+        layered_template_spec=spec,
     )
 
     compiler.compile(project_dir=tmp_path / "project", context=context)
@@ -1932,6 +2360,8 @@ if config.layered_template_spec:
         caption_text="",
     )
 ```
+
+Then feed `prerendered_template_asset` into the manifest visual path as a template visual clip or frame-level `template_visual_path`; do not ask `FfmpegManifestRenderer` to interpret the layer list directly.
 
 - [ ] **Step 4: Run focused tests**
 
