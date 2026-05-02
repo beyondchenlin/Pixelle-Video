@@ -866,6 +866,7 @@ from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
 from pixelle_video.models.template_preset import TemplatePreset
 from pixelle_video.repositories.template_presets import TemplatePresetRepository
 from pixelle_video.utils.template_util import get_all_templates_with_info
+from pixelle_video.utils.template_util import get_template_type
 from pixelle_video.utils.template_util import parse_template_size
 from datetime import datetime, timezone
 
@@ -877,7 +878,7 @@ def build_layered_spec_from_template_descriptor(item) -> LayeredTemplateSpec:
         version="layered_template.v1",
         template_id=f"system:{item.template_path}",
         template_name=item.display_info.name,
-        template_type=item.display_info.name.split("_", 1)[0],
+        template_type=get_template_type(item.display_info.name),
         canvas_width=canvas_width,
         canvas_height=canvas_height,
         media_width=canvas_width,
@@ -902,7 +903,7 @@ def build_system_template_presets() -> list[TemplatePreset]:
                 name=item.display_info.name,
                 source="system",
                 orientation=item.display_info.orientation,
-                template_type=item.display_info.name.split("_", 1)[0],
+                template_type=get_template_type(item.display_info.name),
                 spec=spec,
                 editable=False,
             )
@@ -1704,7 +1705,7 @@ def render_layout_preview_workbench(*, spec, title_text, caption_text, text_rend
         for item in sort_recent_template_shortcuts(recent_templates, limit=5):
             if st.button(item["name"], key=f"recent_template_{item['preset_id']}", width="stretch"):
                 TemplateRegistry().mark_used(item["preset_id"])
-                load_layered_template_spec_into_editor_state(item["spec"])
+                load_layered_template_spec_into_editor_state(st.session_state, item["spec"])
         st.caption(f"{spec.canvas_width}x{spec.canvas_height} · {len(spec.layers)} layers")
         st.markdown(
             render_layered_template_preview_html(
