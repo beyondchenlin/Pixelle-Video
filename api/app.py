@@ -62,6 +62,7 @@ from api.routers import (
     frame_router,
     health_router,
     image_router,
+    layered_template_preview_router,
     llm_router,
     llm_trace_router,
     resources_router,
@@ -166,6 +167,7 @@ app.include_router(stale_dependencies_router, prefix=api_config.api_prefix)
 app.include_router(frame_router, prefix=api_config.api_prefix)
 app.include_router(storyboard_workbench_router, prefix=api_config.api_prefix)
 app.include_router(text_rendering_preview_router, prefix=api_config.api_prefix)
+app.include_router(layered_template_preview_router, prefix=api_config.api_prefix)
 
 
 @app.get("/")
@@ -190,6 +192,7 @@ async def root():
             "frame": f"{api_config.api_prefix}/frame",
             "storyboards": f"{api_config.api_prefix}/storyboards",
             "text_rendering": f"{api_config.api_prefix}/text-rendering",
+            "layered_templates": f"{api_config.api_prefix}/layered-templates",
         }
     }
 
