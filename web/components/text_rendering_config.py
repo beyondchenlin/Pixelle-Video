@@ -587,14 +587,6 @@ def render_text_rendering_controls(
     ui: Any | None = None,
     translate=None,
     template_id: str | None = None,
-    canvas_width: int | None = None,
-    canvas_height: int | None = None,
-    media_width: int | None = None,
-    media_height: int | None = None,
-    media_placement: Mapping[str, Any] | None = None,
-    title_text: str | None = None,
-    caption_text: str | None = None,
-    preview_media_ref: str | None = None,
 ) -> dict:
     """Render text rendering controls as independent caption, overlay, and image policy sections."""
     ui = _resolve_ui(ui)

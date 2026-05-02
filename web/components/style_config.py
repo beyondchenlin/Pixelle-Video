@@ -2321,14 +2321,6 @@ def _render_image_prompt_prefix_library(
     return effective_prefix
 
 
-def _preview_caption_text(value: object) -> str:
-    for line in str(value or "").splitlines():
-        cleaned = line.strip()
-        if cleaned:
-            return cleaned[:80]
-    return tr("text_rendering_preview.default_caption")
-
-
 def render_style_config(
     pixelle_video,
     storyboard_default_enabled: bool = False,
@@ -2928,14 +2920,6 @@ def render_style_config(
         ui=st,
         translate=tr,
         template_id=Path(frame_template).stem,
-        canvas_width=size_contract.canvas_width,
-        canvas_height=size_contract.canvas_height,
-        media_width=media_width,
-        media_height=media_height,
-        media_placement=st.session_state.get("media_placement"),
-        title_text=(content_context or {}).get("title"),
-        caption_text=_preview_caption_text((content_context or {}).get("text")),
-        preview_media_ref=st.session_state.get("text_rendering_preview_media_ref"),
     )
     
     # ====================================================================

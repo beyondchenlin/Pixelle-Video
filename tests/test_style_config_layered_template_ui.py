@@ -100,14 +100,6 @@ def test_render_text_rendering_controls_no_longer_renders_legacy_preview(monkeyp
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
         template_id="image_default",
-        canvas_width=1080,
-        canvas_height=1920,
-        media_width=900,
-        media_height=1200,
-        media_placement={"offset_x": 0, "offset_y": 0},
-        title_text="Title",
-        caption_text="Caption",
-        preview_media_ref="artifacts/source.png",
     )
 
     assert payload["overlay"] == {"enabled": False}

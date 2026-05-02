@@ -197,21 +197,20 @@ def test_text_rendering_request_accepts_caption_style_and_forbids_unknown_fields
         )
 
 
-def test_text_rendering_controls_live_in_focused_component():
-    component = Path("web/components/text_rendering_config.py")
-    preview_component = Path("web/components/text_rendering_preview.py")
-    style_config = Path("web/components/style_config.py")
+def test_text_rendering_controls_reject_preview_only_context(monkeypatch):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import render_text_rendering_controls
 
-    assert component.exists()
-    assert "render_text_rendering_controls" in component.read_text(encoding="utf-8")
-    assert "caption_style" in component.read_text(encoding="utf-8")
-    component_source = component.read_text(encoding="utf-8")
-    assert "build_text_rendering_preview_spec" not in component_source
-    assert "render_text_rendering_preview" not in component_source
-    assert "request_real_preview_frame" not in component_source
-    assert "render_real_preview_status" not in component_source
-    assert "build_text_rendering_preview_spec" in preview_component.read_text(encoding="utf-8")
-    assert "def render_text_rendering_controls" not in style_config.read_text(encoding="utf-8")
+    fake_ui = _WidgetDefaultRecordingUI()
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
+
+    with pytest.raises(TypeError):
+        render_text_rendering_controls(
+            "hyperframes",
+            ui=fake_ui,
+            translate=lambda key: key,
+            canvas_width=1080,
+        )
 
 
 def test_build_text_rendering_payload_keeps_caption_style_when_overlay_disabled():
@@ -616,14 +615,6 @@ def test_text_rendering_controls_render_caption_and_title_tabs(monkeypatch):
         ui=fake_ui,
         translate=lambda key: f"translated:{key}",
         template_id="image_landscape_minimal",
-        canvas_width=1080,
-        canvas_height=1920,
-        media_width=1080,
-        media_height=1920,
-        media_placement={"mode": "cover"},
-        title_text="演示标题",
-        caption_text="演示字幕",
-        preview_media_ref="artifacts/demo.png",
     )
 
     assert fake_ui.tabs_calls == [
@@ -696,14 +687,6 @@ def test_text_rendering_preview_helper_remains_separate_from_text_controls(monke
         ui=fake_ui,
         translate=lambda key, **kwargs: key,
         template_id="image_default",
-        canvas_width=1080,
-        canvas_height=1920,
-        media_width=900,
-        media_height=1200,
-        media_placement={"anchor": "center"},
-        title_text="Preview title",
-        caption_text="Preview caption",
-        preview_media_ref="artifacts/ws/source.png",
     )
 
     preview_spec = build_text_rendering_preview_spec(
@@ -729,19 +712,7 @@ def test_text_rendering_preview_helper_remains_separate_from_text_controls(monke
     assert "preview_media_url" not in payload
 
 
-def test_preview_caption_text_uses_first_non_empty_line_and_default(monkeypatch):
-    from web.components import style_config
-
-    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: f"translated:{key}")
-
-    assert style_config._preview_caption_text(" \n第一行内容\n第二行内容") == "第一行内容"
-    assert style_config._preview_caption_text("字" * 90) == "字" * 80
-    assert style_config._preview_caption_text(" \n ") == (
-        "translated:text_rendering_preview.default_caption"
-    )
-
-
-def test_render_style_config_passes_template_contract_and_context_to_text_controls(
+def test_render_style_config_passes_only_text_contract_to_text_controls(
     monkeypatch,
 ):
     from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
@@ -751,7 +722,6 @@ def test_render_style_config_passes_template_contract_and_context_to_text_contro
     fake_st.session_state.update(
         {
             "template_type_selector": "image",
-            "text_rendering_preview_media_ref": "artifacts/demo.png",
         }
     )
     captured = {}
@@ -858,21 +828,12 @@ def test_render_style_config_passes_template_contract_and_context_to_text_contro
 
     assert result["text_rendering"] == {"overlay": {"enabled": False}}
     assert captured["render_backend"] == "hyperframes"
-    assert captured["template_id"] == "image_default"
-    assert captured["canvas_width"] == result["canvas_width"]
-    assert captured["canvas_height"] == result["canvas_height"]
-    assert captured["media_width"] == result["media_width"]
-    assert captured["media_height"] == result["media_height"]
-    assert captured["media_placement"] == {
-        "basis": "canvas",
-        "fit": "contain",
-        "scale_percent": 100,
-        "offset_x": 0,
-        "offset_y": 0,
+    assert captured == {
+        "render_backend": "hyperframes",
+        "ui": fake_st,
+        "translate": style_config.tr,
+        "template_id": "image_default",
     }
-    assert captured["title_text"] == "Runtime Title"
-    assert captured["caption_text"] == "Runtime caption line"
-    assert captured["preview_media_ref"] == "artifacts/demo.png"
 
 
 def test_standard_pipeline_passes_content_context_to_style_config(monkeypatch):
