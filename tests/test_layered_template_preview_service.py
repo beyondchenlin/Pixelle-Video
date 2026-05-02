@@ -189,10 +189,10 @@ def test_render_preview_html_role_layers_apply_complete_text_style_contract():
     assert "-webkit-text-stroke:3px #445566;" in html
     assert "text-align:right;" in html
     assert "justify-content:flex-end;" in html
-    assert "right:110px;" in html
-    assert "bottom:1650px;" in html
+    assert "right:44px;" in html
+    assert "bottom:56px;" in html
     assert "width:432px;" in html
-    assert "max-width:min(432px, calc(100% - 110px - 110px));" in html
+    assert "max-width:min(432px, calc(100% - 44px - 44px));" in html
     assert "font-family:Noto Sans CJK SC;" in html
     assert "background:rgba(255, 255, 255, 0.25);" in html
     assert "-webkit-text-stroke:1px #000000;" in html
@@ -218,7 +218,34 @@ def test_render_preview_html_default_role_layout_uses_layer_rect_as_region():
     assert "top:90px;" in html
     assert "transform:translateX(-50%);" in html
     assert "width:860px;" in html
-    assert "max-width:min(860px, calc(100% - 110px - 110px));" in html
+    assert "max-width:min(860px, calc(100% - 80px - 80px));" in html
+
+
+def test_render_preview_html_zero_margins_anchor_role_layers_to_canvas_edges():
+    html = LayeredTemplateService().render_preview_html(
+        spec=_preview_spec(),
+        title_text="Title",
+        caption_text="Caption",
+        text_rendering={
+            "title_style": {
+                "position": "top_left",
+                "margin_x": 0,
+                "margin_y": 0,
+                "max_width_ratio": 0.4,
+            },
+            "caption_style": {
+                "position": "bottom_right",
+                "margin_x": 0,
+                "margin_y": 0,
+                "max_width_ratio": 0.5,
+            },
+        },
+    )
+
+    assert "left:0px;" in html
+    assert "top:0px;" in html
+    assert "right:0px;" in html
+    assert "bottom:0px;" in html
 
 
 def test_render_preview_html_sanitizes_complete_text_style_contract():

@@ -798,12 +798,59 @@ def test_hyperframes_compiler_emits_title_layout_variables(tmp_path: Path):
 
     html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
     assert "--title-left: auto" in html
-    assert "--title-right: 97px" in html
+    assert "--title-right: 44px" in html
     assert "--title-top: auto" in html
-    assert "--title-bottom: 1526px" in html
+    assert "--title-bottom: 56px" in html
     assert "--title-transform: none" in html
     assert "--title-text-align: right" in html
     assert "--title-max-width: 432px" in html
+
+
+def test_hyperframes_compiler_zero_margins_anchor_title_to_canvas_edges(tmp_path: Path):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    template_dir = template_root / "image_default"
+    (template_dir / "compositions").mkdir(parents=True)
+    (template_dir / "index.template.html").write_text(
+        '<h1 class="video-title" style="__TITLE_STYLE_CSS__">__TITLE__</h1>',
+        encoding="utf-8",
+    )
+    (template_dir / "compositions" / "captions.template.html").write_text(
+        "__CAPTIONS__",
+        encoding="utf-8",
+    )
+    title_style = TextStyleProfile(
+        id=DEFAULT_TITLE_STYLE_ID,
+        name="Title Default",
+        font_size=88,
+        position="top_left",
+        alignment="left",
+        margin_x=0,
+        margin_y=0,
+        max_width_ratio=0.4,
+    )
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=1,
+        fps=30,
+        title="Layout title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        title_style_profile=title_style,
+    )
+
+    HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root).compile(
+        project_dir=tmp_path / "project",
+        context=context,
+    )
+
+    html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "--title-left: 0px" in html
+    assert "--title-top: 0px" in html
 
 
 def test_hyperframes_compiler_constrains_title_layout_to_template_region(
@@ -852,9 +899,9 @@ def test_hyperframes_compiler_constrains_title_layout_to_template_region(
 
     html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
     assert "--title-left: auto" in html
-    assert "--title-right: 505px" in html
+    assert "--title-right: 10px" in html
     assert "--title-top: auto" in html
-    assert "--title-bottom: 358px" in html
+    assert "--title-bottom: 20px" in html
     assert "--title-box-width: 440px" in html
     assert "--title-max-width: 440px" in html
 
@@ -1212,20 +1259,18 @@ def test_phase1_main_templates_apply_title_background_to_visible_box():
 
 
 @pytest.mark.parametrize(
-    ("template_id", "layout_consumer_marker", "expected_right", "expected_bottom"),
+    ("template_id", "layout_consumer_marker"),
     [
-        ("image_default", 'class="video-title-wrapper"', "97px", "1526px"),
-        ("image_life_insights_light", 'class="header"', "108px", "1536px"),
-        ("image_landscape_full", 'class="title"', "65px", "1430px"),
-        ("image_landscape_minimal", 'class="header"', "545px", "1373px"),
+        ("image_default", 'class="video-title-wrapper"'),
+        ("image_life_insights_light", 'class="header"'),
+        ("image_landscape_full", 'class="title"'),
+        ("image_landscape_minimal", 'class="header"'),
     ],
 )
 def test_phase1_main_templates_inject_title_variables_on_layout_consumer(
     tmp_path: Path,
     template_id: str,
     layout_consumer_marker: str,
-    expected_right: str,
-    expected_bottom: str,
 ):
     context = TemplateRenderContext(
         template_id=template_id,
@@ -1269,8 +1314,8 @@ def test_phase1_main_templates_inject_title_variables_on_layout_consumer(
     tag_end = html.index(">", marker_index)
     opening_tag = html[tag_start : tag_end + 1]
 
-    assert f"--title-right: {expected_right}" in opening_tag
-    assert f"--title-bottom: {expected_bottom}" in opening_tag
+    assert "--title-right: 44px" in opening_tag
+    assert "--title-bottom: 56px" in opening_tag
     assert "--title-text-align: right" in opening_tag
 
 

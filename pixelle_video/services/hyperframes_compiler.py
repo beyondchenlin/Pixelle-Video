@@ -14,6 +14,10 @@ from pixelle_video.models.template_text_style_presets import resolve_template_te
 from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID, TextStyleProfile
 from pixelle_video.services.font_discovery import resolve_font_file
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
+from pixelle_video.services.text_style_preview_css import (
+    TextPreviewRegion,
+    resolve_text_preview_layout,
+)
 from pixelle_video.services.text_style_resolver import TextStyleResolver
 
 
@@ -386,97 +390,43 @@ class HyperFramesCompiler:
         prefix: str,
         region: _LayoutRegion | None = None,
     ) -> tuple[list[str], float | None]:
-        left = "auto"
-        right = "auto"
-        top = "auto"
-        bottom = "auto"
-        transform = "none"
-        available_width: float | None = None
-
-        if region is not None:
-            left_gap = max(0.0, region.left)
-            right_gap = max(0.0, float(canvas_width) - region.right)
-            top_gap = max(0.0, region.top)
-            bottom_gap = max(0.0, float(canvas_height) - region.bottom)
-            center_x = region.left + region.width / 2.0
-            center_y = region.top + region.height / 2.0
-
-            if profile.position == "center":
-                left = f"{round(center_x)}px"
-                top = f"{round(center_y)}px"
-                transform = "translate(-50%, -50%)"
-                available_width = region.width
-            elif profile.position in {"bottom", "lower_third"}:
-                left = f"{round(center_x)}px"
-                bottom = f"{round(max(bottom_gap, float(margin_y)))}px"
-                transform = "translateX(-50%)"
-                available_width = region.width
-            elif profile.position == "top":
-                left = f"{round(center_x)}px"
-                top = f"{round(max(top_gap, float(margin_y)))}px"
-                transform = "translateX(-50%)"
-                available_width = region.width
-            elif profile.position == "top_left":
-                left_offset = max(left_gap, float(margin_x))
-                left = f"{round(left_offset)}px"
-                top = f"{round(max(top_gap, float(margin_y)))}px"
-                available_width = max(1.0, region.right - left_offset)
-            elif profile.position == "top_right":
-                right_offset = max(right_gap, float(margin_x))
-                right = f"{round(right_offset)}px"
-                top = f"{round(max(top_gap, float(margin_y)))}px"
-                available_width = max(1.0, float(canvas_width) - right_offset - region.left)
-            elif profile.position == "bottom_left":
-                left_offset = max(left_gap, float(margin_x))
-                left = f"{round(left_offset)}px"
-                bottom = f"{round(max(bottom_gap, float(margin_y)))}px"
-                available_width = max(1.0, region.right - left_offset)
-            elif profile.position == "bottom_right":
-                right_offset = max(right_gap, float(margin_x))
-                right = f"{round(right_offset)}px"
-                bottom = f"{round(max(bottom_gap, float(margin_y)))}px"
-                available_width = max(1.0, float(canvas_width) - right_offset - region.left)
-
-            return [
-                f"--{prefix}-left: {left}",
-                f"--{prefix}-right: {right}",
-                f"--{prefix}-top: {top}",
-                f"--{prefix}-bottom: {bottom}",
-                f"--{prefix}-transform: {transform}",
-            ], available_width
-
-        if profile.position == "center":
-            left = "50%"
-            top = "50%"
-            transform = "translate(-50%, -50%)"
-        elif profile.position in {"bottom", "lower_third"}:
-            left = "50%"
-            bottom = f"{margin_y}px"
-            transform = "translateX(-50%)"
-        elif profile.position == "top":
-            left = "50%"
-            top = f"{margin_y}px"
-            transform = "translateX(-50%)"
-        elif profile.position == "top_left":
-            left = f"{margin_x}px"
-            top = f"{margin_y}px"
-        elif profile.position == "top_right":
-            right = f"{margin_x}px"
-            top = f"{margin_y}px"
-        elif profile.position == "bottom_left":
-            left = f"{margin_x}px"
-            bottom = f"{margin_y}px"
-        elif profile.position == "bottom_right":
-            right = f"{margin_x}px"
-            bottom = f"{margin_y}px"
-
+        preview_region = (
+            TextPreviewRegion(
+                x=region.left,
+                y=region.top,
+                width=region.width,
+                height=region.height,
+            )
+            if region is not None
+            else TextPreviewRegion(
+                x=0,
+                y=0,
+                width=float(canvas_width),
+                height=float(canvas_height),
+            )
+        )
+        layout = resolve_text_preview_layout(
+            position=profile.position,
+            canvas_width=float(canvas_width),
+            canvas_height=float(canvas_height),
+            region=preview_region,
+            margin_x=float(margin_x),
+            margin_y=float(margin_y),
+            max_width_ratio=float(profile.max_width_ratio),
+        )
         return [
-            f"--{prefix}-left: {left}",
-            f"--{prefix}-right: {right}",
-            f"--{prefix}-top: {top}",
-            f"--{prefix}-bottom: {bottom}",
-            f"--{prefix}-transform: {transform}",
-        ], available_width
+            f"--{prefix}-left: {HyperFramesCompiler._css_px_or_auto(layout.left)}",
+            f"--{prefix}-right: {HyperFramesCompiler._css_px_or_auto(layout.right)}",
+            f"--{prefix}-top: {HyperFramesCompiler._css_px_or_auto(layout.top)}",
+            f"--{prefix}-bottom: {HyperFramesCompiler._css_px_or_auto(layout.bottom)}",
+            f"--{prefix}-transform: {layout.transform}",
+        ], layout.width
+
+    @staticmethod
+    def _css_px_or_auto(value: float | None) -> str:
+        if value is None:
+            return "auto"
+        return f"{round(value)}px"
 
     @classmethod
     def _title_layout_region(cls, context: TemplateRenderContext) -> _LayoutRegion:

@@ -55,6 +55,18 @@ class TextPreviewRegion:
         )
 
 
+@dataclass(frozen=True)
+class TextPreviewLayout:
+    left: float | None
+    right: float | None
+    top: float | None
+    bottom: float | None
+    transform: str
+    left_bound: float
+    right_bound: float
+    width: float
+
+
 def render_text_style_preview_css(
     style: Mapping[str, Any] | None,
     *,
@@ -196,38 +208,121 @@ def _layout_css(
         margin_y=margin_y,
         max_width_ratio=max_width_ratio,
     )
-    transform = _compose_transform(layout["transform"], rotation_degrees)
+    transform = _compose_transform(layout.transform, rotation_degrees)
     if units == "percent":
-        left_bound = layout["left_bound"] / float(canvas_width) * 100.0
-        right_bound = layout["right_bound"] / float(canvas_width) * 100.0
+        left_bound = layout.left_bound / float(canvas_width) * 100.0
+        right_bound = layout.right_bound / float(canvas_width) * 100.0
         return [
-            f"left:{_position_percent(layout['left'], canvas_width)}",
-            f"right:{_position_percent(layout['right'], canvas_width)}",
-            f"top:{_position_percent(layout['top'], canvas_height)}",
-            f"bottom:{_position_percent(layout['bottom'], canvas_height)}",
+            f"left:{_position_percent(layout.left, canvas_width)}",
+            f"right:{_position_percent(layout.right, canvas_width)}",
+            f"top:{_position_percent(layout.top, canvas_height)}",
+            f"bottom:{_position_percent(layout.bottom, canvas_height)}",
             f"transform:{transform}",
-            f"width:{layout['width'] / float(canvas_width) * 100.0:.3f}%",
+            f"width:{layout.width / float(canvas_width) * 100.0:.3f}%",
             (
                 "max-width:"
-                f"min({layout['width'] / float(canvas_width) * 100.0:.3f}%, "
+                f"min({layout.width / float(canvas_width) * 100.0:.3f}%, "
                 f"calc(100% - {left_bound:.3f}% - {right_bound:.3f}%))"
             ),
             f"height:{region.height / float(canvas_height) * 100.0:.3f}%",
         ]
 
-    left_bound = _format_px(layout["left_bound"])
-    right_bound = _format_px(layout["right_bound"])
-    width = _format_px(layout["width"])
+    left_bound = _format_px(layout.left_bound)
+    right_bound = _format_px(layout.right_bound)
+    width = _format_px(layout.width)
     return [
-        f"left:{_position_px(layout['left'])}",
-        f"right:{_position_px(layout['right'])}",
-        f"top:{_position_px(layout['top'])}",
-        f"bottom:{_position_px(layout['bottom'])}",
+        f"left:{_position_px(layout.left)}",
+        f"right:{_position_px(layout.right)}",
+        f"top:{_position_px(layout.top)}",
+        f"bottom:{_position_px(layout.bottom)}",
         f"transform:{transform}",
         f"width:{width}",
         f"max-width:min({width}, calc(100% - {left_bound} - {right_bound}))",
         f"height:{_format_px(region.height)}",
     ]
+
+
+def resolve_text_preview_layout(
+    *,
+    position: str,
+    canvas_width: float,
+    canvas_height: float,
+    region: TextPreviewRegion,
+    margin_x: float,
+    margin_y: float,
+    max_width_ratio: float,
+) -> TextPreviewLayout:
+    if position not in _TEXT_POSITIONS:
+        width = max(1.0, min(region.width, max(0.0, canvas_width - region.x)))
+        return TextPreviewLayout(
+            left=region.x,
+            right=None,
+            top=region.y,
+            bottom=None,
+            transform="none",
+            left_bound=max(0.0, region.x),
+            right_bound=max(0.0, canvas_width - region.x - width),
+            width=width,
+        )
+
+    horizontal_margin = min(max(float(margin_x), 0.0), max(canvas_width / 2.0, 0.0))
+    vertical_margin = min(max(float(margin_y), 0.0), max(canvas_height / 2.0, 0.0))
+    left: float | None = region.x
+    right: float | None = None
+    top: float | None = region.y
+    bottom: float | None = None
+    transform = "none"
+    center_x = canvas_width / 2.0
+    center_y = canvas_height / 2.0
+    left_bound = horizontal_margin
+    right_bound = horizontal_margin
+    available_width = max(1.0, canvas_width - left_bound - right_bound)
+
+    if position == "center":
+        left = center_x
+        top = center_y
+        transform = "translate(-50%, -50%)"
+    elif position in {"bottom", "lower_third"}:
+        left = center_x
+        top = None
+        bottom = vertical_margin
+        transform = "translateX(-50%)"
+    elif position == "top":
+        left = center_x
+        top = vertical_margin
+        transform = "translateX(-50%)"
+    elif position == "top_left":
+        left = horizontal_margin
+        top = vertical_margin
+        left_bound = left
+    elif position == "top_right":
+        left = None
+        right = horizontal_margin
+        top = vertical_margin
+        right_bound = right
+    elif position == "bottom_left":
+        left = horizontal_margin
+        top = None
+        bottom = vertical_margin
+        left_bound = left
+    elif position == "bottom_right":
+        left = None
+        right = horizontal_margin
+        top = None
+        bottom = vertical_margin
+        right_bound = right
+
+    width = min(region.width, canvas_width * max_width_ratio, available_width)
+    return TextPreviewLayout(
+        left=left,
+        right=right,
+        top=top,
+        bottom=bottom,
+        transform=transform,
+        left_bound=left_bound,
+        right_bound=right_bound,
+        width=max(1.0, width),
+    )
 
 
 def _resolve_layout_box(
@@ -239,80 +334,16 @@ def _resolve_layout_box(
     margin_x: float,
     margin_y: float,
     max_width_ratio: float,
-) -> dict[str, float | None | str]:
-    left: float | None = region.x
-    right: float | None = None
-    top: float | None = region.y
-    bottom: float | None = None
-    transform = "none"
-    left_gap = max(0.0, region.x)
-    right_gap = max(0.0, canvas_width - region.right)
-    top_gap = max(0.0, region.y)
-    bottom_gap = max(0.0, canvas_height - region.bottom)
-    center_x = region.x + region.width / 2.0
-    center_y = region.y + region.height / 2.0
-    left_bound = left_gap
-    right_bound = right_gap
-    available_width = max(1.0, canvas_width - left_bound - right_bound)
-
-    if position == "center":
-        left = center_x
-        top = center_y
-        transform = "translate(-50%, -50%)"
-        left_bound = left_gap
-        right_bound = right_gap
-        available_width = region.width
-    elif position in {"bottom", "lower_third"}:
-        left = center_x
-        top = None
-        bottom = max(bottom_gap, margin_y)
-        transform = "translateX(-50%)"
-        left_bound = left_gap
-        right_bound = right_gap
-        available_width = region.width
-    elif position == "top":
-        left = center_x
-        top = max(top_gap, margin_y)
-        transform = "translateX(-50%)"
-        left_bound = left_gap
-        right_bound = right_gap
-        available_width = region.width
-    elif position == "top_left":
-        left = max(left_gap, margin_x)
-        top = max(top_gap, margin_y)
-        left_bound = left
-        available_width = max(1.0, region.right - left)
-    elif position == "top_right":
-        left = None
-        right = max(right_gap, margin_x)
-        top = max(top_gap, margin_y)
-        right_bound = right
-        available_width = max(1.0, canvas_width - right - region.x)
-    elif position == "bottom_left":
-        left = max(left_gap, margin_x)
-        top = None
-        bottom = max(bottom_gap, margin_y)
-        left_bound = left
-        available_width = max(1.0, region.right - left)
-    elif position == "bottom_right":
-        left = None
-        right = max(right_gap, margin_x)
-        top = None
-        bottom = max(bottom_gap, margin_y)
-        right_bound = right
-        available_width = max(1.0, canvas_width - right - region.x)
-
-    width = min(region.width, canvas_width * max_width_ratio, available_width)
-    return {
-        "left": left,
-        "right": right,
-        "top": top,
-        "bottom": bottom,
-        "transform": transform,
-        "left_bound": left_bound,
-        "right_bound": right_bound,
-        "width": max(1.0, width),
-    }
+) -> TextPreviewLayout:
+    return resolve_text_preview_layout(
+        position=position,
+        canvas_width=canvas_width,
+        canvas_height=canvas_height,
+        region=region,
+        margin_x=margin_x,
+        margin_y=margin_y,
+        max_width_ratio=max_width_ratio,
+    )
 
 
 def _safe_color(value: Any, default: str | None) -> str | None:
