@@ -42,6 +42,7 @@ from web.components.recent_video_gallery import (
     store_recent_generated_video,
 )
 from web.i18n import tr
+from web.state.storyboard_preview import set_storyboard_preview_snapshot
 from web.utils.async_helpers import run_async
 from web.utils.progress_i18n import format_progress_event_message, localize_progress_extra_info
 from web.utils.render_backend_ui import copy_render_backend
@@ -569,10 +570,9 @@ def render_single_output(pixelle_video, video_params):
                     )
 
                     result = run_async(pixelle_video.generate_video(**generation_request))
-                    st.session_state["storyboard_preview_snapshot"] = getattr(
-                        result.storyboard,
-                        "planning_snapshot",
-                        None,
+                    storyboard_snapshot_changed = set_storyboard_preview_snapshot(
+                        st.session_state,
+                        getattr(result.storyboard, "planning_snapshot", None),
                     )
 
                     # Calculate total generation time
@@ -591,7 +591,7 @@ def render_single_output(pixelle_video, video_params):
                         render_result_summary(refresh=True)
                         store_recent_generated_video(result, st.session_state)
                         render_gallery(refresh=True)
-                        rerun_after_generation = True
+                        rerun_after_generation = storyboard_snapshot_changed
                     else:
                         _clear_single_video_result_summary(st.session_state)
                         st.error(tr("status.video_not_found", path=result.video_path))
@@ -718,9 +718,9 @@ def render_batch_output(pixelle_video, video_params):
                     latest_planning_snapshot = planning_snapshot
 
             if latest_planning_snapshot is not None:
-                st.session_state["storyboard_preview_snapshot"] = latest_planning_snapshot
+                set_storyboard_preview_snapshot(st.session_state, latest_planning_snapshot)
             else:
-                st.session_state["storyboard_preview_snapshot"] = None
+                set_storyboard_preview_snapshot(st.session_state, None)
 
             total_time = time.time() - start_time
 

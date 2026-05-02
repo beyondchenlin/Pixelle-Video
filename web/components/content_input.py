@@ -34,6 +34,7 @@ from web.components.storyboard_planning_controls import (
     render_storyboard_advanced_controls,
 )
 from web.i18n import tr
+from web.state.storyboard_preview import get_storyboard_preview_snapshot
 from web.utils.async_helpers import get_project_version
 
 SCRIPT_TARGET_WORDS_MIN = 50
@@ -220,7 +221,7 @@ def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict
             session_state=st.session_state,
             storyboard_default_enabled=False,
             selected_template_type=selected_template_type_for_storyboard,
-            preview_snapshot=st.session_state.get("storyboard_preview_snapshot"),
+            preview_snapshot=get_storyboard_preview_snapshot(st.session_state),
         )
 
         return {

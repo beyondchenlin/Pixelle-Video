@@ -1,0 +1,56 @@
+from web.state.storyboard_preview import (
+    STORYBOARD_PREVIEW_SNAPSHOT_KEY,
+    get_storyboard_preview_snapshot,
+    set_storyboard_preview_snapshot,
+)
+
+
+def test_set_storyboard_preview_snapshot_updates_state_and_reports_change():
+    session_state = {}
+
+    changed = set_storyboard_preview_snapshot(
+        session_state,
+        {"storyboard_generation": {"plan_id": "plan_1"}},
+    )
+
+    assert changed is True
+    assert session_state[STORYBOARD_PREVIEW_SNAPSHOT_KEY] == {
+        "storyboard_generation": {"plan_id": "plan_1"}
+    }
+
+
+def test_set_storyboard_preview_snapshot_skips_equal_snapshot():
+    session_state = {
+        STORYBOARD_PREVIEW_SNAPSHOT_KEY: {
+            "storyboard_generation": {"plan_id": "plan_1"}
+        }
+    }
+
+    changed = set_storyboard_preview_snapshot(
+        session_state,
+        {"storyboard_generation": {"plan_id": "plan_1"}},
+    )
+
+    assert changed is False
+    assert session_state[STORYBOARD_PREVIEW_SNAPSHOT_KEY] == {
+        "storyboard_generation": {"plan_id": "plan_1"}
+    }
+
+
+def test_set_storyboard_preview_snapshot_clears_existing_snapshot():
+    session_state = {
+        STORYBOARD_PREVIEW_SNAPSHOT_KEY: {
+            "storyboard_generation": {"plan_id": "plan_1"}
+        }
+    }
+
+    changed = set_storyboard_preview_snapshot(session_state, None)
+
+    assert changed is True
+    assert session_state[STORYBOARD_PREVIEW_SNAPSHOT_KEY] is None
+
+
+def test_get_storyboard_preview_snapshot_normalizes_non_mapping_values_to_none():
+    session_state = {STORYBOARD_PREVIEW_SNAPSHOT_KEY: "invalid"}
+
+    assert get_storyboard_preview_snapshot(session_state) is None

@@ -2564,6 +2564,8 @@ def test_render_single_output_does_not_stop_before_gallery_on_input_error(monkey
 
 
 def test_render_batch_output_writes_last_successful_planning_snapshot(monkeypatch):
+    captured = {"snapshot_updates": []}
+
     class _FakeContext:
         def __enter__(self):
             return self
@@ -2676,6 +2678,17 @@ def test_render_batch_output_writes_last_successful_planning_snapshot(monkeypatc
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(batch_manager_module, "SimpleBatchManager", _FakeBatchManager)
 
+    def _set_storyboard_preview_snapshot(session_state, snapshot):
+        captured["snapshot_updates"].append(snapshot)
+        session_state["storyboard_preview_snapshot"] = snapshot
+        return True
+
+    monkeypatch.setattr(
+        output_preview,
+        "set_storyboard_preview_snapshot",
+        _set_storyboard_preview_snapshot,
+    )
+
     output_preview.render_batch_output(
         object(),
         {
@@ -2687,11 +2700,14 @@ def test_render_batch_output_writes_last_successful_planning_snapshot(monkeypatc
     assert output_preview.st.session_state["storyboard_preview_snapshot"] == {
         "world_preset_id": "last"
     }
+    assert captured["snapshot_updates"] == [{"world_preset_id": "last"}]
 
 
 def test_render_batch_output_clears_stale_snapshot_when_successes_have_no_planning_snapshot(
     monkeypatch,
 ):
+    captured = {"snapshot_updates": []}
+
     class _FakeContext:
         def __enter__(self):
             return self
@@ -2804,6 +2820,17 @@ def test_render_batch_output_clears_stale_snapshot_when_successes_have_no_planni
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(batch_manager_module, "SimpleBatchManager", _FakeBatchManager)
 
+    def _set_storyboard_preview_snapshot(session_state, snapshot):
+        captured["snapshot_updates"].append(snapshot)
+        session_state["storyboard_preview_snapshot"] = snapshot
+        return True
+
+    monkeypatch.setattr(
+        output_preview,
+        "set_storyboard_preview_snapshot",
+        _set_storyboard_preview_snapshot,
+    )
+
     output_preview.render_batch_output(
         object(),
         {
@@ -2813,3 +2840,4 @@ def test_render_batch_output_clears_stale_snapshot_when_successes_have_no_planni
     )
 
     assert output_preview.st.session_state["storyboard_preview_snapshot"] is None
+    assert captured["snapshot_updates"] == [None]
