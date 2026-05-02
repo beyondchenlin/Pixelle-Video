@@ -107,8 +107,81 @@ class LayeredTemplateEditorState:
         layer_id: str,
         source: LayerSourceSpec,
     ) -> LayeredTemplateEditorState:
+        return self._update_layer(layer_id, source=source)
+
+    def update_layer_name(
+        self,
+        layer_id: str,
+        name: str,
+    ) -> LayeredTemplateEditorState:
+        return self._update_layer(layer_id, name=str(name))
+
+    def update_layer_rect(
+        self,
+        layer_id: str,
+        *,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+    ) -> LayeredTemplateEditorState:
+        return self._update_layer(
+            layer_id,
+            rect=RectSpec(x=x, y=y, width=width, height=height),
+        )
+
+    def update_layer_z_index(
+        self,
+        layer_id: str,
+        z_index: int,
+    ) -> LayeredTemplateEditorState:
+        return self._update_layer(layer_id, z_index=int(z_index))
+
+    def update_layer_opacity(
+        self,
+        layer_id: str,
+        opacity: float,
+    ) -> LayeredTemplateEditorState:
+        return self._update_layer(layer_id, opacity=float(opacity))
+
+    def update_layer_rotation(
+        self,
+        layer_id: str,
+        rotation: float,
+    ) -> LayeredTemplateEditorState:
+        return self._update_layer(layer_id, rotation=float(rotation))
+
+    def update_layer_locked(
+        self,
+        layer_id: str,
+        locked: bool,
+    ) -> LayeredTemplateEditorState:
+        return self._update_layer(layer_id, locked=bool(locked))
+
+    def update_layer_role(
+        self,
+        layer_id: str,
+        role: str | None,
+    ) -> LayeredTemplateEditorState:
+        normalized_role = str(role).strip() if role is not None else None
+        return self._update_layer(layer_id, role=normalized_role or None)
+
+    def update_layer_style(
+        self,
+        layer_id: str,
+        style: dict[str, Any],
+    ) -> LayeredTemplateEditorState:
+        return self._update_layer(layer_id, style=dict(style))
+
+    def _update_layer(
+        self,
+        layer_id: str,
+        **changes: Any,
+    ) -> LayeredTemplateEditorState:
+        if not any(layer.id == layer_id for layer in self.layers):
+            return self
         layers = tuple(
-            replace(layer, source=source) if layer.id == layer_id else layer
+            replace(layer, **changes) if layer.id == layer_id else layer
             for layer in self.layers
         )
         return replace(self, layers=layers)
