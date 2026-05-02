@@ -73,6 +73,7 @@ from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID
 from pixelle_video.models.video_generation_contract import StoryboardControlsContract
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
+from pixelle_video.platform_context import resolve_workspace_id
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE
 from pixelle_video.render_backend import (
     FFMPEG_MANIFEST_RENDER_BACKEND,
@@ -1623,12 +1624,7 @@ class StandardPipeline(LinearVideoPipeline):
 
     @staticmethod
     def _resolve_workspace_id(ctx: PipelineContext) -> str:
-        return str(
-            ctx.params.get("workspace_id")
-            or ctx.params.get("project_id")
-            or ctx.session_id
-            or "workspace_1"
-        ).strip()
+        return resolve_workspace_id(ctx.params)
 
     @staticmethod
     def _resolve_workbench_provider(ctx: PipelineContext) -> str | None:

@@ -21,6 +21,11 @@ from dataclasses import dataclass
 import streamlit as st
 from loguru import logger
 
+from pixelle_video.platform_context import (
+    DEFAULT_API_BASE_URL,
+    DEFAULT_PROJECT_ID,
+    DEFAULT_WORKSPACE_ID,
+)
 from web.i18n import get_language, set_language
 from web.state.async_runtime import (
     DEFAULT_SESSION_KEY,
@@ -29,9 +34,6 @@ from web.state.async_runtime import (
     session_exists,
 )
 from web.utils.async_helpers import run_async
-
-DEFAULT_PROJECT_ID = "project_1"
-DEFAULT_WORKSPACE_ID = "workspace_1"
 
 
 @dataclass
@@ -73,6 +75,8 @@ def init_session_state():
         st.session_state.workspace_id = DEFAULT_WORKSPACE_ID
     if "project_id" not in st.session_state:
         st.session_state.project_id = DEFAULT_PROJECT_ID
+    if "api_base_url" not in st.session_state:
+        st.session_state.api_base_url = DEFAULT_API_BASE_URL
 
 
 def init_i18n():

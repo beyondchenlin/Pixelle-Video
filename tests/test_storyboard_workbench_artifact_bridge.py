@@ -516,6 +516,19 @@ async def test_standard_pipeline_skips_workbench_registration_without_repositori
     assert frame.workbench_state is None
 
 
+def test_standard_pipeline_resolve_workspace_id_ignores_session_id_fallback():
+    from pixelle_video.pipelines.linear import PipelineContext
+    from pixelle_video.pipelines.standard import StandardPipeline
+
+    ctx = PipelineContext(
+        input_text="demo",
+        params={"project_id": "project_business"},
+        session_id="sess_runtime_only",
+    )
+
+    assert StandardPipeline._resolve_workspace_id(ctx) == "workspace_1"
+
+
 @pytest.mark.asyncio
 async def test_standard_pipeline_parallel_result_registration_runs_for_each_processed_frame(tmp_path):
     from pixelle_video.models.storyboard import Storyboard, StoryboardConfig

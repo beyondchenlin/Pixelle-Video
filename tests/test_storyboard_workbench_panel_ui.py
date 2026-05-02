@@ -140,7 +140,7 @@ def test_render_storyboard_workbench_panel_uses_default_workspace_context():
 
     assert calls == [
         {
-            "api_base_url": "http://localhost:8000/api",
+            "api_base_url": "http://localhost:8001/api",
             "workspace_id": "workspace_1",
             "storyboard_id": "storyboard_001",
             "frame_id": "frame_0001",

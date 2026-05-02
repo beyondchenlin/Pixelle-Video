@@ -17,6 +17,14 @@ if not exist "%PIXELLE_VIDEO_RUNTIME_ROOT%" mkdir "%PIXELLE_VIDEO_RUNTIME_ROOT%"
 if not exist "%TMP%" mkdir "%TMP%"
 if not exist "%UV_CACHE_DIR%" mkdir "%UV_CACHE_DIR%"
 if not exist "%RUFF_CACHE_DIR%" mkdir "%RUFF_CACHE_DIR%"
+if "%PIXELLE_API_PORT%"=="" set "PIXELLE_API_PORT=8001"
+if "%PIXELLE_API_BASE_URL%"=="" set "PIXELLE_API_BASE_URL=http://localhost:%PIXELLE_API_PORT%/api"
+
+echo Starting Pixelle-Video API...
+echo.
+
+start "Pixelle-Video API" /min uv run uvicorn api.app:app --host 127.0.0.1 --port %PIXELLE_API_PORT%
+timeout /t 2 /nobreak >nul
 
 echo Starting Pixelle-Video Web UI...
 echo.

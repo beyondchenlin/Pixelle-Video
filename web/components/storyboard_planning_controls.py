@@ -211,6 +211,20 @@ def _preview_renderer_accepts_stale_context(preview_renderer: Callable[..., list
     )
 
 
+def _render_preview_snapshot(
+    preview_snapshot,
+    *,
+    preview_renderer: Callable[[dict | None], list[dict]],
+    stale_context: dict[str, str],
+) -> list[dict]:
+    if _preview_renderer_accepts_stale_context(preview_renderer):
+        return preview_renderer(
+            preview_snapshot,
+            stale_context=stale_context,
+        )
+    return preview_renderer(preview_snapshot)
+
+
 def _normalize_storyboard_guide_html(html: str) -> str:
     return "\n".join(
         line.lstrip() if line.strip() else ""
@@ -491,8 +505,20 @@ def render_storyboard_advanced_controls(
         ui.caption(translate("template.type.static_hint"))
         return {}
 
+    stale_context = build_stale_panel_context(session_state)
     if not storyboard_enabled:
-        ui.caption(translate("storyboard.preview.empty"))
+        if preview_snapshot is not None:
+            preview_context = nullcontext()
+            if hasattr(ui, "container"):
+                preview_context = ui.container()
+            with preview_context:
+                _render_preview_snapshot(
+                    preview_snapshot,
+                    preview_renderer=preview_renderer,
+                    stale_context=stale_context,
+                )
+        else:
+            ui.caption(translate("storyboard.preview.empty"))
         return {}
 
     render_storyboard_planning_guide(ui=ui, translate=translate)
@@ -594,14 +620,11 @@ def render_storyboard_advanced_controls(
     if hasattr(ui, "container"):
         preview_context = ui.container()
     with preview_context:
-        stale_context = build_stale_panel_context(session_state)
-        if _preview_renderer_accepts_stale_context(preview_renderer):
-            storyboard_frame_overrides = preview_renderer(
-                preview_snapshot,
-                stale_context=stale_context,
-            )
-        else:
-            storyboard_frame_overrides = preview_renderer(preview_snapshot)
+        storyboard_frame_overrides = _render_preview_snapshot(
+            preview_snapshot,
+            preview_renderer=preview_renderer,
+            stale_context=stale_context,
+        )
 
     return build_storyboard_control_payload(
         world_preset_id=storyboard_world_preset_id,

@@ -678,7 +678,7 @@ def test_text_rendering_controls_real_preview_button_stores_state_without_payloa
     fake_ui.session_state.update(
         {
             "text_rendering_generate_real_preview": True,
-            "api_base_url": "http://localhost:8000/api",
+            "api_base_url": "http://localhost:8001/api",
             "workspace_id": "ws",
             "title_style_font_size": 76,
         }
@@ -730,7 +730,7 @@ def test_text_rendering_controls_real_preview_button_stores_state_without_payloa
             "caption": "text_rendering_preview.real_current",
         }
     ]
-    assert captured["api_base_url"] == "http://localhost:8000/api"
+    assert captured["api_base_url"] == "http://localhost:8001/api"
     assert captured["workspace_id"] == "ws"
     assert captured["text_rendering_payload"] == payload
     assert "text_rendering_real_preview_frame" not in payload

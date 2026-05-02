@@ -5,13 +5,17 @@ from typing import Any
 
 import streamlit as st
 
+from pixelle_video.platform_context import (
+    DEFAULT_API_BASE_URL,
+    DEFAULT_PROJECT_ID,
+    DEFAULT_WORKSPACE_ID,
+    first_explicit_text,
+    first_text,
+)
 from web.components.stale_panel import render_stale_target_panel
 from web.i18n import tr
 from web.utils.stale_api import get_stale_target_summary
 
-DEFAULT_API_BASE_URL = "http://localhost:8000/api"
-DEFAULT_PROJECT_ID = "project_1"
-DEFAULT_WORKSPACE_ID = "workspace_1"
 Translate = Callable[..., str]
 StaleSummaryLoader = Callable[..., dict[str, Any]]
 StalePanelRenderer = Callable[..., None]
@@ -26,11 +30,11 @@ def build_stale_panel_context(
 ) -> dict[str, str]:
     """Resolve public stale-query context for a frontend panel."""
     state = session_state or {}
-    resolved_api_base_url = _first_text(api_base_url, state.get("api_base_url"), DEFAULT_API_BASE_URL)
+    resolved_api_base_url = first_text(api_base_url, state.get("api_base_url"), DEFAULT_API_BASE_URL)
     return {
         "api_base_url": resolved_api_base_url.rstrip("/"),
-        "workspace_id": _first_context_text(workspace_id, state.get("workspace_id"), DEFAULT_WORKSPACE_ID),
-        "project_id": _first_context_text(project_id, state.get("project_id"), DEFAULT_PROJECT_ID),
+        "workspace_id": first_explicit_text(workspace_id, state.get("workspace_id"), DEFAULT_WORKSPACE_ID),
+        "project_id": first_explicit_text(project_id, state.get("project_id"), DEFAULT_PROJECT_ID),
     }
 
 
@@ -52,7 +56,7 @@ def render_prompt_plan_stale_panel(
         workspace_id=workspace_id,
         project_id=project_id,
     )
-    normalized_prompt_plan_id = _first_text(prompt_plan_id)
+    normalized_prompt_plan_id = first_text(prompt_plan_id)
     if not context["workspace_id"] or not context["project_id"] or not normalized_prompt_plan_id:
         ui.caption(translate("stale.workbench.missing_context"))
         return
@@ -79,23 +83,6 @@ def render_prompt_plan_stale_panel(
         ui=ui,
         translate=translate,
     )
-
-
-def _first_text(*values: Any) -> str:
-    for value in values:
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
-
-
-def _first_context_text(explicit_value: Any, *fallback_values: Any) -> str:
-    if explicit_value is not None:
-        return str(explicit_value).strip()
-    return _first_text(*fallback_values)
-
 
 __all__ = [
     "DEFAULT_API_BASE_URL",

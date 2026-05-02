@@ -26,7 +26,7 @@ class APIConfig(BaseModel):
 
     # Server settings
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 8001
     reload: bool = False
     
     # CORS settings
@@ -69,6 +69,9 @@ class APIConfig(BaseModel):
     def from_env(cls) -> "APIConfig":
         """Build API config from PIXELLE_* environment variables."""
         return cls(
+            host=_env_str("PIXELLE_API_HOST", default="0.0.0.0"),
+            port=_env_int("PIXELLE_API_PORT", default=8001),
+            reload=_env_bool("PIXELLE_API_RELOAD", default=False),
             runtime_profile=_env_str("PIXELLE_RUNTIME_PROFILE", default="dev"),
             task_backend=_env_str("PIXELLE_TASK_BACKEND", default="memory"),
             postgres_dsn=os.getenv("PIXELLE_POSTGRES_DSN"),

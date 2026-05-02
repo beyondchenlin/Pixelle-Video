@@ -175,6 +175,54 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["progress_callback"] is _progress
 
 
+def test_build_single_generation_request_propagates_business_context_from_session_state():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "session_id": "sess_runtime_only",
+        },
+        progress_callback=_progress,
+        session_state={
+            "workspace_id": "workspace_business",
+            "project_id": "project_business",
+        },
+    )
+
+    assert request["workspace_id"] == "workspace_business"
+    assert request["project_id"] == "project_business"
+    assert request["session_id"] == "sess_runtime_only"
+
+
+def test_build_single_generation_request_prefers_explicit_business_context():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "workspace_id": "workspace_explicit",
+            "project_id": "project_explicit",
+        },
+        progress_callback=_progress,
+        session_state={
+            "workspace_id": "workspace_session",
+            "project_id": "project_session",
+        },
+    )
+
+    assert request["workspace_id"] == "workspace_explicit"
+    assert request["project_id"] == "project_explicit"
+
+
 def test_build_single_generation_request_uses_size_contract_not_template_session():
     def _progress(_event):
         return None
@@ -743,6 +791,22 @@ def test_build_batch_shared_config_passes_session_id():
     )
 
     assert shared_config["session_id"] == "sess_5678"
+
+
+def test_build_batch_shared_config_propagates_business_context():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "frame_template": "1080x1920/default.html",
+            "tts_inference_mode": "local",
+            "session_id": "sess_batch_runtime",
+            "workspace_id": "workspace_batch",
+            "project_id": "project_batch",
+        }
+    )
+
+    assert shared_config["workspace_id"] == "workspace_batch"
+    assert shared_config["project_id"] == "project_batch"
+    assert shared_config["session_id"] == "sess_batch_runtime"
 
 
 def test_build_batch_shared_config_includes_storyboard_controls_and_frame_overrides():

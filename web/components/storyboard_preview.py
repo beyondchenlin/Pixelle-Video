@@ -11,6 +11,7 @@ from typing import Any, Mapping, Sequence
 
 import streamlit as st
 
+from pixelle_video.platform_context import first_text
 from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 from web.components.storyboard_workbench_stale import render_prompt_plan_stale_panel
 from web.i18n import tr
@@ -311,27 +312,21 @@ def render_storyboard_preview(
 
 
 def _extract_frame_workbench_context(frame: Mapping[str, Any]) -> dict[str, str]:
+    workbench_state = frame.get("workbench_state")
+    state = workbench_state if isinstance(workbench_state, Mapping) else {}
     return {
-        "storyboard_id": _first_frame_text(
+        "storyboard_id": first_text(
             frame.get("storyboard_id"),
             frame.get("source_storyboard_id"),
         ),
-        "artifact_id": _first_frame_text(
+        "artifact_id": first_text(
             frame.get("selected_image_artifact_id"),
             frame.get("image_artifact_id"),
             frame.get("artifact_id"),
+            state.get("selected_image_artifact_id"),
         ),
-        "selected_version_id": _first_frame_text(
+        "selected_version_id": first_text(
             frame.get("selected_image_version_id"),
+            state.get("selected_image_version_id"),
         ),
     }
-
-
-def _first_frame_text(*values: Any) -> str:
-    for value in values:
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""

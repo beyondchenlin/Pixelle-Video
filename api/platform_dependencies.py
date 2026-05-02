@@ -12,26 +12,26 @@ from pixelle_video.services.artifact_dependency_integration import (
 from pixelle_video.services.storyboard_workbench import StoryboardWorkbenchService
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 from pixelle_video.storage.dev_repositories import (
-    InMemoryArtifactRepository,
-    InMemoryAssetBibleRepository,
-    InMemoryDependencyEdgeRepository,
-    InMemoryPromptPlanRepository,
-    InMemoryStaleMarkRepository,
-    InMemoryStoryboardWorkbenchStateStore,
-    InMemoryTraceRepository,
+    FilesystemDevArtifactRepository,
+    FilesystemDevAssetBibleRepository,
+    FilesystemDevDependencyEdgeRepository,
+    FilesystemDevPromptPlanRepository,
+    FilesystemDevStaleMarkRepository,
+    FilesystemDevStoryboardWorkbenchStateStore,
+    FilesystemDevTraceRepository,
 )
 
 
 @dataclass(frozen=True)
 class PlatformDependencies:
-    artifact_repository: InMemoryArtifactRepository
+    artifact_repository: FilesystemDevArtifactRepository
     artifact_object_store: FilesystemDevArtifactObjectStore
-    trace_repository: InMemoryTraceRepository
-    prompt_plan_repository: InMemoryPromptPlanRepository
-    asset_bible_repository: InMemoryAssetBibleRepository
-    dependency_edge_repository: InMemoryDependencyEdgeRepository
-    stale_mark_repository: InMemoryStaleMarkRepository
-    storyboard_workbench_state_store: InMemoryStoryboardWorkbenchStateStore
+    trace_repository: FilesystemDevTraceRepository
+    prompt_plan_repository: FilesystemDevPromptPlanRepository
+    asset_bible_repository: FilesystemDevAssetBibleRepository
+    dependency_edge_repository: FilesystemDevDependencyEdgeRepository
+    stale_mark_repository: FilesystemDevStaleMarkRepository
+    storyboard_workbench_state_store: FilesystemDevStoryboardWorkbenchStateStore
     storyboard_workbench_service: StoryboardWorkbenchService
 
 
@@ -51,17 +51,20 @@ def configure_platform_dependencies(
 def build_platform_dependencies(config: APIConfig) -> PlatformDependencies:
     if config.runtime_profile == "production":
         raise RuntimeError("production repository adapters are not implemented")
-    artifact_repository = InMemoryArtifactRepository()
+    platform_root = f"{config.artifact_base_path}/_platform"
+    artifact_repository = FilesystemDevArtifactRepository(f"{platform_root}/artifacts")
     artifact_object_store = FilesystemDevArtifactObjectStore(
         root=f"{config.artifact_base_path}/_objects",
         base_url=config.artifact_base_url,
     )
-    trace_repository = InMemoryTraceRepository()
-    prompt_plan_repository = InMemoryPromptPlanRepository()
-    asset_bible_repository = InMemoryAssetBibleRepository()
-    dependency_edge_repository = InMemoryDependencyEdgeRepository()
-    stale_mark_repository = InMemoryStaleMarkRepository()
-    storyboard_workbench_state_store = InMemoryStoryboardWorkbenchStateStore()
+    trace_repository = FilesystemDevTraceRepository(f"{platform_root}/traces")
+    prompt_plan_repository = FilesystemDevPromptPlanRepository(f"{platform_root}/prompt_plans")
+    asset_bible_repository = FilesystemDevAssetBibleRepository(f"{platform_root}/assets")
+    dependency_edge_repository = FilesystemDevDependencyEdgeRepository(f"{platform_root}/dependencies")
+    stale_mark_repository = FilesystemDevStaleMarkRepository(f"{platform_root}/stale_marks")
+    storyboard_workbench_state_store = FilesystemDevStoryboardWorkbenchStateStore(
+        f"{platform_root}/storyboard_workbench"
+    )
     workbench_service = StoryboardWorkbenchService(
         artifact_repository=artifact_repository,
         object_store=artifact_object_store,

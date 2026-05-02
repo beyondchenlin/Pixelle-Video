@@ -8,10 +8,33 @@ from fastapi import FastAPI
 from api.config import APIConfig
 
 
+def test_api_config_defaults_use_non_comfyui_local_port():
+    config = APIConfig()
+
+    assert config.port == 8001
+
+
+def test_platform_context_ignores_blank_api_base_url_env(monkeypatch):
+    import importlib
+
+    import pixelle_video.platform_context as platform_context
+
+    monkeypatch.setenv("PIXELLE_API_BASE_URL", "")
+    monkeypatch.setenv("PIXELLE_API_PORT", "8011")
+
+    reloaded = importlib.reload(platform_context)
+    try:
+        assert reloaded.DEFAULT_API_BASE_URL == "http://localhost:8011/api"
+    finally:
+        monkeypatch.delenv("PIXELLE_API_BASE_URL", raising=False)
+        monkeypatch.delenv("PIXELLE_API_PORT", raising=False)
+        importlib.reload(platform_context)
+
+
 def test_dev_platform_dependencies_mount_workbench_services_and_repositories(tmp_path):
     from api.platform_dependencies import configure_platform_dependencies
     from pixelle_video.services.storyboard_workbench import StoryboardWorkbenchService
-    from pixelle_video.storage.dev_repositories import InMemoryStoryboardWorkbenchStateStore
+    from pixelle_video.storage.dev_repositories import FilesystemDevStoryboardWorkbenchStateStore
 
     app = FastAPI()
     dependencies = configure_platform_dependencies(
@@ -26,7 +49,7 @@ def test_dev_platform_dependencies_mount_workbench_services_and_repositories(tmp
     assert app.state.asset_bible_repository is dependencies.asset_bible_repository
     assert app.state.dependency_edge_repository is dependencies.dependency_edge_repository
     assert app.state.stale_mark_repository is dependencies.stale_mark_repository
-    assert isinstance(app.state.storyboard_workbench_state_store, InMemoryStoryboardWorkbenchStateStore)
+    assert isinstance(app.state.storyboard_workbench_state_store, FilesystemDevStoryboardWorkbenchStateStore)
     assert isinstance(app.state.storyboard_workbench_service, StoryboardWorkbenchService)
 
 
@@ -173,3 +196,102 @@ def test_in_memory_artifact_repository_keeps_single_selected_version():
     statuses = {version["version_id"]: version["status"] for version in versions}
 
     assert statuses == {"version_1": "candidate", "version_2": "selected"}
+
+
+@pytest.mark.asyncio
+async def test_dev_platform_dependencies_share_workbench_artifacts_between_instances(tmp_path):
+    from api.platform_dependencies import build_platform_dependencies
+    from pixelle_video.models.artifact import Artifact, ArtifactVersion
+    from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
+
+    config = APIConfig(runtime_profile="dev", artifact_base_path=str(tmp_path / "output"))
+    writer = build_platform_dependencies(config)
+    reader = build_platform_dependencies(config)
+
+    await writer.artifact_repository.create_artifact(
+        "workspace_1",
+        Artifact(
+            artifact_id="artifact_1",
+            workspace_id="workspace_1",
+            artifact_type="storyboard_frame_image",
+            frame_id="frame_1",
+            source_prompt_plan_id="prompt_1",
+        ).to_dict(),
+    )
+    await writer.artifact_repository.create_artifact_version(
+        "workspace_1",
+        "artifact_1",
+        ArtifactVersion(
+            version_id="version_1",
+            artifact_id="artifact_1",
+            workspace_id="workspace_1",
+            frame_id="frame_1",
+            source_prompt_plan_id="prompt_1",
+            storage_key="artifacts/workspace_1/0123456789abcdef0123456789abcdef.png",
+            status="selected",
+        ).to_dict(),
+    )
+    await writer.storyboard_workbench_state_store.save_frame_state(
+        "workspace_1",
+        "storyboard_1",
+        "frame_1",
+        StoryboardFrameWorkbenchState(
+            frame_id="frame_1",
+            prompt_plan_id="prompt_1",
+            selected_image_artifact_id="artifact_1",
+            selected_image_version_id="version_1",
+            candidate_image_version_ids=("version_1",),
+        ).to_dict(),
+    )
+
+    versions = await reader.artifact_repository.list_artifact_versions(
+        "workspace_1",
+        "artifact_1",
+    )
+    assert len(versions) == 1
+    version = versions[0]
+    assert isinstance(version.pop("created_at"), str)
+    assert version == {
+        "version_id": "version_1",
+        "artifact_id": "artifact_1",
+        "workspace_id": "workspace_1",
+        "frame_id": "frame_1",
+        "source_prompt_plan_id": "prompt_1",
+        "storage_key": "artifacts/workspace_1/0123456789abcdef0123456789abcdef.png",
+        "status": "selected",
+        "provider": None,
+        "provider_metadata": {},
+        "width": None,
+        "height": None,
+        "trace_event_id": None,
+        "metadata": {},
+    }
+    state = await reader.storyboard_workbench_state_store.load_frame_state(
+        "workspace_1",
+        "storyboard_1",
+        "frame_1",
+    )
+    assert state is not None
+    assert state["selected_image_artifact_id"] == "artifact_1"
+    assert state["selected_image_version_id"] == "version_1"
+
+    object_path = (
+        tmp_path
+        / "output"
+        / "_objects"
+        / "artifacts"
+        / "workspace_1"
+        / "0123456789abcdef0123456789abcdef.png"
+    )
+    object_path.parent.mkdir(parents=True)
+    object_path.write_bytes(b"png")
+    candidates = await reader.storyboard_workbench_service.list_image_candidates(
+        workspace_id="workspace_1",
+        artifact_id="artifact_1",
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].version_id == "version_1"
+    assert candidates[0].url == (
+        "/api/files/artifacts/workspace_1/0123456789abcdef0123456789abcdef.png"
+    )

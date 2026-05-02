@@ -298,7 +298,7 @@ def test_build_stale_panel_context_uses_repo_defaults_without_session_state():
     context = build_stale_panel_context({})
 
     assert context == {
-        "api_base_url": "http://localhost:8000/api",
+        "api_base_url": "http://localhost:8001/api",
         "workspace_id": "workspace_1",
         "project_id": "project_1",
     }
@@ -408,6 +408,39 @@ def test_storyboard_preview_uses_plan_id_as_workbench_storyboard_id_when_missing
     assert calls[0]["storyboard_id"] == "storyboard_plan_001"
 
 
+def test_storyboard_preview_extracts_artifact_from_nested_workbench_state(monkeypatch):
+    from web.components import storyboard_preview
+
+    fake_ui = _FakeUI()
+    calls: list[dict[str, Any]] = []
+    snapshot = _planning_snapshot()
+    snapshot["storyboard_generation"]["frames"][0].pop("image_artifact_id", None)
+    snapshot["storyboard_generation"]["frames"][0].pop("selected_image_version_id", None)
+    snapshot["storyboard_generation"]["frames"][0]["workbench_state"] = {
+        "selected_image_artifact_id": "artifact_nested_frame_0001_image",
+        "selected_image_version_id": "artifact_version_nested_001",
+    }
+
+    def workbench_renderer(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(storyboard_preview, "st", fake_ui)
+
+    storyboard_preview.render_storyboard_preview(
+        snapshot,
+        stale_context={
+            "api_base_url": "http://localhost:8000/api",
+            "project_id": "project_1",
+            "workspace_id": "workspace_1",
+        },
+        stale_renderer=None,
+        workbench_renderer=workbench_renderer,
+    )
+
+    assert calls[0]["artifact_id"] == "artifact_nested_frame_0001_image"
+    assert calls[0]["selected_version_id"] == "artifact_version_nested_001"
+
+
 def test_storyboard_advanced_controls_passes_stale_context_to_preview_renderer(monkeypatch):
     from web.components import storyboard_planning_controls
 
@@ -461,6 +494,59 @@ def test_storyboard_advanced_controls_passes_stale_context_to_preview_renderer(m
         "workspace_id": "workspace_1",
     }
     assert payload["world_preset_id"] == "neutral_knowledge_storyboard"
+
+
+def test_storyboard_advanced_controls_renders_preview_when_snapshot_exists_even_if_editing_disabled(
+    monkeypatch,
+):
+    from web.components import storyboard_planning_controls
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state.update(
+        {
+            "storyboard_planning_enabled": False,
+            "api_base_url": "http://localhost:8001/api",
+            "project_id": "project_1",
+            "workspace_id": "workspace_1",
+        }
+    )
+    captured: list[dict[str, Any]] = []
+
+    def preview_renderer(snapshot, *, stale_context=None):
+        captured.append({"snapshot": snapshot, "stale_context": stale_context})
+        return []
+
+    monkeypatch.setattr(storyboard_planning_controls, "render_storyboard_planning_guide", lambda **_kwargs: None)
+
+    payload = storyboard_planning_controls.render_storyboard_advanced_controls(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+        session_state=fake_ui.session_state,
+        preview_snapshot=_planning_snapshot(),
+        world_library_loader=lambda: {
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [
+                {
+                    "preset_id": "neutral_knowledge_storyboard",
+                    "display_name": "Neutral",
+                }
+            ],
+        },
+        shot_library_loader=lambda: {
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [
+                {
+                    "preset_id": "balanced_explainer",
+                    "display_name": "Balanced",
+                }
+            ],
+        },
+        preview_renderer=preview_renderer,
+    )
+
+    assert len(captured) == 1
+    assert captured[0]["snapshot"] == _planning_snapshot()
+    assert payload == {}
 
 
 def test_storyboard_advanced_controls_does_not_retry_renderer_internal_type_error(monkeypatch):

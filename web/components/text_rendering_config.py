@@ -33,6 +33,7 @@ from pixelle_video.models.text_style import (
     DEFAULT_OVERLAY_PRIMARY_COLOR,
     DEFAULT_OVERLAY_STROKE_WIDTH,
 )
+from pixelle_video.platform_context import DEFAULT_API_BASE_URL, DEFAULT_WORKSPACE_ID
 from pixelle_video.render_backend import LEGACY_RENDER_BACKEND
 from pixelle_video.services.font_discovery import (
     FontOption,
@@ -711,9 +712,9 @@ def render_text_rendering_controls(
                     api_base_url=_session_value(
                         ui,
                         "api_base_url",
-                        "http://localhost:8000/api",
+                        DEFAULT_API_BASE_URL,
                     ),
-                    workspace_id=_session_value(ui, "workspace_id", "default"),
+                    workspace_id=_session_value(ui, "workspace_id", DEFAULT_WORKSPACE_ID),
                 )
                 _set_session_value(
                     ui,

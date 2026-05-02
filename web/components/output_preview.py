@@ -31,6 +31,7 @@ from pixelle_video.models.video_generation_contract import (
     StoryboardControlsContract,
     is_plan_frame_override_payload,
 )
+from pixelle_video.platform_context import resolve_business_context
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from web.components.prompt_generation_performance import (
@@ -245,6 +246,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     """Build a single generate_video() request from UI params."""
     storyboard_contract = _storyboard_controls_contract(video_params)
     size_contract = GenerationSizeContract.from_params(video_params)
+    business_context = resolve_business_context(session_state, video_params)
     request = {
         "text": video_params.get("text", ""),
         "mode": video_params.get("mode", "generate"),
@@ -270,6 +272,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         "role_strategy": storyboard_contract.role_strategy,
         "role_locking_strength": storyboard_contract.role_locking_strength,
         "shot_strategy": storyboard_contract.shot_strategy,
+        **business_context,
     }
     if storyboard_contract.frame_overrides:
         request["frame_overrides"] = [
@@ -315,6 +318,7 @@ def build_batch_shared_config(video_params):
     """Build batch shared_config from Web UI params."""
     storyboard_contract = _storyboard_controls_contract(video_params)
     size_contract = GenerationSizeContract.from_params(video_params)
+    business_context = resolve_business_context(video_params)
     shared_config = {
         "title_prefix": video_params.get("title_prefix"),
         "media_workflow": video_params.get("media_workflow"),
@@ -332,6 +336,7 @@ def build_batch_shared_config(video_params):
         "role_strategy": storyboard_contract.role_strategy,
         "role_locking_strength": storyboard_contract.role_locking_strength,
         "shot_strategy": storyboard_contract.shot_strategy,
+        **business_context,
     }
     if storyboard_contract.frame_overrides:
         shared_config["frame_overrides"] = [
