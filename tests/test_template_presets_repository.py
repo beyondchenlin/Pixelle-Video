@@ -101,6 +101,40 @@ def test_repository_rejects_asset_layers_without_repository_keys(tmp_path: Path)
         repo.save(preset)
 
 
+def test_repository_rejects_missing_repository_asset_key(tmp_path: Path):
+    repo = TemplatePresetRepository(root=tmp_path)
+    preset = TemplatePreset(
+        preset_id="user-demo",
+        name="My Demo",
+        source="user",
+        orientation="portrait",
+        template_type="image",
+        spec=_asset_spec("assets/user_demo/missing.png"),
+        thumbnail_ref=_thumbnail_key(repo, tmp_path, "user-demo"),
+    )
+
+    with pytest.raises(ValueError, match="asset key does not exist"):
+        repo.save(preset)
+
+
+def test_repository_rejects_asset_key_path_traversal(tmp_path: Path):
+    outside_path = tmp_path / "outside.png"
+    outside_path.write_bytes(b"outside")
+    repo = TemplatePresetRepository(root=tmp_path / "repo")
+    preset = TemplatePreset(
+        preset_id="user-demo",
+        name="My Demo",
+        source="user",
+        orientation="portrait",
+        template_type="image",
+        spec=_asset_spec("assets/../../outside.png"),
+        thumbnail_ref=_thumbnail_key(repo, tmp_path, "user-demo"),
+    )
+
+    with pytest.raises(ValueError, match="asset key does not exist"):
+        repo.save(preset)
+
+
 def test_repository_persist_asset_copies_file_into_repository(tmp_path: Path):
     source_path = tmp_path / "source.png"
     source_path.write_bytes(b"png-bytes")
@@ -139,6 +173,40 @@ def test_repository_rejects_user_preset_without_persisted_thumbnail(tmp_path: Pa
     )
 
     with pytest.raises(ValueError, match="user presets must reference persisted thumbnails"):
+        repo.save(preset)
+
+
+def test_repository_rejects_missing_repository_thumbnail_key(tmp_path: Path):
+    repo = TemplatePresetRepository(root=tmp_path)
+    preset = TemplatePreset(
+        preset_id="user-demo",
+        name="My Demo",
+        source="user",
+        orientation="portrait",
+        template_type="image",
+        spec=_demo_spec(),
+        thumbnail_ref="thumbnails/user_demo/missing.png",
+    )
+
+    with pytest.raises(ValueError, match="thumbnail key does not exist"):
+        repo.save(preset)
+
+
+def test_repository_rejects_thumbnail_key_path_traversal(tmp_path: Path):
+    outside_path = tmp_path / "outside.png"
+    outside_path.write_bytes(b"outside")
+    repo = TemplatePresetRepository(root=tmp_path / "repo")
+    preset = TemplatePreset(
+        preset_id="user-demo",
+        name="My Demo",
+        source="user",
+        orientation="portrait",
+        template_type="image",
+        spec=_demo_spec(),
+        thumbnail_ref="thumbnails/../../outside.png",
+    )
+
+    with pytest.raises(ValueError, match="thumbnail key does not exist"):
         repo.save(preset)
 
 

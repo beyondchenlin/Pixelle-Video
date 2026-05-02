@@ -115,10 +115,14 @@ class TemplatePresetRepository:
                 ref = str(layer.source.ref)
                 if not ref.startswith("assets/"):
                     raise ValueError("asset layers must reference repository asset keys before saving")
+                if not self._resolve_storage_key_path(ref).is_file():
+                    raise ValueError(f"asset key does not exist in repository: {ref}")
 
     def _validate_thumbnail_ref(self, thumbnail_ref: str | None) -> None:
         if not thumbnail_ref or not thumbnail_ref.startswith("thumbnails/"):
             raise ValueError("user presets must reference persisted thumbnails before saving")
+        if not self._resolve_storage_key_path(thumbnail_ref).is_file():
+            raise ValueError(f"thumbnail key does not exist in repository: {thumbnail_ref}")
 
     def _write_all(self, presets: list[TemplatePreset]) -> None:
         self._ensure_dirs()
@@ -163,6 +167,16 @@ class TemplatePresetRepository:
             updated_at=record.get("updated_at"),
             last_used_at=record.get("last_used_at"),
         )
+
+    def _resolve_storage_key_path(self, storage_key: str) -> Path:
+        normalized = storage_key.replace("\\", "/").strip("/")
+        candidate = (self.root / Path(normalized)).resolve()
+        root_resolved = self.root.resolve()
+        try:
+            candidate.relative_to(root_resolved)
+        except ValueError:
+            return root_resolved / "__invalid__"
+        return candidate
 
 
 def _safe_storage_segment(value: str) -> str:
