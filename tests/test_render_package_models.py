@@ -924,6 +924,7 @@ async def test_standard_pipeline_plan_visuals_defaults_prompt_language_to_englis
                 resolved_style=None,
                 negative_prompt=None,
                 planning_snapshot={},
+                prompt_plan_bundle=None,
             )
 
     class _FakeNativePromptProjection:
