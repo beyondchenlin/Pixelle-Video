@@ -140,6 +140,129 @@ def test_render_preview_html_role_layers_use_text_rendering_style_contract():
     assert "font-size:44px;color:#123456;text-align:left;justify-content:flex-start;" in html
 
 
+def test_render_preview_html_role_layers_apply_complete_text_style_contract():
+    html = LayeredTemplateService().render_preview_html(
+        spec=_preview_spec(),
+        title_text="ABCDEFGHIJ",
+        caption_text="Caption",
+        text_rendering={
+            "title_style": {
+                "font_family": "Noto Serif CJK SC",
+                "font_size": 88,
+                "font_weight": 900,
+                "primary_color": "#ABCDEF",
+                "stroke_color": "#445566",
+                "stroke_width": 3,
+                "background_color": "#112233",
+                "background_opacity": 0.5,
+                "position": "bottom_right",
+                "alignment": "right",
+                "margin_x": 44,
+                "margin_y": 56,
+                "max_width_ratio": 0.4,
+                "line_height": 1.2,
+                "max_chars_per_line": 5,
+            },
+            "caption_style": {
+                "font_family": "Noto Sans CJK SC",
+                "font_size": 44,
+                "primary_color": "#123456",
+                "stroke_color": "#000000",
+                "stroke_width": 1,
+                "background_color": "#FFFFFF",
+                "background_opacity": 0.25,
+                "position": "top_left",
+                "alignment": "left",
+                "margin_x": 24,
+                "margin_y": 32,
+                "max_width_ratio": 0.5,
+            },
+        },
+    )
+
+    assert "ABCDE<br/>FGHIJ" in html
+    assert "font-family:Noto Serif CJK SC;" in html
+    assert "font-weight:900;" in html
+    assert "line-height:1.2;" in html
+    assert "color:#ABCDEF;" in html
+    assert "background:rgba(17, 34, 51, 0.5);" in html
+    assert "-webkit-text-stroke:3px #445566;" in html
+    assert "text-align:right;" in html
+    assert "justify-content:flex-end;" in html
+    assert "right:110px;" in html
+    assert "bottom:1650px;" in html
+    assert "width:432px;" in html
+    assert "max-width:min(432px, calc(100% - 110px - 110px));" in html
+    assert "font-family:Noto Sans CJK SC;" in html
+    assert "background:rgba(255, 255, 255, 0.25);" in html
+    assert "-webkit-text-stroke:1px #000000;" in html
+    assert "text-align:left;" in html
+    assert "justify-content:flex-start;" in html
+
+
+def test_render_preview_html_default_role_layout_uses_layer_rect_as_region():
+    html = LayeredTemplateService().render_preview_html(
+        spec=_preview_spec(),
+        title_text="Title",
+        caption_text="Caption",
+        text_rendering={
+            "title_style": {
+                "position": "top",
+                "margin_y": 8,
+                "max_width_ratio": 1.0,
+            },
+        },
+    )
+
+    assert "left:540px;" in html
+    assert "top:90px;" in html
+    assert "transform:translateX(-50%);" in html
+    assert "width:860px;" in html
+    assert "max-width:min(860px, calc(100% - 110px - 110px));" in html
+
+
+def test_render_preview_html_sanitizes_complete_text_style_contract():
+    html = LayeredTemplateService().render_preview_html(
+        spec=_preview_spec(),
+        title_text="Title",
+        caption_text="Caption",
+        text_rendering={
+            "title_style": {
+                "font_family": 'Bad"; background:url(javascript:alert(1));',
+                "font_size": "99999",
+                "primary_color": "#fff;position:fixed",
+                "stroke_color": "url(javascript:alert(1))",
+                "stroke_width": "999",
+                "background_color": "expression(alert(1))",
+                "background_opacity": "99",
+                "position": "javascript:",
+                "alignment": "evil",
+            },
+            "caption_style": {
+                "font_family": "Safe Font",
+                "font_size": "not-a-number",
+                "primary_color": "red;left:0",
+                "stroke_color": "#123456",
+                "stroke_width": "-9",
+                "background_color": "#ABC",
+                "background_opacity": "-1",
+            },
+        },
+    )
+
+    assert "javascript:" not in html
+    assert "expression(alert(1))" not in html
+    assert "#fff;position:fixed" not in html
+    assert "red;left:0" not in html
+    assert "font-family:sans-serif;" in html
+    assert "font-size:240px;" in html
+    assert "font-size:48px;" in html
+    assert "color:#FFFFFF;" in html
+    assert "background:transparent;" in html
+    assert "-webkit-text-stroke:16px #000000;" in html
+    assert "-webkit-text-stroke:0px #123456;" in html
+
+
 def test_render_preview_html_merges_partial_role_style_with_contract_defaults():
     html = LayeredTemplateService().render_preview_html(
         spec=_preview_spec(),

@@ -7,6 +7,11 @@ from typing import Any, Mapping
 from urllib.parse import unquote
 
 from pixelle_video.models.layered_template import LayeredTemplateSpec, TemplateLayer
+from pixelle_video.services.text_style_preview_css import (
+    TextPreviewRegion,
+    render_text_style_preview_css,
+    text_preview_lines,
+)
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$")
 
@@ -26,6 +31,8 @@ def render_layered_template_preview_html(
             title_text=title_text,
             caption_text=caption_text,
             text_rendering=resolved_text_rendering,
+            canvas_width=spec.canvas_width,
+            canvas_height=spec.canvas_height,
         )
         for _, layer in sorted(enumerate(spec.layers), key=lambda item: (item[1].z_index, item[0]))
     )
@@ -53,6 +60,8 @@ def _render_layer(
     title_text: str,
     caption_text: str,
     text_rendering: Mapping[str, Any],
+    canvas_width: int,
+    canvas_height: int,
 ) -> str:
     attrs = (
         f'data-layer-id="{_escape_attr(layer.id)}" '
@@ -65,10 +74,15 @@ def _render_layer(
     if layer.type in {"image", "generated_media"}:
         return _render_media_layer(layer, attrs=attrs, style=style)
     if layer.type == "text":
-        text = _text_for_layer(layer, title_text=title_text, caption_text=caption_text)
-        return (
-            f'<div class="layer text-layer" {attrs} style="{style}{_text_style(layer, text_rendering)}">'
-            f"{html.escape(text, quote=True)}</div>"
+        return _render_text_layer(
+            layer,
+            attrs=attrs,
+            style=style,
+            title_text=title_text,
+            caption_text=caption_text,
+            text_rendering=text_rendering,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
         )
     return f'<div class="layer" {attrs} style="{style}"></div>'
 
@@ -103,15 +117,56 @@ def _render_media_layer(layer: TemplateLayer, *, attrs: str, style: str) -> str:
     return f'<div class="layer media-layer" {attrs} style="{style}">{html.escape(label)}</div>'
 
 
-def _text_style(layer: TemplateLayer, text_rendering: Mapping[str, Any]) -> str:
-    style = _resolve_text_style(layer, text_rendering)
-    font_size = _bounded_int(style.get("font_size"), default=48, minimum=8, maximum=240)
-    color = _safe_color(str(style.get("color") or style.get("primary_color") or ""), "#FFFFFF")
-    align = str(style.get("text_align") or style.get("alignment") or "center")
-    if align not in {"left", "center", "right"}:
-        align = "center"
-    justify = {"left": "flex-start", "center": "center", "right": "flex-end"}[align]
-    return f"font-size:{font_size}px;color:{color};text-align:{align};justify-content:{justify};"
+def _render_text_layer(
+    layer: TemplateLayer,
+    *,
+    attrs: str,
+    style: str,
+    title_text: str,
+    caption_text: str,
+    text_rendering: Mapping[str, Any],
+    canvas_width: int,
+    canvas_height: int,
+) -> str:
+    text = _text_for_layer(layer, title_text=title_text, caption_text=caption_text)
+    text_style = _resolve_text_style(layer, text_rendering)
+    rendered_text = "<br/>".join(
+        html.escape(line, quote=True)
+        for line in text_preview_lines(text, text_style)
+    )
+    layer_style = _text_style(
+        layer,
+        text_style,
+        canvas_width=canvas_width,
+        canvas_height=canvas_height,
+    )
+    return (
+        f'<div class="layer text-layer" {attrs} style="{style}{layer_style}">'
+        f"{rendered_text}</div>"
+    )
+
+
+def _text_style(
+    layer: TemplateLayer,
+    style: Mapping[str, Any],
+    *,
+    canvas_width: int,
+    canvas_height: int,
+) -> str:
+    return render_text_style_preview_css(
+        style,
+        canvas_width=canvas_width,
+        canvas_height=canvas_height,
+        region=TextPreviewRegion(
+            x=layer.rect.x,
+            y=layer.rect.y,
+            width=layer.rect.width,
+            height=layer.rect.height,
+        ),
+        units="px",
+        default_font_size=48,
+        rotation_degrees=layer.rotation,
+    )
 
 
 def _resolve_text_style(
