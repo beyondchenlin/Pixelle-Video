@@ -1163,6 +1163,132 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
     ]
 
 
+def test_render_single_output_reruns_after_storyboard_snapshot_updates(
+    monkeypatch,
+    tmp_path,
+):
+    captured = {"rerun": False}
+    video_path = tmp_path / "final.mp4"
+    video_path.write_bytes(b"video")
+
+    class _RerunRequested(Exception):
+        pass
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            return _FakeStatus()
+
+    class _FakeProgressBar:
+        def progress(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+    class _FakeStatus:
+        def text(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+        def markdown(self, _value):
+            return None
+
+        def container(self):
+            return _FakeContext()
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "template_media_width": 1080,
+                "template_media_height": 1920,
+            }
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def button(self, *_args, **_kwargs):
+            return True
+
+        def error(self, message):
+            raise AssertionError(message)
+
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            return _FakeStatus()
+
+        def success(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, *_args, **_kwargs):
+            return None
+
+    class _FakePixelleVideo:
+        async def generate_video(self, **_kwargs):
+            return SimpleNamespace(
+                video_path=str(video_path),
+                file_size=len(video_path.read_bytes()),
+                storyboard=SimpleNamespace(
+                    planning_snapshot={"storyboard_generation": {"plan_id": "plan_new"}},
+                    config=SimpleNamespace(frame_template="1080x1920/image_default.html"),
+                    frames=[object()],
+                ),
+            )
+
+    def _safe_rerun():
+        captured["rerun"] = True
+        raise _RerunRequested
+
+    fake_st = FakeStreamlit()
+    monkeypatch.setattr(output_preview, "st", fake_st)
+    monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+    monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
+    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+    monkeypatch.setattr(output_preview, "safe_rerun", _safe_rerun, raising=False)
+
+    try:
+        output_preview.render_single_output(
+            _FakePixelleVideo(),
+            {
+                "text": "demo",
+                "mode": "generate",
+                "title": "Demo",
+                "media_workflow": "runninghub/image_flux.json",
+                "frame_template": "1080x1920/image_default.html",
+                "prompt_prefix": "clean",
+                "tts_inference_mode": "local",
+                "tts_voice": "zh-CN-YunjianNeural",
+            },
+        )
+    except _RerunRequested:
+        pass
+
+    assert fake_st.session_state["storyboard_preview_snapshot"] == {
+        "storyboard_generation": {"plan_id": "plan_new"}
+    }
+    assert captured["rerun"] is True
+
+
 def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_path):
     captured = {"status_messages": []}
     video_path = tmp_path / "final.mp4"

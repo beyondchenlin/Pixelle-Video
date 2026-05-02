@@ -45,7 +45,7 @@ from web.i18n import tr
 from web.utils.async_helpers import run_async
 from web.utils.progress_i18n import format_progress_event_message, localize_progress_extra_info
 from web.utils.render_backend_ui import copy_render_backend
-from web.utils.streamlit_helpers import RefreshableSlot
+from web.utils.streamlit_helpers import RefreshableSlot, safe_rerun
 from web.utils.tts_audio_strategy_ui import copy_tts_audio_strategy
 from web.utils.tts_split_mode_ui import TTS_SPLIT_SETTING_KEYS, copy_tts_split_settings
 
@@ -478,6 +478,7 @@ def render_single_output(pixelle_video, video_params):
 
         if generation_requested:
             can_generate = True
+            rerun_after_generation = False
             # Validate system configuration
             if not config_manager.validate():
                 st.error(tr("settings.not_configured"))
@@ -590,6 +591,7 @@ def render_single_output(pixelle_video, video_params):
                         render_result_summary(refresh=True)
                         store_recent_generated_video(result, st.session_state)
                         render_gallery(refresh=True)
+                        rerun_after_generation = True
                     else:
                         _clear_single_video_result_summary(st.session_state)
                         st.error(tr("status.video_not_found", path=result.video_path))
@@ -602,6 +604,8 @@ def render_single_output(pixelle_video, video_params):
                 finally:
                     _reset_single_video_generation_state()
                     render_generate_button(disabled=False, refresh=True)
+                    if rerun_after_generation:
+                        safe_rerun()
             else:
                 _reset_single_video_generation_state()
                 render_generate_button(disabled=False, refresh=True)
