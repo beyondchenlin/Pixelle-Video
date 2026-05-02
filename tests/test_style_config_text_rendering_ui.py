@@ -637,6 +637,37 @@ def test_text_rendering_controls_render_caption_and_title_tabs(monkeypatch):
     assert payload["title_style"]["max_width_ratio"] == 0.44
 
 
+def test_title_style_control_migrates_historical_template_background_defaults(monkeypatch):
+    from web.components import text_rendering_config
+    from web.components.text_rendering_config import render_text_rendering_controls
+
+    fake_ui = _WidgetDefaultRecordingUI()
+    fake_ui.session_state.update(
+        {
+            "title_style_background_opacity": 0.88,
+        }
+    )
+    monkeypatch.setattr(text_rendering_config, "discover_font_options", lambda *_args: [])
+
+    payload = render_text_rendering_controls(
+        "hyperframes",
+        ui=fake_ui,
+        translate=lambda key: key,
+        template_id="image_landscape_minimal",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        media_placement={"mode": "cover"},
+        title_text="Preview title",
+        caption_text="Preview caption",
+        preview_media_ref="artifacts/demo.png",
+    )
+
+    assert payload["title_style"]["background_opacity"] == 0.0
+    assert fake_ui.session_state["title_style_background_opacity"] == 0.0
+
+
 def test_text_style_controls_return_full_layout_fields(monkeypatch):
     from web.components import text_rendering_config
     from web.components.text_rendering_config import (

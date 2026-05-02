@@ -103,6 +103,10 @@ LEGACY_CAPTION_STYLE_DEFAULTS = {
     "stroke_width": 2,
 }
 CAPTION_DEFAULTS_MIGRATION_KEY = "caption_style_template_defaults_migrated_v2"
+LEGACY_TITLE_BACKGROUND_OPACITY_DEFAULTS = {0.92, 0.82, 0.24, 0.88}
+TITLE_BACKGROUND_OPACITY_MIGRATION_KEY = (
+    "title_style_background_opacity_defaults_migrated_v1"
+)
 TEXT_STYLE_PREVIEW_ONLY_KEYS = {
     "preview_title_text",
     "preview_caption_text",
@@ -156,6 +160,23 @@ def _migrate_legacy_caption_style_defaults(ui: Any) -> None:
         _set_session_value(ui, "caption_style_primary_color", DEFAULT_CAPTION_PRIMARY_COLOR)
         _set_session_value(ui, "caption_style_stroke_width", DEFAULT_CAPTION_STROKE_WIDTH)
     _set_session_value(ui, CAPTION_DEFAULTS_MIGRATION_KEY, True)
+
+
+def _migrate_legacy_title_style_defaults(ui: Any) -> None:
+    session_state = getattr(ui, "session_state", None)
+    if session_state is None or not hasattr(session_state, "get"):
+        return
+    if session_state.get(TITLE_BACKGROUND_OPACITY_MIGRATION_KEY):
+        return
+
+    opacity_key = "title_style_background_opacity"
+    try:
+        current_opacity = float(session_state.get(opacity_key))
+    except (TypeError, ValueError, OverflowError):
+        current_opacity = None
+    if current_opacity in LEGACY_TITLE_BACKGROUND_OPACITY_DEFAULTS:
+        _set_session_value(ui, opacity_key, 0.0)
+    _set_session_value(ui, TITLE_BACKGROUND_OPACITY_MIGRATION_KEY, True)
 
 
 def discover_font_families(
@@ -288,6 +309,8 @@ def _render_text_style_controls(
 ) -> dict:
     if prefix == "caption_style":
         _migrate_legacy_caption_style_defaults(ui)
+    elif prefix == "title_style":
+        _migrate_legacy_title_style_defaults(ui)
 
     configured_font_family = str(
         _session_value(ui, f"{prefix}_font_family", defaults["font_family"])

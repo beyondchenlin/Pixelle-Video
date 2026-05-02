@@ -43,7 +43,7 @@
         width: min(var(--text-max-width), calc(100% - var(--text-margin-x) - var(--text-margin-x)));
         max-width: var(--text-max-width);
         display: flex;
-        align-items: center;
+        align-items: var(--text-align-items);
         justify-content: var(--text-justify-content);
         text-align: var(--text-text-align);
         opacity: 0;
@@ -55,13 +55,16 @@
         padding: 28px 34px 34px;
         border-radius: 30px;
         background: var(--text-background);
-        font-size: 56px;
-        line-height: 1.04;
+        color: var(--text-fill);
+        font-family: var(--text-font-family);
+        font-size: var(--text-font-size);
+        font-weight: var(--text-font-weight);
+        line-height: var(--text-line-height);
         letter-spacing: -0.04em;
-        color: #1f1b18;
         text-align: var(--text-text-align);
         white-space: normal;
         box-shadow: 0 18px 54px rgba(56, 33, 19, 0.12);
+        -webkit-text-stroke: var(--text-stroke-width) var(--text-stroke-color);
       }
     </style>
   </head>

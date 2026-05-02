@@ -140,6 +140,10 @@
         transform: var(--title-transform);
         width: min(var(--title-box-width), calc(100% - var(--title-margin-x) - var(--title-margin-x)));
         max-width: var(--title-max-width);
+        display: flex;
+        flex-direction: column;
+        align-items: var(--title-justify-content);
+        justify-content: var(--title-align-items);
         text-align: var(--title-text-align);
         background: var(--title-background);
       }

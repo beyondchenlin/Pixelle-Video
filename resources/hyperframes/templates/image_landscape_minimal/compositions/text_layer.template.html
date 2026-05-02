@@ -7,9 +7,8 @@
     <script src="../runtime/vendor/gsap.min.js"></script>
     <style>
       html, body, #text-layer-root { margin: 0; width: __CANVAS_WIDTH__px; height: __CANVAS_HEIGHT__px; overflow: hidden; }
-      .text-cue { position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%); opacity: 0; visibility: hidden; max-width: 1080px; text-align: center; }
-      .text-cue[data-slot="lower_third"] { top: 63%; }
-      .text-cue__content { display: inline-block; padding: 0; border-radius: 0; background: transparent; color: #171410; font-size: 42px; line-height: 1.45; font-weight: 500; box-shadow: none; text-shadow: 0 3px 12px rgba(255,255,255,0.28); }
+      .text-cue { position: absolute; left: var(--text-left); right: var(--text-right); top: var(--text-top); bottom: var(--text-bottom); transform: var(--text-transform); width: min(var(--text-max-width), calc(100% - var(--text-margin-x) - var(--text-margin-x))); opacity: 0; visibility: hidden; max-width: var(--text-max-width); display: flex; justify-content: var(--text-justify-content); align-items: var(--text-align-items); text-align: var(--text-text-align); }
+      .text-cue__content { display: inline-block; padding: 0; border-radius: 0; background: var(--text-background); color: var(--text-fill); font-family: var(--text-font-family); font-size: var(--text-font-size); line-height: var(--text-line-height); font-weight: var(--text-font-weight); text-align: var(--text-text-align); -webkit-text-stroke: var(--text-stroke-width) var(--text-stroke-color); box-shadow: none; text-shadow: 0 3px 12px rgba(255,255,255,0.28); }
     </style>
   </head>
   <body>

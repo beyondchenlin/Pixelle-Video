@@ -694,6 +694,14 @@ def test_phase1_caption_templates_consume_caption_style_variables():
         assert "var(--text-transform)" in content
         assert "var(--text-max-width)" in content
         assert "var(--text-text-align)" in content
+        assert "var(--text-align-items)" in content
+        assert "var(--text-fill)" in content
+        assert "var(--text-font-family)" in content
+        assert "var(--text-font-size)" in content
+        assert "var(--text-font-weight)" in content
+        assert "var(--text-line-height)" in content
+        assert "var(--text-stroke-width)" in content
+        assert "var(--text-stroke-color)" in content
         assert "var(--text-background)" in content
 
 
@@ -798,15 +806,15 @@ def test_hyperframes_compiler_emits_title_layout_variables(tmp_path: Path):
 
     html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
     assert "--title-left: auto" in html
-    assert "--title-right: 97px" in html
+    assert "--title-right: 44px" in html
     assert "--title-top: auto" in html
-    assert "--title-bottom: 1526px" in html
+    assert "--title-bottom: 56px" in html
     assert "--title-transform: none" in html
     assert "--title-text-align: right" in html
     assert "--title-max-width: 432px" in html
 
 
-def test_hyperframes_compiler_constrains_title_layout_to_template_region(
+def test_hyperframes_compiler_explicit_title_position_uses_canvas_edge_margins(
     tmp_path: Path,
 ):
     template_root = tmp_path / "templates"
@@ -852,11 +860,11 @@ def test_hyperframes_compiler_constrains_title_layout_to_template_region(
 
     html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
     assert "--title-left: auto" in html
-    assert "--title-right: 505px" in html
+    assert "--title-right: 10px" in html
     assert "--title-top: auto" in html
-    assert "--title-bottom: 358px" in html
-    assert "--title-box-width: 440px" in html
-    assert "--title-max-width: 440px" in html
+    assert "--title-bottom: 20px" in html
+    assert "--title-box-width: 980px" in html
+    assert "--title-max-width: 980px" in html
 
 
 def test_hyperframes_compiler_emits_fallback_title_style_variables(tmp_path: Path):
@@ -893,7 +901,7 @@ def test_hyperframes_compiler_emits_fallback_title_style_variables(tmp_path: Pat
     html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
     assert "__TITLE_STYLE_CSS__" not in html
     assert "--title-fill: #2C3E50" in html
-    assert "--title-background: rgba(255, 255, 255, 0.92)" in html
+    assert "--title-background: rgba(255, 255, 255, 0)" in html
 
 
 def test_hyperframes_compiler_uses_fallback_title_profile_for_wrapping(
@@ -1188,6 +1196,63 @@ def test_phase1_main_templates_consume_title_layout_variables():
         assert "var(--title-transform)" in content
         assert "var(--title-box-width)" in content
         assert "var(--title-text-align)" in content
+        assert "var(--title-justify-content)" in content
+        assert "var(--title-align-items)" in content
+
+
+def test_phase1_main_title_flex_axes_map_style_alignment_and_position():
+    column_template = Path(
+        "resources/hyperframes/templates/image_default/index.template.html"
+    ).read_text(encoding="utf-8")
+    row_templates = [
+        Path("resources/hyperframes/templates/image_life_insights_light/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_full/index.template.html"),
+        Path("resources/hyperframes/templates/image_landscape_minimal/index.template.html"),
+    ]
+
+    assert "flex-direction: column;" in column_template
+    assert "align-items: var(--title-justify-content);" in column_template
+    assert "justify-content: var(--title-align-items);" in column_template
+
+    for path in row_templates:
+        content = path.read_text(encoding="utf-8")
+        assert "align-items: var(--title-align-items)" in content
+        assert "justify-content: var(--title-justify-content)" in content
+
+
+def test_phase1_text_layer_templates_consume_text_style_variables():
+    template_paths = [
+        Path("resources/hyperframes/templates/image_default/compositions/text_layer.template.html"),
+        Path(
+            "resources/hyperframes/templates/image_life_insights_light/compositions/text_layer.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_full/compositions/text_layer.template.html"
+        ),
+        Path(
+            "resources/hyperframes/templates/image_landscape_minimal/compositions/text_layer.template.html"
+        ),
+    ]
+
+    for path in template_paths:
+        content = path.read_text(encoding="utf-8")
+        assert "var(--text-left)" in content
+        assert "var(--text-right)" in content
+        assert "var(--text-top)" in content
+        assert "var(--text-bottom)" in content
+        assert "var(--text-transform)" in content
+        assert "var(--text-max-width)" in content
+        assert "var(--text-text-align)" in content
+        assert "var(--text-justify-content)" in content
+        assert "var(--text-align-items)" in content
+        assert "var(--text-background)" in content
+        assert "var(--text-fill)" in content
+        assert "var(--text-font-family)" in content
+        assert "var(--text-font-size)" in content
+        assert "var(--text-font-weight)" in content
+        assert "var(--text-line-height)" in content
+        assert "var(--text-stroke-width)" in content
+        assert "var(--text-stroke-color)" in content
 
 
 def test_phase1_main_templates_apply_title_background_to_visible_box():
@@ -1214,10 +1279,10 @@ def test_phase1_main_templates_apply_title_background_to_visible_box():
 @pytest.mark.parametrize(
     ("template_id", "layout_consumer_marker", "expected_right", "expected_bottom"),
     [
-        ("image_default", 'class="video-title-wrapper"', "97px", "1526px"),
-        ("image_life_insights_light", 'class="header"', "108px", "1536px"),
-        ("image_landscape_full", 'class="title"', "65px", "1430px"),
-        ("image_landscape_minimal", 'class="header"', "545px", "1373px"),
+        ("image_default", 'class="video-title-wrapper"', "44px", "56px"),
+        ("image_life_insights_light", 'class="header"', "44px", "56px"),
+        ("image_landscape_full", 'class="title"', "44px", "56px"),
+        ("image_landscape_minimal", 'class="header"', "44px", "56px"),
     ],
 )
 def test_phase1_main_templates_inject_title_variables_on_layout_consumer(
@@ -1537,8 +1602,16 @@ def test_image_landscape_full_template_uses_local_assets_and_raised_text_without
     assert "bottom: var(--text-bottom)" in captions_content
     assert "transform: var(--text-transform)" in captions_content
     assert "justify-content: var(--text-justify-content)" in captions_content
+    assert "align-items: var(--text-align-items)" in captions_content
     assert "text-align: var(--text-text-align)" in captions_content
     assert "background: var(--text-background)" in captions_content
+    assert "font-size: var(--text-font-size)" in captions_content
+    assert "color: var(--text-fill)" in captions_content
+    assert "font-family: var(--text-font-family)" in captions_content
+    assert "left: var(--text-left)" in text_layer_content
+    assert "top: var(--text-top)" in text_layer_content
+    assert "font-size: var(--text-font-size)" in text_layer_content
+    assert "color: var(--text-fill)" in text_layer_content
     assert "background: rgba(26, 37, 47, 0.78)" not in text_layer_content
     assert "top: 74%" not in text_layer_content
 
@@ -1589,8 +1662,16 @@ def test_image_landscape_minimal_template_uses_local_assets_and_raised_text_with
     assert "bottom: var(--text-bottom)" in captions_content
     assert "width: min(var(--text-max-width)" in captions_content
     assert "justify-content: var(--text-justify-content)" in captions_content
+    assert "align-items: var(--text-align-items)" in captions_content
     assert "text-align: var(--text-text-align)" in captions_content
     assert "background: var(--text-background)" in captions_content
+    assert "font-size: var(--text-font-size)" in captions_content
+    assert "color: var(--text-fill)" in captions_content
+    assert "font-family: var(--text-font-family)" in captions_content
+    assert "left: var(--text-left)" in text_layer_content
+    assert "top: var(--text-top)" in text_layer_content
+    assert "font-size: var(--text-font-size)" in text_layer_content
+    assert "color: var(--text-fill)" in text_layer_content
     assert "background: rgba(26, 37, 47, 0.78)" not in text_layer_content
     assert "top: 74%" not in text_layer_content
 

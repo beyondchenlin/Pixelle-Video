@@ -43,7 +43,7 @@
         width: min(var(--text-max-width), calc(100% - var(--text-margin-x) - var(--text-margin-x)));
         max-width: var(--text-max-width);
         display: flex;
-        align-items: center;
+        align-items: var(--text-align-items);
         justify-content: var(--text-justify-content);
         text-align: var(--text-text-align);
         opacity: 0;
@@ -53,12 +53,14 @@
 
       .caption-text {
         padding: 20px 40px;
-        font-size: 42px;
-        line-height: 1.9;
-        font-weight: 500;
-        color: #2c3e50;
+        color: var(--text-fill);
+        font-family: var(--text-font-family);
+        font-size: var(--text-font-size);
+        font-weight: var(--text-font-weight);
+        line-height: var(--text-line-height);
         text-align: var(--text-text-align);
         background: var(--text-background);
+        -webkit-text-stroke: var(--text-stroke-width) var(--text-stroke-color);
       }
 
       .quote-minimal {

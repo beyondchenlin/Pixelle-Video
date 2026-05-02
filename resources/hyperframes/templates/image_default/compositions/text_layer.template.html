@@ -24,28 +24,33 @@
 
       .text-cue {
         position: absolute;
-        left: 50%;
-        top: 48%;
-        transform: translate(-50%, -50%);
+        left: var(--text-left);
+        right: var(--text-right);
+        top: var(--text-top);
+        bottom: var(--text-bottom);
+        transform: var(--text-transform);
+        width: min(var(--text-max-width), calc(100% - var(--text-margin-x) - var(--text-margin-x)));
         opacity: 0;
         visibility: hidden;
-        max-width: 780px;
-        text-align: center;
-      }
-
-      .text-cue[data-slot="lower_third"] {
-        top: 74%;
+        max-width: var(--text-max-width);
+        display: flex;
+        justify-content: var(--text-justify-content);
+        align-items: var(--text-align-items);
+        text-align: var(--text-text-align);
       }
 
       .text-cue__content {
         display: inline-block;
         padding: 16px 30px;
         border-radius: 6px;
-        background: rgba(26, 37, 47, 0.78);
-        color: #fff;
-        font-size: 54px;
-        line-height: 1.35;
-        font-weight: 700;
+        background: var(--text-background);
+        color: var(--text-fill);
+        font-family: var(--text-font-family);
+        font-size: var(--text-font-size);
+        font-weight: var(--text-font-weight);
+        line-height: var(--text-line-height);
+        text-align: var(--text-text-align);
+        -webkit-text-stroke: var(--text-stroke-width) var(--text-stroke-color);
         box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
       }
     </style>

@@ -85,7 +85,7 @@ def test_build_text_rendering_preview_spec_merges_title_preset_defaults():
     assert spec.title_style["font_size"] == 96
     assert spec.title_style["primary_color"] == "#2C3E50"
     assert spec.title_style["background_color"] == "#FFFFFF"
-    assert spec.title_style["background_opacity"] == 0.92
+    assert spec.title_style["background_opacity"] == 0.0
 
 
 def test_preview_spec_fingerprint_is_deterministic_and_excludes_itself():
@@ -184,17 +184,82 @@ def test_render_preview_html_uses_text_style_layout_for_instant_preview():
     html = render_preview_html(spec)
 
     assert "left:auto;" in html
-    assert "right:9.000%;" in html
+    assert "right:4.400%;" in html
     assert "top:auto;" in html
-    assert "bottom:79.500%;" in html
+    assert "bottom:11.200%;" in html
     assert "transform:none;" in html
     assert "width:40.000%;" in html
-    assert "max-width:min(40.000%, calc(100% - 9.000% - 9.000%));" in html
+    assert "max-width:min(40.000%, calc(100% - 4.400% - 4.400%));" in html
     assert "text-align:right;" in html
     assert "justify-content:flex-end;" in html
 
 
-def test_render_preview_html_constrains_title_layout_to_template_region():
+def test_render_preview_html_zero_margins_anchor_to_canvas_edges():
+    spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=1000,
+        canvas_height=500,
+        media_width=500,
+        media_height=500,
+        media_placement={"anchor": "center"},
+        title_text="Title",
+        caption_text="Caption",
+        title_style={
+            "position": "top_left",
+            "margin_x": 0,
+            "margin_y": 0,
+            "max_width_ratio": 0.4,
+        },
+        caption_style={
+            "position": "bottom_right",
+            "margin_x": 0,
+            "margin_y": 0,
+            "max_width_ratio": 0.5,
+        },
+    )
+
+    html = render_preview_html(spec)
+
+    assert "left:0.000%;" in html
+    assert "top:0.000%;" in html
+    assert "right:0.000%;" in html
+    assert "bottom:0.000%;" in html
+
+
+def test_render_preview_html_zero_vertical_margin_aligns_text_content_to_edge():
+    spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=1000,
+        canvas_height=500,
+        media_width=500,
+        media_height=500,
+        media_placement={"anchor": "center"},
+        title_text="Title",
+        caption_text="Caption",
+        title_style={
+            "position": "top",
+            "margin_y": 0,
+            "max_width_ratio": 0.4,
+        },
+        caption_style={
+            "position": "bottom",
+            "margin_y": 0,
+            "max_width_ratio": 0.5,
+        },
+    )
+
+    html = render_preview_html(spec)
+
+    assert "top:0.000%;" in html
+    assert "bottom:0.000%;" in html
+    assert "align-items:flex-start;" in html
+    assert "align-items:flex-end;" in html
+    assert "padding: 1.2%;" not in html
+
+
+def test_render_preview_html_explicit_title_position_uses_canvas_edge_margins():
     spec = build_text_rendering_preview_spec(
         template_id="image_landscape_minimal",
         render_backend="hyperframes",
@@ -217,10 +282,10 @@ def test_render_preview_html_constrains_title_layout_to_template_region():
 
     html = render_preview_html(spec)
 
-    assert "right:50.500%;" in html
-    assert "bottom:71.500%;" in html
-    assert "width:44.000%;" in html
-    assert "max-width:min(44.000%, calc(100% - 5.500% - 50.500%));" in html
+    assert "right:1.000%;" in html
+    assert "bottom:4.000%;" in html
+    assert "width:98.000%;" in html
+    assert "max-width:min(98.000%, calc(100% - 1.000% - 1.000%));" in html
 
 
 def test_render_preview_html_uses_template_region_when_style_has_no_layout():
