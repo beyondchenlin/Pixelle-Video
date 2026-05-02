@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from api.tasks.progress import TaskProgressSink, progress_event_to_task_progress
@@ -46,3 +48,29 @@ async def test_task_progress_sink_writes_with_owner_and_lease():
     assert registry.calls[0]["owner_id"] == "worker-1"
     assert registry.calls[0]["lease_token"] == "token-1"
     assert registry.calls[0]["progress"].event_type == "rendering_hyperframes"
+
+
+@pytest.mark.asyncio
+async def test_task_progress_sink_drain_surfaces_fast_unexpected_failures():
+    class FailingRegistry:
+        async def update_progress(self, **_kwargs):
+            raise RuntimeError("progress backend failed")
+
+    sink = TaskProgressSink(
+        registry=FailingRegistry(),
+        task_id="task-1",
+        owner_id="worker-1",
+        lease_token="token-1",
+    )
+
+    sink.emit(
+        ProgressEvent(
+            event_type=ProgressEventType.RENDERING_HYPERFRAMES,
+            progress=0.9,
+        )
+    )
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    with pytest.raises(RuntimeError, match="progress backend failed"):
+        await sink.drain()

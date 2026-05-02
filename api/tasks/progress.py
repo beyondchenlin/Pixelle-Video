@@ -64,11 +64,16 @@ class TaskProgressSink:
         self.owner_id = owner_id
         self.lease_token = lease_token
         self._tasks: set[asyncio.Task] = set()
+        self._completed_tasks: list[asyncio.Task] = []
 
     def emit(self, event: ProgressEvent) -> None:
         task = asyncio.create_task(self._write(event))
         self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(self._track_completed)
+
+    def _track_completed(self, task: asyncio.Task) -> None:
+        self._tasks.discard(task)
+        self._completed_tasks.append(task)
 
     async def _write(self, event: ProgressEvent) -> None:
         try:
@@ -82,6 +87,8 @@ class TaskProgressSink:
             logger.warning(f"Task {self.task_id} lease was lost before progress could be recorded")
 
     async def drain(self) -> None:
-        if not self._tasks:
+        if not self._tasks and not self._completed_tasks:
             return
-        await asyncio.gather(*list(self._tasks))
+        tasks = [*self._completed_tasks, *self._tasks]
+        self._completed_tasks.clear()
+        await asyncio.gather(*tasks)
