@@ -285,6 +285,34 @@ def test_build_single_generation_request_includes_layered_template_snapshot():
     assert request["selected_template_preset_id"] == "portrait_news"
 
 
+def test_build_batch_shared_config_includes_layered_template_snapshot():
+    layered_template_spec = {
+        "version": "layered_template.v1",
+        "template_id": "portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+        "layers": [],
+        "metadata": {"render_backend": "html_preview"},
+    }
+
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "layered_template_spec": layered_template_spec,
+            "selected_template_preset_id": "portrait_news",
+        }
+    )
+
+    assert shared_config["layered_template_spec"] == layered_template_spec
+    assert shared_config["selected_template_preset_id"] == "portrait_news"
+
+
 def test_build_single_generation_request_uses_full_hd_standard_preset():
     def _progress(_event):
         return None
@@ -1657,6 +1685,80 @@ def test_render_single_output_passes_key_suffix_to_workbench_refresh(
 
     assert captured["workbench_suffixes"][0] == ""
     assert any(suffix.startswith("_refresh_") for suffix in captured["workbench_suffixes"][1:])
+
+
+def test_render_layout_preview_workbench_section_uses_registry_recent_and_marks_selection(
+    monkeypatch,
+):
+    spec_payload = {
+        "version": "layered_template.v1",
+        "template_id": "user:portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+        "layers": [],
+        "metadata": {"source_kind": "user"},
+    }
+    captured = {"list_recent": [], "mark_used": [], "recent_presets": None}
+
+    class _FakeRegistry:
+        def list_recent(self, *, limit):
+            captured["list_recent"].append(limit)
+            return [
+                {
+                    "preset_id": "user:portrait_news",
+                    "template_name": "Portrait News",
+                    "last_used_at": "2026-05-02T10:00:00Z",
+                    "spec": spec_payload,
+                }
+            ]
+
+        def mark_used(self, preset_id):
+            captured["mark_used"].append(preset_id)
+
+    def _fake_render_layout_preview_workbench(**kwargs):
+        captured["recent_presets"] = kwargs["recent_presets"]
+        return {
+            "preset_id": "user:portrait_news",
+            "spec_payload": spec_payload,
+        }
+
+    monkeypatch.setattr(output_preview, "TemplateRegistry", _FakeRegistry, raising=False)
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        _fake_render_layout_preview_workbench,
+    )
+    monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
+    monkeypatch.setattr(
+        output_preview,
+        "load_layered_template_spec_into_editor_state",
+        lambda session_state, spec: session_state.update({"loaded_spec": spec}),
+    )
+    reruns = []
+    monkeypatch.setattr(
+        output_preview,
+        "st",
+        SimpleNamespace(session_state={}, rerun=lambda: reruns.append(True)),
+    )
+
+    output_preview._render_layout_preview_workbench_section(
+        {"layered_template_spec": spec_payload}
+    )
+
+    assert captured["list_recent"] == [5]
+    assert captured["recent_presets"][0]["preset_id"] == "user:portrait_news"
+    assert captured["mark_used"] == ["user:portrait_news"]
+    assert output_preview.st.session_state["loaded_spec"] == spec_payload
+    assert (
+        output_preview.st.session_state["selected_template_preset_id"]
+        == "user:portrait_news"
+    )
+    assert reruns == [True]
 
 
 def test_build_layout_preview_html_uses_layered_template_service():

@@ -71,7 +71,12 @@ from web.components import storyboard_planning_controls
 from web.components.layered_template_state import (
     LAYERED_TEMPLATE_EDITOR_STATE_KEY,
     LayeredTemplateEditorState,
+    apply_pending_layered_template_widget_state,
+    clear_layered_template_spec_identity,
     ensure_layered_template_editor_state,
+    has_layered_template_spec_identity,
+    resolve_layered_template_spec_identity,
+    resolve_layered_template_selected_size_params,
 )
 from web.components.selfhost_workflow_notice import (
     is_selfhost_workflow,
@@ -397,6 +402,27 @@ def _build_template_gallery_tab_label(display_info, orientation_labels: dict[str
     return orientation_labels.get(orientation, orientation)
 
 
+def _selected_size_snapshot_still_active(
+    snapshot: dict[str, object] | None,
+    *,
+    video_orientation: str,
+    video_resolution_preset: str,
+    media_orientation: str,
+    media_resolution_preset: str,
+    sync_media_size_to_canvas: bool,
+) -> bool:
+    if not snapshot:
+        return False
+    return (
+        snapshot.get("video_orientation") == video_orientation
+        and snapshot.get("video_resolution_preset") == video_resolution_preset
+        and snapshot.get("media_orientation") == media_orientation
+        and snapshot.get("media_resolution_preset") == media_resolution_preset
+        and bool(snapshot.get("sync_media_size_to_canvas", False))
+        == bool(sync_media_size_to_canvas)
+    )
+
+
 def _render_generation_size_controls() -> GenerationSizeContract:
     orientation_labels = {
         "landscape": tr("orientation.landscape"),
@@ -463,15 +489,36 @@ def _render_generation_size_controls() -> GenerationSizeContract:
             value=False,
         ),
     )
-    contract = GenerationSizeContract.from_params(
-        {
-            "video_orientation": video_orientation,
-            "video_resolution_preset": video_resolution_preset,
-            "media_orientation": media_orientation,
-            "media_resolution_preset": media_resolution_preset,
-            "sync_media_size_to_canvas": sync,
-        }
+    selected_size_snapshot = resolve_layered_template_selected_size_params(
+        st.session_state
     )
+    contract_params = {
+        "video_orientation": video_orientation,
+        "video_resolution_preset": video_resolution_preset,
+        "media_orientation": media_orientation,
+        "media_resolution_preset": media_resolution_preset,
+        "sync_media_size_to_canvas": sync,
+    }
+    if _selected_size_snapshot_still_active(
+        selected_size_snapshot,
+        video_orientation=video_orientation,
+        video_resolution_preset=video_resolution_preset,
+        media_orientation=media_orientation,
+        media_resolution_preset=media_resolution_preset,
+        sync_media_size_to_canvas=sync,
+    ):
+        contract_params.update(
+            {
+                "canvas_width": selected_size_snapshot["canvas_width"],
+                "canvas_height": selected_size_snapshot["canvas_height"],
+                "media_width": selected_size_snapshot["media_width"],
+                "media_height": selected_size_snapshot["media_height"],
+            }
+        )
+    elif selected_size_snapshot is not None:
+        clear_layered_template_spec_identity(st.session_state)
+
+    contract = GenerationSizeContract.from_params(contract_params)
     st.info(
         tr(
             "size.final_video_info",
@@ -2328,6 +2375,7 @@ def render_style_config(
     content_context: dict | None = None,
 ):
     """Render style configuration section (middle column)"""
+    apply_pending_layered_template_widget_state(st.session_state)
     # TTS Section (moved from left column)
     # ====================================================================
     with render_middle_column_collapsible_section(
@@ -2666,15 +2714,21 @@ def render_style_config(
             st.stop()
         
         # Initialize selected template in session state if not exists
-        if 'selected_template' not in st.session_state:
+        selected_template_identity_active = has_layered_template_spec_identity(
+            st.session_state
+        )
+        if 'selected_template' not in st.session_state and not selected_template_identity_active:
+            st.session_state['selected_template'] = type_specific_default
+        elif 'selected_template' not in st.session_state:
             st.session_state['selected_template'] = type_specific_default
         
         # Track last selected template type to detect type changes
         last_template_type = st.session_state.get('last_template_type', None)
-        if last_template_type != selected_template_type:
+        if last_template_type is not None and last_template_type != selected_template_type:
             # Template type changed, reset to type-specific default
             st.session_state['selected_template'] = type_specific_default
-            st.session_state['last_template_type'] = selected_template_type
+            clear_layered_template_spec_identity(st.session_state)
+        st.session_state['last_template_type'] = selected_template_type
 
         resolved_template = resolve_compatible_template_for_orientation(
             current_template=st.session_state["selected_template"],
@@ -2683,7 +2737,9 @@ def render_style_config(
         )
         if resolved_template != st.session_state["selected_template"]:
             st.session_state["selected_template"] = resolved_template
-            safe_rerun()
+            if not selected_template_identity_active:
+                clear_layered_template_spec_identity(st.session_state)
+                safe_rerun()
 
         # Collect size groups and prepare tabs
         size_groups = []
@@ -2765,22 +2821,24 @@ def render_style_config(
                                     type=button_type,
                                 ):
                                     st.session_state['selected_template'] = template.template_path
+                                    clear_layered_template_spec_identity(st.session_state)
                                     st.rerun()
             else:
                 st.warning(tr("template.no_templates_with_preview"))
             
             # Display selected template name (inside expander, below tabs)
-            frame_template = st.session_state['selected_template']
+            frame_template = st.session_state.get('selected_template')
             
             # Find the selected template's display name
             selected_template_name = None
-            for size, templates in grouped_templates.items():
-                for template in templates:
-                    if template.template_path == frame_template:
-                        selected_template_name = template.display_info.name
+            if frame_template:
+                for size, templates in grouped_templates.items():
+                    for template in templates:
+                        if template.template_path == frame_template:
+                            selected_template_name = template.display_info.name
+                            break
+                    if selected_template_name:
                         break
-                if selected_template_name:
-                    break
             
         if selected_template_name:
             st.info(f"📋 {tr('template.selected_template')}: **{selected_template_name}**")
@@ -2788,7 +2846,13 @@ def render_style_config(
 
         # Display final canvas and template base coordinate size separately
         from pixelle_video.utils.template_util import parse_template_size
-        template_width, template_height = parse_template_size(frame_template)
+        if frame_template:
+            template_width, template_height = parse_template_size(frame_template)
+        else:
+            template_width, template_height = (
+                size_contract.canvas_width,
+                size_contract.canvas_height,
+            )
         st.caption(
             tr(
                 "size.final_video_info",
@@ -2809,12 +2873,22 @@ def render_style_config(
 
         # Resolve template path to support both data/templates/ and templates/
         from pixelle_video.utils.template_util import resolve_template_path
-        template_path_for_params = resolve_template_path(frame_template)
-        generator_for_params = HTMLFrameGenerator(template_path_for_params)
-        custom_params_for_video = generator_for_params.parse_template_parameters()
+        generator_for_params = None
+        if frame_template:
+            template_path_for_params = resolve_template_path(frame_template)
+            generator_for_params = HTMLFrameGenerator(template_path_for_params)
+            custom_params_for_video = generator_for_params.parse_template_parameters()
+        else:
+            custom_params_for_video = {}
         
         # Keep template media meta for compatibility/recommendation only.
-        template_media_width, template_media_height = generator_for_params.get_media_size()
+        if generator_for_params is not None:
+            template_media_width, template_media_height = generator_for_params.get_media_size()
+        else:
+            template_media_width, template_media_height = (
+                size_contract.media_width,
+                size_contract.media_height,
+            )
         st.session_state['template_media_width'] = template_media_width
         st.session_state['template_media_height'] = template_media_height
         media_width = size_contract.media_width
@@ -2822,8 +2896,19 @@ def render_style_config(
         
         # Detect template media type
         
-        template_name = Path(frame_template).name
-        template_media_type = get_template_type(template_name)
+        selected_identity = resolve_layered_template_spec_identity(
+            st.session_state,
+            fallback_template_id=Path(frame_template).stem if frame_template else "layered_template",
+            fallback_template_name=selected_template_name or (Path(frame_template).stem if frame_template else "Layered Template"),
+            fallback_template_type=selected_template_type,
+            fallback_metadata={},
+        )
+        template_name = Path(frame_template).name if frame_template else ""
+        template_media_type = (
+            get_template_type(template_name)
+            if frame_template
+            else selected_identity["template_type"]
+        )
         template_requires_media = (template_media_type in ["image", "video"])
         
         # Store in session state for workflow filtering
@@ -2919,7 +3004,7 @@ def render_style_config(
         render_backend,
         ui=st,
         translate=tr,
-        template_id=Path(frame_template).stem,
+        template_id=Path(frame_template).stem if frame_template else selected_identity["template_id"],
     )
     
     # ====================================================================
@@ -3093,12 +3178,20 @@ def render_style_config(
             prompt_prefix = ""
     
     # Return all style configuration parameters
-    selected_template_preset_id = Path(frame_template).stem
+    fallback_template_preset_id = Path(frame_template).stem if frame_template else "layered_template"
+    selected_spec_identity = resolve_layered_template_spec_identity(
+        st.session_state,
+        fallback_template_id=fallback_template_preset_id,
+        fallback_template_name=selected_template_name or fallback_template_preset_id,
+        fallback_template_type=template_media_type,
+        fallback_metadata={},
+    )
+    selected_template_preset_id = selected_spec_identity["template_id"]
     layered_template_spec = layered_template_state.build_spec(
         template_id=selected_template_preset_id,
-        template_name=selected_template_name or selected_template_preset_id,
-        template_type=template_media_type,
-        metadata={},
+        template_name=selected_spec_identity["template_name"],
+        template_type=selected_spec_identity["template_type"],
+        metadata=selected_spec_identity["metadata"],
     ).to_dict()
 
     result = {

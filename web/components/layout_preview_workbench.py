@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+import hashlib
 from html import escape
 from typing import Any
 
@@ -126,7 +127,7 @@ def _render_recent_presets(
         preset_id = str(preset["preset_id"])
         if ui.button(
             f"{_APPLY_PREFIX} {preset['label']}",
-            key=f"layout_preview_recent_preset_{preset_id}{key_suffix}",
+            key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
             help=_APPLY_HELP,
         ):
             ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
@@ -328,17 +329,19 @@ def _consume_pending_selection(*, ui, presets: list[dict[str, Any]]) -> PresetSe
     return None
 
 
-def _recent_sort_key(preset: Mapping[str, Any]) -> str:
+def _recent_sort_key(preset: Mapping[str, Any]) -> float:
     value = preset.get("last_used_at")
     normalized = _normalize_recent_timestamp(value)
-    return normalized.isoformat() if normalized is not None else ""
+    return normalized.timestamp() if normalized is not None else float("-inf")
 
 
 def _normalize_recent_timestamp(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
     if isinstance(value, str):
         candidate = value.strip()
         if not candidate:
@@ -346,10 +349,18 @@ def _normalize_recent_timestamp(value: Any) -> datetime | None:
         if candidate.endswith("Z"):
             candidate = f"{candidate[:-1]}+00:00"
         try:
-            return datetime.fromisoformat(candidate)
+            parsed = datetime.fromisoformat(candidate)
         except ValueError:
             return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
     return None
+
+
+def _recent_preset_button_key(preset_id: str, *, key_suffix: str) -> str:
+    digest = hashlib.sha1(str(preset_id).encode("utf-8")).hexdigest()[:12]
+    return f"layout_preview_recent_preset_{digest}{key_suffix}"
 
 
 def trust_preview_html(value: str | None) -> TrustedPreviewHTML | None:

@@ -109,7 +109,10 @@ class TemplatePresetRepository:
             for preset in self._load_manifest().presets
             if preset.last_used_at
         ]
-        recent.sort(key=lambda preset: preset.last_used_at or "", reverse=True)
+        recent.sort(
+            key=lambda preset: _recent_timestamp_key(preset.last_used_at),
+            reverse=True,
+        )
         return [
             replace(preset, source="recent")
             for preset in recent[: max(0, limit)]
@@ -497,3 +500,22 @@ def _utc_now() -> str:
         "+00:00",
         "Z",
     )
+
+
+def _recent_timestamp_key(value: str | None) -> float:
+    if not value:
+        return float("-inf")
+    candidate = value.strip()
+    if not candidate:
+        return float("-inf")
+    if candidate.endswith("Z"):
+        candidate = f"{candidate[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return float("-inf")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed.timestamp()

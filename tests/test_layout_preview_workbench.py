@@ -165,15 +165,15 @@ def test_render_layout_preview_workbench_sorts_recent_presets_by_absolute_time(m
         spec_payload=_spec_payload(),
         recent_presets=[
             {
-                "preset_id": "utc_early",
-                "template_name": "UTC Early",
+                "preset_id": "utc_later",
+                "template_name": "UTC Later",
                 "last_used_at": "2026-05-02T18:00:00+00:00",
                 "spec": _spec_payload(),
             },
             {
-                "preset_id": "offset_late",
-                "template_name": "Offset Late",
-                "last_used_at": "2026-05-03T02:30:00+08:00",
+                "preset_id": "offset_earlier",
+                "template_name": "Offset Earlier",
+                "last_used_at": "2026-05-03T00:30:00+08:00",
                 "spec": _spec_payload(),
             },
         ],
@@ -182,7 +182,7 @@ def test_render_layout_preview_workbench_sorts_recent_presets_by_absolute_time(m
     )
 
     button_labels = [item["label"] for item in fake_ui.buttons]
-    assert button_labels == ["\u5957\u7528 Offset Late", "\u5957\u7528 UTC Early"]
+    assert button_labels == ["\u5957\u7528 UTC Later", "\u5957\u7528 Offset Earlier"]
 
 
 def test_render_layout_preview_workbench_renders_spec_summary_and_safe_html(monkeypatch):
@@ -226,7 +226,9 @@ def test_render_layout_preview_workbench_records_clicked_recent_preset(monkeypat
     from web.components import layout_preview_workbench
 
     fake_ui = _FakeUI()
-    fake_ui.session_state["layout_preview_recent_preset_preset_b"] = True
+    fake_ui.session_state[
+        layout_preview_workbench._recent_preset_button_key("preset_b", key_suffix="")
+    ] = True
     fake_components = _FakeComponents()
     monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
     callback_calls: list[dict[str, Any]] = []
@@ -283,7 +285,45 @@ def test_render_layout_preview_workbench_applies_key_suffix_to_recent_buttons(mo
         ui=fake_ui,
     )
 
-    assert fake_ui.buttons[0]["key"] == "layout_preview_recent_preset_preset_a_refresh_2"
+    assert fake_ui.buttons[0]["key"].startswith("layout_preview_recent_preset_")
+    assert fake_ui.buttons[0]["key"].endswith("_refresh_2")
+
+
+def test_render_layout_preview_workbench_uses_stable_safe_recent_button_keys(
+    monkeypatch,
+):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {
+                "preset_id": "user:preset/a",
+                "template_name": "Slash Template",
+                "last_used_at": "2026-05-02T11:00:00",
+                "spec": _spec_payload(),
+            },
+            {
+                "preset_id": "user:preset_a",
+                "template_name": "Underscore Template",
+                "last_used_at": "2026-05-02T10:00:00",
+                "spec": _spec_payload(),
+            },
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        key_suffix="_refresh_2",
+        ui=fake_ui,
+    )
+
+    keys = [item["key"] for item in fake_ui.buttons]
+    assert len(set(keys)) == 2
+    assert all(key.startswith("layout_preview_recent_preset_") for key in keys)
+    assert all(key.endswith("_refresh_2") for key in keys)
+    assert all("user:preset" not in key for key in keys)
 
 
 def test_render_layout_preview_workbench_ignores_recent_preset_without_spec(monkeypatch):

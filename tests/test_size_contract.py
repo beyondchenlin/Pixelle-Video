@@ -222,6 +222,21 @@ def test_explicit_canvas_without_orientation_derives_video_orientation_from_canv
     assert contract.video_orientation == "portrait"
 
 
+def test_explicit_media_dimensions_derive_media_orientation_and_preset_alias():
+    contract = GenerationSizeContract.from_params(
+        {
+            "canvas_width": 1080,
+            "canvas_height": 1920,
+            "media_width": 1080,
+            "media_height": 1920,
+        }
+    )
+
+    assert (contract.media_width, contract.media_height) == (1080, 1920)
+    assert contract.media_orientation == "portrait"
+    assert contract.media_resolution_preset == "2k"
+
+
 def test_canvas_size_intent_includes_legacy_media_canvas_fields():
     assert has_canvas_size_intent({}) is False
     assert has_canvas_size_intent({"video_orientation": "portrait"}) is True

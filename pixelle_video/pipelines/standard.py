@@ -198,7 +198,7 @@ async def _maybe_local_comfyui_workflow_session(
 def _resolve_frame_template_for_size_contract(
     params: Mapping[str, Any],
     size_contract: GenerationSizeContract,
-) -> str:
+) -> str | None:
     canvas_orientation = orientation_from_dimensions(
         size_contract.canvas_width,
         size_contract.canvas_height,
@@ -209,10 +209,26 @@ def _resolve_frame_template_for_size_contract(
         validate_template_canvas_orientation(resolved_template, canvas_orientation)
         return str(frame_template)
 
-    return resolve_default_template_for_type_and_orientation(
-        "image",
-        canvas_orientation,
-    )
+    layered_template_spec = params.get("layered_template_spec")
+    if isinstance(layered_template_spec, Mapping):
+        template_type = str(layered_template_spec.get("template_type") or "").strip()
+        metadata = layered_template_spec.get("metadata")
+        legacy_template_path = (
+            metadata.get("legacy_template_path")
+            if isinstance(metadata, Mapping)
+            else None
+        )
+        if isinstance(legacy_template_path, str) and legacy_template_path.strip():
+            resolved_template = resolve_template_path(legacy_template_path.strip())
+            validate_template_canvas_orientation(resolved_template, canvas_orientation)
+            return legacy_template_path.strip()
+        if template_type:
+            return resolve_default_template_for_type_and_orientation(
+                template_type,
+                canvas_orientation,
+            )
+
+    return resolve_default_template_for_type_and_orientation("image", canvas_orientation)
 
 
 def _has_explicit_canvas_size_intent(params: Mapping[str, Any]) -> bool:
@@ -240,6 +256,20 @@ def _size_params_with_template_defaults(params: Mapping[str, Any]) -> dict[str, 
     resolved_template = resolve_template_path(str(frame_template))
     size_params["video_orientation"] = get_template_orientation(resolved_template)
     return size_params
+
+
+def _resolve_template_type_from_params(
+    params: Mapping[str, Any],
+    frame_template: str | None,
+) -> str:
+    if frame_template:
+        return get_template_type(Path(frame_template).name)
+    layered_template_spec = params.get("layered_template_spec")
+    if isinstance(layered_template_spec, Mapping):
+        candidate = str(layered_template_spec.get("template_type") or "").strip()
+        if candidate:
+            return candidate
+    return "image"
 
 
 
@@ -442,8 +472,7 @@ class StandardPipeline(LinearVideoPipeline):
         )
         frame_template = _resolve_frame_template_for_size_contract(ctx.params, size_contract)
         
-        template_name = Path(frame_template).name
-        template_type = get_template_type(template_name)
+        template_type = _resolve_template_type_from_params(ctx.params, frame_template)
         template_requires_media = (template_type in ["image", "video"])
         stage_callback = self._ai_stage_callback(ctx)
         text_rendering_result = self._get_text_rendering_result(ctx)
@@ -599,7 +628,7 @@ class StandardPipeline(LinearVideoPipeline):
             _size_params_with_template_defaults(ctx.params)
         )
         frame_template = _resolve_frame_template_for_size_contract(ctx.params, size_contract)
-        template_type = get_template_type(Path(frame_template).name)
+        template_type = _resolve_template_type_from_params(ctx.params, frame_template)
         planning_params = ctx.params if template_type in {"image", "video"} else {}
 
         # Create config

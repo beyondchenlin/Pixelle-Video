@@ -32,6 +32,7 @@ from pixelle_video.models.video_generation_contract import (
     is_plan_frame_override_payload,
 )
 from pixelle_video.services.layered_template_service import LayeredTemplateService
+from pixelle_video.services.template_registry import TemplateRegistry
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from web.components.prompt_generation_performance import (
@@ -233,10 +234,32 @@ def _build_layout_preview_html(video_params) -> TrustedPreviewHTML | None:
     return trust_preview_html(html)
 
 
+def _list_layout_preview_recent_presets(video_params):
+    explicit_presets = video_params.get("layout_preview_recent_presets")
+    if explicit_presets is not None:
+        return explicit_presets
+    try:
+        return TemplateRegistry().list_recent(limit=5)
+    except (OSError, ValueError) as exc:
+        logger.warning(f"Failed to load recent layered template presets: {exc}")
+        return []
+
+
+def _mark_layout_preview_preset_used(preset_id: str | None) -> None:
+    if not preset_id:
+        return
+    try:
+        TemplateRegistry().mark_used(str(preset_id))
+    except KeyError:
+        logger.warning(f"Selected layered template preset no longer exists: {preset_id}")
+    except (OSError, ValueError) as exc:
+        logger.warning(f"Failed to mark layered template preset as used: {exc}")
+
+
 def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = "") -> None:
     selected = render_layout_preview_workbench(
         spec_payload=video_params.get("layered_template_spec"),
-        recent_presets=video_params.get("layout_preview_recent_presets") or [],
+        recent_presets=_list_layout_preview_recent_presets(video_params),
         preview_html=_build_layout_preview_html(video_params),
         render_summary=video_params.get("layout_preview_render_summary")
         or video_params.get("render_backend"),
@@ -247,11 +270,16 @@ def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = 
         ui=st,
     )
     if selected and selected.get("spec_payload"):
+        selected_preset_id = selected.get("preset_id")
         load_layered_template_spec_into_editor_state(
             st.session_state,
             selected["spec_payload"],
         )
-        st.session_state["selected_template_preset_id"] = selected.get("preset_id")
+        st.session_state["selected_template_preset_id"] = selected_preset_id
+        _mark_layout_preview_preset_used(selected_preset_id)
+        rerun = getattr(st, "rerun", None)
+        if callable(rerun):
+            rerun()
 
 
 def copy_element_animation_options(source, target):
@@ -420,6 +448,12 @@ def build_batch_shared_config(video_params):
     copy_prompt_generation_performance_params(video_params, shared_config)
     if video_params.get("text_rendering") is not None:
         shared_config["text_rendering"] = video_params["text_rendering"]
+    if video_params.get("layered_template_spec") is not None:
+        shared_config["layered_template_spec"] = video_params["layered_template_spec"]
+    if video_params.get("selected_template_preset_id"):
+        shared_config["selected_template_preset_id"] = video_params[
+            "selected_template_preset_id"
+        ]
     return shared_config
 
 
