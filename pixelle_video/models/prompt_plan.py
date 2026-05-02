@@ -6,6 +6,17 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
+_RESERVED_PROMPT_PROJECTION_METADATA_KEYS = frozenset({
+    "provider_params",
+    "provider",
+    "provider_routing",
+    "raw_provider_params",
+    "raw_workflow",
+    "routing",
+    "workflow",
+    "workflow_path",
+})
+
 
 @dataclass(frozen=True)
 class ImagePromptDraft:
@@ -132,48 +143,52 @@ class PromptPlan:
 @dataclass(frozen=True)
 class PromptProjection:
     prompt_plan_id: str
-    storyboard_plan_id: str
     frame_id: str
     final_prompt: str
-    prompt_sections: Mapping[str, str]
-    asset_refs: Mapping[str, Any] = field(default_factory=dict)
+    character_ids: tuple[str, ...] = ()
+    scene_id: str | None = None
+    prop_ids: tuple[str, ...] = ()
+    style_id: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "prompt_plan_id", _require_non_empty("prompt_plan_id", self.prompt_plan_id))
-        object.__setattr__(
-            self,
-            "storyboard_plan_id",
-            _require_non_empty("storyboard_plan_id", self.storyboard_plan_id),
-        )
-        object.__setattr__(self, "frame_id", _require_non_empty("frame_id", self.frame_id))
+        object.__setattr__(self, "prompt_plan_id", _public_reference_id("prompt_plan_id", self.prompt_plan_id))
+        object.__setattr__(self, "frame_id", _public_reference_id("frame_id", self.frame_id))
         object.__setattr__(self, "final_prompt", _require_non_empty("final_prompt", self.final_prompt))
-        object.__setattr__(self, "prompt_sections", _freeze_prompt_sections(self.prompt_sections))
-        object.__setattr__(self, "asset_refs", _deep_freeze_mapping(self.asset_refs))
+        object.__setattr__(self, "character_ids", _normalize_public_id_tuple("character_ids", self.character_ids))
+        object.__setattr__(self, "scene_id", _optional_public_reference_id("scene_id", self.scene_id))
+        object.__setattr__(self, "prop_ids", _normalize_public_id_tuple("prop_ids", self.prop_ids))
+        object.__setattr__(self, "style_id", _optional_public_reference_id("style_id", self.style_id))
+        object.__setattr__(self, "metadata", _freeze_projection_metadata(self.metadata))
 
     @classmethod
-    def from_prompt_plan(cls, prompt_plan: PromptPlan) -> "PromptProjection":
+    def from_prompt_plan(
+        cls,
+        prompt_plan: PromptPlan,
+        *,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> "PromptProjection":
         return cls(
             prompt_plan_id=prompt_plan.prompt_plan_id,
-            storyboard_plan_id=prompt_plan.storyboard_plan_id,
             frame_id=prompt_plan.frame_id,
             final_prompt=prompt_plan.final_prompt,
-            prompt_sections=prompt_plan.prompt_sections,
-            asset_refs={
-                "character_ids": list(prompt_plan.character_ids),
-                "scene_id": prompt_plan.scene_id,
-                "prop_ids": list(prompt_plan.prop_ids),
-                "style_id": prompt_plan.style_id,
-            },
+            character_ids=prompt_plan.character_ids,
+            scene_id=prompt_plan.scene_id,
+            prop_ids=prompt_plan.prop_ids,
+            style_id=prompt_plan.style_id,
+            metadata=metadata or {},
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "prompt_plan_id": self.prompt_plan_id,
-            "storyboard_plan_id": self.storyboard_plan_id,
             "frame_id": self.frame_id,
             "final_prompt": self.final_prompt,
-            "prompt_sections": dict(self.prompt_sections),
-            "asset_refs": _json_safe_copy(self.asset_refs),
+            "character_ids": list(self.character_ids),
+            "scene_id": self.scene_id,
+            "prop_ids": list(self.prop_ids),
+            "style_id": self.style_id,
+            "metadata": _json_safe_copy(self.metadata),
         }
 
 
@@ -281,6 +296,93 @@ def _normalize_id_tuple(field_name: str, value: tuple[str, ...]) -> tuple[str, .
     if len(set(normalized)) != len(normalized):
         raise ValueError(f"{field_name} must not contain duplicates")
     return normalized
+
+
+def _normalize_public_id_tuple(field_name: str, value: tuple[str, ...]) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{field_name} must be a list or tuple")
+    normalized = tuple(_public_reference_id(field_name, item) for item in value)
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"{field_name} must not contain duplicates")
+    return normalized
+
+
+def _optional_public_reference_id(field_name: str, value: Any) -> str | None:
+    if value is None:
+        return None
+    return _public_reference_id(field_name, value)
+
+
+def _public_reference_id(field_name: str, value: Any) -> str:
+    normalized = _require_non_empty(field_name, value)
+    lowered = normalized.lower()
+    if (
+        ":\\" in normalized
+        or "://" in normalized
+        or ":" in normalized
+        or "\\" in normalized
+        or "/" in normalized
+        or normalized in {".", ".."}
+        or normalized.startswith("~")
+        or ".." in normalized
+        or lowered.startswith("workflows/")
+    ):
+        raise ValueError(f"{field_name} must be a public ID, not a path, URL, or workflow path")
+    return normalized
+
+
+def _freeze_projection_metadata(value: Mapping[str, Any]) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError("metadata must be a mapping")
+    _validate_projection_metadata(value)
+    return _deep_freeze_mapping(value)
+
+
+def _validate_projection_metadata(value: Mapping[str, Any], *, path: str = "metadata") -> None:
+    for key, item in value.items():
+        key_text = str(key)
+        if key_text.lower() in _RESERVED_PROMPT_PROJECTION_METADATA_KEYS:
+            raise ValueError(f"metadata must not include raw provider or workflow field: {key_text}")
+        item_path = f"{path}.{key_text}"
+        if isinstance(item, Mapping):
+            _validate_projection_metadata(item, path=item_path)
+        elif isinstance(item, (list, tuple)):
+            for index, nested in enumerate(item):
+                _validate_projection_metadata_value(nested, path=f"{item_path}[{index}]")
+        else:
+            _validate_projection_metadata_value(item, path=item_path)
+
+
+def _validate_projection_metadata_value(value: Any, *, path: str) -> None:
+    if isinstance(value, str):
+        _reject_raw_provider_or_workflow_metadata_value(value, path=path)
+        return
+    if value is None or isinstance(value, (int, float, bool)):
+        return
+    if isinstance(value, Mapping):
+        _validate_projection_metadata(value, path=path)
+        return
+    if isinstance(value, (list, tuple)):
+        for index, nested in enumerate(value):
+            _validate_projection_metadata_value(nested, path=f"{path}[{index}]")
+        return
+    raise ValueError(f"metadata value at {path} must be JSON-compatible")
+
+
+def _reject_raw_provider_or_workflow_metadata_value(value: str, *, path: str) -> None:
+    normalized = value.strip()
+    lowered = normalized.lower()
+    if not normalized:
+        return
+    if (
+        lowered.startswith(("workflows/", "selfhost/", "runninghub/"))
+        or "://" in lowered
+        or "\\" in normalized
+        or lowered.endswith(".json")
+    ):
+        raise ValueError(f"metadata value at {path} must not contain raw provider or workflow data")
 
 
 def _deep_freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:

@@ -98,17 +98,16 @@ def test_prompt_projection_is_read_model_for_generation_and_stage2_refs():
 
     assert projection.to_dict() == {
         "prompt_plan_id": "prompt_plan_001",
-        "storyboard_plan_id": "storyboard_plan_001",
         "frame_id": "frame_0001",
         "final_prompt": "fox cub, storybook",
-        "prompt_sections": {"subject": "fox cub", "style": "storybook"},
-        "asset_refs": {
-            "character_ids": ["char_fox"],
-            "scene_id": "scene_village",
-            "prop_ids": ["prop_lantern", "prop_book"],
-            "style_id": "style_storybook",
-        },
+        "character_ids": ["char_fox"],
+        "scene_id": "scene_village",
+        "prop_ids": ["prop_lantern", "prop_book"],
+        "style_id": "style_storybook",
+        "metadata": {},
     }
+    assert "prompt_sections" not in projection.to_dict()
+    assert "provider_params" not in projection.to_dict()
 
 
 @pytest.mark.parametrize(
