@@ -264,6 +264,13 @@ class StandardPipeline(LinearVideoPipeline):
     - "generate": LLM generates narrations from topic
     - "fixed": Use provided script as-is (each line = one narration)
     """
+
+    @staticmethod
+    def _progress_target(ctx: PipelineContext):
+        dispatcher = getattr(ctx, "progress_dispatcher", None)
+        if dispatcher is not None:
+            return dispatcher
+        return ctx.progress_callback
     
     # ==================== Lifecycle Methods ====================
 
@@ -2537,8 +2544,6 @@ class StandardPipeline(LinearVideoPipeline):
         return ass_outputs
 
     async def _post_production_hyperframes(self, ctx: PipelineContext):
-        self._report_progress(ctx.progress_callback, ProgressEventType.RENDERING_HYPERFRAMES, 0.85)
-
         storyboard = ctx.storyboard
         config = ctx.config
         timing_plan = ctx.timing_plan
@@ -2552,6 +2557,12 @@ class StandardPipeline(LinearVideoPipeline):
         if config.silence_trim_tool == "auto_editor" and getattr(self.core, "audio_edit_service", None) is None:
             raise RuntimeError("Audio edit service is not initialized.")
 
+        progress_target = self._progress_target(ctx)
+        self._report_progress(
+            progress_target,
+            ProgressEventType.SYNTHESIZING_AUDIO,
+            0.82,
+        )
         master_audio_path, master_audio_duration = await self._synthesize_hyperframes_audio(ctx)
         self._align_hyperframes_timing_plan(ctx)
         self._offset_sentence_timings_to_master_timeline(timing_plan)
@@ -2601,6 +2612,11 @@ class StandardPipeline(LinearVideoPipeline):
             ctx,
             master_audio_path=master_audio_path,
             master_audio_duration=master_audio_duration,
+        )
+        self._report_progress(
+            progress_target,
+            ProgressEventType.PREPARING_RENDER_MANIFEST,
+            0.86,
         )
         visual_clips = self._build_hyperframes_visual_clips(storyboard, timing_plan)
         await self._materialize_element_motion_for_hyperframes_visual_clips(
@@ -2672,6 +2688,11 @@ class StandardPipeline(LinearVideoPipeline):
                 if hyperframes_caption_cues
                 else {}
             ),
+        )
+        self._report_progress(
+            progress_target,
+            ProgressEventType.RENDERING_HYPERFRAMES,
+            0.90,
         )
 
         final_video_path = self.core.hyperframes_renderer.render(

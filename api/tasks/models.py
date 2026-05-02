@@ -54,6 +54,8 @@ class TaskProgress(BaseModel):
     total: int = 0
     percentage: float = 0.0
     message: str = ""
+    event_type: Optional[str] = None
+    extra: dict[str, Any] = Field(default_factory=dict)
 
 
 class Task(BaseModel):

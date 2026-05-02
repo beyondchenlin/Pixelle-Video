@@ -15,13 +15,24 @@ from api.platform_dependencies import attach_platform_dependencies, build_platfo
 from api.tasks.artifacts import ArtifactStore
 from api.tasks.factory import build_task_manager
 from api.tasks.models import TaskType
+from api.tasks.progress import TaskProgressSink
 from api.tasks.registry import GenerationRegistry
 from api.tasks.store import LostTaskLeaseError
+from pixelle_video.models.progress import ProgressDispatcher
 from pixelle_video.service import PixelleVideoCore
 
 REGISTRY_CONTROL_PARAM_NAMES = {
     "generation_fingerprint",
 }
+
+
+async def _drain_progress_sink(progress_sink: TaskProgressSink | None) -> None:
+    if progress_sink is None:
+        return
+    try:
+        await progress_sink.drain()
+    except Exception as exc:
+        logger.warning(f"Task progress drain failed: {exc}")
 
 
 class GenerationWorker:
@@ -54,14 +65,23 @@ class GenerationWorker:
 
         task = claim.task
         lease = claim.lease
+        progress_sink = None
         try:
             params = self._build_generation_params(task_id=task.task_id, request_params=task.request_params)
+            progress_sink = TaskProgressSink(
+                registry=self.registry,
+                task_id=task.task_id,
+                owner_id=lease.owner_id,
+                lease_token=lease.lease_token,
+            )
+            params["progress_dispatcher"] = ProgressDispatcher([progress_sink])
             result = await self._generate_with_heartbeat(
                 params=params,
                 task_id=task.task_id,
                 owner_id=lease.owner_id,
                 lease_token=lease.lease_token,
             )
+            await progress_sink.drain()
             artifact = await self.artifact_store.persist_video(
                 task_id=task.task_id,
                 source_path=result.video_path,
@@ -75,10 +95,12 @@ class GenerationWorker:
             )
             return True
         except LostTaskLeaseError:
+            await _drain_progress_sink(progress_sink)
             logger.warning(f"Task {task.task_id} lease was lost; leaving persisted state unchanged")
             return True
         except Exception as exc:
             logger.exception(exc)
+            await _drain_progress_sink(progress_sink)
             try:
                 await self.registry.mark_failed(
                     task_id=task.task_id,

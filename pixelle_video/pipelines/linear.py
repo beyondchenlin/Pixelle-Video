@@ -26,7 +26,11 @@ from loguru import logger
 
 from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
 from pixelle_video.models.creation_package import CreationPackage
-from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.progress import (
+    CallbackProgressSink,
+    ProgressDispatcher,
+    ProgressEvent,
+)
 from pixelle_video.models.prompt_plan import PromptPlanBundle
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, VideoGenerationResult
 from pixelle_video.models.storyboard_plan import StoryboardPlan
@@ -52,6 +56,7 @@ class PipelineContext:
     input_text: str
     params: Dict[str, Any]
     progress_callback: Optional[Callable[[ProgressEvent], None]] = None
+    progress_dispatcher: Optional[ProgressDispatcher] = None
     request_id: Optional[str] = None
     session_id: Optional[str] = None
     api_task_id: Optional[str] = None
@@ -113,14 +118,31 @@ class LinearVideoPipeline(BasePipeline):
         """
         Execute the pipeline using the template method.
         """
+        incoming_dispatcher = kwargs.get("progress_dispatcher")
+        sinks = []
+        if progress_callback is not None:
+            sinks.append(CallbackProgressSink(progress_callback))
+        if incoming_dispatcher is not None:
+            sinks.extend(incoming_dispatcher.sinks)
+        progress_dispatcher = ProgressDispatcher(sinks) if sinks else None
+        effective_progress_callback = (
+            progress_dispatcher.emit if progress_dispatcher is not None else progress_callback
+        )
+        pipeline_params = {
+            key: value
+            for key, value in kwargs.items()
+            if key != "progress_dispatcher"
+        }
+
         # 1. Initialize context
         ctx = PipelineContext(
             input_text=text,
-            params=kwargs,
-            progress_callback=progress_callback,
-            request_id=kwargs.get("request_id"),
-            session_id=kwargs.get("session_id"),
-            api_task_id=kwargs.get("api_task_id"),
+            params=pipeline_params,
+            progress_callback=effective_progress_callback,
+            progress_dispatcher=progress_dispatcher,
+            request_id=pipeline_params.get("request_id"),
+            session_id=pipeline_params.get("session_id"),
+            api_task_id=pipeline_params.get("api_task_id"),
         )
         
         with bind_log_context(

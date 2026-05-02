@@ -11,6 +11,7 @@ from api.tasks.models import TaskStatus, TaskType
 from api.tasks.registry import GenerationRegistry
 from api.tasks.store import InMemoryTaskStore
 from api.tasks.worker import GenerationWorker
+from pixelle_video.models.progress import ProgressEvent, ProgressEventType
 
 
 class FakeCore:
@@ -178,6 +179,48 @@ async def test_worker_leaves_cancelled_task_cancelled_after_generation_finishes(
     assert await worker.run_once() is True
     task = await registry.get_task("task-1")
     assert task.status == TaskStatus.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_worker_persists_progress_from_pipeline_dispatcher(tmp_path):
+    class ProgressCore:
+        async def generate_video(self, **params):
+            dispatcher = params["progress_dispatcher"]
+            dispatcher.emit(
+                ProgressEvent(
+                    event_type=ProgressEventType.SYNTHESIZING_AUDIO,
+                    progress=0.82,
+                )
+            )
+            output = Path(params["output_path"])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"video")
+            return SimpleNamespace(video_path=str(output), duration=2.5)
+
+    registry = GenerationRegistry(
+        store=InMemoryTaskStore(),
+        lease=InMemoryGenerationLease(),
+        artifact_store=LocalArtifactStore(output_root=tmp_path / "output"),
+        task_id_factory=lambda: "task-1",
+    )
+    await registry.reserve_or_reuse(
+        fingerprint="fp-1",
+        task_type=TaskType.VIDEO_GENERATION,
+        request_params={"text": "demo"},
+        reuse_completed_within_seconds=86400,
+    )
+    worker = GenerationWorker(
+        registry=registry,
+        core=ProgressCore(),
+        artifact_store=registry.artifact_store,
+        output_root=tmp_path / "work",
+    )
+
+    assert await worker.run_once() is True
+    task = await registry.get_task("task-1")
+    assert task is not None
+    assert task.progress is not None
+    assert task.progress.event_type == "synthesizing_audio"
 
 
 @pytest.mark.asyncio

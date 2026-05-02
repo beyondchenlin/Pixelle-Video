@@ -69,7 +69,7 @@ async def test_manager_execute_task_updates_store_result():
         request_params={},
     )
 
-    async def generate():
+    async def generate(progress_dispatcher=None):
         return {
             "video_url": "/api/files/task-1/final.mp4",
             "storage_key": "task-1/final.mp4",

@@ -313,6 +313,8 @@
     "progress.step_compose": "Composing frame",
     "progress.step_video": "Creating video segment",
     "progress.concatenating": "Concatenating video...",
+    "progress.synthesizing_audio": "Generating audio...",
+    "progress.preparing_render_manifest": "Preparing render manifest...",
     "progress.rendering_ffmpeg_manifest": "Rendering with FFmpeg...",
     "progress.rendering_hyperframes": "Rendering with HyperFrames...",
     "progress.finalizing": "Finalizing...",

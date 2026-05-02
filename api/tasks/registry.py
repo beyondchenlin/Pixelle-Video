@@ -15,6 +15,7 @@ from api.tasks.models import (
     ClaimedTask,
     ReserveOutcome,
     Task,
+    TaskProgress,
     TaskStatus,
     TaskType,
     utc_now,
@@ -223,6 +224,22 @@ class GenerationRegistry:
             await self.lease.heartbeat(task_id, owner_id, lease_token)
         except LostLeaseError as exc:
             raise LostTaskLeaseError(task_id) from exc
+
+    async def update_progress(
+        self,
+        *,
+        task_id: str,
+        progress: TaskProgress,
+        owner_id: str,
+        lease_token: str,
+    ) -> None:
+        await self.heartbeat(task_id=task_id, owner_id=owner_id, lease_token=lease_token)
+        await self.store.update_progress(
+            task_id=task_id,
+            progress=progress,
+            expected_owner_id=owner_id,
+            expected_lease_token=lease_token,
+        )
 
     async def cancel(self, task_id: str) -> bool:
         task = await self.store.get_task(task_id)

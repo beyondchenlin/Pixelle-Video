@@ -29,8 +29,10 @@ from api.config import api_config
 from api.tasks.artifacts import MissingArtifactStore
 from api.tasks.lease import InMemoryGenerationLease
 from api.tasks.models import Task, TaskProgress, TaskStatus, TaskType, utc_now
+from api.tasks.progress import TaskProgressSink
 from api.tasks.registry import ACTIVE_TASK_STATUSES, GenerationRegistry
 from api.tasks.store import InMemoryTaskStore, LostTaskLeaseError, TaskStore
+from pixelle_video.models.progress import ProgressDispatcher
 from pixelle_video.utils.logging_util import bind_log_context
 
 
@@ -320,8 +322,22 @@ class TaskManager:
                         lease_token=lease_token,
                     )
                     logger.info("task started")
+                    progress_sink = TaskProgressSink(
+                        registry=self.registry,
+                        task_id=task_id,
+                        owner_id=owner_id,
+                        lease_token=lease_token,
+                    )
+                    progress_dispatcher = ProgressDispatcher([progress_sink])
 
-                    result = await coro_func(*args, **kwargs)
+                    try:
+                        result = await coro_func(
+                            *args,
+                            progress_dispatcher=progress_dispatcher,
+                            **kwargs,
+                        )
+                    finally:
+                        await progress_sink.drain()
                     if not isinstance(result, dict):
                         result = {"result": result}
 

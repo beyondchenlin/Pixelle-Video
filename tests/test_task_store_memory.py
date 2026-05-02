@@ -2,7 +2,10 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from api.tasks.artifacts import MissingArtifactStore
+from api.tasks.lease import InMemoryGenerationLease
 from api.tasks.models import ArtifactStatus, Task, TaskProgress, TaskStatus, TaskType
+from api.tasks.registry import GenerationRegistry
 from api.tasks.store import InMemoryTaskStore, LostTaskLeaseError
 
 
@@ -211,17 +214,69 @@ async def test_memory_store_progress_update_requires_current_lease():
     with pytest.raises(LostTaskLeaseError):
         await store.update_progress(
             task_id="task-1",
-            progress=TaskProgress(current=1, total=5, percentage=20.0, message="bad"),
+            progress=TaskProgress(
+                current=1,
+                total=5,
+                percentage=20.0,
+                message="bad",
+                event_type="synthesizing_audio",
+            ),
             expected_owner_id="worker-old",
             expected_lease_token="token-old",
         )
 
     await store.update_progress(
         task_id="task-1",
-        progress=TaskProgress(current=2, total=5, percentage=40.0, message="ok"),
+        progress=TaskProgress(
+            current=2,
+            total=5,
+            percentage=40.0,
+            message="Generating audio...",
+            event_type="synthesizing_audio",
+        ),
         expected_owner_id="worker-current",
         expected_lease_token="token-current",
     )
 
     task = await store.get_task("task-1")
-    assert task.progress.message == "ok"
+    assert task.progress.message == "Generating audio..."
+    assert task.progress.event_type == "synthesizing_audio"
+
+
+@pytest.mark.asyncio
+async def test_registry_update_progress_requires_current_lease():
+    store = InMemoryTaskStore()
+    registry = GenerationRegistry(
+        store=store,
+        lease=InMemoryGenerationLease(),
+        artifact_store=MissingArtifactStore(),
+        task_id_factory=lambda: "task-1",
+    )
+    await registry.reserve_or_reuse(
+        fingerprint="fp-1",
+        task_type=TaskType.VIDEO_GENERATION,
+        request_params={"text": "demo"},
+        reuse_completed_within_seconds=86400,
+    )
+    claim = await registry.claim_next_pending(worker_id="worker-current")
+    assert claim is not None
+
+    with pytest.raises(LostTaskLeaseError):
+        await registry.update_progress(
+            task_id="task-1",
+            progress=TaskProgress(event_type="synthesizing_audio", percentage=82.0),
+            owner_id="worker-old",
+            lease_token="token-old",
+        )
+
+    await registry.update_progress(
+        task_id="task-1",
+        progress=TaskProgress(event_type="synthesizing_audio", percentage=82.0),
+        owner_id=claim.lease.owner_id,
+        lease_token=claim.lease.lease_token,
+    )
+
+    task = await registry.get_task("task-1")
+    assert task is not None
+    assert task.progress is not None
+    assert task.progress.event_type == "synthesizing_audio"

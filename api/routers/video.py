@@ -412,12 +412,14 @@ async def generate_video_async(
             )
 
         # Define async execution function
-        async def execute_video_generation():
+        async def execute_video_generation(progress_dispatcher=None):
             """Execute video generation in background"""
             video_params = {
                 **generation_params,
                 "api_task_id": task.task_id,
             }
+            if progress_dispatcher is not None:
+                video_params["progress_dispatcher"] = progress_dispatcher
             
             result = await pixelle_video.generate_video(**video_params)
             

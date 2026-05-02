@@ -21,7 +21,7 @@ from typing import Callable, Optional
 
 from loguru import logger
 
-from pixelle_video.models.progress import ProgressEvent, ProgressEventType
+from pixelle_video.models.progress import ProgressEvent, ProgressEventType, ProgressSink
 from pixelle_video.models.storyboard import VideoGenerationResult
 
 
@@ -95,7 +95,7 @@ class BasePipeline(ABC):
     
     def _report_progress(
         self,
-        callback: Optional[Callable[[ProgressEvent], None]],
+        callback: Optional[Callable[[ProgressEvent], None] | ProgressSink],
         event_type: str | ProgressEventType,
         progress: float,
         **kwargs
@@ -111,7 +111,11 @@ class BasePipeline(ABC):
         """
         if callback:
             event = ProgressEvent(event_type=event_type, progress=progress, **kwargs)
-            callback(event)
+            emit = getattr(callback, "emit", None)
+            if callable(emit):
+                emit(event)
+            else:
+                callback(event)
             logger.debug(f"Progress: {progress*100:.0f}% - {event_type}")
         else:
             logger.debug(f"Progress: {progress*100:.0f}% - {event_type}")

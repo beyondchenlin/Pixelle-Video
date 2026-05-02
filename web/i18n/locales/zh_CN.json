@@ -314,6 +314,8 @@
     "progress.step_compose": "合成画面",
     "progress.step_video": "创建视频片段",
     "progress.concatenating": "正在拼接视频...",
+    "progress.synthesizing_audio": "正在生成音频...",
+    "progress.preparing_render_manifest": "正在准备渲染清单...",
     "progress.rendering_ffmpeg_manifest": "正在使用 FFmpeg 渲染...",
     "progress.rendering_hyperframes": "正在使用 HyperFrames 渲染...",
     "progress.generation": "正在合成视频...",

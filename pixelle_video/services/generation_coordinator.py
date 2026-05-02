@@ -16,6 +16,7 @@ VOLATILE_GENERATION_PARAM_NAMES = frozenset(
     {
         "api_task_id",
         "progress_callback",
+        "progress_dispatcher",
         "request_id",
         "session_id",
     }

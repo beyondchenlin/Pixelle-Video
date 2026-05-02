@@ -1035,6 +1035,49 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_generate_video_async_passes_progress_dispatcher_to_video_core(monkeypatch, tmp_path):
+    output_path = tmp_path / "task-async" / "final.mp4"
+    fake_pixelle_video = _FakePixelleVideo(output_path)
+    captured = {}
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        lambda template_path: SimpleNamespace(get_media_size=lambda: (1080, 1920)),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda template_path: template_path,
+    )
+    monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
+
+    class _FakeTaskManager:
+        execution_mode = "embedded"
+
+        async def reserve_or_reuse_generation_task(self, **_kwargs):
+            return SimpleNamespace(
+                task=SimpleNamespace(task_id="task-1"),
+                created=True,
+                reused_reason=None,
+            )
+
+        async def execute_task(self, *, task_id, coro_func):
+            captured["task_id"] = task_id
+            captured["result"] = await coro_func(progress_dispatcher="dispatcher-token")
+
+    monkeypatch.setattr("api.routers.video.task_manager", _FakeTaskManager())
+
+    response = await generate_video_async(
+        VideoGenerateRequest(text="demo"),
+        fake_pixelle_video,
+        SimpleNamespace(base_url="http://testserver/"),
+    )
+
+    assert response.task_id == "task-1"
+    assert captured["task_id"] == "task-1"
+    assert fake_pixelle_video.calls[0]["progress_dispatcher"] == "dispatcher-token"
+
+
+@pytest.mark.asyncio
 async def test_generate_video_async_preserves_explicit_text_styles(monkeypatch, tmp_path):
     output_path = tmp_path / "task-async" / "final.mp4"
     fake_pixelle_video = _FakePixelleVideo(output_path)

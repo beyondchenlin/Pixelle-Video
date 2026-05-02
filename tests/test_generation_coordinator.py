@@ -65,6 +65,21 @@ def test_generation_fingerprint_ignores_runtime_only_fields():
     assert first != changed
 
 
+def test_generation_fingerprint_ignores_progress_dispatcher():
+    first = build_generation_fingerprint(
+        text="demo",
+        pipeline="standard",
+        params={"progress_dispatcher": object(), "frame_template": "a.html"},
+    )
+    second = build_generation_fingerprint(
+        text="demo",
+        pipeline="standard",
+        params={"progress_dispatcher": object(), "frame_template": "a.html"},
+    )
+
+    assert first == second
+
+
 @pytest.mark.asyncio
 async def test_core_generate_video_reuses_identical_inflight_generation():
     started = asyncio.Event()

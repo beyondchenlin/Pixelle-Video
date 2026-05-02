@@ -19,7 +19,9 @@ Provides structured progress events for UI layer to consume and translate.
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, Mapping, Optional, Union
+from typing import Any, Callable, Mapping, Optional, Protocol, Sequence, Union
+
+from loguru import logger
 
 
 class ProgressEventType(StrEnum):
@@ -35,6 +37,8 @@ class ProgressEventType(StrEnum):
     FRAME_STEP = "frame_step"
     PROCESSING_FRAME = "processing_frame"
     CONCATENATING = "concatenating"
+    SYNTHESIZING_AUDIO = "synthesizing_audio"
+    PREPARING_RENDER_MANIFEST = "preparing_render_manifest"
     RENDERING_FFMPEG_MANIFEST = "rendering_ffmpeg_manifest"
     RENDERING_HYPERFRAMES = "rendering_hyperframes"
     GENERATION = "generation"
@@ -64,6 +68,8 @@ PROGRESS_EVENT_I18N_KEYS: Mapping[str, str] = MappingProxyType(
         ProgressEventType.FRAME_STEP.value: "progress.frame_step",
         ProgressEventType.PROCESSING_FRAME.value: "progress.frame",
         ProgressEventType.CONCATENATING.value: "progress.concatenating",
+        ProgressEventType.SYNTHESIZING_AUDIO.value: "progress.synthesizing_audio",
+        ProgressEventType.PREPARING_RENDER_MANIFEST.value: "progress.preparing_render_manifest",
         ProgressEventType.RENDERING_FFMPEG_MANIFEST.value: "progress.rendering_ffmpeg_manifest",
         ProgressEventType.RENDERING_HYPERFRAMES.value: "progress.rendering_hyperframes",
         ProgressEventType.GENERATION.value: "progress.generation",
@@ -163,3 +169,38 @@ class ProgressEvent:
             self.action = normalize_progress_frame_action(self.action)
         if not 0.0 <= self.progress <= 1.0:
             raise ValueError(f"Progress must be between 0.0 and 1.0, got {self.progress}")
+
+
+class ProgressSink(Protocol):
+    """Receives structured progress events."""
+
+    def emit(self, event: ProgressEvent) -> None:
+        ...
+
+
+class CallbackProgressSink:
+    """Adapts the legacy progress callback shape to the sink contract."""
+
+    def __init__(self, callback: Callable[[ProgressEvent], None]) -> None:
+        self._callback = callback
+
+    def emit(self, event: ProgressEvent) -> None:
+        self._callback(event)
+
+
+class ProgressDispatcher:
+    """Fan out one progress event to every registered sink."""
+
+    def __init__(self, sinks: Sequence[ProgressSink] | None = None) -> None:
+        self._sinks = list(sinks or [])
+
+    def emit(self, event: ProgressEvent) -> None:
+        for sink in self._sinks:
+            try:
+                sink.emit(event)
+            except Exception as exc:
+                logger.warning(f"Progress sink failed: {exc}")
+
+    @property
+    def sinks(self) -> tuple[ProgressSink, ...]:
+        return tuple(self._sinks)

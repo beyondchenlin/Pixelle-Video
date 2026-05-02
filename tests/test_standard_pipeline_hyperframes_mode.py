@@ -1108,6 +1108,39 @@ async def test_post_production_uses_template_canvas_size_instead_of_square_media
 
 
 @pytest.mark.asyncio
+async def test_post_production_reports_audio_before_hyperframes_render(monkeypatch, tmp_path):
+    monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+    ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
+    events = []
+    ctx.progress_callback = events.append
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        Path(frame.image_path).write_text("raw", encoding="utf-8")
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
+        Path(output_path).write_bytes(b"master-audio")
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", lambda _path: 2.0)
+
+    await pipeline.post_production(ctx)
+
+    event_types = [event.event_type for event in events]
+    assert event_types.index("synthesizing_audio") < event_types.index("rendering_hyperframes")
+    assert event_types.index("preparing_render_manifest") < event_types.index("rendering_hyperframes")
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "frame_template",
     ["1920x1080/image_landscape_full.html", "1920x1080/image_landscape_minimal.html"],
