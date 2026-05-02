@@ -31,6 +31,7 @@ from pixelle_video.models.video_generation_contract import (
     StoryboardControlsContract,
     is_plan_frame_override_payload,
 )
+from pixelle_video.services.layered_template_service import LayeredTemplateService
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from web.components.prompt_generation_performance import (
@@ -39,6 +40,12 @@ from web.components.prompt_generation_performance import (
 from web.components.recent_video_gallery import (
     render_recent_video_gallery,
     store_recent_generated_video,
+)
+from web.components.layered_template_state import load_layered_template_spec_into_editor_state
+from web.components.layout_preview_workbench import (
+    TrustedPreviewHTML,
+    render_layout_preview_workbench,
+    trust_preview_html,
 )
 from web.i18n import tr
 from web.utils.async_helpers import run_async
@@ -209,6 +216,44 @@ def render_scaled_video_preview(video_path: str) -> None:
         st.video(video_path, width="stretch")
 
 
+def _build_layout_preview_html(video_params) -> TrustedPreviewHTML | None:
+    spec_payload = video_params.get("layered_template_spec")
+    if not spec_payload:
+        return None
+    try:
+        html = LayeredTemplateService().render_preview_html(
+            spec=spec_payload,
+            title_text=video_params.get("title") or video_params.get("layout_preview_title_text") or "",
+            caption_text=video_params.get("layout_preview_caption_text") or "",
+            text_rendering=video_params.get("text_rendering") or {},
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning(f"Failed to build layered template preview HTML: {exc}")
+        return None
+    return trust_preview_html(html)
+
+
+def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = "") -> None:
+    selected = render_layout_preview_workbench(
+        spec_payload=video_params.get("layered_template_spec"),
+        recent_presets=video_params.get("layout_preview_recent_presets") or [],
+        preview_html=_build_layout_preview_html(video_params),
+        render_summary=video_params.get("layout_preview_render_summary")
+        or video_params.get("render_backend"),
+        template_summary=video_params.get("layout_preview_template_summary")
+        or video_params.get("selected_template_preset_id")
+        or video_params.get("frame_template"),
+        key_suffix=key_suffix,
+        ui=st,
+    )
+    if selected and selected.get("spec_payload"):
+        load_layered_template_spec_into_editor_state(
+            st.session_state,
+            selected["spec_payload"],
+        )
+        st.session_state["selected_template_preset_id"] = selected.get("preset_id")
+
+
 def copy_element_animation_options(source, target):
     """Copy element animation UI params into a generation request dict."""
     for key in ELEMENT_ANIMATION_OPTION_KEYS:
@@ -303,6 +348,10 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     copy_prompt_generation_performance_params(video_params, request)
     if video_params.get("text_rendering") is not None:
         request["text_rendering"] = video_params["text_rendering"]
+    if video_params.get("layered_template_spec") is not None:
+        request["layered_template_spec"] = video_params["layered_template_spec"]
+    if video_params.get("selected_template_preset_id"):
+        request["selected_template_preset_id"] = video_params["selected_template_preset_id"]
 
     if video_params.get("request_id"):
         request["request_id"] = video_params["request_id"]
@@ -458,15 +507,23 @@ def render_single_output(pixelle_video, video_params):
             nonlocal gallery_rendered
 
             if gallery_slot is None:
+                _render_layout_preview_workbench_section(video_params)
                 render_recent_video_gallery(pixelle_video)
                 gallery_rendered = True
                 return
 
-            gallery_slot.render(
-                lambda key_suffix: render_recent_video_gallery(
+            def _render_gallery_section(key_suffix):
+                _render_layout_preview_workbench_section(
+                    video_params,
+                    key_suffix=key_suffix,
+                )
+                render_recent_video_gallery(
                     pixelle_video,
                     key_suffix=key_suffix,
-                ),
+                )
+
+            gallery_slot.render(
+                _render_gallery_section,
                 refresh=refresh,
             )
             gallery_rendered = True
