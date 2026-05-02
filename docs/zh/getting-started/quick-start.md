@@ -14,12 +14,32 @@
 
 ### 从源码安装用户
 
+推荐使用项目启动脚本，它会同时启动 Pixelle API 和 Web 界面：
+
 ```bash
-# 使用 uv 运行
+# Windows
+start_web.bat
+
+# macOS / Linux
+./start_web.sh
+```
+
+如果需要手动分开启动，请打开两个终端：
+
+```bash
+# 终端 1：启动 Pixelle API（FastAPI，供 Web 界面调用）
+uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
+```
+
+```bash
+# 终端 2：启动 Web 界面（Streamlit）
 uv run streamlit run web/app.py
 ```
 
-浏览器会自动打开 `http://localhost:8501`
+浏览器会自动打开 `http://localhost:8501`。API 健康检查地址为 `http://localhost:8001/health`，Swagger 文档地址为 `http://localhost:8001/docs`。
+
+!!! note "API 必须运行"
+    `uv run streamlit run web/app.py` 只会启动 Web 界面，不会自动启动 Pixelle API。Stage1/Stage2 的工作台、分镜候选图和状态查询等功能需要 `http://localhost:8001/api` 可用。
 
 ---
 
@@ -112,4 +132,3 @@ uv run streamlit run web/app.py
 - **克隆声音** - 查看 [使用参考音频克隆声音](../tutorials/voice-cloning.md) 教程
 - **使用 API** - 查看 [API 使用指南](../user-guide/api.md)
 - **开发模板** - 查看 [模板开发指南](../user-guide/templates.md)
-

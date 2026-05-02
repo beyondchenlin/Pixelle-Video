@@ -88,9 +88,9 @@ The builder performs these steps:
 
 Launcher script templates in `templates/`:
 
-- `start.bat` - Main Web UI launcher
+- `start.bat` - Main launcher
 - `start_api.bat` - API server launcher  
-- `start_web.bat` - Web UI only launcher
+- `start_web.bat` - Web UI launcher
 - `README.txt` - User documentation
 
 Templates support placeholders:
@@ -213,4 +213,3 @@ Compare with `.sha256` file.
 ## License
 
 Same as Pixelle-Video project license.
-

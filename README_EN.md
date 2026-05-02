@@ -250,14 +250,33 @@ git clone https://github.com/AIDC-AI/Pixelle-Video.git
 cd Pixelle-Video
 ```
 
-#### Step 2: Launch Web Interface
+#### Step 2: Launch the API and Web Interface
+
+The recommended path is to use the project launcher, which starts the Pixelle API first and then starts the Web UI:
 
 ```bash
-# Run with uv (recommended, will automatically install dependencies)
+# Windows
+start_web.bat
+
+# macOS / Linux
+./start_web.sh
+```
+
+If you need to start them manually, open two terminals:
+
+```bash
+# Terminal 1: start the Pixelle API (FastAPI, used by the Web UI)
+uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
+```
+
+```bash
+# Terminal 2: start the Web UI (Streamlit)
 uv run streamlit run web/app.py
 ```
 
-Browser will automatically open http://localhost:8501
+Browser will automatically open http://localhost:8501. The API health check is http://localhost:8001/health, and Swagger docs are available at http://localhost:8001/docs.
+
+> Note: `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:8001/api`.
 
 #### Step 3: Configure in Web Interface
 

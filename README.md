@@ -254,14 +254,33 @@ git clone https://github.com/AIDC-AI/Pixelle-Video.git
 cd Pixelle-Video
 ```
 
-#### 第二步：启动 Web 界面
+#### 第二步：启动 API 和 Web 界面
+
+推荐直接使用项目启动脚本，它会先启动 Pixelle API，再启动 Web 界面：
 
 ```bash
-# 使用 uv 运行（推荐，会自动安装依赖）
+# Windows
+start_web.bat
+
+# macOS / Linux
+./start_web.sh
+```
+
+如果需要手动分开启动，请打开两个终端：
+
+```bash
+# 终端 1：启动 Pixelle API（FastAPI，供 Web 界面调用）
+uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
+```
+
+```bash
+# 终端 2：启动 Web 界面（Streamlit）
 uv run streamlit run web/app.py
 ```
 
-浏览器会自动打开 http://localhost:8501
+浏览器会自动打开 http://localhost:8501。API 健康检查地址为 http://localhost:8001/health，Swagger 文档地址为 http://localhost:8001/docs。
+
+> 注意：`uv run streamlit run web/app.py` 只启动 Web 界面，不会自动启动 Pixelle API。Stage1/Stage2 的工作台、分镜候选图、状态查询等功能需要 `http://localhost:8001/api` 可用。
 
 #### 第三步：在 Web 界面配置
 

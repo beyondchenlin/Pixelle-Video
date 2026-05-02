@@ -11,8 +11,8 @@ Build Date: {BUILD_DATE}
   Quick Start
 ========================================
 
-1. Double-click "start.bat" to launch the Web UI
-2. Browser will open automatically
+1. Double-click "start.bat" to launch the Pixelle API and Web UI
+2. Browser will open automatically at http://localhost:8501
 3. Configure your API keys in the Web UI (Settings section)
 
 That's it! Just one click to start.
@@ -22,7 +22,7 @@ You can launch multiple instances - each will use a different port automatically
   First-Time Setup
 ========================================
 
-1. On first run, the Web UI will start with default configuration
+1. On first run, the Pixelle API starts on http://localhost:8001 and the Web UI starts on http://localhost:8501
 2. Click on "Settings" in the Web UI to configure:
    - LLM API Key (OpenAI/Qwen/DeepSeek/etc)
    - LLM Base URL and Model
@@ -80,7 +80,7 @@ Problem: "Failed to start"
 Solution: Check if Python and dependencies are installed correctly
 
 Problem: "Port already in use"
-Solution: Streamlit automatically uses the next available port. You can run multiple instances simultaneously.
+Solution: Port 8001 is used by the Pixelle API and port 8501 is used by the Web UI. Stop the existing Pixelle instance or change PIXELLE_API_PORT before launching another API instance.
 
 Problem: "Module not found"
 Solution: Re-extract the package completely, don't move files
@@ -100,4 +100,3 @@ Issues: https://github.com/AIDC-AI/Pixelle-Video/issues
 See LICENSE file in Pixelle-Video/ folder
 
 Copyright (c) 2025 Pixelle.AI
-

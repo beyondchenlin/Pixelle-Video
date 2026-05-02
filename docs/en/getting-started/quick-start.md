@@ -14,12 +14,32 @@ If you're using the Windows All-in-One Package, simply:
 
 ### Install from Source Users
 
+Use the project launcher when possible. It starts both the Pixelle API and the Web UI:
+
 ```bash
-# Using uv
+# Windows
+start_web.bat
+
+# macOS / Linux
+./start_web.sh
+```
+
+If you need to start them manually, open two terminals:
+
+```bash
+# Terminal 1: start the Pixelle API (FastAPI, used by the Web UI)
+uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
+```
+
+```bash
+# Terminal 2: start the Web UI (Streamlit)
 uv run streamlit run web/app.py
 ```
 
-Your browser will automatically open `http://localhost:8501`
+Your browser will automatically open `http://localhost:8501`. The API health check is `http://localhost:8001/health`, and Swagger docs are available at `http://localhost:8001/docs`.
+
+!!! note "The API must be running"
+    `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:8001/api`.
 
 ---
 
@@ -112,4 +132,3 @@ Next, you can:
 - **Clone Voices** - See the [Voice Cloning with Reference Audio](../tutorials/voice-cloning.md) tutorial
 - **Use API** - See the [API Usage Guide](../user-guide/api.md)
 - **Develop Templates** - See the [Template Development Guide](../user-guide/templates.md)
-
