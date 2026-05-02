@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from pixelle_video.config.loader import load_config_dict, save_config_dict
 from pixelle_video.config.schema import PixelleVideoConfig
 from pixelle_video.models.creation_package import CreationPackage
+from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
 from pixelle_video.models.render_package import (
     AudioBlock,
     CaptionCue,
@@ -56,6 +57,22 @@ def _storyboard_plan_from_segments(segments: list[str]) -> StoryboardPlan:
         source_text=source_text,
         frames=frames,
     )
+
+
+def _layered_spec_payload(template_id="demo") -> dict:
+    return LayeredTemplateSpec(
+        version="layered_template.v1",
+        template_id=template_id,
+        template_name="Demo",
+        template_type="image",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        safe_area=RectSpec(x=64, y=64, width=952, height=1792),
+        layers=(),
+        metadata={},
+    ).to_dict()
 
 
 def test_render_manifest_round_trip_and_timing_config_defaults():
@@ -560,6 +577,22 @@ def test_storyboard_config_render_fields_round_trip_through_persistence(tmp_path
     assert restored.render_backend == "hyperframes_compiled"
     assert restored.template_text_policy == "template_body"
     assert restored.storyboard_prompt_language == "zh_CN"
+
+
+def test_storyboard_config_layered_template_fields_round_trip_through_persistence(tmp_path):
+    spec = _layered_spec_payload()
+    config = StoryboardConfig(
+        media_width=1080,
+        media_height=1920,
+        layered_template_spec=spec,
+        selected_template_preset_id="user:demo",
+    )
+
+    service = PersistenceService(output_dir=str(tmp_path))
+    restored = service._dict_to_config(service._config_to_dict(config))
+
+    assert restored.layered_template_spec == spec
+    assert restored.selected_template_preset_id == "user:demo"
 
 
 def test_storyboard_frame_template_visual_fields_round_trip_through_persistence(tmp_path):

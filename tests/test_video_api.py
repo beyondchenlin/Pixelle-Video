@@ -18,6 +18,7 @@ from api.schemas.video import (
     VideoResolutionPreset,
 )
 from api.schemas.video_internal import VideoGenerateInternalRequest
+from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
 from pixelle_video.models.size_contract import (
     STANDARD_VIDEO_SIZE_PRESETS,
     VALID_MEDIA_RESOLUTION_PRESETS,
@@ -25,6 +26,22 @@ from pixelle_video.models.size_contract import (
     GenerationSizeContract,
 )
 from pixelle_video.models.storyboard_limits import StoryboardGenerationLimits
+
+
+def _layered_spec_payload(template_id="demo") -> dict:
+    return LayeredTemplateSpec(
+        version="layered_template.v1",
+        template_id=template_id,
+        template_name="Demo",
+        template_type="image",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        safe_area=RectSpec(x=64, y=64, width=952, height=1792),
+        layers=(),
+        metadata={},
+    ).to_dict()
 
 
 class _FakePixelleVideo:
@@ -80,6 +97,22 @@ def test_video_generate_request_accepts_text_rendering_policy():
     assert request.text_rendering.overlay.enabled is True
     assert request.text_rendering.image_text.suppress_embedded_text is True
     assert request.text_rendering.image_text.positive_prompt == "no letters in image"
+
+
+def test_build_video_generation_params_normalizes_layered_template_snapshot():
+    spec = _layered_spec_payload("user-demo")
+
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            layered_template_spec=spec,
+            selected_template_preset_id="user:demo",
+        ),
+        request_id="req_test",
+    )
+
+    assert params["layered_template_spec"] == spec
+    assert params["selected_template_preset_id"] == "user:demo"
 
 
 def test_video_generate_request_rejects_legacy_text_fields():

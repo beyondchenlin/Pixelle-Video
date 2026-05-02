@@ -1,5 +1,6 @@
 import pytest
 
+from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
 from pixelle_video.models.render_package import (
     CaptionCue,
     RenderManifest,
@@ -14,6 +15,22 @@ from pixelle_video.models.template_render_context import (
 )
 from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID, TextStyleProfile
 from pixelle_video.services.hyperframes_project_service import build_template_render_context
+
+
+def _layered_spec_payload(template_id="demo") -> dict:
+    return LayeredTemplateSpec(
+        version="layered_template.v1",
+        template_id=template_id,
+        template_name="Demo",
+        template_type="image",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        safe_area=RectSpec(x=64, y=64, width=952, height=1792),
+        layers=(),
+        metadata={},
+    ).to_dict()
 
 
 def test_template_render_context_uses_render_timeline_values():
@@ -257,6 +274,45 @@ def test_template_render_context_accepts_media_placement_dict():
         "offset_x": 0,
         "offset_y": 0,
     }
+
+
+def test_render_manifest_round_trips_layered_template_snapshot():
+    spec = _layered_spec_payload()
+
+    manifest = RenderManifest(
+        task_id="task-layered",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        layered_template_spec=spec,
+    )
+
+    restored = RenderManifest.from_dict(manifest.to_dict())
+
+    assert restored.layered_template_spec == spec
+    assert restored.to_dict()["layered_template_spec"] == spec
+
+
+def test_template_render_context_accepts_layered_template_snapshot():
+    spec = _layered_spec_payload()
+
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=2.0,
+        fps=30,
+        title="demo",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        layered_template_spec=spec,
+    )
+
+    assert context.layered_template_spec == spec
 
 
 def test_template_render_context_rejects_invalid_media_layout_mode():
