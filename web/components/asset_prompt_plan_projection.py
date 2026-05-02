@@ -53,13 +53,19 @@ def render_asset_prompt_plan_projection_preview(
             "它不会保存投影后的 PromptPlan，不会标记 stale，也不会触发图片或视频生成。"
         )
 
+    _render_step_header(
+        ui,
+        1,
+        "Context",
+        "Load project/workspace context before selecting Stage2 assets.",
+    )
+
     api_base_url = _text_input(
         ui,
         "API Base URL",
         key="api_base_url",
         value="http://localhost:8000/api",
     )
-
     left, right = ui.columns(2)
     with left:
         project_id = _text_input(ui, "Project ID", key="projection_project_id")
@@ -83,6 +89,41 @@ def render_asset_prompt_plan_projection_preview(
                     workspace_id=workspace_id,
                 )
 
+    context_loaded = _is_context_loaded(
+        ui.session_state,
+        api_base_url=api_base_url,
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    if not context_loaded:
+        clear_projection_preview_result(ui.session_state)
+        _render_locked_step(
+            ui,
+            2,
+            "AssetBible",
+            "Load context before selecting AssetBible.",
+        )
+        _render_locked_step(
+            ui,
+            3,
+            "SceneCast",
+            "Load context before selecting SceneCast.",
+        )
+        _render_locked_step(
+            ui,
+            4,
+            "Storyboard Frame",
+            "Load context before choosing a storyboard frame.",
+        )
+        _render_locked_step(
+            ui,
+            5,
+            "Preview",
+            "Preview is locked until context, AssetBible, SceneCast, storyboard, and frame are ready.",
+        )
+        return None
+
+    _render_step_header(ui, 2, "AssetBible", "Select or create the AssetBible draft.")
     render_asset_bible_draft_setup(
         ui=ui,
         api_base_url=api_base_url,
@@ -127,6 +168,7 @@ def render_asset_prompt_plan_projection_preview(
                 "手动 ID 只保留在 Advanced Debug 中。"
             )
 
+    _render_step_header(ui, 4, "Storyboard Frame", "Confirm the frame source before preview.")
     left, right = ui.columns(2)
     with left:
         storyboard_plan_id = _text_input(
@@ -152,6 +194,7 @@ def render_asset_prompt_plan_projection_preview(
         frame_id=frame_id,
     )
 
+    _render_step_header(ui, 5, "Preview", "Send a preview-only projection request.")
     if not ui.button(t("projection.preview.submit"), key="projection_preview_submit"):
         cached_result = ui.session_state.get("projection_preview_result")
         if isinstance(cached_result, dict):
@@ -313,6 +356,7 @@ def _render_asset_bible_selector(ui, asset_bibles: list[dict[str, Any]]) -> str:
 
 
 def _render_scene_cast_selector(ui, scene_casts: list[dict[str, Any]]) -> str:
+    _render_step_header(ui, 3, "SceneCast", "Select the SceneCast draft for this preview.")
     options = _item_ids(scene_casts, "scene_cast_id")
     if not options:
         return ""
@@ -331,6 +375,17 @@ def _render_scene_cast_selector(ui, scene_casts: list[dict[str, Any]]) -> str:
     _sync_scene_cast_selection(ui, selected)
     ui.caption(_format_scene_cast_summary(selected))
     return selected_id
+
+
+def _render_step_header(ui, number: int, title: str, status: str) -> None:
+    ui.markdown(f"#### {number}. {title}")
+    if status:
+        ui.caption(status)
+
+
+def _render_locked_step(ui, number: int, title: str, message: str) -> None:
+    _render_step_header(ui, number, title, "Locked")
+    ui.caption(message)
 
 
 def _render_advanced_debug_ids(
@@ -368,7 +423,6 @@ def _render_projection_result(result: dict[str, Any], *, ui=st) -> None:
     ui.success("Projection preview 已返回；投影后的 PromptPlan 仅用于预览，不保存，不触发生成。")
     ui.markdown("#### Projection Lab")
     ui.caption("只读投影预览：确认 SceneCast 是否正确落到 PromptPlan 预留资产字段。")
-
     left, right = ui.columns(2)
     with left:
         ui.markdown("##### IP Context")
@@ -418,6 +472,23 @@ def _existing_projection_id(session_state: dict[str, Any], key: str) -> str:
 
 def _has_missing_context(*, project_id: str, workspace_id: str) -> bool:
     return not project_id.strip() or not workspace_id.strip()
+
+
+def _is_context_loaded(
+    session_state: dict[str, Any],
+    *,
+    api_base_url: str,
+    project_id: str,
+    workspace_id: str,
+) -> bool:
+    loaded_source = session_state.get("projection_context_source")
+    if not loaded_source:
+        return False
+    return loaded_source == build_projection_context_source(
+        api_base_url=api_base_url,
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
 
 
 def _clear_loaded_context_if_source_changed(

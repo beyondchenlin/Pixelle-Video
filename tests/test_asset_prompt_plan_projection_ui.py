@@ -73,6 +73,19 @@ class _ProjectionFakeUI:
         self.successes.append(message)
 
 
+def _loaded_projection_context(
+    *,
+    api_base_url: str = "http://localhost:8000/api",
+    project_id: str = "project_1",
+    workspace_id: str = "ws_1",
+) -> dict[str, str]:
+    return {
+        "api_base_url": api_base_url,
+        "project_id": project_id,
+        "workspace_id": workspace_id,
+    }
+
+
 def test_build_projection_request_payload_only_includes_endpoint_fields():
     from web.components.asset_prompt_plan_projection import build_projection_request_payload
 
@@ -653,6 +666,7 @@ def test_render_projection_preview_calls_api_and_displays_projection_fields(monk
             "api_base_url": "http://localhost:8000/api",
             "projection_project_id": "project_1",
             "projection_workspace_id": "ws_1",
+            "projection_context_source": _loaded_projection_context(),
             "projection_asset_bible_id": "asset_1",
             "projection_scene_cast_id": "cast_1",
             "projection_storyboard_plan_id": "storyboard_1",
@@ -822,6 +836,12 @@ def test_render_projection_preview_loads_asset_and_scene_cast_choices(monkeypatc
         translate=lambda key, **_kwargs: key,
     )
 
+    rendered = "\n".join(
+        [item["message"] for item in fake_ui.markdowns]
+        + fake_ui.captions
+    )
+    assert "4. Storyboard Frame" in rendered
+    assert "5. Preview" in rendered
     assert captured["asset_lists"] == [
         {
             "api_base_url": "http://localhost:8000/api",
@@ -868,6 +888,7 @@ def test_render_projection_preview_reloads_scene_casts_when_asset_bible_changes(
             "api_base_url": "http://localhost:8000/api",
             "projection_project_id": "project_1",
             "projection_workspace_id": "ws_1",
+            "projection_context_source": _loaded_projection_context(),
             "projection_asset_bibles": [
                 {"asset_bible_id": "bible_1", "ip_profiles": [{"name": "Old IP"}]},
                 {"asset_bible_id": "bible_2", "ip_profiles": [{"name": "New IP"}]},
@@ -1046,6 +1067,7 @@ def test_render_projection_preview_retries_scene_cast_load_after_failure(monkeyp
             "api_base_url": "http://localhost:8000/api",
             "projection_project_id": "project_1",
             "projection_workspace_id": "ws_1",
+            "projection_context_source": _loaded_projection_context(),
             "projection_asset_bibles": [{"asset_bible_id": "bible_1"}],
             "projection_asset_bible_id": "bible_1",
         }
@@ -1094,6 +1116,7 @@ def test_render_projection_preview_drops_cached_result_when_request_source_chang
             "api_base_url": "http://localhost:8000/api",
             "projection_project_id": "project_1",
             "projection_workspace_id": "ws_1",
+            "projection_context_source": _loaded_projection_context(),
             "projection_asset_bible_id": "bible_1",
             "projection_scene_cast_id": "cast_1",
             "projection_storyboard_plan_id": "storyboard_1",
@@ -1130,6 +1153,7 @@ def test_render_projection_preview_clears_orphan_cached_result():
             "api_base_url": "http://localhost:8000/api",
             "projection_project_id": "project_1",
             "projection_workspace_id": "ws_1",
+            "projection_context_source": _loaded_projection_context(),
             "projection_asset_bible_id": "asset_1",
             "projection_scene_cast_id": "cast_1",
             "projection_storyboard_plan_id": "storyboard_1",
@@ -1177,6 +1201,7 @@ def test_render_projection_preview_renders_cached_result_when_source_is_current(
             "api_base_url": "http://localhost:8000/api",
             "projection_project_id": "project_1",
             "projection_workspace_id": "ws_1",
+            "projection_context_source": _loaded_projection_context(),
             "projection_asset_bible_id": "asset_1",
             "projection_scene_cast_id": "cast_1",
             "projection_storyboard_plan_id": "storyboard_1",
@@ -1214,6 +1239,7 @@ def test_render_projection_result_uses_projection_lab_sections(monkeypatch):
             "api_base_url": "http://localhost:8000/api",
             "projection_project_id": "project_1",
             "projection_workspace_id": "ws_1",
+            "projection_context_source": _loaded_projection_context(),
             "projection_asset_bible_id": "asset_1",
             "projection_scene_cast_id": "cast_1",
             "projection_storyboard_plan_id": "storyboard_1",
@@ -1282,8 +1308,8 @@ def test_render_projection_preview_does_not_render_style_or_path_inputs():
     labels = " ".join(item["label"] for item in fake_ui.text_inputs).lower()
     assert "project" in labels
     assert "workspace" in labels
-    assert "storyboard" in labels
-    assert "frame" in labels
+    assert "storyboard" not in labels
+    assert "frame" not in labels
     assert "title_style" not in labels
     assert "caption_style" not in labels
     assert "font" not in labels
@@ -1312,13 +1338,73 @@ def test_render_projection_preview_hides_manual_asset_ids_in_default_flow():
     assert fake_ui.expanders == []
 
 
+def test_render_projection_preview_guides_user_through_selection_steps():
+    from web.components.asset_prompt_plan_projection import (
+        render_asset_prompt_plan_projection_preview,
+    )
+
+    fake_ui = _ProjectionFakeUI()
+
+    render_asset_prompt_plan_projection_preview(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    rendered = "\n".join(
+        [item["message"] for item in fake_ui.markdowns]
+        + fake_ui.captions
+    )
+    assert "1. Context" in rendered
+    assert "2. AssetBible" in rendered
+    assert "3. SceneCast" in rendered
+    assert "4. Storyboard Frame" in rendered
+    assert "5. Preview" in rendered
+    assert "Load context before selecting AssetBible" in rendered
+    assert "Load context before selecting SceneCast" in rendered
+    assert (
+        "Preview is locked until context, AssetBible, SceneCast, storyboard, and frame are ready"
+        in rendered
+    )
+
+
+def test_render_projection_preview_does_not_show_frame_inputs_before_context_is_loaded():
+    from web.components.asset_prompt_plan_projection import (
+        render_asset_prompt_plan_projection_preview,
+    )
+
+    fake_ui = _ProjectionFakeUI()
+
+    render_asset_prompt_plan_projection_preview(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    projection_labels = {
+        item["key"]: item["label"]
+        for item in fake_ui.text_inputs
+        if item.get("key", "").startswith("projection_")
+    }
+    assert "projection_project_id" in projection_labels
+    assert "projection_workspace_id" in projection_labels
+    assert "projection_storyboard_plan_id" not in projection_labels
+    assert "projection_frame_id" not in projection_labels
+
+
 def test_render_projection_preview_shows_manual_asset_ids_in_advanced_debug():
     from web.components.asset_prompt_plan_projection import (
         render_asset_prompt_plan_projection_preview,
     )
 
     fake_ui = _ProjectionFakeUI()
-    fake_ui.session_state["projection_advanced_debug"] = True
+    fake_ui.session_state.update(
+        {
+            "api_base_url": "http://localhost:8000/api",
+            "projection_project_id": "project_1",
+            "projection_workspace_id": "ws_1",
+            "projection_context_source": _loaded_projection_context(),
+            "projection_advanced_debug": True,
+        }
+    )
 
     render_asset_prompt_plan_projection_preview(
         ui=fake_ui,
