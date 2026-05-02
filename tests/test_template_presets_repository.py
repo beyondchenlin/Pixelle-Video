@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -248,7 +249,23 @@ def test_repository_rejects_invalid_manifest_schema(tmp_path: Path):
         repository.list_all()
 
     (tmp_path / "presets.json").write_text(
+        json.dumps({"presets": []}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="manifest version"):
+        repository.list_all()
+
+    (tmp_path / "presets.json").write_text(
         json.dumps({"version": 1, "presets": {}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="presets"):
+        repository.list_all()
+
+    (tmp_path / "presets.json").write_text(
+        json.dumps({"version": 1}),
         encoding="utf-8",
     )
 
@@ -262,6 +279,120 @@ def test_repository_rejects_invalid_manifest_schema(tmp_path: Path):
 
     with pytest.raises(ValueError, match="preset record"):
         repository.list_all()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("preset_id", 42),
+        ("name", 42),
+        ("source", 42),
+        ("orientation", 42),
+        ("template_type", 42),
+        ("thumbnail_ref", 42),
+        ("editable", "true"),
+        ("created_at", 42),
+        ("updated_at", 42),
+        ("last_used_at", 42),
+    ],
+)
+def test_repository_rejects_invalid_manifest_preset_record_field_types(
+    tmp_path: Path,
+    field: str,
+    value,
+):
+    repository = TemplatePresetRepository(tmp_path)
+    repository.save(_preset())
+    valid_payload = json.loads((tmp_path / "presets.json").read_text(encoding="utf-8"))[
+        "presets"
+    ][0]
+    invalid_payload = {
+        **valid_payload,
+        field: value,
+    }
+
+    (tmp_path / "presets.json").write_text(
+        json.dumps({"version": 1, "presets": [invalid_payload]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=field):
+        repository.list_all()
+
+
+def test_repository_rejects_invalid_manifest_preset_record_spec(tmp_path: Path):
+    repository = TemplatePresetRepository(tmp_path)
+    repository.save(_preset())
+    valid_payload = json.loads((tmp_path / "presets.json").read_text(encoding="utf-8"))[
+        "presets"
+    ][0]
+    invalid_spec_payload = {
+        **valid_payload,
+        "spec": {"version": "layered_template.v1"},
+    }
+    (tmp_path / "presets.json").write_text(
+        json.dumps({"version": 1, "presets": [invalid_spec_payload]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="spec"):
+        repository.list_all()
+
+
+def test_repository_rejects_invalid_manifest_nested_spec_field_types(tmp_path: Path):
+    repository = TemplatePresetRepository(tmp_path)
+    layer = TemplateLayer(
+        id="title-1",
+        type="text",
+        name="Title",
+        rect=RectSpec(x=0, y=0, width=100, height=50),
+        z_index=1,
+        opacity=1.0,
+        rotation=0.0,
+        locked=False,
+        source=None,
+        style={},
+        role="title",
+    )
+    repository.save(_preset(spec=_spec(layers=(layer,))))
+    valid_payload = json.loads((tmp_path / "presets.json").read_text(encoding="utf-8"))[
+        "presets"
+    ][0]
+    cases = [
+        ("spec.template_id", lambda spec: spec.__setitem__("template_id", 42)),
+        ("spec.canvas_width", lambda spec: spec.__setitem__("canvas_width", "1080")),
+        ("spec.safe_area.x", lambda spec: spec["safe_area"].__setitem__("x", "0")),
+        ("spec.safe_area.x", lambda spec: spec["safe_area"].__setitem__("x", True)),
+        (
+            "spec.safe_area.x",
+            lambda spec: spec["safe_area"].__setitem__("x", 10**400),
+        ),
+        ("spec.layers", lambda spec: spec.__setitem__("layers", {})),
+        ("spec.layers[0].id", lambda spec: spec["layers"][0].__setitem__("id", 42)),
+        (
+            "spec.layers[0].z_index",
+            lambda spec: spec["layers"][0].__setitem__("z_index", "1"),
+        ),
+        (
+            "spec.layers[0].locked",
+            lambda spec: spec["layers"][0].__setitem__("locked", "false"),
+        ),
+        (
+            "spec.layers[0].style",
+            lambda spec: spec["layers"][0].__setitem__("style", []),
+        ),
+    ]
+
+    for field, mutate in cases:
+        invalid_payload = json.loads(json.dumps(valid_payload))
+        mutate(invalid_payload["spec"])
+        (tmp_path / "presets.json").write_text(
+            json.dumps({"version": 1, "presets": [invalid_payload]}),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match=re.escape(field)):
+            repository.list_all()
 
 
 def test_repository_cleans_temporary_manifest_on_atomic_replace_failure(

@@ -6,9 +6,10 @@ import os
 import re
 import shutil
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from json import JSONDecodeError
+from math import isfinite
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
@@ -26,6 +27,40 @@ PRESET_RECORD_REQUIRED_KEYS = frozenset(
         "spec",
     }
 )
+PRESET_RECORD_STRING_FIELDS = (
+    "preset_id",
+    "name",
+    "source",
+    "orientation",
+    "template_type",
+)
+PRESET_RECORD_OPTIONAL_STRING_FIELDS = (
+    "thumbnail_ref",
+    "created_at",
+    "updated_at",
+    "last_used_at",
+)
+SPEC_STRING_FIELDS = (
+    "version",
+    "template_id",
+    "template_name",
+    "template_type",
+)
+SPEC_INT_FIELDS = (
+    "canvas_width",
+    "canvas_height",
+    "media_width",
+    "media_height",
+)
+RECT_NUMBER_FIELDS = ("x", "y", "width", "height")
+LAYER_STRING_FIELDS = ("id", "type", "name")
+LAYER_NUMBER_FIELDS = ("opacity", "rotation")
+
+
+@dataclass(frozen=True)
+class _Manifest:
+    version: int
+    presets: tuple[TemplatePreset, ...]
 
 
 class TemplatePresetRepository:
@@ -36,48 +71,43 @@ class TemplatePresetRepository:
     def save(self, preset: TemplatePreset) -> TemplatePreset:
         self._validate_persistable_preset(preset)
         manifest = self._load_manifest()
-        presets = list(manifest["presets"])
+        presets = list(manifest.presets)
         now = _utc_now()
         existing_index = next(
             (
                 index
                 for index, item in enumerate(presets)
-                if item["preset_id"] == preset.preset_id
+                if item.preset_id == preset.preset_id
             ),
             None,
         )
         created_at = (
-            presets[existing_index].get("created_at")
+            presets[existing_index].created_at
             if existing_index is not None
             else preset.created_at
         ) or now
         saved = replace(preset, created_at=created_at, updated_at=now)
-        payload = _preset_to_dict(saved)
         if existing_index is None:
-            presets.append(payload)
+            presets.append(saved)
         else:
-            presets[existing_index] = payload
-        manifest["presets"] = presets
-        self._write_manifest(manifest)
+            presets[existing_index] = saved
+        self._write_manifest(_manifest_to_dict(presets))
         return saved
 
     def get(self, preset_id: str) -> TemplatePreset | None:
-        for payload in self._load_manifest()["presets"]:
-            if payload["preset_id"] == preset_id:
-                return _preset_from_dict(payload)
+        for preset in self._load_manifest().presets:
+            if preset.preset_id == preset_id:
+                return preset
         return None
 
     def list_all(self) -> list[TemplatePreset]:
-        return [
-            _preset_from_dict(payload)
-            for payload in self._load_manifest()["presets"]
-        ]
+        return list(self._load_manifest().presets)
 
     def list_recent(self, limit: int = 5) -> list[TemplatePreset]:
         recent = [
-            _preset_from_dict(payload)
-            for payload in self._load_manifest()["presets"]
-            if payload.get("last_used_at")
+            preset
+            for preset in self._load_manifest().presets
+            if preset.last_used_at
         ]
         recent.sort(key=lambda preset: preset.last_used_at or "", reverse=True)
         return [
@@ -87,18 +117,15 @@ class TemplatePresetRepository:
 
     def touch_last_used(self, preset_id: str) -> TemplatePreset:
         manifest = self._load_manifest()
-        presets = list(manifest["presets"])
+        presets = list(manifest.presets)
         now = _utc_now()
-        for index, payload in enumerate(presets):
-            if payload["preset_id"] != preset_id:
+        for index, preset in enumerate(presets):
+            if preset.preset_id != preset_id:
                 continue
-            updated = dict(payload)
-            updated["last_used_at"] = now
-            updated["updated_at"] = now
+            updated = replace(preset, last_used_at=now, updated_at=now)
             presets[index] = updated
-            manifest["presets"] = presets
-            self._write_manifest(manifest)
-            return _preset_from_dict(updated)
+            self._write_manifest(_manifest_to_dict(presets))
+            return updated
         raise KeyError(preset_id)
 
     def persist_asset(self, source_path: str | os.PathLike[str], preset_id: str) -> str:
@@ -110,9 +137,9 @@ class TemplatePresetRepository:
         shutil.copy2(source, target)
         return target.relative_to(self.root_dir).as_posix()
 
-    def _load_manifest(self) -> dict[str, Any]:
+    def _load_manifest(self) -> _Manifest:
         if not self.manifest_path.exists():
-            return {"version": MANIFEST_VERSION, "presets": []}
+            return _Manifest(version=MANIFEST_VERSION, presets=())
         try:
             payload = json.loads(self.manifest_path.read_text(encoding="utf-8"))
         except JSONDecodeError as exc:
@@ -121,30 +148,29 @@ class TemplatePresetRepository:
             ) from exc
         if not isinstance(payload, dict):
             raise ValueError("template preset manifest must be a JSON object")
-        version = payload.get("version", MANIFEST_VERSION)
-        if version != MANIFEST_VERSION:
+        if "version" not in payload:
             raise ValueError(
                 f"template preset manifest version must be {MANIFEST_VERSION}"
             )
-        presets = payload.get("presets", [])
+        version = payload["version"]
+        if (
+            not isinstance(version, int)
+            or isinstance(version, bool)
+            or version != MANIFEST_VERSION
+        ):
+            raise ValueError(
+                f"template preset manifest version must be {MANIFEST_VERSION}"
+            )
+        if "presets" not in payload:
+            raise ValueError("template preset manifest presets must be a list")
+        presets = payload["presets"]
         if not isinstance(presets, list):
             raise ValueError("template preset manifest presets must be a list")
-        for index, preset_payload in enumerate(presets):
-            if not isinstance(preset_payload, dict):
-                raise ValueError(
-                    f"template preset manifest preset record {index} must be an object"
-                )
-            missing = PRESET_RECORD_REQUIRED_KEYS.difference(preset_payload)
-            if missing:
-                missing_fields = ", ".join(sorted(missing))
-                raise ValueError(
-                    "template preset manifest preset record "
-                    f"{index} is missing required fields: {missing_fields}"
-                )
-        return {
-            "version": version,
-            "presets": list(presets),
-        }
+        decoded_presets = tuple(
+            _decode_manifest_preset_record(index, preset_payload)
+            for index, preset_payload in enumerate(presets)
+        )
+        return _Manifest(version=version, presets=decoded_presets)
 
     def _write_manifest(self, manifest: Mapping[str, Any]) -> None:
         self.root_dir.mkdir(parents=True, exist_ok=True)
@@ -203,20 +229,245 @@ def _preset_to_dict(preset: TemplatePreset) -> dict[str, Any]:
     }
 
 
-def _preset_from_dict(payload: Mapping[str, Any]) -> TemplatePreset:
+def _manifest_to_dict(presets: list[TemplatePreset]) -> dict[str, Any]:
+    return {
+        "version": MANIFEST_VERSION,
+        "presets": [_preset_to_dict(preset) for preset in presets],
+    }
+
+
+def _decode_manifest_preset_record(index: int, payload: Any) -> TemplatePreset:
+    _validate_manifest_preset_record(index, payload)
+    spec = _decode_manifest_spec(index, payload["spec"])
     return TemplatePreset(
-        preset_id=str(payload["preset_id"]),
-        name=str(payload["name"]),
+        preset_id=payload["preset_id"],
+        name=payload["name"],
         source=payload["source"],
-        orientation=str(payload["orientation"]),
-        template_type=str(payload["template_type"]),
-        spec=LayeredTemplateSpec.from_dict(payload["spec"]),
+        orientation=payload["orientation"],
+        template_type=payload["template_type"],
+        spec=spec,
         thumbnail_ref=payload.get("thumbnail_ref"),
-        editable=bool(payload.get("editable", True)),
+        editable=payload.get("editable", True),
         created_at=payload.get("created_at"),
         updated_at=payload.get("updated_at"),
         last_used_at=payload.get("last_used_at"),
     )
+
+
+def _validate_manifest_preset_record(index: int, payload: Any) -> None:
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"template preset manifest preset record {index} must be an object"
+        )
+    missing = PRESET_RECORD_REQUIRED_KEYS.difference(payload)
+    if missing:
+        missing_fields = ", ".join(sorted(missing))
+        raise ValueError(
+            "template preset manifest preset record "
+            f"{index} is missing required fields: {missing_fields}"
+        )
+    for field in PRESET_RECORD_STRING_FIELDS:
+        _require_manifest_string_field(index, payload, field)
+    for field in PRESET_RECORD_OPTIONAL_STRING_FIELDS:
+        _require_manifest_optional_string_field(index, payload, field)
+    if "editable" in payload and not isinstance(payload["editable"], bool):
+        raise ValueError(
+            "template preset manifest preset record "
+            f"{index} field editable must be a boolean"
+        )
+    if not isinstance(payload["spec"], Mapping):
+        raise ValueError(
+            "template preset manifest preset record "
+            f"{index} field spec must be an object"
+        )
+
+
+def _decode_manifest_spec(
+    preset_index: int,
+    payload: Mapping[str, Any],
+) -> LayeredTemplateSpec:
+    _validate_manifest_spec_schema(preset_index, payload)
+    try:
+        return LayeredTemplateSpec.from_dict(payload)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"template preset manifest preset record {preset_index} field spec is invalid"
+        ) from exc
+
+
+def _validate_manifest_spec_schema(
+    preset_index: int,
+    payload: Mapping[str, Any],
+) -> None:
+    for field in SPEC_STRING_FIELDS:
+        _require_spec_string_field(preset_index, payload, f"spec.{field}")
+    for field in SPEC_INT_FIELDS:
+        _require_spec_int_field(preset_index, payload, f"spec.{field}")
+    _require_spec_rect_field(preset_index, payload, "spec.safe_area")
+    _require_spec_layers_field(preset_index, payload)
+    if "metadata" in payload and not isinstance(payload["metadata"], Mapping):
+        _raise_spec_schema_error(preset_index, "spec.metadata", "an object")
+
+
+def _require_spec_layers_field(
+    preset_index: int,
+    payload: Mapping[str, Any],
+) -> None:
+    if "layers" not in payload:
+        _raise_spec_schema_error(preset_index, "spec.layers", "a list")
+    layers = payload["layers"]
+    if not isinstance(layers, list):
+        _raise_spec_schema_error(preset_index, "spec.layers", "a list")
+    for layer_index, layer in enumerate(layers):
+        _require_spec_layer_field(preset_index, layer, layer_index)
+
+
+def _require_spec_layer_field(
+    preset_index: int,
+    payload: Any,
+    layer_index: int,
+) -> None:
+    layer_path = f"spec.layers[{layer_index}]"
+    if not isinstance(payload, Mapping):
+        _raise_spec_schema_error(preset_index, layer_path, "an object")
+    for field in LAYER_STRING_FIELDS:
+        _require_spec_string_field(preset_index, payload, f"{layer_path}.{field}")
+    _require_spec_rect_field(preset_index, payload, f"{layer_path}.rect")
+    _require_spec_int_field(preset_index, payload, f"{layer_path}.z_index")
+    for field in LAYER_NUMBER_FIELDS:
+        _require_spec_number_field(preset_index, payload, f"{layer_path}.{field}")
+    if "locked" not in payload or not isinstance(payload["locked"], bool):
+        _raise_spec_schema_error(preset_index, f"{layer_path}.locked", "a boolean")
+    if "source" not in payload:
+        _raise_spec_schema_error(preset_index, f"{layer_path}.source", "an object or null")
+    if payload["source"] is not None:
+        _require_spec_layer_source_field(
+            preset_index,
+            payload["source"],
+            f"{layer_path}.source",
+        )
+    if "style" not in payload or not isinstance(payload["style"], Mapping):
+        _raise_spec_schema_error(preset_index, f"{layer_path}.style", "an object")
+    if (
+        "role" in payload
+        and payload["role"] is not None
+        and not isinstance(payload["role"], str)
+    ):
+        _raise_spec_schema_error(preset_index, f"{layer_path}.role", "a string or null")
+
+
+def _require_spec_layer_source_field(
+    preset_index: int,
+    payload: Any,
+    field_path: str,
+) -> None:
+    if not isinstance(payload, Mapping):
+        _raise_spec_schema_error(preset_index, field_path, "an object or null")
+    _require_spec_string_field(preset_index, payload, f"{field_path}.kind")
+    _require_spec_string_field(preset_index, payload, f"{field_path}.ref")
+    if "metadata" in payload and not isinstance(payload["metadata"], Mapping):
+        _raise_spec_schema_error(preset_index, f"{field_path}.metadata", "an object")
+
+
+def _require_spec_rect_field(
+    preset_index: int,
+    payload: Mapping[str, Any],
+    field_path: str,
+) -> None:
+    field = field_path.rsplit(".", 1)[-1]
+    if field not in payload or not isinstance(payload[field], Mapping):
+        _raise_spec_schema_error(preset_index, field_path, "an object")
+    rect = payload[field]
+    for rect_field in RECT_NUMBER_FIELDS:
+        _require_spec_number_field(preset_index, rect, f"{field_path}.{rect_field}")
+    if "unit" in rect and not isinstance(rect["unit"], str):
+        _raise_spec_schema_error(preset_index, f"{field_path}.unit", "a string")
+
+
+def _require_spec_string_field(
+    preset_index: int,
+    payload: Mapping[str, Any],
+    field_path: str,
+) -> None:
+    field = field_path.rsplit(".", 1)[-1]
+    if field not in payload or not isinstance(payload[field], str) or not payload[field]:
+        _raise_spec_schema_error(preset_index, field_path, "a non-empty string")
+
+
+def _require_spec_int_field(
+    preset_index: int,
+    payload: Mapping[str, Any],
+    field_path: str,
+) -> None:
+    field = field_path.rsplit(".", 1)[-1]
+    if field not in payload or not _is_strict_int(payload[field]):
+        _raise_spec_schema_error(preset_index, field_path, "an integer")
+
+
+def _require_spec_number_field(
+    preset_index: int,
+    payload: Mapping[str, Any],
+    field_path: str,
+) -> None:
+    field = field_path.rsplit(".", 1)[-1]
+    if field not in payload or not _is_strict_number(payload[field]):
+        _raise_spec_schema_error(preset_index, field_path, "a finite number")
+
+
+def _is_strict_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_strict_number(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        try:
+            float(value)
+        except OverflowError:
+            return False
+        return True
+    if not isinstance(value, float):
+        return False
+    return isfinite(value)
+
+
+def _raise_spec_schema_error(
+    preset_index: int,
+    field_path: str,
+    expected: str,
+) -> None:
+    raise ValueError(
+        "template preset manifest preset record "
+        f"{preset_index} field {field_path} must be {expected}"
+    )
+
+
+def _require_manifest_string_field(
+    index: int,
+    payload: Mapping[str, Any],
+    field: str,
+) -> None:
+    value = payload[field]
+    if not isinstance(value, str) or not value:
+        raise ValueError(
+            "template preset manifest preset record "
+            f"{index} field {field} must be a non-empty string"
+        )
+
+
+def _require_manifest_optional_string_field(
+    index: int,
+    payload: Mapping[str, Any],
+    field: str,
+) -> None:
+    if field not in payload or payload[field] is None:
+        return
+    if not isinstance(payload[field], str):
+        raise ValueError(
+            "template preset manifest preset record "
+            f"{index} field {field} must be a string or null"
+        )
 
 
 def _safe_path_part(value: str) -> str:
