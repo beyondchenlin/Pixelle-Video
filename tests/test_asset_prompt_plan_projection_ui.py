@@ -1510,3 +1510,47 @@ def test_render_projection_preview_blocks_mismatched_scene_cast_frame_before_htt
         "Storyboard/frame no longer matches selected SceneCast" in item
         for item in fake_ui.errors
     )
+
+
+def test_render_projection_preview_shows_current_request_summary_before_submit():
+    from web.components import asset_prompt_plan_projection
+
+    fake_ui = _ProjectionFakeUI()
+    fake_ui.session_state.update(
+        {
+            "api_base_url": "http://localhost:8000/api",
+            "projection_project_id": "project_1",
+            "projection_workspace_id": "ws_1",
+            "projection_context_source": _loaded_projection_context(),
+            "projection_asset_bibles": [{"asset_bible_id": "bible_1"}],
+            "projection_asset_bible_id": "bible_1",
+            "projection_scene_cast_asset_bible_id": "bible_1",
+            "projection_scene_casts": [
+                {
+                    "scene_cast_id": "cast_1",
+                    "asset_bible_id": "bible_1",
+                    "storyboard_plan_id": "storyboard_1",
+                    "frame_id": "frame_001",
+                }
+            ],
+            "projection_scene_cast_id": "cast_1",
+            "projection_storyboard_plan_id": "storyboard_1",
+            "projection_frame_id": "frame_001",
+        }
+    )
+
+    asset_prompt_plan_projection.render_asset_prompt_plan_projection_preview(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    rendered = "\n".join(
+        [item["message"] for item in fake_ui.markdowns]
+        + fake_ui.captions
+    )
+    assert "Current request summary" in rendered
+    assert "project_1 / ws_1" in rendered
+    assert "bible_1" in rendered
+    assert "cast_1" in rendered
+    assert "storyboard_1 / frame_001" in rendered
+    assert "Preview-only: no PromptPlan save, no stale marking, no image/video generation" in rendered

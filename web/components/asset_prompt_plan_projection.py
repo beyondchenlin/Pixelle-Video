@@ -204,6 +204,15 @@ def render_asset_prompt_plan_projection_preview(
     )
 
     _render_step_header(ui, 5, "Preview", "Send a preview-only projection request.")
+    _render_request_summary(
+        ui,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        asset_bible_id=asset_bible_id,
+        scene_cast_id=scene_cast_id,
+        storyboard_plan_id=storyboard_plan_id,
+        frame_id=frame_id,
+    )
     if not ui.button(t("projection.preview.submit"), key="projection_preview_submit"):
         cached_result = ui.session_state.get("projection_preview_result")
         if isinstance(cached_result, dict):
@@ -457,6 +466,28 @@ def _validate_projection_flow(
     if not is_valid:
         return "Storyboard/frame no longer matches selected SceneCast."
     return None
+
+
+def _render_request_summary(
+    ui,
+    *,
+    project_id: str,
+    workspace_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+    storyboard_plan_id: str,
+    frame_id: str,
+) -> None:
+    ui.markdown("##### Current request summary")
+    ui.markdown(f"- Context: {project_id.strip()} / {workspace_id.strip()}")
+    ui.markdown(f"- AssetBible: {asset_bible_id.strip()}")
+    ui.markdown(f"- SceneCast: {scene_cast_id.strip()}")
+    ui.markdown(
+        f"- Storyboard Frame: {storyboard_plan_id.strip()} / {frame_id.strip()}"
+    )
+    ui.caption(
+        "Preview-only: no PromptPlan save, no stale marking, no image/video generation."
+    )
 
 
 def _render_advanced_debug_ids(
