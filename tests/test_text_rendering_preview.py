@@ -85,7 +85,7 @@ def test_build_text_rendering_preview_spec_merges_title_preset_defaults():
     assert spec.title_style["font_size"] == 96
     assert spec.title_style["primary_color"] == "#2C3E50"
     assert spec.title_style["background_color"] == "#FFFFFF"
-    assert spec.title_style["background_opacity"] == 0.92
+    assert spec.title_style["background_opacity"] == 0.0
 
 
 def test_preview_spec_fingerprint_is_deterministic_and_excludes_itself():

@@ -940,7 +940,7 @@ def test_hyperframes_compiler_emits_fallback_title_style_variables(tmp_path: Pat
     html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
     assert "__TITLE_STYLE_CSS__" not in html
     assert "--title-fill: #2C3E50" in html
-    assert "--title-background: rgba(255, 255, 255, 0.92)" in html
+    assert "--title-background: rgba(255, 255, 255, 0)" in html
 
 
 def test_hyperframes_compiler_uses_fallback_title_profile_for_wrapping(

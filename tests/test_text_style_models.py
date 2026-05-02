@@ -108,13 +108,24 @@ def test_default_text_style_profiles_include_caption_title_and_overlay_defaults(
     assert title.position == "top_left"
     assert title.font_size == 76
     assert title.background_color == "#FFFFFF"
-    assert title.background_opacity == 0.88
+    assert title.background_opacity == 0.0
     assert profiles[2].name == "Overlay Default"
     assert profiles[2].font_size == 76
     assert profiles[2].primary_color == "#FFFFFF"
     assert profiles[2].stroke_width == 2
     assert profiles[2].position == "center"
     assert profiles[2].margin_y == 80
+
+
+def test_default_title_background_opacity_is_zero_for_all_system_template_presets():
+    for template_id in (
+        "image_default",
+        "image_life_insights_light",
+        "image_landscape_full",
+        "image_landscape_minimal",
+    ):
+        title_profile = build_default_text_style_profiles(template_id=template_id)[1]
+        assert title_profile.background_opacity == 0.0
 
 
 def test_default_text_style_profiles_apply_scale_basis_to_all_profiles():
