@@ -68,14 +68,14 @@ from pixelle_video.utils.text_splitting import (
     SUPPORTED_TTS_SENTENCE_JOINER_MODES,
 )
 from web.components import storyboard_planning_controls
-from web.components.selfhost_workflow_notice import (
-    is_selfhost_workflow,
-    render_selfhost_workflow_notice,
-)
 from web.components.layered_template_state import (
     LAYERED_TEMPLATE_EDITOR_STATE_KEY,
     LayeredTemplateEditorState,
     ensure_layered_template_editor_state,
+)
+from web.components.selfhost_workflow_notice import (
+    is_selfhost_workflow,
+    render_selfhost_workflow_notice,
 )
 from web.components.storyboard_preview import render_storyboard_preview  # noqa: F401
 from web.components.text_rendering_config import (
@@ -2516,7 +2516,6 @@ def render_style_config(
                             else:
                                 st.error("Failed to generate preview audio")
                             
-                            # Show file path
                             st.caption(f"📁 {audio_path}")
                         else:
                             st.error("Failed to generate preview audio")
@@ -2923,102 +2922,6 @@ def render_style_config(
                             value=default,
                             key=f"video_custom_{param_name}"
                         )
-        
-        # Template preview expander
-        with render_middle_column_detail_section(tr("template.preview_title")):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                preview_title = st.text_input(
-                    tr("template.preview_param_title"), 
-                    value=tr("template.preview_default_title"),
-                    key="preview_title"
-                )
-                preview_image = st.text_input(
-                    tr("template.preview_param_image"), 
-                    value="resources/example.png",
-                    help=tr("template.preview_image_help"),
-                    key="preview_image"
-                )
-            
-            with col2:
-                preview_text = st.text_area(
-                    tr("template.preview_param_text"), 
-                    value=tr("template.preview_default_text"),
-                    height=100,
-                    key="preview_text"
-                )
-            
-            # Info: final output canvas is controlled by the explicit size contract.
-            from pixelle_video.utils.template_util import parse_template_size, resolve_template_path
-            template_width, template_height = parse_template_size(resolve_template_path(frame_template))
-            st.info(
-                tr(
-                    "size.final_video_info",
-                    width=size_contract.canvas_width,
-                    height=size_contract.canvas_height,
-                )
-            )
-            st.caption(
-                tr(
-                    "size.template_base_info",
-                    width=template_width,
-                    height=template_height,
-                )
-            )
-            
-            # Preview button
-            if st.button(tr("template.preview_button"), key="btn_preview_template", width="stretch"):
-                with st.spinner(tr("template.preview_generating")):
-                    try:
-                        from pixelle_video.services.frame_html import HTMLFrameGenerator
-
-                        # Use the currently selected template (size is auto-parsed)
-                        from pixelle_video.utils.template_util import resolve_template_path
-                        template_path = resolve_template_path(frame_template)
-                        generator = HTMLFrameGenerator(
-                            template_path,
-                            canvas_width=size_contract.canvas_width,
-                            canvas_height=size_contract.canvas_height,
-                        )
-                        
-                        # Build ext dict with auto-injected parameters (same as FrameProcessor)
-                        ext = {
-                            "index": 1,  # Preview uses index 1
-                        }
-                        
-                        # Add custom parameters from user input
-                        if custom_values_for_video:
-                            ext.update(custom_values_for_video)
-                        
-                        # Generate preview
-                        preview_path = run_async(generator.generate_frame(
-                            title=preview_title,
-                            text=preview_text,
-                            image=preview_image,
-                            ext=ext,
-                            media_placement=st.session_state.get("media_placement"),
-                            media_type=template_media_type,
-                            media_width=media_width,
-                            media_height=media_height,
-                        ))
-                        
-                        # Display preview
-                        if preview_path:
-                            st.success(tr("template.preview_success"))
-                            st.image(
-                                preview_path, 
-                                caption=tr("template.preview_caption", template=frame_template),
-                            )
-                            
-                            # Show file path
-                            st.caption(f"📁 {preview_path}")
-                        else:
-                            st.error("Failed to generate preview")
-                            
-                    except Exception as e:
-                        st.error(tr("template.preview_failed", error=str(e)))
-                        logger.exception(e)
 
     text_rendering = render_text_rendering_controls(
         render_backend,
