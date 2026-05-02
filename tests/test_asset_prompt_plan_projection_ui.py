@@ -1419,3 +1419,94 @@ def test_render_projection_preview_shows_manual_asset_ids_in_advanced_debug():
     assert fake_ui.expanders == [{"label": "Advanced Debug", "expanded": False}]
     assert projection_labels["projection_asset_bible_id"] == "Asset Bible ID"
     assert projection_labels["projection_scene_cast_id"] == "Scene Cast ID"
+
+
+def test_render_projection_preview_shows_derived_frame_status_from_scene_cast():
+    from web.components import asset_prompt_plan_projection
+
+    fake_ui = _ProjectionFakeUI()
+    fake_ui.session_state.update(
+        {
+            "api_base_url": "http://localhost:8000/api",
+            "projection_project_id": "project_1",
+            "projection_workspace_id": "ws_1",
+            "projection_context_source": _loaded_projection_context(),
+            "projection_asset_bibles": [{"asset_bible_id": "bible_1"}],
+            "projection_asset_bible_id": "bible_1",
+            "projection_scene_cast_asset_bible_id": "bible_1",
+            "projection_scene_casts": [
+                {
+                    "scene_cast_id": "cast_1",
+                    "asset_bible_id": "bible_1",
+                    "storyboard_plan_id": "storyboard_1",
+                    "frame_id": "frame_001",
+                }
+            ],
+            "projection_scene_cast_id": "cast_1",
+            "projection_storyboard_plan_id": "storyboard_1",
+            "projection_frame_id": "frame_001",
+        }
+    )
+
+    asset_prompt_plan_projection.render_asset_prompt_plan_projection_preview(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    rendered = "\n".join(
+        [item["message"] for item in fake_ui.markdowns]
+        + fake_ui.captions
+    )
+    assert "Storyboard/frame derived from selected SceneCast" in rendered
+    assert "storyboard_1 / frame_001" in rendered
+
+
+def test_render_projection_preview_blocks_mismatched_scene_cast_frame_before_http(
+    monkeypatch,
+):
+    from web.components import asset_prompt_plan_projection
+
+    fake_ui = _ProjectionFakeUI()
+    fake_ui.session_state.update(
+        {
+            "api_base_url": "http://localhost:8000/api",
+            "projection_project_id": "project_1",
+            "projection_workspace_id": "ws_1",
+            "projection_context_source": _loaded_projection_context(),
+            "projection_asset_bibles": [{"asset_bible_id": "bible_1"}],
+            "projection_asset_bible_id": "bible_1",
+            "projection_scene_cast_asset_bible_id": "bible_1",
+            "projection_scene_casts": [
+                {
+                    "scene_cast_id": "cast_1",
+                    "asset_bible_id": "bible_1",
+                    "storyboard_plan_id": "storyboard_1",
+                    "frame_id": "frame_001",
+                }
+            ],
+            "projection_scene_cast_id": "cast_1",
+            "projection_storyboard_plan_id": "storyboard_other",
+            "projection_frame_id": "frame_999",
+            "projection_preview_submit": True,
+        }
+    )
+
+    def fail_preview(**_kwargs):
+        raise AssertionError("preview API must not be called for mismatched derived frame")
+
+    monkeypatch.setattr(
+        asset_prompt_plan_projection,
+        "preview_prompt_plan_projection",
+        fail_preview,
+    )
+
+    result = asset_prompt_plan_projection.render_asset_prompt_plan_projection_preview(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert result is None
+    assert any(
+        "Storyboard/frame no longer matches selected SceneCast" in item
+        for item in fake_ui.errors
+    )

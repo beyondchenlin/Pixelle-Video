@@ -168,7 +168,16 @@ def render_asset_prompt_plan_projection_preview(
                 "手动 ID 只保留在 Advanced Debug 中。"
             )
 
-    _render_step_header(ui, 4, "Storyboard Frame", "Confirm the frame source before preview.")
+    selected_scene_cast = _find_item(scene_casts, "scene_cast_id", scene_cast_id)
+    frame_status, _frame_ready = _frame_status_for_scene_cast(
+        selected_scene_cast,
+        storyboard_plan_id=_existing_projection_id(
+            ui.session_state,
+            "projection_storyboard_plan_id",
+        ),
+        frame_id=_existing_projection_id(ui.session_state, "projection_frame_id"),
+    )
+    _render_step_header(ui, 4, "Storyboard Frame", frame_status)
     left, right = ui.columns(2)
     with left:
         storyboard_plan_id = _text_input(
@@ -202,20 +211,17 @@ def render_asset_prompt_plan_projection_preview(
             return cached_result
         return None
 
-    missing = [
-        label
-        for label, value in (
-            ("project_id", project_id),
-            ("workspace_id", workspace_id),
-            ("asset_bible_id", asset_bible_id),
-            ("scene_cast_id", scene_cast_id),
-            ("storyboard_plan_id", storyboard_plan_id),
-            ("frame_id", frame_id),
-        )
-        if not value.strip()
-    ]
-    if missing:
-        ui.error(f"缺少必填字段: {', '.join(missing)}")
+    validation_error = _validate_projection_flow(
+        project_id=project_id,
+        workspace_id=workspace_id,
+        asset_bible_id=asset_bible_id,
+        scene_cast_id=scene_cast_id,
+        storyboard_plan_id=storyboard_plan_id,
+        frame_id=frame_id,
+        scene_cast=selected_scene_cast,
+    )
+    if validation_error:
+        ui.error(validation_error)
         return None
 
     try:
@@ -360,6 +366,7 @@ def _render_scene_cast_selector(ui, scene_casts: list[dict[str, Any]]) -> str:
     options = _item_ids(scene_casts, "scene_cast_id")
     if not options:
         return ""
+    previous_selected_id = _existing_projection_id(ui.session_state, "projection_scene_cast_id")
     selected_id = ui.selectbox(
         "SceneCast Draft",
         options,
@@ -372,7 +379,11 @@ def _render_scene_cast_selector(ui, scene_casts: list[dict[str, Any]]) -> str:
     if not selected_id:
         return ""
     selected = _find_item(scene_casts, "scene_cast_id", selected_id)
-    _sync_scene_cast_selection(ui, selected)
+    _sync_scene_cast_selection(
+        ui,
+        selected,
+        force_frame_sync=selected_id != previous_selected_id,
+    )
     ui.caption(_format_scene_cast_summary(selected))
     return selected_id
 
@@ -386,6 +397,66 @@ def _render_step_header(ui, number: int, title: str, status: str) -> None:
 def _render_locked_step(ui, number: int, title: str, message: str) -> None:
     _render_step_header(ui, number, title, "Locked")
     ui.caption(message)
+
+
+def _frame_status_for_scene_cast(
+    scene_cast: dict[str, Any],
+    *,
+    storyboard_plan_id: str,
+    frame_id: str,
+) -> tuple[str, bool]:
+    expected_storyboard = _safe_text(scene_cast.get("storyboard_plan_id"))
+    expected_frame = _safe_text(scene_cast.get("frame_id"))
+    current_storyboard = storyboard_plan_id.strip()
+    current_frame = frame_id.strip()
+    if expected_storyboard and expected_frame:
+        if current_storyboard == expected_storyboard and current_frame == expected_frame:
+            return (
+                "Storyboard/frame derived from selected SceneCast: "
+                f"{current_storyboard} / {current_frame}",
+                True,
+            )
+        return ("Storyboard/frame no longer matches selected SceneCast.", False)
+    if current_storyboard and current_frame:
+        return (
+            "Storyboard/frame manually completed because SceneCast did not provide both values.",
+            True,
+        )
+    return ("Storyboard/frame is required before preview.", False)
+
+
+def _validate_projection_flow(
+    *,
+    project_id: str,
+    workspace_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+    storyboard_plan_id: str,
+    frame_id: str,
+    scene_cast: dict[str, Any],
+) -> str | None:
+    missing = [
+        label
+        for label, value in (
+            ("project_id", project_id),
+            ("workspace_id", workspace_id),
+            ("asset_bible_id", asset_bible_id),
+            ("scene_cast_id", scene_cast_id),
+            ("storyboard_plan_id", storyboard_plan_id),
+            ("frame_id", frame_id),
+        )
+        if not value.strip()
+    ]
+    if missing:
+        return f"缺少必填字段: {', '.join(missing)}"
+    _message, is_valid = _frame_status_for_scene_cast(
+        scene_cast,
+        storyboard_plan_id=storyboard_plan_id,
+        frame_id=frame_id,
+    )
+    if not is_valid:
+        return "Storyboard/frame no longer matches selected SceneCast."
+    return None
 
 
 def _render_advanced_debug_ids(
@@ -626,15 +697,25 @@ def _find_item(
     return {}
 
 
-def _sync_scene_cast_selection(ui, scene_cast: dict[str, Any]) -> None:
+def _sync_scene_cast_selection(
+    ui,
+    scene_cast: dict[str, Any],
+    *,
+    force_frame_sync: bool = True,
+) -> None:
     scene_cast_id = scene_cast.get("scene_cast_id")
     storyboard_plan_id = scene_cast.get("storyboard_plan_id")
     frame_id = scene_cast.get("frame_id")
     if isinstance(scene_cast_id, str):
         ui.session_state["projection_scene_cast_id"] = scene_cast_id
-    if isinstance(storyboard_plan_id, str):
+    if isinstance(storyboard_plan_id, str) and (
+        force_frame_sync
+        or not _existing_projection_id(ui.session_state, "projection_storyboard_plan_id")
+    ):
         ui.session_state["projection_storyboard_plan_id"] = storyboard_plan_id
-    if isinstance(frame_id, str):
+    if isinstance(frame_id, str) and (
+        force_frame_sync or not _existing_projection_id(ui.session_state, "projection_frame_id")
+    ):
         ui.session_state["projection_frame_id"] = frame_id
 
 
