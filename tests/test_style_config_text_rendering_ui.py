@@ -875,7 +875,8 @@ def test_render_style_config_passes_template_contract_and_context_to_text_contro
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 100,
-        "anchor": "center",
+        "offset_x": 0,
+        "offset_y": 0,
     }
     assert captured["title_text"] == "Runtime Title"
     assert captured["caption_text"] == "Runtime caption line"

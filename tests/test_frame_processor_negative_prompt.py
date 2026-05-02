@@ -176,7 +176,8 @@ async def test_compose_frame_html_uses_canvas_media_layout_when_media_syncs(monk
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 90,
-        "anchor": "right",
+        "offset_x": 0,
+        "offset_y": 0,
     }
     assert captured["media_type"] == "image"
     assert (captured["media_width"], captured["media_height"]) == (1280, 720)
