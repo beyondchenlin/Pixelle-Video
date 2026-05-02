@@ -210,7 +210,8 @@ def test_build_single_generation_request_uses_size_contract_not_template_session
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 100,
-        "anchor": "center",
+        "offset_x": 0,
+        "offset_y": 0,
     }
 
 
@@ -226,7 +227,8 @@ def test_build_single_generation_request_uses_media_placement_payload():
                 "basis": "canvas",
                 "fit": "contain",
                 "scale_percent": 90,
-                "anchor": "right",
+                "offset_x": 64,
+                "offset_y": -32,
             },
         },
         progress_callback=_progress,
@@ -235,7 +237,8 @@ def test_build_single_generation_request_uses_media_placement_payload():
                 "basis": "canvas",
                 "fit": "contain",
                 "scale_percent": 70,
-                "anchor": "left",
+                "offset_x": -64,
+                "offset_y": 32,
             }
         },
     )
@@ -244,7 +247,8 @@ def test_build_single_generation_request_uses_media_placement_payload():
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 90,
-        "anchor": "right",
+        "offset_x": 64,
+        "offset_y": -32,
     }
 
 
@@ -653,7 +657,8 @@ def test_build_batch_shared_config_uses_size_contract_defaults_and_overrides():
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 100,
-        "anchor": "center",
+        "offset_x": 0,
+        "offset_y": 0,
     }
 
 

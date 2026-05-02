@@ -406,7 +406,8 @@ def test_build_template_render_context_carries_media_placement_from_manifest():
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 90,
-        "anchor": "right",
+        "offset_x": 0,
+        "offset_y": 0,
     }
 
 

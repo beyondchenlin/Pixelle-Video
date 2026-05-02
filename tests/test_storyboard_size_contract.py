@@ -52,14 +52,15 @@ def test_storyboard_config_accepts_media_placement_dict():
         media_height=768,
         canvas_width=1280,
         canvas_height=720,
-        media_placement={"scale_percent": 90, "anchor": "bottom_right"},
+        media_placement={"scale_percent": 90, "offset_x": 96, "offset_y": 48},
     )
 
     assert config.media_placement.to_dict() == {
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 90,
-        "anchor": "bottom_right",
+        "offset_x": 96,
+        "offset_y": 48,
     }
 
 

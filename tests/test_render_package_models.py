@@ -493,7 +493,8 @@ def test_render_manifest_round_trips_media_placement():
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 90,
-        "anchor": "bottom_right",
+        "offset_x": 0,
+        "offset_y": 0,
     }
 
 
@@ -865,7 +866,8 @@ async def test_standard_pipeline_initialize_storyboard_preserves_media_placement
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 90,
-        "anchor": "right",
+        "offset_x": 0,
+        "offset_y": 0,
     }
 
 

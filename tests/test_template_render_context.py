@@ -254,7 +254,8 @@ def test_template_render_context_accepts_media_placement_dict():
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 100,
-        "anchor": "top",
+        "offset_x": 0,
+        "offset_y": 0,
     }
 
 

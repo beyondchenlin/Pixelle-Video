@@ -82,7 +82,8 @@ async def test_storyboard_persistence_round_trip_preserves_planning_snapshot_and
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 90,
-        "anchor": "bottom",
+        "offset_x": 0,
+        "offset_y": 0,
     }
     assert loaded.config.world_preset_id == "neutral_knowledge_storyboard"
     assert loaded.config.shot_preset_id == "balanced_explainer"

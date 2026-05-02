@@ -38,10 +38,14 @@ class MediaPlacement:
     basis: MediaPlacementBasis = "canvas"
     fit: MediaPlacementFit = "contain"
     scale_percent: int = 100
-    anchor: MediaPlacementAnchor = "center"
+    offset_x: int = 0
+    offset_y: int = 0
+    anchor: MediaPlacementAnchor | None = None
 
     def __post_init__(self) -> None:
         scale_percent = _normalize_scale_percent(self.scale_percent)
+        offset_x = _normalize_offset("offset_x", self.offset_x)
+        offset_y = _normalize_offset("offset_y", self.offset_y)
 
         if self.basis not in VALID_MEDIA_PLACEMENT_BASIS:
             raise ValueError(f"basis must be one of {VALID_MEDIA_PLACEMENT_BASIS}")
@@ -49,13 +53,15 @@ class MediaPlacement:
             raise ValueError(f"fit must be one of {VALID_MEDIA_PLACEMENT_FIT}")
         if not 10 <= scale_percent <= 100:
             raise ValueError("scale_percent must be between 10 and 100")
-        if self.anchor not in VALID_MEDIA_PLACEMENT_ANCHORS:
+        if self.anchor is not None and self.anchor not in VALID_MEDIA_PLACEMENT_ANCHORS:
             raise ValueError(f"anchor must be one of {VALID_MEDIA_PLACEMENT_ANCHORS}")
         object.__setattr__(self, "scale_percent", scale_percent)
+        object.__setattr__(self, "offset_x", offset_x)
+        object.__setattr__(self, "offset_y", offset_y)
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> MediaPlacement:
-        fields = ("basis", "fit", "scale_percent", "anchor")
+        fields = ("basis", "fit", "scale_percent", "offset_x", "offset_y", "anchor")
         return cls(**{field: value[field] for field in fields if field in value})
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,7 +69,8 @@ class MediaPlacement:
             "basis": self.basis,
             "fit": self.fit,
             "scale_percent": self.scale_percent,
-            "anchor": self.anchor,
+            "offset_x": self.offset_x,
+            "offset_y": self.offset_y,
         }
 
 
@@ -112,8 +119,12 @@ def calculate_media_box(
     placement_scale = resolved.scale_percent / 100
     width = media_source_width * contain_scale * placement_scale
     height = media_source_height * contain_scale * placement_scale
-    left = _anchor_left(resolved.anchor, canvas_width, width)
-    top = _anchor_top(resolved.anchor, canvas_height, height)
+    if resolved.anchor is not None:
+        left = _anchor_left(resolved.anchor, canvas_width, width)
+        top = _anchor_top(resolved.anchor, canvas_height, height)
+    else:
+        left = ((canvas_width - width) / 2) + resolved.offset_x
+        top = ((canvas_height - height) / 2) + resolved.offset_y
 
     return MediaBox(width=width, height=height, left=left, top=top)
 
@@ -189,6 +200,18 @@ def _normalize_scale_percent(value: Any) -> int:
     if not 10 <= scale_percent <= 100:
         raise ValueError("scale_percent must be between 10 and 100")
     return scale_percent
+
+
+def _normalize_offset(name: str, value: Any) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer")
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if not isfinite(numeric_value) or not numeric_value.is_integer():
+        raise ValueError(f"{name} must be an integer")
+    return int(numeric_value)
 
 
 def _validate_positive_dimensions(**dimensions: float) -> dict[str, float]:

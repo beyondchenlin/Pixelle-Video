@@ -177,18 +177,20 @@ def test_video_generate_request_defaults_media_placement():
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 100,
-        "anchor": "center",
+        "offset_x": 0,
+        "offset_y": 0,
     }
 
 
 def test_video_generate_request_accepts_media_placement():
     request = VideoGenerateRequest(
         text="demo",
-        media_placement={"scale_percent": 100, "anchor": "right"},
+        media_placement={"scale_percent": 100, "offset_x": 64, "offset_y": -32},
     )
 
     assert request.media_placement.scale_percent == 100
-    assert request.media_placement.anchor == "right"
+    assert request.media_placement.offset_x == 64
+    assert request.media_placement.offset_y == -32
 
 
 @pytest.mark.parametrize("scale_percent", [9, 101, 80.5, 80.0, "80", True])
@@ -206,7 +208,7 @@ def test_video_generate_request_rejects_invalid_media_placement_scale(scale_perc
         {"anchor": "middle"},
         {"basis": "template"},
         {"fit": "cover"},
-        {"scale_percent": 80, "offset_x": 12},
+        {"scale_percent": 80, "offset_x": 12.5},
     ],
 )
 def test_video_generate_request_rejects_invalid_media_placement_values(media_placement):
@@ -218,7 +220,7 @@ def test_build_video_generation_params_includes_media_placement():
     params = build_video_generation_params(
         VideoGenerateRequest(
             text="demo",
-            media_placement={"scale_percent": 90, "anchor": "bottom"},
+            media_placement={"scale_percent": 90, "offset_x": 0, "offset_y": 120},
         ),
         request_id="req_test",
     )
@@ -227,7 +229,8 @@ def test_build_video_generation_params_includes_media_placement():
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 90,
-        "anchor": "bottom",
+        "offset_x": 0,
+        "offset_y": 120,
     }
 
 
@@ -850,7 +853,8 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
                 "basis": "canvas",
                 "fit": "contain",
                 "scale_percent": 100,
-                "anchor": "center",
+                "offset_x": 0,
+                "offset_y": 0,
             },
             "media_workflow": None,
             "video_fps": 30,

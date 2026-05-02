@@ -350,12 +350,14 @@ def test_render_generation_size_controls_sets_default_media_placement(monkeypatc
     style_config._render_generation_size_controls()
 
     assert fake_st.session_state["media_placement_scale_percent"] == 100
-    assert fake_st.session_state["media_placement_anchor"] == "center"
+    assert fake_st.session_state["media_placement_offset_x"] == 0
+    assert fake_st.session_state["media_placement_offset_y"] == 0
     assert fake_st.session_state["media_placement"] == {
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 100,
-        "anchor": "center",
+        "offset_x": 0,
+        "offset_y": 0,
     }
 
 
@@ -371,7 +373,8 @@ def test_render_generation_size_controls_omits_defaults_for_session_widgets(
                 "media_resolution_preset": "768",
                 "sync_media_size_to_canvas": False,
                 "media_placement_scale_percent": 100,
-                "media_placement_anchor": "center",
+                "media_placement_offset_x": 0,
+                "media_placement_offset_y": 0,
             }
             self.segmented_kwargs = {}
             self.toggle_kwargs = {}
@@ -409,3 +412,5 @@ def test_render_generation_size_controls_omits_defaults_for_session_widgets(
     )
     assert "value" not in fake_st.toggle_kwargs["sync_media_size_to_canvas"]
     assert "value" not in fake_st.slider_kwargs["media_placement_scale_percent"]
+    assert "value" not in fake_st.slider_kwargs["media_placement_offset_x"]
+    assert "value" not in fake_st.slider_kwargs["media_placement_offset_y"]

@@ -114,17 +114,14 @@ class MediaPlacementRequest(BaseModel):
         le=100,
         description="Display size as percent of final video canvas contain-fit size.",
     )
-    anchor: Literal[
-        "top_left",
-        "top",
-        "top_right",
-        "left",
-        "center",
-        "right",
-        "bottom_left",
-        "bottom",
-        "bottom_right",
-    ] = Field("center", description="9-grid anchor for the displayed media.")
+    offset_x: StrictInt = Field(
+        0,
+        description="Horizontal offset in final-canvas pixels from the centered media box.",
+    )
+    offset_y: StrictInt = Field(
+        0,
+        description="Vertical offset in final-canvas pixels from the centered media box.",
+    )
 
     def to_model(self) -> MediaPlacement:
         return MediaPlacement.from_dict(self.model_dump())

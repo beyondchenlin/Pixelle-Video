@@ -278,6 +278,7 @@ async def test_template_visual_materializer_forwards_typed_media_placement(
 
     assert calls["canvas"] == (1280, 720)
     assert calls["media_placement"]["scale_percent"] == 90
-    assert calls["media_placement"]["anchor"] == "right"
+    assert calls["media_placement"]["offset_x"] == 0
+    assert calls["media_placement"]["offset_y"] == 0
     assert calls["media_type"] == "image"
     assert calls["media_size"] == (768, 768)

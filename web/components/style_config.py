@@ -38,10 +38,7 @@ from pixelle_video.config.prompt_prefix_library import (
     resolve_prompt_prefix_gallery_cover,
 )
 from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
-from pixelle_video.models.media_placement import (
-    VALID_MEDIA_PLACEMENT_ANCHORS,
-    MediaPlacement,
-)
+from pixelle_video.models.media_placement import MediaPlacement
 from pixelle_video.models.size_contract import (
     DEFAULT_MEDIA_ORIENTATION,
     DEFAULT_MEDIA_RESOLUTION_PRESET,
@@ -226,24 +223,6 @@ def _render_size_segmented_control(
     return str(selected or default_value)
 
 
-MEDIA_PLACEMENT_ANCHOR_GRID = (
-    ("top_left", "top", "top_right"),
-    ("left", "center", "right"),
-    ("bottom_left", "bottom", "bottom_right"),
-)
-MEDIA_PLACEMENT_ANCHOR_BUTTON_LABELS = {
-    "top_left": "↖",
-    "top": "↑",
-    "top_right": "↗",
-    "left": "←",
-    "center": "●",
-    "right": "→",
-    "bottom_left": "↙",
-    "bottom": "↓",
-    "bottom_right": "↘",
-}
-
-
 def _coerce_media_placement_scale(value) -> int:
     try:
         return MediaPlacement(scale_percent=value).scale_percent
@@ -251,8 +230,40 @@ def _coerce_media_placement_scale(value) -> int:
         return MediaPlacement().scale_percent
 
 
-def _media_placement_anchor_label(anchor: str) -> str:
-    return tr(f"media_placement.anchor.{anchor}")
+def _coerce_media_placement_offset(name: str, value) -> int:
+    try:
+        return getattr(MediaPlacement(**{name: value}), name)
+    except (TypeError, ValueError):
+        return getattr(MediaPlacement(), name)
+
+
+def _render_media_placement_offset_slider(*, key: str, label: str) -> int:
+    field_name = key.removeprefix("media_placement_")
+    has_session_value = session_state_has_key(st.session_state, key)
+    offset_default = _coerce_media_placement_offset(
+        field_name,
+        st.session_state.get(key, getattr(MediaPlacement(), field_name)),
+    )
+    if has_session_value:
+        st.session_state[key] = offset_default
+    slider = getattr(st, "slider", None)
+    if slider is None:
+        st.session_state[key] = offset_default
+        return offset_default
+    slider_kwargs = {
+        "min_value": -2000,
+        "max_value": 2000,
+        "step": 1,
+        "key": key,
+    }
+    slider_kwargs.update(
+        keyed_widget_default_kwargs(
+            st.session_state,
+            key,
+            value=offset_default,
+        )
+    )
+    return int(slider(label, **slider_kwargs))
 
 
 def _render_media_placement_controls() -> MediaPlacement:
@@ -294,42 +305,27 @@ def _render_media_placement_controls() -> MediaPlacement:
             )
         )
 
-    anchor = _ensure_session_option(
-        "media_placement_anchor",
-        VALID_MEDIA_PLACEMENT_ANCHORS,
-        MediaPlacement().anchor,
+    offset_x = _render_media_placement_offset_slider(
+        key="media_placement_offset_x",
+        label="Offset X",
+    )
+    offset_y = _render_media_placement_offset_slider(
+        key="media_placement_offset_y",
+        label="Offset Y",
     )
     caption = getattr(st, "caption", None)
-    if caption is not None:
-        caption(tr("media_placement.anchor"))
 
-    columns = getattr(st, "columns", None)
-    button = getattr(st, "button", None)
-    if columns is not None and button is not None:
-        for row in MEDIA_PLACEMENT_ANCHOR_GRID:
-            cols = columns(3)
-            for col, candidate in zip(cols, row):
-                with col:
-                    if st.button(
-                        MEDIA_PLACEMENT_ANCHOR_BUTTON_LABELS[candidate],
-                        key=f"media_placement_anchor_{candidate}",
-                        width="stretch",
-                        type="primary" if anchor == candidate else "secondary",
-                        help=_media_placement_anchor_label(candidate),
-                    ):
-                        anchor = candidate
-                        st.session_state["media_placement_anchor"] = candidate
-
-    placement = MediaPlacement(scale_percent=scale_percent, anchor=anchor)
+    placement = MediaPlacement(
+        scale_percent=scale_percent,
+        offset_x=offset_x,
+        offset_y=offset_y,
+    )
     st.session_state["media_placement"] = placement.to_dict()
 
     if caption is not None:
         caption(
-            tr(
-                "media_placement.summary",
-                scale=placement.scale_percent,
-                anchor=_media_placement_anchor_label(placement.anchor),
-            )
+            f"{tr('media_placement.scale')}: {placement.scale_percent}% · "
+            f"X {placement.offset_x}px · Y {placement.offset_y}px"
         )
     return placement
 

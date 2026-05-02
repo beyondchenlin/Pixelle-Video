@@ -8,18 +8,20 @@ from pixelle_video.models.media_placement import (
 )
 
 
-def test_media_placement_defaults_to_canvas_contain_100_center():
+def test_media_placement_defaults_to_center_offsets():
     placement = MediaPlacement()
 
     assert placement.basis == "canvas"
     assert placement.fit == "contain"
     assert placement.scale_percent == 100
-    assert placement.anchor == "center"
+    assert placement.offset_x == 0
+    assert placement.offset_y == 0
     assert placement.to_dict() == {
         "basis": "canvas",
         "fit": "contain",
         "scale_percent": 100,
-        "anchor": "center",
+        "offset_x": 0,
+        "offset_y": 0,
     }
 
 
@@ -35,17 +37,21 @@ def test_media_placement_rejects_non_integral_or_non_finite_scale(scale):
         MediaPlacement(scale_percent=scale)
 
 
-@pytest.mark.parametrize("anchor", ["middle", "top-middle", ""])
-def test_media_placement_rejects_unknown_anchor(anchor):
-    with pytest.raises(ValueError, match="anchor"):
-        MediaPlacement(anchor=anchor)
+@pytest.mark.parametrize("offset_name", ["offset_x", "offset_y"])
+@pytest.mark.parametrize("offset", [1.5, float("nan"), float("inf"), True])
+def test_media_placement_rejects_non_integral_or_non_finite_offsets(offset_name, offset):
+    with pytest.raises(ValueError, match=offset_name):
+        MediaPlacement(**{offset_name: offset})
 
 
 def test_resolve_media_placement_accepts_dict_and_none():
     assert resolve_media_placement(None) == MediaPlacement()
-    assert resolve_media_placement({"scale_percent": 100, "anchor": "right"}) == MediaPlacement(
+    assert resolve_media_placement(
+        {"scale_percent": 100, "offset_x": 40, "offset_y": -20}
+    ) == MediaPlacement(
         scale_percent=100,
-        anchor="right",
+        offset_x=40,
+        offset_y=-20,
     )
 
 
@@ -72,26 +78,26 @@ def test_contain_geometry_uses_final_canvas(source, scale, expected):
     assert (round(box.width), round(box.height), round(box.left), round(box.top)) == expected
 
 
-def test_anchor_right_bottom_moves_position_without_changing_size():
+def test_center_offsets_move_position_without_changing_size():
     center = calculate_media_box(
         canvas_width=1280,
         canvas_height=720,
         media_source_width=1024,
         media_source_height=1024,
-        placement=MediaPlacement(scale_percent=80, anchor="center"),
+        placement=MediaPlacement(scale_percent=80),
     )
-    bottom_right = calculate_media_box(
+    moved = calculate_media_box(
         canvas_width=1280,
         canvas_height=720,
         media_source_width=1024,
         media_source_height=1024,
-        placement=MediaPlacement(scale_percent=80, anchor="bottom_right"),
+        placement=MediaPlacement(scale_percent=80, offset_x=64, offset_y=-32),
     )
 
-    assert bottom_right.width == pytest.approx(center.width)
-    assert bottom_right.height == pytest.approx(center.height)
-    assert bottom_right.left == pytest.approx(704)
-    assert bottom_right.top == pytest.approx(144)
+    assert moved.width == pytest.approx(center.width)
+    assert moved.height == pytest.approx(center.height)
+    assert moved.left == pytest.approx(416)
+    assert moved.top == pytest.approx(40)
 
 
 @pytest.mark.parametrize(
@@ -108,19 +114,31 @@ def test_anchor_right_bottom_moves_position_without_changing_size():
         ("bottom_right", 704, 144),
     ],
 )
-def test_all_anchors_position_without_changing_size(anchor, expected_left, expected_top):
+def test_legacy_anchor_input_positions_without_changing_size(anchor, expected_left, expected_top):
     box = calculate_media_box(
         canvas_width=1280,
         canvas_height=720,
         media_source_width=1024,
         media_source_height=1024,
-        placement=MediaPlacement(scale_percent=80, anchor=anchor),
+        placement={"scale_percent": 80, "anchor": anchor},
     )
 
     assert box.width == pytest.approx(576)
     assert box.height == pytest.approx(576)
     assert box.left == pytest.approx(expected_left)
     assert box.top == pytest.approx(expected_top)
+
+
+def test_legacy_anchor_is_not_serialized_as_new_output():
+    placement = resolve_media_placement({"scale_percent": 80, "anchor": "bottom_right"})
+
+    assert placement.to_dict() == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 80,
+        "offset_x": 0,
+        "offset_y": 0,
+    }
 
 
 @pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), "wide"])
