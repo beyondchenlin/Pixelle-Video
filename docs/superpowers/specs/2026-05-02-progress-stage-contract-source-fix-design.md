@@ -41,7 +41,30 @@
 
 ### 2. 收敛进度上报入口
 
-在 pipeline 层增加统一方法，作为后续阶段事件的唯一入口：
+不能继续让 pipeline 直接把 `ProgressEvent` 发给一个裸 callback。最佳实践是把进度上报收敛为统一 dispatcher，由 dispatcher 把同一个事件分发给多个 sink：
+
+- UI sink：给 Streamlit 同步界面做本地化展示。
+- Task progress sink：给 async task store 写入结构化进度。
+- 未来可扩展 observability sink：把关键阶段事件写入结构化日志或指标。
+
+推荐抽象：
+
+```python
+class ProgressSink(Protocol):
+    def emit(self, event: ProgressEvent) -> None:
+        ...
+
+
+class ProgressDispatcher:
+    def __init__(self, sinks: Sequence[ProgressSink]):
+        self._sinks = list(sinks)
+
+    def emit(self, event: ProgressEvent) -> None:
+        for sink in self._sinks:
+            sink.emit(event)
+```
+
+`PipelineContext` 不再只持有一个 `progress_callback`，而是持有统一 `progress_dispatcher`。pipeline 内部通过单一入口发阶段事件，例如：
 
 ```python
 def _report_pipeline_stage(
@@ -51,10 +74,14 @@ def _report_pipeline_stage(
     progress: float,
     **kwargs,
 ) -> None:
-    self._report_progress(ctx.progress_callback, event_type, progress, **kwargs)
+    if ctx.progress_dispatcher is None:
+        return
+    ctx.progress_dispatcher.emit(
+        ProgressEvent(event_type=event_type, progress=progress, **kwargs)
+    )
 ```
 
-第一步保持轻量，不强制迁移所有旧调用，但新增和本次涉及的 post-production 阶段必须使用该入口。这样后续可以逐步在同一入口加入异步任务落库、阶段顺序校验和结构化观测。
+本次实现不要求一口气迁移所有历史调用点，但 post-production、新增阶段和 async task 进度写入必须走 dispatcher。后续历史 `_report_progress(...)` 也要逐步收口到同一入口，而不是继续扩散。
 
 ### 3. 重排 HyperFrames 后期阶段
 
@@ -73,14 +100,34 @@ def _report_pipeline_stage(
 
 ### 4. 异步任务进度 sink
 
-当前 API 异步任务通过 `api_task_id` 关联任务，但 pipeline 进度没有统一写入 `TaskStore`。本次新增一个轻量桥接：
+当前 API 异步任务通过 `api_task_id` 关联任务，但 pipeline 进度没有统一写入 `TaskStore`。这个问题不能在 API reserve 入口用 Python callback 解决，因为：
 
-- 在 API async 入口创建 progress callback。
-- callback 接收 `ProgressEvent`，转换为 `TaskProgress`。
-- 写入当前 task 的 `progress.message`、`percentage`、`current`、`total`。
-- message 优先使用稳定阶段 key 或英文 fallback，避免 API 层依赖 Streamlit i18n。
+- reserve 入口不是实际执行者；
+- worker 模式下生成发生在独立进程；
+- running task 的进度写入必须带 `owner_id + lease_token`，否则会破坏 fencing 语义。
 
-这个 sink 只负责结构化任务进度，不影响 Streamlit 同步界面原有 callback。
+正确做法是：**在实际执行者侧创建 task progress sink**。
+
+分两种执行模式：
+
+- `embedded` 模式：`TaskManager._execute_registry_task(...)` 在拿到 `owner_id + lease_token` 后创建 task progress sink，并注入 pipeline dispatcher。
+- `worker` 模式：`GenerationWorker.run_once()` 在 claim 到 task lease 后创建 task progress sink，并注入 `PixelleVideoCore.generate_video(...)` 的 dispatcher。
+
+task progress sink 的职责：
+
+- 接收 `ProgressEvent`。
+- 转换为持久化 `TaskProgress`。
+- 通过 `GenerationRegistry.update_progress(...)` 或等价封装写入 store。
+- 每次写入都带当前执行者的 `owner_id + lease_token`，保证失去租约的旧执行者不能继续覆盖进度。
+
+为避免 `TaskProgress.message` 再次退化为展示文案，持久化层应补充稳定字段，至少包含：
+
+- `event_type`: `synthesizing_audio` / `preparing_render_manifest` / `rendering_hyperframes` 等稳定阶段值；
+- `message`: 面向 API 调试的稳定 fallback 文本；
+- `percentage`: 0-100；
+- `current`、`total`：仅在有天然计数语义时填写，否则允许保持 0。
+
+UI 本地化仍发生在展示层。Streamlit 同步界面可以继续消费 `ProgressEvent` 做本地化，API `/api/tasks/{task_id}` 返回的则是结构化 task progress，而不是仅靠中文或英文文案承载语义。
 
 ### 5. 测试策略
 
@@ -89,18 +136,22 @@ def _report_pipeline_stage(
 - HyperFrames post-production 阶段顺序测试：`synthesizing_audio` 必须早于 `rendering_hyperframes`。
 - HyperFrames renderer 调用前必须已经完成 audio synthesis 和 manifest preparation 事件。
 - i18n 注册测试覆盖新增 `ProgressEventType`。
-- async video API 测试验证生成入口会传入 progress callback，并能更新 task progress。
+- embedded 执行模式测试验证 executor 创建了带 lease 的 task progress sink，并能更新 task progress。
+- worker 执行模式测试验证 worker 在 claim lease 后创建 task progress sink，并能更新 task progress。
+- registry/store 测试验证失去 lease 的执行者无法继续写 progress。
 
 ## 风险与处理
 
 - 进度百分比可能与旧 UI 预期略有变化：控制在后期阶段范围内，只改变阶段含义，不改变总体完成节奏。
-- 异步 callback 涉及 async store 写入：如果 pipeline callback 是同步接口，桥接层使用安全的任务调度或 registry 封装，避免阻塞生成流程。
-- 旧调用仍可继续用 `_report_progress`：本次只强制新阶段走统一入口，后续可独立清理历史调用，不扩大本次变更范围。
+- dispatcher 需要兼容现有同步 callback 风格：sink 设计优先保持 emit 接口简单，必要时由执行者侧桥接 async registry 写入。
+- `TaskProgress` 结构扩展会影响 API 返回模型和测试：需要同步更新 schema、store 序列化和断言。
+- 旧调用仍可暂时通过兼容层转发，但不允许新增直接依赖裸 `_report_progress(...)` 的 post-production 阶段代码。
 
 ## 验收标准
 
 - 使用 HyperFrames 生成视频时，界面先显示“正在生成音频...”，音频完成后才显示“正在使用 HyperFrames 渲染...”。
 - `/api/tasks/{task_id}` 在异步生成期间能返回对应阶段 progress message。
+- `/api/tasks/{task_id}` 返回的 progress 具有稳定阶段字段，不依赖某一种展示文案作为唯一语义。
 - 新增回归测试失败于旧实现，修复后通过。
 - 所有新增进度事件都有中英文翻译。
 - 不引入前端临时判断或针对 HyperFrames 文案的硬编码补丁。
