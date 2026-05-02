@@ -104,8 +104,7 @@ class TemplatePresetRepository:
     def persist_asset(self, source_path: str | os.PathLike[str], preset_id: str) -> str:
         source = Path(source_path)
         digest = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
-        safe_preset_id = _safe_path_part(preset_id)
-        target_dir = self.root_dir / "assets" / safe_preset_id
+        target_dir = self.root_dir / "assets" / _preset_asset_dir_name(preset_id)
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / f"{digest}{source.suffix}"
         shutil.copy2(source, target)
@@ -152,11 +151,11 @@ class TemplatePresetRepository:
         temp_path = self.manifest_path.with_name(
             f"{self.manifest_path.name}.{uuid.uuid4().hex}.tmp"
         )
-        temp_path.write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
         try:
+            temp_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
             os.replace(temp_path, self.manifest_path)
         except Exception:
             temp_path.unlink(missing_ok=True)
@@ -181,7 +180,7 @@ class TemplatePresetRepository:
     def _is_owned_asset_ref(self, value: str, preset_id: str) -> bool:
         if not _is_repository_asset_key(value):
             return False
-        expected_dir = PurePosixPath("assets") / _safe_path_part(preset_id)
+        expected_dir = PurePosixPath("assets") / _preset_asset_dir_name(preset_id)
         asset_path = PurePosixPath(value)
         if asset_path.parent != expected_dir:
             return False
@@ -223,6 +222,11 @@ def _preset_from_dict(payload: Mapping[str, Any]) -> TemplatePreset:
 def _safe_path_part(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
     return safe or "preset"
+
+
+def _preset_asset_dir_name(preset_id: str) -> str:
+    digest = hashlib.sha256(preset_id.encode("utf-8")).hexdigest()[:12]
+    return f"{_safe_path_part(preset_id)}-{digest}"
 
 
 def _is_repository_asset_key(value: str) -> bool:

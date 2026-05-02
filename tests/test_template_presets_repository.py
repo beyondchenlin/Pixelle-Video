@@ -104,7 +104,7 @@ def test_repository_persists_assets_under_repository_owned_key(tmp_path: Path):
 
     key = repository.persist_asset(source, "user:Demo Preset")
 
-    assert key.startswith("assets/user_Demo_Preset/")
+    assert key.startswith("assets/user_Demo_Preset-")
     assert key.endswith(".PNG")
     assert "/" in key
     assert (tmp_path / Path(key)).read_bytes() == b"image-bytes"
@@ -185,7 +185,35 @@ def test_repository_rejects_cross_preset_and_dangling_asset_refs(tmp_path: Path)
         with pytest.raises(ValueError, match="repository-owned"):
             repository.save(_preset("user:demo", spec=_spec(layers=(layer,))))
 
-    assert owned_key.startswith("assets/user_demo/")
+    assert owned_key.startswith("assets/user_demo-")
+
+
+def test_repository_asset_namespace_does_not_collide_after_safe_name_normalization(
+    tmp_path: Path,
+):
+    repository = TemplatePresetRepository(tmp_path)
+    source = tmp_path / "upload.png"
+    source.write_bytes(b"image")
+    owner_key = repository.persist_asset(source, "user:a/b")
+    colliding_safe_name_key = repository.persist_asset(source, "user:a?b")
+
+    assert Path(owner_key).parent != Path(colliding_safe_name_key).parent
+
+    layer = TemplateLayer(
+        id="image-1",
+        type="image",
+        name="Image",
+        rect=RectSpec(x=0, y=0, width=100, height=100),
+        z_index=1,
+        opacity=1.0,
+        rotation=0.0,
+        locked=False,
+        source=LayerSourceSpec(kind="asset", ref=owner_key),
+        style={},
+    )
+
+    with pytest.raises(ValueError, match="repository-owned"):
+        repository.save(_preset("user:a?b", spec=_spec(layers=(layer,))))
 
 
 def test_repository_validates_thumbnail_ref_as_repository_owned_asset(
@@ -236,7 +264,7 @@ def test_repository_rejects_invalid_manifest_schema(tmp_path: Path):
         repository.list_all()
 
 
-def test_repository_cleans_temporary_manifest_on_atomic_write_failure(
+def test_repository_cleans_temporary_manifest_on_atomic_replace_failure(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -251,6 +279,28 @@ def test_repository_cleans_temporary_manifest_on_atomic_write_failure(
     )
 
     with pytest.raises(OSError, match="simulated replace failure"):
+        repository.save(_preset())
+
+    assert list(tmp_path.glob("presets.json.*.tmp")) == []
+
+
+def test_repository_cleans_temporary_manifest_on_atomic_write_failure(
+    tmp_path: Path,
+    monkeypatch,
+):
+    repository = TemplatePresetRepository(tmp_path)
+
+    def fail_write_text(_self, *_args, **_kwargs):
+        _self.parent.mkdir(parents=True, exist_ok=True)
+        _self.write_bytes(b"partial")
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr(
+        "pixelle_video.repositories.template_presets.Path.write_text",
+        fail_write_text,
+    )
+
+    with pytest.raises(OSError, match="simulated write failure"):
         repository.save(_preset())
 
     assert list(tmp_path.glob("presets.json.*.tmp")) == []
