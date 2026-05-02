@@ -74,3 +74,84 @@ async def test_task_progress_sink_drain_surfaces_fast_unexpected_failures():
 
     with pytest.raises(RuntimeError, match="progress backend failed"):
         await sink.drain()
+
+
+@pytest.mark.asyncio
+async def test_task_progress_sink_preserves_emit_order_when_registry_writes_complete_out_of_order():
+    started = []
+    first_can_finish = asyncio.Event()
+    persisted = []
+
+    class OrderedRegistry:
+        async def update_progress(self, **kwargs):
+            event_type = kwargs["progress"].event_type
+            started.append(event_type)
+            if event_type == "synthesizing_audio":
+                await first_can_finish.wait()
+            persisted.append(event_type)
+
+    sink = TaskProgressSink(
+        registry=OrderedRegistry(),
+        task_id="task-1",
+        owner_id="worker-1",
+        lease_token="token-1",
+    )
+
+    sink.emit(
+        ProgressEvent(
+            event_type=ProgressEventType.SYNTHESIZING_AUDIO,
+            progress=0.82,
+        )
+    )
+    sink.emit(
+        ProgressEvent(
+            event_type=ProgressEventType.RENDERING_HYPERFRAMES,
+            progress=0.90,
+        )
+    )
+
+    await asyncio.sleep(0)
+
+    assert started == ["synthesizing_audio"]
+    assert persisted == []
+
+    first_can_finish.set()
+    await sink.drain()
+
+    assert started == ["synthesizing_audio", "rendering_hyperframes"]
+    assert persisted == ["synthesizing_audio", "rendering_hyperframes"]
+
+
+@pytest.mark.asyncio
+async def test_task_progress_sink_restarts_writer_for_events_emitted_after_worker_completes():
+    persisted = []
+
+    class RecordingRegistry:
+        async def update_progress(self, **kwargs):
+            persisted.append(kwargs["progress"].event_type)
+
+    sink = TaskProgressSink(
+        registry=RecordingRegistry(),
+        task_id="task-1",
+        owner_id="worker-1",
+        lease_token="token-1",
+    )
+
+    sink.emit(
+        ProgressEvent(
+            event_type=ProgressEventType.SYNTHESIZING_AUDIO,
+            progress=0.82,
+        )
+    )
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    sink.emit(
+        ProgressEvent(
+            event_type=ProgressEventType.RENDERING_HYPERFRAMES,
+            progress=0.90,
+        )
+    )
+    await sink.drain()
+
+    assert persisted == ["synthesizing_audio", "rendering_hyperframes"]
