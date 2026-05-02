@@ -16,10 +16,10 @@ Design: `docs/superpowers/specs/2026-05-02-layered-template-preview-workbench-de
 
 ## Key Facts Before Coding
 
-- 当前仓库还没有统一的多图层模板源模型。`render_backend` 统一的是执行路径，不是模板排版契约。
+- 原始计划编写时仓库还没有统一的多图层模板源模型；截至 `d833b31`，`LayeredTemplateSpec` / `TemplateLayer` / `TemplatePreset` 和 `LayeredTemplateEditorState` 基础层已经存在，但还没有端到端接入预览、保存和生成路径。
 - 当前即时预览仍在 `web/components/text_rendering_config.py`，这会让“文字预览”“模板预览”“保存模板”“最终生成”继续分叉。
 - 当前右栏 `web/components/output_preview.py` 里只有 `生成视频` 与 `最近视频`，没有独立的工作台组件。
-- 当前 `MediaPlacement` 仍然以 `anchor` 为产品能力；这和新需求“默认居中 + 数值偏移”冲突。
+- 当前 `MediaPlacement` 已经升级为 `offset_x` / `offset_y` 输出；旧 `anchor` 仍作为模型兼容输入存在，后续任务不得重新暴露到新 UI 或新 API payload。
 - 当前模板库来自 `pixelle_video/utils/template_util.py` 的系统模板发现，不支持“我的模板”“最近模板”“最近使用 5 个模板快捷切换”。
 - 当前后端三条链路 `frame_html.py`、`hyperframes_compiler.py`、`ffmpeg_manifest_renderer.py` 都没有消费统一的多图层排版契约。
 
@@ -48,6 +48,55 @@ Design: `docs/superpowers/specs/2026-05-02-layered-template-preview-workbench-de
 7. 最近 5 个模板必须来自持久化的 `last_used_at`，点击模板时必须更新 usage history 并回填完整 spec。
 8. 旧 `text_rendering_preview` API 可以暂时保留兼容，但 `text_rendering_config.py` 不再渲染它；新右栏工作台必须只消费 `LayeredTemplateSpec`。
 9. `RenderManifest`、`StoryboardConfig`、`TemplateRenderContext` 中的 layered template 字段必须在入口归一化。允许内部为了序列化保存 dict snapshot，但不能绕过 `LayeredTemplateSpec.from_dict(...)` 校验。
+
+## Current Execution Baseline After `d833b31`
+
+本节是 2026-05-02 基于当前 `dev` 的执行重排。后续 subagent 必须以本节为准；不要从原始 Task 1/2 重新实现已经落地的基础层。
+
+当前验证：
+
+```powershell
+python -m pytest tests/test_media_placement.py tests/test_layered_template_models.py tests/test_layered_template_spec_builder.py tests/test_style_config_template_gallery.py tests/test_output_preview.py -q
+```
+
+结果：`112 passed`。
+
+当前已完成：
+
+1. Task 1 已完成：`MediaPlacement` 输出已切换为 `scale_percent + offset_x + offset_y`，新 `MediaPlacementRequest` 不再接收 `anchor`，旧 `anchor` 仅保留在模型兼容路径。
+2. Task 2 已完成：`pixelle_video/models/layered_template.py`、`pixelle_video/models/template_preset.py` 和 `tests/test_layered_template_models.py` 已存在，且实现比原计划更严格。
+3. Task 5 的基础构建层已部分完成：`web/components/layered_template_state.py` 已提供 `LayeredTemplateEditorState`、`LayeredTemplateSpecBuilder`、多图层 append、source update 和 spec 回填能力。
+
+当前半完成，必须补强：
+
+1. Task 5 只完成了编辑状态模型，尚未把图层编辑 UI 接入 `web/components/style_config.py`，`render_style_config(...)` 也尚未返回 `layered_template_spec` 和 `selected_template_preset_id`。
+2. `web/components/text_rendering_config.py` 仍在渲染旧即时预览；这必须先拆出，否则右栏 workbench 会和旧预览形成双事实源。
+3. `api/schemas/video.py` 只完成了 `MediaPlacementRequest` offset 化，还没有 `LayeredTemplateSpecRequest`，因此 Task 7 不能视为已完成。
+
+当前未开始：
+
+1. Task 3：`TemplatePresetRepository` / `TemplateRegistry` / 系统模板包装 / 我的模板 / 最近模板。
+2. Task 4：`LayeredTemplateService`、HTML preview adapter、真实预览帧 API、严格 `LayeredTemplateSpecRequest` schema。
+3. Task 6：右栏 `LayoutPreviewWorkbench`，以及 `生成视频 -> 即时预览工作台 -> 最近视频` 顺序重构。
+4. Task 7：`layered_template_spec` / `selected_template_preset_id` 贯通 API request、`StoryboardConfig`、`RenderManifest`、`TemplateRenderContext` 和 `pixelle_video/pipelines/standard.py`。
+5. Task 8：不依赖旧模板路径的 `HTMLDocumentFrameRenderer`、`LayeredTemplateHTMLFrameAdapter`、`TemplateVisualMaterializer` 分层模板截图路径。
+6. Task 9：HyperFrames adapter、ffmpeg manifest 预物化 adapter、能力判定和最终渲染路径。
+
+重排后的执行顺序：
+
+1. Rebased Task A：完成 Task 5 剩余部分，先拆除 `text_rendering_config.py` 的旧即时预览，再把 `style_config.py` 接入 `LayeredTemplateEditorState` 并返回 normalized `layered_template_spec`。
+2. Rebased Task B：执行 Task 3，建立模板 preset repository 和 registry。不得使用 `spec=None`，系统模板必须包装为完整 legacy layered spec。
+3. Rebased Task C：执行 Task 4，建立 `LayeredTemplateService`、安全 HTML preview 和严格 preview-frame API schema。
+4. Rebased Task D：执行 Task 6，建立右栏即时预览工作台并接入最近 5 个模板快捷切换。
+5. Rebased Task E：执行 Task 7，贯通生成请求和后端 pipeline snapshot。
+6. Rebased Task F：执行 Task 8，接入 HTML screenshot 真实帧渲染。
+7. Rebased Task G：执行 Task 9，接入 HyperFrames 与 ffmpeg manifest adapter。
+
+后续调度规则：
+
+- 不要再派发原始 Task 1 和 Task 2 的实现 subagent；只允许对它们做 review 或补丁修正。
+- 如果 subagent 需要读取计划，应给它当前 rebased task 的完整上下文，而不是让它从文档顶部顺序执行。
+- 未跟踪文件 `11.md` 与本计划无关，不得 stage、commit 或改写。
 
 ## File Structure
 
