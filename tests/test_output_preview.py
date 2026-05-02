@@ -175,6 +175,39 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["progress_callback"] is _progress
 
 
+def test_build_single_generation_request_includes_layered_template_snapshot():
+    def _progress(_event):
+        return None
+
+    spec = {
+        "version": "layered_template.v1",
+        "template_id": "demo",
+        "template_name": "Demo",
+        "template_type": "image",
+        "canvas_width": 1080,
+        "canvas_height": 1920,
+        "media_width": 1080,
+        "media_height": 1920,
+        "safe_area": {"x": 64, "y": 64, "width": 952, "height": 1792, "unit": "px"},
+        "layers": [],
+        "metadata": {},
+    }
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "layered_template_spec": spec,
+            "selected_template_preset_id": "demo-preset",
+        },
+        progress_callback=_progress,
+        session_state={},
+    )
+
+    assert request["layered_template_spec"] == spec
+    assert request["selected_template_preset_id"] == "demo-preset"
+
+
 def test_build_single_generation_request_uses_size_contract_not_template_session():
     def _progress(_event):
         return None
@@ -2371,6 +2404,32 @@ def test_render_single_output_does_not_stop_before_gallery_on_input_error(monkey
     )
 
     assert captured == {"gallery": True, "generated": False}
+
+
+def test_render_single_output_renders_workbench_between_generation_and_recent(monkeypatch):
+    sections = []
+
+    monkeypatch.setattr(
+        output_preview,
+        "_render_layout_preview_workbench_section",
+        lambda *args, **kwargs: sections.append("workbench"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "render_recent_video_gallery",
+        lambda *args, **kwargs: sections.append("recent"),
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "_render_generation_section",
+        lambda *args, **kwargs: sections.append("generation"),
+        raising=False,
+    )
+
+    output_preview._render_single_output_sections(object(), {"text": "demo"})
+
+    assert sections == ["generation", "workbench", "recent"]
 
 
 def test_render_batch_output_writes_last_successful_planning_snapshot(monkeypatch):

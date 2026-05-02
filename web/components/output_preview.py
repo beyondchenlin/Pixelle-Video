@@ -33,6 +33,7 @@ from pixelle_video.models.video_generation_contract import (
 )
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
+from web.components.layout_preview_workbench import render_layout_preview_workbench
 from web.components.prompt_generation_performance import (
     copy_prompt_generation_performance_params,
 )
@@ -303,6 +304,12 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     copy_prompt_generation_performance_params(video_params, request)
     if video_params.get("text_rendering") is not None:
         request["text_rendering"] = video_params["text_rendering"]
+    if video_params.get("layered_template_spec") is not None:
+        request["layered_template_spec"] = video_params["layered_template_spec"]
+    if video_params.get("selected_template_preset_id"):
+        request["selected_template_preset_id"] = video_params[
+            "selected_template_preset_id"
+        ]
 
     if video_params.get("request_id"):
         request["request_id"] = video_params["request_id"]
@@ -375,6 +382,52 @@ def build_batch_shared_config(video_params):
 
 
 def render_single_output(pixelle_video, video_params):
+    """Render single video generation output sections."""
+    _render_single_output_sections(pixelle_video, video_params)
+
+
+def _render_single_output_sections(pixelle_video, video_params):
+    generation_runner = _render_generation_section(pixelle_video, video_params)
+    _render_layout_preview_workbench_section(pixelle_video, video_params)
+    if generation_runner is None:
+        render_recent_video_gallery(pixelle_video)
+        return
+
+    gallery_slot = RefreshableSlot(st.empty())
+
+    def render_gallery(*, refresh: bool = False) -> None:
+        gallery_slot.render(
+            lambda key_suffix: render_recent_video_gallery(
+                pixelle_video,
+                key_suffix=key_suffix,
+            ),
+            refresh=refresh,
+        )
+
+    render_gallery()
+    generation_runner(render_gallery=render_gallery)
+
+
+def _render_layout_preview_workbench_section(_pixelle_video, video_params):
+    spec = video_params.get("layered_template_spec")
+    if spec is None:
+        return
+
+    from pixelle_video.services.template_registry import TemplateRegistry
+
+    registry = TemplateRegistry()
+    render_layout_preview_workbench(
+        spec=spec,
+        title_text=video_params.get("title") or "",
+        caption_text=video_params.get("text") or "",
+        text_rendering=video_params.get("text_rendering") or {},
+        recent_templates=registry.list_presets(source="recent"),
+        real_preview_state=video_params.get("text_rendering_real_preview_frame"),
+        registry=registry,
+    )
+
+
+def _render_generation_section(pixelle_video, video_params):
     """Render single video generation output with a recent-video gallery."""
     # Extract parameters from video_params dict
     text = video_params.get("text", "")
@@ -437,8 +490,6 @@ def render_single_output(pixelle_video, video_params):
 
         result_summary_slot = None
         result_summary_rendered = False
-        gallery_slot = None
-        gallery_rendered = False
 
         def render_result_summary(*, refresh: bool = False) -> None:
             nonlocal result_summary_rendered
@@ -453,23 +504,6 @@ def render_single_output(pixelle_video, video_params):
                         refresh=refresh,
                     )
                 result_summary_rendered = True
-
-        def render_gallery(*, refresh: bool = False) -> None:
-            nonlocal gallery_rendered
-
-            if gallery_slot is None:
-                render_recent_video_gallery(pixelle_video)
-                gallery_rendered = True
-                return
-
-            gallery_slot.render(
-                lambda key_suffix: render_recent_video_gallery(
-                    pixelle_video,
-                    key_suffix=key_suffix,
-                ),
-                refresh=refresh,
-            )
-            gallery_rendered = True
 
         if generation_requested:
             can_generate = True
@@ -490,113 +524,123 @@ def render_single_output(pixelle_video, video_params):
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 result_summary_slot = RefreshableSlot(st.empty())
-                gallery_slot = RefreshableSlot(st.empty())
-                render_gallery()
 
-                # Record start time for generation
-                import time
-                start_time = time.time()
+                def run_generation(*, render_gallery) -> None:
+                    # Record start time for generation
+                    import time
 
-                try:
-                    request_id = new_correlation_id("req")
-                    session_id = _get_or_create_log_session_id(st.session_state)
-                    logger.bind(
-                        channel="runtime",
-                        request_id=request_id,
-                        session_id=session_id,
-                        content=build_content_observability(text),
-                    ).info("web single generation request received")
+                    start_time = time.time()
 
-                    # Progress callback to update UI
-                    def update_progress(event: ProgressEvent):
-                        """Update progress bar and status text from ProgressEvent"""
-                        message = format_progress_event_message(event)
+                    try:
+                        request_id = new_correlation_id("req")
+                        session_id = _get_or_create_log_session_id(st.session_state)
+                        logger.bind(
+                            channel="runtime",
+                            request_id=request_id,
+                            session_id=session_id,
+                            content=build_content_observability(text),
+                        ).info("web single generation request received")
 
-                        # Append extra_info if available (e.g., batch progress)
-                        if event.extra_info:
-                            localized_extra_info = localize_progress_extra_info(event.extra_info)
-                            if localized_extra_info:
-                                message = f"{message} - {localized_extra_info}"
+                        # Progress callback to update UI
+                        def update_progress(event: ProgressEvent):
+                            """Update progress bar and status text from ProgressEvent"""
+                            message = format_progress_event_message(event)
 
-                        status_text.text(message)
-                        progress_bar.progress(min(int(event.progress * 100), 99))  # Cap at 99% until complete
+                            # Append extra_info if available (e.g., batch progress)
+                            if event.extra_info:
+                                localized_extra_info = localize_progress_extra_info(
+                                    event.extra_info
+                                )
+                                if localized_extra_info:
+                                    message = f"{message} - {localized_extra_info}"
 
-                    storyboard_contract = _storyboard_controls_contract(video_params)
-                    generation_request = build_single_generation_request(
-                        {
-                            **video_params,
-                            "text": text,
-                            "mode": mode,
-                            "title": title,
-                            **storyboard_contract.to_generation_dict(),
-                            "script_length_mode": video_params.get("script_length_mode"),
-                            "script_target_words": video_params.get("script_target_words"),
-                            "media_workflow": workflow_key,
-                            "frame_template": frame_template,
-                            "prompt_prefix": prompt_prefix,
-                            "bgm_path": bgm_path,
-                            "bgm_volume": bgm_volume,
-                            "tts_inference_mode": tts_mode,
-                            "tts_voice": selected_voice,
-                            "tts_speed": tts_speed,
-                            "tts_workflow": tts_workflow_key,
-                            "ref_audio": ref_audio_path,
-                            "ref_audio_text": ref_audio_text,
-                            "template_params": custom_values_for_video,
-                            "request_id": request_id,
-                            "session_id": session_id,
-                            "render_backend": video_params.get("render_backend"),
-                            "tts_audio_strategy": video_params.get("tts_audio_strategy"),
-                            **storyboard_contract.to_planning_dict(),
-                            "text_rendering": video_params.get("text_rendering"),
-                            **{
-                                key: video_params.get(key)
-                                for key in TTS_SPLIT_SETTING_KEYS
+                            status_text.text(message)
+                            progress_bar.progress(min(int(event.progress * 100), 99))  # Cap at 99% until complete
+
+                        storyboard_contract = _storyboard_controls_contract(video_params)
+                        generation_request = build_single_generation_request(
+                            {
+                                **video_params,
+                                "text": text,
+                                "mode": mode,
+                                "title": title,
+                                **storyboard_contract.to_generation_dict(),
+                                "script_length_mode": video_params.get(
+                                    "script_length_mode"
+                                ),
+                                "script_target_words": video_params.get(
+                                    "script_target_words"
+                                ),
+                                "media_workflow": workflow_key,
+                                "frame_template": frame_template,
+                                "prompt_prefix": prompt_prefix,
+                                "bgm_path": bgm_path,
+                                "bgm_volume": bgm_volume,
+                                "tts_inference_mode": tts_mode,
+                                "tts_voice": selected_voice,
+                                "tts_speed": tts_speed,
+                                "tts_workflow": tts_workflow_key,
+                                "ref_audio": ref_audio_path,
+                                "ref_audio_text": ref_audio_text,
+                                "template_params": custom_values_for_video,
+                                "request_id": request_id,
+                                "session_id": session_id,
+                                "render_backend": video_params.get("render_backend"),
+                                "tts_audio_strategy": video_params.get(
+                                    "tts_audio_strategy"
+                                ),
+                                **storyboard_contract.to_planning_dict(),
+                                "text_rendering": video_params.get("text_rendering"),
+                                **{
+                                    key: video_params.get(key)
+                                    for key in TTS_SPLIT_SETTING_KEYS
+                                },
+                                **{
+                                    key: video_params.get(key)
+                                    for key in ELEMENT_ANIMATION_OPTION_KEYS
+                                },
                             },
-                            **{
-                                key: video_params.get(key)
-                                for key in ELEMENT_ANIMATION_OPTION_KEYS
-                            },
-                        },
-                        progress_callback=update_progress,
-                        session_state=st.session_state,
-                    )
-
-                    result = run_async(pixelle_video.generate_video(**generation_request))
-                    st.session_state["storyboard_preview_snapshot"] = getattr(
-                        result.storyboard,
-                        "planning_snapshot",
-                        None,
-                    )
-
-                    # Calculate total generation time
-                    total_generation_time = time.time() - start_time
-
-                    progress_bar.progress(100)
-                    status_text.text(tr("status.success"))
-
-                    if os.path.exists(result.video_path):
-                        st.session_state[SINGLE_VIDEO_RESULT_SUMMARY_KEY] = (
-                            _build_single_video_result_summary(
-                                result,
-                                total_generation_time=total_generation_time,
-                            )
+                            progress_callback=update_progress,
+                            session_state=st.session_state,
                         )
-                        render_result_summary(refresh=True)
-                        store_recent_generated_video(result, st.session_state)
-                        render_gallery(refresh=True)
-                    else:
-                        _clear_single_video_result_summary(st.session_state)
-                        st.error(tr("status.video_not_found", path=result.video_path))
 
-                except Exception as e:
-                    status_text.text("")
-                    progress_bar.empty()
-                    st.error(tr("status.error", error=str(e)))
-                    logger.exception(e)
-                finally:
-                    _reset_single_video_generation_state()
-                    render_generate_button(disabled=False, refresh=True)
+                        result = run_async(pixelle_video.generate_video(**generation_request))
+                        st.session_state["storyboard_preview_snapshot"] = getattr(
+                            result.storyboard,
+                            "planning_snapshot",
+                            None,
+                        )
+
+                        # Calculate total generation time
+                        total_generation_time = time.time() - start_time
+
+                        progress_bar.progress(100)
+                        status_text.text(tr("status.success"))
+
+                        if os.path.exists(result.video_path):
+                            st.session_state[SINGLE_VIDEO_RESULT_SUMMARY_KEY] = (
+                                _build_single_video_result_summary(
+                                    result,
+                                    total_generation_time=total_generation_time,
+                                )
+                            )
+                            render_result_summary(refresh=True)
+                            store_recent_generated_video(result, st.session_state)
+                            render_gallery(refresh=True)
+                        else:
+                            _clear_single_video_result_summary(st.session_state)
+                            st.error(tr("status.video_not_found", path=result.video_path))
+
+                    except Exception as e:
+                        status_text.text("")
+                        progress_bar.empty()
+                        st.error(tr("status.error", error=str(e)))
+                        logger.exception(e)
+                    finally:
+                        _reset_single_video_generation_state()
+                        render_generate_button(disabled=False, refresh=True)
+
+                return run_generation
             else:
                 _reset_single_video_generation_state()
                 render_generate_button(disabled=False, refresh=True)
@@ -604,9 +648,6 @@ def render_single_output(pixelle_video, video_params):
         # Idle reruns render stored results directly; active generations reserve a slot above the gallery.
         if not result_summary_rendered and result_summary_slot is None:
             render_result_summary()
-
-        if not gallery_rendered:
-            render_gallery()
 
 
 def render_batch_output(pixelle_video, video_params):
