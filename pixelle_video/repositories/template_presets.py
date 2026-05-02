@@ -8,7 +8,7 @@ import shutil
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from pixelle_video.models.layered_template import LayeredTemplateSpec
@@ -125,7 +125,7 @@ class TemplatePresetRepository:
         for layer in preset.spec.layers:
             if layer.source is None or layer.source.kind != "asset":
                 continue
-            if not layer.source.ref.startswith("assets/"):
+            if not _is_repository_asset_key(layer.source.ref):
                 raise ValueError(
                     "asset layer source refs must use repository-owned assets/ keys"
                 )
@@ -166,6 +166,18 @@ def _preset_from_dict(payload: Mapping[str, Any]) -> TemplatePreset:
 def _safe_path_part(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._")
     return safe or "preset"
+
+
+def _is_repository_asset_key(value: str) -> bool:
+    if not isinstance(value, str) or "\\" in value:
+        return False
+    path = PurePosixPath(value)
+    if path.is_absolute():
+        return False
+    parts = path.parts
+    if len(parts) < 2 or parts[0] != "assets":
+        return False
+    return all(part not in {"", ".", ".."} for part in parts)
 
 
 def _utc_now() -> str:

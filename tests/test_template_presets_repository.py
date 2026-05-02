@@ -127,6 +127,37 @@ def test_repository_rejects_asset_layers_not_owned_by_repository(tmp_path: Path)
         repository.save(_preset(spec=_spec(layers=(layer,))))
 
 
+@pytest.mark.parametrize(
+    "asset_ref",
+    [
+        "assets/../outside.png",
+        "assets/user_demo/../../outside.png",
+        "assets\\user_demo\\source.png",
+        "/assets/user_demo/source.png",
+    ],
+)
+def test_repository_rejects_asset_refs_that_escape_repository(
+    tmp_path: Path,
+    asset_ref: str,
+):
+    repository = TemplatePresetRepository(tmp_path)
+    layer = TemplateLayer(
+        id="image-1",
+        type="image",
+        name="Image",
+        rect=RectSpec(x=0, y=0, width=100, height=100),
+        z_index=1,
+        opacity=1.0,
+        rotation=0.0,
+        locked=False,
+        source=LayerSourceSpec(kind="asset", ref=asset_ref),
+        style={},
+    )
+
+    with pytest.raises(ValueError, match="repository-owned"):
+        repository.save(_preset(spec=_spec(layers=(layer,))))
+
+
 def test_repository_accepts_repository_owned_asset_refs(tmp_path: Path):
     repository = TemplatePresetRepository(tmp_path)
     layer = TemplateLayer(
