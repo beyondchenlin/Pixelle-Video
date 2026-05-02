@@ -110,6 +110,114 @@ def test_render_preview_html_orders_layers_and_escapes_text():
     assert "position:absolute" in html
 
 
+def test_render_preview_html_renders_media_layers_with_safe_sources():
+    base = _preview_spec()
+    spec = LayeredTemplateSpec(
+        version=base.version,
+        template_id=base.template_id,
+        template_name=base.template_name,
+        template_type=base.template_type,
+        canvas_width=base.canvas_width,
+        canvas_height=base.canvas_height,
+        media_width=base.media_width,
+        media_height=base.media_height,
+        safe_area=base.safe_area,
+        layers=(
+            *base.layers,
+            TemplateLayer(
+                id="asset-image",
+                type="image",
+                name="Asset image",
+                rect=RectSpec(x=128, y=420, width=824, height=620),
+                z_index=10,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=LayerSourceSpec(kind="asset", ref="artifacts/demo/source.png"),
+                style={"object_fit": "contain"},
+            ),
+            TemplateLayer(
+                id="generated",
+                type="generated_media",
+                name="Generated media",
+                rect=RectSpec(x=128, y=1080, width=824, height=620),
+                z_index=11,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=LayerSourceSpec(kind="generated_media", ref="generated://primary"),
+                style={},
+            ),
+        ),
+        metadata=base.metadata,
+    )
+
+    html = LayeredTemplateService().render_preview_html(
+        spec=spec,
+        title_text="Title",
+        caption_text="Caption",
+        text_rendering={},
+    )
+
+    assert 'data-layer-id="asset-image"' in html
+    assert '<img class="pixelle-layer-media"' in html
+    assert 'src="/api/files/artifacts/demo/source.png"' in html
+    assert "object-fit:contain" in html
+    assert 'data-layer-id="generated"' in html
+    assert 'data-source-ref="generated://primary"' in html
+    assert "pixelle-generated-media-placeholder" in html
+
+
+def test_render_preview_html_ignores_unsafe_style_values_and_source_urls():
+    base = _preview_spec()
+    spec = LayeredTemplateSpec(
+        version=base.version,
+        template_id=base.template_id,
+        template_name=base.template_name,
+        template_type=base.template_type,
+        canvas_width=base.canvas_width,
+        canvas_height=base.canvas_height,
+        media_width=base.media_width,
+        media_height=base.media_height,
+        safe_area=base.safe_area,
+        layers=(
+            TemplateLayer(
+                id="unsafe",
+                type="image",
+                name="Unsafe image",
+                rect=RectSpec(x=0, y=0, width=100, height=100),
+                z_index=0,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=LayerSourceSpec(kind="asset", ref="javascript:alert(1)"),
+                style={
+                    "background_color": "red;background-image:url(javascript:alert(2))",
+                    "primary_color": "#123456",
+                    "font_size": "not-a-number",
+                    "object_fit": "cover;filter:url(javascript:alert(3))",
+                },
+            ),
+        ),
+        metadata=base.metadata,
+    )
+
+    html = LayeredTemplateService().render_preview_html(
+        spec=spec,
+        title_text="Title",
+        caption_text="Caption",
+        text_rendering={},
+    )
+
+    assert "javascript:" not in html
+    assert "background-image" not in html
+    assert "not-a-number" not in html
+    assert "filter:" not in html
+    assert "#123456" not in html
+    assert '<img class="pixelle-layer-media"' not in html
+    assert "pixelle-missing-media-placeholder" in html
+
+
 @pytest.mark.asyncio
 async def test_render_preview_frame_uploads_artifact_with_fingerprint():
     renderer = FakeRenderer()
