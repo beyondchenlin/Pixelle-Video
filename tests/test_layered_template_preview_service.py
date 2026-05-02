@@ -248,6 +248,31 @@ def test_render_preview_html_zero_margins_anchor_role_layers_to_canvas_edges():
     assert "bottom:0px;" in html
 
 
+def test_render_preview_html_zero_vertical_margin_aligns_layered_text_content_to_edge():
+    html = LayeredTemplateService().render_preview_html(
+        spec=_preview_spec(),
+        title_text="Title",
+        caption_text="Caption",
+        text_rendering={
+            "title_style": {
+                "position": "top",
+                "margin_y": 0,
+                "max_width_ratio": 0.4,
+            },
+            "caption_style": {
+                "position": "bottom",
+                "margin_y": 0,
+                "max_width_ratio": 0.5,
+            },
+        },
+    )
+
+    assert "top:0px;" in html
+    assert "bottom:0px;" in html
+    assert "align-items:flex-start;" in html
+    assert "align-items:flex-end;" in html
+
+
 def test_render_preview_html_sanitizes_complete_text_style_contract():
     html = LayeredTemplateService().render_preview_html(
         spec=_preview_spec(),

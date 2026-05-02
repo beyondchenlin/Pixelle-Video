@@ -227,6 +227,38 @@ def test_render_preview_html_zero_margins_anchor_to_canvas_edges():
     assert "bottom:0.000%;" in html
 
 
+def test_render_preview_html_zero_vertical_margin_aligns_text_content_to_edge():
+    spec = build_text_rendering_preview_spec(
+        template_id="image_default",
+        render_backend="hyperframes",
+        canvas_width=1000,
+        canvas_height=500,
+        media_width=500,
+        media_height=500,
+        media_placement={"anchor": "center"},
+        title_text="Title",
+        caption_text="Caption",
+        title_style={
+            "position": "top",
+            "margin_y": 0,
+            "max_width_ratio": 0.4,
+        },
+        caption_style={
+            "position": "bottom",
+            "margin_y": 0,
+            "max_width_ratio": 0.5,
+        },
+    )
+
+    html = render_preview_html(spec)
+
+    assert "top:0.000%;" in html
+    assert "bottom:0.000%;" in html
+    assert "align-items:flex-start;" in html
+    assert "align-items:flex-end;" in html
+    assert "padding: 1.2%;" not in html
+
+
 def test_render_preview_html_constrains_title_layout_to_template_region():
     spec = build_text_rendering_preview_spec(
         template_id="image_landscape_minimal",

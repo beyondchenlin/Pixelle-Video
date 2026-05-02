@@ -17,6 +17,8 @@ _TEXT_POSITIONS = {
     "bottom_right",
 }
 _TEXT_ALIGNMENTS = {"left", "center", "right"}
+_TOP_POSITIONS = {"top", "top_left", "top_right"}
+_BOTTOM_POSITIONS = {"bottom", "lower_third", "bottom_left", "bottom_right"}
 _UNSAFE_FONT_CHARS = ("\"", "'", "`", ";", "{", "}", "\\", "/", "*", ":", "(", ")")
 
 
@@ -95,6 +97,7 @@ def render_text_style_preview_css(
         f"color:{fields['primary_color']}",
         f"text-align:{fields['alignment']}",
         f"justify-content:{_justify_content(fields['alignment'])}",
+        f"align-items:{_align_items_for_position(style.get('position'))}",
         f"font-family:{fields['font_family']}",
         f"font-weight:{fields['font_weight']}",
         f"line-height:{fields['line_height']}",
@@ -425,6 +428,15 @@ def _region_fraction(value: Any, default: float) -> float:
 
 def _justify_content(alignment: str) -> str:
     return {"left": "flex-start", "right": "flex-end"}.get(alignment, "center")
+
+
+def _align_items_for_position(position: Any) -> str:
+    normalized = _safe_choice(position, "", _TEXT_POSITIONS)
+    if normalized in _TOP_POSITIONS:
+        return "flex-start"
+    if normalized in _BOTTOM_POSITIONS:
+        return "flex-end"
+    return "center"
 
 
 def _compose_transform(transform: str, rotation_degrees: float) -> str:

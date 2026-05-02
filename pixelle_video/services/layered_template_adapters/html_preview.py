@@ -43,7 +43,7 @@ def render_layered_template_preview_html(
         ".layered-template-preview{position:relative;overflow:hidden;margin:0 auto;"
         "font-family:Arial,sans-serif;}"
         ".layer{position:absolute;box-sizing:border-box;overflow:hidden;}"
-        ".text-layer{display:flex;align-items:center;white-space:pre-wrap;line-height:1.18;}"
+        ".text-layer{display:flex;white-space:pre-wrap;line-height:1.18;}"
         ".media-layer{display:flex;align-items:center;justify-content:center;background:#222;color:#aaa;}"
         ".media-layer img{width:100%;height:100%;object-fit:cover;display:block;}"
         "</style></head><body>"

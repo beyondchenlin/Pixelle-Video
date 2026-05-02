@@ -216,9 +216,8 @@ def render_preview_html(spec: TextRenderingPreviewSpec) -> str:
 .text-rendering-preview__title,
 .text-rendering-preview__caption {{
   display: flex;
-  align-items: center;
   justify-content: center;
-  padding: 1.2%;
+  padding: 0;
   text-align: center;
   line-height: 1.16;
   word-break: break-word;
