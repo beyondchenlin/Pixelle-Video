@@ -842,3 +842,77 @@ class HTMLFrameGenerator:
                 )
                 logger.error(f"Failed to render HTML template: {e}{diagnostic}")
                 raise RuntimeError(f"HTML rendering failed: {e}{diagnostic}") from e
+
+
+class HTMLDocumentFrameRenderer:
+    def __init__(
+        self,
+        *,
+        base_path: str | Path | None = None,
+        render_readiness: FrameRenderReadiness | None = None,
+    ) -> None:
+        self.base_path = Path(base_path).resolve() if base_path else None
+        self.render_readiness = render_readiness or FrameRenderReadiness()
+
+    def _prepare_html_for_render(self, html: str) -> str:
+        if self.base_path is None or re.search(r"<base\b", html, flags=re.IGNORECASE):
+            return html
+        base_tag = f'<base href="{self.base_path.as_uri().rstrip("/")}/">'
+        head_match = re.search(r"<head[^>]*>", html, flags=re.IGNORECASE)
+        if head_match:
+            insert_at = head_match.end()
+            return f"{html[:insert_at]}{base_tag}{html[insert_at:]}"
+        return f"<head>{base_tag}</head>{html}"
+
+    async def render_html_document(
+        self,
+        *,
+        html: str,
+        output_path: str,
+        width: int,
+        height: int,
+    ) -> str:
+        if width <= 0 or height <= 0:
+            raise ValueError("width and height must be positive")
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        prepared_html = self._prepare_html_for_render(html)
+        browser = await HTMLFrameGenerator._ensure_browser()
+        page = await browser.new_page(
+            viewport={"width": int(width), "height": int(height)},
+            device_scale_factor=1,
+        )
+        tmp_html_path = None
+        try:
+            fd, tmp_html_path = tempfile.mkstemp(
+                suffix=".html",
+                prefix="pv_raw_html_",
+                dir=get_temp_path(),
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(prepared_html)
+            await page.goto(
+                Path(tmp_html_path).as_uri(),
+                wait_until=self.render_readiness.navigation_wait_until,
+                timeout=self.render_readiness.navigation_timeout_ms,
+            )
+            await self.render_readiness.wait(page)
+            await page.screenshot(
+                path=output_path,
+                type="png",
+                omit_background=True,
+            )
+            return output_path
+        finally:
+            try:
+                await page.close()
+            finally:
+                if tmp_html_path and os.path.exists(tmp_html_path):
+                    self._remove_temp_html(tmp_html_path)
+
+    def _remove_temp_html(self, tmp_html_path: str) -> None:
+        try:
+            os.unlink(tmp_html_path)
+        except Exception as exc:
+            logger.debug(f"Failed to delete temporary HTML: {exc}")

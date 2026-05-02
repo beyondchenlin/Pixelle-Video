@@ -20,6 +20,7 @@ from api.routers.files import router as files_router
 from api.routers.frame import router as frame_router
 from api.routers.health import router as health_router
 from api.routers.image import router as image_router
+from api.routers.layered_template_preview import router as layered_template_preview_router
 from api.routers.llm import router as llm_router
 from api.routers.llm_trace import router as llm_trace_router
 from api.routers.resources import router as resources_router
@@ -36,6 +37,7 @@ __all__ = [
     "llm_trace_router",
     "tts_router",
     "image_router",
+    "layered_template_preview_router",
     "content_router",
     "asset_bible_router",
     "video_router",
