@@ -24,6 +24,7 @@ from web.components.header import render_header
 from web.components.storyboard_preview import render_storyboard_preview
 from web.components.storyboard_workbench_stale import build_stale_panel_context
 from web.i18n import tr
+from web.state.ip_workbench_client import resolve_storyboard_ip_workbench_client
 from web.state.session import get_pixelle_video, init_i18n, init_session_state
 from web.state.storyboard_overrides import (
     build_storyboard_override_snapshot_identity,
@@ -65,11 +66,16 @@ def render_storyboard_workbench_page(
         getattr(ui, "session_state", {}),
         pixelle_video=pixelle_video,
     )
+    ip_workbench_client = resolve_storyboard_ip_workbench_client(
+        getattr(ui, "session_state", {}),
+        pixelle_video=pixelle_video,
+    )
     with ui.container():
         frame_overrides = preview_renderer(
             preview_snapshot,
             stale_context=stale_context,
             workbench_client=workbench_client,
+            ip_workbench_client=ip_workbench_client,
         )
     set_storyboard_override_draft(
         getattr(ui, "session_state", {}),

@@ -12,6 +12,7 @@ from typing import Any, Mapping, Sequence
 import streamlit as st
 
 from pixelle_video.platform_context import first_text
+from web.components.ip_workbench_panel import render_ip_workbench_panel
 from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 from web.components.storyboard_workbench_stale import render_prompt_plan_stale_panel
 from web.i18n import tr
@@ -211,8 +212,10 @@ def render_storyboard_preview(
     *,
     stale_context: Mapping[str, str] | None = None,
     workbench_client=None,
+    ip_workbench_client=None,
     stale_renderer: Callable[..., None] | None = render_prompt_plan_stale_panel,
     workbench_renderer: Callable[..., None] | None = render_storyboard_workbench_panel,
+    ip_workbench_renderer: Callable[..., None] | None = render_ip_workbench_panel,
 ) -> list[dict[str, Any]]:
     """Render a minimal frame override editor from the latest planning snapshot."""
     rows = build_storyboard_preview_rows(planning_snapshot)
@@ -296,6 +299,25 @@ def render_storyboard_preview(
                             artifact_id=workbench_context.get("artifact_id"),
                             selected_version_id=workbench_context.get("selected_version_id"),
                             workbench_client=workbench_client,
+                            ui=st,
+                            translate=tr,
+                        )
+                if ip_workbench_renderer is not None:
+                    context = stale_context or {}
+                    project_id = context.get("project_id")
+                    workspace_id = context.get("workspace_id")
+                    storyboard_plan_id = (
+                        context.get("storyboard_plan_id")
+                        or context.get("storyboard_id")
+                        or row["plan_id"]
+                    )
+                    if project_id and workspace_id and storyboard_plan_id and row["frame_id"]:
+                        ip_workbench_renderer(
+                            ip_workbench_client=ip_workbench_client,
+                            workspace_id=workspace_id,
+                            project_id=project_id,
+                            storyboard_plan_id=storyboard_plan_id,
+                            frame_id=row["frame_id"],
                             ui=st,
                             translate=tr,
                         )

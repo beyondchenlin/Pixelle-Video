@@ -110,7 +110,7 @@ def test_storyboard_workbench_page_renders_preview_overrides_in_main_area(monkey
         lambda _session_state, pixelle_video=None: client,
     )
 
-    def preview_renderer(snapshot, *, stale_context=None, workbench_client=None):
+    def preview_renderer(snapshot, *, stale_context=None, workbench_client=None, **_kwargs):
         calls.append(
             {
                 "snapshot": snapshot,
@@ -192,3 +192,46 @@ def test_storyboard_workbench_page_passes_client_to_preview(monkeypatch):
     )
 
     assert calls == [client]
+
+
+def test_storyboard_workbench_page_passes_ip_client_to_preview(monkeypatch):
+    page = _load_workbench_page()
+    fake_ui = _FakeUI()
+    fake_ui.session_state["storyboard_preview_snapshot"] = _planning_snapshot()
+    workbench_client = object()
+    ip_client = object()
+    calls = []
+
+    monkeypatch.setattr(page, "resolve_workbench_client_mode", lambda _session_state: "http")
+    monkeypatch.setattr(
+        page,
+        "resolve_storyboard_workbench_client",
+        lambda _session_state, pixelle_video=None: workbench_client,
+    )
+    monkeypatch.setattr(
+        page,
+        "resolve_storyboard_ip_workbench_client",
+        lambda _session_state, pixelle_video=None: ip_client,
+    )
+
+    def preview_renderer(snapshot, *, workbench_client=None, ip_workbench_client=None, **_kwargs):
+        calls.append(
+            {
+                "workbench_client": workbench_client,
+                "ip_workbench_client": ip_workbench_client,
+            }
+        )
+        return []
+
+    page.render_storyboard_workbench_page(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+        preview_renderer=preview_renderer,
+    )
+
+    assert calls == [
+        {
+            "workbench_client": workbench_client,
+            "ip_workbench_client": ip_client,
+        }
+    ]
