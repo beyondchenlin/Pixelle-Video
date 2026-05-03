@@ -213,6 +213,14 @@ def normalize_media_resolution_preset(
     return preset
 
 
+def _media_preset_from_dimensions(width: int, height: int, orientation: str) -> str:
+    size_key = f"{width}x{height}"
+    alias = _MEDIA_PRESET_ALIASES.get(size_key)
+    if alias is not None and alias in MEDIA_SIZE_PRESETS[orientation]:
+        return alias
+    return normalize_media_resolution_preset(None, orientation=orientation)
+
+
 def resolve_canvas_size(orientation: Any = None, preset: Any = None) -> SizeSpec:
     normalized_orientation = normalize_video_orientation(orientation)
     normalized_preset = normalize_video_resolution_preset(
@@ -347,6 +355,17 @@ class GenerationSizeContract:
             media = canvas
         elif explicit_media is not None:
             media = explicit_media
+            if source.get("media_orientation") is None:
+                media_orientation = orientation_from_dimensions(
+                    media.width,
+                    media.height,
+                )
+                if source.get("media_resolution_preset") is None:
+                    media_preset = _media_preset_from_dimensions(
+                        media.width,
+                        media.height,
+                        media_orientation,
+                    )
         else:
             media = resolve_media_size(media_orientation, media_preset)
 

@@ -1,101 +1,404 @@
-from pixelle_video.models.layered_template import LayeredTemplateSpec
-from web.components import layout_preview_workbench
-from web.components.layered_template_state import LAYERED_TEMPLATE_EDITOR_STATE_KEY
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 
-def _spec_payload(template_id="demo", *, canvas_width=1080, canvas_height=1920):
+class _NoopContext:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeComponents:
+    def __init__(self):
+        self.html_calls: list[dict[str, Any]] = []
+
+    def html(self, html, **kwargs):
+        self.html_calls.append({"html": html, **kwargs})
+
+
+class _FakeUI:
+    def __init__(self):
+        self.session_state: dict[str, Any] = {}
+        self.markdowns: list[dict[str, Any]] = []
+        self.captions: list[str] = []
+        self.buttons: list[dict[str, Any]] = []
+        self.infos: list[str] = []
+
+    def container(self, **_kwargs):
+        return _NoopContext()
+
+    def markdown(self, body, **kwargs):
+        self.markdowns.append({"body": body, **kwargs})
+
+    def caption(self, body):
+        self.captions.append(body)
+
+    def button(self, label, **kwargs):
+        self.buttons.append({"label": label, **kwargs})
+        return bool(self.session_state.get(kwargs.get("key"), False))
+
+    def info(self, body):
+        self.infos.append(body)
+
+
+def _spec_payload() -> dict[str, Any]:
     return {
         "version": "layered_template.v1",
-        "template_id": template_id,
-        "template_name": "Demo",
+        "template_id": "portrait_news",
+        "template_name": "Portrait News",
         "template_type": "image",
-        "canvas_width": canvas_width,
-        "canvas_height": canvas_height,
-        "media_width": canvas_width,
-        "media_height": canvas_height,
-        "safe_area": {
-            "x": 64,
-            "y": 64,
-            "width": canvas_width - 128,
-            "height": canvas_height - 128,
-            "unit": "px",
-        },
-        "layers": [],
-        "metadata": {},
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+        "layers": [
+            {
+                "id": "background",
+                "type": "background",
+                "name": "Background",
+                "rect": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+                "z_index": 0,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": None,
+                "style": {},
+                "role": None,
+            },
+            {
+                "id": "media",
+                "type": "image",
+                "name": "Generated media",
+                "rect": {"x": 40, "y": 180, "width": 640, "height": 960, "unit": "px"},
+                "z_index": 10,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": {
+                    "kind": "generated_media",
+                    "ref": "generated://primary",
+                    "metadata": {},
+                },
+                "style": {},
+                "role": None,
+            },
+        ],
+        "metadata": {"render_backend": "hyperframes", "render_summary": "HyperFrames"},
     }
 
 
-def test_recent_template_shortcuts_are_sorted_by_last_used_desc():
-    items = [
-        {"preset_id": "a", "name": "A", "last_used_at": "2026-05-02T08:00:00Z"},
-        {"preset_id": "b", "name": "B", "last_used_at": "2026-05-02T10:00:00Z"},
-        {"preset_id": "c", "name": "C", "last_used_at": "2026-05-02T09:00:00Z"},
-    ]
+def test_render_layout_preview_workbench_sorts_recent_presets_and_limits_to_five(monkeypatch):
+    from web.components import layout_preview_workbench
 
-    ordered = layout_preview_workbench.sort_recent_template_shortcuts(items, limit=2)
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
 
-    assert [item["preset_id"] for item in ordered] == ["b", "c"]
-
-
-def test_recent_template_shortcut_loads_full_spec_into_editor_state(monkeypatch):
-    current_spec = _spec_payload("current", canvas_width=720, canvas_height=1280)
-    recent_spec = _spec_payload("recent", canvas_width=1280, canvas_height=720)
-    captured = {"buttons": [], "used": []}
-
-    class _Context:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    class _FakeStreamlit:
-        def __init__(self):
-            self.session_state = {}
-
-        def container(self, **_kwargs):
-            return _Context()
-
-        def markdown(self, *_args, **_kwargs):
-            return None
-
-        def caption(self, *_args, **_kwargs):
-            return None
-
-        def button(self, label, **kwargs):
-            captured["buttons"].append((label, kwargs))
-            return kwargs["key"] == "recent_template_recent"
-
-    class _Registry:
-        def mark_used(self, preset_id):
-            captured["used"].append(preset_id)
-
-    fake_st = _FakeStreamlit()
-    monkeypatch.setattr(layout_preview_workbench, "st", fake_st)
-    monkeypatch.setattr(
-        layout_preview_workbench,
-        "render_layered_template_preview_html",
-        lambda **_kwargs: "<div>preview</div>",
+    selected = layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {
+                "preset_id": f"preset_{index}",
+                "template_name": f"Template {index}",
+                "last_used_at": f"2026-05-02T10:0{index}:00",
+                "spec": _spec_payload(),
+            }
+            for index in range(7)
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        ui=fake_ui,
     )
+
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert selected is None
+    assert rendered.count("Template ") == 5
+    assert "Template 6" in rendered
+    assert "Template 2" in rendered
+    assert "Template 1" not in rendered
+    assert len(fake_ui.buttons) == 5
+
+
+def test_render_layout_preview_workbench_sorts_recent_presets_by_datetime(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
 
     layout_preview_workbench.render_layout_preview_workbench(
-        spec=current_spec,
-        title_text="Title",
-        caption_text="Caption",
-        text_rendering={},
-        recent_templates=[
+        spec_payload=_spec_payload(),
+        recent_presets=[
             {
-                "preset_id": "recent",
-                "name": "Recent",
-                "last_used_at": "2026-05-02T10:00:00Z",
-                "spec": LayeredTemplateSpec.from_dict(recent_spec),
-            }
+                "preset_id": "old",
+                "template_name": "Old",
+                "last_used_at": "2026-05-02T09:30:00Z",
+                "spec": _spec_payload(),
+            },
+            {
+                "preset_id": "new",
+                "template_name": "New",
+                "last_used_at": datetime(2026, 5, 2, 18, 0, tzinfo=timezone.utc),
+                "spec": _spec_payload(),
+            },
         ],
-        real_preview_state=None,
-        registry=_Registry(),
-        session_state=fake_st.session_state,
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        ui=fake_ui,
     )
 
-    loaded = fake_st.session_state[LAYERED_TEMPLATE_EDITOR_STATE_KEY]
-    assert captured["used"] == ["recent"]
-    assert (loaded.canvas_width, loaded.canvas_height) == (1280, 720)
+    button_labels = [item["label"] for item in fake_ui.buttons]
+    assert button_labels == ["\u5957\u7528 New", "\u5957\u7528 Old"]
+
+
+def test_render_layout_preview_workbench_sorts_recent_presets_by_absolute_time(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {
+                "preset_id": "utc_later",
+                "template_name": "UTC Later",
+                "last_used_at": "2026-05-02T18:00:00+00:00",
+                "spec": _spec_payload(),
+            },
+            {
+                "preset_id": "offset_earlier",
+                "template_name": "Offset Earlier",
+                "last_used_at": "2026-05-03T00:30:00+08:00",
+                "spec": _spec_payload(),
+            },
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        ui=fake_ui,
+    )
+
+    button_labels = [item["label"] for item in fake_ui.buttons]
+    assert button_labels == ["\u5957\u7528 UTC Later", "\u5957\u7528 Offset Earlier"]
+
+
+def test_render_layout_preview_workbench_renders_spec_summary_and_safe_html(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[],
+        preview_html=layout_preview_workbench.trust_preview_html(
+            "<section data-preview>trusted-service-html</section>"
+        ),
+        render_summary="Service render summary",
+        template_summary="Portrait news template",
+        ui=fake_ui,
+    )
+
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert "\u5373\u65f6\u9884\u89c8\u5de5\u4f5c\u53f0" in rendered
+    assert "\u753b\u5e03\u5c3a\u5bf8" in rendered
+    assert "720 x 1280" in rendered
+    assert "\u5a92\u4f53\u5c3a\u5bf8" in rendered
+    assert "640 x 960" in rendered
+    assert "\u56fe\u5c42\u6570\u91cf" in rendered
+    assert "2" in rendered
+    assert "Service render summary" in rendered
+    assert "Portrait news template" in rendered
+    assert fake_components.html_calls == [
+        {
+            "html": "<section data-preview>trusted-service-html</section>",
+            "height": 520,
+            "scrolling": True,
+        }
+    ]
+
+
+def test_render_layout_preview_workbench_records_clicked_recent_preset(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state[
+        layout_preview_workbench._recent_preset_button_key("preset_b", key_suffix="")
+    ] = True
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+    callback_calls: list[dict[str, Any]] = []
+
+    selected = layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {
+                "preset_id": "preset_a",
+                "template_name": "Template A",
+                "last_used_at": "2026-05-02T10:00:00",
+                "spec": _spec_payload(),
+            },
+            {
+                "preset_id": "preset_b",
+                "template_name": "Template B",
+                "last_used_at": "2026-05-02T11:00:00",
+                "spec": _spec_payload(),
+            },
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        on_preset_selected=callback_calls.append,
+        ui=fake_ui,
+    )
+
+    assert selected == {
+        "preset_id": "preset_b",
+        "spec_payload": _spec_payload(),
+    }
+    assert callback_calls == [selected]
+    assert "layout_preview_selected_preset_id" not in fake_ui.session_state
+    assert "_layout_preview_workbench_selection" not in fake_ui.session_state
+
+
+def test_render_layout_preview_workbench_applies_key_suffix_to_recent_buttons(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {
+                "preset_id": "preset_a",
+                "template_name": "Template A",
+                "last_used_at": "2026-05-02T10:00:00",
+                "spec": _spec_payload(),
+            },
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        key_suffix="_refresh_2",
+        ui=fake_ui,
+    )
+
+    assert fake_ui.buttons[0]["key"].startswith("layout_preview_recent_preset_")
+    assert fake_ui.buttons[0]["key"].endswith("_refresh_2")
+
+
+def test_render_layout_preview_workbench_uses_stable_safe_recent_button_keys(
+    monkeypatch,
+):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {
+                "preset_id": "user:preset/a",
+                "template_name": "Slash Template",
+                "last_used_at": "2026-05-02T11:00:00",
+                "spec": _spec_payload(),
+            },
+            {
+                "preset_id": "user:preset_a",
+                "template_name": "Underscore Template",
+                "last_used_at": "2026-05-02T10:00:00",
+                "spec": _spec_payload(),
+            },
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        key_suffix="_refresh_2",
+        ui=fake_ui,
+    )
+
+    keys = [item["key"] for item in fake_ui.buttons]
+    assert len(set(keys)) == 2
+    assert all(key.startswith("layout_preview_recent_preset_") for key in keys)
+    assert all(key.endswith("_refresh_2") for key in keys)
+    assert all("user:preset" not in key for key in keys)
+
+
+def test_render_layout_preview_workbench_ignores_recent_preset_without_spec(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {"preset_id": "preset_without_spec", "template_name": "Template Without Spec"},
+            {
+                "preset_id": "preset_with_spec",
+                "template_name": "Template With Spec",
+                "spec": _spec_payload(),
+            },
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        ui=fake_ui,
+    )
+
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert "Template Without Spec" not in rendered
+    assert "Template With Spec" in rendered
+    assert len(fake_ui.buttons) == 1
+
+
+def test_render_layout_preview_workbench_rejects_untrusted_preview_html(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[],
+        preview_html="<script>alert('raw')</script>",
+        ui=fake_ui,
+    )
+
+    assert fake_components.html_calls == []
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert (
+        "\u6682\u65e0\u9884\u89c8 HTML\uff0c"
+        "\u5b8c\u6210\u4e00\u6b21\u670d\u52a1\u7aef\u9884\u89c8"
+        "\u540e\u4f1a\u663e\u793a\u5728\u8fd9\u91cc\u3002"
+    ) in rendered
+    assert fake_ui.infos == []
+
+
+def test_render_layout_preview_workbench_handles_missing_spec_without_crashing(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    selected = layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=None,
+        recent_presets=[],
+        preview_html=None,
+        ui=fake_ui,
+    )
+
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert selected is None
+    assert "\u5373\u65f6\u9884\u89c8\u5de5\u4f5c\u53f0" in rendered
+    assert "\u6682\u65e0\u53ef\u9884\u89c8\u7684\u6392\u7248\u89c4\u683c" in rendered
+    assert (
+        "\u6682\u65e0\u9884\u89c8 HTML\uff0c"
+        "\u5b8c\u6210\u4e00\u6b21\u670d\u52a1\u7aef\u9884\u89c8"
+        "\u540e\u4f1a\u663e\u793a\u5728\u8fd9\u91cc\u3002"
+    ) in rendered
+    assert fake_ui.infos == []
+    assert fake_components.html_calls == []

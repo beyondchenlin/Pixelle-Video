@@ -1,7 +1,11 @@
 from types import SimpleNamespace
 
 from pixelle_video.models.layered_template import LayerSourceSpec
-from web.components.layered_template_state import LayeredTemplateEditorState
+from web.components.layered_template_state import (
+    LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY,
+    LAYERED_TEMPLATE_SELECTED_SIZE_PARAMS_KEY,
+    LayeredTemplateEditorState,
+)
 
 
 class _NoopContext:
@@ -192,6 +196,294 @@ def test_render_style_config_returns_layered_template_spec_payload(monkeypatch):
     assert "preview_media_url" not in result
 
 
+def test_render_style_config_uses_selected_layered_template_identity(monkeypatch):
+    from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
+    from web.components import style_config
+
+    fake_st = _FakeStreamlit()
+    fake_st.session_state.update(
+        {
+            "template_type_selector": "image",
+            "layered_template_editor_state": LayeredTemplateEditorState.empty(
+                canvas_width=720,
+                canvas_height=1280,
+                media_width=768,
+                media_height=768,
+            ).append_background_layer("Background"),
+            LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY: {
+                "template_id": "user:branded_news",
+                "template_name": "Branded News",
+                "template_type": "image",
+                "metadata": {"source_kind": "user", "brand": "demo"},
+            },
+            LAYERED_TEMPLATE_SELECTED_SIZE_PARAMS_KEY: {
+                "canvas_width": 720,
+                "canvas_height": 1280,
+                "media_width": 768,
+                "media_height": 768,
+                "video_orientation": "portrait",
+                "video_resolution_preset": "portrait_hd",
+                "media_orientation": "square",
+                "media_resolution_preset": "768",
+                "sync_media_size_to_canvas": False,
+            },
+        }
+    )
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **_kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "hyperframes")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_tts_split_settings", lambda: {})
+    monkeypatch.setattr(style_config, "render_element_animation_controls", lambda: {})
+    monkeypatch.setattr(style_config, "render_text_rendering_controls", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(style_config.config_manager, "get_comfyui_config", _fake_comfyui_config)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_supported_template_orientations", lambda _template_type: ["portrait"])
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_default_template_for_type_and_orientation", lambda *_args: "1080x1920/image_default.html")
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_compatible_template_for_orientation", lambda current_template, **_kwargs: current_template)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_template_type", lambda _template_name: "image")
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type", lambda _template_type: _template_groups())
+    monkeypatch.setattr("pixelle_video.utils.template_util.parse_template_size", lambda _path: (1080, 1920))
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
+    monkeypatch.setattr("pixelle_video.services.frame_html.HTMLFrameGenerator", _FakeFrameGenerator)
+
+    result = style_config.render_style_config(
+        _FakeVideo(),
+        content_context={"title": "Runtime Title", "text": "Runtime Caption"},
+    )
+
+    assert result["selected_template_preset_id"] == "user:branded_news"
+    spec = result["layered_template_spec"]
+    assert spec["template_id"] == "user:branded_news"
+    assert spec["template_name"] == "Branded News"
+    assert spec["metadata"] == {"source_kind": "user", "brand": "demo"}
+
+
+def test_render_style_config_preserves_selected_template_non_standard_dimensions(
+    monkeypatch,
+):
+    from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
+    from web.components import style_config
+
+    fake_st = _FakeStreamlit()
+    fake_st.session_state.update(
+        {
+            "template_type_selector": "image",
+            "video_orientation": "portrait",
+            "video_resolution_preset": "portrait_hd",
+            "media_orientation": "portrait",
+            "media_resolution_preset": "1k",
+            "sync_media_size_to_canvas": False,
+            "layered_template_editor_state": LayeredTemplateEditorState.empty(
+                canvas_width=1000,
+                canvas_height=1500,
+                media_width=900,
+                media_height=1200,
+            ).append_background_layer("Background"),
+            LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY: {
+                "template_id": "user:non_standard",
+                "template_name": "Non Standard",
+                "template_type": "image",
+                "metadata": {"source_kind": "user"},
+            },
+            LAYERED_TEMPLATE_SELECTED_SIZE_PARAMS_KEY: {
+                "canvas_width": 1000,
+                "canvas_height": 1500,
+                "media_width": 900,
+                "media_height": 1200,
+                "video_orientation": "portrait",
+                "video_resolution_preset": "portrait_hd",
+                "media_orientation": "portrait",
+                "media_resolution_preset": "1k",
+                "sync_media_size_to_canvas": False,
+            },
+        }
+    )
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **_kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "hyperframes")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_tts_split_settings", lambda: {})
+    monkeypatch.setattr(style_config, "render_element_animation_controls", lambda: {})
+    monkeypatch.setattr(style_config, "render_text_rendering_controls", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(style_config.config_manager, "get_comfyui_config", _fake_comfyui_config)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_supported_template_orientations", lambda _template_type: ["portrait"])
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_default_template_for_type_and_orientation", lambda *_args: "1080x1920/image_default.html")
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_compatible_template_for_orientation", lambda current_template, **_kwargs: current_template)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_template_type", lambda _template_name: "image")
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type", lambda _template_type: _template_groups())
+    monkeypatch.setattr("pixelle_video.utils.template_util.parse_template_size", lambda _path: (1080, 1920))
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
+    monkeypatch.setattr("pixelle_video.services.frame_html.HTMLFrameGenerator", _FakeFrameGenerator)
+
+    result = style_config.render_style_config(
+        _FakeVideo(),
+        content_context={"title": "Runtime Title", "text": "Runtime Caption"},
+    )
+
+    spec = result["layered_template_spec"]
+    assert (spec["canvas_width"], spec["canvas_height"]) == (1000, 1500)
+    assert (spec["media_width"], spec["media_height"]) == (900, 1200)
+    assert result["selected_template_preset_id"] == "user:non_standard"
+
+
+def test_render_style_config_keeps_selected_recent_preset_when_gallery_template_incompatible(
+    monkeypatch,
+):
+    from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
+    from web.components import style_config
+
+    fake_st = _FakeStreamlit()
+    fake_st.session_state.update(
+        {
+            "template_type_selector": "image",
+            "selected_template": "1920x1080/image_landscape.html",
+            "last_template_type": "image",
+            "video_orientation": "portrait",
+            "video_resolution_preset": "portrait_hd",
+            "media_orientation": "square",
+            "media_resolution_preset": "768",
+            "sync_media_size_to_canvas": False,
+            "layered_template_editor_state": LayeredTemplateEditorState.empty(
+                canvas_width=720,
+                canvas_height=1280,
+                media_width=768,
+                media_height=768,
+            ).append_background_layer("Background"),
+            LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY: {
+                "template_id": "user:portrait_recent",
+                "template_name": "Portrait Recent",
+                "template_type": "image",
+                "metadata": {"source_kind": "user"},
+            },
+            LAYERED_TEMPLATE_SELECTED_SIZE_PARAMS_KEY: {
+                "canvas_width": 720,
+                "canvas_height": 1280,
+                "media_width": 768,
+                "media_height": 768,
+                "video_orientation": "portrait",
+                "video_resolution_preset": "portrait_hd",
+                "media_orientation": "square",
+                "media_resolution_preset": "768",
+                "sync_media_size_to_canvas": False,
+            },
+        }
+    )
+
+    def _resolve_compatible_template(current_template, **kwargs):
+        assert current_template == "1920x1080/image_landscape.html"
+        assert kwargs["orientation"] == "portrait"
+        return "1080x1920/image_default.html"
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **_kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "hyperframes")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_tts_split_settings", lambda: {})
+    monkeypatch.setattr(style_config, "render_element_animation_controls", lambda: {})
+    monkeypatch.setattr(style_config, "render_text_rendering_controls", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(style_config.config_manager, "get_comfyui_config", _fake_comfyui_config)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_supported_template_orientations", lambda _template_type: ["portrait"])
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_default_template_for_type_and_orientation", lambda *_args: "1080x1920/image_default.html")
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_compatible_template_for_orientation", _resolve_compatible_template)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_template_type", lambda _template_name: "image")
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type", lambda _template_type: _template_groups())
+    monkeypatch.setattr("pixelle_video.utils.template_util.parse_template_size", lambda _path: (1080, 1920))
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
+    monkeypatch.setattr("pixelle_video.services.frame_html.HTMLFrameGenerator", _FakeFrameGenerator)
+    monkeypatch.setattr(
+        style_config,
+        "safe_rerun",
+        lambda: (_ for _ in ()).throw(AssertionError("should not rerun")),
+    )
+
+    result = style_config.render_style_config(
+        _FakeVideo(),
+        content_context={"title": "Runtime Title", "text": "Runtime Caption"},
+    )
+
+    assert result["selected_template_preset_id"] == "user:portrait_recent"
+    assert result["layered_template_spec"]["template_id"] == "user:portrait_recent"
+
+
+def test_render_style_config_keeps_recent_user_template_without_legacy_frame_path(
+    monkeypatch,
+):
+    from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
+    from web.components import style_config
+
+    fake_st = _FakeStreamlit()
+    fake_st.session_state.update(
+        {
+            "template_type_selector": "video",
+            "last_template_type": "video",
+            "video_orientation": "portrait",
+            "video_resolution_preset": "portrait_hd",
+            "media_orientation": "portrait",
+            "media_resolution_preset": "1k",
+            "sync_media_size_to_canvas": False,
+            "layered_template_editor_state": LayeredTemplateEditorState.empty(
+                canvas_width=720,
+                canvas_height=1280,
+                media_width=720,
+                media_height=1280,
+            ).append_background_layer("Background"),
+            LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY: {
+                "template_id": "user:video_recent",
+                "template_name": "Video Recent",
+                "template_type": "video",
+                "metadata": {"source_kind": "user"},
+            },
+            LAYERED_TEMPLATE_SELECTED_SIZE_PARAMS_KEY: {
+                "canvas_width": 720,
+                "canvas_height": 1280,
+                "media_width": 720,
+                "media_height": 1280,
+                "video_orientation": "portrait",
+                "video_resolution_preset": "portrait_hd",
+                "media_orientation": "portrait",
+                "media_resolution_preset": "1k",
+                "sync_media_size_to_canvas": False,
+            },
+        }
+    )
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **_kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "hyperframes")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_tts_split_settings", lambda: {})
+    monkeypatch.setattr(style_config, "render_element_animation_controls", lambda: {})
+    monkeypatch.setattr(style_config, "render_text_rendering_controls", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(style_config, "_generate_single_style_preview_result", lambda **_kwargs: {})
+    monkeypatch.setattr(style_config.config_manager, "get_comfyui_config", _fake_comfyui_config)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_supported_template_orientations", lambda _template_type: ["portrait"])
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_default_template_for_type_and_orientation", lambda *_args: "1080x1920/video_default.html")
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_compatible_template_for_orientation", lambda current_template, **_kwargs: current_template)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_template_type", lambda _template_name: "video")
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type", lambda _template_type: _video_template_groups())
+    monkeypatch.setattr("pixelle_video.utils.template_util.parse_template_size", lambda _path: (1080, 1920))
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
+    monkeypatch.setattr("pixelle_video.services.frame_html.HTMLFrameGenerator", _FakeFrameGenerator)
+
+    result = style_config.render_style_config(
+        _FakeVideo(),
+        content_context={"title": "Runtime Title", "text": "Runtime Caption"},
+    )
+
+    assert result["selected_template_preset_id"] == "user:video_recent"
+    assert result["layered_template_spec"]["template_type"] == "video"
+    assert result["frame_template"] == "1080x1920/video_default.html"
+
+
 def test_render_style_config_no_longer_renders_middle_column_legacy_template_preview(
     monkeypatch,
 ):
@@ -370,6 +662,22 @@ def _template_groups():
                 template_path="1080x1920/image_default.html",
                 display_info=SimpleNamespace(
                     name="Image Default",
+                    orientation="portrait",
+                    width=1080,
+                    height=1920,
+                ),
+            )
+        ]
+    }
+
+
+def _video_template_groups():
+    return {
+        "1080x1920": [
+            SimpleNamespace(
+                template_path="1080x1920/video_default.html",
+                display_info=SimpleNamespace(
+                    name="Video Default",
                     orientation="portrait",
                     width=1080,
                     height=1920,

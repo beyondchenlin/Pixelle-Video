@@ -70,6 +70,9 @@ class TemplateRegistry:
             raise ValueError(f"unsupported template preset source: {source}")
         return build_system_template_presets() + self.repository.list_all(source="user")
 
+    def list_recent(self, *, limit: int = 5) -> list[TemplatePreset]:
+        return self.repository.list_recent(limit=limit)
+
     def get_preset(self, preset_id: str) -> TemplatePreset | None:
         persisted = self.repository.get(preset_id)
         if persisted is not None:

@@ -333,6 +333,67 @@ def test_build_single_generation_request_uses_media_placement_payload():
     }
 
 
+def test_build_single_generation_request_includes_layered_template_snapshot():
+    def _progress(_event):
+        return None
+
+    layered_template_spec = {
+        "version": "layered_template.v1",
+        "template_id": "portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+        "layers": [],
+        "metadata": {"render_backend": "html_preview"},
+    }
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "layered_template_spec": layered_template_spec,
+            "selected_template_preset_id": "portrait_news",
+        },
+        progress_callback=_progress,
+        session_state={},
+    )
+
+    assert request["layered_template_spec"] == layered_template_spec
+    assert request["selected_template_preset_id"] == "portrait_news"
+
+
+def test_build_batch_shared_config_includes_layered_template_snapshot():
+    layered_template_spec = {
+        "version": "layered_template.v1",
+        "template_id": "portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+        "layers": [],
+        "metadata": {"render_backend": "html_preview"},
+    }
+
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "frame_template": "1080x1920/image_default.html",
+            "tts_inference_mode": "local",
+            "layered_template_spec": layered_template_spec,
+            "selected_template_preset_id": "portrait_news",
+        }
+    )
+
+    assert shared_config["layered_template_spec"] == layered_template_spec
+    assert shared_config["selected_template_preset_id"] == "portrait_news"
+
+
 def test_build_single_generation_request_uses_full_hd_standard_preset():
     def _progress(_event):
         return None
@@ -1622,6 +1683,362 @@ def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
         "gallery",
         "button",
     ]
+
+
+def test_render_single_output_renders_workbench_between_generation_and_recent(
+    monkeypatch,
+    tmp_path,
+):
+    captured = {"events": []}
+    video_path = tmp_path / "final.mp4"
+    video_path.write_bytes(b"video")
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeProgressBar:
+        def progress(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+    class _FakeStatus:
+        def text(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+        def container(self):
+            return _FakeContext()
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "template_media_width": 720,
+                "template_media_height": 1280,
+            }
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def button(self, *_args, **_kwargs):
+            captured["events"].append("button")
+            return True
+
+        def error(self, message):
+            raise AssertionError(message)
+
+        def progress(self, _value):
+            captured["events"].append("progress")
+            return _FakeProgressBar()
+
+        def empty(self):
+            captured["events"].append("empty")
+            return _FakeStatus()
+
+        def success(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, *_args, **_kwargs):
+            return None
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    class _FakePixelleVideo:
+        async def generate_video(self, **_kwargs):
+            captured["events"].append("generate")
+            return SimpleNamespace(
+                video_path=str(video_path),
+                duration=8.5,
+                file_size=len(video_path.read_bytes()),
+                storyboard=SimpleNamespace(
+                    title="Generated",
+                    planning_snapshot=None,
+                    config=SimpleNamespace(
+                        task_id="task-generated",
+                        frame_template="1080x1920/image_default.html",
+                    ),
+                    frames=[object()],
+                ),
+            )
+
+    monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+    monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: captured["events"].append("store"))
+    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: captured["events"].append("gallery"))
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        lambda **_kwargs: captured["events"].append("workbench"),
+    )
+
+    output_preview.render_single_output(
+        _FakePixelleVideo(),
+        {
+            "text": "demo",
+            "mode": "generate",
+            "title": "Demo",
+            "tts_inference_mode": "local",
+            "layered_template_spec": {
+                "version": "layered_template.v1",
+                "template_id": "portrait_news",
+                "template_name": "Portrait News",
+                "template_type": "image",
+                "canvas_width": 720,
+                "canvas_height": 1280,
+                "media_width": 640,
+                "media_height": 960,
+                "safe_area": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 720,
+                    "height": 1280,
+                    "unit": "px",
+                },
+                "layers": [],
+                "metadata": {"render_backend": "html_preview"},
+            },
+            "layout_preview_recent_presets": [],
+        },
+    )
+
+    first_workbench = captured["events"].index("workbench")
+    first_gallery = captured["events"].index("gallery")
+    refreshed_gallery = len(captured["events"]) - 1 - captured["events"][::-1].index("gallery")
+    assert first_workbench < first_gallery
+    assert captured["events"].index("store") < refreshed_gallery
+    assert captured["events"][refreshed_gallery - 1] == "workbench"
+
+
+def test_render_single_output_passes_key_suffix_to_workbench_refresh(
+    monkeypatch,
+    tmp_path,
+):
+    captured = {"workbench_suffixes": []}
+    video_path = tmp_path / "final.mp4"
+    video_path.write_bytes(b"video")
+
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeProgressBar:
+        def progress(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+    class _FakeStatus:
+        def text(self, _value):
+            return None
+
+        def empty(self):
+            return None
+
+        def container(self):
+            return _FakeContext()
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "template_media_width": 720,
+                "template_media_height": 1280,
+            }
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def button(self, *_args, **_kwargs):
+            return True
+
+        def error(self, message):
+            raise AssertionError(message)
+
+        def progress(self, _value):
+            return _FakeProgressBar()
+
+        def empty(self):
+            return _FakeStatus()
+
+        def success(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, *_args, **_kwargs):
+            return None
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    class _FakePixelleVideo:
+        async def generate_video(self, **_kwargs):
+            return SimpleNamespace(
+                video_path=str(video_path),
+                duration=8.5,
+                file_size=len(video_path.read_bytes()),
+                storyboard=SimpleNamespace(
+                    title="Generated",
+                    planning_snapshot=None,
+                    config=SimpleNamespace(
+                        task_id="task-generated",
+                        frame_template="1080x1920/image_default.html",
+                    ),
+                    frames=[object()],
+                ),
+            )
+
+    monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
+    monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(output_preview, "store_recent_generated_video", lambda _result, _state: None)
+    monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
+    monkeypatch.setattr(
+        output_preview,
+        "_render_layout_preview_workbench_section",
+        lambda _video_params, *, key_suffix="": captured["workbench_suffixes"].append(key_suffix),
+    )
+
+    output_preview.render_single_output(
+        _FakePixelleVideo(),
+        {
+            "text": "demo",
+            "mode": "generate",
+            "title": "Demo",
+            "tts_inference_mode": "local",
+        },
+    )
+
+    assert captured["workbench_suffixes"][0] == ""
+    assert any(suffix.startswith("_refresh_") for suffix in captured["workbench_suffixes"][1:])
+
+
+def test_render_layout_preview_workbench_section_uses_registry_recent_and_marks_selection(
+    monkeypatch,
+):
+    spec_payload = {
+        "version": "layered_template.v1",
+        "template_id": "user:portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+        "layers": [],
+        "metadata": {"source_kind": "user"},
+    }
+    captured = {"list_recent": [], "mark_used": [], "recent_presets": None}
+
+    class _FakeRegistry:
+        def list_recent(self, *, limit):
+            captured["list_recent"].append(limit)
+            return [
+                {
+                    "preset_id": "user:portrait_news",
+                    "template_name": "Portrait News",
+                    "last_used_at": "2026-05-02T10:00:00Z",
+                    "spec": spec_payload,
+                }
+            ]
+
+        def mark_used(self, preset_id):
+            captured["mark_used"].append(preset_id)
+
+    def _fake_render_layout_preview_workbench(**kwargs):
+        captured["recent_presets"] = kwargs["recent_presets"]
+        return {
+            "preset_id": "user:portrait_news",
+            "spec_payload": spec_payload,
+        }
+
+    monkeypatch.setattr(output_preview, "TemplateRegistry", _FakeRegistry, raising=False)
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        _fake_render_layout_preview_workbench,
+    )
+    monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
+    monkeypatch.setattr(
+        output_preview,
+        "load_layered_template_spec_into_editor_state",
+        lambda session_state, spec: session_state.update({"loaded_spec": spec}),
+    )
+    reruns = []
+    monkeypatch.setattr(
+        output_preview,
+        "st",
+        SimpleNamespace(session_state={}, rerun=lambda: reruns.append(True)),
+    )
+
+    output_preview._render_layout_preview_workbench_section(
+        {"layered_template_spec": spec_payload}
+    )
+
+    assert captured["list_recent"] == [5]
+    assert captured["recent_presets"][0]["preset_id"] == "user:portrait_news"
+    assert captured["mark_used"] == ["user:portrait_news"]
+    assert output_preview.st.session_state["loaded_spec"] == spec_payload
+    assert (
+        output_preview.st.session_state["selected_template_preset_id"]
+        == "user:portrait_news"
+    )
+    assert reruns == [True]
+
+
+def test_build_layout_preview_html_uses_layered_template_service():
+    spec = {
+        "version": "layered_template.v1",
+        "template_id": "portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+        "layers": [],
+        "metadata": {"render_backend": "html_preview"},
+    }
+
+    html = output_preview._build_layout_preview_html(
+        {
+            "title": "Demo Title",
+            "layered_template_spec": spec,
+            "text_rendering": {"title_style": {"font_size": 88}},
+            "layout_preview_caption_text": "Demo Caption",
+            "layout_preview_html": "<script>alert('must not be trusted')</script>",
+        }
+    )
+
+    assert html is not None
+    assert "width:720px;" in html.html
+    assert "must not be trusted" not in html.html
 
 
 def test_render_single_output_preserves_ui_size_contract_when_generating(

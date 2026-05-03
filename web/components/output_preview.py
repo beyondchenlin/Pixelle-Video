@@ -21,6 +21,7 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
+from pixelle_video.models.layered_template import LayeredTemplateSpec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.size_contract import GenerationSizeContract
@@ -32,15 +33,22 @@ from pixelle_video.models.video_generation_contract import (
     is_plan_frame_override_payload,
 )
 from pixelle_video.platform_context import resolve_business_context
+from pixelle_video.services.layered_template_service import LayeredTemplateService
+from pixelle_video.services.template_registry import TemplateRegistry
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
-from web.components.layout_preview_workbench import render_layout_preview_workbench
 from web.components.prompt_generation_performance import (
     copy_prompt_generation_performance_params,
 )
 from web.components.recent_video_gallery import (
     render_recent_video_gallery,
     store_recent_generated_video,
+)
+from web.components.layered_template_state import load_layered_template_spec_into_editor_state
+from web.components.layout_preview_workbench import (
+    TrustedPreviewHTML,
+    render_layout_preview_workbench,
+    trust_preview_html,
 )
 from web.i18n import tr
 from web.state.storyboard_preview import set_storyboard_preview_snapshot
@@ -210,6 +218,76 @@ def render_scaled_video_preview(video_path: str) -> None:
     st.markdown(build_video_preview_css(), unsafe_allow_html=True)
     with st.container(key=VIDEO_PREVIEW_CONTAINER_KEY):
         st.video(video_path, width="stretch")
+
+
+def _build_layout_preview_html(video_params) -> TrustedPreviewHTML | None:
+    spec_payload = video_params.get("layered_template_spec")
+    if not spec_payload:
+        return None
+    try:
+        spec = (
+            spec_payload
+            if isinstance(spec_payload, LayeredTemplateSpec)
+            else LayeredTemplateSpec.from_dict(spec_payload)
+        )
+        html = LayeredTemplateService().render_preview_html(
+            spec=spec,
+            title_text=video_params.get("title") or video_params.get("layout_preview_title_text") or "",
+            caption_text=video_params.get("layout_preview_caption_text") or "",
+            text_rendering=video_params.get("text_rendering") or {},
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning(f"Failed to build layered template preview HTML: {exc}")
+        return None
+    return trust_preview_html(html)
+
+
+def _list_layout_preview_recent_presets(video_params):
+    explicit_presets = video_params.get("layout_preview_recent_presets")
+    if explicit_presets is not None:
+        return explicit_presets
+    try:
+        return TemplateRegistry().list_recent(limit=5)
+    except (OSError, ValueError) as exc:
+        logger.warning(f"Failed to load recent layered template presets: {exc}")
+        return []
+
+
+def _mark_layout_preview_preset_used(preset_id: str | None) -> None:
+    if not preset_id:
+        return
+    try:
+        TemplateRegistry().mark_used(str(preset_id))
+    except KeyError:
+        logger.warning(f"Selected layered template preset no longer exists: {preset_id}")
+    except (OSError, ValueError) as exc:
+        logger.warning(f"Failed to mark layered template preset as used: {exc}")
+
+
+def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = "") -> None:
+    selected = render_layout_preview_workbench(
+        spec_payload=video_params.get("layered_template_spec"),
+        recent_presets=_list_layout_preview_recent_presets(video_params),
+        preview_html=_build_layout_preview_html(video_params),
+        render_summary=video_params.get("layout_preview_render_summary")
+        or video_params.get("render_backend"),
+        template_summary=video_params.get("layout_preview_template_summary")
+        or video_params.get("selected_template_preset_id")
+        or video_params.get("frame_template"),
+        key_suffix=key_suffix,
+        ui=st,
+    )
+    if selected and selected.get("spec_payload"):
+        selected_preset_id = selected.get("preset_id")
+        load_layered_template_spec_into_editor_state(
+            st.session_state,
+            selected["spec_payload"],
+        )
+        st.session_state["selected_template_preset_id"] = selected_preset_id
+        _mark_layout_preview_preset_used(selected_preset_id)
+        rerun = getattr(st, "rerun", None)
+        if callable(rerun):
+            rerun()
 
 
 def copy_element_animation_options(source, target):
@@ -398,43 +476,28 @@ def render_single_output(pixelle_video, video_params):
 
 def _render_single_output_sections(pixelle_video, video_params):
     generation_runner = _render_generation_section(pixelle_video, video_params)
-    _render_layout_preview_workbench_section(pixelle_video, video_params)
     if generation_runner is None:
+        _render_layout_preview_workbench_section(video_params)
         render_recent_video_gallery(pixelle_video)
         return
 
     gallery_slot = RefreshableSlot(st.empty())
 
     def render_gallery(*, refresh: bool = False) -> None:
-        gallery_slot.render(
-            lambda key_suffix: render_recent_video_gallery(
+        def render_gallery_section(key_suffix: str) -> None:
+            _render_layout_preview_workbench_section(video_params, key_suffix=key_suffix)
+            render_recent_video_gallery(
                 pixelle_video,
                 key_suffix=key_suffix,
-            ),
+            )
+
+        gallery_slot.render(
+            render_gallery_section,
             refresh=refresh,
         )
 
     render_gallery()
     generation_runner(render_gallery=render_gallery)
-
-
-def _render_layout_preview_workbench_section(_pixelle_video, video_params):
-    spec = video_params.get("layered_template_spec")
-    if spec is None:
-        return
-
-    from pixelle_video.services.template_registry import TemplateRegistry
-
-    registry = TemplateRegistry()
-    render_layout_preview_workbench(
-        spec=spec,
-        title_text=video_params.get("title") or "",
-        caption_text=video_params.get("text") or "",
-        text_rendering=video_params.get("text_rendering") or {},
-        recent_templates=registry.list_presets(source="recent"),
-        real_preview_state=video_params.get("text_rendering_real_preview_frame"),
-        registry=registry,
-    )
 
 
 def _render_generation_section(pixelle_video, video_params):
