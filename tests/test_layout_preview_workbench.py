@@ -390,6 +390,39 @@ def test_render_layout_preview_workbench_returns_save_template_action(monkeypatc
     assert selected == {"action": "save_template"}
 
 
+def test_render_layout_preview_workbench_renders_responsive_control_strip(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {
+                "preset_id": "user:demo",
+                "template_name": "Demo preset",
+                "last_used_at": "2026-05-02T10:00:00",
+                "spec": _spec_payload(),
+            }
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        render_summary="hyperframes_compiled",
+        template_summary="system:1920x1080/image_landscape_minimal.html",
+        ui=fake_ui,
+    )
+
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert "layout-workbench-control-strip" in rendered
+    assert "layout-workbench-actions" in rendered
+    assert "layout-workbench-summary-grid" in rendered
+    assert "layout-workbench-meta" in rendered
+    assert "grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));" in rendered
+    assert "grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));" in rendered
+    assert "grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));" in rendered
+
+
 def test_render_layout_preview_workbench_applies_key_suffix_to_recent_buttons(monkeypatch):
     from web.components import layout_preview_workbench
 

@@ -84,9 +84,26 @@ def render_layout_preview_workbench(
     with ui.container():
         ui.markdown(_build_workbench_header_html(), unsafe_allow_html=True)
         if spec is not None:
-            rendered_action = _render_workbench_actions(ui=ui, key_suffix=key_suffix)
+            rendered_action = _render_control_strip(
+                ui=ui,
+                spec=spec,
+                media_placement=media_placement,
+                render_summary=render_summary,
+                template_summary=template_summary,
+                key_suffix=key_suffix,
+            )
             if selected_action is None:
                 selected_action = rendered_action
+        else:
+            ui.markdown(
+                _build_summary_html(
+                    spec=spec,
+                    media_placement=media_placement,
+                    render_summary=render_summary,
+                    template_summary=template_summary,
+                ),
+                unsafe_allow_html=True,
+            )
         _render_recent_presets(
             ui=ui,
             presets=presets,
@@ -97,15 +114,6 @@ def render_layout_preview_workbench(
             if selected_preset is not None and on_preset_selected is not None:
                 on_preset_selected(selected_preset)
 
-        ui.markdown(
-            _build_summary_html(
-                spec=spec,
-                media_placement=media_placement,
-                render_summary=render_summary,
-                template_summary=template_summary,
-            ),
-            unsafe_allow_html=True,
-        )
         _render_preview_container(
             ui=ui,
             spec=spec,
@@ -116,15 +124,98 @@ def render_layout_preview_workbench(
     return selected_action or selected_preset
 
 
+def _render_control_strip(
+    *,
+    ui,
+    spec: LayeredTemplateSpec,
+    media_placement: MediaPlacement | Mapping[str, Any] | None,
+    render_summary: str | None,
+    template_summary: str | None,
+    key_suffix: str,
+) -> PresetSelection | None:
+    resolved_render_summary, resolved_template_summary = _resolved_summaries(
+        spec=spec,
+        render_summary=render_summary,
+        template_summary=template_summary,
+    )
+    if not hasattr(ui, "columns"):
+        selected_action = _render_workbench_actions(ui=ui, key_suffix=key_suffix)
+        ui.markdown(
+            _build_control_strip_html(
+                spec=spec,
+                media_placement=media_placement,
+                render_summary=resolved_render_summary,
+                template_summary=resolved_template_summary,
+            ),
+            unsafe_allow_html=True,
+        )
+        return selected_action
+
+    selected_action: PresetSelection | None = None
+    with ui.container(key=_control_strip_key("control_strip", key_suffix=key_suffix)):
+        control_columns = _columns(
+            ui,
+            [1.45, 4.5, 2.65],
+            gap="small",
+            vertical_alignment="center",
+        )
+        if control_columns is None:
+            selected_action = _render_workbench_actions(ui=ui, key_suffix=key_suffix)
+            ui.markdown(
+                _build_control_strip_html(
+                    spec=spec,
+                    media_placement=media_placement,
+                    render_summary=resolved_render_summary,
+                    template_summary=resolved_template_summary,
+                ),
+                unsafe_allow_html=True,
+            )
+            return selected_action
+        with control_columns[0]:
+            with ui.container(key=_control_strip_key("actions", key_suffix=key_suffix)):
+                selected_action = _render_workbench_actions(ui=ui, key_suffix=key_suffix)
+        with control_columns[1]:
+            ui.markdown(
+                _build_summary_grid_html(spec=spec, media_placement=media_placement),
+                unsafe_allow_html=True,
+            )
+        with control_columns[2]:
+            ui.markdown(
+                _build_meta_html(
+                    render_summary=resolved_render_summary,
+                    template_summary=resolved_template_summary,
+                ),
+                unsafe_allow_html=True,
+            )
+    return selected_action
+
+
 def _render_workbench_actions(*, ui, key_suffix: str) -> PresetSelection | None:
-    refresh_clicked = ui.button(
-        _REFRESH_PREVIEW_FRAME,
-        key=_action_button_key("refresh_preview_frame", key_suffix=key_suffix),
-    )
-    save_clicked = ui.button(
-        _SAVE_MY_TEMPLATE,
-        key=_action_button_key("save_template", key_suffix=key_suffix),
-    )
+    action_columns = _columns(ui, 2, gap="small")
+    if action_columns is None:
+        refresh_clicked = ui.button(
+            _REFRESH_PREVIEW_FRAME,
+            key=_action_button_key("refresh_preview_frame", key_suffix=key_suffix),
+            width="stretch",
+        )
+        save_clicked = ui.button(
+            _SAVE_MY_TEMPLATE,
+            key=_action_button_key("save_template", key_suffix=key_suffix),
+            width="stretch",
+        )
+    else:
+        with action_columns[0]:
+            refresh_clicked = ui.button(
+                _REFRESH_PREVIEW_FRAME,
+                key=_action_button_key("refresh_preview_frame", key_suffix=key_suffix),
+                width="stretch",
+            )
+        with action_columns[1]:
+            save_clicked = ui.button(
+                _SAVE_MY_TEMPLATE,
+                key=_action_button_key("save_template", key_suffix=key_suffix),
+                width="stretch",
+            )
     if refresh_clicked:
         return {"action": "refresh_preview_frame"}
     if save_clicked:
@@ -218,6 +309,58 @@ def _build_workbench_header_html() -> str:
         padding: 10px 12px;
         background: rgba(255, 255, 255, .62);
       }}
+      .layout-workbench-control-strip {{
+        container-type: inline-size;
+        border: 1px solid rgba(80, 67, 44, .16);
+        border-radius: 8px;
+        margin: 8px 0;
+        padding: 8px;
+        background: rgba(255, 255, 255, .64);
+      }}
+      div[class*="st-key-layout_preview_control_strip"] {{
+        container-type: inline-size;
+        border: 1px solid rgba(80, 67, 44, .16);
+        border-radius: 8px;
+        margin: 8px 0;
+        padding: 8px;
+        background: rgba(255, 255, 255, .64);
+      }}
+      div[class*="st-key-layout_preview_control_strip"] > div[data-testid="stVerticalBlock"] {{
+        gap: 0;
+      }}
+      div[class*="st-key-layout_preview_control_strip"] div[data-testid="stHorizontalBlock"] {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+        gap: 8px !important;
+        align-items: stretch;
+      }}
+      div[class*="st-key-layout_preview_control_strip"] div[data-testid="stColumn"] {{
+        min-width: 0 !important;
+      }}
+      div[class*="st-key-layout_preview_actions"] div[data-testid="stHorizontalBlock"] {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+        gap: 6px !important;
+      }}
+      div[class*="st-key-layout_preview_actions"] div[data-testid="stColumn"] {{
+        width: auto !important;
+      }}
+      div[class*="st-key-layout_preview_actions"] button {{
+        min-height: 2.25rem;
+        white-space: nowrap;
+      }}
+      .layout-workbench-control-row {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+        gap: 8px;
+        align-items: stretch;
+      }}
+      .layout-workbench-actions {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+        gap: 6px;
+        align-content: center;
+      }}
       .layout-workbench-section-title {{
         color: #352a1f;
         font-weight: 800;
@@ -243,6 +386,12 @@ def _build_workbench_header_html() -> str:
         gap: 8px;
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }}
+      .layout-workbench-summary-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+        gap: 8px;
+        height: 100%;
+      }}
       .layout-workbench-metric {{
         border-left: 4px solid #b98242;
         border-radius: 8px;
@@ -258,6 +407,40 @@ def _build_workbench_header_html() -> str:
         color: #211a13;
         font-size: 16px;
         font-weight: 850;
+      }}
+      .layout-workbench-summary-grid .layout-workbench-metric {{
+        min-width: 0;
+        padding: 7px 10px;
+      }}
+      .layout-workbench-summary-grid .layout-workbench-label {{
+        white-space: nowrap;
+      }}
+      .layout-workbench-summary-grid .layout-workbench-value {{
+        font-size: 14px;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }}
+      .layout-workbench-meta {{
+        display: grid;
+        align-content: center;
+        gap: 5px;
+        min-width: 0;
+        height: 100%;
+        color: #675b4b;
+        font-size: 12px;
+        line-height: 1.25;
+      }}
+      .layout-workbench-meta-line {{
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }}
+      .layout-workbench-meta-line strong {{
+        color: #352a1f;
+        font-weight: 800;
       }}
       .layout-workbench-preview-card {{
         border: 1px solid rgba(80, 67, 44, .16);
@@ -301,6 +484,9 @@ def _build_workbench_header_html() -> str:
       }}
       @media (max-width: 720px) {{
         .layout-workbench-grid {{ grid-template-columns: 1fr; }}
+        .layout-workbench-control-row {{
+          grid-template-columns: 1fr;
+        }}
       }}
     </style>
     <section class="layout-workbench-shell">
@@ -326,6 +512,72 @@ def _build_summary_html(
         </section>
         """
 
+    resolved_render_summary, resolved_template_summary = _resolved_summaries(
+        spec=spec,
+        render_summary=render_summary,
+        template_summary=template_summary,
+    )
+    return f"""
+    <section class="layout-workbench-card">
+      <div class="layout-workbench-section-title">{_CURRENT_SPEC}</div>
+      {_build_summary_grid_html(spec=spec, media_placement=media_placement)}
+      {_build_meta_html(render_summary=resolved_render_summary, template_summary=resolved_template_summary)}
+    </section>
+    """
+
+
+def _build_control_strip_html(
+    *,
+    spec: LayeredTemplateSpec,
+    media_placement: MediaPlacement | Mapping[str, Any] | None,
+    render_summary: str,
+    template_summary: str,
+) -> str:
+    return f"""
+    <section class="layout-workbench-control-strip">
+      <div class="layout-workbench-control-row">
+        <div class="layout-workbench-actions"></div>
+        {_build_summary_grid_html(spec=spec, media_placement=media_placement)}
+        {_build_meta_html(render_summary=render_summary, template_summary=template_summary)}
+      </div>
+    </section>
+    """
+
+
+def _build_summary_grid_html(
+    *,
+    spec: LayeredTemplateSpec,
+    media_placement: MediaPlacement | Mapping[str, Any] | None,
+) -> str:
+    return f"""
+    <div class="layout-workbench-summary-grid">
+      {_metric_html(_CANVAS_SIZE, f"{spec.canvas_width} x {spec.canvas_height}")}
+      {_metric_html(_MEDIA_SIZE, f"{spec.media_width} x {spec.media_height}")}
+      {_metric_html(_MEDIA_PLACEMENT, _media_placement_summary(media_placement))}
+      {_metric_html(_LAYER_COUNT, str(len(spec.layers)))}
+    </div>
+    """
+
+
+def _build_meta_html(*, render_summary: str, template_summary: str) -> str:
+    return f"""
+    <div class="layout-workbench-meta">
+      <div class="layout-workbench-meta-line" title="{escape(render_summary, quote=True)}">
+        <strong>{_RENDER_SUMMARY}: </strong>{escape(render_summary)}
+      </div>
+      <div class="layout-workbench-meta-line" title="{escape(template_summary, quote=True)}">
+        <strong>{_TEMPLATE_SUMMARY}: </strong>{escape(template_summary)}
+      </div>
+    </div>
+    """
+
+
+def _resolved_summaries(
+    *,
+    spec: LayeredTemplateSpec,
+    render_summary: str | None,
+    template_summary: str | None,
+) -> tuple[str, str]:
     resolved_render_summary = render_summary or str(
         spec.metadata.get("render_summary")
         or spec.metadata.get("render_backend")
@@ -334,19 +586,7 @@ def _build_summary_html(
     resolved_template_summary = template_summary or (
         f"{spec.template_name} / {spec.template_type}"
     )
-    return f"""
-    <section class="layout-workbench-card">
-      <div class="layout-workbench-section-title">{_CURRENT_SPEC}</div>
-      <div class="layout-workbench-grid">
-        {_metric_html(_CANVAS_SIZE, f"{spec.canvas_width} x {spec.canvas_height}")}
-        {_metric_html(_MEDIA_SIZE, f"{spec.media_width} x {spec.media_height}")}
-        {_metric_html(_MEDIA_PLACEMENT, _media_placement_summary(media_placement))}
-        {_metric_html(_LAYER_COUNT, str(len(spec.layers)))}
-      </div>
-      <p class="layout-workbench-copy"><strong>{_RENDER_SUMMARY}: </strong>{escape(resolved_render_summary)}</p>
-      <p class="layout-workbench-copy"><strong>{_TEMPLATE_SUMMARY}: </strong>{escape(resolved_template_summary)}</p>
-    </section>
-    """
+    return str(resolved_render_summary), str(resolved_template_summary)
 
 
 def _media_placement_summary(
@@ -547,6 +787,23 @@ def _recent_preset_button_key(preset_id: str, *, key_suffix: str) -> str:
 
 def _action_button_key(action: str, *, key_suffix: str) -> str:
     return f"layout_preview_{action}{key_suffix}"
+
+
+def _control_strip_key(name: str, *, key_suffix: str) -> str:
+    return f"layout_preview_{name}{key_suffix}"
+
+
+def _columns(ui, spec, **kwargs):
+    columns = getattr(ui, "columns", None)
+    if not callable(columns):
+        return None
+    try:
+        return columns(spec, **kwargs)
+    except TypeError:
+        try:
+            return columns(spec)
+        except TypeError:
+            return None
 
 
 def trust_preview_html(value: str | None) -> TrustedPreviewHTML | None:
