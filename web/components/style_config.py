@@ -340,45 +340,114 @@ def _render_media_placement_controls() -> MediaPlacement:
     return placement
 
 
+def _layered_template_editor_text(key: str, *, zh: str, en: str) -> str:
+    fallback = zh if get_language() == "zh_CN" else en
+    return tr(key, fallback=fallback)
+
+
+def _build_layered_template_editor_css() -> str:
+    return """
+    <style>
+    .st-key-layered_template_add_row {
+        container-type: inline-size;
+    }
+    .st-key-layered_template_add_row > div[data-testid="stVerticalBlock"] {
+        gap: 0.5rem;
+    }
+    .st-key-layered_template_add_row div[data-testid="stHorizontalBlock"] {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(128px, 100%), 1fr));
+        gap: 0.5rem !important;
+        align-items: stretch;
+    }
+    .st-key-layered_template_add_row div[data-testid="stColumn"] {
+        width: 100% !important;
+        min-width: 0 !important;
+        flex: 1 1 auto !important;
+    }
+    .st-key-layered_template_add_row button {
+        min-height: 2.25rem;
+        width: 100% !important;
+        padding-inline: 0.5rem;
+        white-space: nowrap;
+    }
+    .st-key-layered_template_add_row button p {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    </style>
+    """
+
+
 def _render_layered_template_editor(
     state: LayeredTemplateEditorState,
 ) -> LayeredTemplateEditorState:
-    with render_middle_column_detail_section(tr("layered_template.editor.title")):
-        st.caption(tr("layered_template.editor.caption"))
-        add_background_col, add_image_col, add_text_col = st.columns(3)
+    with render_middle_column_detail_section(
+        _layered_template_editor_text(
+            "layered_template.editor.title",
+            zh="图层",
+            en="Layers",
+        )
+    ):
+        st.caption(
+            _layered_template_editor_text(
+                "layered_template.editor.caption",
+                zh="添加背景、图片或文本层；位置、尺寸、层级等属性在下方图层中调整。",
+                en=(
+                    "Add background, image, or text layers; adjust position, "
+                    "size, stack, and other properties below."
+                ),
+            )
+        )
         next_counts = {
             "background": sum(1 for layer in state.layers if layer.type == "background") + 1,
             "image": sum(1 for layer in state.layers if layer.type == "image") + 1,
             "text": sum(1 for layer in state.layers if layer.type == "text") + 1,
         }
 
-        with add_background_col:
-            if st.button(
-                tr("layered_template.editor.add_background"),
-                key="layered_template_add_background_layer",
-                width="stretch",
-            ):
-                state = state.append_background_layer(
-                    f"Background layer {next_counts['background']}"
-                )
-        with add_image_col:
-            if st.button(
-                tr("layered_template.editor.add_image"),
-                key="layered_template_add_image_layer",
-                width="stretch",
-            ):
-                state = state.append_image_layer(
-                    f"Image layer {next_counts['image']}"
-                )
-        with add_text_col:
-            if st.button(
-                tr("layered_template.editor.add_text"),
-                key="layered_template_add_text_layer",
-                width="stretch",
-            ):
-                state = state.append_text_layer(
-                    f"Text layer {next_counts['text']}"
-                )
+        with st.container(key="layered_template_add_row"):
+            st.markdown(_build_layered_template_editor_css(), unsafe_allow_html=True)
+            add_background_col, add_image_col, add_text_col = st.columns(3)
+            with add_background_col:
+                if st.button(
+                    _layered_template_editor_text(
+                        "layered_template.editor.add_background",
+                        zh="添加背景",
+                        en="Add background",
+                    ),
+                    key="layered_template_add_background_layer",
+                    width="stretch",
+                ):
+                    state = state.append_background_layer(
+                        f"Background layer {next_counts['background']}"
+                    )
+            with add_image_col:
+                if st.button(
+                    _layered_template_editor_text(
+                        "layered_template.editor.add_image",
+                        zh="添加图片",
+                        en="Add image",
+                    ),
+                    key="layered_template_add_image_layer",
+                    width="stretch",
+                ):
+                    state = state.append_image_layer(
+                        f"Image layer {next_counts['image']}"
+                    )
+            with add_text_col:
+                if st.button(
+                    _layered_template_editor_text(
+                        "layered_template.editor.add_text",
+                        zh="添加文本",
+                        en="Add text",
+                    ),
+                    key="layered_template_add_text_layer",
+                    width="stretch",
+                ):
+                    state = state.append_text_layer(
+                        f"Text layer {next_counts['text']}"
+                    )
 
         if state.layers:
             for layer in sorted(state.layers, key=lambda item: item.z_index):
