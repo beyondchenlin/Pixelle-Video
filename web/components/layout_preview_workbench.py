@@ -21,6 +21,8 @@ _PENDING_SELECTION_SESSION_KEY = "_layout_preview_workbench_selection"
 @dataclass(frozen=True)
 class TrustedPreviewHTML:
     html: str
+    width: int | None = None
+    height: int | None = None
 
 
 @dataclass(frozen=True)
@@ -444,6 +446,30 @@ def _build_workbench_css() -> str:
         overflow: hidden;
         text-overflow: ellipsis;
       }}
+      .layout-workbench-default-strip {{
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+      }}
+      .layout-workbench-default-chip {{
+        min-width: 0;
+        border: 1px solid rgba(80, 67, 44, .12);
+        border-radius: 6px;
+        padding: 4px 7px;
+        background: #fffdf8;
+        color: #5f5547;
+        font-size: 12px;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }}
+      .layout-workbench-default-chip strong {{
+        color: #352a1f;
+        font-weight: 800;
+      }}
       .layout-workbench-meta {{
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
@@ -557,8 +583,13 @@ def _build_default_summary_html(summary: DefaultLayoutSummary) -> str:
     return f"""
     <section class="layout-workbench-card">
       <div class="layout-workbench-section-title">{_CURRENT_TEMPLATE_RULES}</div>
-      {_build_default_summary_grid_html(summary)}
-      {_build_meta_html(render_summary=render_summary, template_summary=template_summary)}
+      <div class="layout-workbench-default-strip">
+        {_default_chip_html(_CANVAS_SIZE, f"{summary.canvas_width} x {summary.canvas_height}")}
+        {_default_chip_html(_MEDIA_SIZE, f"{summary.media_width} x {summary.media_height}")}
+        {_default_chip_html(_MEDIA_PLACEMENT, _media_placement_summary(summary.media_placement))}
+        {_default_chip_html(_RENDER_SUMMARY, render_summary)}
+        {_default_chip_html(_TEMPLATE_SUMMARY, template_summary)}
+      </div>
     </section>
     """
 
@@ -593,6 +624,15 @@ def _build_default_summary_grid_html(summary: DefaultLayoutSummary) -> str:
       {_metric_html(_MEDIA_SIZE, f"{summary.media_width} x {summary.media_height}")}
       {_metric_html(_MEDIA_PLACEMENT, _media_placement_summary(summary.media_placement))}
     </div>
+    """
+
+
+def _default_chip_html(label: str, value: str) -> str:
+    escaped_value = escape(value)
+    return f"""
+    <span class="layout-workbench-default-chip" title="{escape(value, quote=True)}">
+      <strong>{escape(label)}: </strong>{escaped_value}
+    </span>
     """
 
 
@@ -669,7 +709,7 @@ def _render_preview_container(
 ) -> None:
     preview_url = _real_preview_frame_url(real_preview_frame)
     preview_fingerprint = _real_preview_frame_fingerprint(real_preview_frame)
-    trusted_preview_html = preview_html.html if isinstance(preview_html, TrustedPreviewHTML) else None
+    trusted_preview_html = preview_html if isinstance(preview_html, TrustedPreviewHTML) else None
     if preview_url:
         ui.markdown(
             _build_real_preview_frame_html(
@@ -683,9 +723,77 @@ def _render_preview_container(
         ui.markdown(_build_empty_preview_html(), unsafe_allow_html=True)
         return
     if trusted_preview_html:
-        components.html(trusted_preview_html, height=320, scrolling=True)
+        if trusted_preview_html.width and trusted_preview_html.height:
+            components.html(
+                _build_scaled_preview_html(trusted_preview_html),
+                height=_scaled_preview_height(trusted_preview_html),
+                scrolling=False,
+            )
+            return
+        components.html(trusted_preview_html.html, height=320, scrolling=True)
         return
     _info(ui, _NO_PREVIEW_HTML)
+
+
+def _scaled_preview_height(preview_html: TrustedPreviewHTML) -> int:
+    width = max(1, int(preview_html.width or 1))
+    height = max(1, int(preview_html.height or 1))
+    aspect_height = int(round(360 * height / width))
+    return min(260, max(180, aspect_height))
+
+
+def _build_scaled_preview_html(preview_html: TrustedPreviewHTML) -> str:
+    width = max(1, int(preview_html.width or 1))
+    height = max(1, int(preview_html.height or 1))
+    srcdoc = escape(preview_html.html, quote=True)
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    html, body {{
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #f8f4ea;
+    }}
+    .layout-workbench-scaled-preview {{
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }}
+    .layout-workbench-scaled-preview iframe {{
+      width: {width}px;
+      height: {height}px;
+      border: 0;
+      background: transparent;
+      transform-origin: center center;
+      flex: 0 0 auto;
+    }}
+  </style>
+</head>
+<body>
+  <div class="layout-workbench-scaled-preview" data-preview-width="{width}" data-preview-height="{height}">
+    <iframe title="layout preview" srcdoc="{srcdoc}"></iframe>
+  </div>
+  <script>
+    const shell = document.querySelector('.layout-workbench-scaled-preview');
+    const frame = shell.querySelector('iframe');
+    const sourceWidth = Number(shell.dataset.previewWidth);
+    const sourceHeight = Number(shell.dataset.previewHeight);
+    function fitPreview() {{
+      const scale = Math.min(shell.clientWidth / sourceWidth, shell.clientHeight / sourceHeight);
+      frame.style.transform = `scale(${{Math.max(0.01, scale)}})`;
+    }}
+    window.addEventListener('resize', fitPreview);
+    fitPreview();
+  </script>
+</body>
+</html>"""
 
 
 def _build_real_preview_frame_html(
@@ -871,10 +979,15 @@ def _columns(ui, spec, **kwargs):
             return None
 
 
-def trust_preview_html(value: str | None) -> TrustedPreviewHTML | None:
+def trust_preview_html(
+    value: str | None,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+) -> TrustedPreviewHTML | None:
     if value is None:
         return None
-    return TrustedPreviewHTML(html=str(value))
+    return TrustedPreviewHTML(html=str(value), width=width, height=height)
 
 
 def _caption(ui, value: str) -> None:

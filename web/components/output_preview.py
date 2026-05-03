@@ -17,7 +17,7 @@ Output preview components for web UI (right column)
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse, unquote
+from urllib.parse import quote, urlparse, unquote
 from urllib.request import url2pathname
 
 import streamlit as st
@@ -43,9 +43,11 @@ from pixelle_video.services.layered_template_service import (
     LayeredTemplatePreviewFrameRequest,
     LayeredTemplateService,
 )
+from pixelle_video.services.frame_html import HTMLFrameGenerator
 from pixelle_video.services.template_registry import TemplateRegistry
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
+from pixelle_video.utils.template_util import resolve_template_path
 from web.components.prompt_generation_performance import (
     copy_prompt_generation_performance_params,
 )
@@ -233,24 +235,98 @@ def render_scaled_video_preview(video_path: str) -> None:
 
 def _build_layout_preview_html(video_params) -> TrustedPreviewHTML | None:
     spec_payload = video_params.get("layered_template_spec")
-    if not spec_payload:
+    if spec_payload:
+        try:
+            spec = (
+                spec_payload
+                if isinstance(spec_payload, LayeredTemplateSpec)
+                else LayeredTemplateSpec.from_dict(spec_payload)
+            )
+            html = LayeredTemplateService().render_preview_html(
+                spec=spec,
+                title_text=video_params.get("title") or video_params.get("layout_preview_title_text") or "",
+                caption_text=video_params.get("layout_preview_caption_text") or "",
+                text_rendering=video_params.get("text_rendering") or {},
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning(f"Failed to build layered template preview HTML: {exc}")
+            return None
+        return trust_preview_html(
+            html,
+            width=spec.canvas_width,
+            height=spec.canvas_height,
+        )
+    return _build_frame_template_preview_html(video_params)
+
+
+def _layout_preview_text(video_params, *keys: str, default: str = "") -> str:
+    for key in keys:
+        value = video_params.get(key)
+        if value is None:
+            continue
+        candidate = str(value).strip()
+        if candidate:
+            return candidate
+    return default
+
+
+def _build_layout_preview_media_placeholder() -> str:
+    svg = """
+    <svg xmlns="http://www.w3.org/2000/svg" width="768" height="768" viewBox="0 0 768 768">
+      <rect width="768" height="768" fill="#f6f1e8"/>
+      <rect x="48" y="48" width="672" height="672" rx="28" fill="none" stroke="#b98242" stroke-width="8" stroke-dasharray="24 18" opacity=".55"/>
+      <path d="M188 508 308 388l78 78 86-118 120 160" fill="none" stroke="#8b785e" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" opacity=".7"/>
+      <circle cx="286" cy="268" r="46" fill="#b98242" opacity=".35"/>
+      <text x="384" y="640" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#6a5a43">Media Preview</text>
+    </svg>
+    """
+    return f"data:image/svg+xml;charset=utf-8,{quote(svg)}"
+
+
+def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | None:
+    frame_template = video_params.get("frame_template")
+    if not frame_template:
         return None
     try:
-        spec = (
-            spec_payload
-            if isinstance(spec_payload, LayeredTemplateSpec)
-            else LayeredTemplateSpec.from_dict(spec_payload)
+        size_contract = GenerationSizeContract.from_params(video_params)
+        generator = HTMLFrameGenerator(
+            resolve_template_path(str(frame_template)),
+            canvas_width=size_contract.canvas_width,
+            canvas_height=size_contract.canvas_height,
         )
-        html = LayeredTemplateService().render_preview_html(
-            spec=spec,
-            title_text=video_params.get("title") or video_params.get("layout_preview_title_text") or "",
-            caption_text=video_params.get("layout_preview_caption_text") or "",
-            text_rendering=video_params.get("text_rendering") or {},
+        html = generator._build_render_html(
+            title=_layout_preview_text(
+                video_params,
+                "title",
+                "layout_preview_title_text",
+                default="默认模板预览",
+            ),
+            text=_layout_preview_text(
+                video_params,
+                "layout_preview_caption_text",
+                default="服务端预览前使用当前模板规则生成即时预览",
+            ),
+            image=_build_layout_preview_media_placeholder(),
+            ext={
+                "index": 1,
+                "media_layout_mode": video_params.get("media_layout_mode") or "canvas",
+            },
+            media_placement=_media_placement_payload(
+                video_params.get("media_placement"),
+                st.session_state.get("media_placement"),
+            ),
+            media_type="image",
+            media_width=size_contract.media_width,
+            media_height=size_contract.media_height,
         )
-    except (KeyError, TypeError, ValueError) as exc:
-        logger.warning(f"Failed to build layered template preview HTML: {exc}")
+        return trust_preview_html(
+            generator._prepare_html_for_render(html),
+            width=size_contract.canvas_width,
+            height=size_contract.canvas_height,
+        )
+    except (FileNotFoundError, KeyError, TypeError, ValueError) as exc:
+        logger.warning(f"Failed to build frame template preview HTML: {exc}")
         return None
-    return trust_preview_html(html)
 
 
 def _list_layout_preview_recent_presets(video_params):

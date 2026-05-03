@@ -2569,6 +2569,82 @@ def test_build_layout_preview_html_uses_layered_template_service():
     assert "must not be trusted" not in html.html
 
 
+def test_build_layout_preview_html_uses_default_frame_template_without_layered_spec(tmp_path, monkeypatch):
+    template = tmp_path / "image_sample.html"
+    template.write_text(
+        """
+        <html>
+          <head><meta name="template:media-width" content="640"><meta name="template:media-height" content="480"></head>
+          <body>{{title}} {{text}} {{pixelle_media_layer}} {{brand=Pixelle}}</body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+    captured = {}
+
+    class _FakeHTMLFrameGenerator:
+        def __init__(self, template_path, *, canvas_width=None, canvas_height=None):
+            captured["init"] = {
+                "template_path": template_path,
+                "canvas_width": canvas_width,
+                "canvas_height": canvas_height,
+            }
+            self.template = Path(template_path).read_text(encoding="utf-8")
+            self.width = int(canvas_width)
+            self.height = int(canvas_height)
+
+        def _build_render_html(self, **kwargs):
+            captured["render_kwargs"] = kwargs
+            return (
+                self.template.replace("{{title}}", kwargs["title"])
+                .replace("{{text}}", kwargs["text"])
+                .replace("{{pixelle_media_layer}}", "<div class='pixelle-media-layer'></div>")
+                .replace("{{brand=Pixelle}}", "Pixelle")
+            )
+
+        def _prepare_html_for_render(self, html):
+            return f"<base>{html}"
+
+    monkeypatch.setattr(output_preview, "resolve_template_path", lambda _path: str(template))
+    monkeypatch.setattr(output_preview, "HTMLFrameGenerator", _FakeHTMLFrameGenerator)
+
+    html = output_preview._build_layout_preview_html(
+        {
+            "title": "默认模板预览",
+            "layout_preview_caption_text": "默认字幕",
+            "frame_template": "1920x1080/image_landscape_minimal.html",
+            "canvas_width": 1280,
+            "canvas_height": 720,
+            "media_width": 768,
+            "media_height": 768,
+            "media_placement": {
+                "basis": "canvas",
+                "fit": "contain",
+                "scale_percent": 90,
+                "offset_x": 12,
+                "offset_y": -8,
+            },
+            "layout_preview_html": "<script>alert('must not be trusted')</script>",
+        }
+    )
+
+    assert html is not None
+    assert html.width == 1280
+    assert html.height == 720
+    assert "默认模板预览" in html.html
+    assert "默认字幕" in html.html
+    assert "pixelle-media-layer" in html.html
+    assert "must not be trusted" not in html.html
+    assert captured["init"] == {
+        "template_path": str(template),
+        "canvas_width": 1280,
+        "canvas_height": 720,
+    }
+    assert captured["render_kwargs"]["media_placement"]["scale_percent"] == 90
+    assert captured["render_kwargs"]["media_width"] == 768
+    assert captured["render_kwargs"]["media_height"] == 768
+
+
 def test_render_single_output_preserves_ui_size_contract_when_generating(
     monkeypatch,
     tmp_path,
