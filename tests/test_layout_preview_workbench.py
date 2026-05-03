@@ -230,6 +230,34 @@ def test_render_layout_preview_workbench_renders_spec_summary_and_safe_html(monk
     ]
 
 
+def test_render_layout_preview_workbench_renders_media_placement_summary(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        media_placement={
+            "basis": "canvas",
+            "fit": "contain",
+            "scale_percent": 76,
+            "offset_x": 18,
+            "offset_y": -24,
+        },
+        ui=fake_ui,
+    )
+
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert "主媒体位置" in rendered
+    assert "76%" in rendered
+    assert "X 18px" in rendered
+    assert "Y -24px" in rendered
+
+
 def test_render_layout_preview_workbench_prefers_real_preview_frame(monkeypatch):
     from web.components import layout_preview_workbench
 

@@ -184,10 +184,10 @@ def test_render_style_config_returns_layered_template_spec_payload(monkeypatch):
         content_context={"title": "Runtime Title", "text": "Runtime Caption"},
     )
 
-    assert result["selected_template_preset_id"] == "image_default"
+    assert result["selected_template_preset_id"] == "system:1080x1920/image_default.html"
     spec = result["layered_template_spec"]
     assert spec["version"] == "layered_template.v1"
-    assert spec["template_id"] == "image_default"
+    assert spec["template_id"] == "system:1080x1920/image_default.html"
     assert spec["template_name"] == "Image Default"
     assert spec["template_type"] == "image"
     assert (spec["canvas_width"], spec["canvas_height"]) == (720, 1280)
@@ -634,7 +634,10 @@ def test_render_style_config_no_longer_renders_middle_column_legacy_template_pre
         content_context={"title": "Runtime Title", "text": "Runtime Caption"},
     )
 
-    assert result["layered_template_spec"]["template_id"] == "image_default"
+    assert (
+        result["layered_template_spec"]["template_id"]
+        == "system:1080x1920/image_default.html"
+    )
     assert "btn_preview_template" not in {call.get("key") for call in button_calls}
 
 

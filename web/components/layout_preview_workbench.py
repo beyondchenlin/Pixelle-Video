@@ -11,6 +11,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from pixelle_video.models.layered_template import LayeredTemplateSpec
+from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 
 PresetSelection = dict[str, Any]
 PresetSelectionCallback = Callable[[PresetSelection], Any]
@@ -38,6 +39,7 @@ _CURRENT_SPEC = "\u5f53\u524d\u89c4\u683c"
 _NO_SPEC = "\u6682\u65e0\u53ef\u9884\u89c8\u7684\u6392\u7248\u89c4\u683c\u3002"
 _CANVAS_SIZE = "\u753b\u5e03\u5c3a\u5bf8"
 _MEDIA_SIZE = "\u5a92\u4f53\u5c3a\u5bf8"
+_MEDIA_PLACEMENT = "\u4e3b\u5a92\u4f53\u4f4d\u7f6e"
 _LAYER_COUNT = "\u56fe\u5c42\u6570\u91cf"
 _RENDER_SUMMARY = "\u6e32\u67d3\u6458\u8981"
 _TEMPLATE_SUMMARY = "\u6a21\u677f\u6458\u8981"
@@ -56,6 +58,7 @@ def render_layout_preview_workbench(
     recent_presets: Sequence[Mapping[str, Any] | object] | None = None,
     preview_html: TrustedPreviewHTML | str | None = None,
     real_preview_frame: Mapping[str, Any] | object | None = None,
+    media_placement: MediaPlacement | Mapping[str, Any] | None = None,
     render_summary: str | None = None,
     template_summary: str | None = None,
     on_preset_selected: PresetSelectionCallback | None = None,
@@ -97,6 +100,7 @@ def render_layout_preview_workbench(
         ui.markdown(
             _build_summary_html(
                 spec=spec,
+                media_placement=media_placement,
                 render_summary=render_summary,
                 template_summary=template_summary,
             ),
@@ -310,6 +314,7 @@ def _build_workbench_header_html() -> str:
 def _build_summary_html(
     *,
     spec: LayeredTemplateSpec | None,
+    media_placement: MediaPlacement | Mapping[str, Any] | None,
     render_summary: str | None,
     template_summary: str | None,
 ) -> str:
@@ -335,12 +340,23 @@ def _build_summary_html(
       <div class="layout-workbench-grid">
         {_metric_html(_CANVAS_SIZE, f"{spec.canvas_width} x {spec.canvas_height}")}
         {_metric_html(_MEDIA_SIZE, f"{spec.media_width} x {spec.media_height}")}
+        {_metric_html(_MEDIA_PLACEMENT, _media_placement_summary(media_placement))}
         {_metric_html(_LAYER_COUNT, str(len(spec.layers)))}
       </div>
       <p class="layout-workbench-copy"><strong>{_RENDER_SUMMARY}: </strong>{escape(resolved_render_summary)}</p>
       <p class="layout-workbench-copy"><strong>{_TEMPLATE_SUMMARY}: </strong>{escape(resolved_template_summary)}</p>
     </section>
     """
+
+
+def _media_placement_summary(
+    media_placement: MediaPlacement | Mapping[str, Any] | None,
+) -> str:
+    placement = resolve_media_placement(media_placement)
+    return (
+        f"{placement.scale_percent}% · "
+        f"X {placement.offset_x}px · Y {placement.offset_y}px"
+    )
 
 
 def _metric_html(label: str, value: str) -> str:

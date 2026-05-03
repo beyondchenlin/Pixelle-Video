@@ -3290,7 +3290,9 @@ def render_style_config(
             workflow_key = None
             prompt_prefix = ""
     
-    fallback_template_preset_id = Path(frame_template).stem if frame_template else "layered_template"
+    fallback_template_preset_id = (
+        f"system:{frame_template}" if frame_template else "layered_template"
+    )
     selected_spec_identity = resolve_layered_template_spec_identity(
         st.session_state,
         fallback_template_id=fallback_template_preset_id,

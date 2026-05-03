@@ -2025,6 +2025,51 @@ def test_render_layout_preview_workbench_section_uses_registry_recent_and_marks_
     assert reruns == [True]
 
 
+def test_render_layout_preview_workbench_section_passes_media_placement(monkeypatch):
+    spec_payload = _layered_template_spec_payload(
+        template_id="user:portrait_news",
+        metadata={"source_kind": "user"},
+    )
+    captured = {"media_placement": None}
+
+    def _fake_render_layout_preview_workbench(**kwargs):
+        captured["media_placement"] = kwargs["media_placement"]
+        return None
+
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        _fake_render_layout_preview_workbench,
+    )
+    monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
+    monkeypatch.setattr(
+        output_preview,
+        "st",
+        SimpleNamespace(session_state={}, rerun=lambda: None),
+    )
+
+    output_preview._render_layout_preview_workbench_section(
+        {
+            "layered_template_spec": spec_payload,
+            "media_placement": {
+                "basis": "canvas",
+                "fit": "contain",
+                "scale_percent": 76,
+                "offset_x": 18,
+                "offset_y": -24,
+            },
+        }
+    )
+
+    assert captured["media_placement"] == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 76,
+        "offset_x": 18,
+        "offset_y": -24,
+    }
+
+
 def test_render_layout_preview_workbench_section_refreshes_real_preview_frame(monkeypatch):
     spec_payload = _layered_template_spec_payload(
         template_id="user:portrait_news",

@@ -109,3 +109,15 @@ def test_preview_frame_api_requires_injected_object_store(monkeypatch):
     assert response.status_code == 503
     assert response.json()["detail"] == "Artifact object store is not configured"
     assert service_called is False
+
+
+def test_layered_template_preview_route_is_registered_once_under_api_prefix():
+    from api.app import app
+
+    preview_routes = [
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/api/layered-templates/preview-frame"
+    ]
+
+    assert len(preview_routes) == 1

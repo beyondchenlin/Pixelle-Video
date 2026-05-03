@@ -168,7 +168,6 @@ app.include_router(stale_dependencies_router, prefix=api_config.api_prefix)
 app.include_router(frame_router, prefix=api_config.api_prefix)
 app.include_router(storyboard_workbench_router, prefix=api_config.api_prefix)
 app.include_router(text_rendering_preview_router, prefix=api_config.api_prefix)
-app.include_router(layered_template_preview_router, prefix=api_config.api_prefix)
 
 
 @app.get("/")
