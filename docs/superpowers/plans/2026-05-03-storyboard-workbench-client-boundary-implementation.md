@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make Storyboard Workbench depend on a first-class client boundary with honest display, capability, task submission, and execution contracts, so local Streamlit no longer depends on `8001` and no regenerate path is fake.
+**Goal:** Make Storyboard Workbench and the existing async video path depend on one first-class task execution boundary with honest display, capability, task submission, and execution contracts, so local Streamlit no longer depends on `8001`, no regenerate path is fake, and no async task path remains on legacy execution rails.
 
-**Architecture:** Introduce a backend `StoryboardWorkbenchTaskSubmitter` on top of a general-purpose `TaskExecutorRegistry`, then wire embedded and worker execution capability through shared task infrastructure instead of Workbench-specific `TaskManager` fields. Expose honest backend capabilities over HTTP, then introduce HTTP and in-process Workbench clients. The Workbench page resolves one client and passes it downward; child components consume `image_display` payloads and capabilities only. Every intermediate commit keeps existing behavior working or adds a new unused capability behind tests.
+**Architecture:** Introduce a backend `StoryboardWorkbenchTaskSubmitter` on top of a general-purpose `TaskExecutorRegistry`, migrate both frame regeneration and async video execution onto that registry, and replace static worker capability declarations with a heartbeat-backed worker registry. Expose honest backend capabilities over HTTP, keep transport-specific URL derivation out of persisted task results, then introduce HTTP and in-process Workbench clients. The Workbench page resolves one client and passes it downward; child components consume `image_display` payloads and capabilities only.
 
 **Tech Stack:** Python, Streamlit, FastAPI, Pydantic, pytest, ruff.
 
@@ -20,12 +20,20 @@
   - Executes a reserved frame image regeneration task by loading state, prompt plan, generating media, storing the artifact version, and saving updated Workbench state.
 - Create `api/workbench/executor_factory.py`
   - Registers Workbench task executors in a shared `TaskExecutorRegistry` using a lazy core provider closure.
+- Create `api/video/executor_factory.py`
+  - Registers the existing async video generation executor in the same `TaskExecutorRegistry`.
 - Create `api/tasks/executors.py`
-  - Defines `TaskExecutor`, `TaskExecutionCapability`, `TaskExecutorRegistry`, and static worker capability registry primitives.
+  - Defines `TaskExecutor`, `TaskExecutionCapability`, `TaskExecutorRegistry`, and worker capability protocols.
+- Create `api/tasks/worker_registry.py`
+  - Defines heartbeat-backed worker capability source and in-memory implementation for tests and single-process memory backend.
+- Create `api/tasks/alembic/versions/0002_create_worker_heartbeats.py`
+  - Adds the shared worker heartbeat table required by Postgres-backed API/worker deployments.
+- Modify `api/tasks/postgres.py`
+  - Adds `worker_heartbeats` metadata and `PostgresWorkerRegistry`.
 - Modify `api/tasks/manager.py`
-  - Delegates execution capability and embedded auto-execution to the general task executor registry.
+  - Delegates all async generation execution capability and embedded auto-execution to the general task executor registry.
 - Modify `api/tasks/factory.py`
-  - Builds `TaskManager` with executor registry and worker capability registry.
+  - Builds a cohesive task runtime: `TaskManager`, executor registry, and worker registry from one backend configuration.
 - Modify `api/platform_dependencies.py`
   - Adds `storyboard_workbench_task_submitter` plus shared task capability registries.
 - Modify `api/dependencies.py`
@@ -39,7 +47,13 @@
 - Modify `api/schemas/storyboard_workbench.py`
   - Adds capability response schema.
 - Modify `api/tasks/worker.py`
-  - Claims and executes `FRAME_IMAGE_REGENERATION` tasks in worker mode.
+  - Heartbeats supported task types and claims all registered executor task types in worker mode.
+- Modify `api/routers/video.py`
+  - Stops passing per-request execution closures into `TaskManager`; async video execution goes through the registered executor and task result presentation derives URLs at response time.
+- Modify `api/routers/tasks.py`
+  - Adds task response presentation that derives `video_url` from `storage_key` and current request without persisting transport URLs.
+- Modify `api/schemas/tasks.py`
+  - Adds task response DTOs if needed to keep persisted task models separate from HTTP presentation.
 - Modify `web/utils/storyboard_workbench_api.py`
   - Adds `get_storyboard_workbench_capabilities(...)`.
 - Create `web/workbench/__init__.py`
@@ -75,12 +89,17 @@
   - `tests/test_storyboard_workbench_stale_ui.py`
   - `tests/test_storyboard_workbench_page.py`
   - `tests/test_worker_execution.py`
+  - `tests/test_video_task_executor.py`
+  - `tests/test_tasks_api_presentation.py`
 
 ## Execution Notes
 
 - Do not switch UI default mode before the in-process client supports list/select/stale/display/regenerate submission.
 - Do not claim regenerate is available unless a submitter and executor path exist.
-- Do not add `frame_image_regeneration_executor`, `tts_executor`, or similar product-specific fields to `TaskManager`; all newly added task execution capability must go through `TaskExecutorRegistry`.
+- Do not add `frame_image_regeneration_executor`, `video_generation_executor`, `tts_executor`, or similar product-specific fields to `TaskManager`; all async generation execution capability must go through `TaskExecutorRegistry`.
+- Do not preserve `VIDEO_GENERATION` as a legacy exception. The existing async video route must submit only; execution must come from the registered `TaskType.VIDEO_GENERATION` executor.
+- Do not introduce static worker capability as production behavior. Worker capability must come from heartbeat-backed `WorkerRegistry`; tests and `PIXELLE_TASK_BACKEND=memory` single-process development may use in-memory registries, while Postgres/distributed deployments must use shared heartbeat storage.
+- Do not persist request-derived URLs such as `video_url` in task results. Persist storage identity only and derive HTTP URLs at response presentation boundaries.
 - Do not call `request.app.state.task_manager` from the Storyboard Workbench router after Task 2.
 - Do not use `api.tasks.manager.task_manager` global as a local shortcut.
 - Keep commits atomic and pushable. Use `git push origin <current-branch>` after each commit per repository policy.
@@ -88,10 +107,13 @@
 
 ---
 
-## Task 1: Add General Task Executor Registry And First-Class Submitter
+## Task 1: Add General Task Executor And Worker Capability Registries
 
 **Files:**
 - Create: `api/tasks/executors.py`
+- Create: `api/tasks/worker_registry.py`
+- Create: `api/tasks/alembic/versions/0002_create_worker_heartbeats.py`
+- Modify: `api/tasks/postgres.py`
 - Create: `api/workbench/__init__.py`
 - Create: `api/workbench/task_submitter.py`
 - Modify: `api/tasks/manager.py`
@@ -103,7 +125,7 @@
 - Test: `tests/test_storyboard_workbench_task_submitter.py`
 - Test: `tests/test_app_platform_dependencies.py`
 
-- [ ] **Step 1: Write failing executor registry and submitter tests**
+- [ ] **Step 1: Write failing executor, worker registry, and submitter tests**
 
 Create `tests/test_storyboard_workbench_task_submitter.py`:
 
@@ -136,7 +158,7 @@ class _FakeTaskManager:
         self.calls: list[dict[str, Any]] = []
         self.can_execute_frame_regeneration = can_execute_frame_regeneration
 
-    def can_execute_task_type(self, task_type: TaskType) -> bool:
+    async def can_execute_task_type(self, task_type: TaskType) -> bool:
         return task_type is TaskType.FRAME_IMAGE_REGENERATION and self.can_execute_frame_regeneration
 
     async def reserve_or_reuse_generation_task(
@@ -204,16 +226,35 @@ async def test_task_executor_registry_registers_capability_and_executes_task():
     ]
 
 
-def test_worker_capability_registry_is_explicit_and_task_type_scoped():
-    from api.tasks.executors import StaticWorkerCapabilityRegistry
+@pytest.mark.asyncio
+async def test_worker_capability_registry_uses_recent_heartbeats():
+    from datetime import timedelta
 
-    empty = StaticWorkerCapabilityRegistry()
-    configured = StaticWorkerCapabilityRegistry({TaskType.FRAME_IMAGE_REGENERATION})
+    from api.tasks.models import utc_now
+    from api.tasks.worker_registry import InMemoryWorkerRegistry, WorkerHeartbeat
 
-    assert empty.supports(TaskType.FRAME_IMAGE_REGENERATION) is False
-    assert configured.supports(TaskType.FRAME_IMAGE_REGENERATION) is True
-    assert configured.supports(TaskType.VIDEO_GENERATION) is False
+    now = utc_now()
+    registry = InMemoryWorkerRegistry(heartbeat_ttl_seconds=30)
 
+    assert await registry.supports(TaskType.FRAME_IMAGE_REGENERATION, now=now) is False
+
+    await registry.heartbeat(
+        WorkerHeartbeat(
+            worker_id="worker-1",
+            supported_task_types={TaskType.FRAME_IMAGE_REGENERATION},
+            heartbeat_at=now,
+        )
+    )
+
+    assert await registry.supports(TaskType.FRAME_IMAGE_REGENERATION, now=now) is True
+    assert await registry.supports(TaskType.VIDEO_GENERATION, now=now) is False
+    assert (
+        await registry.supports(
+            TaskType.FRAME_IMAGE_REGENERATION,
+            now=now + timedelta(seconds=31),
+        )
+        is False
+    )
 
 @pytest.mark.asyncio
 async def test_task_manager_storyboard_submitter_reserves_frame_regeneration_task():
@@ -242,19 +283,21 @@ async def test_task_manager_storyboard_submitter_reserves_frame_regeneration_tas
     ]
 
 
-def test_task_manager_reports_frame_regeneration_unavailable_by_default():
+@pytest.mark.asyncio
+async def test_task_manager_reports_frame_regeneration_unavailable_by_default():
     from api.tasks.manager import TaskManager
     from api.workbench.task_submitter import TaskManagerStoryboardWorkbenchTaskSubmitter
 
     submitter = TaskManagerStoryboardWorkbenchTaskSubmitter(TaskManager())
 
-    assert submitter.get_capabilities().to_dict() == {
+    assert (await submitter.get_capabilities()).to_dict() == {
         "can_regenerate_frame_image": False,
         "regenerate_unavailable_reason": "frame image regeneration execution is not configured",
     }
 
 
-def test_task_manager_embedded_capability_comes_from_executor_registry():
+@pytest.mark.asyncio
+async def test_task_manager_embedded_capability_comes_from_executor_registry():
     from api.tasks.executors import TaskExecutorRegistry
     from api.tasks.manager import TaskManager
     from api.workbench.task_submitter import TaskManagerStoryboardWorkbenchTaskSubmitter
@@ -268,28 +311,36 @@ def test_task_manager_embedded_capability_comes_from_executor_registry():
         TaskManager(executor_registry=registry)
     )
 
-    assert submitter.get_capabilities().to_dict() == {
+    assert (await submitter.get_capabilities()).to_dict() == {
         "can_regenerate_frame_image": True,
         "regenerate_unavailable_reason": None,
     }
 
 
-def test_task_manager_worker_mode_uses_worker_capability_registry():
-    from api.tasks.executors import StaticWorkerCapabilityRegistry
+@pytest.mark.asyncio
+async def test_task_manager_worker_mode_uses_worker_capability_registry():
     from api.tasks.manager import TaskManager
+    from api.tasks.models import utc_now
+    from api.tasks.worker_registry import InMemoryWorkerRegistry, WorkerHeartbeat
 
+    worker_registry = InMemoryWorkerRegistry()
+    await worker_registry.heartbeat(
+        WorkerHeartbeat(
+            worker_id="worker-1",
+            supported_task_types={TaskType.FRAME_IMAGE_REGENERATION},
+            heartbeat_at=utc_now(),
+        )
+    )
     assert (
-        TaskManager(execution_mode="worker").can_execute_task_type(
+        await TaskManager(execution_mode="worker").can_execute_task_type(
             TaskType.FRAME_IMAGE_REGENERATION
         )
         is False
     )
     assert (
-        TaskManager(
+        await TaskManager(
             execution_mode="worker",
-            worker_capability_registry=StaticWorkerCapabilityRegistry(
-                {TaskType.FRAME_IMAGE_REGENERATION}
-            ),
+            worker_capability_registry=worker_registry,
         ).can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION)
         is True
     )
@@ -373,20 +424,47 @@ def test_web_session_pixelle_video_mounts_storyboard_workbench_task_submitter(mo
 
 def test_platform_dependencies_store_task_registries_without_pixelle_provider(tmp_path):
     from api.platform_dependencies import build_platform_dependencies
-    from api.tasks.executors import StaticWorkerCapabilityRegistry, TaskExecutorRegistry
+    from api.tasks.executors import TaskExecutorRegistry
+    from api.tasks.worker_registry import InMemoryWorkerRegistry
 
     executor_registry = TaskExecutorRegistry()
-    worker_capabilities = StaticWorkerCapabilityRegistry({TaskType.FRAME_IMAGE_REGENERATION})
+    worker_capabilities = InMemoryWorkerRegistry()
 
     dependencies = build_platform_dependencies(
         APIConfig(runtime_profile="dev", artifact_base_path=str(tmp_path / "output")),
         task_executor_registry=executor_registry,
         worker_capability_registry=worker_capabilities,
+        worker_registry=worker_capabilities,
     )
 
     assert dependencies.task_executor_registry is executor_registry
     assert dependencies.worker_capability_registry is worker_capabilities
+    assert dependencies.worker_registry is worker_capabilities
     assert not hasattr(dependencies, "pixelle_video_core_provider")
+```
+
+Append to `tests/test_postgres_task_store_schema.py`:
+
+```python
+def test_worker_heartbeat_migration_contains_shared_capability_table():
+    from pathlib import Path
+
+    migration = Path(
+        "api/tasks/alembic/versions/0002_create_worker_heartbeats.py"
+    ).read_text(encoding="utf-8")
+
+    assert "worker_heartbeats" in migration
+    assert "worker_id" in migration
+    assert "supported_task_types" in migration
+    assert "heartbeat_at" in migration
+    assert "idx_worker_heartbeats_heartbeat_at" in migration
+
+
+def test_postgres_worker_registry_exposes_shared_heartbeat_methods():
+    from api.tasks.postgres import PostgresWorkerRegistry
+
+    assert hasattr(PostgresWorkerRegistry, "heartbeat")
+    assert hasattr(PostgresWorkerRegistry, "supports")
 ```
 
 - [ ] **Step 3: Run tests and verify RED**
@@ -394,7 +472,7 @@ def test_platform_dependencies_store_task_registries_without_pixelle_provider(tm
 Run:
 
 ```powershell
-python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_app_platform_dependencies.py::test_dev_platform_dependencies_mount_storyboard_workbench_task_submitter tests/test_app_platform_dependencies.py::test_api_app_lifespan_mounts_storyboard_workbench_task_submitter tests/test_app_platform_dependencies.py::test_web_session_pixelle_video_mounts_storyboard_workbench_task_submitter
+python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_app_platform_dependencies.py::test_dev_platform_dependencies_mount_storyboard_workbench_task_submitter tests/test_app_platform_dependencies.py::test_api_app_lifespan_mounts_storyboard_workbench_task_submitter tests/test_app_platform_dependencies.py::test_web_session_pixelle_video_mounts_storyboard_workbench_task_submitter tests/test_postgres_task_store_schema.py::test_worker_heartbeat_migration_contains_shared_capability_table tests/test_postgres_task_store_schema.py::test_postgres_worker_registry_exposes_shared_heartbeat_methods
 ```
 
 Expected: fail because `api.tasks.executors`, `api.workbench`, `TaskManager.can_execute_task_type(...)`, and submitter wiring do not exist.
@@ -475,24 +553,174 @@ class TaskExecutorRegistry:
 
 @runtime_checkable
 class WorkerCapabilityRegistry(Protocol):
-    def supports(self, task_type: TaskType) -> bool: ...
-
-
-class StaticWorkerCapabilityRegistry:
-    def __init__(self, supported_task_types: set[TaskType] | None = None) -> None:
-        self._supported_task_types = set(supported_task_types or ())
-
-    def supports(self, task_type: TaskType) -> bool:
-        return task_type in self._supported_task_types
+    async def supports(self, task_type: TaskType) -> bool: ...
 
 
 __all__ = [
-    "StaticWorkerCapabilityRegistry",
     "TaskExecutionCapability",
     "TaskExecutor",
     "TaskExecutorRegistry",
     "WorkerCapabilityRegistry",
 ]
+```
+
+Create `api/tasks/worker_registry.py`:
+
+```python
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Protocol, runtime_checkable
+
+from api.tasks.models import TaskType, utc_now
+
+
+@dataclass(frozen=True)
+class WorkerHeartbeat:
+    worker_id: str
+    supported_task_types: set[TaskType]
+    heartbeat_at: datetime
+
+
+@runtime_checkable
+class WorkerRegistry(Protocol):
+    async def heartbeat(self, heartbeat: WorkerHeartbeat) -> None: ...
+    async def supports(self, task_type: TaskType, *, now: datetime | None = None) -> bool: ...
+
+
+class InMemoryWorkerRegistry:
+    def __init__(self, heartbeat_ttl_seconds: int = 60) -> None:
+        self.heartbeat_ttl = timedelta(seconds=heartbeat_ttl_seconds)
+        self._heartbeats: dict[str, WorkerHeartbeat] = {}
+        self._lock = asyncio.Lock()
+
+    async def heartbeat(self, heartbeat: WorkerHeartbeat) -> None:
+        async with self._lock:
+            self._heartbeats[heartbeat.worker_id] = heartbeat
+
+    async def supports(self, task_type: TaskType, *, now: datetime | None = None) -> bool:
+        cutoff = (now or utc_now()) - self.heartbeat_ttl
+        async with self._lock:
+            return any(
+                heartbeat.heartbeat_at >= cutoff
+                and task_type in heartbeat.supported_task_types
+                for heartbeat in self._heartbeats.values()
+            )
+
+
+__all__ = [
+    "InMemoryWorkerRegistry",
+    "WorkerHeartbeat",
+    "WorkerRegistry",
+]
+```
+
+Create `api/tasks/alembic/versions/0002_create_worker_heartbeats.py`:
+
+```python
+"""Create worker heartbeat capability table."""
+
+from __future__ import annotations
+
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+revision = "0002_create_worker_heartbeats"
+down_revision = "0001_create_generation_tasks"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.create_table(
+        "worker_heartbeats",
+        sa.Column("worker_id", sa.Text(), primary_key=True),
+        sa.Column(
+            "supported_task_types",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
+            server_default=sa.text("'[]'::jsonb"),
+        ),
+        sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    )
+    op.create_index(
+        "idx_worker_heartbeats_heartbeat_at",
+        "worker_heartbeats",
+        ["heartbeat_at"],
+    )
+
+
+def downgrade() -> None:
+    op.drop_index("idx_worker_heartbeats_heartbeat_at", table_name="worker_heartbeats")
+    op.drop_table("worker_heartbeats")
+```
+
+Modify `api/tasks/postgres.py`:
+
+```python
+from datetime import datetime, timedelta
+
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from api.tasks.worker_registry import WorkerHeartbeat
+```
+
+Add table metadata next to `generation_tasks`:
+
+```python
+worker_heartbeats = Table(
+    "worker_heartbeats",
+    metadata,
+    Column("worker_id", Text, primary_key=True),
+    Column("supported_task_types", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column("heartbeat_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+Index("idx_worker_heartbeats_heartbeat_at", worker_heartbeats.c.heartbeat_at)
+```
+
+Add shared registry implementation:
+
+```python
+class PostgresWorkerRegistry:
+    def __init__(self, engine: AsyncEngine, *, heartbeat_ttl_seconds: int = 60) -> None:
+        self.engine = engine
+        self.heartbeat_ttl_seconds = heartbeat_ttl_seconds
+        self.session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def heartbeat(self, heartbeat: WorkerHeartbeat) -> None:
+        values = {
+            "worker_id": heartbeat.worker_id,
+            "supported_task_types": [
+                task_type.value for task_type in heartbeat.supported_task_types
+            ],
+            "heartbeat_at": heartbeat.heartbeat_at,
+            "updated_at": utc_now(),
+        }
+        statement = pg_insert(worker_heartbeats).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[worker_heartbeats.c.worker_id],
+            set_=values,
+        )
+        async with self.session_factory() as session:
+            await session.execute(statement)
+            await session.commit()
+
+    async def supports(self, task_type: TaskType, *, now: datetime | None = None) -> bool:
+        cutoff = (now or utc_now()) - timedelta(seconds=self.heartbeat_ttl_seconds)
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(worker_heartbeats.c.worker_id)
+                .where(worker_heartbeats.c.heartbeat_at >= cutoff)
+                .where(worker_heartbeats.c.supported_task_types.contains([task_type.value]))
+                .limit(1)
+            )
+            return result.first() is not None
 ```
 
 Create `api/workbench/task_submitter.py`:
@@ -537,7 +765,7 @@ class StoryboardWorkbenchCapabilities:
 
 @runtime_checkable
 class StoryboardWorkbenchTaskSubmitter(Protocol):
-    def get_capabilities(self) -> StoryboardWorkbenchCapabilities: ...
+    async def get_capabilities(self) -> StoryboardWorkbenchCapabilities: ...
 
     async def reserve_frame_image_regeneration(
         self,
@@ -551,11 +779,12 @@ class TaskManagerStoryboardWorkbenchTaskSubmitter:
     def __init__(self, task_manager: Any) -> None:
         self.task_manager = task_manager
 
-    def get_capabilities(self) -> StoryboardWorkbenchCapabilities:
-        can_execute = bool(
-            getattr(self.task_manager, "can_execute_task_type", lambda _task_type: False)(
-                TaskType.FRAME_IMAGE_REGENERATION
-            )
+    async def get_capabilities(self) -> StoryboardWorkbenchCapabilities:
+        can_execute_task_type = getattr(self.task_manager, "can_execute_task_type", None)
+        can_execute = (
+            bool(await can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION))
+            if can_execute_task_type is not None
+            else False
         )
         if not can_execute:
             return StoryboardWorkbenchCapabilities(
@@ -573,7 +802,7 @@ class TaskManagerStoryboardWorkbenchTaskSubmitter:
         generation_fingerprint: str,
         request_params: Mapping[str, Any],
     ) -> StoryboardWorkbenchTaskSubmission:
-        capabilities = self.get_capabilities()
+        capabilities = await self.get_capabilities()
         if not capabilities.can_regenerate_frame_image:
             raise RuntimeError(
                 capabilities.regenerate_unavailable_reason
@@ -596,7 +825,7 @@ class NoopStoryboardWorkbenchTaskSubmitter:
     def __init__(self, reason: str = "task submitter is not configured") -> None:
         self.reason = reason
 
-    def get_capabilities(self) -> StoryboardWorkbenchCapabilities:
+    async def get_capabilities(self) -> StoryboardWorkbenchCapabilities:
         return StoryboardWorkbenchCapabilities(
             can_regenerate_frame_image=False,
             regenerate_unavailable_reason=self.reason,
@@ -611,7 +840,7 @@ class NoopStoryboardWorkbenchTaskSubmitter:
         raise RuntimeError(self.reason)
 
 
-def get_storyboard_workbench_capabilities(
+async def get_storyboard_workbench_capabilities(
     submitter: StoryboardWorkbenchTaskSubmitter | None,
 ) -> StoryboardWorkbenchCapabilities:
     if submitter is None:
@@ -619,7 +848,7 @@ def get_storyboard_workbench_capabilities(
             can_regenerate_frame_image=False,
             regenerate_unavailable_reason="task submitter is not configured",
         )
-    return submitter.get_capabilities()
+    return await submitter.get_capabilities()
 
 
 __all__ = [
@@ -663,6 +892,7 @@ from api.tasks.executors import (
     TaskExecutorRegistry,
     WorkerCapabilityRegistry,
 )
+from api.tasks.worker_registry import WorkerRegistry
 from api.workbench.task_submitter import (
     StoryboardWorkbenchTaskSubmitter,
     TaskManagerStoryboardWorkbenchTaskSubmitter,
@@ -674,6 +904,7 @@ Extend `PlatformDependencies`:
 ```python
 task_executor_registry: TaskExecutorRegistry | None = None
 worker_capability_registry: WorkerCapabilityRegistry | None = None
+worker_registry: WorkerRegistry | None = None
 storyboard_workbench_task_submitter: StoryboardWorkbenchTaskSubmitter | None = None
 ```
 
@@ -688,12 +919,14 @@ def configure_platform_dependencies(
     task_manager: Any | None = None,
     task_executor_registry: TaskExecutorRegistry | None = None,
     worker_capability_registry: WorkerCapabilityRegistry | None = None,
+    worker_registry: WorkerRegistry | None = None,
 ) -> PlatformDependencies:
     dependencies = build_platform_dependencies(
         config,
         task_manager=task_manager,
         task_executor_registry=task_executor_registry,
         worker_capability_registry=worker_capability_registry,
+        worker_registry=worker_registry,
     )
 ```
 
@@ -704,6 +937,7 @@ def build_platform_dependencies(
     task_manager: Any | None = None,
     task_executor_registry: TaskExecutorRegistry | None = None,
     worker_capability_registry: WorkerCapabilityRegistry | None = None,
+    worker_registry: WorkerRegistry | None = None,
 ) -> PlatformDependencies:
 ```
 
@@ -729,60 +963,50 @@ Modify `web/state/session.py` instead:
 _LOCAL_PLATFORM_DEPENDENCIES = None
 _LOCAL_PLATFORM_TASK_MANAGER = None
 _LOCAL_TASK_EXECUTOR_REGISTRY = None
-_LOCAL_WORKER_CAPABILITY_REGISTRY = None
+_LOCAL_WORKER_REGISTRY = None
 
 
 def get_or_create_local_platform_dependencies():
     global _LOCAL_PLATFORM_DEPENDENCIES, _LOCAL_PLATFORM_TASK_MANAGER
-    global _LOCAL_TASK_EXECUTOR_REGISTRY, _LOCAL_WORKER_CAPABILITY_REGISTRY
+    global _LOCAL_TASK_EXECUTOR_REGISTRY, _LOCAL_WORKER_REGISTRY
     if _LOCAL_PLATFORM_DEPENDENCIES is None:
         from api.config import api_config
         from api.platform_dependencies import build_platform_dependencies
-        from api.tasks.executors import (
-            StaticWorkerCapabilityRegistry,
-            TaskExecutorRegistry,
-        )
-        from api.tasks.factory import build_task_manager
+        from api.tasks.factory import build_local_task_runtime
 
-        _LOCAL_TASK_EXECUTOR_REGISTRY = TaskExecutorRegistry()
-        _LOCAL_WORKER_CAPABILITY_REGISTRY = StaticWorkerCapabilityRegistry()
-        _LOCAL_PLATFORM_TASK_MANAGER = build_task_manager(
-            api_config,
-            executor_registry=_LOCAL_TASK_EXECUTOR_REGISTRY,
-            worker_capability_registry=_LOCAL_WORKER_CAPABILITY_REGISTRY,
-        )
+        runtime = build_local_task_runtime(api_config)
+        _LOCAL_TASK_EXECUTOR_REGISTRY = runtime.executor_registry
+        _LOCAL_WORKER_REGISTRY = runtime.worker_registry
+        _LOCAL_PLATFORM_TASK_MANAGER = runtime.task_manager
         run_async(_LOCAL_PLATFORM_TASK_MANAGER.start())
         _LOCAL_PLATFORM_DEPENDENCIES = build_platform_dependencies(
             api_config,
             task_manager=_LOCAL_PLATFORM_TASK_MANAGER,
             task_executor_registry=_LOCAL_TASK_EXECUTOR_REGISTRY,
-            worker_capability_registry=_LOCAL_WORKER_CAPABILITY_REGISTRY,
+            worker_capability_registry=_LOCAL_WORKER_REGISTRY,
+            worker_registry=_LOCAL_WORKER_REGISTRY,
         )
     return _LOCAL_PLATFORM_DEPENDENCIES
 ```
 
 In `get_pixelle_video()`, replace `get_or_create_platform_dependencies()` with `get_or_create_local_platform_dependencies()`.
 
-Update `_cleanup_pixelle_video_session(...)` so when the last session is cleaned up it also stops `_LOCAL_PLATFORM_TASK_MANAGER` and clears `_LOCAL_PLATFORM_DEPENDENCIES`, `_LOCAL_TASK_EXECUTOR_REGISTRY`, and `_LOCAL_WORKER_CAPABILITY_REGISTRY`.
+Update `_cleanup_pixelle_video_session(...)` so when the last session is cleaned up it also stops `_LOCAL_PLATFORM_TASK_MANAGER` and clears `_LOCAL_PLATFORM_DEPENDENCIES`, `_LOCAL_TASK_EXECUTOR_REGISTRY`, and `_LOCAL_WORKER_REGISTRY`.
 
 Modify `api/app.py`:
 
 ```python
-from api.tasks.executors import StaticWorkerCapabilityRegistry, TaskExecutorRegistry
+from api.tasks.factory import build_api_task_runtime
 
-task_executor_registry = TaskExecutorRegistry()
-worker_capability_registry = StaticWorkerCapabilityRegistry()
-manager = build_task_manager(
-    api_config,
-    executor_registry=task_executor_registry,
-    worker_capability_registry=worker_capability_registry,
-)
+runtime = build_api_task_runtime(api_config)
+manager = runtime.task_manager
 platform_dependencies = configure_platform_dependencies(
     app,
     api_config,
     task_manager=manager,
-    task_executor_registry=task_executor_registry,
-    worker_capability_registry=worker_capability_registry,
+    task_executor_registry=runtime.executor_registry,
+    worker_capability_registry=runtime.worker_registry,
+    worker_registry=runtime.worker_registry,
 )
 ```
 
@@ -794,7 +1018,6 @@ Modify `api/tasks/manager.py` imports:
 
 ```python
 from api.tasks.executors import (
-    StaticWorkerCapabilityRegistry,
     TaskExecutorRegistry,
     WorkerCapabilityRegistry,
 )
@@ -818,22 +1041,17 @@ Set fields after `self.execution_mode = execution_mode`:
 
 ```python
 self.executor_registry = executor_registry or TaskExecutorRegistry()
-self.worker_capability_registry = (
-    worker_capability_registry or StaticWorkerCapabilityRegistry()
-)
+self.worker_capability_registry = worker_capability_registry
 ```
 
 Add:
 
 ```python
-def can_execute_task_type(self, task_type: TaskType) -> bool:
-    if task_type is TaskType.VIDEO_GENERATION:
-        return True
-    if task_type is TaskType.FRAME_IMAGE_REGENERATION:
-        if self.execution_mode == "embedded":
-            return self.executor_registry.can_execute(task_type).can_execute
-        if self.execution_mode == "worker":
-            return self.worker_capability_registry.supports(task_type)
+async def can_execute_task_type(self, task_type: TaskType) -> bool:
+    if self.execution_mode == "embedded":
+        return self.executor_registry.can_execute(task_type).can_execute
+    if self.execution_mode == "worker" and self.worker_capability_registry is not None:
+        return await self.worker_capability_registry.supports(task_type)
     return False
 
 
@@ -843,36 +1061,87 @@ async def wait_for_task_completion_for_test(self, task_id: str) -> None:
         await future
 ```
 
-Important: Task 1 only declares capability and keeps default `TaskManager()` fail closed for frame regeneration. Do not enqueue or execute frame regeneration yet; that is Task 3.
-Preserve the current `VIDEO_GENERATION` legacy path unchanged in this task; executor-registry migration for existing video generation is separate follow-up work and must not be mixed into this boundary plan.
+Important: Task 1 only lays down the runtime boundary and keeps default `TaskManager()` fail closed for both `FRAME_IMAGE_REGENERATION` and `VIDEO_GENERATION` until Task 3 registers executors. Do not keep the current per-request async video closure execution route.
 
 Modify `api/tasks/factory.py`:
 
 ```python
-from api.tasks.executors import TaskExecutorRegistry, WorkerCapabilityRegistry
+from dataclasses import dataclass
+
+from api.tasks.executors import TaskExecutorRegistry
+from api.tasks.worker_registry import InMemoryWorkerRegistry, WorkerRegistry
+from api.tasks.postgres import PostgresTaskStore, PostgresWorkerRegistry, create_async_engine_from_dsn
 ```
 
-Change `build_task_manager(...)`:
+Add runtime DTO and builders:
 
 ```python
-def build_task_manager(
+@dataclass(frozen=True)
+class TaskRuntime:
+    task_manager: TaskManager
+    executor_registry: TaskExecutorRegistry
+    worker_registry: WorkerRegistry
+
+
+def build_task_runtime(
     config: APIConfig,
     *,
     executor_registry: TaskExecutorRegistry | None = None,
-    worker_capability_registry: WorkerCapabilityRegistry | None = None,
-) -> TaskManager:
+) -> TaskRuntime:
 ```
 
-Pass both registries into `TaskManager(...)`:
+Build one backend-consistent runtime:
 
 ```python
-return TaskManager(
+executor_registry = executor_registry or TaskExecutorRegistry()
+if config.task_backend == "memory":
+    store = InMemoryTaskStore()
+    lease = InMemoryGenerationLease(config.generation_lease_ttl_seconds)
+    worker_registry = InMemoryWorkerRegistry(config.generation_lease_ttl_seconds)
+else:
+    if not config.postgres_dsn:
+        raise RuntimeError("PIXELLE_POSTGRES_DSN is required for postgres task backend")
+    if not config.redis_url:
+        raise RuntimeError("PIXELLE_REDIS_URL is required for postgres task backend")
+    engine = create_async_engine_from_dsn(config.postgres_dsn)
+    store = PostgresTaskStore(engine)
+    lease = create_redis_lease(
+        config.redis_url,
+        lease_ttl_seconds=config.generation_lease_ttl_seconds,
+        submit_lock_ttl_seconds=30,
+    )
+    worker_registry = PostgresWorkerRegistry(
+        engine,
+        heartbeat_ttl_seconds=config.generation_lease_ttl_seconds,
+    )
+
+registry = GenerationRegistry(...)
+manager = TaskManager(
     store=store,
     registry=registry,
     execution_mode=config.execution_mode,
     executor_registry=executor_registry,
-    worker_capability_registry=worker_capability_registry,
+    worker_capability_registry=worker_registry,
 )
+return TaskRuntime(
+    task_manager=manager,
+    executor_registry=executor_registry,
+    worker_registry=worker_registry,
+)
+```
+
+Expose thin wrappers:
+
+```python
+def build_api_task_runtime(config: APIConfig) -> TaskRuntime:
+    return build_task_runtime(config)
+
+
+def build_local_task_runtime(config: APIConfig) -> TaskRuntime:
+    local_config = config.model_copy(deep=True)
+    local_config.task_backend = "memory"
+    local_config.execution_mode = "embedded"
+    return build_task_runtime(local_config)
 ```
 
 - [ ] **Step 7: Run tests and verify GREEN**
@@ -888,7 +1157,7 @@ Expected: all tests pass.
 - [ ] **Step 8: Commit and push**
 
 ```powershell
-git add -- api/tasks/executors.py api/workbench/__init__.py api/workbench/task_submitter.py api/tasks/manager.py api/tasks/factory.py api/platform_dependencies.py api/dependencies.py api/app.py web/state/session.py tests/test_storyboard_workbench_task_submitter.py tests/test_app_platform_dependencies.py
+git add -- api/tasks/executors.py api/tasks/worker_registry.py api/tasks/alembic/versions/0002_create_worker_heartbeats.py api/tasks/postgres.py api/workbench/__init__.py api/workbench/task_submitter.py api/tasks/manager.py api/tasks/factory.py api/platform_dependencies.py api/dependencies.py api/app.py web/state/session.py tests/test_storyboard_workbench_task_submitter.py tests/test_app_platform_dependencies.py
 git commit -m "feat: 注入分镜工作台任务注册表和提交器"
 git push origin $(git branch --show-current)
 ```
@@ -911,7 +1180,7 @@ In `tests/test_storyboard_workbench_api.py`, replace `FakeTaskManager` usage in 
 class FakeStoryboardWorkbenchTaskSubmitter:
     reserved: list[dict[str, Any]]
 
-    def get_capabilities(self):
+    async def get_capabilities(self):
         from api.workbench.task_submitter import StoryboardWorkbenchCapabilities
 
         return StoryboardWorkbenchCapabilities(
@@ -1036,7 +1305,7 @@ def test_storyboard_workbench_api_regenerate_fails_without_submitter():
 
 def test_storyboard_workbench_api_regenerate_fails_when_execution_path_is_missing():
     class UnavailableSubmitter(FakeStoryboardWorkbenchTaskSubmitter):
-        def get_capabilities(self):
+        async def get_capabilities(self):
             from api.workbench.task_submitter import StoryboardWorkbenchCapabilities
 
             return StoryboardWorkbenchCapabilities(
@@ -1108,7 +1377,7 @@ Add endpoint before `/{storyboard_id}` routes:
     response_model=StoryboardWorkbenchCapabilitiesResponse,
 )
 async def get_workbench_capabilities(request: Request) -> StoryboardWorkbenchCapabilitiesResponse:
-    capabilities = get_storyboard_workbench_capabilities(
+    capabilities = await get_storyboard_workbench_capabilities(
         _get_storyboard_workbench_task_submitter(request, required=False)
     )
     return StoryboardWorkbenchCapabilitiesResponse(**capabilities.to_dict())
@@ -1134,7 +1403,7 @@ with:
 
 ```python
 task_submitter = _get_storyboard_workbench_task_submitter(request)
-capabilities = task_submitter.get_capabilities()
+capabilities = await task_submitter.get_capabilities()
 if not capabilities.can_regenerate_frame_image:
     raise HTTPException(
         status_code=503,
@@ -1207,18 +1476,27 @@ git push origin $(git branch --show-current)
 
 ---
 
-## Task 3: Add Frame Image Regeneration Executor
+## Task 3: Migrate Video And Frame Generation To Registered Executors
 
 **Files:**
+- Create: `api/video/executor_factory.py`
 - Create: `api/workbench/frame_image_regeneration.py`
 - Create: `api/workbench/executor_factory.py`
+- Modify: `api/tasks/artifacts.py`
 - Modify: `api/tasks/manager.py`
 - Modify: `api/tasks/factory.py`
 - Modify: `api/tasks/worker.py`
+- Modify: `api/routers/video.py`
+- Modify: `api/routers/tasks.py`
+- Modify: `api/schemas/tasks.py`
 - Modify: `api/app.py`
 - Modify: `web/state/session.py`
 - Test: `tests/test_storyboard_workbench_task_submitter.py`
 - Test: `tests/test_worker_execution.py`
+- Test: `tests/test_video_task_executor.py`
+- Test: `tests/test_tasks_api_presentation.py`
+- Test: `tests/test_async_video_registry_integration.py`
+- Test: `tests/test_artifact_store.py`
 
 - [ ] **Step 1: Write failing executor unit test**
 
@@ -1387,14 +1665,15 @@ async def test_task_manager_embedded_submitter_executes_frame_regeneration_when_
     ]
 
 
-def test_task_manager_submitter_reports_unavailable_when_embedded_executor_is_missing():
+@pytest.mark.asyncio
+async def test_task_manager_submitter_reports_unavailable_when_embedded_executor_is_missing():
     from api.tasks.manager import TaskManager
     from api.workbench.task_submitter import TaskManagerStoryboardWorkbenchTaskSubmitter
 
     manager = TaskManager()
     submitter = TaskManagerStoryboardWorkbenchTaskSubmitter(manager)
 
-    assert submitter.get_capabilities().to_dict() == {
+    assert (await submitter.get_capabilities()).to_dict() == {
         "can_regenerate_frame_image": False,
         "regenerate_unavailable_reason": "frame image regeneration execution is not configured",
     }
@@ -1452,19 +1731,142 @@ async def test_worker_claims_frame_image_regeneration_tasks(tmp_path):
     ]
 
 
-def test_worker_mode_manager_reports_frame_regeneration_executable_after_worker_hook():
-    from api.tasks.executors import StaticWorkerCapabilityRegistry
+@pytest.mark.asyncio
+async def test_worker_mode_manager_reports_frame_regeneration_executable_after_worker_heartbeat():
     from api.tasks.manager import TaskManager
-    from api.tasks.models import TaskType
+    from api.tasks.models import TaskType, utc_now
+    from api.tasks.worker_registry import InMemoryWorkerRegistry, WorkerHeartbeat
+
+    worker_registry = InMemoryWorkerRegistry()
+    await worker_registry.heartbeat(
+        WorkerHeartbeat(
+            worker_id="worker-1",
+            supported_task_types={TaskType.FRAME_IMAGE_REGENERATION},
+            heartbeat_at=utc_now(),
+        )
+    )
 
     manager = TaskManager(
         execution_mode="worker",
-        worker_capability_registry=StaticWorkerCapabilityRegistry(
-            {TaskType.FRAME_IMAGE_REGENERATION}
-        ),
+        worker_capability_registry=worker_registry,
     )
 
-    assert manager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION) is True
+    assert await manager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION) is True
+```
+
+Create `tests/test_video_task_executor.py`:
+
+```python
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_video_generation_executor_persists_storage_identity_without_transport_url(tmp_path):
+    from api.tasks.artifacts import LocalArtifactStore
+    from api.tasks.executors import TaskExecutorRegistry
+    from api.tasks.models import TaskType
+    from api.video.executor_factory import register_video_generation_executor
+
+    generated = tmp_path / "generated" / "final.mp4"
+
+    class Core:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def generate_video(self, **kwargs):
+            self.calls.append(kwargs)
+            generated.parent.mkdir(parents=True, exist_ok=True)
+            generated.write_bytes(b"video")
+            return SimpleNamespace(video_path=str(generated), duration=2.5)
+
+    core = Core()
+    registry = TaskExecutorRegistry()
+    register_video_generation_executor(
+        registry,
+        core_provider=lambda: core,
+        artifact_store=LocalArtifactStore(output_root=tmp_path / "output"),
+    )
+
+    result = await registry.execute(
+        TaskType.VIDEO_GENERATION,
+        task_id="task-video-1",
+        request_params={"text": "demo", "request_id": "req_1"},
+        progress_dispatcher=object(),
+    )
+
+    assert result["storage_key"] == "task-video-1/final.mp4"
+    assert result["duration"] == 2.5
+    assert result["file_size"] == 5
+    assert "video_url" not in result
+    assert core.calls[0]["api_task_id"] == "task-video-1"
+    assert core.calls[0]["progress_dispatcher"] is not None
+    assert "generation_fingerprint" not in core.calls[0]
+```
+
+Create `tests/test_tasks_api_presentation.py`:
+
+```python
+from types import SimpleNamespace
+
+import pytest
+
+
+def test_present_task_derives_video_url_from_current_request_without_mutating_result():
+    from api.routers.tasks import present_task
+    from api.tasks.models import TaskStatus, TaskType
+
+    task = SimpleNamespace(
+        task_id="task-video-1",
+        task_type=TaskType.VIDEO_GENERATION,
+        status=TaskStatus.COMPLETED,
+        result={"storage_key": "task-video-1/final.mp4", "duration": 2.5, "file_size": 5},
+    )
+    request = SimpleNamespace(base_url="https://pixelle.example/")
+
+    response = present_task(task, request=request)
+
+    assert response.result["video_url"] == "https://pixelle.example/api/files/task-video-1/final.mp4"
+    assert "video_url" not in task.result
+
+
+def test_async_video_router_does_not_define_per_request_execution_closure():
+    from pathlib import Path
+
+    source = Path("api/routers/video.py").read_text(encoding="utf-8")
+
+    assert "execute_video_generation" not in source
+    assert "execute_task(" not in source
+    assert "path_to_url(request" not in source
+```
+
+Append to `tests/test_artifact_store.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_local_artifact_store_does_not_return_transport_url(tmp_path):
+    from api.tasks.artifacts import LocalArtifactStore
+
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"video")
+    store = LocalArtifactStore(output_root=tmp_path / "output")
+
+    result = await store.persist_video(
+        task_id="task-1",
+        source_path=source,
+        duration=3.5,
+    )
+
+    assert result == {
+        "storage_backend": "local",
+        "storage_key": "task-1/source.mp4",
+        "file_size": 5,
+        "duration": 3.5,
+    }
 ```
 
 - [ ] **Step 3: Run tests and verify RED**
@@ -1472,12 +1874,75 @@ def test_worker_mode_manager_reports_frame_regeneration_executable_after_worker_
 Run:
 
 ```powershell
-python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_worker_execution.py::test_worker_claims_frame_image_regeneration_tasks
+python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_worker_execution.py::test_worker_claims_frame_image_regeneration_tasks tests/test_video_task_executor.py tests/test_tasks_api_presentation.py tests/test_artifact_store.py::test_local_artifact_store_does_not_return_transport_url
 ```
 
-Expected: fail because executor and manager/worker hooks are missing.
+Expected: fail because executor factories, manager/worker hooks, URL presentation, and artifact store contract changes are missing.
 
 - [ ] **Step 4: Implement executor**
+
+Modify `api/tasks/artifacts.py` so `ArtifactStore.persist_video(...)`, `LocalArtifactStore.persist_video(...)`, and `MissingArtifactStore.persist_video(...)` no longer expose or return `video_url`:
+
+```python
+return {
+    "storage_backend": "local",
+    "storage_key": storage_key,
+    "file_size": target.stat().st_size,
+    "duration": duration,
+}
+```
+
+Create `api/video/executor_factory.py`:
+
+```python
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from pathlib import Path
+from typing import Any
+
+from api.tasks.artifacts import ArtifactStore
+from api.tasks.executors import TaskExecutorRegistry
+from api.tasks.models import TaskType
+
+REGISTRY_CONTROL_PARAM_NAMES = {"generation_fingerprint"}
+
+
+def register_video_generation_executor(
+    registry: TaskExecutorRegistry,
+    *,
+    core_provider: Callable[[], Any | Awaitable[Any]],
+    artifact_store: ArtifactStore,
+) -> TaskExecutorRegistry:
+    async def _execute_video_generation_task(
+        *,
+        task_id: str,
+        request_params: dict[str, Any],
+        progress_dispatcher=None,
+    ) -> dict[str, Any]:
+        core = core_provider()
+        if hasattr(core, "__await__"):
+            core = await core
+        params = dict(request_params)
+        for name in REGISTRY_CONTROL_PARAM_NAMES:
+            params.pop(name, None)
+        params["api_task_id"] = task_id
+        if progress_dispatcher is not None:
+            params["progress_dispatcher"] = progress_dispatcher
+
+        result = await core.generate_video(**params)
+        return await artifact_store.persist_video(
+            task_id=task_id,
+            source_path=Path(result.video_path),
+            duration=float(getattr(result, "duration", 0.0) or 0.0),
+        )
+
+    registry.register(TaskType.VIDEO_GENERATION, _execute_video_generation_task)
+    return registry
+
+
+__all__ = ["register_video_generation_executor"]
+```
 
 Create `api/workbench/frame_image_regeneration.py`:
 
@@ -1668,7 +2133,7 @@ __all__ = ["register_storyboard_workbench_executors"]
 
 - [ ] **Step 5: Hook embedded TaskManager execution**
 
-Reuse the `executor_registry`, `can_execute_task_type(...)`, and `wait_for_task_completion_for_test(...)` fields added in Task 1. Task 3 only adds embedded auto-execution for newly created tasks whose task type has a registered executor:
+Reuse the `executor_registry`, async `can_execute_task_type(...)`, and `wait_for_task_completion_for_test(...)` fields added in Task 1. Task 3 adds embedded auto-execution for every newly created task whose task type has a registered executor, including `VIDEO_GENERATION`:
 
 At the end of `reserve_or_reuse_generation_task(...)`, after outcome is returned from registry:
 
@@ -1696,24 +2161,114 @@ return outcome
 
 The test helper `wait_for_task_completion_for_test(...)` already exists from Task 1; do not duplicate it.
 
-- [ ] **Step 6: Wire executor factory**
+Modify `api/routers/video.py` async route:
 
-Build and share a registry in `api/app.py`:
+- Keep request parsing, resource resolution, generation params, and fingerprint building in the router.
+- Remove the per-request `execute_video_generation(...)` closure.
+- Remove `pixelle_video` usage from `generate_video_async(...)`; video executor factory owns lazy core access.
+- Do not call `task_manager.execute_task(...)` from the router. `TaskManager.reserve_or_reuse_generation_task(...)` starts embedded execution when the `VIDEO_GENERATION` executor is registered.
+- Do not call `path_to_url(...)` in the async route. The sync route can keep response-specific URL derivation because it is not persisted task result.
+
+The async route body after reservation should only map reserve/reuse state:
 
 ```python
-from api.tasks.executors import StaticWorkerCapabilityRegistry, TaskExecutorRegistry
+outcome = await task_manager.reserve_or_reuse_generation_task(
+    task_type=TaskType.VIDEO_GENERATION,
+    generation_fingerprint=generation_fingerprint,
+    request_params=request_params,
+)
+task = outcome.task
+if not outcome.created:
+    logger.info(f"Reusing async video generation task: {task.task_id}")
+    message = (
+        "Task already completed"
+        if outcome.reused_reason == "recent_completed"
+        else "Task already running"
+    )
+    return VideoGenerateAsyncResponse(task_id=task.task_id, message=message)
+
+return VideoGenerateAsyncResponse(task_id=task.task_id)
+```
+
+Modify `api/schemas/tasks.py` to add presentation DTOs:
+
+```python
+from typing import Any
+
+from pydantic import BaseModel
+
+from api.tasks.models import TaskProgress, TaskStatus, TaskType
+
+
+class TaskResponse(BaseModel):
+    task_id: str
+    task_type: TaskType
+    status: TaskStatus
+    progress: TaskProgress | None = None
+    result: Any = None
+    error: str | None = None
+```
+
+Modify `api/routers/tasks.py`:
+
+```python
+from fastapi import Request
+
+from api.schemas.tasks import TaskListResponse, TaskResponse
+from api.tasks.models import Task, TaskType
+```
+
+Add:
+
+```python
+def task_storage_key_to_url(request: Request, storage_key: str) -> str:
+    base_url = str(request.base_url).rstrip("/")
+    return f"{base_url}/api/files/{storage_key.lstrip('/')}"
+
+
+def present_task(task: Task, *, request: Request) -> TaskResponse:
+    result = task.result
+    if (
+        task.task_type is TaskType.VIDEO_GENERATION
+        and isinstance(result, dict)
+        and result.get("storage_key")
+        and "video_url" not in result
+    ):
+        result = {
+            **result,
+            "video_url": task_storage_key_to_url(request, str(result["storage_key"])),
+        }
+    return TaskResponse(
+        task_id=task.task_id,
+        task_type=task.task_type,
+        status=task.status,
+        progress=task.progress,
+        result=result,
+        error=task.error,
+    )
+```
+
+Change `GET /api/tasks/{task_id}` and list endpoints to return `TaskResponse` / `TaskListResponse` built from `present_task(...)`. Do not mutate `task.result`.
+
+- [ ] **Step 6: Wire executor factory**
+
+Build one runtime in `api/app.py`, then register both executor groups on its registry:
+
+```python
+from api.tasks.factory import build_api_task_runtime
+from api.video.executor_factory import register_video_generation_executor
 from api.workbench.executor_factory import register_storyboard_workbench_executors
 
-task_executor_registry = TaskExecutorRegistry()
-worker_capability_registry = StaticWorkerCapabilityRegistry()
-register_storyboard_workbench_executors(
-    task_executor_registry,
+runtime = build_api_task_runtime(api_config)
+manager = runtime.task_manager
+register_video_generation_executor(
+    runtime.executor_registry,
     core_provider=get_pixelle_video,
+    artifact_store=manager.registry.artifact_store,
 )
-manager = build_task_manager(
-    api_config,
-    executor_registry=task_executor_registry,
-    worker_capability_registry=worker_capability_registry,
+register_storyboard_workbench_executors(
+    runtime.executor_registry,
+    core_provider=get_pixelle_video,
 )
 ```
 
@@ -1724,12 +2279,13 @@ platform_dependencies = configure_platform_dependencies(
     app,
     api_config,
     task_manager=manager,
-    task_executor_registry=task_executor_registry,
-    worker_capability_registry=worker_capability_registry,
+    task_executor_registry=runtime.executor_registry,
+    worker_capability_registry=runtime.worker_registry,
+    worker_registry=runtime.worker_registry,
 )
 ```
 
-Modify `web/state/session.py` local dependency creation to call `register_storyboard_workbench_executors(_LOCAL_TASK_EXECUTOR_REGISTRY, core_provider=get_pixelle_video)` before constructing the local manager. The provider stays inside the executor factory closure and must not be stored on `PlatformDependencies`.
+Modify `web/state/session.py` local dependency creation to call both `register_video_generation_executor(...)` and `register_storyboard_workbench_executors(...)` on `runtime.executor_registry` before constructing platform dependencies. The provider stays inside executor factory closures and must not be stored on `PlatformDependencies`.
 
 - [ ] **Step 7: Hook worker mode**
 
@@ -1737,48 +2293,90 @@ Modify `api/tasks/worker.py` `GenerationWorker` constructor:
 
 ```python
 executor_registry: TaskExecutorRegistry | None = None,
+worker_registry: WorkerRegistry | None = None,
 ```
 
 Set:
 
 ```python
 self.executor_registry = executor_registry or TaskExecutorRegistry()
+self.worker_registry = worker_registry
 ```
 
-When no registry is provided by tests or worker bootstrap, register the default frame image regeneration executor around `execute_frame_image_regeneration(core=self.core, ...)` before `run_once()` claims tasks.
+Do not register default executors inside `run_once()`. Worker bootstrap owns executor registration, so capability and claim type calculation use the same registry.
 
 Change claim types:
 
 ```python
-task_types={TaskType.VIDEO_GENERATION} | self.executor_registry.supported_task_types()
-```
-
-Document in code comments and tests that worker mode counts as executable only because
-`GenerationWorker` now claims and runs `TaskType.FRAME_IMAGE_REGENERATION` through the shared executor registry. Do not return `True` for worker mode unless `WorkerCapabilityRegistry` declares the deployment can run that task type.
-
-When constructing the worker-process `TaskManager` or API control-plane manager for worker mode, pass:
-
-```python
-worker_capability_registry=StaticWorkerCapabilityRegistry(
-    {TaskType.FRAME_IMAGE_REGENERATION}
+task_types = self.executor_registry.supported_task_types()
+claim = await self.registry.claim_next_pending(
+    worker_id=self.worker_id,
+    task_types=task_types,
 )
 ```
 
-Do not set this declaration in API embedded mode or local Streamlit mode. The static declaration is a stage-one deployment configuration; the long-term replacement is worker heartbeat capability.
+If `task_types` is empty, `run_once()` must return `False` without claiming. Worker mode counts as executable only when heartbeat-backed `WorkerRegistry` says a recent worker supports that task type.
 
-In `run_once`, branch:
+At the start of `run_once()` and in a separate idle loop used by `run_worker_forever(...)`, publish worker capability:
 
 ```python
-if task.task_type is TaskType.FRAME_IMAGE_REGENERATION:
-    result = await self.executor_registry.execute(
-        task.task_type,
-        task_id=task.task_id,
-        request_params=task.request_params or {},
-        progress_dispatcher=ProgressDispatcher([progress_sink]),
+if self.worker_registry is not None:
+    await self.worker_registry.heartbeat(
+        WorkerHeartbeat(
+            worker_id=self.worker_id,
+            supported_task_types=self.executor_registry.supported_task_types(),
+            heartbeat_at=utc_now(),
+        )
     )
-else:
-    params = self._build_generation_params(...)
-    result = await self.core.generate_video(**params)
+```
+
+`run_once()` must execute every claimed task through the registry:
+
+```python
+result = await self.executor_registry.execute(
+    task.task_type,
+    task_id=task.task_id,
+    request_params=task.request_params or {},
+    progress_dispatcher=ProgressDispatcher([progress_sink]),
+)
+```
+
+Remove worker-local calls to `self.core.generate_video(...)` from `run_once()`. Video generation is now just another registered executor.
+
+Add source regression to `tests/test_worker_execution.py`:
+
+```python
+def test_generation_worker_executes_only_through_task_executor_registry():
+    from pathlib import Path
+
+    source = Path("api/tasks/worker.py").read_text(encoding="utf-8")
+
+    assert "core.generate_video" not in source
+    assert "TaskType.VIDEO_GENERATION}" not in source
+    assert ".execute(" in source
+    assert "WorkerHeartbeat" in source
+```
+
+Modify `run_worker_forever(...)`:
+
+```python
+runtime = build_task_runtime(config)
+core = await build_worker_core(config=config)
+register_video_generation_executor(
+    runtime.executor_registry,
+    core_provider=lambda: core,
+    artifact_store=runtime.task_manager.registry.artifact_store,
+)
+register_storyboard_workbench_executors(runtime.executor_registry, core_provider=lambda: core)
+worker = GenerationWorker(
+    registry=runtime.task_manager.registry,
+    core=core,
+    artifact_store=runtime.task_manager.registry.artifact_store,
+    output_root=config.artifact_base_path,
+    heartbeat_interval_seconds=config.generation_heartbeat_seconds,
+    executor_registry=runtime.executor_registry,
+    worker_registry=runtime.worker_registry,
+)
 ```
 
 - [ ] **Step 8: Run tests and verify GREEN**
@@ -1786,7 +2384,7 @@ else:
 Run:
 
 ```powershell
-python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_worker_execution.py::test_worker_claims_frame_image_regeneration_tasks
+python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_worker_execution.py tests/test_video_task_executor.py tests/test_tasks_api_presentation.py tests/test_async_video_registry_integration.py tests/test_artifact_store.py
 ```
 
 Expected: all tests pass.
@@ -1794,8 +2392,8 @@ Expected: all tests pass.
 - [ ] **Step 9: Commit and push**
 
 ```powershell
-git add -- api/workbench/frame_image_regeneration.py api/workbench/executor_factory.py api/tasks/manager.py api/tasks/factory.py api/tasks/worker.py api/app.py web/state/session.py tests/test_storyboard_workbench_task_submitter.py tests/test_worker_execution.py
-git commit -m "feat: 执行分镜帧图片重抽任务"
+git add -- api/video/executor_factory.py api/workbench/frame_image_regeneration.py api/workbench/executor_factory.py api/tasks/artifacts.py api/tasks/manager.py api/tasks/factory.py api/tasks/worker.py api/routers/video.py api/routers/tasks.py api/schemas/tasks.py api/app.py web/state/session.py tests/test_storyboard_workbench_task_submitter.py tests/test_worker_execution.py tests/test_video_task_executor.py tests/test_tasks_api_presentation.py tests/test_async_video_registry_integration.py tests/test_artifact_store.py
+git commit -m "feat: 统一异步生成任务执行注册表"
 git push origin $(git branch --show-current)
 ```
 
@@ -2065,7 +2663,7 @@ def test_inprocess_client_uses_task_submitter_for_regenerate():
             }
 
     class Submitter:
-        def get_capabilities(self):
+        async def get_capabilities(self):
             return type(
                 "Capabilities",
                 (),
@@ -2179,7 +2777,7 @@ Use the contracts from the spec. Important implementation constraints:
 
 - `HttpStoryboardWorkbenchClient.get_capabilities()` must call `capability_loader(api_base_url=self.api_base_url)`.
 - `HttpStoryboardWorkbenchClient.list_image_candidates()` must strip `url` and set `image_display`.
-- `InProcessStoryboardWorkbenchClient.get_capabilities()` must call `pixelle_video.storyboard_workbench_task_submitter.get_capabilities()` when a submitter exists, and report unavailable when it does not.
+- `InProcessStoryboardWorkbenchClient.get_capabilities()` must use the existing Streamlit async runtime bridge to call `await pixelle_video.storyboard_workbench_task_submitter.get_capabilities()` when a submitter exists, and report unavailable when it does not.
 - `InProcessStoryboardWorkbenchClient.regenerate_frame_image()` must call `submitter.reserve_frame_image_regeneration(...)`, not any task manager.
 - `web/state/workbench_client.py` must not cache when `pixelle_video is None`.
 
@@ -2448,12 +3046,12 @@ git push origin $(git branch --show-current)
 **Files:**
 - Modify tests only unless regressions fail.
 
-- [ ] **Step 1: Run Workbench focused test set**
+- [ ] **Step 1: Run focused boundary test set**
 
 Run:
 
 ```powershell
-python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_storyboard_workbench_navigation.py tests/test_storyboard_overrides_state.py tests/test_storyboard_preview_ui.py tests/test_output_preview.py tests/test_app_platform_dependencies.py tests/test_worker_execution.py
+python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_storyboard_workbench_navigation.py tests/test_storyboard_overrides_state.py tests/test_storyboard_preview_ui.py tests/test_output_preview.py tests/test_app_platform_dependencies.py tests/test_worker_execution.py tests/test_video_task_executor.py tests/test_tasks_api_presentation.py tests/test_async_video_registry_integration.py tests/test_artifact_store.py tests/test_postgres_task_store_schema.py
 ```
 
 Expected: pass.
@@ -2463,7 +3061,7 @@ Expected: pass.
 Run:
 
 ```powershell
-ruff check api/workbench api/platform_dependencies.py api/dependencies.py api/app.py api/routers/storyboard_workbench.py api/schemas/storyboard_workbench.py api/tasks/manager.py api/tasks/factory.py api/tasks/worker.py web/state/session.py web/workbench web/state/workbench_client.py web/utils/storyboard_workbench_api.py web/components/storyboard_workbench_panel.py web/components/storyboard_workbench_stale.py web/components/storyboard_preview.py web/pages/3_🧭_Storyboard_Workbench.py tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py
+ruff check api/workbench api/video/executor_factory.py api/platform_dependencies.py api/dependencies.py api/app.py api/routers/storyboard_workbench.py api/routers/video.py api/routers/tasks.py api/schemas/storyboard_workbench.py api/schemas/tasks.py api/tasks/artifacts.py api/tasks/executors.py api/tasks/worker_registry.py api/tasks/postgres.py api/tasks/manager.py api/tasks/factory.py api/tasks/worker.py web/state/session.py web/workbench web/state/workbench_client.py web/utils/storyboard_workbench_api.py web/components/storyboard_workbench_panel.py web/components/storyboard_workbench_stale.py web/components/storyboard_preview.py web/pages/3_🧭_Storyboard_Workbench.py tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_video_task_executor.py tests/test_tasks_api_presentation.py tests/test_async_video_registry_integration.py tests/test_artifact_store.py tests/test_worker_execution.py tests/test_postgres_task_store_schema.py
 git diff --check
 ```
 
@@ -2488,7 +3086,7 @@ If no fixes were needed, do not create an empty commit.
 - [ ] Run:
 
 ```powershell
-python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_storyboard_workbench_navigation.py tests/test_storyboard_overrides_state.py tests/test_storyboard_preview_ui.py tests/test_output_preview.py tests/test_app_platform_dependencies.py tests/test_worker_execution.py tests/test_style_config_storyboard_planning_ui.py
+python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_storyboard_workbench_navigation.py tests/test_storyboard_overrides_state.py tests/test_storyboard_preview_ui.py tests/test_output_preview.py tests/test_app_platform_dependencies.py tests/test_worker_execution.py tests/test_video_task_executor.py tests/test_tasks_api_presentation.py tests/test_async_video_registry_integration.py tests/test_artifact_store.py tests/test_postgres_task_store_schema.py tests/test_style_config_storyboard_planning_ui.py
 ```
 
 Expected: pass.
@@ -2496,7 +3094,7 @@ Expected: pass.
 - [ ] Run:
 
 ```powershell
-ruff check api/workbench api/platform_dependencies.py api/dependencies.py api/app.py api/routers/storyboard_workbench.py api/schemas/storyboard_workbench.py api/tasks/manager.py api/tasks/factory.py api/tasks/worker.py web/state/session.py web/workbench web/state/workbench_client.py web/utils/storyboard_workbench_api.py web/components/storyboard_workbench_panel.py web/components/storyboard_workbench_stale.py web/components/storyboard_preview.py web/pages/3_🧭_Storyboard_Workbench.py tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py
+ruff check api/workbench api/video/executor_factory.py api/platform_dependencies.py api/dependencies.py api/app.py api/routers/storyboard_workbench.py api/routers/video.py api/routers/tasks.py api/schemas/storyboard_workbench.py api/schemas/tasks.py api/tasks/artifacts.py api/tasks/executors.py api/tasks/worker_registry.py api/tasks/postgres.py api/tasks/manager.py api/tasks/factory.py api/tasks/worker.py web/state/session.py web/workbench web/state/workbench_client.py web/utils/storyboard_workbench_api.py web/components/storyboard_workbench_panel.py web/components/storyboard_workbench_stale.py web/components/storyboard_preview.py web/pages/3_🧭_Storyboard_Workbench.py tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_video_task_executor.py tests/test_tasks_api_presentation.py tests/test_async_video_registry_integration.py tests/test_artifact_store.py tests/test_worker_execution.py tests/test_postgres_task_store_schema.py
 git diff --check
 ```
 
@@ -2514,9 +3112,9 @@ Expected: no uncommitted changes from this plan. Unrelated pre-existing dirty fi
 
 ## Self-Review
 
-- Spec coverage: covers client contract, display contract, HTTP mode, in-process mode, factory lifecycle, submitter injection, capability endpoint, and real task execution.
+- Spec coverage: covers client contract, display contract, HTTP mode, in-process mode, factory lifecycle, submitter injection, capability endpoint, unified async video/frame execution, heartbeat-backed worker capability, and task result presentation.
 - Placeholder scan: no unfinished placeholder content and no fake local disablement as final state.
-- Type consistency: stable names are `StoryboardWorkbenchTaskSubmitter`, `TaskManagerStoryboardWorkbenchTaskSubmitter`, `get_capabilities`, `list_image_candidates`, `select_image_candidate`, `regenerate_frame_image`, and `get_prompt_plan_stale_summary`.
+- Type consistency: stable names are `TaskRuntime`, `TaskExecutorRegistry`, `WorkerRegistry`, `WorkerHeartbeat`, `StoryboardWorkbenchTaskSubmitter`, `TaskManagerStoryboardWorkbenchTaskSubmitter`, `get_capabilities`, `list_image_candidates`, `select_image_candidate`, `regenerate_frame_image`, and `get_prompt_plan_stale_summary`.
 - Scope: Storyboard Workbench only. AssetBible / Stage2 HTTP clients are left untouched.
 - Atomicity check: no task leaves Workbench UI switched to a local skeleton that cannot satisfy existing list/select/stale/regenerate submission flows.
-- Debt check: regenerate availability is sourced from real submitter/executor wiring, not hardcoded booleans or disabled-button workaround.
+- Debt check: regenerate availability is sourced from real submitter/executor/worker-heartbeat wiring, async video is not left on legacy closure execution, and task results do not persist transport URLs.

@@ -15,14 +15,17 @@
 8001 只属于 HTTP 部署适配器，不属于产品功能边界
 ```
 
-本次设计必须从源头解决 4 个边界问题：
+本次设计必须从源头解决 7 个边界问题，禁止只做最小改动：
 
 1. `client factory` 不能缓存未配置完成的本地 client。
 2. `artifact` 显示合同不能再间接依赖 `/api/files/...` 和 `api_base_url`。
 3. `regenerate` 不能再假设本地或 HTTP 后端一定有 `task_manager`；必须转成显式 capability。
 4. FastAPI router 不能再直接 reach-through 到 `request.app.state.task_manager`；再生成任务提交必须通过一等依赖 `StoryboardWorkbenchTaskSubmitter`。
+5. `TaskManager` 不能同时保留 legacy async video 执行路径和新增 task executor registry 双轨执行；所有异步生成任务必须统一走 `TaskExecutorRegistry`。
+6. worker mode 的能力不能依赖静态启动配置；必须来自 worker heartbeat 写入的 worker registry，过期 worker 不得继续贡献 capability。
+7. task result 不能存储由 `Request.base_url` 派生的 `video_url` 或其它 transport URL；任务执行层只写 storage identity，HTTP URL 必须在 API response presentation 层按当前请求派生。
 
-本设计不接受“本地重抽图先禁用，以后再接”的过渡方案。可执行目标是：本地和 HTTP 都通过同一个窄的 task submitter 抽象提交 frame image regeneration；只有运行时确实未配置 submitter 时，capability 才报告不可用。
+本设计不接受“本地重抽图先禁用，以后再接”的过渡方案，也不接受“先让新任务走注册表，旧 async video 以后再迁”的双轨过渡。可执行目标是：本地和 HTTP 都通过同一个窄的 task submitter 抽象提交 frame image regeneration；所有异步生成任务通过同一个 task executor registry 执行；只有运行时确实未配置 submitter 或 executor/worker capability 时，capability 才报告不可用。
 
 通俗地说：不是把坏掉的按钮藏起来，而是把按钮真正接到正确的电路上；如果电路没有装，系统要明确说“没装”，不能假装能用。
 
@@ -60,6 +63,7 @@ StaleDependencyReadService
 StoryboardWorkbenchTaskSubmitter
 TaskExecutorRegistry
 WorkerCapabilityRegistry
+WorkerRegistry
 ```
 
 端口、URL、HTTP 状态码只属于远程 transport。
@@ -140,13 +144,29 @@ api/tasks/executors.py
   -> TaskExecutor
   -> capability source for TaskManager and submitters
 
+api/tasks/worker_registry.py
+  -> WorkerRegistry
+  -> WorkerHeartbeat
+  -> HeartbeatWorkerCapabilityRegistry
+  -> dynamic worker capability source with expiry
+
+api/video/executor_factory.py
+  -> register_video_generation_executor(...)
+  -> owns lazy PixelleVideoCore provider closure for VIDEO_GENERATION
+
+api/tasks/artifacts.py
+  -> persist generated files as storage identity only
+  -> no transport URL in ArtifactStore return shape
+
 api/workbench/executor_factory.py
   -> register_storyboard_workbench_executors(...)
   -> owns lazy PixelleVideoCore provider closure for Workbench task executors
 
 api/app.py
   -> build shared TaskExecutorRegistry
+  -> register_video_generation_executor(...)
   -> register_storyboard_workbench_executors(...)
+  -> build WorkerRegistry-backed capability registry
   -> build_task_manager(...)
   -> configure_platform_dependencies(..., task_manager=manager)
   -> attach storyboard_workbench_task_submitter to app.state
@@ -190,6 +210,8 @@ web/workbench/inprocess_client.py
 
 ```text
 api/tasks/executors.py
+api/tasks/worker_registry.py
+api/video/executor_factory.py
 api/workbench/__init__.py
 api/workbench/executor_factory.py
 api/workbench/task_submitter.py
@@ -242,22 +264,62 @@ class TaskExecutorRegistry:
 
 规则：
 
-- `TaskManager` 对新增业务任务只依赖 `TaskExecutorRegistry`，不新增 `frame_image_regeneration_executor`、`tts_executor`、`render_executor` 等业务字段。
-- 现有 `VIDEO_GENERATION` 的 legacy in-memory path 暂时保留；长期目标是把它也迁移到 `TaskExecutorRegistry`，但本计划不做无关重构。
-- embedded mode 下，`TaskManager.can_execute_task_type(task_type)` 委托 `TaskExecutorRegistry.can_execute(task_type)`。
+- `TaskManager` 对所有异步生成任务只依赖 `TaskExecutorRegistry`，不新增 `frame_image_regeneration_executor`、`video_generation_executor`、`tts_executor`、`render_executor` 等业务字段。
+- `VIDEO_GENERATION` 必须在本计划内迁移到 `TaskExecutorRegistry`；保留 legacy async video path 会继续制造隐藏执行边界和测试债，不能接受。
+- embedded mode 下，`TaskManager.can_execute_task_type(task_type)` 委托 `TaskExecutorRegistry.can_execute(task_type)`；没有 executor 就 fail closed。
 - embedded mode 下，`TaskManager.reserve_or_reuse_generation_task(...)` 只在 registry 中存在对应 executor 时自动执行新创建任务。
 - worker mode 下，`TaskManager` 不假设本进程能执行任务；它只负责入队和查询 task store。
 - worker 进程使用自己的 `TaskExecutorRegistry` 注册实际 executor，并用该 registry 选择可 claim 的 task types。
-- API 对外 capability 若要报告 worker mode 可用，阶段性可读取启动配置里的静态 `WorkerCapabilityRegistry`；长期应由 worker heartbeat 上报 capability。
+- API 对外 capability 若要报告 worker mode 可用，必须读取 worker heartbeat 写入的动态 `WorkerRegistry`；静态启动配置不能作为 capability 真相来源。
 
 `WorkerCapabilityRegistry` 是独立控制面能力模型，不属于 Workbench 专属逻辑：
 
 ```python
 class WorkerCapabilityRegistry(Protocol):
-    def supports(self, task_type: TaskType) -> bool: ...
+    async def supports(self, task_type: TaskType) -> bool: ...
 ```
 
-当前阶段允许 `StaticWorkerCapabilityRegistry({TaskType.FRAME_IMAGE_REGENERATION})` 作为过渡实现；后续可替换为基于 worker heartbeat 的动态实现，而不改变 `StoryboardWorkbenchTaskSubmitter` 与 UI 合同。
+`WorkerCapabilityRegistry` 的生产实现必须基于 worker heartbeat，而不是静态集合：
+
+```python
+@dataclass(frozen=True)
+class WorkerHeartbeat:
+    worker_id: str
+    supported_task_types: set[TaskType]
+    heartbeat_at: datetime
+
+
+class WorkerRegistry(Protocol):
+    async def heartbeat(self, heartbeat: WorkerHeartbeat) -> None: ...
+    async def supports(self, task_type: TaskType, *, now: datetime | None = None) -> bool: ...
+```
+
+测试和 `PIXELLE_TASK_BACKEND=memory` 的单进程开发模式可以使用 in-memory registry；`PIXELLE_TASK_BACKEND=postgres` 或任何 API/worker 分进程部署必须使用共享 worker heartbeat store，例如 PostgreSQL `worker_heartbeats` 表或等价的 Redis TTL keyspace。不能在产品路径中引入 `StaticWorkerCapabilityRegistry`。worker capability 的源头是“活着的 worker 最近上报它能执行什么”，不是“API 启动时相信配置文件写了什么”。
+
+Video generation 的 executor 注册必须集中在 `api/video/executor_factory.py`：
+
+```python
+def register_video_generation_executor(
+    registry: TaskExecutorRegistry,
+    *,
+    core_provider: Callable[[], PixelleVideoCore | Awaitable[PixelleVideoCore]],
+) -> TaskExecutorRegistry: ...
+```
+
+该 executor 负责调用 `PixelleVideoCore.generate_video(...)`，持久化 artifact，并返回 `storage_key`、`duration`、`file_size` 等 domain/storage identity。它不得读取 `Request`，不得调用 `path_to_url(...)`，不得把 `video_url` 写入 task result。
+
+`ArtifactStore.persist_video(...)` 也属于源头边界，返回值必须去掉 `video_url`：
+
+```python
+{
+    "storage_backend": "local",
+    "storage_key": "task-id/final.mp4",
+    "file_size": 123456,
+    "duration": 12.3,
+}
+```
+
+如果 storage backend 需要公开访问地址，只能返回可稳定持久化的 storage identity 或 backend metadata，不能返回基于某次 HTTP request、某个 host、某个端口拼出的 URL。这样 executor 不能通过 artifact store 间接把 transport URL 写入 task result。
 
 Workbench 的 executor 注册必须集中在 `api/workbench/executor_factory.py`：
 
@@ -277,7 +339,7 @@ FastAPI、Streamlit 本地模式和 worker 进程都复用这个 factory。`core
 
 ```python
 class StoryboardWorkbenchTaskSubmitter(Protocol):
-    def get_capabilities(self) -> StoryboardWorkbenchCapabilities: ...
+    async def get_capabilities(self) -> StoryboardWorkbenchCapabilities: ...
 
     async def reserve_frame_image_regeneration(
         self,
@@ -343,12 +405,12 @@ GET /api/storyboards/workbench/capabilities
 
 规则：
 
-- FastAPI 通过 `request.app.state.storyboard_workbench_task_submitter.get_capabilities()` 判断 `can_regenerate_frame_image`。
+- FastAPI 通过 `await request.app.state.storyboard_workbench_task_submitter.get_capabilities()` 判断 `can_regenerate_frame_image`。
 - HTTP client 每次或带短生命周期缓存查询 capability endpoint；本计划采用无缓存查询，先保证行为真实。
-- in-process client 通过 `pixelle_video.storyboard_workbench_task_submitter.get_capabilities()` 判断 capability。
+- in-process client 通过 `pixelle_video.storyboard_workbench_task_submitter.get_capabilities()` 判断 capability；Streamlit 同步调用边界用既有 async runtime bridge 执行，不把 backend capability 降级成静态同步值。
 - capability 不能只表示“能提交任务”；它必须同时表示 frame image regeneration 已配置可执行路径：
   - embedded mode 下 `TaskExecutorRegistry` 必须已注册 `TaskType.FRAME_IMAGE_REGENERATION` executor。
-  - worker mode 下必须由 `WorkerCapabilityRegistry` 显式声明当前部署支持 `TaskType.FRAME_IMAGE_REGENERATION`；不能仅因为 `execution_mode == "worker"` 就返回可用。
+  - worker mode 下必须由 heartbeat-backed `WorkerCapabilityRegistry` 显示当前活跃 worker 支持 `TaskType.FRAME_IMAGE_REGENERATION`；不能仅因为 `execution_mode == "worker"` 或静态配置就返回可用。
 - submitter 存在不等于 regenerate 可用。submitter 可以被提前注入，但在执行路径未配置时必须 fail closed，并通过 capability 返回不可用原因。
 - 缺少 submitter 时返回：
 
@@ -458,16 +520,17 @@ class StoryboardWorkbenchClient(Protocol):
 storyboard_workbench_task_submitter: StoryboardWorkbenchTaskSubmitter | None = None
 task_executor_registry: TaskExecutorRegistry | None = None
 worker_capability_registry: WorkerCapabilityRegistry | None = None
+worker_registry: WorkerRegistry | None = None
 ```
 
 构建规则：
 
-- `build_platform_dependencies(config, task_manager=None, task_executor_registry=None, worker_capability_registry=None)` 接收可选 `task_manager`、执行注册表和 worker capability 注册表。
+- `build_platform_dependencies(config, task_manager=None, task_executor_registry=None, worker_capability_registry=None, worker_registry=None)` 接收可选 `task_manager`、执行注册表、worker capability 注册表和 worker registry。
 - 有 `task_manager` 时构造 `TaskManagerStoryboardWorkbenchTaskSubmitter(task_manager)`。
-- `TaskManagerStoryboardWorkbenchTaskSubmitter.get_capabilities()` 通过 `TaskManager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION)` 判断真实执行能力；缺少该方法或返回 false 时必须 fail closed。
+- `TaskManagerStoryboardWorkbenchTaskSubmitter.get_capabilities()` 通过 `await TaskManager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION)` 判断真实执行能力；缺少该方法或返回 false 时必须 fail closed。
 - `TaskManager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION)` 的规则必须是：
   - embedded mode：只有 `TaskExecutorRegistry` 已注册 `FRAME_IMAGE_REGENERATION` executor 时返回 true。
-  - worker mode：只有 `WorkerCapabilityRegistry.supports(FRAME_IMAGE_REGENERATION)` 返回 true 时返回 true。
+  - worker mode：只有 `await heartbeat-backed WorkerCapabilityRegistry.supports(FRAME_IMAGE_REGENERATION)` 返回 true 时返回 true。
   - 其他情况返回 false。
 - 没有 `task_manager` 时不直接创建隐藏全局 task manager；返回 submitter 为 `None`，并由 capability 明确暴露不可用。
 - `configure_platform_dependencies(app, config, task_manager=manager)` 在 API lifespan 中接收已启动前的 manager，并把 submitter 挂到 `app.state`。
@@ -476,6 +539,28 @@ worker_capability_registry: WorkerCapabilityRegistry | None = None
 本地 Streamlit 的最佳实践不是从 `PixelleVideoCore` 偷读 `task_manager`，而是在平台依赖层显式注入 `storyboard_workbench_task_submitter`。这样 UI、client、service 都只看自己的合同。
 
 `PixelleVideoCore` provider 只属于具体 executor factory 的运行时懒加载闭包，不进入 `PlatformDependencies`。executor factory 可以在任务真正执行时取得当前已初始化的 `PixelleVideoCore`，但 UI、client factory、capability 查询和平台依赖构建都不得调用该 provider。首次本地 regenerate 必须通过测试覆盖，确保不会出现 `get_pixelle_video()` 与本地 platform dependency 构建之间的递归初始化。
+
+## 8.1 Task Result Presentation 边界
+
+异步任务 result 是持久化执行结果，不是某次 HTTP 请求的 response DTO。执行层必须只写：
+
+```python
+{
+    "storage_key": "task-id/final.mp4",
+    "duration": 12.3,
+    "file_size": 123456,
+}
+```
+
+禁止写入：
+
+```python
+{
+    "video_url": "http://request-host/api/files/task-id/final.mp4"
+}
+```
+
+`video_url` 只能在 `api/routers/tasks.py` 或对应 response schema 的 presentation 层根据当前 `Request.base_url` 与 `storage_key` 派生。这样 worker、反向代理、多域名、HTTP client 和 in-process client 都不会被任务执行时的 request origin 污染。
 
 ## 9. In-process Client
 
@@ -661,7 +746,7 @@ HttpStoryboardWorkbenchClient / FastAPI API
 必须新增 / 调整测试：
 
 1. `TaskManagerStoryboardWorkbenchTaskSubmitter` 把 frame image regeneration 请求提交到 `TaskManager.reserve_or_reuse_generation_task(...)`，并返回稳定 submission shape。
-2. `PlatformDependencies` 在 API lifespan 和 Streamlit session 中都挂载 `storyboard_workbench_task_submitter`，并持有通用 `TaskExecutorRegistry` / `WorkerCapabilityRegistry`；`PixelleVideoCore` provider 不进入 platform dependencies。
+2. `PlatformDependencies` 在 API lifespan 和 Streamlit session 中都挂载 `storyboard_workbench_task_submitter`，并持有通用 `TaskExecutorRegistry` / heartbeat-backed `WorkerCapabilityRegistry` / `WorkerRegistry`；`PixelleVideoCore` provider 不进入 platform dependencies。
 3. FastAPI capability endpoint 根据 submitter 是否存在返回真实能力。
 4. FastAPI regenerate endpoint 通过 submitter，不再直接读取 `request.app.state.task_manager`。
 5. HTTP client 从 capability endpoint 读取能力，不硬编码 true。
@@ -679,8 +764,9 @@ HttpStoryboardWorkbenchClient / FastAPI API
     - `httpx`
     - `localhost:8001`
 14. 本地 mode 的 Workbench UI 源码和测试不再把 `api_base_url` 当能力输入；`api_base_url` 只能出现在 HTTP client / HTTP helper / 显式 HTTP mode 测试中。
-15. worker mode 的 capability 只有在 `WorkerCapabilityRegistry` 声明 `FRAME_IMAGE_REGENERATION` 属于当前部署支持的 worker task type 时才返回 true；不能因为 `execution_mode == "worker"` 自动返回 true。
-16. `TaskExecutorRegistry` 是所有新增异步业务任务的通用执行能力来源；不得给 `TaskManager` 增加 Workbench 专属 executor 字段。现有 `VIDEO_GENERATION` legacy path 保持兼容，不在本计划内重构。
+15. worker mode 的 capability 只有在 heartbeat-backed `WorkerCapabilityRegistry` 发现共享 heartbeat store 中存在活跃 worker 支持 `FRAME_IMAGE_REGENERATION` 时才返回 true；不能因为 `execution_mode == "worker"` 或静态配置自动返回 true。
+16. `TaskExecutorRegistry` 是所有异步生成任务的通用执行能力来源；不得给 `TaskManager` 增加 Workbench 专属 executor 字段，也不得保留 `VIDEO_GENERATION` legacy async 执行双轨。
+17. async video task result 不再持久化 `video_url`；task result 只存 `storage_key` 等 storage identity，HTTP URL 在任务查询 response 层按当前 request 派生。
 
 ## 15. 非目标
 
@@ -690,9 +776,9 @@ HttpStoryboardWorkbenchClient / FastAPI API
 - 重写 `flowgram.ai-main`。
 - 顺手改动 AssetBible / Stage2 所有 HTTP client。
 - 通过 reach-through `task_manager` 临时打通本地 regenerate。
-- 重写整个任务系统或引入新的队列后端。
+- 引入新的队列后端。
 
-本设计只收敛 Storyboard Workbench 的产品边界，并把 regenerate 的依赖关系转成显式、可复用、可测试的能力模型。
+本设计收敛 Storyboard Workbench 的产品边界，同时把现有 async video 的执行入口迁入同一 task executor registry，避免任务执行控制面继续双轨。
 
 ## 16. 验收标准
 
@@ -706,9 +792,11 @@ HttpStoryboardWorkbenchClient / FastAPI API
 6. factory 不缓存未配置完成的 in-process client。
 7. 本地与 HTTP regenerate 都通过 `StoryboardWorkbenchTaskSubmitter`，不直接读取 task manager。
 8. capability 来自真实 submitter 配置；HTTP client 不硬编码 regenerate 可用。
-9. worker mode 的 regenerate capability 来自 `WorkerCapabilityRegistry` 显式支持声明，而不是来自 `execution_mode == "worker"` 这一事实本身。
+9. worker mode 的 regenerate capability 来自 heartbeat-backed `WorkerCapabilityRegistry` 在共享 heartbeat store 中看到的活跃 worker 支持状态，而不是来自 `execution_mode == "worker"` 或静态配置。
 10. 所有返回到 UI 的 artifact 显示数据仍经过安全过滤。
-11. 测试覆盖本地模式、HTTP 模式、client 生命周期、显示合同、submitter 注入、capability endpoint、缺失依赖、executor registry、worker capability registry、provider 懒加载和无端口硬编码回归。
+11. async video 也通过 `TaskExecutorRegistry` 执行，`api/routers/video.py` 不再传 closure 给 `TaskManager.execute_task(...)`。
+12. task result 不包含 request-derived URL；`video_url` 只在 HTTP response presentation 层派生。
+13. 测试覆盖本地模式、HTTP 模式、client 生命周期、显示合同、submitter 注入、capability endpoint、缺失依赖、executor registry、worker registry heartbeat、task result presentation、provider 懒加载和无端口硬编码回归。
 
 ## 17. 自检
 
@@ -716,9 +804,10 @@ HttpStoryboardWorkbenchClient / FastAPI API
 - Scope check：只处理 Storyboard Workbench client boundary，不扩展到 AssetBible / Stage2。
 - Boundary check：`8001` 被限定为 HTTP client 配置，不再是 UI 产品功能依赖。
 - Lifecycle check：factory 不缓存未初始化完成的 in-process client。
-- Executor registry check：`TaskManager` 只依赖通用 `TaskExecutorRegistry`，不新增 Workbench 专属 executor 字段。
+- Executor registry check：`TaskManager` 只依赖通用 `TaskExecutorRegistry`，不新增 Workbench 或 video 专属 executor 字段，不保留 async video 双轨执行。
 - Provider check：`PixelleVideoCore` provider 只作为具体 executor factory 的运行时懒依赖，不进入 `PlatformDependencies`，不在依赖构建和 capability 查询时提前调用。
 - Display check：本地显示合同不再回落到 `api_base_url`。
 - Capability check：regenerate 通过真实 submitter 和 capability endpoint 暴露，不再保留假按钮。
-- Worker capability check：worker mode 只有在 `WorkerCapabilityRegistry` 显式声明支持 `FRAME_IMAGE_REGENERATION` 时才报告可用。
-- Debt check：不接受“本地 regenerate 本期先禁用”的过渡债；本地和 HTTP 都走同一 submitter 抽象。
+- Worker capability check：worker mode 只有在 heartbeat-backed `WorkerCapabilityRegistry` 通过共享 heartbeat store 发现活跃 worker 支持 `FRAME_IMAGE_REGENERATION` 时才报告可用。
+- Result presentation check：task result 不存 request-derived URL，HTTP URL 只在 response 层派生。
+- Debt check：不接受“本地 regenerate 本期先禁用”、`VIDEO_GENERATION` legacy async 双轨、静态 worker capability 等过渡债。
