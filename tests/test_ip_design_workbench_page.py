@@ -93,9 +93,12 @@ def test_ip_design_page_renders_standalone_workbench(monkeypatch):
             }
         )
 
+    def translate(key, **_kwargs):
+        return key
+
     page.render_ip_design_workbench_page(
         ui=fake_ui,
-        translate=lambda key, **_kwargs: key,
+        translate=translate,
         workbench_renderer=fake_renderer,
     )
 
@@ -106,7 +109,7 @@ def test_ip_design_page_renders_standalone_workbench(monkeypatch):
         {
             "ip_design_client": client,
             "ui": fake_ui,
-            "translate": page.tr,
+            "translate": translate,
         }
     ]
 

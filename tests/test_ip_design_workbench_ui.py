@@ -185,10 +185,24 @@ def test_ip_design_workbench_lists_assets_and_scene_casts():
     fake_ui = _FakeUI()
     client = _FakeIPDesignClient()
 
+    def translate(key, **kwargs):
+        if key == "ip_design.asset_bible.counts":
+            return (
+                f"characters {kwargs['characters']} scenes {kwargs['scenes']} "
+                f"props {kwargs['props']} styles {kwargs['styles']}"
+            )
+        if key == "ip_design.scene_cast.summary":
+            return (
+                f"{kwargs['scene_cast_id']} {kwargs['storyboard_plan_id']} "
+                f"{kwargs['frame_id']} {kwargs['characters']} {kwargs['scene_id']} "
+                f"{kwargs['props']} {kwargs['style_id']}"
+            )
+        return key
+
     render_ip_design_workbench(
         ip_design_client=client,
         ui=fake_ui,
-        translate=lambda key, **_kwargs: key,
+        translate=translate,
     )
 
     rendered = "\n".join(fake_ui.markdowns + fake_ui.captions)
@@ -209,6 +223,33 @@ def test_ip_design_workbench_lists_assets_and_scene_casts():
             "asset_bible_id": "bible_demo",
         },
     ]
+
+
+def test_ip_design_workbench_renders_scene_cast_summary_from_translation_only():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+    client = _FakeIPDesignClient()
+
+    def translate(key, **kwargs):
+        if key == "ip_design.asset_bible.counts":
+            return "counts"
+        if key == "ip_design.scene_cast.summary":
+            return f"scene summary {kwargs['scene_cast_id']} {kwargs['frame_id']}"
+        return key
+
+    render_ip_design_workbench(
+        ip_design_client=client,
+        ui=fake_ui,
+        translate=translate,
+    )
+
+    raw_summary = (
+        "cast_frame_1 · storyboard_plan_1/frame_0001 · "
+        "char_luna · scene_lab · prop_compass · style_warm_comic"
+    )
+    assert "scene summary cast_frame_1 frame_0001" in fake_ui.captions
+    assert raw_summary not in fake_ui.captions
 
 
 def test_ip_design_workbench_saves_asset_bible_through_client():

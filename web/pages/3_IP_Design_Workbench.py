@@ -54,7 +54,7 @@ def render_ip_design_workbench_page(
     workbench_renderer(
         ip_design_client=ip_design_client,
         ui=ui,
-        translate=tr,
+        translate=translate,
     )
 
 

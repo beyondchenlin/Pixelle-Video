@@ -344,16 +344,6 @@ def _render_scene_cast_summary(
         props=", ".join(_text_list(scene_cast.get("prop_ids"))),
         style_id=_first_text(scene_cast.get("style_id")),
     )
-    raw_summary = (
-        f"{_first_text(scene_cast.get('scene_cast_id'))} · "
-        f"{_first_text(scene_cast.get('storyboard_plan_id'))}/"
-        f"{_first_text(scene_cast.get('frame_id'))} · "
-        f"{', '.join(_text_list(scene_cast.get('character_ids')))} · "
-        f"{_first_text(scene_cast.get('scene_id'))} · "
-        f"{', '.join(_text_list(scene_cast.get('prop_ids')))} · "
-        f"{_first_text(scene_cast.get('style_id'))}"
-    )
-    ui.caption(raw_summary)
     ui.caption(summary)
 
 
