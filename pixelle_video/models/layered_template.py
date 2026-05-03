@@ -250,6 +250,33 @@ def layered_template_fingerprint(spec: LayeredTemplateSpec | Mapping[str, Any]) 
     return hashlib.sha256(encoded).hexdigest()[:16]
 
 
+def layered_template_has_layers(
+    spec: LayeredTemplateSpec | Mapping[str, Any] | None,
+) -> bool:
+    if spec is None:
+        return False
+    normalized = coerce_layered_template_spec(spec)
+    return bool(normalized and normalized.get("layers"))
+
+
+def coerce_layered_template_spec(
+    spec: LayeredTemplateSpec | Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if spec is None:
+        return None
+    if isinstance(spec, LayeredTemplateSpec):
+        return spec.to_dict()
+    return LayeredTemplateSpec.from_dict(spec).to_dict()
+
+
+def active_layered_template_spec(
+    spec: LayeredTemplateSpec | Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not layered_template_has_layers(spec):
+        return None
+    return coerce_layered_template_spec(spec)
+
+
 def _normalize_finite_number(name: str, value: Any) -> float:
     if isinstance(value, bool):
         raise ValueError(f"{name} must be a finite number")

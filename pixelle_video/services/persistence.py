@@ -381,7 +381,7 @@ class PersistenceService:
     
     def _config_to_dict(self, config: StoryboardConfig) -> Dict[str, Any]:
         """Convert StoryboardConfig to dict"""
-        return {
+        data = {
             "task_id": config.task_id,
             "n_storyboard": config.n_storyboard,
             "min_narration_words": config.min_narration_words,
@@ -445,6 +445,10 @@ class PersistenceService:
             "role_locking_strength": config.role_locking_strength,
             "shot_strategy": config.shot_strategy,
         }
+        if data["layered_template_spec"] is None:
+            data.pop("layered_template_spec")
+            data["selected_template_preset_id"] = None
+        return data
     
     def _dict_to_config(self, data: Dict[str, Any]) -> StoryboardConfig:
         """Convert dict to StoryboardConfig"""

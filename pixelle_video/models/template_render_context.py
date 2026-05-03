@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from pixelle_video.models.layered_template import LayeredTemplateSpec
+from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.render_package import (
     CaptionCue,
@@ -113,9 +113,9 @@ class TemplateRenderContext:
         )
         self.media_placement = resolve_media_placement(self.media_placement)
         if self.layered_template_spec is not None:
-            self.layered_template_spec = LayeredTemplateSpec.from_dict(
+            self.layered_template_spec = active_layered_template_spec(
                 self.layered_template_spec
-            ).to_dict()
+            )
         preset = resolve_template_text_style_preset(self.template_id)
         if not self.template_title_region:
             self.template_title_region = preset.title_region_dict()

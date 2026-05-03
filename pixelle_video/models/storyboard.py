@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
-from pixelle_video.models.layered_template import LayeredTemplateSpec
+from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.size_contract import (
     DEFAULT_MEDIA_ORIENTATION,
@@ -192,9 +192,11 @@ class StoryboardConfig:
                 f"{sorted(VALID_TEMPLATE_TEXT_POLICIES)}"
             )
         if self.layered_template_spec is not None:
-            self.layered_template_spec = LayeredTemplateSpec.from_dict(
+            self.layered_template_spec = active_layered_template_spec(
                 self.layered_template_spec
-            ).to_dict()
+            )
+        if self.layered_template_spec is None:
+            self.selected_template_preset_id = None
 
     @property
     def media_layout_mode(self) -> str:

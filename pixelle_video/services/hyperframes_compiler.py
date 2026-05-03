@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha1
 from html import escape
 from pathlib import Path
 from shutil import copy2
 
+from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.media_placement import calculate_media_box
 from pixelle_video.models.render_package import CaptionCue, TextCue
 from pixelle_video.models.template_render_context import TemplateRenderContext
@@ -66,7 +67,10 @@ class HyperFramesCompiler:
         self.text_sanitizer = text_sanitizer or TextContentSanitizer()
 
     def compile(self, *, project_dir: Path, context: TemplateRenderContext) -> None:
-        if context.layered_template_spec is not None:
+        layered_template_spec = active_layered_template_spec(
+            context.layered_template_spec
+        )
+        if layered_template_spec is not None:
             (project_dir / "compositions").mkdir(parents=True, exist_ok=True)
             self._copy_runtime_assets(project_dir)
             self._copy_custom_font_assets(
@@ -77,7 +81,7 @@ class HyperFramesCompiler:
                 text_sanitizer=self.text_sanitizer,
             ).compile(
                 project_dir=project_dir,
-                context=context,
+                context=replace(context, layered_template_spec=layered_template_spec),
             )
             return
 

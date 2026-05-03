@@ -1,6 +1,11 @@
 import pytest
 
-from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
+from pixelle_video.models.layered_template import (
+    LayeredTemplateSpec,
+    LayerSourceSpec,
+    RectSpec,
+    TemplateLayer,
+)
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
@@ -29,6 +34,38 @@ def _spec_payload() -> dict:
         media_width=1080,
         media_height=1920,
         safe_area=RectSpec(x=64, y=64, width=952, height=1792),
+        layers=(
+            TemplateLayer(
+                id="media",
+                type="generated_media",
+                name="Generated media",
+                rect=RectSpec(x=64, y=320, width=952, height=952),
+                z_index=10,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=LayerSourceSpec(
+                    kind="generated_media",
+                    ref="generated://primary",
+                ),
+                style={"object_fit": "contain"},
+            ),
+        ),
+        metadata={},
+    ).to_dict()
+
+
+def _empty_spec_payload() -> dict:
+    return LayeredTemplateSpec(
+        version="layered_template.v1",
+        template_id="demo",
+        template_name="Demo",
+        template_type="image",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        safe_area=RectSpec(x=64, y=64, width=952, height=1792),
         layers=(),
         metadata={},
     ).to_dict()
@@ -46,6 +83,18 @@ def test_storyboard_config_accepts_layered_template_snapshot():
 
     assert config.layered_template_spec == spec
     assert config.selected_template_preset_id == "user:demo"
+
+
+def test_storyboard_config_ignores_empty_layered_template_snapshot():
+    config = StoryboardConfig(
+        media_width=1080,
+        media_height=1920,
+        layered_template_spec=_empty_spec_payload(),
+        selected_template_preset_id="system:1080x1920/image_default.html",
+    )
+
+    assert config.layered_template_spec is None
+    assert config.selected_template_preset_id is None
 
 
 def _plan() -> StoryboardPlan:

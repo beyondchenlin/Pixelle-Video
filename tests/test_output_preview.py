@@ -16,6 +16,28 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _layered_template_spec_payload(**overrides):
+    layers = overrides.pop(
+        "layers",
+        [
+            {
+                "id": "media",
+                "type": "generated_media",
+                "name": "Generated media",
+                "rect": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+                "z_index": 1,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": {
+                    "kind": "generated_media",
+                    "ref": "generated://primary",
+                    "metadata": {},
+                },
+                "style": {},
+                "role": None,
+            }
+        ],
+    )
     payload = {
         "version": "layered_template.v1",
         "template_id": "portrait_news",
@@ -26,7 +48,7 @@ def _layered_template_spec_payload(**overrides):
         "media_width": 640,
         "media_height": 960,
         "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
-        "layers": [],
+        "layers": layers,
         "metadata": {"orientation": "portrait"},
     }
     payload.update(overrides)
@@ -193,7 +215,7 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["progress_callback"] is _progress
 
 
-def test_build_single_generation_request_includes_layered_template_snapshot():
+def test_build_single_generation_request_omits_empty_layered_template_snapshot():
     def _progress(_event):
         return None
 
@@ -210,6 +232,27 @@ def test_build_single_generation_request_includes_layered_template_snapshot():
         "layers": [],
         "metadata": {},
     }
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "layered_template_spec": spec,
+            "selected_template_preset_id": "demo-preset",
+        },
+        progress_callback=_progress,
+        session_state={},
+    )
+
+    assert "layered_template_spec" not in request
+    assert "selected_template_preset_id" not in request
+
+
+def test_build_single_generation_request_includes_layered_template_snapshot_with_layers():
+    def _progress(_event):
+        return None
+
+    spec = _layered_template_spec_payload()
 
     request = output_preview.build_single_generation_request(
         {
@@ -351,7 +394,7 @@ def test_build_single_generation_request_uses_media_placement_payload():
     }
 
 
-def test_build_single_generation_request_includes_layered_template_snapshot():
+def test_build_single_generation_request_omits_empty_layered_template_snapshot_duplicate():
     def _progress(_event):
         return None
 
@@ -380,11 +423,11 @@ def test_build_single_generation_request_includes_layered_template_snapshot():
         session_state={},
     )
 
-    assert request["layered_template_spec"] == layered_template_spec
-    assert request["selected_template_preset_id"] == "portrait_news"
+    assert "layered_template_spec" not in request
+    assert "selected_template_preset_id" not in request
 
 
-def test_build_batch_shared_config_includes_layered_template_snapshot():
+def test_build_batch_shared_config_omits_empty_layered_template_snapshot():
     layered_template_spec = {
         "version": "layered_template.v1",
         "template_id": "portrait_news",
@@ -408,7 +451,22 @@ def test_build_batch_shared_config_includes_layered_template_snapshot():
         }
     )
 
-    assert shared_config["layered_template_spec"] == layered_template_spec
+    assert "layered_template_spec" not in shared_config
+    assert "selected_template_preset_id" not in shared_config
+
+
+def test_build_batch_shared_config_includes_layered_template_snapshot_with_layers():
+    spec = _layered_template_spec_payload()
+
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "title_prefix": "Series",
+            "layered_template_spec": spec,
+            "selected_template_preset_id": "portrait_news",
+        }
+    )
+
+    assert shared_config["layered_template_spec"] == spec
     assert shared_config["selected_template_preset_id"] == "portrait_news"
 
 
@@ -788,7 +846,7 @@ def test_build_batch_shared_config_includes_render_backend():
     assert shared_config["tts_audio_strategy"] == "master_track"
 
 
-def test_build_batch_shared_config_includes_layered_template_snapshot():
+def test_build_batch_shared_config_omits_empty_layered_template_snapshot_duplicate():
     spec = {
         "version": "layered_template.v1",
         "template_id": "demo",
@@ -811,8 +869,8 @@ def test_build_batch_shared_config_includes_layered_template_snapshot():
         }
     )
 
-    assert shared_config["layered_template_spec"] == spec
-    assert shared_config["selected_template_preset_id"] == "demo-preset"
+    assert "layered_template_spec" not in shared_config
+    assert "selected_template_preset_id" not in shared_config
 
 
 def test_build_batch_shared_config_uses_size_contract_defaults_and_overrides():
@@ -2023,6 +2081,30 @@ def test_render_layout_preview_workbench_section_uses_registry_recent_and_marks_
         == "user:portrait_news"
     )
     assert reruns == [True]
+
+
+def test_render_layout_preview_workbench_section_skips_without_spec(monkeypatch):
+    called = False
+
+    def _fake_render_layout_preview_workbench(**_kwargs):
+        nonlocal called
+        called = True
+        return None
+
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        _fake_render_layout_preview_workbench,
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "st",
+        SimpleNamespace(session_state={}, rerun=lambda: None),
+    )
+
+    output_preview._render_layout_preview_workbench_section({})
+
+    assert called is False
 
 
 def test_render_layout_preview_workbench_section_passes_media_placement(monkeypatch):

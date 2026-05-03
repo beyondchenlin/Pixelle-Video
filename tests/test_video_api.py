@@ -18,7 +18,12 @@ from api.schemas.video import (
     VideoResolutionPreset,
 )
 from api.schemas.video_internal import VideoGenerateInternalRequest
-from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
+from pixelle_video.models.layered_template import (
+    LayeredTemplateSpec,
+    LayerSourceSpec,
+    RectSpec,
+    TemplateLayer,
+)
 from pixelle_video.models.size_contract import (
     STANDARD_VIDEO_SIZE_PRESETS,
     VALID_MEDIA_RESOLUTION_PRESETS,
@@ -39,7 +44,23 @@ def _layered_spec_payload(template_id="demo") -> dict:
         media_width=1080,
         media_height=1920,
         safe_area=RectSpec(x=64, y=64, width=952, height=1792),
-        layers=(),
+        layers=(
+            TemplateLayer(
+                id="media",
+                type="generated_media",
+                name="Generated media",
+                rect=RectSpec(x=64, y=320, width=952, height=952),
+                z_index=10,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=LayerSourceSpec(
+                    kind="generated_media",
+                    ref="generated://primary",
+                ),
+                style={"object_fit": "contain"},
+            ),
+        ),
         metadata={},
     ).to_dict()
 
@@ -113,6 +134,34 @@ def test_build_video_generation_params_normalizes_layered_template_snapshot():
 
     assert params["layered_template_spec"] == spec
     assert params["selected_template_preset_id"] == "user:demo"
+
+
+def test_build_video_generation_params_omits_empty_layered_template_snapshot():
+    empty_spec = LayeredTemplateSpec(
+        version="layered_template.v1",
+        template_id="system:1080x1920/image_default.html",
+        template_name="Image Default",
+        template_type="image",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        safe_area=RectSpec(x=0, y=0, width=1080, height=1920),
+        layers=(),
+        metadata={},
+    ).to_dict()
+
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            layered_template_spec=empty_spec,
+            selected_template_preset_id="system:1080x1920/image_default.html",
+        ),
+        request_id="req_test",
+    )
+
+    assert "layered_template_spec" not in params
+    assert "selected_template_preset_id" not in params
 
 
 def test_video_generate_request_rejects_legacy_text_fields():

@@ -288,6 +288,19 @@ def _coerce_layered_template_spec(spec_payload) -> LayeredTemplateSpec | None:
         return None
 
 
+def _generation_layered_template_spec_payload(spec_payload) -> dict | None:
+    if spec_payload is None:
+        return None
+    spec = (
+        spec_payload
+        if isinstance(spec_payload, LayeredTemplateSpec)
+        else LayeredTemplateSpec.from_dict(spec_payload)
+    )
+    if not spec.layers:
+        return None
+    return spec.to_dict()
+
+
 def _build_layout_preview_frame_request(
     video_params,
     *,
@@ -410,6 +423,8 @@ def _save_layout_preview_template(video_params, *, spec: LayeredTemplateSpec) ->
 
 
 def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = "") -> None:
+    if not video_params.get("layered_template_spec"):
+        return
     selected = render_layout_preview_workbench(
         spec_payload=video_params.get("layered_template_spec"),
         recent_presets=_list_layout_preview_recent_presets(video_params),
@@ -554,9 +569,12 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     copy_prompt_generation_performance_params(video_params, request)
     if video_params.get("text_rendering") is not None:
         request["text_rendering"] = video_params["text_rendering"]
-    if video_params.get("layered_template_spec") is not None:
-        request["layered_template_spec"] = video_params["layered_template_spec"]
-    if video_params.get("selected_template_preset_id"):
+    layered_template_spec = _generation_layered_template_spec_payload(
+        video_params.get("layered_template_spec")
+    )
+    if layered_template_spec is not None:
+        request["layered_template_spec"] = layered_template_spec
+    if video_params.get("selected_template_preset_id") and layered_template_spec is not None:
         request["selected_template_preset_id"] = video_params[
             "selected_template_preset_id"
         ]
@@ -629,9 +647,12 @@ def build_batch_shared_config(video_params):
     copy_prompt_generation_performance_params(video_params, shared_config)
     if video_params.get("text_rendering") is not None:
         shared_config["text_rendering"] = video_params["text_rendering"]
-    if video_params.get("layered_template_spec") is not None:
-        shared_config["layered_template_spec"] = video_params["layered_template_spec"]
-    if video_params.get("selected_template_preset_id"):
+    layered_template_spec = _generation_layered_template_spec_payload(
+        video_params.get("layered_template_spec")
+    )
+    if layered_template_spec is not None:
+        shared_config["layered_template_spec"] = layered_template_spec
+    if video_params.get("selected_template_preset_id") and layered_template_spec is not None:
         shared_config["selected_template_preset_id"] = video_params[
             "selected_template_preset_id"
         ]

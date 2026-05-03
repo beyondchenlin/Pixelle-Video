@@ -18,7 +18,7 @@ Render package models for the render contract.
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
-from pixelle_video.models.layered_template import LayeredTemplateSpec
+from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.text_overlay import (
     FrozenJSONValue,
@@ -455,10 +455,8 @@ class RenderManifest:
             sync_media_size_to_canvas=self.sync_media_size_to_canvas,
         )
         self.media_placement = resolve_media_placement(media_placement)
-        self.layered_template_spec = (
-            LayeredTemplateSpec.from_dict(layered_template_spec).to_dict()
-            if layered_template_spec is not None
-            else None
+        self.layered_template_spec = active_layered_template_spec(
+            layered_template_spec
         )
         self.fps = int(fps)
         self.template_id = template_id

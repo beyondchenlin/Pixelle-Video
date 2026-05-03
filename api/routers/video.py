@@ -29,6 +29,7 @@ from api.schemas.video import (
     validate_raw_frame_template_orientation,
 )
 from api.tasks import TaskType, task_manager
+from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.services.generation_coordinator import build_generation_fingerprint
 from pixelle_video.services.resource_resolver import (
@@ -166,10 +167,12 @@ def build_video_generation_params(
             exclude_none=True
         )
     if request_body.layered_template_spec is not None:
-        video_params["layered_template_spec"] = (
-            request_body.layered_template_spec.to_model().to_dict()
+        layered_template_spec = active_layered_template_spec(
+            request_body.layered_template_spec.to_model()
         )
-    if request_body.selected_template_preset_id:
+        if layered_template_spec is not None:
+            video_params["layered_template_spec"] = layered_template_spec
+    if request_body.selected_template_preset_id and "layered_template_spec" in video_params:
         video_params["selected_template_preset_id"] = request_body.selected_template_preset_id
 
     _copy_tts_text_policy_params(request_body, video_params)

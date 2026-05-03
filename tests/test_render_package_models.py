@@ -8,7 +8,12 @@ from pydantic import ValidationError
 from pixelle_video.config.loader import load_config_dict, save_config_dict
 from pixelle_video.config.schema import PixelleVideoConfig
 from pixelle_video.models.creation_package import CreationPackage
-from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
+from pixelle_video.models.layered_template import (
+    LayeredTemplateSpec,
+    LayerSourceSpec,
+    RectSpec,
+    TemplateLayer,
+)
 from pixelle_video.models.render_package import (
     AudioBlock,
     CaptionCue,
@@ -60,6 +65,38 @@ def _storyboard_plan_from_segments(segments: list[str]) -> StoryboardPlan:
 
 
 def _layered_spec_payload(template_id="demo") -> dict:
+    return LayeredTemplateSpec(
+        version="layered_template.v1",
+        template_id=template_id,
+        template_name="Demo",
+        template_type="image",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        safe_area=RectSpec(x=64, y=64, width=952, height=1792),
+        layers=(
+            TemplateLayer(
+                id="media",
+                type="generated_media",
+                name="Generated media",
+                rect=RectSpec(x=64, y=320, width=952, height=952),
+                z_index=10,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=LayerSourceSpec(
+                    kind="generated_media",
+                    ref="generated://primary",
+                ),
+                style={"object_fit": "contain"},
+            ),
+        ),
+        metadata={},
+    ).to_dict()
+
+
+def _empty_layered_spec_payload(template_id="demo") -> dict:
     return LayeredTemplateSpec(
         version="layered_template.v1",
         template_id=template_id,
@@ -593,6 +630,23 @@ def test_storyboard_config_layered_template_fields_round_trip_through_persistenc
 
     assert restored.layered_template_spec == spec
     assert restored.selected_template_preset_id == "user:demo"
+
+
+def test_storyboard_config_empty_layered_template_snapshot_is_not_persisted(tmp_path):
+    config = StoryboardConfig(
+        media_width=1080,
+        media_height=1920,
+        layered_template_spec=_empty_layered_spec_payload(),
+        selected_template_preset_id="system:1080x1920/image_default.html",
+    )
+
+    service = PersistenceService(output_dir=str(tmp_path))
+    serialized = service._config_to_dict(config)
+    restored = service._dict_to_config(serialized)
+
+    assert "layered_template_spec" not in serialized
+    assert restored.layered_template_spec is None
+    assert restored.selected_template_preset_id is None
 
 
 def test_storyboard_frame_template_visual_fields_round_trip_through_persistence(tmp_path):

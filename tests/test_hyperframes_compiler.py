@@ -1856,6 +1856,98 @@ def _layered_template_spec_payload(**overrides):
     return payload
 
 
+def test_hyperframes_compiler_ignores_empty_layered_template_spec(
+    tmp_path: Path,
+):
+    template_root = tmp_path / "templates"
+    runtime_root = tmp_path / "runtime"
+    (template_root / "image_landscape_minimal" / "compositions").mkdir(parents=True)
+    (runtime_root / "fonts").mkdir(parents=True)
+    (template_root / "image_landscape_minimal" / "index.template.html").write_text(
+        (
+            '<main data-width="__CANVAS_WIDTH__" data-height="__CANVAS_HEIGHT__">'
+            "<h1>__TITLE__</h1>"
+            '<section class="visuals">__VISUALS__</section>'
+            '<section class="captions">__CAPTIONS__</section>'
+            "</main>"
+        ),
+        encoding="utf-8",
+    )
+    (
+        template_root
+        / "image_landscape_minimal"
+        / "compositions"
+        / "captions.template.html"
+    ).write_text(
+        '<div class="caption-root">__CAPTIONS__</div>',
+        encoding="utf-8",
+    )
+    (runtime_root / "fonts" / "phase1_fonts.css").write_text(
+        ":root { --hf-font-sans: sans-serif; }",
+        encoding="utf-8",
+    )
+    empty_spec = _layered_template_spec_payload(
+        template_id="system:1920x1080/image_landscape_minimal.html",
+        template_name="image_landscape_minimal.html",
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=1280,
+        media_height=720,
+        safe_area={"x": 0, "y": 0, "width": 1280, "height": 720, "unit": "px"},
+        layers=[],
+        metadata={},
+    )
+    context = TemplateRenderContext(
+        template_id="image_landscape_minimal",
+        canvas_width=1280,
+        canvas_height=720,
+        media_width=1280,
+        media_height=720,
+        duration=3.0,
+        fps=30,
+        title="Moon title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_landscape_minimal",
+        layered_template_spec=empty_spec,
+        visuals=[
+            VisualClip(
+                id="clip-1",
+                frame_index=0,
+                start=0.0,
+                end=3.0,
+                media_path="assets/images/01_image.png",
+                media_type="image",
+            )
+        ],
+        captions=[
+            CaptionCue(
+                id="caption-1",
+                text="Moon caption",
+                start=0.0,
+                end=3.0,
+                frame_indices=[0],
+                style_profile="caption-default",
+            )
+        ],
+    )
+
+    compiler = HyperFramesCompiler(template_root=template_root, runtime_root=runtime_root)
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    captions_html = (tmp_path / "project" / "compositions" / "captions.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "pixelle-generated-media-slot" not in index_html
+    assert "Moon title" in index_html
+    assert 'src="assets/images/01_image.png"' in index_html
+    assert 'class="clip pixelle-media-clip"' in index_html
+    assert "Moon caption" in captions_html
+
+
 def test_hyperframes_compiler_uses_layered_template_adapter_when_spec_present(
     tmp_path: Path,
 ):

@@ -1,6 +1,11 @@
 import pytest
 
-from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
+from pixelle_video.models.layered_template import (
+    LayeredTemplateSpec,
+    LayerSourceSpec,
+    RectSpec,
+    TemplateLayer,
+)
 from pixelle_video.models.render_package import (
     CaptionCue,
     RenderManifest,
@@ -18,6 +23,38 @@ from pixelle_video.services.hyperframes_project_service import build_template_re
 
 
 def _layered_spec_payload(template_id="demo") -> dict:
+    return LayeredTemplateSpec(
+        version="layered_template.v1",
+        template_id=template_id,
+        template_name="Demo",
+        template_type="image",
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+        safe_area=RectSpec(x=64, y=64, width=952, height=1792),
+        layers=(
+            TemplateLayer(
+                id="media",
+                type="generated_media",
+                name="Generated media",
+                rect=RectSpec(x=64, y=320, width=952, height=952),
+                z_index=10,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=LayerSourceSpec(
+                    kind="generated_media",
+                    ref="generated://primary",
+                ),
+                style={"object_fit": "contain"},
+            ),
+        ),
+        metadata={},
+    ).to_dict()
+
+
+def _empty_layered_spec_payload(template_id="demo") -> dict:
     return LayeredTemplateSpec(
         version="layered_template.v1",
         template_id=template_id,
@@ -295,6 +332,21 @@ def test_render_manifest_round_trips_layered_template_snapshot():
     assert restored.to_dict()["layered_template_spec"] == spec
 
 
+def test_render_manifest_omits_empty_layered_template_snapshot():
+    manifest = RenderManifest(
+        task_id="task-layered-empty",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        layered_template_spec=_empty_layered_spec_payload(),
+    )
+
+    assert manifest.layered_template_spec is None
+    assert "layered_template_spec" not in manifest.to_dict()
+
+
 def test_template_render_context_accepts_layered_template_snapshot():
     spec = _layered_spec_payload()
 
@@ -313,6 +365,24 @@ def test_template_render_context_accepts_layered_template_snapshot():
     )
 
     assert context.layered_template_spec == spec
+
+
+def test_template_render_context_ignores_empty_layered_template_snapshot():
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=1080,
+        canvas_height=1920,
+        duration=2.0,
+        fps=30,
+        title="demo",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        layered_template_spec=_empty_layered_spec_payload(),
+    )
+
+    assert context.layered_template_spec is None
 
 
 def test_template_render_context_rejects_invalid_media_layout_mode():
