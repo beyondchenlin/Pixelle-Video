@@ -2623,6 +2623,32 @@ def test_render_single_output_does_not_stop_before_gallery_on_input_error(monkey
     assert captured == {"gallery": True, "generated": False}
 
 
+def test_render_single_output_renders_workbench_between_generation_and_recent(monkeypatch):
+    sections = []
+
+    monkeypatch.setattr(
+        output_preview,
+        "_render_layout_preview_workbench_section",
+        lambda *args, **kwargs: sections.append("workbench"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "render_recent_video_gallery",
+        lambda *args, **kwargs: sections.append("recent"),
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "_render_generation_section",
+        lambda *args, **kwargs: sections.append("generation"),
+        raising=False,
+    )
+
+    output_preview._render_single_output_sections(object(), {"text": "demo"})
+
+    assert sections == ["generation", "workbench", "recent"]
+
+
 def test_render_batch_output_writes_last_successful_planning_snapshot(monkeypatch):
     captured = {"snapshot_updates": []}
 

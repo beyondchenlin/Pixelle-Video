@@ -365,14 +365,18 @@ def _render_layered_template_editor(
                 key="layered_template_add_image_layer",
                 width="stretch",
             ):
-                state = state.append_image_layer(f"Image layer {next_counts['image']}")
+                state = state.append_image_layer(
+                    f"Image layer {next_counts['image']}"
+                )
         with add_text_col:
             if st.button(
                 tr("layered_template.editor.add_text"),
                 key="layered_template_add_text_layer",
                 width="stretch",
             ):
-                state = state.append_text_layer(f"Text layer {next_counts['text']}")
+                state = state.append_text_layer(
+                    f"Text layer {next_counts['text']}"
+                )
 
         if state.layers:
             for layer in sorted(state.layers, key=lambda item: item.z_index):
@@ -2317,14 +2321,6 @@ def _render_image_prompt_prefix_library(
     return effective_prefix
 
 
-def _preview_caption_text(value: object) -> str:
-    for line in str(value or "").splitlines():
-        cleaned = line.strip()
-        if cleaned:
-            return cleaned[:80]
-    return tr("text_rendering_preview.default_caption")
-
-
 def render_style_config(
     pixelle_video,
     storyboard_default_enabled: bool = False,
@@ -2512,7 +2508,6 @@ def render_style_config(
                             else:
                                 st.error("Failed to generate preview audio")
                             
-                            # Show file path
                             st.caption(f"📁 {audio_path}")
                         else:
                             st.error("Failed to generate preview audio")
@@ -3105,7 +3100,6 @@ def render_style_config(
         metadata={},
     ).to_dict()
 
-    # Return all style configuration parameters
     result = {
         "tts_inference_mode": tts_mode,
         "tts_voice": selected_voice if tts_mode == "local" else None,

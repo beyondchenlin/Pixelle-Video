@@ -1,6 +1,8 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from pixelle_video.models.layered_template import LayeredTemplateSpec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.render_package import (
     CaptionCue,
@@ -89,6 +91,7 @@ class TemplateRenderContext:
     sync_media_size_to_canvas: bool = False
     media_layout_mode: Optional[str] = None
     media_placement: MediaPlacement | dict[str, Any] | None = None
+    layered_template_spec: Mapping[str, Any] | None = None
     template_params: Dict[str, Any] = field(default_factory=dict)
     visuals: List[VisualClip] = field(default_factory=list)
     captions: List[CaptionCue] = field(default_factory=list)
@@ -109,6 +112,10 @@ class TemplateRenderContext:
             sync_media_size_to_canvas=self.sync_media_size_to_canvas,
         )
         self.media_placement = resolve_media_placement(self.media_placement)
+        if self.layered_template_spec is not None:
+            self.layered_template_spec = LayeredTemplateSpec.from_dict(
+                self.layered_template_spec
+            ).to_dict()
         preset = resolve_template_text_style_preset(self.template_id)
         if not self.template_title_region:
             self.template_title_region = preset.title_region_dict()

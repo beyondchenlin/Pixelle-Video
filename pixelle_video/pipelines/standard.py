@@ -640,6 +640,8 @@ class StandardPipeline(LinearVideoPipeline):
             media_negative_prompt=ctx.media_negative_prompt,
             frame_template=frame_template,
             template_params=ctx.params.get("template_params"),
+            layered_template_spec=ctx.params.get("layered_template_spec"),
+            selected_template_preset_id=ctx.params.get("selected_template_preset_id"),
             **build_storyboard_config_planning_kwargs(ctx.planning_snapshot, planning_params),
         )
         
@@ -2012,6 +2014,7 @@ class StandardPipeline(LinearVideoPipeline):
                 sync_media_size_to_canvas=storyboard.config.sync_media_size_to_canvas,
                 media_layout_mode=storyboard.config.media_layout_mode,
                 media_placement=storyboard.config.media_placement,
+                layered_template_spec=storyboard.config.layered_template_spec,
                 fps=storyboard.config.video_fps,
                 template_id="legacy",
                 caption_rendering_enabled=self._caption_renderer_enabled(ctx, "ass"),
@@ -2133,6 +2136,7 @@ class StandardPipeline(LinearVideoPipeline):
             sync_media_size_to_canvas=config.sync_media_size_to_canvas,
             media_layout_mode=config.media_layout_mode,
             media_placement=config.media_placement,
+            layered_template_spec=config.layered_template_spec,
             fps=config.video_fps,
             template_id=Path(config.frame_template).stem,
             master_audio_path=master_audio_path,
@@ -2631,6 +2635,7 @@ class StandardPipeline(LinearVideoPipeline):
             sync_media_size_to_canvas=config.sync_media_size_to_canvas,
             media_layout_mode=config.media_layout_mode,
             media_placement=config.media_placement,
+            layered_template_spec=config.layered_template_spec,
             fps=config.video_fps,
             template_id=self._resolve_hyperframes_template_id(config),
             master_audio_path=master_audio_path,

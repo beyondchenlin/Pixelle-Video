@@ -5,12 +5,12 @@ from api.schemas.text_rendering_preview import (
 )
 from api.schemas.text_rendering_preview import TextRenderingPreviewFrameResponse
 from pixelle_video.models.template_text_style_presets import TEMPLATE_TEXT_STYLE_PRESETS
+from pixelle_video.repositories.artifacts import ArtifactObjectStore
 from pixelle_video.services.text_rendering_preview import (
     TextRenderingPreviewFrameRequest,
     TextRenderingPreviewFrameRequestError,
     TextRenderingPreviewFrameService,
 )
-from pixelle_video.repositories.artifacts import ArtifactObjectStore
 
 router = APIRouter(prefix="/text-rendering", tags=["Text Rendering"])
 

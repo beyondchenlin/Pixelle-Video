@@ -165,6 +165,12 @@ def build_video_generation_params(
         video_params["text_rendering"] = request_body.text_rendering.model_dump(
             exclude_none=True
         )
+    if request_body.layered_template_spec is not None:
+        video_params["layered_template_spec"] = (
+            request_body.layered_template_spec.to_model().to_dict()
+        )
+    if request_body.selected_template_preset_id:
+        video_params["selected_template_preset_id"] = request_body.selected_template_preset_id
 
     _copy_tts_text_policy_params(request_body, video_params)
     copy_prompt_generation_performance_params(request_body, video_params)

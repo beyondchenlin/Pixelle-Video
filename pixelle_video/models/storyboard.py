@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
+from pixelle_video.models.layered_template import LayeredTemplateSpec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.size_contract import (
     DEFAULT_MEDIA_ORIENTATION,
@@ -127,6 +128,8 @@ class StoryboardConfig:
     # Frame template (includes template design-coordinate information in path)
     frame_template: str = DEFAULT_IMAGE_TEMPLATE
     template_params: Optional[Dict[str, Any]] = None  # Custom template parameters (e.g., {"accent_color": "#ff0000"})
+    layered_template_spec: Optional[Dict[str, Any]] = None
+    selected_template_preset_id: Optional[str] = None
     template_text_policy: str = "caption_renderer"
     world_preset_id: Optional[str] = None
     shot_preset_id: Optional[str] = None
@@ -188,6 +191,10 @@ class StoryboardConfig:
                 "template_text_policy must be one of "
                 f"{sorted(VALID_TEMPLATE_TEXT_POLICIES)}"
             )
+        if self.layered_template_spec is not None:
+            self.layered_template_spec = LayeredTemplateSpec.from_dict(
+                self.layered_template_spec
+            ).to_dict()
 
     @property
     def media_layout_mode(self) -> str:

@@ -25,6 +25,7 @@ from pydantic import (
     model_validator,
 )
 
+from api.schemas.layered_template_preview import LayeredTemplateSpecRequest
 from api.schemas.storyboard_contract import (
     StoryboardFrameOverride,
     StoryboardPromptLanguage,
@@ -384,6 +385,14 @@ class VideoGenerateRequest(BaseModel):
     text_rendering: Optional[TextRenderingRequest] = Field(
         None,
         description="Unified text rendering and generated-image text policy",
+    )
+    layered_template_spec: Optional[LayeredTemplateSpecRequest] = Field(
+        None,
+        description="Normalized layered template snapshot for generation",
+    )
+    selected_template_preset_id: Optional[str] = Field(
+        None,
+        description="Selected layered template preset id",
     )
     
     # === BGM ===
