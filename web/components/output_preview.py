@@ -55,6 +55,7 @@ from web.components.recent_video_gallery import (
 )
 from web.components.layered_template_state import load_layered_template_spec_into_editor_state
 from web.components.layout_preview_workbench import (
+    DefaultLayoutSummary,
     TrustedPreviewHTML,
     render_layout_preview_workbench,
     trust_preview_html,
@@ -301,6 +302,44 @@ def _generation_layered_template_spec_payload(spec_payload) -> dict | None:
     return spec.to_dict()
 
 
+def _layout_preview_summary_text(video_params, *keys: str) -> str | None:
+    for key in keys:
+        value = video_params.get(key)
+        if value is None:
+            continue
+        candidate = str(value).strip()
+        if candidate:
+            return candidate
+    return None
+
+
+def _build_layout_preview_default_summary(video_params) -> DefaultLayoutSummary:
+    size_contract = GenerationSizeContract.from_params(video_params)
+    return DefaultLayoutSummary(
+        canvas_width=size_contract.canvas_width,
+        canvas_height=size_contract.canvas_height,
+        media_width=size_contract.media_width,
+        media_height=size_contract.media_height,
+        media_placement=resolve_media_placement(
+            _media_placement_payload(
+                video_params.get("media_placement"),
+                st.session_state.get("media_placement"),
+            )
+        ),
+        render_summary=_layout_preview_summary_text(
+            video_params,
+            "layout_preview_render_summary",
+            "render_backend",
+        ),
+        template_summary=_layout_preview_summary_text(
+            video_params,
+            "layout_preview_template_summary",
+            "selected_template_preset_id",
+            "frame_template",
+        ),
+    )
+
+
 def _build_layout_preview_frame_request(
     video_params,
     *,
@@ -428,6 +467,7 @@ def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = 
         spec_payload=spec_payload,
         recent_presets=_list_layout_preview_recent_presets(video_params),
         preview_html=_build_layout_preview_html(video_params),
+        default_layout_summary=_build_layout_preview_default_summary(video_params),
         render_summary=video_params.get("layout_preview_render_summary")
         or video_params.get("render_backend"),
         template_summary=video_params.get("layout_preview_template_summary")

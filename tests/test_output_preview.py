@@ -2151,6 +2151,20 @@ def test_render_layout_preview_workbench_section_renders_empty_state_without_spe
     )
 
     assert captured["spec_payload"] is None
+    default_summary = captured["default_layout_summary"]
+    assert default_summary.canvas_width == 1280
+    assert default_summary.canvas_height == 720
+    assert default_summary.media_width == 768
+    assert default_summary.media_height == 768
+    assert default_summary.media_placement.to_dict() == {
+        "scale_percent": 100,
+        "offset_x": 0,
+        "offset_y": 0,
+        "basis": "canvas",
+        "fit": "contain",
+    }
+    assert default_summary.render_summary is None
+    assert default_summary.template_summary == "1080x1920/image_default.html"
     assert captured["recent_limit"] == 5
     assert captured["recent_presets"] == []
     assert captured["template_summary"] == "1080x1920/image_default.html"

@@ -589,3 +589,54 @@ def test_render_layout_preview_workbench_handles_missing_spec_without_crashing(m
     ) in rendered
     assert fake_ui.infos == []
     assert fake_components.html_calls == []
+
+
+def test_render_layout_preview_workbench_renders_default_layout_summary_without_spec(
+    monkeypatch,
+):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    selected = layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=None,
+        recent_presets=[],
+        preview_html=None,
+        default_layout_summary={
+            "canvas_width": 720,
+            "canvas_height": 1280,
+            "media_width": 640,
+            "media_height": 960,
+            "media_placement": {
+                "basis": "canvas",
+                "fit": "contain",
+                "scale_percent": 76,
+                "offset_x": 18,
+                "offset_y": -24,
+            },
+            "render_summary": "hyperframes_compiled",
+            "template_summary": "system:1080x1920/image_default.html",
+        },
+        ui=fake_ui,
+    )
+
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    labels = [button["label"] for button in fake_ui.buttons]
+    assert selected is None
+    assert "720 x 1280" in rendered
+    assert "640 x 960" in rendered
+    assert "76%" in rendered
+    assert "X 18px" in rendered
+    assert "Y -24px" in rendered
+    assert "hyperframes_compiled" in rendered
+    assert "system:1080x1920/image_default.html" in rendered
+    assert "暂无可预览的排版规格" not in rendered
+    assert "刷新真实预览帧" not in labels
+    assert "保存为我的模板" not in labels
+    assert (
+        "暂无预览 HTML，完成一次服务端预览后会显示在这里。"
+        in rendered
+    )
+    assert fake_components.html_calls == []

@@ -22,6 +22,31 @@ _PENDING_SELECTION_SESSION_KEY = "_layout_preview_workbench_selection"
 class TrustedPreviewHTML:
     html: str
 
+
+@dataclass(frozen=True)
+class DefaultLayoutSummary:
+    canvas_width: int
+    canvas_height: int
+    media_width: int
+    media_height: int
+    media_placement: MediaPlacement
+    render_summary: str | None = None
+    template_summary: str | None = None
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any] | object) -> "DefaultLayoutSummary":
+        return cls(
+            canvas_width=_positive_int_field(value, "canvas_width"),
+            canvas_height=_positive_int_field(value, "canvas_height"),
+            media_width=_positive_int_field(value, "media_width"),
+            media_height=_positive_int_field(value, "media_height"),
+            media_placement=resolve_media_placement(
+                _read_field(value, "media_placement")
+            ),
+            render_summary=_optional_text_field(value, "render_summary"),
+            template_summary=_optional_text_field(value, "template_summary"),
+        )
+
 _RECENT_TITLE = "\u6700\u8fd1\u6a21\u677f\u5feb\u6377"
 _NO_RECENT = "\u6682\u65e0\u6700\u8fd1\u6a21\u677f\u3002"
 _APPLY_PREFIX = "\u5957\u7528"
@@ -30,6 +55,7 @@ _APPLY_HELP = (
     "\u636e\u6b64\u56de\u586b\u5b8c\u6574\u89c4\u683c\u3002"
 )
 _CURRENT_SPEC = "\u5f53\u524d\u89c4\u683c"
+_CURRENT_TEMPLATE_RULES = "\u5f53\u524d\u6a21\u677f\u89c4\u5219"
 _NO_SPEC = "\u6682\u65e0\u53ef\u9884\u89c8\u7684\u6392\u7248\u89c4\u683c\u3002"
 _CANVAS_SIZE = "\u753b\u5e03\u5c3a\u5bf8"
 _MEDIA_SIZE = "\u5a92\u4f53\u5c3a\u5bf8"
@@ -55,6 +81,7 @@ def render_layout_preview_workbench(
     media_placement: MediaPlacement | Mapping[str, Any] | None = None,
     render_summary: str | None = None,
     template_summary: str | None = None,
+    default_layout_summary: DefaultLayoutSummary | Mapping[str, Any] | object | None = None,
     on_preset_selected: PresetSelectionCallback | None = None,
     key_suffix: str = "",
     ui=st,
@@ -67,6 +94,7 @@ def render_layout_preview_workbench(
     """
 
     spec = _coerce_spec(spec_payload)
+    default_summary = _coerce_default_layout_summary(default_layout_summary)
     presets = _recent_presets(recent_presets)
     selected_action: PresetSelection | None = (
         _consume_action(ui=ui, key_suffix=key_suffix) if spec is not None else None
@@ -88,6 +116,11 @@ def render_layout_preview_workbench(
             )
             if selected_action is None:
                 selected_action = rendered_action
+        elif default_summary is not None:
+            ui.markdown(
+                _build_default_summary_html(default_summary),
+                unsafe_allow_html=True,
+            )
         else:
             ui.markdown(
                 _build_summary_html(
@@ -518,6 +551,18 @@ def _build_summary_html(
     """
 
 
+def _build_default_summary_html(summary: DefaultLayoutSummary) -> str:
+    render_summary = summary.render_summary or _UNKNOWN_RENDER
+    template_summary = summary.template_summary or _UNKNOWN_RENDER
+    return f"""
+    <section class="layout-workbench-card">
+      <div class="layout-workbench-section-title">{_CURRENT_TEMPLATE_RULES}</div>
+      {_build_default_summary_grid_html(summary)}
+      {_build_meta_html(render_summary=render_summary, template_summary=template_summary)}
+    </section>
+    """
+
+
 def _build_workbench_rows_html(
     *,
     spec: LayeredTemplateSpec,
@@ -538,6 +583,16 @@ def _build_workbench_rows_html(
     <section class="layout-workbench-meta-row">
       {_build_meta_html(render_summary=render_summary, template_summary=template_summary)}
     </section>
+    """
+
+
+def _build_default_summary_grid_html(summary: DefaultLayoutSummary) -> str:
+    return f"""
+    <div class="layout-workbench-summary-grid">
+      {_metric_html(_CANVAS_SIZE, f"{summary.canvas_width} x {summary.canvas_height}")}
+      {_metric_html(_MEDIA_SIZE, f"{summary.media_width} x {summary.media_height}")}
+      {_metric_html(_MEDIA_PLACEMENT, _media_placement_summary(summary.media_placement))}
+    </div>
     """
 
 
@@ -705,6 +760,19 @@ def _coerce_spec(
         return None
 
 
+def _coerce_default_layout_summary(
+    summary: DefaultLayoutSummary | Mapping[str, Any] | object | None,
+) -> DefaultLayoutSummary | None:
+    if summary is None:
+        return None
+    if isinstance(summary, DefaultLayoutSummary):
+        return summary
+    try:
+        return DefaultLayoutSummary.from_mapping(summary)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _recent_presets(
     recent_presets: Sequence[Mapping[str, Any] | object] | None,
 ) -> list[dict[str, Any]]:
@@ -827,7 +895,26 @@ def _read_field(item: Mapping[str, Any] | object, field: str) -> Any:
     return getattr(item, field, None)
 
 
+def _positive_int_field(item: Mapping[str, Any] | object, field: str) -> int:
+    value = _read_field(item, field)
+    if value is None:
+        raise KeyError(field)
+    normalized = int(value)
+    if normalized <= 0:
+        raise ValueError(f"{field} must be positive")
+    return normalized
+
+
+def _optional_text_field(item: Mapping[str, Any] | object, field: str) -> str | None:
+    value = _read_field(item, field)
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
 __all__ = [
+    "DefaultLayoutSummary",
     "render_layout_preview_workbench",
     "trust_preview_html",
 ]
