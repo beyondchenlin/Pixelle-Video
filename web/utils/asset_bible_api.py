@@ -24,6 +24,23 @@ def build_prompt_plan_projection_endpoint(
     )
 
 
+def build_prompt_plan_apply_endpoint(
+    *,
+    api_base_url: str,
+    project_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+) -> str:
+    project_id = _validate_public_reference_id("project_id", project_id)
+    asset_bible_id = _validate_public_reference_id("asset_bible_id", asset_bible_id)
+    scene_cast_id = _validate_public_reference_id("scene_cast_id", scene_cast_id)
+    return (
+        f"{api_base_url.rstrip('/')}/{project_id}/asset-bible/"
+        f"{asset_bible_id}/scene-casts/{scene_cast_id}/"
+        "prompt-plan-apply"
+    )
+
+
 def build_asset_bible_list_endpoint(
     *,
     api_base_url: str,
@@ -60,6 +77,23 @@ def build_prompt_plan_projection_payload(
     }
 
 
+def build_prompt_plan_apply_payload(
+    *,
+    workspace_id: str,
+    storyboard_plan_id: str,
+    frame_id: str,
+    actor_id: str | None = None,
+) -> dict[str, str]:
+    payload = build_prompt_plan_projection_payload(
+        workspace_id=workspace_id,
+        storyboard_plan_id=storyboard_plan_id,
+        frame_id=frame_id,
+    )
+    if actor_id is not None and actor_id.strip():
+        payload["actor_id"] = _validate_public_reference_id("actor_id", actor_id)
+    return payload
+
+
 def preview_prompt_plan_projection(
     *,
     api_base_url: str,
@@ -88,6 +122,39 @@ def preview_prompt_plan_projection(
     data = response.json()
     if not isinstance(data, dict):
         raise ValueError("prompt plan projection response must be a JSON object")
+    return data
+
+
+def apply_scene_cast_to_prompt_plan(
+    *,
+    api_base_url: str,
+    project_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+    workspace_id: str,
+    storyboard_plan_id: str,
+    frame_id: str,
+    actor_id: str | None = None,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    endpoint = build_prompt_plan_apply_endpoint(
+        api_base_url=api_base_url,
+        project_id=project_id,
+        asset_bible_id=asset_bible_id,
+        scene_cast_id=scene_cast_id,
+    )
+    payload = build_prompt_plan_apply_payload(
+        workspace_id=workspace_id,
+        storyboard_plan_id=storyboard_plan_id,
+        frame_id=frame_id,
+        actor_id=actor_id,
+    )
+
+    response = httpx.post(endpoint, json=payload, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("prompt plan apply response must be a JSON object")
     return data
 
 
