@@ -423,10 +423,9 @@ def _save_layout_preview_template(video_params, *, spec: LayeredTemplateSpec) ->
 
 
 def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = "") -> None:
-    if not video_params.get("layered_template_spec"):
-        return
+    spec_payload = video_params.get("layered_template_spec")
     selected = render_layout_preview_workbench(
-        spec_payload=video_params.get("layered_template_spec"),
+        spec_payload=spec_payload,
         recent_presets=_list_layout_preview_recent_presets(video_params),
         preview_html=_build_layout_preview_html(video_params),
         render_summary=video_params.get("layout_preview_render_summary")
@@ -440,7 +439,7 @@ def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = 
         ui=st,
     )
     action = selected.get("action") if selected else None
-    spec = _coerce_layered_template_spec(video_params.get("layered_template_spec"))
+    spec = _coerce_layered_template_spec(spec_payload)
     if action == "refresh_preview_frame":
         if spec is None:
             st.error("当前没有可刷新的分层模板规格")

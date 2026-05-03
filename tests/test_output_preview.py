@@ -56,6 +56,14 @@ def _layered_template_spec_payload(**overrides):
     return payload
 
 
+def _disable_layout_preview_recent_presets(monkeypatch):
+    monkeypatch.setattr(
+        output_preview,
+        "_list_layout_preview_recent_presets",
+        lambda _params: [],
+    )
+
+
 def test_refreshable_slot_uses_stable_initial_suffix_and_refresh_suffix():
     captured = {"emptied": 0, "entered": 0, "suffixes": []}
 
@@ -1277,6 +1285,7 @@ def test_render_single_output_passes_storyboard_controls_to_generate_video(monke
             )
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "render_scaled_video_preview", lambda _path: None)
@@ -1609,6 +1618,7 @@ def test_render_single_output_translates_progress_extra_info(monkeypatch, tmp_pa
             )
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     def fake_tr(key, **kwargs):
         return {
@@ -1736,6 +1746,7 @@ def test_render_single_output_stores_recent_generated_video_and_renders_gallery(
             )
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
@@ -1877,6 +1888,7 @@ def test_render_single_output_renders_workbench_between_generation_and_recent(
             )
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
@@ -2013,6 +2025,7 @@ def test_render_single_output_passes_key_suffix_to_workbench_refresh(
             )
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
@@ -2108,28 +2121,39 @@ def test_render_layout_preview_workbench_section_uses_registry_recent_and_marks_
     assert reruns == [True]
 
 
-def test_render_layout_preview_workbench_section_skips_without_spec(monkeypatch):
-    called = False
+def test_render_layout_preview_workbench_section_renders_empty_state_without_spec(monkeypatch):
+    captured = {}
 
-    def _fake_render_layout_preview_workbench(**_kwargs):
-        nonlocal called
-        called = True
+    class _FakeRegistry:
+        def list_recent(self, *, limit):
+            captured["recent_limit"] = limit
+            return []
+
+    def _fake_render_layout_preview_workbench(**kwargs):
+        captured.update(kwargs)
         return None
 
+    monkeypatch.setattr(output_preview, "TemplateRegistry", _FakeRegistry, raising=False)
     monkeypatch.setattr(
         output_preview,
         "render_layout_preview_workbench",
         _fake_render_layout_preview_workbench,
     )
+    monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
     monkeypatch.setattr(
         output_preview,
         "st",
         SimpleNamespace(session_state={}, rerun=lambda: None),
     )
 
-    output_preview._render_layout_preview_workbench_section({})
+    output_preview._render_layout_preview_workbench_section(
+        {"frame_template": "1080x1920/image_default.html"}
+    )
 
-    assert called is False
+    assert captured["spec_payload"] is None
+    assert captured["recent_limit"] == 5
+    assert captured["recent_presets"] == []
+    assert captured["template_summary"] == "1080x1920/image_default.html"
 
 
 def test_render_layout_preview_workbench_section_passes_media_placement(monkeypatch):
@@ -2619,6 +2643,7 @@ def test_render_single_output_preserves_ui_size_contract_when_generating(
             )
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
@@ -2771,6 +2796,7 @@ def test_render_single_output_places_success_summary_before_recent_gallery(
         )
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
@@ -2901,6 +2927,7 @@ def test_render_single_output_shows_gallery_before_blocking_generation(monkeypat
             )
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
@@ -3023,6 +3050,7 @@ def test_render_single_output_keeps_existing_recent_video_during_generation(
             )
 
     monkeypatch.setattr(output_preview, "st", fake_st)
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
@@ -3131,6 +3159,7 @@ def test_render_single_output_reenables_button_after_generation_finishes(
             )
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
@@ -3246,6 +3275,7 @@ def test_render_single_output_marks_button_disabled_while_generation_runs(monkey
             )
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
@@ -3332,6 +3362,7 @@ def test_render_single_output_ignores_duplicate_click_while_generation_active(mo
             captured["generated"] = True
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "render_recent_video_gallery", lambda _pixelle_video, **_kwargs: None)
@@ -3441,6 +3472,7 @@ def test_render_single_output_consumes_request_before_long_generation(monkeypatc
             )
 
     monkeypatch.setattr(output_preview, "st", FakeStreamlit())
+    _disable_layout_preview_recent_presets(monkeypatch)
     monkeypatch.setattr(output_preview.config_manager, "validate", lambda: True)
     monkeypatch.setattr(output_preview, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
