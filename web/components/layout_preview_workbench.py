@@ -22,12 +22,6 @@ _PENDING_SELECTION_SESSION_KEY = "_layout_preview_workbench_selection"
 class TrustedPreviewHTML:
     html: str
 
-_TITLE = "\u5373\u65f6\u9884\u89c8\u5de5\u4f5c\u53f0"
-_KICKER = "Layout Console"
-_DESCRIPTION = (
-    "\u5e38\u9a7b\u67e5\u770b\u5f53\u524d\u6392\u7248\u89c4\u683c\u3001"
-    "\u6700\u8fd1\u6a21\u677f\u4e0e\u670d\u52a1\u7aef\u9884\u89c8\u7ed3\u679c\u3002"
-)
 _RECENT_TITLE = "\u6700\u8fd1\u6a21\u677f\u5feb\u6377"
 _NO_RECENT = "\u6682\u65e0\u6700\u8fd1\u6a21\u677f\u3002"
 _APPLY_PREFIX = "\u5957\u7528"
@@ -82,9 +76,9 @@ def render_layout_preview_workbench(
         on_preset_selected(selected_preset)
 
     with ui.container():
-        ui.markdown(_build_workbench_header_html(), unsafe_allow_html=True)
+        ui.markdown(_build_workbench_css(), unsafe_allow_html=True)
         if spec is not None:
-            rendered_action = _render_control_strip(
+            rendered_action = _render_workbench_rows(
                 ui=ui,
                 spec=spec,
                 media_placement=media_placement,
@@ -124,7 +118,7 @@ def render_layout_preview_workbench(
     return selected_action or selected_preset
 
 
-def _render_control_strip(
+def _render_workbench_rows(
     *,
     ui,
     spec: LayeredTemplateSpec,
@@ -141,7 +135,7 @@ def _render_control_strip(
     if not hasattr(ui, "columns"):
         selected_action = _render_workbench_actions(ui=ui, key_suffix=key_suffix)
         ui.markdown(
-            _build_control_strip_html(
+            _build_workbench_rows_html(
                 spec=spec,
                 media_placement=media_placement,
                 render_summary=resolved_render_summary,
@@ -152,41 +146,21 @@ def _render_control_strip(
         return selected_action
 
     selected_action: PresetSelection | None = None
-    with ui.container(key=_control_strip_key("control_strip", key_suffix=key_suffix)):
-        control_columns = _columns(
-            ui,
-            [1.45, 4.5, 2.65],
-            gap="small",
-            vertical_alignment="center",
+    with ui.container(key=_workbench_row_key("actions_row", key_suffix=key_suffix)):
+        selected_action = _render_workbench_actions(ui=ui, key_suffix=key_suffix)
+    with ui.container(key=_workbench_row_key("metric_row", key_suffix=key_suffix)):
+        ui.markdown(
+            _build_summary_grid_html(spec=spec, media_placement=media_placement),
+            unsafe_allow_html=True,
         )
-        if control_columns is None:
-            selected_action = _render_workbench_actions(ui=ui, key_suffix=key_suffix)
-            ui.markdown(
-                _build_control_strip_html(
-                    spec=spec,
-                    media_placement=media_placement,
-                    render_summary=resolved_render_summary,
-                    template_summary=resolved_template_summary,
-                ),
-                unsafe_allow_html=True,
-            )
-            return selected_action
-        with control_columns[0]:
-            with ui.container(key=_control_strip_key("actions", key_suffix=key_suffix)):
-                selected_action = _render_workbench_actions(ui=ui, key_suffix=key_suffix)
-        with control_columns[1]:
-            ui.markdown(
-                _build_summary_grid_html(spec=spec, media_placement=media_placement),
-                unsafe_allow_html=True,
-            )
-        with control_columns[2]:
-            ui.markdown(
-                _build_meta_html(
-                    render_summary=resolved_render_summary,
-                    template_summary=resolved_template_summary,
-                ),
-                unsafe_allow_html=True,
-            )
+    with ui.container(key=_workbench_row_key("meta_row", key_suffix=key_suffix)):
+        ui.markdown(
+            _build_meta_html(
+                render_summary=resolved_render_summary,
+                template_summary=resolved_template_summary,
+            ),
+            unsafe_allow_html=True,
+        )
     return selected_action
 
 
@@ -272,30 +246,9 @@ def _render_recent_presets(
             ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
 
 
-def _build_workbench_header_html() -> str:
+def _build_workbench_css() -> str:
     return f"""
     <style>
-      .layout-workbench-shell {{
-        border: 1px solid #d8d2c4;
-        border-radius: 8px;
-        padding: 10px 12px 8px;
-        background: linear-gradient(135deg, #fffaf0 0%, #f6efe1 52%, #edf2e8 100%);
-        box-shadow: 0 10px 24px rgba(67, 54, 32, 0.08);
-      }}
-      .layout-workbench-kicker {{
-        color: #74624a;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: .1em;
-        text-transform: uppercase;
-      }}
-      .layout-workbench-title {{
-        color: #241d16;
-        font-size: 18px;
-        font-weight: 800;
-        line-height: 1.2;
-        margin: 2px 0 4px;
-      }}
       .layout-workbench-copy {{
         color: #675b4b;
         font-size: 13px;
@@ -309,57 +262,77 @@ def _build_workbench_header_html() -> str:
         padding: 10px 12px;
         background: rgba(255, 255, 255, .62);
       }}
-      .layout-workbench-control-strip {{
+      .layout-workbench-actions-row,
+      .layout-workbench-metric-row,
+      .layout-workbench-meta-row {{
         container-type: inline-size;
         border: 1px solid rgba(80, 67, 44, .16);
         border-radius: 8px;
         margin: 8px 0;
-        padding: 8px;
+        padding: 10px 12px;
         background: rgba(255, 255, 255, .64);
       }}
-      div[class*="st-key-layout_preview_control_strip"] {{
+      .layout-workbench-actions-row {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), max-content));
+        gap: 10px;
+        justify-content: start;
+        align-items: center;
+      }}
+      .layout-workbench-metric-row {{
+        display: block;
+      }}
+      .layout-workbench-meta-row {{
+        display: block;
+      }}
+      .layout-workbench-actions-row-placeholder {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), max-content));
+        gap: 10px;
+        justify-content: start;
+      }}
+      .layout-workbench-action-placeholder {{
+        min-height: 42px;
+      }}
+      div[class*="st-key-layout_preview_actions_row"] {{
         container-type: inline-size;
         border: 1px solid rgba(80, 67, 44, .16);
         border-radius: 8px;
         margin: 8px 0;
-        padding: 8px;
+        padding: 10px 12px;
         background: rgba(255, 255, 255, .64);
       }}
-      div[class*="st-key-layout_preview_control_strip"] > div[data-testid="stVerticalBlock"] {{
+      div[class*="st-key-layout_preview_actions_row"] > div[data-testid="stVerticalBlock"] {{
         gap: 0;
       }}
-      div[class*="st-key-layout_preview_control_strip"] div[data-testid="stHorizontalBlock"] {{
+      div[class*="st-key-layout_preview_actions_row"] div[data-testid="stHorizontalBlock"] {{
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
-        gap: 8px !important;
-        align-items: stretch;
+        grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), max-content));
+        gap: 10px !important;
+        justify-content: start;
       }}
-      div[class*="st-key-layout_preview_control_strip"] div[data-testid="stColumn"] {{
-        min-width: 0 !important;
-      }}
-      div[class*="st-key-layout_preview_actions"] div[data-testid="stHorizontalBlock"] {{
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-        gap: 6px !important;
-      }}
-      div[class*="st-key-layout_preview_actions"] div[data-testid="stColumn"] {{
+      div[class*="st-key-layout_preview_actions_row"] div[data-testid="stColumn"] {{
         width: auto !important;
+        min-width: 0 !important;
+        flex: 0 0 auto !important;
       }}
-      div[class*="st-key-layout_preview_actions"] button {{
-        min-height: 2.25rem;
+      div[class*="st-key-layout_preview_actions_row"] button {{
+        min-height: 42px;
+        padding-inline: 16px;
         white-space: nowrap;
       }}
-      .layout-workbench-control-row {{
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
-        gap: 8px;
-        align-items: stretch;
+      div[class*="st-key-layout_preview_metric_row"],
+      div[class*="st-key-layout_preview_meta_row"] {{
+        container-type: inline-size;
+        border: 1px solid rgba(80, 67, 44, .16);
+        border-radius: 8px;
+        margin: 8px 0;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, .64);
       }}
-      .layout-workbench-actions {{
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-        gap: 6px;
-        align-content: center;
+      div[class*="st-key-layout_preview_metric_row"] > div[data-testid="stVerticalBlock"],
+      div[class*="st-key-layout_preview_meta_row"] > div[data-testid="stVerticalBlock"] {{
+        gap: 0;
       }}
       .layout-workbench-section-title {{
         color: #352a1f;
@@ -388,35 +361,33 @@ def _build_workbench_header_html() -> str:
       }}
       .layout-workbench-summary-grid {{
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
-        gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+        gap: 10px;
         height: 100%;
       }}
       .layout-workbench-metric {{
         border-left: 4px solid #b98242;
         border-radius: 8px;
-        padding: 8px 10px;
+        padding: 10px 14px;
         background: #fffdf8;
       }}
       .layout-workbench-label {{
         color: #756854;
-        font-size: 11px;
-        font-weight: 700;
+        font-size: 14px;
+        font-weight: 800;
       }}
       .layout-workbench-value {{
         color: #211a13;
-        font-size: 16px;
+        font-size: 20px;
         font-weight: 850;
       }}
       .layout-workbench-summary-grid .layout-workbench-metric {{
         min-width: 0;
-        padding: 7px 10px;
       }}
       .layout-workbench-summary-grid .layout-workbench-label {{
         white-space: nowrap;
       }}
       .layout-workbench-summary-grid .layout-workbench-value {{
-        font-size: 14px;
         line-height: 1.25;
         white-space: nowrap;
         overflow: hidden;
@@ -424,16 +395,19 @@ def _build_workbench_header_html() -> str:
       }}
       .layout-workbench-meta {{
         display: grid;
-        align-content: center;
-        gap: 5px;
+        grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+        align-items: center;
+        gap: 10px;
         min-width: 0;
-        height: 100%;
         color: #675b4b;
-        font-size: 12px;
-        line-height: 1.25;
+        font-size: 16px;
+        line-height: 1.35;
       }}
       .layout-workbench-meta-line {{
         min-width: 0;
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: #fffdf8;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -484,16 +458,14 @@ def _build_workbench_header_html() -> str:
       }}
       @media (max-width: 720px) {{
         .layout-workbench-grid {{ grid-template-columns: 1fr; }}
-        .layout-workbench-control-row {{
+        .layout-workbench-actions-row,
+        .layout-workbench-actions-row-placeholder,
+        .layout-workbench-summary-grid,
+        .layout-workbench-meta {{
           grid-template-columns: 1fr;
         }}
       }}
     </style>
-    <section class="layout-workbench-shell">
-      <div class="layout-workbench-kicker">{_KICKER}</div>
-      <div class="layout-workbench-title">{_TITLE}</div>
-      <p class="layout-workbench-copy">{_DESCRIPTION}</p>
-    </section>
     """
 
 
@@ -526,7 +498,7 @@ def _build_summary_html(
     """
 
 
-def _build_control_strip_html(
+def _build_workbench_rows_html(
     *,
     spec: LayeredTemplateSpec,
     media_placement: MediaPlacement | Mapping[str, Any] | None,
@@ -534,12 +506,17 @@ def _build_control_strip_html(
     template_summary: str,
 ) -> str:
     return f"""
-    <section class="layout-workbench-control-strip">
-      <div class="layout-workbench-control-row">
-        <div class="layout-workbench-actions"></div>
-        {_build_summary_grid_html(spec=spec, media_placement=media_placement)}
-        {_build_meta_html(render_summary=render_summary, template_summary=template_summary)}
+    <section class="layout-workbench-actions-row">
+      <div class="layout-workbench-actions-row-placeholder">
+        <div class="layout-workbench-action-placeholder"></div>
+        <div class="layout-workbench-action-placeholder"></div>
       </div>
+    </section>
+    <section class="layout-workbench-metric-row">
+      {_build_summary_grid_html(spec=spec, media_placement=media_placement)}
+    </section>
+    <section class="layout-workbench-meta-row">
+      {_build_meta_html(render_summary=render_summary, template_summary=template_summary)}
     </section>
     """
 
@@ -789,7 +766,7 @@ def _action_button_key(action: str, *, key_suffix: str) -> str:
     return f"layout_preview_{action}{key_suffix}"
 
 
-def _control_strip_key(name: str, *, key_suffix: str) -> str:
+def _workbench_row_key(name: str, *, key_suffix: str) -> str:
     return f"layout_preview_{name}{key_suffix}"
 
 

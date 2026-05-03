@@ -212,7 +212,8 @@ def test_render_layout_preview_workbench_renders_spec_summary_and_safe_html(monk
     )
 
     rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
-    assert "\u5373\u65f6\u9884\u89c8\u5de5\u4f5c\u53f0" in rendered
+    assert "\u5373\u65f6\u9884\u89c8\u5de5\u4f5c\u53f0" not in rendered
+    assert "layout-workbench-shell" not in rendered
     assert "\u753b\u5e03\u5c3a\u5bf8" in rendered
     assert "720 x 1280" in rendered
     assert "\u5a92\u4f53\u5c3a\u5bf8" in rendered
@@ -390,7 +391,7 @@ def test_render_layout_preview_workbench_returns_save_template_action(monkeypatc
     assert selected == {"action": "save_template"}
 
 
-def test_render_layout_preview_workbench_renders_responsive_control_strip(monkeypatch):
+def test_render_layout_preview_workbench_renders_three_responsive_rows(monkeypatch):
     from web.components import layout_preview_workbench
 
     fake_ui = _FakeUI()
@@ -414,13 +415,24 @@ def test_render_layout_preview_workbench_renders_responsive_control_strip(monkey
     )
 
     rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
-    assert "layout-workbench-control-strip" in rendered
-    assert "layout-workbench-actions" in rendered
+    assert "layout-workbench-control-strip" not in rendered
+    assert "layout-workbench-actions-row" in rendered
+    assert "layout-workbench-metric-row" in rendered
+    assert "layout-workbench-meta-row" in rendered
+    assert rendered.index("layout-workbench-actions-row") < rendered.index(
+        "layout-workbench-metric-row"
+    )
+    assert rendered.index("layout-workbench-metric-row") < rendered.index(
+        "layout-workbench-meta-row"
+    )
     assert "layout-workbench-summary-grid" in rendered
     assert "layout-workbench-meta" in rendered
-    assert "grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));" in rendered
-    assert "grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));" in rendered
-    assert "grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));" in rendered
+    assert (
+        "grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), max-content));"
+        in rendered
+    )
+    assert "grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));" in rendered
+    assert "grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));" in rendered
 
 
 def test_render_layout_preview_workbench_applies_key_suffix_to_recent_buttons(monkeypatch):
@@ -554,7 +566,8 @@ def test_render_layout_preview_workbench_handles_missing_spec_without_crashing(m
 
     rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
     assert selected is None
-    assert "\u5373\u65f6\u9884\u89c8\u5de5\u4f5c\u53f0" in rendered
+    assert "\u5373\u65f6\u9884\u89c8\u5de5\u4f5c\u53f0" not in rendered
+    assert "layout-workbench-shell" not in rendered
     assert "\u6682\u65e0\u53ef\u9884\u89c8\u7684\u6392\u7248\u89c4\u683c" in rendered
     assert (
         "\u6682\u65e0\u9884\u89c8 HTML\uff0c"
