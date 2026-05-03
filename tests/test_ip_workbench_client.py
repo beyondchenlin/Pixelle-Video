@@ -179,9 +179,9 @@ def test_ip_workbench_client_factory_caches_http_by_api_base_url(monkeypatch):
 def test_formal_ip_workbench_ui_sources_do_not_import_http_helpers():
     for path in [
         Path("web/components/ip_workbench_panel.py"),
+        Path("web/components/storyboard_preview.py"),
+        Path("web/pages/3_🧭_Storyboard_Workbench.py"),
     ]:
-        if not path.exists():
-            continue
         source = path.read_text(encoding="utf-8")
         for token in (
             "web.utils.asset_bible_api",

@@ -1013,6 +1013,19 @@ def test_projection_preview_does_not_save_prompt_plan_bundle():
     assert prompt_plan_repository.saved_bundles == []
 
 
+def test_projection_preview_route_does_not_import_apply_service_or_writer():
+    from pathlib import Path
+
+    source = Path("api/routers/asset_bible.py").read_text(encoding="utf-8")
+    preview_block = source.split("async def preview_prompt_plan_projection", 1)[1].split(
+        "async def apply_scene_cast_to_prompt_plan",
+        1,
+    )[0]
+    assert "AssetPromptPlanApplyService" not in preview_block
+    assert "StaleAwarePromptPlanWriteService" not in preview_block
+    assert "save_prompt_plan_bundle" not in preview_block
+
+
 def test_apply_rejects_path_like_ids_before_repository_calls():
     repository = FakeAssetBibleRepository()
     prompt_plan_repository = FakePromptPlanRepository()
