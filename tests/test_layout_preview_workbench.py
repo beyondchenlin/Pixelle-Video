@@ -431,8 +431,10 @@ def test_render_layout_preview_workbench_renders_three_responsive_rows(monkeypat
         "grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), max-content));"
         in rendered
     )
-    assert "grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));" in rendered
-    assert "grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));" in rendered
+    assert "grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));" in rendered
+    assert "grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));" in rendered
+    assert "@container (max-width: 980px)" not in rendered
+    assert "@container (max-width: 560px)" in rendered
 
 
 def test_render_layout_preview_workbench_applies_key_suffix_to_recent_buttons(monkeypatch):

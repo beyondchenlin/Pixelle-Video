@@ -361,7 +361,7 @@ def _build_workbench_css() -> str:
       }}
       .layout-workbench-summary-grid {{
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
         gap: 10px;
         height: 100%;
       }}
@@ -395,7 +395,7 @@ def _build_workbench_css() -> str:
       }}
       .layout-workbench-meta {{
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
         align-items: center;
         gap: 10px;
         min-width: 0;
@@ -456,14 +456,16 @@ def _build_workbench_css() -> str:
         margin-top: 6px;
         word-break: break-all;
       }}
-      @media (max-width: 720px) {{
-        .layout-workbench-grid {{ grid-template-columns: 1fr; }}
+      @container (max-width: 560px) {{
         .layout-workbench-actions-row,
         .layout-workbench-actions-row-placeholder,
         .layout-workbench-summary-grid,
         .layout-workbench-meta {{
           grid-template-columns: 1fr;
         }}
+      }}
+      @media (max-width: 720px) {{
+        .layout-workbench-grid {{ grid-template-columns: 1fr; }}
       }}
     </style>
     """

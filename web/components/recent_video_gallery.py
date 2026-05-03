@@ -189,9 +189,9 @@ def build_recent_video_gallery_css(
     }}
     .st-key-{grid_key} {{
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 220px));
+        grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
         gap: 0.65rem;
-        justify-content: center;
+        justify-content: stretch;
         align-items: start;
     }}
     .st-key-{grid_key} > div[data-testid="stLayoutWrapper"] {{
