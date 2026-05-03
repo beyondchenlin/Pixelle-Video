@@ -298,6 +298,12 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     template_params = video_params.get("template_params", {})
     if template_params:
         request["template_params"] = template_params
+    if video_params.get("layered_template_spec"):
+        request["layered_template_spec"] = video_params["layered_template_spec"]
+    if video_params.get("selected_template_preset_id"):
+        request["selected_template_preset_id"] = video_params[
+            "selected_template_preset_id"
+        ]
 
     copy_render_backend(video_params, request)
     copy_tts_audio_strategy(video_params, request)
@@ -365,6 +371,12 @@ def build_batch_shared_config(video_params):
 
     if video_params.get("template_params"):
         shared_config["template_params"] = video_params["template_params"]
+    if video_params.get("layered_template_spec"):
+        shared_config["layered_template_spec"] = video_params["layered_template_spec"]
+    if video_params.get("selected_template_preset_id"):
+        shared_config["selected_template_preset_id"] = video_params[
+            "selected_template_preset_id"
+        ]
 
     if video_params.get("session_id"):
         shared_config["session_id"] = video_params["session_id"]
@@ -554,6 +566,10 @@ def render_single_output(pixelle_video, video_params):
                             "session_id": session_id,
                             "render_backend": video_params.get("render_backend"),
                             "tts_audio_strategy": video_params.get("tts_audio_strategy"),
+                            "layered_template_spec": video_params.get("layered_template_spec"),
+                            "selected_template_preset_id": video_params.get(
+                                "selected_template_preset_id"
+                            ),
                             **storyboard_contract.to_planning_dict(),
                             "text_rendering": video_params.get("text_rendering"),
                             **{

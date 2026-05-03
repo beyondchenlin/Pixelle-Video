@@ -175,6 +175,39 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["progress_callback"] is _progress
 
 
+def test_build_single_generation_request_includes_layered_template_snapshot():
+    def _progress(_event):
+        return None
+
+    spec = {
+        "version": "layered_template.v1",
+        "template_id": "demo",
+        "template_name": "Demo",
+        "template_type": "image",
+        "canvas_width": 1080,
+        "canvas_height": 1920,
+        "media_width": 1080,
+        "media_height": 1920,
+        "safe_area": {"x": 64, "y": 64, "width": 952, "height": 1792, "unit": "px"},
+        "layers": [],
+        "metadata": {},
+    }
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "layered_template_spec": spec,
+            "selected_template_preset_id": "demo-preset",
+        },
+        progress_callback=_progress,
+        session_state={},
+    )
+
+    assert request["layered_template_spec"] == spec
+    assert request["selected_template_preset_id"] == "demo-preset"
+
+
 def test_build_single_generation_request_propagates_business_context_from_session_state():
     def _progress(_event):
         return None
@@ -674,6 +707,33 @@ def test_build_batch_shared_config_includes_render_backend():
 
     assert shared_config["render_backend"] == "hyperframes_compiled"
     assert shared_config["tts_audio_strategy"] == "master_track"
+
+
+def test_build_batch_shared_config_includes_layered_template_snapshot():
+    spec = {
+        "version": "layered_template.v1",
+        "template_id": "demo",
+        "template_name": "Demo",
+        "template_type": "image",
+        "canvas_width": 1080,
+        "canvas_height": 1920,
+        "media_width": 1080,
+        "media_height": 1920,
+        "safe_area": {"x": 64, "y": 64, "width": 952, "height": 1792, "unit": "px"},
+        "layers": [],
+        "metadata": {},
+    }
+
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "title_prefix": "Series",
+            "layered_template_spec": spec,
+            "selected_template_preset_id": "demo-preset",
+        }
+    )
+
+    assert shared_config["layered_template_spec"] == spec
+    assert shared_config["selected_template_preset_id"] == "demo-preset"
 
 
 def test_build_batch_shared_config_uses_size_contract_defaults_and_overrides():
