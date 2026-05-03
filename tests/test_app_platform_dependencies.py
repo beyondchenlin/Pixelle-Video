@@ -99,13 +99,13 @@ def test_platform_dependencies_attach_same_objects_to_core(tmp_path):
 
 
 def test_web_session_pixelle_video_mounts_storyboard_workbench_dependencies(monkeypatch, tmp_path):
-    from api import dependencies as api_dependencies
     from api.config import api_config
     from web.state import session as web_session
     from web.state.async_runtime import shutdown_all_async_runtimes
 
     monkeypatch.setattr(api_config, "artifact_base_path", str(tmp_path / "output"))
-    api_dependencies._platform_dependencies = None
+    web_session._LOCAL_PLATFORM_DEPENDENCIES = None
+    web_session._LOCAL_PLATFORM_TASK_MANAGER = None
     web_session._PIXELLE_VIDEO_SESSIONS.clear()
     monkeypatch.setattr(web_session, "get_current_session_key", lambda: "test_web_session")
     monkeypatch.setattr(web_session, "register_async_cleanup", lambda *_args, **_kwargs: None)
@@ -115,7 +115,7 @@ def test_web_session_pixelle_video_mounts_storyboard_workbench_dependencies(monk
     try:
         core = web_session.get_pixelle_video()
 
-        dependencies = api_dependencies.get_or_create_platform_dependencies()
+        dependencies = web_session.get_or_create_local_platform_dependencies()
         for attr_name in (
             "artifact_repository",
             "artifact_object_store",
@@ -130,7 +130,10 @@ def test_web_session_pixelle_video_mounts_storyboard_workbench_dependencies(monk
             web_session.run_async(core.cleanup())
         web_session._PIXELLE_VIDEO_SESSIONS.clear()
         shutdown_all_async_runtimes()
-        api_dependencies._platform_dependencies = None
+        if web_session._LOCAL_PLATFORM_TASK_MANAGER is not None:
+            web_session.run_async(web_session._LOCAL_PLATFORM_TASK_MANAGER.stop())
+        web_session._LOCAL_PLATFORM_TASK_MANAGER = None
+        web_session._LOCAL_PLATFORM_DEPENDENCIES = None
 
 
 def test_api_app_lifespan_mounts_storyboard_workbench_dependencies(monkeypatch, tmp_path):
@@ -152,6 +155,106 @@ def test_api_app_lifespan_mounts_storyboard_workbench_dependencies(monkeypatch, 
         assert dependencies_module.get_or_create_platform_dependencies().artifact_object_store is (
             client.app.state.artifact_object_store
         )
+
+
+def test_dev_platform_dependencies_mount_storyboard_workbench_task_submitter(tmp_path):
+    from api.platform_dependencies import configure_platform_dependencies
+    from api.tasks.manager import TaskManager
+    from api.workbench.task_submitter import TaskManagerStoryboardWorkbenchTaskSubmitter
+
+    app = FastAPI()
+    manager = TaskManager()
+    dependencies = configure_platform_dependencies(
+        app,
+        APIConfig(runtime_profile="dev", artifact_base_path=str(tmp_path / "output")),
+        task_manager=manager,
+    )
+
+    assert isinstance(
+        dependencies.storyboard_workbench_task_submitter,
+        TaskManagerStoryboardWorkbenchTaskSubmitter,
+    )
+    assert app.state.storyboard_workbench_task_submitter is (
+        dependencies.storyboard_workbench_task_submitter
+    )
+
+
+def test_api_app_lifespan_mounts_storyboard_workbench_task_submitter(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    import api.app as api_app
+    import api.dependencies as dependencies_module
+
+    monkeypatch.setattr(api_app.api_config, "artifact_base_path", str(tmp_path / "output"))
+    dependencies_module._platform_dependencies = None
+
+    with TestClient(api_app.app) as client:
+        assert hasattr(client.app.state, "storyboard_workbench_task_submitter")
+        assert (
+            dependencies_module.get_or_create_platform_dependencies().storyboard_workbench_task_submitter
+            is client.app.state.storyboard_workbench_task_submitter
+        )
+
+
+def test_web_session_pixelle_video_mounts_storyboard_workbench_task_submitter(
+    monkeypatch,
+    tmp_path,
+):
+    from api.config import api_config
+    from web.state import session as web_session
+    from web.state.async_runtime import shutdown_all_async_runtimes
+
+    monkeypatch.setattr(api_config, "artifact_base_path", str(tmp_path / "output"))
+    web_session._LOCAL_PLATFORM_DEPENDENCIES = None
+    web_session._LOCAL_PLATFORM_TASK_MANAGER = None
+    web_session._PIXELLE_VIDEO_SESSIONS.clear()
+    monkeypatch.setattr(
+        web_session,
+        "get_current_session_key",
+        lambda: "test_web_session_submitter",
+    )
+    monkeypatch.setattr(web_session, "register_async_cleanup", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(web_session, "session_exists", lambda _session_key: True)
+
+    core = None
+    try:
+        core = web_session.get_pixelle_video()
+        dependencies = web_session.get_or_create_local_platform_dependencies()
+
+        assert core.storyboard_workbench_task_submitter is (
+            dependencies.storyboard_workbench_task_submitter
+        )
+        assert core.storyboard_workbench_task_submitter is not None
+    finally:
+        if core is not None:
+            web_session.run_async(core.cleanup())
+        web_session._PIXELLE_VIDEO_SESSIONS.clear()
+        shutdown_all_async_runtimes()
+        if web_session._LOCAL_PLATFORM_TASK_MANAGER is not None:
+            web_session.run_async(web_session._LOCAL_PLATFORM_TASK_MANAGER.stop())
+        web_session._LOCAL_PLATFORM_TASK_MANAGER = None
+        web_session._LOCAL_PLATFORM_DEPENDENCIES = None
+
+
+def test_platform_dependencies_store_task_registries_without_pixelle_provider(tmp_path):
+    from api.platform_dependencies import build_platform_dependencies
+    from api.tasks.executors import TaskExecutorRegistry
+    from api.tasks.worker_registry import InMemoryWorkerRegistry
+
+    executor_registry = TaskExecutorRegistry()
+    worker_capabilities = InMemoryWorkerRegistry()
+
+    dependencies = build_platform_dependencies(
+        APIConfig(runtime_profile="dev", artifact_base_path=str(tmp_path / "output")),
+        task_executor_registry=executor_registry,
+        worker_capability_registry=worker_capabilities,
+        worker_registry=worker_capabilities,
+    )
+
+    assert dependencies.task_executor_registry is executor_registry
+    assert dependencies.worker_capability_registry is worker_capabilities
+    assert dependencies.worker_registry is worker_capabilities
+    assert not hasattr(dependencies, "pixelle_video_core_provider")
 
 
 def test_in_memory_artifact_repository_keeps_single_selected_version():

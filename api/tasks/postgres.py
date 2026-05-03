@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import (
@@ -23,11 +23,13 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from api.tasks.models import ArtifactStatus, Task, TaskProgress, TaskStatus, TaskType, utc_now
 from api.tasks.store import LostTaskLeaseError, TaskAlreadyExistsError, TaskNotFoundError
+from api.tasks.worker_registry import WorkerHeartbeat
 
 metadata = MetaData()
 
@@ -59,6 +61,15 @@ generation_tasks = Table(
     ),
 )
 
+worker_heartbeats = Table(
+    "worker_heartbeats",
+    metadata,
+    Column("worker_id", Text, primary_key=True),
+    Column("supported_task_types", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column("heartbeat_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 Index("idx_generation_tasks_status_created_at", generation_tasks.c.status, generation_tasks.c.created_at)
 Index(
     "idx_generation_tasks_fingerprint_status",
@@ -87,6 +98,7 @@ Index(
         generation_tasks.c.generation_fingerprint.is_not(None),
     ),
 )
+Index("idx_worker_heartbeats_heartbeat_at", worker_heartbeats.c.heartbeat_at)
 
 
 def create_async_engine_from_dsn(dsn: str) -> AsyncEngine:
@@ -419,3 +431,39 @@ class PostgresTaskStore:
             completed_at=row["completed_at"],
             updated_at=row["updated_at"],
         )
+
+
+class PostgresWorkerRegistry:
+    def __init__(self, engine: AsyncEngine, *, heartbeat_ttl_seconds: int = 60) -> None:
+        self.engine = engine
+        self.heartbeat_ttl_seconds = heartbeat_ttl_seconds
+        self.session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def heartbeat(self, heartbeat: WorkerHeartbeat) -> None:
+        values = {
+            "worker_id": heartbeat.worker_id,
+            "supported_task_types": [
+                task_type.value for task_type in heartbeat.supported_task_types
+            ],
+            "heartbeat_at": heartbeat.heartbeat_at,
+            "updated_at": utc_now(),
+        }
+        statement = pg_insert(worker_heartbeats).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[worker_heartbeats.c.worker_id],
+            set_=values,
+        )
+        async with self.session_factory() as session:
+            await session.execute(statement)
+            await session.commit()
+
+    async def supports(self, task_type: TaskType, *, now: datetime | None = None) -> bool:
+        cutoff = (now or utc_now()) - timedelta(seconds=self.heartbeat_ttl_seconds)
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(worker_heartbeats.c.worker_id)
+                .where(worker_heartbeats.c.heartbeat_at >= cutoff)
+                .where(worker_heartbeats.c.supported_task_types.contains([task_type.value]))
+                .limit(1)
+            )
+            return result.first() is not None

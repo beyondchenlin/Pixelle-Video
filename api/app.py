@@ -74,7 +74,7 @@ from api.routers import (
     video_router,
 )
 from api.schemas.responses import install_exception_handlers
-from api.tasks.factory import build_task_manager
+from api.tasks.factory import build_api_task_runtime
 
 
 @asynccontextmanager
@@ -86,12 +86,20 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info("🚀 Starting Pixelle-Video API...")
-    manager = build_task_manager(api_config)
+    runtime = build_api_task_runtime(api_config)
+    manager = runtime.task_manager
     task_manager_module.task_manager = manager
     tasks_router_module.task_manager = manager
     video_router_module.task_manager = manager
     app.state.task_manager = manager
-    platform_dependencies = configure_platform_dependencies(app, api_config)
+    platform_dependencies = configure_platform_dependencies(
+        app,
+        api_config,
+        task_manager=manager,
+        task_executor_registry=runtime.executor_registry,
+        worker_capability_registry=runtime.worker_registry,
+        worker_registry=runtime.worker_registry,
+    )
     set_platform_dependencies(platform_dependencies)
     await manager.start()
     logger.info("✅ Pixelle-Video API started successfully\n")
@@ -193,7 +201,6 @@ async def root():
             "frame": f"{api_config.api_prefix}/frame",
             "storyboards": f"{api_config.api_prefix}/storyboards",
             "text_rendering": f"{api_config.api_prefix}/text-rendering",
-            "layered_templates": f"{api_config.api_prefix}/layered-templates",
         }
     }
 

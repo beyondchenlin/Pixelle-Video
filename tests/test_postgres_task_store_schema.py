@@ -19,6 +19,25 @@ def test_generation_tasks_migration_contains_source_level_constraints():
     assert "trg_generation_tasks_updated_at" in migration
 
 
+def test_worker_heartbeat_migration_contains_shared_capability_table():
+    migration = Path(
+        "api/tasks/alembic/versions/0002_create_worker_heartbeats.py"
+    ).read_text(encoding="utf-8")
+
+    assert "worker_heartbeats" in migration
+    assert "worker_id" in migration
+    assert "supported_task_types" in migration
+    assert "heartbeat_at" in migration
+    assert "idx_worker_heartbeats_heartbeat_at" in migration
+
+
+def test_postgres_worker_registry_exposes_shared_heartbeat_methods():
+    from api.tasks.postgres import PostgresWorkerRegistry
+
+    assert hasattr(PostgresWorkerRegistry, "heartbeat")
+    assert hasattr(PostgresWorkerRegistry, "supports")
+
+
 def test_postgres_store_exposes_required_methods():
     from api.tasks.postgres import PostgresTaskStore
 

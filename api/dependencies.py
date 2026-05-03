@@ -66,6 +66,8 @@ async def shutdown_pixelle_video() -> None:
 def get_or_create_platform_dependencies() -> PlatformDependencies:
     global _platform_dependencies
     if _platform_dependencies is None:
+        # API fallback for tests and direct dependency use. Streamlit local mode
+        # owns its task runtime in web.state.session.
         _platform_dependencies = build_platform_dependencies(api_config)
     return _platform_dependencies
 

@@ -6,6 +6,12 @@ from typing import Any
 from fastapi import FastAPI
 
 from api.config import APIConfig
+from api.tasks.executors import TaskExecutorRegistry, WorkerCapabilityRegistry
+from api.tasks.worker_registry import WorkerRegistry
+from api.workbench.task_submitter import (
+    StoryboardWorkbenchTaskSubmitter,
+    TaskManagerStoryboardWorkbenchTaskSubmitter,
+)
 from pixelle_video.services.artifact_dependency_integration import (
     ArtifactDependencyWriteService,
 )
@@ -33,6 +39,10 @@ class PlatformDependencies:
     stale_mark_repository: FilesystemDevStaleMarkRepository
     storyboard_workbench_state_store: FilesystemDevStoryboardWorkbenchStateStore
     storyboard_workbench_service: StoryboardWorkbenchService
+    task_executor_registry: TaskExecutorRegistry | None = None
+    worker_capability_registry: WorkerCapabilityRegistry | None = None
+    worker_registry: WorkerRegistry | None = None
+    storyboard_workbench_task_submitter: StoryboardWorkbenchTaskSubmitter | None = None
 
 
 def configure_platform_dependencies(
@@ -40,15 +50,32 @@ def configure_platform_dependencies(
     config: APIConfig,
     *,
     core: Any | None = None,
+    task_manager: Any | None = None,
+    task_executor_registry: TaskExecutorRegistry | None = None,
+    worker_capability_registry: WorkerCapabilityRegistry | None = None,
+    worker_registry: WorkerRegistry | None = None,
 ) -> PlatformDependencies:
-    dependencies = build_platform_dependencies(config)
+    dependencies = build_platform_dependencies(
+        config,
+        task_manager=task_manager,
+        task_executor_registry=task_executor_registry,
+        worker_capability_registry=worker_capability_registry,
+        worker_registry=worker_registry,
+    )
     attach_platform_dependencies(app.state, dependencies)
     if core is not None:
         attach_platform_dependencies(core, dependencies)
     return dependencies
 
 
-def build_platform_dependencies(config: APIConfig) -> PlatformDependencies:
+def build_platform_dependencies(
+    config: APIConfig,
+    *,
+    task_manager: Any | None = None,
+    task_executor_registry: TaskExecutorRegistry | None = None,
+    worker_capability_registry: WorkerCapabilityRegistry | None = None,
+    worker_registry: WorkerRegistry | None = None,
+) -> PlatformDependencies:
     if config.runtime_profile == "production":
         raise RuntimeError("production repository adapters are not implemented")
     platform_root = f"{config.artifact_base_path}/_platform"
@@ -74,6 +101,11 @@ def build_platform_dependencies(config: APIConfig) -> PlatformDependencies:
             edge_repository=dependency_edge_repository,
         ),
     )
+    task_submitter = (
+        TaskManagerStoryboardWorkbenchTaskSubmitter(task_manager)
+        if task_manager is not None
+        else None
+    )
     dependencies = PlatformDependencies(
         artifact_repository=artifact_repository,
         artifact_object_store=artifact_object_store,
@@ -84,6 +116,10 @@ def build_platform_dependencies(config: APIConfig) -> PlatformDependencies:
         stale_mark_repository=stale_mark_repository,
         storyboard_workbench_state_store=storyboard_workbench_state_store,
         storyboard_workbench_service=workbench_service,
+        task_executor_registry=task_executor_registry,
+        worker_capability_registry=worker_capability_registry,
+        worker_registry=worker_registry,
+        storyboard_workbench_task_submitter=task_submitter,
     )
     return dependencies
 
