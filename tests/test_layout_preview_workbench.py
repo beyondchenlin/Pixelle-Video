@@ -124,11 +124,43 @@ def test_render_layout_preview_workbench_sorts_recent_presets_and_limits_to_five
 
     rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
     assert selected is None
-    assert rendered.count("Template ") == 5
+    assert rendered.count('<div class="layout-workbench-recent-chip"') == 5
     assert "Template 6" in rendered
     assert "Template 2" in rendered
     assert "Template 1" not in rendered
     assert len(_recent_buttons(fake_ui)) == 5
+
+
+def test_render_layout_preview_workbench_uses_compact_recent_presets(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {
+                "preset_id": "user:long_recent_template",
+                "template_name": "Template With A Very Long Name",
+                "last_used_at": "2026-05-02T10:00:00",
+                "spec": _spec_payload(),
+            }
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        ui=fake_ui,
+    )
+
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    recent_buttons = _recent_buttons(fake_ui)
+    assert "layout-workbench-recent-chip" in rendered
+    assert '<ol class="layout-workbench-recent">' not in rendered
+    assert 'div[class*="st-key-layout_preview_recent_presets"] button' in rendered
+    assert "min-height: 28px;" in rendered
+    assert "font-size: 12px;" in rendered
+    assert [button["label"] for button in recent_buttons] == ["\u5957\u7528"]
+    assert "Template With A Very Long Name" in recent_buttons[0]["help"]
 
 
 def test_render_layout_preview_workbench_sorts_recent_presets_by_datetime(monkeypatch):
@@ -158,8 +190,8 @@ def test_render_layout_preview_workbench_sorts_recent_presets_by_datetime(monkey
         ui=fake_ui,
     )
 
-    button_labels = [item["label"] for item in _recent_buttons(fake_ui)]
-    assert button_labels == ["\u5957\u7528 New", "\u5957\u7528 Old"]
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert rendered.index("New") < rendered.index("Old")
 
 
 def test_render_layout_preview_workbench_sorts_recent_presets_by_absolute_time(monkeypatch):
@@ -189,8 +221,8 @@ def test_render_layout_preview_workbench_sorts_recent_presets_by_absolute_time(m
         ui=fake_ui,
     )
 
-    button_labels = [item["label"] for item in _recent_buttons(fake_ui)]
-    assert button_labels == ["\u5957\u7528 UTC Later", "\u5957\u7528 Offset Earlier"]
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert rendered.index("UTC Later") < rendered.index("Offset Earlier")
 
 
 def test_render_layout_preview_workbench_renders_spec_summary_and_safe_html(monkeypatch):

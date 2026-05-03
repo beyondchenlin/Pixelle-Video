@@ -255,30 +255,38 @@ def _render_recent_presets(
         _caption(ui, _NO_RECENT)
         return
 
-    items = "".join(
-        "<li>"
-        f"<span>{escape(preset['label'])}</span>"
-        f"<small>{escape(preset['preset_id'])}</small>"
-        "</li>"
-        for preset in presets
-    )
-    ui.markdown(
-        f"""
-        <section class="layout-workbench-card">
-          <div class="layout-workbench-section-title">{_RECENT_TITLE}</div>
-          <ol class="layout-workbench-recent">{items}</ol>
-        </section>
-        """,
-        unsafe_allow_html=True,
-    )
-    for preset in presets:
-        preset_id = str(preset["preset_id"])
-        if ui.button(
-            f"{_APPLY_PREFIX} {preset['label']}",
-            key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
-            help=_APPLY_HELP,
-        ):
-            ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
+    with ui.container(key=_workbench_row_key("recent_presets", key_suffix=key_suffix)):
+        ui.markdown(
+            f"""
+            <section class="layout-workbench-card layout-workbench-recent-card">
+              <div class="layout-workbench-section-title">{_RECENT_TITLE}</div>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
+        for preset in presets:
+            preset_id = str(preset["preset_id"])
+            columns = _columns(ui, [0.78, 0.22], gap="small")
+            if columns is None:
+                ui.markdown(_recent_preset_chip_html(preset), unsafe_allow_html=True)
+                if ui.button(
+                    _APPLY_PREFIX,
+                    key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
+                    help=_recent_preset_help(preset),
+                    width="content",
+                ):
+                    ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
+            else:
+                with columns[0]:
+                    ui.markdown(_recent_preset_chip_html(preset), unsafe_allow_html=True)
+                with columns[1]:
+                    if ui.button(
+                        _APPLY_PREFIX,
+                        key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
+                        help=_recent_preset_help(preset),
+                        width="content",
+                    ):
+                        ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
 
 
 def _build_workbench_css() -> str:
@@ -393,19 +401,70 @@ def _build_workbench_css() -> str:
         font-size: 13px;
         margin-bottom: 6px;
       }}
-      .layout-workbench-recent {{
-        display: grid;
+      div[class*="st-key-layout_preview_recent_presets"] {{
+        border: 1px solid rgba(80, 67, 44, .16);
+        border-radius: 8px;
+        margin: 8px 0;
+        padding: 8px 10px;
+        background: rgba(255, 255, 255, .62);
+      }}
+      div[class*="st-key-layout_preview_recent_presets"] > div[data-testid="stVerticalBlock"] {{
         gap: 4px;
+      }}
+      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stHorizontalBlock"] {{
+        align-items: center;
+        gap: 6px !important;
+      }}
+      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stColumn"]:last-child {{
+        width: auto !important;
+        min-width: 42px !important;
+        flex: 0 0 auto !important;
+      }}
+      div[class*="st-key-layout_preview_recent_presets"] .layout-workbench-card {{
+        border: 0;
+        border-radius: 0;
         margin: 0;
-        padding-left: 20px;
+        padding: 0;
+        background: transparent;
       }}
-      .layout-workbench-recent li span {{
-        color: #251f18;
-        font-weight: 700;
+      div[class*="st-key-layout_preview_recent_presets"] .layout-workbench-section-title {{
+        margin-bottom: 2px;
       }}
-      .layout-workbench-recent li small {{
+      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stMarkdown"],
+      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stMarkdownContainer"],
+      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stElementContainer"] {{
+        width: 100% !important;
+        max-width: 100% !important;
+      }}
+      .layout-workbench-recent-chip {{
+        min-width: 0;
+        border: 1px solid rgba(80, 67, 44, .12);
+        border-radius: 6px;
+        padding: 4px 7px;
+        background: #fffdf8;
+        color: #5f5547;
+        font-size: 12px;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }}
+      .layout-workbench-recent-chip strong {{
+        color: #352a1f;
+        font-weight: 800;
+      }}
+      .layout-workbench-recent-chip small {{
         color: #887b68;
-        margin-left: 8px;
+        font-size: 11px;
+        font-weight: 700;
+        margin-left: 6px;
+      }}
+      div[class*="st-key-layout_preview_recent_presets"] button {{
+        min-height: 28px;
+        padding: 2px 10px;
+        font-size: 12px;
+        line-height: 1.2;
+        white-space: nowrap;
       }}
       .layout-workbench-grid {{
         display: grid;
@@ -634,6 +693,24 @@ def _default_chip_html(label: str, value: str) -> str:
       <strong>{escape(label)}: </strong>{escaped_value}
     </span>
     """
+
+
+def _recent_preset_chip_html(preset: Mapping[str, Any]) -> str:
+    label = str(preset["label"])
+    preset_id = str(preset["preset_id"])
+    title = f"{label} / {preset_id}"
+    return f"""
+    <div class="layout-workbench-recent-chip" title="{escape(title, quote=True)}">
+      <strong>{escape(label)}</strong>
+      <small>{escape(preset_id)}</small>
+    </div>
+    """
+
+
+def _recent_preset_help(preset: Mapping[str, Any]) -> str:
+    label = str(preset["label"])
+    preset_id = str(preset["preset_id"])
+    return f"{_APPLY_PREFIX} {label} ({preset_id})。{_APPLY_HELP}"
 
 
 def _build_summary_grid_html(
