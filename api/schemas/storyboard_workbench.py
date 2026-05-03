@@ -33,6 +33,13 @@ class StoryboardImageCandidateListResponse(BaseModel):
     candidates: list[StoryboardImageCandidateResponse] = Field(default_factory=list)
 
 
+class StoryboardWorkbenchCapabilitiesResponse(BaseModel):
+    success: bool = True
+    message: str = "Success"
+    can_regenerate_frame_image: bool
+    regenerate_unavailable_reason: str | None = None
+
+
 class SelectStoryboardImageRequest(BaseModel):
     workspace_id: str
     artifact_id: str
@@ -98,6 +105,7 @@ __all__ = [
     "SelectStoryboardImageRequest",
     "SelectStoryboardImageResponse",
     "StoryboardFrameWorkbenchStateResponse",
+    "StoryboardWorkbenchCapabilitiesResponse",
     "StoryboardImageCandidateListResponse",
     "StoryboardImageCandidateResponse",
     "validate_public_reference_id",

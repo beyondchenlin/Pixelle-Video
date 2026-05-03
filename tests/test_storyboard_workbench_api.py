@@ -6,7 +6,6 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.tasks.models import TaskType
 from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
 from pixelle_video.services.storyboard_workbench import (
     FrameImageRegenerationTaskRequest,
@@ -139,41 +138,36 @@ class FakeWorkbenchService:
 
 
 @dataclass
-class FakeTaskManager:
+class FakeStoryboardWorkbenchTaskSubmitter:
     reserved: list[dict[str, Any]]
 
-    async def reserve_or_reuse_generation_task(
+    async def get_capabilities(self):
+        from api.workbench.task_submitter import StoryboardWorkbenchCapabilities
+
+        return StoryboardWorkbenchCapabilities(
+            can_regenerate_frame_image=True,
+            regenerate_unavailable_reason=None,
+        )
+
+    async def reserve_frame_image_regeneration(
         self,
         *,
-        task_type: TaskType,
         generation_fingerprint: str,
         request_params: dict[str, Any],
     ):
+        from api.workbench.task_submitter import StoryboardWorkbenchTaskSubmission
+
         self.reserved.append(
             {
-                "task_type": task_type,
                 "generation_fingerprint": generation_fingerprint,
                 "request_params": request_params,
             }
         )
-        return _ReserveOutcome(
-            task=_Task(task_id="regen-task-1", task_type=task_type),
+        return StoryboardWorkbenchTaskSubmission(
+            task_id="regen-task-1",
+            task_type="frame_image_regeneration",
             created=True,
-            reused_reason=None,
         )
-
-
-@dataclass
-class _Task:
-    task_id: str
-    task_type: TaskType
-
-
-@dataclass
-class _ReserveOutcome:
-    task: _Task
-    created: bool
-    reused_reason: str | None
 
 
 def _state() -> StoryboardFrameWorkbenchState:
@@ -190,7 +184,7 @@ def _client(
     *,
     workbench_service: FakeWorkbenchService | None = None,
     state_store: FakeWorkbenchStateStore | None = None,
-    task_manager: FakeTaskManager | None = None,
+    task_submitter: FakeStoryboardWorkbenchTaskSubmitter | None = None,
 ) -> TestClient:
     from api.routers.storyboard_workbench import router as storyboard_workbench_router
 
@@ -199,8 +193,8 @@ def _client(
         app.state.storyboard_workbench_service = workbench_service
     if state_store is not None:
         app.state.storyboard_workbench_state_store = state_store
-    if task_manager is not None:
-        app.state.task_manager = task_manager
+    if task_submitter is not None:
+        app.state.storyboard_workbench_task_submitter = task_submitter
     app.include_router(storyboard_workbench_router)
     return TestClient(app)
 
@@ -210,6 +204,34 @@ def _state_store() -> FakeWorkbenchStateStore:
         states={("workspace_1", "storyboard_001", "frame_0001"): _state()},
         saved_states=[],
     )
+
+
+def test_storyboard_workbench_api_reports_capabilities_from_submitter():
+    client = _client(task_submitter=FakeStoryboardWorkbenchTaskSubmitter(reserved=[]))
+
+    response = client.get("/storyboards/workbench/capabilities")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "message": "Success",
+        "can_regenerate_frame_image": True,
+        "regenerate_unavailable_reason": None,
+    }
+
+
+def test_storyboard_workbench_api_reports_regenerate_unavailable_without_submitter():
+    client = _client()
+
+    response = client.get("/storyboards/workbench/capabilities")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "message": "Success",
+        "can_regenerate_frame_image": False,
+        "regenerate_unavailable_reason": "task submitter is not configured",
+    }
 
 
 def test_storyboard_workbench_api_lists_image_candidates_without_local_paths():
@@ -291,11 +313,11 @@ def test_storyboard_workbench_api_requests_frame_image_regeneration_task():
         selected_versions=[],
         regeneration_requests=[],
     )
-    task_manager = FakeTaskManager(reserved=[])
+    task_submitter = FakeStoryboardWorkbenchTaskSubmitter(reserved=[])
     client = _client(
         workbench_service=service,
         state_store=_state_store(),
-        task_manager=task_manager,
+        task_submitter=task_submitter,
     )
 
     response = client.post(
@@ -315,9 +337,8 @@ def test_storyboard_workbench_api_requests_frame_image_regeneration_task():
     assert body["task_type"] == "frame_image_regeneration"
     assert body["created"] is True
     assert body["generation_fingerprint"] == "fingerprint-frame-0001"
-    assert task_manager.reserved == [
+    assert task_submitter.reserved == [
         {
-            "task_type": TaskType.FRAME_IMAGE_REGENERATION,
             "generation_fingerprint": "fingerprint-frame-0001",
             "request_params": {
                 "workspace_id": "workspace_1",
@@ -331,6 +352,61 @@ def test_storyboard_workbench_api_requests_frame_image_regeneration_task():
             },
         }
     ]
+
+
+def test_storyboard_workbench_api_regenerate_fails_without_submitter():
+    service = FakeWorkbenchService(
+        listed_artifacts=[],
+        selected_versions=[],
+        regeneration_requests=[],
+    )
+    client = _client(workbench_service=service, state_store=_state_store())
+
+    response = client.post(
+        "/storyboards/storyboard_001/frames/frame_0001/regenerate-image",
+        json={
+            "workspace_id": "workspace_1",
+            "artifact_id": "artifact_frame_0001_image",
+        },
+    )
+
+    assert response.status_code == 503
+    assert "task submitter is not configured" in response.json()["detail"]
+
+
+def test_storyboard_workbench_api_regenerate_fails_when_execution_path_is_missing():
+    class UnavailableSubmitter(FakeStoryboardWorkbenchTaskSubmitter):
+        async def get_capabilities(self):
+            from api.workbench.task_submitter import StoryboardWorkbenchCapabilities
+
+            return StoryboardWorkbenchCapabilities(
+                can_regenerate_frame_image=False,
+                regenerate_unavailable_reason=(
+                    "frame image regeneration execution is not configured"
+                ),
+            )
+
+    service = FakeWorkbenchService(
+        listed_artifacts=[],
+        selected_versions=[],
+        regeneration_requests=[],
+    )
+    client = _client(
+        workbench_service=service,
+        state_store=_state_store(),
+        task_submitter=UnavailableSubmitter(reserved=[]),
+    )
+
+    response = client.post(
+        "/storyboards/storyboard_001/frames/frame_0001/regenerate-image",
+        json={
+            "workspace_id": "workspace_1",
+            "artifact_id": "artifact_frame_0001_image",
+        },
+    )
+
+    assert response.status_code == 503
+    assert "frame image regeneration execution is not configured" in response.json()["detail"]
 
 
 def test_storyboard_workbench_api_fails_fast_without_injected_service():
@@ -385,3 +461,12 @@ def test_storyboard_workbench_api_rejects_cross_frame_candidate_payloads():
 
     assert response.status_code == 502
     assert "candidate image does not match requested frame" in response.json()["detail"]
+
+
+def test_storyboard_workbench_router_does_not_reach_through_to_task_manager():
+    from pathlib import Path
+
+    source = Path("api/routers/storyboard_workbench.py").read_text(encoding="utf-8")
+
+    assert "app.state.task_manager" not in source
+    assert "reserve_or_reuse_generation_task" not in source
