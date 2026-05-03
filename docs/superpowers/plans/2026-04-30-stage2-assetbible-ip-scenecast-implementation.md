@@ -1,5 +1,14 @@
 # Stage 2 AssetBible / IP / SceneCast Implementation Plan
 
+> **Status on 2026-05-03:** This plan is historical and must not be executed as the next IP work plan.
+> The listed model, validation, repository-backed draft API, stale-aware AssetBible/SceneCast writes,
+> and preview-only PromptPlan projection work already exist on `dev`.
+> Continuing from this document would duplicate completed work and would keep Stage 2 trapped in a
+> debug projection path. Use
+> `docs/superpowers/specs/2026-05-03-ip-workbench-apply-contract-design.md` and
+> `docs/superpowers/plans/2026-05-03-ip-workbench-apply-contract-implementation.md`
+> for all new IP Workbench / SceneCast apply execution.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the Stage 2 IP and visual-consistency contract layer: AssetBible, IPProfile, CharacterProfile, SceneCast, and PromptComposer asset-reference projection.
