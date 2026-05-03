@@ -273,7 +273,8 @@ GET /api/storyboards/workbench/capabilities
 - in-process client 通过 `pixelle_video.storyboard_workbench_task_submitter.get_capabilities()` 判断 capability。
 - capability 不能只表示“能提交任务”；它必须同时表示 frame image regeneration 已配置可执行路径：
   - embedded mode 下必须存在 `frame_image_regeneration_executor`。
-  - worker mode 下必须由 worker 实现声明支持 `TaskType.FRAME_IMAGE_REGENERATION`。
+  - worker mode 下必须由当前部署显式声明 `TaskType.FRAME_IMAGE_REGENERATION` 属于已支持 worker task type；不能仅因为 `execution_mode == "worker"` 就返回可用。
+- submitter 存在不等于 regenerate 可用。submitter 可以被提前注入，但在执行路径未配置时必须 fail closed，并通过 capability 返回不可用原因。
 - 缺少 submitter 时返回：
 
 ```python
@@ -380,18 +381,25 @@ class StoryboardWorkbenchClient(Protocol):
 
 ```python
 storyboard_workbench_task_submitter: StoryboardWorkbenchTaskSubmitter | None = None
+pixelle_video_core_provider: Callable[[], PixelleVideoCore] | None = None
 ```
 
 构建规则：
 
 - `build_platform_dependencies(config, task_manager=None)` 接收可选 `task_manager`。
 - 有 `task_manager` 时构造 `TaskManagerStoryboardWorkbenchTaskSubmitter(task_manager)`。
-- `TaskManagerStoryboardWorkbenchTaskSubmitter.get_capabilities()` 通过 `TaskManager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION)` 判断真实执行能力；缺少该能力时必须 fail closed。
+- `TaskManagerStoryboardWorkbenchTaskSubmitter.get_capabilities()` 通过 `TaskManager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION)` 判断真实执行能力；缺少该方法或返回 false 时必须 fail closed。
+- `TaskManager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION)` 的规则必须是：
+  - embedded mode：只有 `frame_image_regeneration_executor` 已配置时返回 true。
+  - worker mode：只有 manager 收到当前部署声明的 `supported_worker_task_types` 且包含 `FRAME_IMAGE_REGENERATION` 时返回 true。
+  - 其他情况返回 false。
 - 没有 `task_manager` 时不直接创建隐藏全局 task manager；返回 submitter 为 `None`，并由 capability 明确暴露不可用。
 - `configure_platform_dependencies(app, config, task_manager=manager)` 在 API lifespan 中接收已启动前的 manager，并把 submitter 挂到 `app.state`。
 - `web.state.session.get_pixelle_video()` 使用 `get_or_create_local_platform_dependencies()`。为了本地 Streamlit 也具备一等 regenerate 能力，该入口必须显式创建并持有本地 `TaskManager` 与 submitter，并注册 session 清理或进程级清理。
 
 本地 Streamlit 的最佳实践不是从 `PixelleVideoCore` 偷读 `task_manager`，而是在平台依赖层显式注入 `storyboard_workbench_task_submitter`。这样 UI、client、service 都只看自己的合同。
+
+`pixelle_video_core_provider` 只属于 frame image regeneration executor 的运行时懒加载依赖，用于在任务真正执行时取得当前已初始化的 `PixelleVideoCore`。它不得被 UI、client factory 或 capability 查询直接调用；也不得在构建 `PlatformDependencies` 时触发 `PixelleVideoCore` 初始化。首次本地 regenerate 必须通过测试覆盖，确保不会出现 `get_pixelle_video()` 与本地 platform dependency 构建之间的递归初始化。
 
 ## 9. In-process Client
 
@@ -577,12 +585,12 @@ HttpStoryboardWorkbenchClient / FastAPI API
 必须新增 / 调整测试：
 
 1. `TaskManagerStoryboardWorkbenchTaskSubmitter` 把 frame image regeneration 请求提交到 `TaskManager.reserve_or_reuse_generation_task(...)`，并返回稳定 submission shape。
-2. `PlatformDependencies` 在 API lifespan 和 Streamlit session 中都挂载 `storyboard_workbench_task_submitter`。
+2. `PlatformDependencies` 在 API lifespan 和 Streamlit session 中都挂载 `storyboard_workbench_task_submitter`，并且只存储 `pixelle_video_core_provider`，不在依赖构建阶段调用它。
 3. FastAPI capability endpoint 根据 submitter 是否存在返回真实能力。
 4. FastAPI regenerate endpoint 通过 submitter，不再直接读取 `request.app.state.task_manager`。
 5. HTTP client 从 capability endpoint 读取能力，不硬编码 true。
 6. HTTP client 把 API 返回的相对 URL 规范化为 `image_display={"kind":"url", ...}`，UI 不再自己拼 URL。
-7. client factory 默认返回 in-process mode，但在 `pixelle_video` 缺失时不缓存坏 client。
+7. client factory 默认返回 in-process mode，不因 `DEFAULT_API_BASE_URL` 或未显式配置的 HTTP 环境变量回退到 HTTP；在 `pixelle_video` 缺失时不缓存坏 client。
 8. client factory 在 `PixelleVideoCore` identity 变化时重建 in-process client。
 9. Workbench page 在本地 mode 下先 `get_pixelle_video()`，再 resolve client。
 10. `render_storyboard_workbench_panel()` 不再需要 `api_base_url`，使用 fake client 和 `image_display={"kind":"bytes"}` 能渲染候选图。
@@ -595,6 +603,7 @@ HttpStoryboardWorkbenchClient / FastAPI API
     - `httpx`
     - `localhost:8001`
 14. 本地 mode 的 Workbench UI 源码和测试不再把 `api_base_url` 当能力输入；`api_base_url` 只能出现在 HTTP client / HTTP helper / 显式 HTTP mode 测试中。
+15. worker mode 的 capability 只有在显式声明 `FRAME_IMAGE_REGENERATION` 属于当前部署支持的 worker task type 时才返回 true；不能因为 `execution_mode == "worker"` 自动返回 true。
 
 ## 15. 非目标
 
@@ -620,8 +629,9 @@ HttpStoryboardWorkbenchClient / FastAPI API
 6. factory 不缓存未配置完成的 in-process client。
 7. 本地与 HTTP regenerate 都通过 `StoryboardWorkbenchTaskSubmitter`，不直接读取 task manager。
 8. capability 来自真实 submitter 配置；HTTP client 不硬编码 regenerate 可用。
-9. 所有返回到 UI 的 artifact 显示数据仍经过安全过滤。
-10. 测试覆盖本地模式、HTTP 模式、client 生命周期、显示合同、submitter 注入、capability endpoint、缺失依赖和无端口硬编码回归。
+9. worker mode 的 regenerate capability 来自显式支持声明，而不是来自 `execution_mode == "worker"` 这一事实本身。
+10. 所有返回到 UI 的 artifact 显示数据仍经过安全过滤。
+11. 测试覆盖本地模式、HTTP 模式、client 生命周期、显示合同、submitter 注入、capability endpoint、缺失依赖、provider 懒加载和无端口硬编码回归。
 
 ## 17. 自检
 
@@ -629,6 +639,8 @@ HttpStoryboardWorkbenchClient / FastAPI API
 - Scope check：只处理 Storyboard Workbench client boundary，不扩展到 AssetBible / Stage2。
 - Boundary check：`8001` 被限定为 HTTP client 配置，不再是 UI 产品功能依赖。
 - Lifecycle check：factory 不缓存未初始化完成的 in-process client。
+- Provider check：`pixelle_video_core_provider` 只作为 executor 运行时懒依赖存储，不在依赖构建和 capability 查询时提前调用。
 - Display check：本地显示合同不再回落到 `api_base_url`。
 - Capability check：regenerate 通过真实 submitter 和 capability endpoint 暴露，不再保留假按钮。
+- Worker capability check：worker mode 只有在显式声明支持 `FRAME_IMAGE_REGENERATION` 时才报告可用。
 - Debt check：不接受“本地 regenerate 本期先禁用”的过渡债；本地和 HTTP 都走同一 submitter 抽象。

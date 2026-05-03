@@ -18,8 +18,10 @@
   - Defines `StoryboardWorkbenchTaskSubmitter`, capability model, task submission DTO, `TaskManagerStoryboardWorkbenchTaskSubmitter`, and `NoopStoryboardWorkbenchTaskSubmitter`.
 - Create `api/workbench/frame_image_regeneration.py`
   - Executes a reserved frame image regeneration task by loading state, prompt plan, generating media, storing the artifact version, and saving updated Workbench state.
+- Modify `api/tasks/manager.py`
+  - Declares honest task execution capability with `frame_image_regeneration_executor` and explicit worker supported task types.
 - Modify `api/platform_dependencies.py`
-  - Adds `storyboard_workbench_task_submitter` and optional `pixelle_video_core_provider`.
+  - Adds `storyboard_workbench_task_submitter` and lazy optional `pixelle_video_core_provider`.
 - Modify `api/dependencies.py`
   - Keeps API-scoped platform dependencies separate from Streamlit local platform dependencies.
 - Modify `web/state/session.py`
@@ -72,6 +74,7 @@
 
 - Do not switch UI default mode before the in-process client supports list/select/stale/display/regenerate submission.
 - Do not claim regenerate is available unless a submitter and executor path exist.
+- Task 1 may inject a submitter, but a plain `TaskManager()` must still report frame regeneration unavailable until an executor or explicit worker support declaration is configured.
 - Do not call `request.app.state.task_manager` from the Storyboard Workbench router after Task 2.
 - Do not use `api.tasks.manager.task_manager` global as a local shortcut.
 - Keep commits atomic and pushable. Use `git push origin <current-branch>` after each commit per repository policy.
@@ -84,6 +87,7 @@
 **Files:**
 - Create: `api/workbench/__init__.py`
 - Create: `api/workbench/task_submitter.py`
+- Modify: `api/tasks/manager.py`
 - Modify: `api/platform_dependencies.py`
 - Modify: `api/dependencies.py`
 - Modify: `web/state/session.py`
@@ -206,6 +210,37 @@ def test_submitter_capabilities_are_true_only_when_execution_path_is_configured(
         "can_regenerate_frame_image": False,
         "regenerate_unavailable_reason": "worker execution is not configured",
     }
+
+
+def test_task_manager_reports_frame_regeneration_unavailable_by_default():
+    from api.tasks.manager import TaskManager
+    from api.workbench.task_submitter import TaskManagerStoryboardWorkbenchTaskSubmitter
+
+    submitter = TaskManagerStoryboardWorkbenchTaskSubmitter(TaskManager())
+
+    assert submitter.get_capabilities().to_dict() == {
+        "can_regenerate_frame_image": False,
+        "regenerate_unavailable_reason": "frame image regeneration execution is not configured",
+    }
+
+
+def test_task_manager_worker_mode_requires_explicit_supported_task_type_declaration():
+    from api.tasks.manager import TaskManager
+    from api.tasks.models import TaskType
+
+    assert (
+        TaskManager(execution_mode="worker").can_execute_task_type(
+            TaskType.FRAME_IMAGE_REGENERATION
+        )
+        is False
+    )
+    assert (
+        TaskManager(
+            execution_mode="worker",
+            supported_worker_task_types={TaskType.FRAME_IMAGE_REGENERATION},
+        ).can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION)
+        is True
+    )
 ```
 
 - [ ] **Step 2: Write failing platform dependency tests**
@@ -282,6 +317,24 @@ def test_web_session_pixelle_video_mounts_storyboard_workbench_task_submitter(mo
             web_session.run_async(web_session._LOCAL_PLATFORM_TASK_MANAGER.stop())
         web_session._LOCAL_PLATFORM_TASK_MANAGER = None
         web_session._LOCAL_PLATFORM_DEPENDENCIES = None
+
+
+def test_platform_dependencies_store_provider_without_calling_it(tmp_path):
+    from api.platform_dependencies import build_platform_dependencies
+
+    calls = []
+
+    def provider():
+        calls.append("called")
+        raise AssertionError("provider must not be called while building dependencies")
+
+    dependencies = build_platform_dependencies(
+        APIConfig(runtime_profile="dev", artifact_base_path=str(tmp_path / "output")),
+        pixelle_video_core_provider=provider,
+    )
+
+    assert dependencies.pixelle_video_core_provider is provider
+    assert calls == []
 ```
 
 - [ ] **Step 3: Run tests and verify RED**
@@ -292,7 +345,7 @@ Run:
 python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_app_platform_dependencies.py::test_dev_platform_dependencies_mount_storyboard_workbench_task_submitter tests/test_app_platform_dependencies.py::test_api_app_lifespan_mounts_storyboard_workbench_task_submitter tests/test_app_platform_dependencies.py::test_web_session_pixelle_video_mounts_storyboard_workbench_task_submitter
 ```
 
-Expected: fail because `api.workbench` and submitter wiring do not exist.
+Expected: fail because `api.workbench`, `TaskManager.can_execute_task_type(...)`, and submitter wiring do not exist.
 
 - [ ] **Step 4: Add submitter module**
 
@@ -521,22 +574,6 @@ _LOCAL_PLATFORM_DEPENDENCIES = None
 _LOCAL_PLATFORM_TASK_MANAGER = None
 
 
-async def _execute_local_frame_image_regeneration_task(
-    *,
-    task_id: str,
-    request_params: dict[str, object],
-    progress_dispatcher=None,
-) -> dict[str, object]:
-    from api.workbench.frame_image_regeneration import execute_frame_image_regeneration
-
-    return await execute_frame_image_regeneration(
-        core=get_pixelle_video(),
-        task_id=task_id,
-        request_params=request_params,
-        progress_dispatcher=progress_dispatcher,
-    )
-
-
 def get_or_create_local_platform_dependencies():
     global _LOCAL_PLATFORM_DEPENDENCIES, _LOCAL_PLATFORM_TASK_MANAGER
     if _LOCAL_PLATFORM_DEPENDENCIES is None:
@@ -544,10 +581,7 @@ def get_or_create_local_platform_dependencies():
         from api.platform_dependencies import build_platform_dependencies
         from api.tasks.factory import build_task_manager
 
-        _LOCAL_PLATFORM_TASK_MANAGER = build_task_manager(
-            api_config,
-            frame_image_regeneration_executor=_execute_local_frame_image_regeneration_task,
-        )
+        _LOCAL_PLATFORM_TASK_MANAGER = build_task_manager(api_config)
         run_async(_LOCAL_PLATFORM_TASK_MANAGER.start())
         _LOCAL_PLATFORM_DEPENDENCIES = build_platform_dependencies(
             api_config,
@@ -572,7 +606,58 @@ platform_dependencies = configure_platform_dependencies(
 )
 ```
 
-- [ ] **Step 6: Run tests and verify GREEN**
+- [ ] **Step 6: Add honest TaskManager capability declarations**
+
+Modify `api/tasks/manager.py` imports:
+
+```python
+from collections.abc import Callable, Iterable
+```
+
+Change constructor:
+
+```python
+def __init__(
+    self,
+    *,
+    store: TaskStore | None = None,
+    registry: GenerationRegistry | None = None,
+    execution_mode: str = "embedded",
+    frame_image_regeneration_executor: Callable | None = None,
+    supported_worker_task_types: Iterable[TaskType] | None = None,
+) -> None:
+```
+
+Set fields after `self.execution_mode = execution_mode`:
+
+```python
+self.frame_image_regeneration_executor = frame_image_regeneration_executor
+self.supported_worker_task_types = set(supported_worker_task_types or ())
+```
+
+Add:
+
+```python
+def can_execute_task_type(self, task_type: TaskType) -> bool:
+    if task_type is TaskType.VIDEO_GENERATION:
+        return True
+    if task_type is TaskType.FRAME_IMAGE_REGENERATION:
+        if self.execution_mode == "embedded":
+            return self.frame_image_regeneration_executor is not None
+        if self.execution_mode == "worker":
+            return TaskType.FRAME_IMAGE_REGENERATION in self.supported_worker_task_types
+    return False
+
+
+async def wait_for_task_completion_for_test(self, task_id: str) -> None:
+    future = self._task_futures.get(task_id)
+    if future is not None:
+        await future
+```
+
+Important: Task 1 only declares capability and keeps default `TaskManager()` fail closed for frame regeneration. Do not enqueue or execute frame regeneration yet; that is Task 3.
+
+- [ ] **Step 7: Run tests and verify GREEN**
 
 Run:
 
@@ -582,10 +667,10 @@ python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit and push**
+- [ ] **Step 8: Commit and push**
 
 ```powershell
-git add -- api/workbench/__init__.py api/workbench/task_submitter.py api/platform_dependencies.py api/dependencies.py api/app.py web/state/session.py tests/test_storyboard_workbench_task_submitter.py tests/test_app_platform_dependencies.py
+git add -- api/workbench/__init__.py api/workbench/task_submitter.py api/tasks/manager.py api/platform_dependencies.py api/dependencies.py api/app.py web/state/session.py tests/test_storyboard_workbench_task_submitter.py tests/test_app_platform_dependencies.py
 git commit -m "feat: 注入分镜工作台任务提交器"
 git push origin $(git branch --show-current)
 ```
@@ -909,7 +994,10 @@ git push origin $(git branch --show-current)
 **Files:**
 - Create: `api/workbench/frame_image_regeneration.py`
 - Modify: `api/tasks/manager.py`
+- Modify: `api/tasks/factory.py`
 - Modify: `api/tasks/worker.py`
+- Modify: `api/app.py`
+- Modify: `web/state/session.py`
 - Test: `tests/test_storyboard_workbench_task_submitter.py`
 - Test: `tests/test_worker_execution.py`
 
@@ -1143,7 +1231,10 @@ def test_worker_mode_manager_reports_frame_regeneration_executable_after_worker_
     from api.tasks.manager import TaskManager
     from api.tasks.models import TaskType
 
-    manager = TaskManager(execution_mode="worker")
+    manager = TaskManager(
+        execution_mode="worker",
+        supported_worker_task_types={TaskType.FRAME_IMAGE_REGENERATION},
+    )
 
     assert manager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION) is True
 ```
@@ -1305,31 +1396,7 @@ __all__ = ["execute_frame_image_regeneration"]
 
 - [ ] **Step 5: Hook embedded TaskManager execution**
 
-Modify `api/tasks/manager.py` constructor:
-
-```python
-frame_image_regeneration_executor: Callable | None = None,
-```
-
-Set:
-
-```python
-self.frame_image_regeneration_executor = frame_image_regeneration_executor
-```
-
-Add:
-
-```python
-def can_execute_task_type(self, task_type: TaskType) -> bool:
-    if task_type is TaskType.VIDEO_GENERATION:
-        return True
-    if task_type is TaskType.FRAME_IMAGE_REGENERATION:
-        if self.execution_mode == "embedded":
-            return self.frame_image_regeneration_executor is not None
-        if self.execution_mode == "worker":
-            return True
-    return False
-```
+Reuse the `frame_image_regeneration_executor`, `supported_worker_task_types`, `can_execute_task_type(...)`, and `wait_for_task_completion_for_test(...)` fields added in Task 1. Task 3 only adds embedded auto-execution for newly created frame regeneration tasks:
 
 At the end of `reserve_or_reuse_generation_task(...)`, after outcome is returned from registry:
 
@@ -1391,7 +1458,14 @@ manager = build_task_manager(
 )
 ```
 
-Modify `api/tasks/factory.py` to accept and forward `frame_image_regeneration_executor`.
+Modify `api/tasks/factory.py` to accept and forward:
+
+```python
+frame_image_regeneration_executor
+supported_worker_task_types
+```
+
+API embedded mode should pass only `frame_image_regeneration_executor`.
 
 Modify `web/state/session.py` local manager creation to pass the same executor using `get_pixelle_video`.
 
@@ -1414,6 +1488,14 @@ task_types={TaskType.VIDEO_GENERATION, TaskType.FRAME_IMAGE_REGENERATION}
 Document in code comments and tests that worker mode counts as executable only because
 `GenerationWorker` now claims and runs `TaskType.FRAME_IMAGE_REGENERATION`. Do not
 return `True` for worker mode until this step is implemented.
+
+When constructing the worker-process `TaskManager`, pass:
+
+```python
+supported_worker_task_types={TaskType.FRAME_IMAGE_REGENERATION}
+```
+
+Do not set this declaration in API embedded mode or local Streamlit mode.
 
 In `run_once`, branch:
 
@@ -1588,6 +1670,23 @@ def test_workbench_client_factory_does_not_cache_inprocess_client_without_core(m
 
     assert client is None
     assert "storyboard_workbench_client" not in session_state
+
+
+def test_workbench_client_factory_defaults_to_inprocess_without_reading_api_base_url(monkeypatch):
+    from web.state.workbench_client import resolve_storyboard_workbench_client
+
+    monkeypatch.delenv("PIXELLE_WORKBENCH_CLIENT_MODE", raising=False)
+    monkeypatch.setenv("PIXELLE_API_BASE_URL", "http://localhost:8001/api")
+    session_state = {}
+    core = object()
+
+    client = resolve_storyboard_workbench_client(session_state, pixelle_video=core)
+
+    assert client is not None
+    assert session_state["storyboard_workbench_client_cache_key"] == (
+        "inprocess",
+        id(core),
+    )
 
 
 def test_workbench_client_factory_rebuilds_when_core_identity_changes(monkeypatch):
