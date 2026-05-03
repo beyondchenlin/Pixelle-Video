@@ -202,6 +202,8 @@ Client 生命周期边界只存在于 `web/pages/3_🧭_Storyboard_Workbench.py`
 
 ```python
 class StoryboardWorkbenchTaskSubmitter(Protocol):
+    def get_capabilities(self) -> StoryboardWorkbenchCapabilities: ...
+
     async def reserve_frame_image_regeneration(
         self,
         *,
@@ -232,6 +234,7 @@ class TaskManagerStoryboardWorkbenchTaskSubmitter:
 
 - 唯一了解 `TaskType.FRAME_IMAGE_REGENERATION`。
 - 唯一调用 `TaskManager.reserve_or_reuse_generation_task(...)`。
+- 唯一把 `TaskManager` 的执行能力转成 Workbench capability。
 - 给 FastAPI router 和 Streamlit in-process client 复用。
 
 通俗地说：`task_manager` 是“发动机”，`StoryboardWorkbenchTaskSubmitter` 是“这辆车允许 Workbench 使用的油门踏板”。页面、client、router 都不应该直接摸发动机。
@@ -265,9 +268,12 @@ GET /api/storyboards/workbench/capabilities
 
 规则：
 
-- FastAPI 通过 `request.app.state.storyboard_workbench_task_submitter` 判断 `can_regenerate_frame_image`。
+- FastAPI 通过 `request.app.state.storyboard_workbench_task_submitter.get_capabilities()` 判断 `can_regenerate_frame_image`。
 - HTTP client 每次或带短生命周期缓存查询 capability endpoint；本计划采用无缓存查询，先保证行为真实。
-- in-process client 通过 `pixelle_video.storyboard_workbench_task_submitter` 判断 capability。
+- in-process client 通过 `pixelle_video.storyboard_workbench_task_submitter.get_capabilities()` 判断 capability。
+- capability 不能只表示“能提交任务”；它必须同时表示 frame image regeneration 已配置可执行路径：
+  - embedded mode 下必须存在 `frame_image_regeneration_executor`。
+  - worker mode 下必须由 worker 实现声明支持 `TaskType.FRAME_IMAGE_REGENERATION`。
 - 缺少 submitter 时返回：
 
 ```python
@@ -380,6 +386,7 @@ storyboard_workbench_task_submitter: StoryboardWorkbenchTaskSubmitter | None = N
 
 - `build_platform_dependencies(config, task_manager=None)` 接收可选 `task_manager`。
 - 有 `task_manager` 时构造 `TaskManagerStoryboardWorkbenchTaskSubmitter(task_manager)`。
+- `TaskManagerStoryboardWorkbenchTaskSubmitter.get_capabilities()` 通过 `TaskManager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION)` 判断真实执行能力；缺少该能力时必须 fail closed。
 - 没有 `task_manager` 时不直接创建隐藏全局 task manager；返回 submitter 为 `None`，并由 capability 明确暴露不可用。
 - `configure_platform_dependencies(app, config, task_manager=manager)` 在 API lifespan 中接收已启动前的 manager，并把 submitter 挂到 `app.state`。
 - `web.state.session.get_pixelle_video()` 使用 `get_or_create_local_platform_dependencies()`。为了本地 Streamlit 也具备一等 regenerate 能力，该入口必须显式创建并持有本地 `TaskManager` 与 submitter，并注册 session 清理或进程级清理。
@@ -432,8 +439,8 @@ pixelle_video.storyboard_workbench_task_submitter
 
 规则：
 
-- 有 submitter：`can_regenerate_frame_image=True`，调用 submitter。
-- 无 submitter：`can_regenerate_frame_image=False`，UI 禁用按钮，直接调用返回结构化 unavailable。
+- 有 submitter 且 `submitter.get_capabilities().can_regenerate_frame_image=True`：调用 submitter。
+- 无 submitter，或 submitter 明确报告缺少执行路径：`can_regenerate_frame_image=False`，UI 禁用按钮，直接调用返回结构化 unavailable。
 - 禁止通过 `api.tasks.manager.task_manager` 全局变量或 `core.task_manager` 临时接线。
 
 ## 10. HTTP Client

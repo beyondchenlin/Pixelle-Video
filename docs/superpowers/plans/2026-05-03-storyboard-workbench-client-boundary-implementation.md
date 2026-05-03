@@ -120,8 +120,12 @@ class _Outcome:
 
 
 class _FakeTaskManager:
-    def __init__(self) -> None:
+    def __init__(self, *, can_execute_frame_regeneration: bool = True) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.can_execute_frame_regeneration = can_execute_frame_regeneration
+
+    def can_execute_task_type(self, task_type: TaskType) -> bool:
+        return task_type is TaskType.FRAME_IMAGE_REGENERATION and self.can_execute_frame_regeneration
 
     async def reserve_or_reuse_generation_task(
         self,
@@ -171,7 +175,7 @@ async def test_task_manager_storyboard_submitter_reserves_frame_regeneration_tas
     ]
 
 
-def test_submitter_capabilities_are_true_only_for_real_submitter():
+def test_submitter_capabilities_are_true_only_when_execution_path_is_configured():
     from api.workbench.task_submitter import (
         NoopStoryboardWorkbenchTaskSubmitter,
         TaskManagerStoryboardWorkbenchTaskSubmitter,
@@ -183,6 +187,14 @@ def test_submitter_capabilities_are_true_only_for_real_submitter():
     ).to_dict() == {
         "can_regenerate_frame_image": True,
         "regenerate_unavailable_reason": None,
+    }
+    assert get_storyboard_workbench_capabilities(
+        TaskManagerStoryboardWorkbenchTaskSubmitter(
+            _FakeTaskManager(can_execute_frame_regeneration=False)
+        )
+    ).to_dict() == {
+        "can_regenerate_frame_image": False,
+        "regenerate_unavailable_reason": "frame image regeneration execution is not configured",
     }
     assert get_storyboard_workbench_capabilities(None).to_dict() == {
         "can_regenerate_frame_image": False,
@@ -240,13 +252,11 @@ def test_api_app_lifespan_mounts_storyboard_workbench_task_submitter(monkeypatch
 
 
 def test_web_session_pixelle_video_mounts_storyboard_workbench_task_submitter(monkeypatch, tmp_path):
-    from api import dependencies as api_dependencies
     from api.config import api_config
     from web.state import session as web_session
     from web.state.async_runtime import shutdown_all_async_runtimes
 
     monkeypatch.setattr(api_config, "artifact_base_path", str(tmp_path / "output"))
-    api_dependencies._platform_dependencies = None
     web_session._LOCAL_PLATFORM_DEPENDENCIES = None
     web_session._LOCAL_PLATFORM_TASK_MANAGER = None
     web_session._PIXELLE_VIDEO_SESSIONS.clear()
@@ -257,7 +267,7 @@ def test_web_session_pixelle_video_mounts_storyboard_workbench_task_submitter(mo
     core = None
     try:
         core = web_session.get_pixelle_video()
-        dependencies = api_dependencies.get_or_create_platform_dependencies()
+        dependencies = web_session.get_or_create_local_platform_dependencies()
 
         assert core.storyboard_workbench_task_submitter is (
             dependencies.storyboard_workbench_task_submitter
@@ -268,7 +278,6 @@ def test_web_session_pixelle_video_mounts_storyboard_workbench_task_submitter(mo
             web_session.run_async(core.cleanup())
         web_session._PIXELLE_VIDEO_SESSIONS.clear()
         shutdown_all_async_runtimes()
-        api_dependencies._platform_dependencies = None
         if web_session._LOCAL_PLATFORM_TASK_MANAGER is not None:
             web_session.run_async(web_session._LOCAL_PLATFORM_TASK_MANAGER.stop())
         web_session._LOCAL_PLATFORM_TASK_MANAGER = None
@@ -329,6 +338,8 @@ class StoryboardWorkbenchCapabilities:
 
 @runtime_checkable
 class StoryboardWorkbenchTaskSubmitter(Protocol):
+    def get_capabilities(self) -> StoryboardWorkbenchCapabilities: ...
+
     async def reserve_frame_image_regeneration(
         self,
         *,
@@ -341,12 +352,34 @@ class TaskManagerStoryboardWorkbenchTaskSubmitter:
     def __init__(self, task_manager: Any) -> None:
         self.task_manager = task_manager
 
+    def get_capabilities(self) -> StoryboardWorkbenchCapabilities:
+        can_execute = bool(
+            getattr(self.task_manager, "can_execute_task_type", lambda _task_type: False)(
+                TaskType.FRAME_IMAGE_REGENERATION
+            )
+        )
+        if not can_execute:
+            return StoryboardWorkbenchCapabilities(
+                can_regenerate_frame_image=False,
+                regenerate_unavailable_reason="frame image regeneration execution is not configured",
+            )
+        return StoryboardWorkbenchCapabilities(
+            can_regenerate_frame_image=True,
+            regenerate_unavailable_reason=None,
+        )
+
     async def reserve_frame_image_regeneration(
         self,
         *,
         generation_fingerprint: str,
         request_params: Mapping[str, Any],
     ) -> StoryboardWorkbenchTaskSubmission:
+        capabilities = self.get_capabilities()
+        if not capabilities.can_regenerate_frame_image:
+            raise RuntimeError(
+                capabilities.regenerate_unavailable_reason
+                or "frame image regeneration execution is not configured"
+            )
         outcome = await self.task_manager.reserve_or_reuse_generation_task(
             task_type=TaskType.FRAME_IMAGE_REGENERATION,
             generation_fingerprint=generation_fingerprint,
@@ -363,6 +396,12 @@ class TaskManagerStoryboardWorkbenchTaskSubmitter:
 class NoopStoryboardWorkbenchTaskSubmitter:
     def __init__(self, reason: str = "task submitter is not configured") -> None:
         self.reason = reason
+
+    def get_capabilities(self) -> StoryboardWorkbenchCapabilities:
+        return StoryboardWorkbenchCapabilities(
+            can_regenerate_frame_image=False,
+            regenerate_unavailable_reason=self.reason,
+        )
 
     async def reserve_frame_image_regeneration(
         self,
@@ -381,15 +420,7 @@ def get_storyboard_workbench_capabilities(
             can_regenerate_frame_image=False,
             regenerate_unavailable_reason="task submitter is not configured",
         )
-    if isinstance(submitter, NoopStoryboardWorkbenchTaskSubmitter):
-        return StoryboardWorkbenchCapabilities(
-            can_regenerate_frame_image=False,
-            regenerate_unavailable_reason=submitter.reason,
-        )
-    return StoryboardWorkbenchCapabilities(
-        can_regenerate_frame_image=True,
-        regenerate_unavailable_reason=None,
-    )
+    return submitter.get_capabilities()
 
 
 __all__ = [
@@ -577,6 +608,14 @@ In `tests/test_storyboard_workbench_api.py`, replace `FakeTaskManager` usage in 
 class FakeStoryboardWorkbenchTaskSubmitter:
     reserved: list[dict[str, Any]]
 
+    def get_capabilities(self):
+        from api.workbench.task_submitter import StoryboardWorkbenchCapabilities
+
+        return StoryboardWorkbenchCapabilities(
+            can_regenerate_frame_image=True,
+            regenerate_unavailable_reason=None,
+        )
+
     async def reserve_frame_image_regeneration(
         self,
         *,
@@ -690,6 +729,39 @@ def test_storyboard_workbench_api_regenerate_fails_without_submitter():
 
     assert response.status_code == 503
     assert "task submitter is not configured" in response.json()["detail"]
+
+
+def test_storyboard_workbench_api_regenerate_fails_when_execution_path_is_missing():
+    class UnavailableSubmitter(FakeStoryboardWorkbenchTaskSubmitter):
+        def get_capabilities(self):
+            from api.workbench.task_submitter import StoryboardWorkbenchCapabilities
+
+            return StoryboardWorkbenchCapabilities(
+                can_regenerate_frame_image=False,
+                regenerate_unavailable_reason="frame image regeneration execution is not configured",
+            )
+
+    service = FakeWorkbenchService(
+        listed_artifacts=[],
+        selected_versions=[],
+        regeneration_requests=[],
+    )
+    client = _client(
+        workbench_service=service,
+        state_store=_state_store(),
+        task_submitter=UnavailableSubmitter(reserved=[]),
+    )
+
+    response = client.post(
+        "/storyboards/storyboard_001/frames/frame_0001/regenerate-image",
+        json={
+            "workspace_id": "workspace_1",
+            "artifact_id": "artifact_frame_0001_image",
+        },
+    )
+
+    assert response.status_code == 503
+    assert "frame image regeneration execution is not configured" in response.json()["detail"]
 ```
 
 - [ ] **Step 2: Run tests and verify RED**
@@ -759,6 +831,13 @@ with:
 
 ```python
 task_submitter = _get_storyboard_workbench_task_submitter(request)
+capabilities = task_submitter.get_capabilities()
+if not capabilities.can_regenerate_frame_image:
+    raise HTTPException(
+        status_code=503,
+        detail=capabilities.regenerate_unavailable_reason
+        or "frame image regeneration execution is not configured",
+    )
 ```
 
 and replace outcome mapping with:
@@ -995,6 +1074,19 @@ async def test_task_manager_embedded_submitter_executes_frame_regeneration_when_
             "has_progress": True,
         }
     ]
+
+
+def test_task_manager_submitter_reports_unavailable_when_embedded_executor_is_missing():
+    from api.tasks.manager import TaskManager
+    from api.workbench.task_submitter import TaskManagerStoryboardWorkbenchTaskSubmitter
+
+    manager = TaskManager()
+    submitter = TaskManagerStoryboardWorkbenchTaskSubmitter(manager)
+
+    assert submitter.get_capabilities().to_dict() == {
+        "can_regenerate_frame_image": False,
+        "regenerate_unavailable_reason": "frame image regeneration execution is not configured",
+    }
 ```
 
 Append to `tests/test_worker_execution.py`:
@@ -1045,6 +1137,15 @@ async def test_worker_claims_frame_image_regeneration_tasks(tmp_path):
             "request_params": {"workspace_id": "workspace_1"},
         }
     ]
+
+
+def test_worker_mode_manager_reports_frame_regeneration_executable_after_worker_hook():
+    from api.tasks.manager import TaskManager
+    from api.tasks.models import TaskType
+
+    manager = TaskManager(execution_mode="worker")
+
+    assert manager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION) is True
 ```
 
 - [ ] **Step 3: Run tests and verify RED**
@@ -1216,6 +1317,20 @@ Set:
 self.frame_image_regeneration_executor = frame_image_regeneration_executor
 ```
 
+Add:
+
+```python
+def can_execute_task_type(self, task_type: TaskType) -> bool:
+    if task_type is TaskType.VIDEO_GENERATION:
+        return True
+    if task_type is TaskType.FRAME_IMAGE_REGENERATION:
+        if self.execution_mode == "embedded":
+            return self.frame_image_regeneration_executor is not None
+        if self.execution_mode == "worker":
+            return True
+    return False
+```
+
 At the end of `reserve_or_reuse_generation_task(...)`, after outcome is returned from registry:
 
 ```python
@@ -1226,26 +1341,18 @@ if (
     and self.execution_mode == "embedded"
     and self.frame_image_regeneration_executor is not None
 ):
+    async def _run_frame_image_regeneration(*, progress_dispatcher=None):
+        return await self.frame_image_regeneration_executor(
+            task_id=outcome.task.task_id,
+            request_params=dict(request_params),
+            progress_dispatcher=progress_dispatcher,
+        )
+
     await self.execute_task(
         task_id=outcome.task.task_id,
-        coro_func=self.frame_image_regeneration_executor,
-        task_id=outcome.task.task_id,
-        request_params=dict(request_params),
+        coro_func=_run_frame_image_regeneration,
     )
 return outcome
-```
-
-Because `execute_task` already has a `task_id` positional parameter, do not pass duplicate `task_id` into `coro_func` through the same name. Use an adapter:
-
-```python
-async def _run_frame_image_regeneration(*, progress_dispatcher=None):
-    return await self.frame_image_regeneration_executor(
-        task_id=outcome.task.task_id,
-        request_params=dict(request_params),
-        progress_dispatcher=progress_dispatcher,
-    )
-
-await self.execute_task(outcome.task.task_id, _run_frame_image_regeneration)
 ```
 
 Add a test helper:
@@ -1303,6 +1410,10 @@ Change claim types:
 ```python
 task_types={TaskType.VIDEO_GENERATION, TaskType.FRAME_IMAGE_REGENERATION}
 ```
+
+Document in code comments and tests that worker mode counts as executable only because
+`GenerationWorker` now claims and runs `TaskType.FRAME_IMAGE_REGENERATION`. Do not
+return `True` for worker mode until this step is implemented.
 
 In `run_once`, branch:
 
@@ -1585,6 +1696,18 @@ def test_inprocess_client_uses_task_submitter_for_regenerate():
             }
 
     class Submitter:
+        def get_capabilities(self):
+            return type(
+                "Capabilities",
+                (),
+                {
+                    "to_dict": lambda _self: {
+                        "can_regenerate_frame_image": True,
+                        "regenerate_unavailable_reason": None,
+                    }
+                },
+            )()
+
         async def reserve_frame_image_regeneration(self, **kwargs):
             return type(
                 "Submission",
@@ -1687,7 +1810,7 @@ Use the contracts from the spec. Important implementation constraints:
 
 - `HttpStoryboardWorkbenchClient.get_capabilities()` must call `capability_loader(api_base_url=self.api_base_url)`.
 - `HttpStoryboardWorkbenchClient.list_image_candidates()` must strip `url` and set `image_display`.
-- `InProcessStoryboardWorkbenchClient.get_capabilities()` must inspect `pixelle_video.storyboard_workbench_task_submitter`.
+- `InProcessStoryboardWorkbenchClient.get_capabilities()` must call `pixelle_video.storyboard_workbench_task_submitter.get_capabilities()` when a submitter exists, and report unavailable when it does not.
 - `InProcessStoryboardWorkbenchClient.regenerate_frame_image()` must call `submitter.reserve_frame_image_regeneration(...)`, not any task manager.
 - `web/state/workbench_client.py` must not cache when `pixelle_video is None`.
 
