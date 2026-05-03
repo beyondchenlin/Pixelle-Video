@@ -2,67 +2,1437 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make Storyboard Workbench UI depend on a `StoryboardWorkbenchClient` contract that also owns artifact display and capability exposure, so local Streamlit no longer depends on `8001` or `api_base_url`.
+**Goal:** Make Storyboard Workbench depend on a first-class client boundary with honest display, capability, task submission, and execution contracts, so local Streamlit no longer depends on `8001` and no regenerate path is fake.
 
-**Architecture:** Introduce a client interface with explicit capability and display contracts, plus HTTP and in-process implementations. Streamlit components receive or resolve one client, render `image_display` payloads, and stop importing transport or display URL helpers directly. Factory lifecycle is keyed by mode and core identity, and local regenerate is capability-gated instead of optimistic.
+**Architecture:** Add a backend `StoryboardWorkbenchTaskSubmitter` and frame regeneration executor, wire them through platform dependencies for both FastAPI and local Streamlit, expose backend capabilities over HTTP, then introduce HTTP and in-process Workbench clients. The Workbench page resolves one client and passes it downward; child components consume `image_display` payloads and capabilities only. Every intermediate commit keeps existing behavior working or adds a new unused capability behind tests.
 
-**Tech Stack:** Python, Streamlit, FastAPI service contracts, pytest, ruff.
+**Tech Stack:** Python, Streamlit, FastAPI, Pydantic, pytest, ruff.
 
 ---
 
 ## File Structure
 
+- Create `api/workbench/__init__.py`
+  - Exports backend Workbench runtime adapters.
+- Create `api/workbench/task_submitter.py`
+  - Defines `StoryboardWorkbenchTaskSubmitter`, capability model, task submission DTO, `TaskManagerStoryboardWorkbenchTaskSubmitter`, and `NoopStoryboardWorkbenchTaskSubmitter`.
+- Create `api/workbench/frame_image_regeneration.py`
+  - Executes a reserved frame image regeneration task by loading state, prompt plan, generating media, storing the artifact version, and saving updated Workbench state.
+- Modify `api/platform_dependencies.py`
+  - Adds `storyboard_workbench_task_submitter` and optional `pixelle_video_core_provider`.
+- Modify `api/dependencies.py`
+  - Keeps API-scoped platform dependencies separate from Streamlit local platform dependencies.
+- Modify `web/state/session.py`
+  - Owns the local platform `TaskManager` used when Streamlit runs without FastAPI, starts it once, and stops it during session cleanup.
+- Modify `api/app.py`
+  - Passes the FastAPI lifespan task manager into platform dependency construction.
+- Modify `api/routers/storyboard_workbench.py`
+  - Adds capability endpoint and switches regenerate endpoint from direct `task_manager` access to submitter.
+- Modify `api/schemas/storyboard_workbench.py`
+  - Adds capability response schema.
+- Modify `api/tasks/worker.py`
+  - Claims and executes `FRAME_IMAGE_REGENERATION` tasks in worker mode.
+- Modify `web/utils/storyboard_workbench_api.py`
+  - Adds `get_storyboard_workbench_capabilities(...)`.
 - Create `web/workbench/__init__.py`
   - Exports client protocol and concrete clients.
 - Create `web/workbench/client.py`
-  - Defines the operation contract, capability contract, and error type.
+  - Defines the client operation contract and error type.
 - Create `web/workbench/display.py`
-  - Normalizes and validates `image_display` payloads.
+  - Normalizes remote URL display payloads and local bytes display payloads.
 - Create `web/workbench/http_client.py`
-  - Wraps existing `web.utils.storyboard_workbench_api` / `web.utils.stale_api` and converts candidate URLs into display payloads.
+  - Wraps existing HTTP helpers and capability endpoint.
 - Create `web/workbench/inprocess_protocols.py`
-  - Declares optional local-only dependency protocols for artifact display and regenerate submission.
+  - Declares local-readable artifact protocol.
 - Create `web/workbench/inprocess_client.py`
-  - Calls local platform services and stores directly, consumes artifacts registered by `StoryboardWorkbenchArtifactBridge`, and builds local display payloads without `api_base_url`.
+  - Calls local platform services/stores and submitter directly.
 - Create `web/state/workbench_client.py`
   - Resolves mode and caches only fully configured clients.
 - Modify `web/components/storyboard_workbench_panel.py`
-  - Replace direct HTTP loader/selector/regenerator defaults with a client and capability-gated regenerate button.
+  - Replaces direct HTTP loaders with injected client and capability-gated regenerate button.
 - Modify `web/components/storyboard_workbench_stale.py`
-  - Replace direct stale HTTP loader with a client.
+  - Replaces direct stale HTTP loader with injected client.
 - Modify `web/components/storyboard_preview.py`
-  - Pass `workbench_client` through to Workbench and stale components.
+  - Passes `workbench_client` through to Workbench and stale components.
 - Modify `web/pages/3_🧭_Storyboard_Workbench.py`
-  - Resolve mode, load local `PixelleVideoCore` when needed, then resolve one client.
-- Test `tests/test_storyboard_workbench_client.py`
-  - Client contract, display contract, factory lifecycle, HTTP adapter, in-process adapter behavior.
+  - Resolves mode, initializes local `PixelleVideoCore` when needed, then resolves one client.
+- Test `tests/test_storyboard_workbench_task_submitter.py`
+  - Submitter, capability, and executor behavior.
 - Test updates:
+  - `tests/test_app_platform_dependencies.py`
+  - `tests/test_storyboard_workbench_api.py`
+  - `tests/test_storyboard_workbench_frontend_api.py`
+  - `tests/test_storyboard_workbench_client.py`
+  - `tests/test_storyboard_workbench_panel_ui.py`
   - `tests/test_storyboard_workbench_stale_ui.py`
   - `tests/test_storyboard_workbench_page.py`
-  - `tests/test_storyboard_workbench_panel_ui.py`
+  - `tests/test_worker_execution.py`
+
+## Execution Notes
+
+- Do not switch UI default mode before the in-process client supports list/select/stale/display/regenerate submission.
+- Do not claim regenerate is available unless a submitter and executor path exist.
+- Do not call `request.app.state.task_manager` from the Storyboard Workbench router after Task 2.
+- Do not use `api.tasks.manager.task_manager` global as a local shortcut.
+- Keep commits atomic and pushable. Use `git push origin <current-branch>` after each commit per repository policy.
+- Ignore unrelated dirty files, especially `tests/test_style_config_layered_template_ui.py`, unless they become directly relevant.
 
 ---
 
-## Task 1: Define Client, Display, And HTTP Contracts
+## Task 1: Add First-Class Task Submitter And Capabilities
 
 **Files:**
+- Create: `api/workbench/__init__.py`
+- Create: `api/workbench/task_submitter.py`
+- Modify: `api/platform_dependencies.py`
+- Modify: `api/dependencies.py`
+- Modify: `web/state/session.py`
+- Modify: `api/app.py`
+- Test: `tests/test_storyboard_workbench_task_submitter.py`
+- Test: `tests/test_app_platform_dependencies.py`
+
+- [ ] **Step 1: Write failing submitter tests**
+
+Create `tests/test_storyboard_workbench_task_submitter.py`:
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import pytest
+
+from api.tasks.models import TaskType
+
+
+@dataclass
+class _Task:
+    task_id: str
+    task_type: TaskType
+
+
+@dataclass
+class _Outcome:
+    task: _Task
+    created: bool
+    reused_reason: str | None
+
+
+class _FakeTaskManager:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def reserve_or_reuse_generation_task(
+        self,
+        *,
+        task_type: TaskType,
+        generation_fingerprint: str,
+        request_params: dict[str, Any],
+    ) -> _Outcome:
+        self.calls.append(
+            {
+                "task_type": task_type,
+                "generation_fingerprint": generation_fingerprint,
+                "request_params": request_params,
+            }
+        )
+        return _Outcome(
+            task=_Task("regen-task-1", task_type),
+            created=True,
+            reused_reason=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_task_manager_storyboard_submitter_reserves_frame_regeneration_task():
+    from api.workbench.task_submitter import TaskManagerStoryboardWorkbenchTaskSubmitter
+
+    manager = _FakeTaskManager()
+    submitter = TaskManagerStoryboardWorkbenchTaskSubmitter(manager)
+
+    result = await submitter.reserve_frame_image_regeneration(
+        generation_fingerprint="fingerprint-frame-0001",
+        request_params={"workspace_id": "workspace_1"},
+    )
+
+    assert result.to_dict() == {
+        "task_id": "regen-task-1",
+        "task_type": "frame_image_regeneration",
+        "created": True,
+        "reused_reason": None,
+    }
+    assert manager.calls == [
+        {
+            "task_type": TaskType.FRAME_IMAGE_REGENERATION,
+            "generation_fingerprint": "fingerprint-frame-0001",
+            "request_params": {"workspace_id": "workspace_1"},
+        }
+    ]
+
+
+def test_submitter_capabilities_are_true_only_for_real_submitter():
+    from api.workbench.task_submitter import (
+        NoopStoryboardWorkbenchTaskSubmitter,
+        TaskManagerStoryboardWorkbenchTaskSubmitter,
+        get_storyboard_workbench_capabilities,
+    )
+
+    assert get_storyboard_workbench_capabilities(
+        TaskManagerStoryboardWorkbenchTaskSubmitter(_FakeTaskManager())
+    ).to_dict() == {
+        "can_regenerate_frame_image": True,
+        "regenerate_unavailable_reason": None,
+    }
+    assert get_storyboard_workbench_capabilities(None).to_dict() == {
+        "can_regenerate_frame_image": False,
+        "regenerate_unavailable_reason": "task submitter is not configured",
+    }
+    assert get_storyboard_workbench_capabilities(
+        NoopStoryboardWorkbenchTaskSubmitter("worker execution is not configured")
+    ).to_dict() == {
+        "can_regenerate_frame_image": False,
+        "regenerate_unavailable_reason": "worker execution is not configured",
+    }
+```
+
+- [ ] **Step 2: Write failing platform dependency tests**
+
+Append to `tests/test_app_platform_dependencies.py`:
+
+```python
+def test_dev_platform_dependencies_mount_storyboard_workbench_task_submitter(tmp_path):
+    from api.platform_dependencies import configure_platform_dependencies
+    from api.tasks.manager import TaskManager
+    from api.workbench.task_submitter import TaskManagerStoryboardWorkbenchTaskSubmitter
+
+    app = FastAPI()
+    manager = TaskManager()
+    dependencies = configure_platform_dependencies(
+        app,
+        APIConfig(runtime_profile="dev", artifact_base_path=str(tmp_path / "output")),
+        task_manager=manager,
+    )
+
+    assert isinstance(
+        dependencies.storyboard_workbench_task_submitter,
+        TaskManagerStoryboardWorkbenchTaskSubmitter,
+    )
+    assert app.state.storyboard_workbench_task_submitter is (
+        dependencies.storyboard_workbench_task_submitter
+    )
+
+
+def test_api_app_lifespan_mounts_storyboard_workbench_task_submitter(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    import api.app as api_app
+    import api.dependencies as dependencies_module
+
+    monkeypatch.setattr(api_app.api_config, "artifact_base_path", str(tmp_path / "output"))
+    dependencies_module._platform_dependencies = None
+
+    with TestClient(api_app.app) as client:
+        assert hasattr(client.app.state, "storyboard_workbench_task_submitter")
+        assert dependencies_module.get_or_create_platform_dependencies().storyboard_workbench_task_submitter is (
+            client.app.state.storyboard_workbench_task_submitter
+        )
+
+
+def test_web_session_pixelle_video_mounts_storyboard_workbench_task_submitter(monkeypatch, tmp_path):
+    from api import dependencies as api_dependencies
+    from api.config import api_config
+    from web.state import session as web_session
+    from web.state.async_runtime import shutdown_all_async_runtimes
+
+    monkeypatch.setattr(api_config, "artifact_base_path", str(tmp_path / "output"))
+    api_dependencies._platform_dependencies = None
+    web_session._LOCAL_PLATFORM_DEPENDENCIES = None
+    web_session._LOCAL_PLATFORM_TASK_MANAGER = None
+    web_session._PIXELLE_VIDEO_SESSIONS.clear()
+    monkeypatch.setattr(web_session, "get_current_session_key", lambda: "test_web_session_submitter")
+    monkeypatch.setattr(web_session, "register_async_cleanup", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(web_session, "session_exists", lambda _session_key: True)
+
+    core = None
+    try:
+        core = web_session.get_pixelle_video()
+        dependencies = api_dependencies.get_or_create_platform_dependencies()
+
+        assert core.storyboard_workbench_task_submitter is (
+            dependencies.storyboard_workbench_task_submitter
+        )
+        assert core.storyboard_workbench_task_submitter is not None
+    finally:
+        if core is not None:
+            web_session.run_async(core.cleanup())
+        web_session._PIXELLE_VIDEO_SESSIONS.clear()
+        shutdown_all_async_runtimes()
+        api_dependencies._platform_dependencies = None
+        if web_session._LOCAL_PLATFORM_TASK_MANAGER is not None:
+            web_session.run_async(web_session._LOCAL_PLATFORM_TASK_MANAGER.stop())
+        web_session._LOCAL_PLATFORM_TASK_MANAGER = None
+        web_session._LOCAL_PLATFORM_DEPENDENCIES = None
+```
+
+- [ ] **Step 3: Run tests and verify RED**
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_app_platform_dependencies.py::test_dev_platform_dependencies_mount_storyboard_workbench_task_submitter tests/test_app_platform_dependencies.py::test_api_app_lifespan_mounts_storyboard_workbench_task_submitter tests/test_app_platform_dependencies.py::test_web_session_pixelle_video_mounts_storyboard_workbench_task_submitter
+```
+
+Expected: fail because `api.workbench` and submitter wiring do not exist.
+
+- [ ] **Step 4: Add submitter module**
+
+Create `api/workbench/task_submitter.py`:
+
+```python
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any, Protocol, runtime_checkable
+
+from api.tasks.models import TaskType
+
+
+@dataclass(frozen=True)
+class StoryboardWorkbenchTaskSubmission:
+    task_id: str
+    task_type: str
+    created: bool
+    reused_reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "task_type": self.task_type,
+            "created": self.created,
+            "reused_reason": self.reused_reason,
+        }
+
+
+@dataclass(frozen=True)
+class StoryboardWorkbenchCapabilities:
+    can_regenerate_frame_image: bool
+    regenerate_unavailable_reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "can_regenerate_frame_image": self.can_regenerate_frame_image,
+            "regenerate_unavailable_reason": self.regenerate_unavailable_reason,
+        }
+
+
+@runtime_checkable
+class StoryboardWorkbenchTaskSubmitter(Protocol):
+    async def reserve_frame_image_regeneration(
+        self,
+        *,
+        generation_fingerprint: str,
+        request_params: Mapping[str, Any],
+    ) -> StoryboardWorkbenchTaskSubmission: ...
+
+
+class TaskManagerStoryboardWorkbenchTaskSubmitter:
+    def __init__(self, task_manager: Any) -> None:
+        self.task_manager = task_manager
+
+    async def reserve_frame_image_regeneration(
+        self,
+        *,
+        generation_fingerprint: str,
+        request_params: Mapping[str, Any],
+    ) -> StoryboardWorkbenchTaskSubmission:
+        outcome = await self.task_manager.reserve_or_reuse_generation_task(
+            task_type=TaskType.FRAME_IMAGE_REGENERATION,
+            generation_fingerprint=generation_fingerprint,
+            request_params=dict(request_params),
+        )
+        return StoryboardWorkbenchTaskSubmission(
+            task_id=outcome.task.task_id,
+            task_type=outcome.task.task_type.value,
+            created=outcome.created,
+            reused_reason=outcome.reused_reason,
+        )
+
+
+class NoopStoryboardWorkbenchTaskSubmitter:
+    def __init__(self, reason: str = "task submitter is not configured") -> None:
+        self.reason = reason
+
+    async def reserve_frame_image_regeneration(
+        self,
+        *,
+        generation_fingerprint: str,
+        request_params: Mapping[str, Any],
+    ) -> StoryboardWorkbenchTaskSubmission:
+        raise RuntimeError(self.reason)
+
+
+def get_storyboard_workbench_capabilities(
+    submitter: StoryboardWorkbenchTaskSubmitter | None,
+) -> StoryboardWorkbenchCapabilities:
+    if submitter is None:
+        return StoryboardWorkbenchCapabilities(
+            can_regenerate_frame_image=False,
+            regenerate_unavailable_reason="task submitter is not configured",
+        )
+    if isinstance(submitter, NoopStoryboardWorkbenchTaskSubmitter):
+        return StoryboardWorkbenchCapabilities(
+            can_regenerate_frame_image=False,
+            regenerate_unavailable_reason=submitter.reason,
+        )
+    return StoryboardWorkbenchCapabilities(
+        can_regenerate_frame_image=True,
+        regenerate_unavailable_reason=None,
+    )
+
+
+__all__ = [
+    "NoopStoryboardWorkbenchTaskSubmitter",
+    "StoryboardWorkbenchCapabilities",
+    "StoryboardWorkbenchTaskSubmission",
+    "StoryboardWorkbenchTaskSubmitter",
+    "TaskManagerStoryboardWorkbenchTaskSubmitter",
+    "get_storyboard_workbench_capabilities",
+]
+```
+
+Create `api/workbench/__init__.py`:
+
+```python
+from api.workbench.task_submitter import (
+    NoopStoryboardWorkbenchTaskSubmitter,
+    StoryboardWorkbenchCapabilities,
+    StoryboardWorkbenchTaskSubmission,
+    StoryboardWorkbenchTaskSubmitter,
+    TaskManagerStoryboardWorkbenchTaskSubmitter,
+    get_storyboard_workbench_capabilities,
+)
+
+__all__ = [
+    "NoopStoryboardWorkbenchTaskSubmitter",
+    "StoryboardWorkbenchCapabilities",
+    "StoryboardWorkbenchTaskSubmission",
+    "StoryboardWorkbenchTaskSubmitter",
+    "TaskManagerStoryboardWorkbenchTaskSubmitter",
+    "get_storyboard_workbench_capabilities",
+]
+```
+
+- [ ] **Step 5: Wire platform dependencies**
+
+Modify `api/platform_dependencies.py`:
+
+```python
+from api.workbench.task_submitter import (
+    StoryboardWorkbenchTaskSubmitter,
+    TaskManagerStoryboardWorkbenchTaskSubmitter,
+)
+```
+
+Extend `PlatformDependencies`:
+
+```python
+storyboard_workbench_task_submitter: StoryboardWorkbenchTaskSubmitter | None = None
+pixelle_video_core_provider: Any | None = None
+```
+
+Change signatures:
+
+```python
+def configure_platform_dependencies(
+    app: FastAPI,
+    config: APIConfig,
+    *,
+    core: Any | None = None,
+    task_manager: Any | None = None,
+    pixelle_video_core_provider: Any | None = None,
+) -> PlatformDependencies:
+    dependencies = build_platform_dependencies(
+        config,
+        task_manager=task_manager,
+        pixelle_video_core_provider=pixelle_video_core_provider,
+    )
+```
+
+```python
+def build_platform_dependencies(
+    config: APIConfig,
+    *,
+    task_manager: Any | None = None,
+    pixelle_video_core_provider: Any | None = None,
+) -> PlatformDependencies:
+```
+
+Inside `build_platform_dependencies(...)`:
+
+```python
+task_submitter = (
+    TaskManagerStoryboardWorkbenchTaskSubmitter(task_manager)
+    if task_manager is not None
+    else None
+)
+```
+
+Include fields in `PlatformDependencies(...)`.
+
+Keep `api/dependencies.py.get_or_create_platform_dependencies()` API-scoped. It should continue to return dependencies installed by FastAPI lifespan when available, and should not create a Streamlit-local task manager as a hidden side effect.
+
+Modify `web/state/session.py` instead:
+
+```python
+_LOCAL_PLATFORM_DEPENDENCIES = None
+_LOCAL_PLATFORM_TASK_MANAGER = None
+
+
+async def _execute_local_frame_image_regeneration_task(
+    *,
+    task_id: str,
+    request_params: dict[str, object],
+    progress_dispatcher=None,
+) -> dict[str, object]:
+    from api.workbench.frame_image_regeneration import execute_frame_image_regeneration
+
+    return await execute_frame_image_regeneration(
+        core=get_pixelle_video(),
+        task_id=task_id,
+        request_params=request_params,
+        progress_dispatcher=progress_dispatcher,
+    )
+
+
+def get_or_create_local_platform_dependencies():
+    global _LOCAL_PLATFORM_DEPENDENCIES, _LOCAL_PLATFORM_TASK_MANAGER
+    if _LOCAL_PLATFORM_DEPENDENCIES is None:
+        from api.config import api_config
+        from api.platform_dependencies import build_platform_dependencies
+        from api.tasks.factory import build_task_manager
+
+        _LOCAL_PLATFORM_TASK_MANAGER = build_task_manager(
+            api_config,
+            frame_image_regeneration_executor=_execute_local_frame_image_regeneration_task,
+        )
+        run_async(_LOCAL_PLATFORM_TASK_MANAGER.start())
+        _LOCAL_PLATFORM_DEPENDENCIES = build_platform_dependencies(
+            api_config,
+            task_manager=_LOCAL_PLATFORM_TASK_MANAGER,
+            pixelle_video_core_provider=get_pixelle_video,
+        )
+    return _LOCAL_PLATFORM_DEPENDENCIES
+```
+
+In `get_pixelle_video()`, replace `get_or_create_platform_dependencies()` with `get_or_create_local_platform_dependencies()`.
+
+Update `_cleanup_pixelle_video_session(...)` so when the last session is cleaned up it also stops `_LOCAL_PLATFORM_TASK_MANAGER` and clears `_LOCAL_PLATFORM_DEPENDENCIES`.
+
+Modify `api/app.py`:
+
+```python
+platform_dependencies = configure_platform_dependencies(
+    app,
+    api_config,
+    task_manager=manager,
+    pixelle_video_core_provider=get_pixelle_video,
+)
+```
+
+- [ ] **Step 6: Run tests and verify GREEN**
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_app_platform_dependencies.py
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 7: Commit and push**
+
+```powershell
+git add -- api/workbench/__init__.py api/workbench/task_submitter.py api/platform_dependencies.py api/dependencies.py api/app.py web/state/session.py tests/test_storyboard_workbench_task_submitter.py tests/test_app_platform_dependencies.py
+git commit -m "feat: 注入分镜工作台任务提交器"
+git push origin $(git branch --show-current)
+```
+
+---
+
+## Task 2: Expose Backend Capabilities And Use Submitter In Router
+
+**Files:**
+- Modify: `api/schemas/storyboard_workbench.py`
+- Modify: `api/routers/storyboard_workbench.py`
+- Test: `tests/test_storyboard_workbench_api.py`
+
+- [ ] **Step 1: Update failing API tests**
+
+In `tests/test_storyboard_workbench_api.py`, replace `FakeTaskManager` usage in `_client(...)` with submitter injection:
+
+```python
+@dataclass
+class FakeStoryboardWorkbenchTaskSubmitter:
+    reserved: list[dict[str, Any]]
+
+    async def reserve_frame_image_regeneration(
+        self,
+        *,
+        generation_fingerprint: str,
+        request_params: dict[str, Any],
+    ):
+        from api.workbench.task_submitter import StoryboardWorkbenchTaskSubmission
+
+        self.reserved.append(
+            {
+                "generation_fingerprint": generation_fingerprint,
+                "request_params": request_params,
+            }
+        )
+        return StoryboardWorkbenchTaskSubmission(
+            task_id="regen-task-1",
+            task_type="frame_image_regeneration",
+            created=True,
+        )
+```
+
+Change `_client(...)` parameter:
+
+```python
+task_submitter: FakeStoryboardWorkbenchTaskSubmitter | None = None,
+```
+
+and injection:
+
+```python
+if task_submitter is not None:
+    app.state.storyboard_workbench_task_submitter = task_submitter
+```
+
+Add:
+
+```python
+def test_storyboard_workbench_api_reports_capabilities_from_submitter():
+    client = _client(task_submitter=FakeStoryboardWorkbenchTaskSubmitter(reserved=[]))
+
+    response = client.get("/storyboards/workbench/capabilities")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "message": "Success",
+        "can_regenerate_frame_image": True,
+        "regenerate_unavailable_reason": None,
+    }
+
+
+def test_storyboard_workbench_api_reports_regenerate_unavailable_without_submitter():
+    client = _client()
+
+    response = client.get("/storyboards/workbench/capabilities")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "message": "Success",
+        "can_regenerate_frame_image": False,
+        "regenerate_unavailable_reason": "task submitter is not configured",
+    }
+```
+
+Update `test_storyboard_workbench_api_requests_frame_image_regeneration_task()`:
+
+```python
+task_submitter = FakeStoryboardWorkbenchTaskSubmitter(reserved=[])
+client = _client(
+    workbench_service=service,
+    state_store=_state_store(),
+    task_submitter=task_submitter,
+)
+...
+assert task_submitter.reserved == [
+    {
+        "generation_fingerprint": "fingerprint-frame-0001",
+        "request_params": {
+            "workspace_id": "workspace_1",
+            "storyboard_id": "storyboard_001",
+            "frame_id": "frame_0001",
+            "prompt_plan_id": "prompt_plan_001",
+            "artifact_id": "artifact_frame_0001_image",
+            "provider": "comfyui",
+            "model": "z-image",
+            "generation_fingerprint": "fingerprint-frame-0001",
+        },
+    }
+]
+```
+
+Add:
+
+```python
+def test_storyboard_workbench_api_regenerate_fails_without_submitter():
+    service = FakeWorkbenchService(
+        listed_artifacts=[],
+        selected_versions=[],
+        regeneration_requests=[],
+    )
+    client = _client(workbench_service=service, state_store=_state_store())
+
+    response = client.post(
+        "/storyboards/storyboard_001/frames/frame_0001/regenerate-image",
+        json={
+            "workspace_id": "workspace_1",
+            "artifact_id": "artifact_frame_0001_image",
+        },
+    )
+
+    assert response.status_code == 503
+    assert "task submitter is not configured" in response.json()["detail"]
+```
+
+- [ ] **Step 2: Run tests and verify RED**
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_storyboard_workbench_api.py
+```
+
+Expected: fail because capability schema/endpoint and submitter router path do not exist.
+
+- [ ] **Step 3: Add schema**
+
+Modify `api/schemas/storyboard_workbench.py`:
+
+```python
+class StoryboardWorkbenchCapabilitiesResponse(BaseModel):
+    success: bool = True
+    message: str = "Success"
+    can_regenerate_frame_image: bool
+    regenerate_unavailable_reason: str | None = None
+```
+
+Add it to `__all__`.
+
+- [ ] **Step 4: Update router**
+
+Modify imports in `api/routers/storyboard_workbench.py`:
+
+```python
+from api.schemas.storyboard_workbench import StoryboardWorkbenchCapabilitiesResponse
+from api.workbench.task_submitter import get_storyboard_workbench_capabilities
+```
+
+Add endpoint before `/{storyboard_id}` routes:
+
+```python
+@router.get(
+    "/workbench/capabilities",
+    response_model=StoryboardWorkbenchCapabilitiesResponse,
+)
+async def get_workbench_capabilities(request: Request) -> StoryboardWorkbenchCapabilitiesResponse:
+    capabilities = get_storyboard_workbench_capabilities(
+        _get_storyboard_workbench_task_submitter(request, required=False)
+    )
+    return StoryboardWorkbenchCapabilitiesResponse(**capabilities.to_dict())
+```
+
+Replace `_get_task_manager` with:
+
+```python
+def _get_storyboard_workbench_task_submitter(request: Request, *, required: bool = True):
+    submitter = getattr(request.app.state, "storyboard_workbench_task_submitter", None)
+    if submitter is None and required:
+        raise HTTPException(status_code=503, detail="task submitter is not configured")
+    return submitter
+```
+
+In `request_frame_image_regeneration(...)`, replace:
+
+```python
+task_manager = _get_task_manager(request)
+```
+
+with:
+
+```python
+task_submitter = _get_storyboard_workbench_task_submitter(request)
+```
+
+and replace outcome mapping with:
+
+```python
+submission = await task_submitter.reserve_frame_image_regeneration(
+    generation_fingerprint=task_request.generation_fingerprint,
+    request_params=dict(task_request.request_params),
+)
+return RegenerateStoryboardFrameImageResponse(
+    workspace_id=payload.workspace_id,
+    storyboard_id=storyboard_id,
+    frame_id=frame_id,
+    artifact_id=payload.artifact_id,
+    task_id=submission.task_id,
+    task_type=submission.task_type,
+    created=submission.created,
+    reused_reason=submission.reused_reason,
+    generation_fingerprint=task_request.generation_fingerprint,
+)
+```
+
+Remove `from api.tasks.models import TaskType`.
+
+- [ ] **Step 5: Run tests and verify GREEN**
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_storyboard_workbench_api.py
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 6: Source regression for no direct task manager**
+
+Append to `tests/test_storyboard_workbench_api.py`:
+
+```python
+def test_storyboard_workbench_router_does_not_reach_through_to_task_manager():
+    from pathlib import Path
+
+    source = Path("api/routers/storyboard_workbench.py").read_text(encoding="utf-8")
+
+    assert "app.state.task_manager" not in source
+    assert "reserve_or_reuse_generation_task" not in source
+```
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_storyboard_workbench_api.py::test_storyboard_workbench_router_does_not_reach_through_to_task_manager
+```
+
+Expected: pass.
+
+- [ ] **Step 7: Commit and push**
+
+```powershell
+git add -- api/schemas/storyboard_workbench.py api/routers/storyboard_workbench.py tests/test_storyboard_workbench_api.py
+git commit -m "refactor: 让分镜工作台接口通过任务提交器重抽图"
+git push origin $(git branch --show-current)
+```
+
+---
+
+## Task 3: Add Frame Image Regeneration Executor
+
+**Files:**
+- Create: `api/workbench/frame_image_regeneration.py`
+- Modify: `api/tasks/manager.py`
+- Modify: `api/tasks/worker.py`
+- Test: `tests/test_storyboard_workbench_task_submitter.py`
+- Test: `tests/test_worker_execution.py`
+
+- [ ] **Step 1: Write failing executor unit test**
+
+Append to `tests/test_storyboard_workbench_task_submitter.py`:
+
+```python
+from pathlib import Path
+
+
+class _FakeMedia:
+    def __init__(self, generated_path: Path) -> None:
+        self.generated_path = generated_path
+        self.calls: list[dict[str, Any]] = []
+
+    async def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+        return type("MediaResult", (), {"media_type": "image", "is_image": True, "url": str(self.generated_path)})()
+
+
+class _FakePromptPlanRepository:
+    async def load_prompt_plans_by_storyboard(self, workspace_id, storyboard_id):
+        return [
+            {
+                "prompt_plan_id": "prompt_plan_001",
+                "storyboard_plan_id": storyboard_id,
+                "frame_id": "frame_0001",
+                "image_prompt_draft_id": "draft_001",
+                "prompt_sections": {"visual_goal": "A quiet lab"},
+                "final_prompt": "A quiet lab, cinematic lighting",
+            }
+        ]
+
+
+class _FakeStateStore:
+    def __init__(self):
+        self.saved: list[tuple[str, str, str, dict[str, Any]]] = []
+
+    async def load_frame_state(self, workspace_id, storyboard_id, frame_id):
+        return {
+            "frame_id": frame_id,
+            "prompt_plan_id": "prompt_plan_001",
+            "selected_image_artifact_id": "artifact_frame_0001_image",
+            "selected_image_version_id": "artifact_version_001",
+            "candidate_image_version_ids": ["artifact_version_001"],
+            "lock_policy": "unlocked",
+            "stale_flags": [],
+        }
+
+    async def save_frame_state(self, workspace_id, storyboard_id, frame_id, state):
+        self.saved.append((workspace_id, storyboard_id, frame_id, dict(state)))
+        return state
+
+
+@pytest.mark.asyncio
+async def test_execute_frame_image_regeneration_generates_image_and_records_candidate(tmp_path):
+    from pixelle_video.services.storyboard_workbench import StoryboardWorkbenchService
+    from tests.test_storyboard_frame_regeneration import (
+        RecordingArtifactRepository,
+        RecordingObjectStore,
+        RecordingTraceRepository,
+        UnusedPromptPlanRepository,
+    )
+    from api.workbench.frame_image_regeneration import execute_frame_image_regeneration
+
+    generated = tmp_path / "generated.png"
+    generated.write_bytes(b"image")
+    artifact_repository = RecordingArtifactRepository(created_versions=[])
+    object_store = RecordingObjectStore(uploaded_files=[])
+    trace_repository = RecordingTraceRepository(events=[])
+    service = StoryboardWorkbenchService(
+        artifact_repository=artifact_repository,
+        object_store=object_store,
+        trace_repository=trace_repository,
+        prompt_plan_repository=UnusedPromptPlanRepository(),
+    )
+    state_store = _FakeStateStore()
+    media = _FakeMedia(generated)
+    core = type(
+        "Core",
+        (),
+        {
+            "media": media,
+            "storyboard_workbench_service": service,
+            "storyboard_workbench_state_store": state_store,
+            "prompt_plan_repository": _FakePromptPlanRepository(),
+        },
+    )()
+
+    result = await execute_frame_image_regeneration(
+        core=core,
+        task_id="regen-task-1",
+        request_params={
+            "workspace_id": "workspace_1",
+            "storyboard_id": "storyboard_001",
+            "frame_id": "frame_0001",
+            "prompt_plan_id": "prompt_plan_001",
+            "artifact_id": "artifact_frame_0001_image",
+            "provider": "comfyui",
+            "model": "selfhost/image_z_image_turbo_gguf.json",
+            "media_width": 768,
+            "media_height": 768,
+            "media_negative_prompt": "blurry",
+        },
+    )
+
+    assert media.calls == [
+        {
+            "prompt": "A quiet lab, cinematic lighting",
+            "media_type": "image",
+            "workflow": "selfhost/image_z_image_turbo_gguf.json",
+            "width": 768,
+            "height": 768,
+            "negative_prompt": "blurry",
+        }
+    ]
+    assert result["artifact_version_id"] == artifact_repository.created_versions[-1][2]["version_id"]
+    assert state_store.saved[-1][3]["last_generation_job_id"] == "regen-task-1"
+```
+
+- [ ] **Step 2: Write failing manager/worker execution tests**
+
+Append to `tests/test_storyboard_workbench_task_submitter.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_task_manager_embedded_submitter_executes_frame_regeneration_when_executor_configured():
+    from api.tasks.manager import TaskManager
+    from api.workbench.task_submitter import TaskManagerStoryboardWorkbenchTaskSubmitter
+
+    calls: list[dict[str, Any]] = []
+
+    async def executor(*, task_id: str, request_params: dict[str, Any], progress_dispatcher=None):
+        calls.append(
+            {
+                "task_id": task_id,
+                "request_params": request_params,
+                "has_progress": progress_dispatcher is not None,
+            }
+        )
+        return {"ok": True}
+
+    manager = TaskManager(frame_image_regeneration_executor=executor)
+    await manager.start()
+    try:
+        submitter = TaskManagerStoryboardWorkbenchTaskSubmitter(manager)
+        submission = await submitter.reserve_frame_image_regeneration(
+            generation_fingerprint="fingerprint-frame-0001",
+            request_params={"workspace_id": "workspace_1"},
+        )
+        await manager.wait_for_task_completion_for_test(submission.task_id)
+    finally:
+        await manager.stop()
+
+    assert calls == [
+        {
+            "task_id": submission.task_id,
+            "request_params": {
+                "workspace_id": "workspace_1",
+            },
+            "has_progress": True,
+        }
+    ]
+```
+
+Append to `tests/test_worker_execution.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_worker_claims_frame_image_regeneration_tasks(tmp_path):
+    from api.config import APIConfig
+    from api.tasks.artifacts import MissingArtifactStore
+    from api.tasks.lease import InMemoryGenerationLease
+    from api.tasks.models import TaskType
+    from api.tasks.registry import GenerationRegistry
+    from api.tasks.store import InMemoryTaskStore
+    from api.tasks.worker import GenerationWorker
+
+    store = InMemoryTaskStore()
+    registry = GenerationRegistry(
+        store=store,
+        lease=InMemoryGenerationLease(),
+        artifact_store=MissingArtifactStore(),
+        task_id_factory=lambda: "regen-task-1",
+    )
+    await registry.reserve_or_reuse(
+        fingerprint="fingerprint-frame-0001",
+        task_type=TaskType.FRAME_IMAGE_REGENERATION,
+        request_params={"workspace_id": "workspace_1"},
+        reuse_completed_within_seconds=0,
+    )
+    calls: list[dict[str, Any]] = []
+
+    async def executor(*, task_id: str, request_params: dict[str, Any], progress_dispatcher=None):
+        calls.append({"task_id": task_id, "request_params": request_params})
+        return {"ok": True}
+
+    worker = GenerationWorker(
+        registry=registry,
+        core=object(),
+        artifact_store=registry.artifact_store,
+        output_root=tmp_path / "work",
+        worker_id="worker-1",
+        frame_image_regeneration_executor=executor,
+    )
+
+    assert await worker.run_once() is True
+    assert calls == [
+        {
+            "task_id": "regen-task-1",
+            "request_params": {"workspace_id": "workspace_1"},
+        }
+    ]
+```
+
+- [ ] **Step 3: Run tests and verify RED**
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_worker_execution.py::test_worker_claims_frame_image_regeneration_tasks
+```
+
+Expected: fail because executor and manager/worker hooks are missing.
+
+- [ ] **Step 4: Implement executor**
+
+Create `api/workbench/frame_image_regeneration.py`:
+
+```python
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Mapping
+
+from pixelle_video.models.progress import ProgressEvent, ProgressEventType
+from pixelle_video.models.prompt_plan import PromptPlan
+from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
+from pixelle_video.models.size_contract import GenerationSizeContract
+
+
+async def execute_frame_image_regeneration(
+    *,
+    core: Any,
+    task_id: str,
+    request_params: Mapping[str, Any],
+    progress_dispatcher: Any | None = None,
+) -> dict[str, Any]:
+    workspace_id = _require_param(request_params, "workspace_id")
+    storyboard_id = _require_param(request_params, "storyboard_id")
+    frame_id = _require_param(request_params, "frame_id")
+    prompt_plan_id = _require_param(request_params, "prompt_plan_id")
+    artifact_id = _require_param(request_params, "artifact_id")
+
+    service = _require_attr(core, "storyboard_workbench_service")
+    state_store = _require_attr(core, "storyboard_workbench_state_store")
+    prompt_plan_repository = _require_attr(core, "prompt_plan_repository")
+    media = _require_attr(core, "media")
+
+    state_payload = await state_store.load_frame_state(workspace_id, storyboard_id, frame_id)
+    if state_payload is None:
+        raise RuntimeError("storyboard frame workbench state was not found")
+    state = (
+        state_payload
+        if isinstance(state_payload, StoryboardFrameWorkbenchState)
+        else StoryboardFrameWorkbenchState.from_dict(state_payload)
+    )
+    prompt_plan = await _load_prompt_plan(
+        prompt_plan_repository,
+        workspace_id=workspace_id,
+        storyboard_id=storyboard_id,
+        prompt_plan_id=prompt_plan_id,
+    )
+    size_contract = GenerationSizeContract.from_params(request_params)
+    workflow = request_params.get("model") or request_params.get("media_workflow")
+    negative_prompt = request_params.get("media_negative_prompt") or request_params.get("negative_prompt")
+    if progress_dispatcher is not None:
+        progress_dispatcher.emit(
+            ProgressEvent(event_type=ProgressEventType.GENERATION, progress=0.0)
+        )
+    media_result = await media(
+        prompt=prompt_plan.final_prompt,
+        media_type="image",
+        workflow=workflow,
+        width=size_contract.media_width,
+        height=size_contract.media_height,
+        negative_prompt=negative_prompt,
+    )
+    source_path = _resolve_media_source_path(media_result.url)
+    result = await service.record_frame_image_regeneration_result(
+        workspace_id=workspace_id,
+        task_id=task_id,
+        state=state,
+        artifact_id=artifact_id,
+        source_path=source_path,
+        project_id=request_params.get("project_id"),
+        prompt_plan=prompt_plan,
+        provider=request_params.get("provider"),
+        provider_metadata={"workflow": workflow} if workflow else {},
+        width=size_contract.media_width,
+        height=size_contract.media_height,
+    )
+    await state_store.save_frame_state(
+        workspace_id,
+        storyboard_id,
+        frame_id,
+        result.workbench_state.to_dict(),
+    )
+    if progress_dispatcher is not None:
+        progress_dispatcher.emit(
+            ProgressEvent(event_type=ProgressEventType.COMPLETED, progress=1.0)
+        )
+    return {
+        "workspace_id": workspace_id,
+        "storyboard_id": storyboard_id,
+        "frame_id": frame_id,
+        "artifact_id": artifact_id,
+        "artifact_version_id": result.artifact_version.version_id,
+        "storage_key": result.artifact_version.storage_key,
+    }
+
+
+async def _load_prompt_plan(
+    prompt_plan_repository: Any,
+    *,
+    workspace_id: str,
+    storyboard_id: str,
+    prompt_plan_id: str,
+) -> PromptPlan:
+    payloads = await prompt_plan_repository.load_prompt_plans_by_storyboard(
+        workspace_id,
+        storyboard_id,
+    )
+    for payload in payloads:
+        plan = payload if isinstance(payload, PromptPlan) else PromptPlan.from_dict(payload)
+        if plan.prompt_plan_id == prompt_plan_id:
+            return plan
+    raise RuntimeError("prompt plan was not found")
+
+
+def _resolve_media_source_path(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        raise RuntimeError("media generation did not return an image path")
+    if raw.startswith("file://"):
+        from urllib.parse import urlparse
+        from urllib.request import url2pathname
+
+        parsed = urlparse(raw)
+        return str(Path(url2pathname(parsed.path)))
+    return raw
+
+
+def _require_param(params: Mapping[str, Any], key: str) -> str:
+    value = str(params.get(key) or "").strip()
+    if not value:
+        raise RuntimeError(f"{key} is required")
+    return value
+
+
+def _require_attr(target: Any, name: str) -> Any:
+    value = getattr(target, name, None)
+    if value is None:
+        raise RuntimeError(f"{name} is not configured")
+    return value
+
+
+__all__ = ["execute_frame_image_regeneration"]
+```
+
+- [ ] **Step 5: Hook embedded TaskManager execution**
+
+Modify `api/tasks/manager.py` constructor:
+
+```python
+frame_image_regeneration_executor: Callable | None = None,
+```
+
+Set:
+
+```python
+self.frame_image_regeneration_executor = frame_image_regeneration_executor
+```
+
+At the end of `reserve_or_reuse_generation_task(...)`, after outcome is returned from registry:
+
+```python
+outcome = await self.registry.reserve_or_reuse(...)
+if (
+    outcome.created
+    and task_type is TaskType.FRAME_IMAGE_REGENERATION
+    and self.execution_mode == "embedded"
+    and self.frame_image_regeneration_executor is not None
+):
+    await self.execute_task(
+        task_id=outcome.task.task_id,
+        coro_func=self.frame_image_regeneration_executor,
+        task_id=outcome.task.task_id,
+        request_params=dict(request_params),
+    )
+return outcome
+```
+
+Because `execute_task` already has a `task_id` positional parameter, do not pass duplicate `task_id` into `coro_func` through the same name. Use an adapter:
+
+```python
+async def _run_frame_image_regeneration(*, progress_dispatcher=None):
+    return await self.frame_image_regeneration_executor(
+        task_id=outcome.task.task_id,
+        request_params=dict(request_params),
+        progress_dispatcher=progress_dispatcher,
+    )
+
+await self.execute_task(outcome.task.task_id, _run_frame_image_regeneration)
+```
+
+Add a test helper:
+
+```python
+async def wait_for_task_completion_for_test(self, task_id: str) -> None:
+    future = self._task_futures.get(task_id)
+    if future is not None:
+        await future
+```
+
+- [ ] **Step 6: Wire executor factory**
+
+Build the manager in `api/app.py` with:
+
+```python
+from api.workbench.frame_image_regeneration import execute_frame_image_regeneration
+
+async def _execute_frame_image_regeneration_task(
+    *,
+    task_id: str,
+    request_params: dict[str, Any],
+    progress_dispatcher=None,
+) -> dict[str, Any]:
+    core = await get_pixelle_video()
+    return await execute_frame_image_regeneration(
+        core=core,
+        task_id=task_id,
+        request_params=request_params,
+        progress_dispatcher=progress_dispatcher,
+    )
+
+manager = build_task_manager(
+    api_config,
+    frame_image_regeneration_executor=_execute_frame_image_regeneration_task,
+)
+```
+
+Modify `api/tasks/factory.py` to accept and forward `frame_image_regeneration_executor`.
+
+Modify `web/state/session.py` local manager creation to pass the same executor using `get_pixelle_video`.
+
+- [ ] **Step 7: Hook worker mode**
+
+Modify `api/tasks/worker.py` `GenerationWorker` constructor:
+
+```python
+frame_image_regeneration_executor: Callable | None = None,
+```
+
+Default it to a lambda around `execute_frame_image_regeneration(core=self.core, ...)`.
+
+Change claim types:
+
+```python
+task_types={TaskType.VIDEO_GENERATION, TaskType.FRAME_IMAGE_REGENERATION}
+```
+
+In `run_once`, branch:
+
+```python
+if task.task_type is TaskType.FRAME_IMAGE_REGENERATION:
+    result = await self.frame_image_regeneration_executor(
+        task_id=task.task_id,
+        request_params=task.request_params or {},
+        progress_dispatcher=ProgressDispatcher([progress_sink]),
+    )
+else:
+    params = self._build_generation_params(...)
+    result = await self.core.generate_video(**params)
+```
+
+- [ ] **Step 8: Run tests and verify GREEN**
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_worker_execution.py::test_worker_claims_frame_image_regeneration_tasks
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 9: Commit and push**
+
+```powershell
+git add -- api/workbench/frame_image_regeneration.py api/tasks/manager.py api/tasks/factory.py api/tasks/worker.py api/app.py web/state/session.py tests/test_storyboard_workbench_task_submitter.py tests/test_worker_execution.py
+git commit -m "feat: 执行分镜帧图片重抽任务"
+git push origin $(git branch --show-current)
+```
+
+---
+
+## Task 4: Add Frontend Capability Helper And Client Boundary
+
+**Files:**
+- Modify: `web/utils/storyboard_workbench_api.py`
 - Create: `web/workbench/__init__.py`
 - Create: `web/workbench/client.py`
 - Create: `web/workbench/display.py`
 - Create: `web/workbench/http_client.py`
+- Create: `web/workbench/inprocess_protocols.py`
+- Create: `web/workbench/inprocess_client.py`
+- Create: `web/state/workbench_client.py`
+- Test: `tests/test_storyboard_workbench_frontend_api.py`
 - Test: `tests/test_storyboard_workbench_client.py`
 
-- [ ] **Step 1: Write failing tests for HTTP display normalization and capabilities**
+- [ ] **Step 1: Add failing frontend helper tests**
 
-Add to `tests/test_storyboard_workbench_client.py`:
+Append to `tests/test_storyboard_workbench_frontend_api.py`:
 
 ```python
-from web.workbench.http_client import HttpStoryboardWorkbenchClient
+def test_get_storyboard_workbench_capabilities_uses_backend_endpoint(monkeypatch):
+    from web.utils import storyboard_workbench_api
+
+    captured: dict[str, Any] = {}
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "success": True,
+                "message": "Success",
+                "can_regenerate_frame_image": True,
+                "regenerate_unavailable_reason": None,
+            }
+
+    def fake_get(endpoint, timeout):
+        captured["endpoint"] = endpoint
+        captured["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(storyboard_workbench_api.httpx, "get", fake_get)
+
+    result = storyboard_workbench_api.get_storyboard_workbench_capabilities(
+        api_base_url="http://localhost:8000/api/",
+    )
+
+    assert captured == {
+        "endpoint": "http://localhost:8000/api/storyboards/workbench/capabilities",
+        "timeout": 30.0,
+    }
+    assert result["can_regenerate_frame_image"] is True
+```
+
+- [ ] **Step 2: Add failing client tests**
+
+Create `tests/test_storyboard_workbench_client.py`:
+
+```python
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+
+def test_http_workbench_client_reads_capabilities_from_backend():
+    from web.workbench.http_client import HttpStoryboardWorkbenchClient
+
+    calls: list[dict[str, Any]] = []
+    client = HttpStoryboardWorkbenchClient(
+        api_base_url="http://localhost:8001/api",
+        capability_loader=lambda **kwargs: calls.append(kwargs)
+        or {
+            "success": True,
+            "can_regenerate_frame_image": False,
+            "regenerate_unavailable_reason": "task submitter is not configured",
+        },
+    )
+
+    assert client.get_capabilities() == {
+        "can_regenerate_frame_image": False,
+        "regenerate_unavailable_reason": "task submitter is not configured",
+    }
+    assert calls == [{"api_base_url": "http://localhost:8001/api"}]
 
 
 def test_http_workbench_client_normalizes_candidate_display_urls():
+    from web.workbench.http_client import HttpStoryboardWorkbenchClient
+
     client = HttpStoryboardWorkbenchClient(
         api_base_url="http://localhost:8001/api/",
+        capability_loader=lambda **_kwargs: {
+            "can_regenerate_frame_image": True,
+            "regenerate_unavailable_reason": None,
+        },
         candidate_loader=lambda **_kwargs: {
             "workspace_id": "workspace_1",
             "storyboard_id": "storyboard_1",
@@ -80,9 +1450,6 @@ def test_http_workbench_client_normalizes_candidate_display_urls():
                 }
             ],
         },
-        candidate_selector=lambda **_kwargs: {"success": True},
-        frame_regenerator=lambda **_kwargs: {"success": True, "task_id": "task_1"},
-        stale_summary_loader=lambda **_kwargs: {"success": True, "stale_summary": {"is_stale": False}},
     )
 
     response = client.list_image_candidates(
@@ -100,234 +1467,6 @@ def test_http_workbench_client_normalizes_candidate_display_urls():
     assert "url" not in candidate
 
 
-def test_http_workbench_client_reports_regenerate_capability():
-    client = HttpStoryboardWorkbenchClient(
-        api_base_url="http://localhost:8001/api",
-        candidate_loader=lambda **_kwargs: {"candidates": []},
-        candidate_selector=lambda **_kwargs: {"success": True},
-        frame_regenerator=lambda **_kwargs: {"success": True, "task_id": "task_1"},
-        stale_summary_loader=lambda **_kwargs: {"success": True, "stale_summary": {"is_stale": False}},
-    )
-
-    assert client.get_capabilities() == {
-        "can_regenerate_frame_image": True,
-        "regenerate_unavailable_reason": None,
-    }
-```
-
-- [ ] **Step 2: Run tests and verify RED**
-
-Run:
-
-```powershell
-python -m pytest -q tests/test_storyboard_workbench_client.py
-```
-
-Expected: fail with `ModuleNotFoundError: No module named 'web.workbench'`.
-
-- [ ] **Step 3: Implement the client, display, and HTTP modules**
-
-Create `web/workbench/client.py`:
-
-```python
-from __future__ import annotations
-
-from typing import Any, Protocol
-
-
-class StoryboardWorkbenchClientError(RuntimeError):
-    """Raised when a Workbench client cannot complete a requested operation."""
-
-
-class StoryboardWorkbenchClient(Protocol):
-    def get_capabilities(self) -> dict[str, Any]: ...
-
-    def list_image_candidates(
-        self,
-        *,
-        workspace_id: str,
-        storyboard_id: str,
-        frame_id: str,
-        artifact_id: str,
-    ) -> dict[str, Any]: ...
-
-    def select_image_candidate(
-        self,
-        *,
-        workspace_id: str,
-        storyboard_id: str,
-        frame_id: str,
-        artifact_id: str,
-        version_id: str,
-        actor_id: str | None = None,
-    ) -> dict[str, Any]: ...
-
-    def regenerate_frame_image(
-        self,
-        *,
-        workspace_id: str,
-        storyboard_id: str,
-        frame_id: str,
-        artifact_id: str,
-    ) -> dict[str, Any]: ...
-
-    def get_prompt_plan_stale_summary(
-        self,
-        *,
-        workspace_id: str,
-        project_id: str,
-        prompt_plan_id: str,
-    ) -> dict[str, Any]: ...
-```
-
-Create `web/workbench/display.py`:
-
-```python
-from __future__ import annotations
-
-from collections.abc import Mapping
-from typing import Any
-
-from web.utils.artifact_display_urls import artifact_url_for_streamlit
-
-
-def build_remote_image_display(value: str | None, *, api_base_url: str) -> dict[str, str] | None:
-    display_url = artifact_url_for_streamlit(value, api_base_url=api_base_url)
-    if not display_url:
-        return None
-    return {"kind": "url", "url": display_url}
-
-
-def normalize_candidate_with_remote_display(
-    candidate: Mapping[str, Any],
-    *,
-    api_base_url: str,
-) -> dict[str, Any]:
-    payload = dict(candidate)
-    payload.pop("url", None)
-    image_display = build_remote_image_display(candidate.get("url"), api_base_url=api_base_url)
-    if image_display is not None:
-        payload["image_display"] = image_display
-    return payload
-```
-
-Create `web/workbench/http_client.py`:
-
-```python
-from __future__ import annotations
-
-from collections.abc import Callable
-from typing import Any
-
-from pixelle_video.platform_context import DEFAULT_API_BASE_URL
-from web.utils.stale_api import get_stale_target_summary
-from web.utils.storyboard_workbench_api import (
-    list_storyboard_image_candidates,
-    regenerate_storyboard_frame_image,
-    select_storyboard_image_candidate,
-)
-from web.workbench.display import normalize_candidate_with_remote_display
-
-
-class HttpStoryboardWorkbenchClient:
-    def __init__(
-        self,
-        *,
-        api_base_url: str = DEFAULT_API_BASE_URL,
-        candidate_loader: Callable[..., dict[str, Any]] = list_storyboard_image_candidates,
-        candidate_selector: Callable[..., dict[str, Any]] = select_storyboard_image_candidate,
-        frame_regenerator: Callable[..., dict[str, Any]] = regenerate_storyboard_frame_image,
-        stale_summary_loader: Callable[..., dict[str, Any]] = get_stale_target_summary,
-    ) -> None:
-        self.api_base_url = str(api_base_url or DEFAULT_API_BASE_URL).strip().rstrip("/")
-        self._candidate_loader = candidate_loader
-        self._candidate_selector = candidate_selector
-        self._frame_regenerator = frame_regenerator
-        self._stale_summary_loader = stale_summary_loader
-
-    def get_capabilities(self) -> dict[str, Any]:
-        return {
-            "can_regenerate_frame_image": True,
-            "regenerate_unavailable_reason": None,
-        }
-
-    def list_image_candidates(self, **kwargs) -> dict[str, Any]:
-        response = dict(self._candidate_loader(api_base_url=self.api_base_url, **kwargs))
-        response["candidates"] = [
-            normalize_candidate_with_remote_display(candidate, api_base_url=self.api_base_url)
-            for candidate in response.get("candidates", [])
-            if isinstance(candidate, dict)
-        ]
-        return response
-
-    def select_image_candidate(self, **kwargs) -> dict[str, Any]:
-        return self._candidate_selector(api_base_url=self.api_base_url, **kwargs)
-
-    def regenerate_frame_image(self, **kwargs) -> dict[str, Any]:
-        return self._frame_regenerator(api_base_url=self.api_base_url, **kwargs)
-
-    def get_prompt_plan_stale_summary(
-        self,
-        *,
-        workspace_id: str,
-        project_id: str,
-        prompt_plan_id: str,
-    ) -> dict[str, Any]:
-        return self._stale_summary_loader(
-            api_base_url=self.api_base_url,
-            workspace_id=workspace_id,
-            project_id=project_id,
-            target_type="prompt_plan",
-            target_id=prompt_plan_id,
-        )
-```
-
-Create `web/workbench/__init__.py`:
-
-```python
-from web.workbench.client import StoryboardWorkbenchClient, StoryboardWorkbenchClientError
-from web.workbench.http_client import HttpStoryboardWorkbenchClient
-
-__all__ = [
-    "HttpStoryboardWorkbenchClient",
-    "StoryboardWorkbenchClient",
-    "StoryboardWorkbenchClientError",
-]
-```
-
-- [ ] **Step 4: Run tests and verify GREEN**
-
-Run:
-
-```powershell
-python -m pytest -q tests/test_storyboard_workbench_client.py
-```
-
-Expected: all tests pass.
-
-- [ ] **Step 5: Commit**
-
-```powershell
-git add -- web/workbench/__init__.py web/workbench/client.py web/workbench/display.py web/workbench/http_client.py tests/test_storyboard_workbench_client.py
-git commit -m "feat: 增加分镜工作台客户端与显示合同"
-```
-
----
-
-## Task 2: Add In-process Dependency Protocols And Safe Factory Lifecycle
-
-**Files:**
-- Create: `web/workbench/inprocess_protocols.py`
-- Create: `web/state/workbench_client.py`
-- Create: `web/workbench/inprocess_client.py`
-- Modify: `web/workbench/__init__.py`
-- Test: `tests/test_storyboard_workbench_client.py`
-
-- [ ] **Step 1: Write failing factory lifecycle tests**
-
-Add to `tests/test_storyboard_workbench_client.py`:
-
-```python
 def test_workbench_client_factory_does_not_cache_inprocess_client_without_core(monkeypatch):
     from web.state.workbench_client import resolve_storyboard_workbench_client
 
@@ -352,160 +1491,227 @@ def test_workbench_client_factory_rebuilds_when_core_identity_changes(monkeypatc
     assert first is not None
     assert second is not None
     assert first is not second
-```
-
-- [ ] **Step 2: Run tests and verify RED**
-
-Run:
-
-```powershell
-python -m pytest -q tests/test_storyboard_workbench_client.py::test_workbench_client_factory_does_not_cache_inprocess_client_without_core tests/test_storyboard_workbench_client.py::test_workbench_client_factory_rebuilds_when_core_identity_changes
-```
-
-Expected: fail because the factory and in-process client do not exist yet.
-
-- [ ] **Step 3: Implement local-only protocols, skeleton in-process client, and lifecycle-safe factory**
-
-Create `web/workbench/inprocess_protocols.py`:
-
-```python
-from __future__ import annotations
-
-from collections.abc import Mapping
-from typing import Any, Protocol, runtime_checkable
 
 
-@runtime_checkable
-class LocalReadableArtifactSource(Protocol):
-    async def get_local_file_uri(self, storage_key: str) -> str: ...
+def test_inprocess_client_lists_candidates_with_local_bytes_display(tmp_path):
+    from web.workbench.inprocess_client import InProcessStoryboardWorkbenchClient
 
+    image_path = tmp_path / "0123456789abcdef0123456789abcdef.png"
+    image_path.write_bytes(b"png-bytes")
 
-@runtime_checkable
-class StoryboardWorkbenchTaskSubmitter(Protocol):
-    async def reserve_frame_image_regeneration(
-        self,
-        *,
-        generation_fingerprint: str,
-        request_params: Mapping[str, Any],
-    ) -> Mapping[str, Any]: ...
-```
-
-Create `web/workbench/inprocess_client.py`:
-
-```python
-from __future__ import annotations
-
-from typing import Any
-
-from web.workbench.client import StoryboardWorkbenchClientError
-
-
-class InProcessStoryboardWorkbenchClient:
-    def __init__(self, *, pixelle_video: Any) -> None:
-        self.pixelle_video = pixelle_video
-
-    def get_capabilities(self) -> dict[str, Any]:
-        submitter = getattr(self.pixelle_video, "storyboard_workbench_task_submitter", None)
-        if submitter is None:
+    class Candidate:
+        def to_dict(self):
             return {
-                "can_regenerate_frame_image": False,
-                "regenerate_unavailable_reason": "task submitter is not configured",
+                "artifact_id": "artifact_1",
+                "version_id": "version_1",
+                "frame_id": "frame_1",
+                "prompt_plan_id": "prompt_plan_1",
+                "storage_key": "artifacts/workspace_1/0123456789abcdef0123456789abcdef.png",
+                "status": "ready",
+                "url": "/api/files/artifacts/workspace_1/file.png",
             }
-        return {
-            "can_regenerate_frame_image": True,
-            "regenerate_unavailable_reason": None,
-        }
 
-    def list_image_candidates(self, **_kwargs) -> dict[str, Any]:
-        raise StoryboardWorkbenchClientError("in-process workbench client is not fully configured")
+    class Service:
+        async def list_image_candidates(self, *, workspace_id, artifact_id):
+            return (Candidate(),)
 
-    def select_image_candidate(self, **_kwargs) -> dict[str, Any]:
-        raise StoryboardWorkbenchClientError("in-process workbench client is not fully configured")
+    class ObjectStore:
+        async def get_local_file_uri(self, storage_key):
+            return image_path.as_uri()
 
-    def regenerate_frame_image(self, **_kwargs) -> dict[str, Any]:
-        raise StoryboardWorkbenchClientError("in-process workbench client is not fully configured")
+    class StateStore:
+        async def load_frame_state(self, workspace_id, storyboard_id, frame_id):
+            return {
+                "frame_id": frame_id,
+                "prompt_plan_id": "prompt_plan_1",
+                "selected_image_artifact_id": "artifact_1",
+                "selected_image_version_id": "version_1",
+                "candidate_image_version_ids": ["version_1"],
+                "lock_policy": "unlocked",
+                "stale_flags": [],
+            }
 
-    def get_prompt_plan_stale_summary(self, **_kwargs) -> dict[str, Any]:
-        raise StoryboardWorkbenchClientError("in-process workbench client is not fully configured")
+    core = type(
+        "Core",
+        (),
+        {
+            "storyboard_workbench_service": Service(),
+            "artifact_object_store": ObjectStore(),
+            "storyboard_workbench_state_store": StateStore(),
+        },
+    )()
+
+    client = InProcessStoryboardWorkbenchClient(pixelle_video=core)
+    response = client.list_image_candidates(
+        workspace_id="workspace_1",
+        storyboard_id="storyboard_1",
+        frame_id="frame_1",
+        artifact_id="artifact_1",
+    )
+
+    candidate = response["candidates"][0]
+    assert candidate["image_display"] == {
+        "kind": "bytes",
+        "data": b"png-bytes",
+        "mime_type": "image/png",
+    }
+    assert "url" not in candidate
+
+
+def test_inprocess_client_uses_task_submitter_for_regenerate():
+    from web.workbench.inprocess_client import InProcessStoryboardWorkbenchClient
+
+    class Service:
+        def build_frame_image_regeneration_task_request(self, **_kwargs):
+            return type(
+                "TaskRequest",
+                (),
+                {
+                    "generation_fingerprint": "fingerprint_1",
+                    "request_params": {"workspace_id": "workspace_1"},
+                },
+            )()
+
+    class StateStore:
+        async def load_frame_state(self, *_args, **_kwargs):
+            return {
+                "frame_id": "frame_1",
+                "selected_image_artifact_id": "artifact_1",
+                "selected_image_version_id": "version_1",
+                "candidate_image_version_ids": ["version_1"],
+                "lock_policy": "unlocked",
+                "stale_flags": [],
+                "prompt_plan_id": "prompt_plan_1",
+            }
+
+    class Submitter:
+        async def reserve_frame_image_regeneration(self, **kwargs):
+            return type(
+                "Submission",
+                (),
+                {
+                    "to_dict": lambda _self: {
+                        "task_id": "task_1",
+                        "task_type": "frame_image_regeneration",
+                        "created": True,
+                        "reused_reason": None,
+                    }
+                },
+            )()
+
+    core = type(
+        "Core",
+        (),
+        {
+            "storyboard_workbench_service": Service(),
+            "storyboard_workbench_state_store": StateStore(),
+            "storyboard_workbench_task_submitter": Submitter(),
+        },
+    )()
+
+    client = InProcessStoryboardWorkbenchClient(pixelle_video=core)
+
+    assert client.get_capabilities()["can_regenerate_frame_image"] is True
+    assert client.regenerate_frame_image(
+        workspace_id="workspace_1",
+        storyboard_id="storyboard_1",
+        frame_id="frame_1",
+        artifact_id="artifact_1",
+    )["task_id"] == "task_1"
+
+
+def test_storyboard_workbench_ui_does_not_import_transport_or_display_helpers():
+    ui_files = [
+        Path("web/components/storyboard_workbench_panel.py"),
+        Path("web/components/storyboard_workbench_stale.py"),
+        Path("web/components/storyboard_preview.py"),
+        Path("web/pages/3_🧭_Storyboard_Workbench.py"),
+    ]
+    forbidden = (
+        "web.utils.storyboard_workbench_api",
+        "web.utils.stale_api",
+        "web.utils.artifact_display_urls",
+        "httpx",
+        "localhost:8001",
+    )
+
+    for path in ui_files:
+        source = path.read_text(encoding="utf-8")
+        for token in forbidden:
+            assert token not in source, f"{path} must not depend on {token}"
 ```
 
-Create `web/state/workbench_client.py`:
-
-```python
-from __future__ import annotations
-
-import os
-from collections.abc import MutableMapping
-from typing import Any
-
-from pixelle_video.platform_context import DEFAULT_API_BASE_URL, resolve_api_base_url
-from web.workbench.http_client import HttpStoryboardWorkbenchClient
-from web.workbench.inprocess_client import InProcessStoryboardWorkbenchClient
-
-STORYBOARD_WORKBENCH_CLIENT_KEY = "storyboard_workbench_client"
-STORYBOARD_WORKBENCH_CLIENT_CACHE_KEY = "storyboard_workbench_client_cache_key"
-
-
-def resolve_workbench_client_mode(session_state: MutableMapping[str, Any]) -> str:
-    return str(
-        session_state.get("workbench_client_mode")
-        or os.getenv("PIXELLE_WORKBENCH_CLIENT_MODE")
-        or "inprocess"
-    ).strip().lower()
-
-
-def resolve_storyboard_workbench_client(
-    session_state: MutableMapping[str, Any],
-    *,
-    pixelle_video: Any | None = None,
-):
-    mode = resolve_workbench_client_mode(session_state)
-    if mode == "http":
-        cache_key = ("http", resolve_api_base_url(session_state, default=DEFAULT_API_BASE_URL))
-        existing = session_state.get(STORYBOARD_WORKBENCH_CLIENT_KEY)
-        if existing is not None and session_state.get(STORYBOARD_WORKBENCH_CLIENT_CACHE_KEY) == cache_key:
-            return existing
-        client = HttpStoryboardWorkbenchClient(api_base_url=cache_key[1])
-        session_state[STORYBOARD_WORKBENCH_CLIENT_KEY] = client
-        session_state[STORYBOARD_WORKBENCH_CLIENT_CACHE_KEY] = cache_key
-        return client
-
-    if pixelle_video is None:
-        return None
-
-    cache_key = ("inprocess", id(pixelle_video))
-    existing = session_state.get(STORYBOARD_WORKBENCH_CLIENT_KEY)
-    if existing is not None and session_state.get(STORYBOARD_WORKBENCH_CLIENT_CACHE_KEY) == cache_key:
-        return existing
-
-    client = InProcessStoryboardWorkbenchClient(pixelle_video=pixelle_video)
-    session_state[STORYBOARD_WORKBENCH_CLIENT_KEY] = client
-    session_state[STORYBOARD_WORKBENCH_CLIENT_CACHE_KEY] = cache_key
-    return client
-```
-
-Update `web/workbench/__init__.py` to export `InProcessStoryboardWorkbenchClient`.
-
-- [ ] **Step 4: Run tests and verify GREEN**
+- [ ] **Step 3: Run tests and verify RED**
 
 Run:
 
 ```powershell
-python -m pytest -q tests/test_storyboard_workbench_client.py
+python -m pytest -q tests/test_storyboard_workbench_frontend_api.py::test_get_storyboard_workbench_capabilities_uses_backend_endpoint tests/test_storyboard_workbench_client.py
+```
+
+Expected: fail because helper/client modules do not exist.
+
+- [ ] **Step 4: Implement frontend helper**
+
+Modify `web/utils/storyboard_workbench_api.py`:
+
+```python
+def build_storyboard_workbench_capabilities_endpoint(*, api_base_url: str) -> str:
+    return f"{api_base_url.rstrip('/')}/storyboards/workbench/capabilities"
+
+
+def get_storyboard_workbench_capabilities(
+    *,
+    api_base_url: str,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    response = httpx.get(
+        build_storyboard_workbench_capabilities_endpoint(api_base_url=api_base_url),
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("capability response must be a JSON object")
+    return {
+        "can_regenerate_frame_image": bool(data.get("can_regenerate_frame_image")),
+        "regenerate_unavailable_reason": data.get("regenerate_unavailable_reason"),
+    }
+```
+
+Add new names to `__all__`.
+
+- [ ] **Step 5: Implement client modules**
+
+Use the contracts from the spec. Important implementation constraints:
+
+- `HttpStoryboardWorkbenchClient.get_capabilities()` must call `capability_loader(api_base_url=self.api_base_url)`.
+- `HttpStoryboardWorkbenchClient.list_image_candidates()` must strip `url` and set `image_display`.
+- `InProcessStoryboardWorkbenchClient.get_capabilities()` must inspect `pixelle_video.storyboard_workbench_task_submitter`.
+- `InProcessStoryboardWorkbenchClient.regenerate_frame_image()` must call `submitter.reserve_frame_image_regeneration(...)`, not any task manager.
+- `web/state/workbench_client.py` must not cache when `pixelle_video is None`.
+
+- [ ] **Step 6: Run tests and verify GREEN**
+
+Run:
+
+```powershell
+python -m pytest -q tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py
 ```
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit and push**
 
 ```powershell
-git add -- web/workbench/inprocess_protocols.py web/workbench/inprocess_client.py web/state/workbench_client.py web/workbench/__init__.py tests/test_storyboard_workbench_client.py
-git commit -m "feat: 增加分镜工作台客户端生命周期与本地依赖协议"
+git add -- web/utils/storyboard_workbench_api.py web/workbench/__init__.py web/workbench/client.py web/workbench/display.py web/workbench/http_client.py web/workbench/inprocess_protocols.py web/workbench/inprocess_client.py web/state/workbench_client.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py
+git commit -m "feat: 增加分镜工作台客户端边界"
+git push origin $(git branch --show-current)
 ```
 
 ---
 
-## Task 3: Rewire Workbench UI To The Client And Display Contract
+## Task 5: Rewire Workbench UI To Injected Client
 
 **Files:**
 - Modify: `web/components/storyboard_workbench_panel.py`
@@ -515,60 +1721,105 @@ git commit -m "feat: 增加分镜工作台客户端生命周期与本地依赖�
 - Test: `tests/test_storyboard_workbench_panel_ui.py`
 - Test: `tests/test_storyboard_workbench_stale_ui.py`
 - Test: `tests/test_storyboard_workbench_page.py`
+- Test: `tests/test_storyboard_workbench_client.py`
 
-- [ ] **Step 1: Write failing UI tests for client-only rendering**
+- [ ] **Step 1: Update panel UI tests to fake client**
 
-Add to `tests/test_storyboard_workbench_panel_ui.py`:
+Replace `candidate_loader`, `candidate_selector`, and `frame_regenerator` based tests in `tests/test_storyboard_workbench_panel_ui.py` with a fake client:
+
+```python
+class _FakeWorkbenchClient:
+    def __init__(
+        self,
+        *,
+        candidates: list[dict[str, Any]] | None = None,
+        can_regenerate: bool = True,
+    ) -> None:
+        self.candidates = candidates if candidates is not None else _candidate_response()["candidates"]
+        self.can_regenerate = can_regenerate
+        self.calls: list[dict[str, Any]] = []
+
+    def get_capabilities(self):
+        return {
+            "can_regenerate_frame_image": self.can_regenerate,
+            "regenerate_unavailable_reason": None if self.can_regenerate else "task submitter is not configured",
+        }
+
+    def list_image_candidates(self, **kwargs):
+        self.calls.append({"method": "list", **kwargs})
+        return {**_candidate_response(), "candidates": self.candidates}
+
+    def select_image_candidate(self, **kwargs):
+        self.calls.append({"method": "select", **kwargs})
+        return {
+            "success": True,
+            "state": {
+                "frame_id": "frame_0001",
+                "prompt_plan_id": "prompt_plan_001",
+                "selected_image_artifact_id": "artifact_frame_0001_image",
+                "selected_image_version_id": kwargs["version_id"],
+                "candidate_image_version_ids": ["artifact_version_001", kwargs["version_id"]],
+                "lock_policy": "unlocked",
+                "stale_flags": ["video_segment"],
+            },
+        }
+
+    def regenerate_frame_image(self, **kwargs):
+        self.calls.append({"method": "regenerate", **kwargs})
+        return {
+            "success": True,
+            "task_id": "regen-task-1",
+            "task_type": "frame_image_regeneration",
+            "created": True,
+            "generation_fingerprint": "fingerprint-frame-0001",
+        }
+```
+
+Update `_candidate_response()` candidates to include:
+
+```python
+"image_display": {"kind": "url", "url": "..."}
+```
+
+Add a bytes test:
 
 ```python
 def test_storyboard_workbench_panel_renders_bytes_display_without_api_base_url():
     from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 
-    class FakeClient:
-        def get_capabilities(self):
-            return {
-                "can_regenerate_frame_image": False,
-                "regenerate_unavailable_reason": "task submitter is not configured",
-            }
-
-        def list_image_candidates(self, **_kwargs):
-            return {
-                "candidates": [
-                    {
-                        "artifact_id": "artifact_1",
-                        "version_id": "version_1",
-                        "frame_id": "frame_1",
-                        "status": "ready",
-                        "image_display": {
-                            "kind": "bytes",
-                            "data": b"fake-image",
-                            "mime_type": "image/png",
-                        },
-                    }
-                ]
-            }
-
-        def select_image_candidate(self, **_kwargs):
-            return {"success": True}
-
-        def regenerate_frame_image(self, **_kwargs):
-            return {"success": False, "code": "regenerate_unavailable"}
-
     fake_ui = _WorkbenchFakeUI()
+    client = _FakeWorkbenchClient(
+        candidates=[
+            {
+                "artifact_id": "artifact_frame_0001_image",
+                "version_id": "artifact_version_001",
+                "frame_id": "frame_0001",
+                "status": "ready",
+                "image_display": {
+                    "kind": "bytes",
+                    "data": b"fake-image",
+                    "mime_type": "image/png",
+                },
+            }
+        ],
+        can_regenerate=False,
+    )
 
     render_storyboard_workbench_panel(
         workspace_id="workspace_1",
-        storyboard_id="storyboard_1",
-        frame_id="frame_1",
-        artifact_id="artifact_1",
+        storyboard_id="storyboard_001",
+        frame_id="frame_0001",
+        artifact_id="artifact_frame_0001_image",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        workbench_client=FakeClient(),
+        workbench_client=client,
     )
 
     assert fake_ui.images[0]["image"] == b"fake-image"
-    assert all("api_base_url" not in button for button in fake_ui.buttons)
+    assert fake_ui.buttons[-1]["disabled"] is True
 ```
+
+- [ ] **Step 2: Update stale/page tests**
 
 Add to `tests/test_storyboard_workbench_stale_ui.py`:
 
@@ -640,53 +1891,26 @@ def test_storyboard_workbench_page_passes_client_to_preview(monkeypatch):
     assert calls == [client]
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [ ] **Step 3: Run tests and verify RED**
 
 Run:
 
 ```powershell
-python -m pytest -q tests/test_storyboard_workbench_panel_ui.py::test_storyboard_workbench_panel_renders_bytes_display_without_api_base_url tests/test_storyboard_workbench_stale_ui.py::test_prompt_plan_stale_panel_uses_workbench_client_without_api_base_url tests/test_storyboard_workbench_page.py::test_storyboard_workbench_page_passes_client_to_preview
+python -m pytest -q tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_storyboard_workbench_client.py::test_storyboard_workbench_ui_does_not_import_transport_or_display_helpers
 ```
 
-Expected: fail because UI still depends on `api_base_url` and does not accept `workbench_client`.
+Expected: fail because UI still accepts direct HTTP helpers.
 
-- [ ] **Step 3: Modify UI components to use only the client contract**
+- [ ] **Step 4: Rewire UI**
 
 In `web/components/storyboard_workbench_panel.py`:
 
 - Remove imports from `web.utils.storyboard_workbench_api`.
 - Remove direct use of `artifact_url_for_streamlit`.
 - Add `workbench_client` parameter.
-- Call `client.list_image_candidates(...)`, `client.select_image_candidate(...)`, and `client.regenerate_frame_image(...)`.
-- Render `candidate["image_display"]`:
-
-```python
-def _render_candidate_image(candidate: Mapping[str, Any], *, version_id: str, ui) -> None:
-    display = candidate.get("image_display")
-    if isinstance(display, Mapping):
-        if display.get("kind") == "url" and display.get("url"):
-            ui.image(display["url"], caption=version_id, width="stretch")
-            return
-        if display.get("kind") == "bytes" and display.get("data"):
-            ui.image(display["data"], caption=version_id, width="stretch")
-            return
-    ui.caption(version_id)
-```
-
-- Use capabilities to disable regenerate:
-
-```python
-capabilities = client.get_capabilities()
-can_regenerate = bool(capabilities.get("can_regenerate_frame_image"))
-reason = _first_text(capabilities.get("regenerate_unavailable_reason"))
-clicked = ui.button(
-    translate("workbench.panel.regenerate"),
-    key=f"workbench_regenerate_{context['frame_id']}",
-    disabled=not can_regenerate,
-)
-if not can_regenerate and reason:
-    ui.caption(reason)
-```
+- Fail closed when client is missing.
+- Render only `candidate["image_display"]`.
+- Disable regenerate when `client.get_capabilities()["can_regenerate_frame_image"]` is false.
 
 In `web/components/storyboard_workbench_stale.py`:
 
@@ -696,421 +1920,74 @@ In `web/components/storyboard_workbench_stale.py`:
 
 In `web/components/storyboard_preview.py`:
 
-- Replace `stale_context` with `workbench_client`.
-- Pass `workbench_client` to stale and workbench renderers.
-- Stop passing `api_base_url`.
+- Add `workbench_client` parameter.
+- Pass it to stale and workbench renderers.
+- Stop passing `api_base_url` into Workbench children.
 
 In `web/pages/3_🧭_Storyboard_Workbench.py`:
 
+- Import `resolve_workbench_client_mode` and `resolve_storyboard_workbench_client`.
 - Resolve mode first.
-- In `inprocess` mode call `get_pixelle_video()` before resolving the client.
+- If mode is `inprocess`, call `get_pixelle_video()` before resolving client.
 - Pass `workbench_client` into `preview_renderer(...)`.
 
-- [ ] **Step 4: Run focused tests and verify GREEN**
+- [ ] **Step 5: Run focused tests and verify GREEN**
 
 Run:
 
 ```powershell
-python -m pytest -q tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py
+python -m pytest -q tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_storyboard_workbench_client.py
 ```
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit and push**
 
 ```powershell
-git add -- web/components/storyboard_workbench_panel.py web/components/storyboard_workbench_stale.py web/components/storyboard_preview.py web/pages/3_🧭_Storyboard_Workbench.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py
+git add -- web/components/storyboard_workbench_panel.py web/components/storyboard_workbench_stale.py web/components/storyboard_preview.py web/pages/3_🧭_Storyboard_Workbench.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_storyboard_workbench_client.py
 git commit -m "refactor: 让分镜工作台界面只依赖客户端合同"
+git push origin $(git branch --show-current)
 ```
 
 ---
 
-## Task 4: Implement In-process Candidate, Select, Stale, And Local Display
+## Task 6: Final Regression And Verification
 
 **Files:**
-- Modify: `web/workbench/inprocess_client.py`
-- Test: `tests/test_storyboard_workbench_client.py`
+- Modify tests only unless regressions fail.
 
-- [ ] **Step 1: Write failing in-process behavior tests**
-
-Add to `tests/test_storyboard_workbench_client.py`:
-
-```python
-from pathlib import Path
-
-
-def test_inprocess_client_lists_candidates_with_local_bytes_display(tmp_path):
-    from web.workbench.inprocess_client import InProcessStoryboardWorkbenchClient
-
-    image_path = tmp_path / "frame.png"
-    image_path.write_bytes(b"png-bytes")
-
-    class Service:
-        async def list_image_candidates(self, *, workspace_id, artifact_id):
-            return [
-                {
-                    "artifact_id": artifact_id,
-                    "version_id": "version_1",
-                    "frame_id": "frame_1",
-                    "prompt_plan_id": "prompt_plan_1",
-                    "storage_key": "artifacts/workspace_1/frame.png",
-                    "status": "ready",
-                }
-            ]
-
-    class ObjectStore:
-        async def get_local_file_uri(self, storage_key):
-            assert storage_key == "artifacts/workspace_1/frame.png"
-            return image_path.as_uri()
-
-    core = type(
-        "Core",
-        (),
-        {
-            "storyboard_workbench_service": Service(),
-            "artifact_object_store": ObjectStore(),
-        },
-    )()
-
-    client = InProcessStoryboardWorkbenchClient(pixelle_video=core)
-    response = client.list_image_candidates(
-        workspace_id="workspace_1",
-        storyboard_id="storyboard_1",
-        frame_id="frame_1",
-        artifact_id="artifact_1",
-    )
-
-    candidate = response["candidates"][0]
-    assert candidate["image_display"] == {
-        "kind": "bytes",
-        "data": b"png-bytes",
-        "mime_type": "image/png",
-    }
-
-
-def test_inprocess_client_reads_stale_summary_from_local_service():
-    from web.workbench.inprocess_client import InProcessStoryboardWorkbenchClient
-
-    class EdgeRepository:
-        async def list_downstream_edges(self, *args, **kwargs):
-            return []
-
-    class StaleRepository:
-        async def list_stale_marks(self, *args, **kwargs):
-            return []
-
-    core = type(
-        "Core",
-        (),
-        {
-            "dependency_edge_repository": EdgeRepository(),
-            "stale_mark_repository": StaleRepository(),
-        },
-    )()
-
-    client = InProcessStoryboardWorkbenchClient(pixelle_video=core)
-    response = client.get_prompt_plan_stale_summary(
-        workspace_id="workspace_1",
-        project_id="project_1",
-        prompt_plan_id="prompt_plan_1",
-    )
-
-    assert response["success"] is True
-    assert response["stale_summary"]["target_id"] == "prompt_plan_1"
-```
-
-- [ ] **Step 2: Run tests and verify RED**
+- [ ] **Step 1: Run Workbench focused test set**
 
 Run:
 
 ```powershell
-python -m pytest -q tests/test_storyboard_workbench_client.py::test_inprocess_client_lists_candidates_with_local_bytes_display tests/test_storyboard_workbench_client.py::test_inprocess_client_reads_stale_summary_from_local_service
+python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_storyboard_workbench_navigation.py tests/test_storyboard_overrides_state.py tests/test_storyboard_preview_ui.py tests/test_output_preview.py tests/test_app_platform_dependencies.py tests/test_worker_execution.py
 ```
 
-Expected: fail because in-process methods are not implemented.
+Expected: pass.
 
-- [ ] **Step 3: Implement local candidate display, stale summary, and selection flow**
-
-In `web/workbench/inprocess_client.py`:
-
-- Use `web.utils.async_helpers.run_async()` to call async services from Streamlit sync context.
-- Treat `StoryboardWorkbenchArtifactBridge` as the generation-side registration boundary. The in-process client reads already registered artifact versions and must not create or re-register Workbench artifacts while listing candidates.
-- Implement local display loading from `get_local_file_uri(...)`:
-
-```python
-from pathlib import Path
-from urllib.parse import urlparse
-from urllib.request import url2pathname
-
-
-def _load_image_display_bytes(object_store, storage_key: str) -> dict[str, Any]:
-    uri = run_async(object_store.get_local_file_uri(storage_key))
-    parsed = urlparse(uri)
-    if parsed.scheme != "file":
-        raise StoryboardWorkbenchClientError("local artifact source must return a file URI")
-    path = Path(url2pathname(parsed.path))
-    data = path.read_bytes()
-    return {
-        "kind": "bytes",
-        "data": data,
-        "mime_type": _guess_mime_type(path.suffix.lower()),
-    }
-```
-
-- Implement `list_image_candidates()` by calling the local service and enriching each candidate with `image_display`.
-- Implement `get_prompt_plan_stale_summary()` with `StaleDependencyReadService`.
-- Implement `select_image_candidate()` with local state store load/save.
-
-- [ ] **Step 4: Run tests and verify GREEN**
+- [ ] **Step 2: Run lint and diff checks**
 
 Run:
 
 ```powershell
-python -m pytest -q tests/test_storyboard_workbench_client.py
-```
-
-Expected: all tests pass.
-
-- [ ] **Step 5: Commit**
-
-```powershell
-git add -- web/workbench/inprocess_client.py tests/test_storyboard_workbench_client.py
-git commit -m "feat: 实现本地分镜工作台候选图与依赖查询"
-```
-
----
-
-## Task 5: Implement Honest Regenerate Capability Gating
-
-**Files:**
-- Modify: `web/workbench/inprocess_client.py`
-- Modify: `web/components/storyboard_workbench_panel.py`
-- Test: `tests/test_storyboard_workbench_client.py`
-- Test: `tests/test_storyboard_workbench_panel_ui.py`
-
-- [ ] **Step 1: Write failing regenerate capability tests**
-
-Add to `tests/test_storyboard_workbench_client.py`:
-
-```python
-def test_inprocess_client_reports_regenerate_unavailable_without_submitter():
-    from web.workbench.inprocess_client import InProcessStoryboardWorkbenchClient
-
-    client = InProcessStoryboardWorkbenchClient(pixelle_video=object())
-
-    assert client.get_capabilities() == {
-        "can_regenerate_frame_image": False,
-        "regenerate_unavailable_reason": "task submitter is not configured",
-    }
-
-
-def test_inprocess_client_uses_task_submitter_for_regenerate():
-    from web.workbench.inprocess_client import InProcessStoryboardWorkbenchClient
-
-    class Service:
-        def build_frame_image_regeneration_task_request(self, **_kwargs):
-            return type(
-                "TaskRequest",
-                (),
-                {
-                    "generation_fingerprint": "fingerprint_1",
-                    "request_params": {"workspace_id": "workspace_1"},
-                },
-            )()
-
-    class StateStore:
-        async def load_frame_state(self, *_args, **_kwargs):
-            return {
-                "frame_id": "frame_1",
-                "selected_image_artifact_id": "artifact_1",
-                "selected_image_version_id": "version_1",
-                "candidate_image_version_ids": ["version_1"],
-                "stale_flags": [],
-                "source_prompt_plan_id": "prompt_plan_1",
-            }
-
-    class Submitter:
-        async def reserve_frame_image_regeneration(self, **kwargs):
-            return {
-                "success": True,
-                "task_id": "task_1",
-                "task_type": "frame_image_regeneration",
-                "created": True,
-                **kwargs,
-            }
-
-    core = type(
-        "Core",
-        (),
-        {
-            "storyboard_workbench_service": Service(),
-            "storyboard_workbench_state_store": StateStore(),
-            "storyboard_workbench_task_submitter": Submitter(),
-        },
-    )()
-
-    client = InProcessStoryboardWorkbenchClient(pixelle_video=core)
-    response = client.regenerate_frame_image(
-        workspace_id="workspace_1",
-        storyboard_id="storyboard_1",
-        frame_id="frame_1",
-        artifact_id="artifact_1",
-    )
-
-    assert response["success"] is True
-    assert response["task_id"] == "task_1"
-```
-
-Add to `tests/test_storyboard_workbench_panel_ui.py`:
-
-```python
-def test_storyboard_workbench_panel_disables_regenerate_when_capability_missing():
-    from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
-
-    class FakeClient:
-        def get_capabilities(self):
-            return {
-                "can_regenerate_frame_image": False,
-                "regenerate_unavailable_reason": "task submitter is not configured",
-            }
-
-        def list_image_candidates(self, **_kwargs):
-            return {"candidates": []}
-
-    fake_ui = _WorkbenchFakeUI()
-    render_storyboard_workbench_panel(
-        workspace_id="workspace_1",
-        storyboard_id="storyboard_1",
-        frame_id="frame_1",
-        artifact_id="artifact_1",
-        ui=fake_ui,
-        translate=lambda key, **_kwargs: key,
-        workbench_client=FakeClient(),
-    )
-
-    regenerate_button = next(button for button in fake_ui.buttons if button["key"] == "workbench_regenerate_frame_1")
-    assert regenerate_button["disabled"] is True
-    assert "task submitter is not configured" in fake_ui.captions
-```
-
-- [ ] **Step 2: Run tests and verify RED**
-
-Run:
-
-```powershell
-python -m pytest -q tests/test_storyboard_workbench_client.py::test_inprocess_client_reports_regenerate_unavailable_without_submitter tests/test_storyboard_workbench_client.py::test_inprocess_client_uses_task_submitter_for_regenerate tests/test_storyboard_workbench_panel_ui.py::test_storyboard_workbench_panel_disables_regenerate_when_capability_missing
-```
-
-Expected: fail because regenerate flow and disabled state are not implemented.
-
-- [ ] **Step 3: Implement structured regenerate behavior**
-
-In `web/workbench/inprocess_client.py`:
-
-- If `storyboard_workbench_task_submitter` is absent, return:
-
-```python
-{
-    "success": False,
-    "code": "regenerate_unavailable",
-    "reason": "task submitter is not configured",
-}
-```
-
-- If present:
-  - load local state
-  - build task request through `StoryboardWorkbenchService.build_frame_image_regeneration_task_request(...)`
-  - call `submitter.reserve_frame_image_regeneration(...)`
-  - return the submitter response as a plain dict
-
-In `web/components/storyboard_workbench_panel.py`:
-
-- Use capability to disable the button before click.
-- If a call still returns `success=False` with `code="regenerate_unavailable"`, show a caption or warning instead of a generic error.
-
-- [ ] **Step 4: Run focused tests and verify GREEN**
-
-Run:
-
-```powershell
-python -m pytest -q tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py
-```
-
-Expected: all tests pass.
-
-- [ ] **Step 5: Commit**
-
-```powershell
-git add -- web/workbench/inprocess_client.py web/components/storyboard_workbench_panel.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py
-git commit -m "feat: 让分镜重抽能力按配置显式暴露"
-```
-
----
-
-## Task 6: Lock In The No-8001 Regression Boundary
-
-**Files:**
-- Modify tests only unless regression fails.
-- Test: `tests/test_storyboard_workbench_client.py`
-
-- [ ] **Step 1: Add source-level regression tests**
-
-Add to `tests/test_storyboard_workbench_client.py`:
-
-```python
-from pathlib import Path
-
-
-def test_storyboard_workbench_ui_does_not_import_transport_or_display_helpers():
-    repo_root = Path(__file__).resolve().parents[1]
-    ui_files = [
-        repo_root / "web" / "components" / "storyboard_workbench_panel.py",
-        repo_root / "web" / "components" / "storyboard_workbench_stale.py",
-        repo_root / "web" / "components" / "storyboard_preview.py",
-        repo_root / "web" / "pages" / "3_🧭_Storyboard_Workbench.py",
-    ]
-    forbidden = (
-        "web.utils.storyboard_workbench_api",
-        "web.utils.stale_api",
-        "web.utils.artifact_display_urls",
-        "httpx",
-        "localhost:8001",
-        "api_base_url",
-    )
-
-    for path in ui_files:
-        source = path.read_text(encoding="utf-8")
-        for token in forbidden:
-            assert token not in source, f"{path} must not depend on {token}"
-```
-
-- [ ] **Step 2: Run the Workbench-focused test set**
-
-Run:
-
-```powershell
-python -m pytest -q tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_storyboard_workbench_navigation.py tests/test_storyboard_overrides_state.py tests/test_storyboard_preview_ui.py tests/test_output_preview.py
-```
-
-Expected: all tests pass.
-
-- [ ] **Step 3: Run lint and diff checks**
-
-Run:
-
-```powershell
-ruff check web/workbench web/state/workbench_client.py web/components/storyboard_workbench_panel.py web/components/storyboard_workbench_stale.py web/components/storyboard_preview.py web/pages/3_🧭_Storyboard_Workbench.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py
+ruff check api/workbench api/platform_dependencies.py api/dependencies.py api/app.py api/routers/storyboard_workbench.py api/schemas/storyboard_workbench.py api/tasks/manager.py api/tasks/factory.py api/tasks/worker.py web/state/session.py web/workbench web/state/workbench_client.py web/utils/storyboard_workbench_api.py web/components/storyboard_workbench_panel.py web/components/storyboard_workbench_stale.py web/components/storyboard_preview.py web/pages/3_🧭_Storyboard_Workbench.py tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py
 git diff --check
 ```
 
 Expected: pass.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit any regression-only fixes and push**
+
+If Step 1 or Step 2 required fixes:
 
 ```powershell
-git add -- tests/test_storyboard_workbench_client.py
-git commit -m "test: 防止分镜工作台重新依赖端口与显示拼接"
+git add -- <fixed-files>
+git commit -m "test: 固化分镜工作台客户端边界回归"
+git push origin $(git branch --show-current)
 ```
+
+If no fixes were needed, do not create an empty commit.
 
 ---
 
@@ -1119,7 +1996,7 @@ git commit -m "test: 防止分镜工作台重新依赖端口与显示拼接"
 - [ ] Run:
 
 ```powershell
-python -m pytest -q tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_storyboard_workbench_navigation.py tests/test_storyboard_overrides_state.py tests/test_storyboard_preview_ui.py tests/test_output_preview.py tests/test_style_config_storyboard_planning_ui.py
+python -m pytest -q tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py tests/test_storyboard_workbench_navigation.py tests/test_storyboard_overrides_state.py tests/test_storyboard_preview_ui.py tests/test_output_preview.py tests/test_app_platform_dependencies.py tests/test_worker_execution.py tests/test_style_config_storyboard_planning_ui.py
 ```
 
 Expected: pass.
@@ -1127,23 +2004,27 @@ Expected: pass.
 - [ ] Run:
 
 ```powershell
-ruff check web/workbench web/state/workbench_client.py web/components/storyboard_workbench_panel.py web/components/storyboard_workbench_stale.py web/components/storyboard_preview.py web/pages/3_🧭_Storyboard_Workbench.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py
+ruff check api/workbench api/platform_dependencies.py api/dependencies.py api/app.py api/routers/storyboard_workbench.py api/schemas/storyboard_workbench.py api/tasks/manager.py api/tasks/factory.py api/tasks/worker.py web/state/session.py web/workbench web/state/workbench_client.py web/utils/storyboard_workbench_api.py web/components/storyboard_workbench_panel.py web/components/storyboard_workbench_stale.py web/components/storyboard_preview.py web/pages/3_🧭_Storyboard_Workbench.py tests/test_storyboard_workbench_task_submitter.py tests/test_storyboard_workbench_api.py tests/test_storyboard_workbench_frontend_api.py tests/test_storyboard_workbench_client.py tests/test_storyboard_workbench_panel_ui.py tests/test_storyboard_workbench_stale_ui.py tests/test_storyboard_workbench_page.py
 git diff --check
 ```
 
 Expected: pass.
 
-- [ ] Push after the final atomic commit:
+- [ ] Confirm branch status:
 
 ```powershell
-git push origin dev
+git status --short --branch
 ```
+
+Expected: no uncommitted changes from this plan. Unrelated pre-existing dirty files must remain unstaged.
 
 ---
 
 ## Self-Review
 
-- Spec coverage: covers client contract, display contract, HTTP mode, in-process mode, factory lifecycle, capability-gated regenerate, and no-port regression.
-- Placeholder scan: no unfinished placeholder content.
-- Type consistency: method names are stable across tasks: `get_capabilities`, `list_image_candidates`, `select_image_candidate`, `regenerate_frame_image`, `get_prompt_plan_stale_summary`.
+- Spec coverage: covers client contract, display contract, HTTP mode, in-process mode, factory lifecycle, submitter injection, capability endpoint, and real task execution.
+- Placeholder scan: no unfinished placeholder content and no fake local disablement as final state.
+- Type consistency: stable names are `StoryboardWorkbenchTaskSubmitter`, `TaskManagerStoryboardWorkbenchTaskSubmitter`, `get_capabilities`, `list_image_candidates`, `select_image_candidate`, `regenerate_frame_image`, and `get_prompt_plan_stale_summary`.
 - Scope: Storyboard Workbench only. AssetBible / Stage2 HTTP clients are left untouched.
+- Atomicity check: no task leaves Workbench UI switched to a local skeleton that cannot satisfy existing list/select/stale/regenerate submission flows.
+- Debt check: regenerate availability is sourced from real submitter/executor wiring, not hardcoded booleans or disabled-button workaround.
