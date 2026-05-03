@@ -24,12 +24,16 @@ from web.components.header import render_header
 from web.components.storyboard_preview import render_storyboard_preview
 from web.components.storyboard_workbench_stale import build_stale_panel_context
 from web.i18n import tr
-from web.state.session import init_i18n, init_session_state
+from web.state.session import get_pixelle_video, init_i18n, init_session_state
 from web.state.storyboard_overrides import (
     build_storyboard_override_snapshot_identity,
     set_storyboard_override_draft,
 )
 from web.state.storyboard_preview import get_storyboard_preview_snapshot
+from web.state.workbench_client import (
+    resolve_storyboard_workbench_client,
+    resolve_workbench_client_mode,
+)
 
 PreviewRenderer = Callable[..., list[dict[str, Any]]]
 
@@ -51,10 +55,21 @@ def render_storyboard_workbench_page(
         return
 
     stale_context = build_stale_panel_context(getattr(ui, "session_state", {}))
+    workbench_client_mode = resolve_workbench_client_mode(getattr(ui, "session_state", {}))
+    pixelle_video = (
+        get_pixelle_video()
+        if workbench_client_mode == "inprocess"
+        else None
+    )
+    workbench_client = resolve_storyboard_workbench_client(
+        getattr(ui, "session_state", {}),
+        pixelle_video=pixelle_video,
+    )
     with ui.container():
         frame_overrides = preview_renderer(
             preview_snapshot,
             stale_context=stale_context,
+            workbench_client=workbench_client,
         )
     set_storyboard_override_draft(
         getattr(ui, "session_state", {}),

@@ -178,9 +178,10 @@ def test_render_prompt_plan_stale_panel_loads_summary_and_renders_panel():
     rendered: list[dict[str, Any]] = []
     fake_ui = _FakeUI()
 
-    def loader(**kwargs):
-        calls.append(kwargs)
-        return {"success": True, "message": "ok", "stale_summary": _stale_summary()}
+    class FakeClient:
+        def get_prompt_plan_stale_summary(self, **kwargs):
+            calls.append(kwargs)
+            return {"success": True, "message": "ok", "stale_summary": _stale_summary()}
 
     def panel_renderer(**kwargs):
         rendered.append(kwargs)
@@ -189,20 +190,17 @@ def test_render_prompt_plan_stale_panel_loads_summary_and_renders_panel():
         "prompt_plan_1",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        stale_summary_loader=loader,
+        workbench_client=FakeClient(),
         panel_renderer=panel_renderer,
-        api_base_url="http://localhost:8000/api",
         workspace_id="workspace_1",
         project_id="project_1",
     )
 
     assert calls == [
         {
-            "api_base_url": "http://localhost:8000/api",
             "project_id": "project_1",
             "workspace_id": "workspace_1",
-            "target_type": "prompt_plan",
-            "target_id": "prompt_plan_1",
+            "prompt_plan_id": "prompt_plan_1",
         }
     ]
     assert rendered[0]["stale_summary"]["target_id"] == "prompt_plan_1"
@@ -214,14 +212,15 @@ def test_render_prompt_plan_stale_panel_fails_closed_without_required_context():
 
     fake_ui = _FakeUI()
 
-    def loader(**_kwargs):
-        raise AssertionError("stale API must not be called without full context")
+    class FakeClient:
+        def get_prompt_plan_stale_summary(self, **_kwargs):
+            raise AssertionError("client must not be called without full context")
 
     render_prompt_plan_stale_panel(
         "prompt_plan_1",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        stale_summary_loader=loader,
+        workbench_client=FakeClient(),
         project_id="project_1",
         workspace_id="",
     )
@@ -244,15 +243,15 @@ def test_render_prompt_plan_stale_panel_hides_loader_exception_details():
 
     fake_ui = _FakeUI()
 
-    def loader(**_kwargs):
-        raise RuntimeError(r"provider_url=https://provider.example D:\secret")
+    class FakeClient:
+        def get_prompt_plan_stale_summary(self, **_kwargs):
+            raise RuntimeError(r"provider_url=https://provider.example D:\secret")
 
     render_prompt_plan_stale_panel(
         "prompt_plan_1",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        stale_summary_loader=loader,
-        api_base_url="http://localhost:8000/api",
+        workbench_client=FakeClient(),
         project_id="project_1",
         workspace_id="workspace_1",
     )
@@ -270,26 +269,67 @@ def test_render_prompt_plan_stale_panel_uses_session_context_defaults():
     fake_ui = _FakeUI()
     fake_ui.session_state.update(
         {
-            "api_base_url": "http://api.example/api/",
             "project_id": "project_1",
             "workspace_id": "workspace_1",
         }
     )
 
-    def loader(**kwargs):
-        calls.append(kwargs)
-        return {"success": True, "message": "ok", "stale_summary": _stale_summary()}
+    class FakeClient:
+        def get_prompt_plan_stale_summary(self, **kwargs):
+            calls.append(kwargs)
+            return {"success": True, "message": "ok", "stale_summary": _stale_summary()}
 
     render_prompt_plan_stale_panel(
         "prompt_plan_1",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        stale_summary_loader=loader,
+        workbench_client=FakeClient(),
     )
 
-    assert calls[0]["api_base_url"] == "http://api.example/api"
     assert calls[0]["project_id"] == "project_1"
     assert calls[0]["workspace_id"] == "workspace_1"
+    assert calls[0]["prompt_plan_id"] == "prompt_plan_1"
+
+
+def test_prompt_plan_stale_panel_uses_workbench_client_without_api_base_url():
+    from web.components.storyboard_workbench_stale import render_prompt_plan_stale_panel
+
+    calls = []
+
+    class FakeClient:
+        def get_prompt_plan_stale_summary(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "success": True,
+                "stale_summary": {
+                    "workspace_id": "workspace_1",
+                    "project_id": "project_1",
+                    "target_type": "prompt_plan",
+                    "target_id": "prompt_plan_1",
+                    "is_stale": False,
+                    "primary_reasons": [],
+                    "upstream_refs": [],
+                    "stale_marks": [],
+                },
+            }
+
+    render_prompt_plan_stale_panel(
+        "prompt_plan_1",
+        ui=_FakeUI(),
+        translate=lambda key, **_kwargs: key,
+        workbench_client=FakeClient(),
+        panel_renderer=lambda **_kwargs: None,
+        workspace_id="workspace_1",
+        project_id="project_1",
+    )
+
+    assert calls == [
+        {
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "prompt_plan_id": "prompt_plan_1",
+        }
+    ]
 
 
 def test_build_stale_panel_context_uses_repo_defaults_without_session_state():
@@ -298,7 +338,6 @@ def test_build_stale_panel_context_uses_repo_defaults_without_session_state():
     context = build_stale_panel_context({})
 
     assert context == {
-        "api_base_url": "http://localhost:8001/api",
         "workspace_id": "workspace_1",
         "project_id": "project_1",
     }
@@ -318,11 +357,11 @@ def test_storyboard_preview_invokes_stale_renderer_once_per_prompt_plan_without_
     overrides = storyboard_preview.render_storyboard_preview(
         _planning_snapshot(),
         stale_context={
-            "api_base_url": "http://localhost:8000/api",
             "storyboard_id": "storyboard_001",
             "project_id": "project_1",
             "workspace_id": "workspace_1",
         },
+        workbench_client="client_1",
         stale_renderer=stale_renderer,
         workbench_renderer=None,
     )
@@ -330,7 +369,7 @@ def test_storyboard_preview_invokes_stale_renderer_once_per_prompt_plan_without_
     assert [call["prompt_plan_id"] for call in calls] == ["prompt_plan_1"]
     assert all(call["project_id"] == "project_1" for call in calls)
     assert all(call["workspace_id"] == "workspace_1" for call in calls)
-    assert all(call["api_base_url"] == "http://localhost:8000/api" for call in calls)
+    assert all(call["workbench_client"] == "client_1" for call in calls)
     assert overrides == [
         {
             "plan_id": "prompt_plan_1",
@@ -358,23 +397,23 @@ def test_storyboard_preview_invokes_workbench_renderer_for_frames_with_artifact_
     storyboard_preview.render_storyboard_preview(
         _planning_snapshot(),
         stale_context={
-            "api_base_url": "http://localhost:8000/api",
             "storyboard_id": "storyboard_001",
             "project_id": "project_1",
             "workspace_id": "workspace_1",
         },
+        workbench_client="client_1",
         stale_renderer=None,
         workbench_renderer=workbench_renderer,
     )
 
     assert calls == [
         {
-            "api_base_url": "http://localhost:8000/api",
             "workspace_id": "workspace_1",
             "storyboard_id": "storyboard_001",
             "frame_id": "frame_0001",
             "artifact_id": "artifact_frame_0001_image",
             "selected_version_id": "artifact_version_001",
+            "workbench_client": "client_1",
             "ui": fake_ui,
             "translate": storyboard_preview.tr,
         }
@@ -397,7 +436,6 @@ def test_storyboard_preview_uses_plan_id_as_workbench_storyboard_id_when_missing
     storyboard_preview.render_storyboard_preview(
         snapshot,
         stale_context={
-            "api_base_url": "http://localhost:8000/api",
             "project_id": "project_1",
             "workspace_id": "workspace_1",
         },
@@ -429,7 +467,6 @@ def test_storyboard_preview_extracts_artifact_from_nested_workbench_state(monkey
     storyboard_preview.render_storyboard_preview(
         snapshot,
         stale_context={
-            "api_base_url": "http://localhost:8000/api",
             "project_id": "project_1",
             "workspace_id": "workspace_1",
         },

@@ -5,23 +5,10 @@ from typing import Any
 
 import streamlit as st
 
-from pixelle_video.platform_context import (
-    DEFAULT_API_BASE_URL,
-    DEFAULT_WORKSPACE_ID,
-    first_explicit_text,
-)
+from pixelle_video.platform_context import DEFAULT_WORKSPACE_ID, first_explicit_text
 from web.i18n import tr
-from web.utils.artifact_display_urls import artifact_url_for_streamlit
-from web.utils.storyboard_workbench_api import (
-    list_storyboard_image_candidates,
-    regenerate_storyboard_frame_image,
-    select_storyboard_image_candidate,
-)
 
 Translate = Callable[..., str]
-CandidateLoader = Callable[..., dict[str, Any]]
-CandidateSelector = Callable[..., dict[str, Any]]
-FrameRegenerator = Callable[..., dict[str, Any]]
 
 
 def render_storyboard_workbench_panel(
@@ -31,18 +18,14 @@ def render_storyboard_workbench_panel(
     frame_id: str | None,
     artifact_id: str | None,
     selected_version_id: str | None = None,
-    api_base_url: str | None = None,
     actor_id: str | None = None,
     ui=st,
     translate: Translate = tr,
-    candidate_loader: CandidateLoader = list_storyboard_image_candidates,
-    candidate_selector: CandidateSelector = select_storyboard_image_candidate,
-    frame_regenerator: FrameRegenerator = regenerate_storyboard_frame_image,
+    workbench_client=None,
 ) -> None:
     """Render the Stage 1B image workbench for one storyboard frame."""
     context = _build_workbench_context(
         getattr(ui, "session_state", None),
-        api_base_url=api_base_url,
         workspace_id=workspace_id,
         storyboard_id=storyboard_id,
         frame_id=frame_id,
@@ -51,12 +34,15 @@ def render_storyboard_workbench_panel(
     if not _has_required_context(context):
         ui.caption(translate("workbench.panel.missing_context"))
         return
+    if workbench_client is None:
+        ui.caption(translate("workbench.panel.unavailable"))
+        return
 
     ui.markdown(f"##### {translate('workbench.panel.title')}")
     ui.caption(translate("workbench.panel.help"))
 
     try:
-        response = candidate_loader(**context)
+        response = workbench_client.list_image_candidates(**context)
     except Exception:
         ui.caption(translate("workbench.panel.unavailable"))
         return
@@ -76,16 +62,22 @@ def render_storyboard_workbench_panel(
             actor_id=actor_id,
             ui=ui,
             translate=translate,
-            candidate_selector=candidate_selector,
+            workbench_client=workbench_client,
         )
 
+    capabilities = _get_capabilities(workbench_client)
+    can_regenerate = capabilities.get("can_regenerate_frame_image") is True
     if ui.button(
         translate("workbench.panel.regenerate"),
         key=f"workbench_regenerate_{context['frame_id']}",
+        disabled=not can_regenerate,
     ):
         try:
-            result = frame_regenerator(**context)
+            result = workbench_client.regenerate_frame_image(**context)
         except Exception:
+            ui.error(translate("workbench.panel.regenerate_failed"))
+            return
+        if result.get("success") is False:
             ui.error(translate("workbench.panel.regenerate_failed"))
             return
         task_id = _first_text(result.get("task_id"))
@@ -102,19 +94,14 @@ def _render_candidate_grid(
     actor_id: str | None,
     ui,
     translate: Translate,
-    candidate_selector: CandidateSelector,
+    workbench_client,
 ) -> None:
     columns = ui.columns(min(3, max(1, len(candidates))))
     for index, candidate in enumerate(candidates):
         version_id = _first_text(candidate.get("version_id"))
         with columns[index % len(columns)]:
             with ui.container(border=True):
-                _render_candidate_image(
-                    candidate,
-                    version_id=version_id,
-                    api_base_url=context["api_base_url"],
-                    ui=ui,
-                )
+                _render_candidate_image(candidate, version_id=version_id, ui=ui)
                 _render_candidate_summary(
                     candidate,
                     version_id=version_id,
@@ -129,7 +116,7 @@ def _render_candidate_grid(
                         actor_id=actor_id,
                         ui=ui,
                         translate=translate,
-                        candidate_selector=candidate_selector,
+                        workbench_client=workbench_client,
                     )
 
 
@@ -137,18 +124,15 @@ def _render_candidate_image(
     candidate: Mapping[str, Any],
     *,
     version_id: str,
-    api_base_url: str,
     ui,
 ) -> None:
-    url = _first_text(candidate.get("url"))
-    if url:
-        try:
-            display_url = artifact_url_for_streamlit(url, api_base_url=api_base_url)
-        except ValueError:
-            ui.caption(version_id)
+    image_display = candidate.get("image_display")
+    if isinstance(image_display, Mapping):
+        if image_display.get("kind") == "url" and _first_text(image_display.get("url")):
+            ui.image(_first_text(image_display.get("url")), caption=version_id, width="stretch")
             return
-        if display_url:
-            ui.image(display_url, caption=version_id, width="stretch")
+        if image_display.get("kind") == "bytes" and isinstance(image_display.get("data"), bytes):
+            ui.image(image_display["data"], caption=version_id, width="stretch")
             return
     ui.caption(version_id)
 
@@ -179,7 +163,7 @@ def _render_select_button(
     actor_id: str | None,
     ui,
     translate: Translate,
-    candidate_selector: CandidateSelector,
+    workbench_client,
 ) -> None:
     if not version_id:
         return
@@ -189,7 +173,7 @@ def _render_select_button(
     ):
         return
     try:
-        result = candidate_selector(
+        result = workbench_client.select_image_candidate(
             **context,
             version_id=version_id,
             actor_id=_first_text(actor_id),
@@ -213,7 +197,6 @@ def _render_select_button(
 def _build_workbench_context(
     session_state: Mapping[str, Any] | None,
     *,
-    api_base_url: str | None,
     workspace_id: str | None,
     storyboard_id: str | None,
     frame_id: str | None,
@@ -221,7 +204,6 @@ def _build_workbench_context(
 ) -> dict[str, str]:
     state = session_state or {}
     return {
-        "api_base_url": _first_text(api_base_url, state.get("api_base_url"), DEFAULT_API_BASE_URL).rstrip("/"),
         "workspace_id": first_explicit_text(workspace_id, state.get("workspace_id"), DEFAULT_WORKSPACE_ID),
         "storyboard_id": first_explicit_text(storyboard_id, state.get("storyboard_id")),
         "frame_id": first_explicit_text(frame_id),
@@ -233,13 +215,23 @@ def _has_required_context(context: Mapping[str, str]) -> bool:
     return all(
         context.get(field_name)
         for field_name in (
-            "api_base_url",
             "workspace_id",
             "storyboard_id",
             "frame_id",
             "artifact_id",
         )
     )
+
+
+def _get_capabilities(workbench_client) -> dict[str, Any]:
+    try:
+        capabilities = workbench_client.get_capabilities()
+    except Exception:
+        return {
+            "can_regenerate_frame_image": False,
+            "regenerate_unavailable_reason": "capability check failed",
+        }
+    return capabilities if isinstance(capabilities, dict) else {}
 
 
 def _resolve_selected_version_id(

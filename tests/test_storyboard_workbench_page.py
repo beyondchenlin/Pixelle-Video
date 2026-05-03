@@ -102,8 +102,22 @@ def test_storyboard_workbench_page_renders_preview_overrides_in_main_area(monkey
         }
     ]
 
-    def preview_renderer(snapshot, *, stale_context=None):
-        calls.append({"snapshot": snapshot, "stale_context": stale_context})
+    client = object()
+    monkeypatch.setattr(page, "resolve_workbench_client_mode", lambda _session_state: "http")
+    monkeypatch.setattr(
+        page,
+        "resolve_storyboard_workbench_client",
+        lambda _session_state, pixelle_video=None: client,
+    )
+
+    def preview_renderer(snapshot, *, stale_context=None, workbench_client=None):
+        calls.append(
+            {
+                "snapshot": snapshot,
+                "stale_context": stale_context,
+                "workbench_client": workbench_client,
+            }
+        )
         return frame_overrides
 
     page.render_storyboard_workbench_page(
@@ -123,10 +137,10 @@ def test_storyboard_workbench_page_renders_preview_overrides_in_main_area(monkey
         {
             "snapshot": _planning_snapshot(),
             "stale_context": {
-                "api_base_url": "http://localhost:8000/api",
                 "project_id": "project_1",
                 "workspace_id": "workspace_1",
             },
+            "workbench_client": client,
         }
     ]
     assert fake_ui.session_state["storyboard_override_draft"]["frame_overrides"] == frame_overrides
@@ -151,3 +165,30 @@ def test_storyboard_workbench_page_shows_empty_state_without_snapshot(monkeypatc
 
     assert fake_ui.infos == ["storyboard.workbench.empty_state"]
     assert fake_ui.session_state["storyboard_override_draft"] is None
+
+
+def test_storyboard_workbench_page_passes_client_to_preview(monkeypatch):
+    page = _load_workbench_page()
+    fake_ui = _FakeUI()
+    fake_ui.session_state["storyboard_preview_snapshot"] = _planning_snapshot()
+    client = object()
+    calls = []
+
+    monkeypatch.setattr(page, "resolve_workbench_client_mode", lambda _session_state: "http")
+    monkeypatch.setattr(
+        page,
+        "resolve_storyboard_workbench_client",
+        lambda _session_state, pixelle_video=None: client,
+    )
+
+    def preview_renderer(snapshot, *, workbench_client=None, **_kwargs):
+        calls.append(workbench_client)
+        return []
+
+    page.render_storyboard_workbench_page(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+        preview_renderer=preview_renderer,
+    )
+
+    assert calls == [client]

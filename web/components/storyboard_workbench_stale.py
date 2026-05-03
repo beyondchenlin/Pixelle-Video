@@ -6,7 +6,6 @@ from typing import Any
 import streamlit as st
 
 from pixelle_video.platform_context import (
-    DEFAULT_API_BASE_URL,
     DEFAULT_PROJECT_ID,
     DEFAULT_WORKSPACE_ID,
     first_explicit_text,
@@ -14,25 +13,20 @@ from pixelle_video.platform_context import (
 )
 from web.components.stale_panel import render_stale_target_panel
 from web.i18n import tr
-from web.utils.stale_api import get_stale_target_summary
 
 Translate = Callable[..., str]
-StaleSummaryLoader = Callable[..., dict[str, Any]]
 StalePanelRenderer = Callable[..., None]
 
 
 def build_stale_panel_context(
     session_state: Mapping[str, Any] | None = None,
     *,
-    api_base_url: str | None = None,
     workspace_id: str | None = None,
     project_id: str | None = None,
 ) -> dict[str, str]:
     """Resolve public stale-query context for a frontend panel."""
     state = session_state or {}
-    resolved_api_base_url = first_text(api_base_url, state.get("api_base_url"), DEFAULT_API_BASE_URL)
     return {
-        "api_base_url": resolved_api_base_url.rstrip("/"),
         "workspace_id": first_explicit_text(workspace_id, state.get("workspace_id"), DEFAULT_WORKSPACE_ID),
         "project_id": first_explicit_text(project_id, state.get("project_id"), DEFAULT_PROJECT_ID),
     }
@@ -43,16 +37,14 @@ def render_prompt_plan_stale_panel(
     *,
     ui=st,
     translate: Translate = tr,
-    stale_summary_loader: StaleSummaryLoader = get_stale_target_summary,
     panel_renderer: StalePanelRenderer = render_stale_target_panel,
-    api_base_url: str | None = None,
     workspace_id: str | None = None,
     project_id: str | None = None,
+    workbench_client=None,
 ) -> None:
     """Render a read-only stale radar for one frame's PromptPlan."""
     context = build_stale_panel_context(
         getattr(ui, "session_state", None),
-        api_base_url=api_base_url,
         workspace_id=workspace_id,
         project_id=project_id,
     )
@@ -60,14 +52,15 @@ def render_prompt_plan_stale_panel(
     if not context["workspace_id"] or not context["project_id"] or not normalized_prompt_plan_id:
         ui.caption(translate("stale.workbench.missing_context"))
         return
+    if workbench_client is None:
+        ui.caption(translate("stale.workbench.unavailable"))
+        return
 
     try:
-        response = stale_summary_loader(
-            api_base_url=context["api_base_url"],
-            project_id=context["project_id"],
+        response = workbench_client.get_prompt_plan_stale_summary(
             workspace_id=context["workspace_id"],
-            target_type="prompt_plan",
-            target_id=normalized_prompt_plan_id,
+            project_id=context["project_id"],
+            prompt_plan_id=normalized_prompt_plan_id,
         )
     except Exception:
         ui.caption(translate("stale.workbench.unavailable"))
@@ -84,8 +77,8 @@ def render_prompt_plan_stale_panel(
         translate=translate,
     )
 
+
 __all__ = [
-    "DEFAULT_API_BASE_URL",
     "DEFAULT_PROJECT_ID",
     "DEFAULT_WORKSPACE_ID",
     "build_stale_panel_context",

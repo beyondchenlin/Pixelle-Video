@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 
@@ -249,3 +250,24 @@ def test_inprocess_client_uses_task_submitter_for_regenerate():
         frame_id="frame_1",
         artifact_id="artifact_1",
     )["task_id"] == "task_1"
+
+
+def test_storyboard_workbench_ui_does_not_import_transport_or_display_helpers():
+    ui_files = [
+        Path("web/components/storyboard_workbench_panel.py"),
+        Path("web/components/storyboard_workbench_stale.py"),
+        Path("web/components/storyboard_preview.py"),
+        Path("web/pages/3_🧭_Storyboard_Workbench.py"),
+    ]
+    forbidden = (
+        "web.utils.storyboard_workbench_api",
+        "web.utils.stale_api",
+        "web.utils.artifact_display_urls",
+        "httpx",
+        "localhost:8001",
+    )
+
+    for path in ui_files:
+        source = path.read_text(encoding="utf-8")
+        for token in forbidden:
+            assert token not in source, f"{path} must not depend on {token}"

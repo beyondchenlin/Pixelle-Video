@@ -210,6 +210,7 @@ def render_storyboard_preview(
     planning_snapshot: Mapping[str, Any] | None,
     *,
     stale_context: Mapping[str, str] | None = None,
+    workbench_client=None,
     stale_renderer: Callable[..., None] | None = render_prompt_plan_stale_panel,
     workbench_renderer: Callable[..., None] | None = render_storyboard_workbench_panel,
 ) -> list[dict[str, Any]]:
@@ -229,9 +230,9 @@ def render_storyboard_preview(
                 prompt_plan_id=rows[0]["plan_id"],
                 ui=st,
                 translate=tr,
-                api_base_url=context.get("api_base_url"),
                 workspace_id=context.get("workspace_id"),
                 project_id=context.get("project_id"),
+                workbench_client=workbench_client,
             )
         for row in rows:
             scene_id = row["scene_id"]
@@ -287,7 +288,6 @@ def render_storyboard_preview(
                     if workbench_context.get("artifact_id"):
                         context = stale_context or {}
                         workbench_renderer(
-                            api_base_url=context.get("api_base_url"),
                             workspace_id=context.get("workspace_id"),
                             storyboard_id=workbench_context.get("storyboard_id")
                             or context.get("storyboard_id")
@@ -295,6 +295,7 @@ def render_storyboard_preview(
                             frame_id=row["frame_id"],
                             artifact_id=workbench_context.get("artifact_id"),
                             selected_version_id=workbench_context.get("selected_version_id"),
+                            workbench_client=workbench_client,
                             ui=st,
                             translate=tr,
                         )
