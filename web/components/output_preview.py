@@ -644,7 +644,9 @@ def render_single_output(pixelle_video, video_params):
 def _render_single_output_sections(pixelle_video, video_params):
     generation_runner = _render_generation_section(pixelle_video, video_params)
     if generation_runner is None:
-        _render_layout_preview_workbench_section(video_params)
+        _render_layout_preview_workbench_section(
+            {**video_params, "pixelle_video": pixelle_video}
+        )
         render_recent_video_gallery(pixelle_video)
         return
 
@@ -652,7 +654,10 @@ def _render_single_output_sections(pixelle_video, video_params):
 
     def render_gallery(*, refresh: bool = False) -> None:
         def render_gallery_section(key_suffix: str) -> None:
-            _render_layout_preview_workbench_section(video_params, key_suffix=key_suffix)
+            _render_layout_preview_workbench_section(
+                {**video_params, "pixelle_video": pixelle_video},
+                key_suffix=key_suffix,
+            )
             render_recent_video_gallery(
                 pixelle_video,
                 key_suffix=key_suffix,

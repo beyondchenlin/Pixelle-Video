@@ -1847,7 +1847,7 @@ def test_render_single_output_passes_key_suffix_to_workbench_refresh(
     monkeypatch,
     tmp_path,
 ):
-    captured = {"workbench_suffixes": []}
+    captured = {"workbench_suffixes": [], "pixelle_video": []}
     video_path = tmp_path / "final.mp4"
     video_path.write_bytes(b"video")
 
@@ -1938,11 +1938,15 @@ def test_render_single_output_passes_key_suffix_to_workbench_refresh(
     monkeypatch.setattr(
         output_preview,
         "_render_layout_preview_workbench_section",
-        lambda _video_params, *, key_suffix="": captured["workbench_suffixes"].append(key_suffix),
+        lambda video_params, *, key_suffix="": (
+            captured["workbench_suffixes"].append(key_suffix),
+            captured["pixelle_video"].append(video_params.get("pixelle_video")),
+        ),
     )
+    fake_pixelle_video = _FakePixelleVideo()
 
     output_preview.render_single_output(
-        _FakePixelleVideo(),
+        fake_pixelle_video,
         {
             "text": "demo",
             "mode": "generate",
@@ -1953,6 +1957,7 @@ def test_render_single_output_passes_key_suffix_to_workbench_refresh(
 
     assert captured["workbench_suffixes"][0] == ""
     assert any(suffix.startswith("_refresh_") for suffix in captured["workbench_suffixes"][1:])
+    assert all(item is fake_pixelle_video for item in captured["pixelle_video"])
 
 
 def test_render_layout_preview_workbench_section_uses_registry_recent_and_marks_selection(
