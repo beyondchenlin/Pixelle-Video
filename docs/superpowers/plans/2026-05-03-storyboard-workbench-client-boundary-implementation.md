@@ -23,7 +23,7 @@
 - Create `web/workbench/inprocess_protocols.py`
   - Declares optional local-only dependency protocols for artifact display and regenerate submission.
 - Create `web/workbench/inprocess_client.py`
-  - Calls local platform services and stores directly, and builds local display payloads without `api_base_url`.
+  - Calls local platform services and stores directly, consumes artifacts registered by `StoryboardWorkbenchArtifactBridge`, and builds local display payloads without `api_base_url`.
 - Create `web/state/workbench_client.py`
   - Resolves mode and caches only fully configured clients.
 - Modify `web/components/storyboard_workbench_panel.py`
@@ -619,7 +619,7 @@ Add to `tests/test_storyboard_workbench_page.py`:
 ```python
 def test_storyboard_workbench_page_passes_client_to_preview(monkeypatch):
     page = _load_workbench_page()
-    fake_ui = _WorkbenchFakeUI()
+    fake_ui = _FakeUI()
     fake_ui.session_state["storyboard_preview_snapshot"] = _planning_snapshot()
     client = object()
     calls = []
@@ -834,6 +834,7 @@ Expected: fail because in-process methods are not implemented.
 In `web/workbench/inprocess_client.py`:
 
 - Use `web.utils.async_helpers.run_async()` to call async services from Streamlit sync context.
+- Treat `StoryboardWorkbenchArtifactBridge` as the generation-side registration boundary. The in-process client reads already registered artifact versions and must not create or re-register Workbench artifacts while listing candidates.
 - Implement local display loading from `get_local_file_uri(...)`:
 
 ```python

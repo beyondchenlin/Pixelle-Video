@@ -138,6 +138,8 @@ web/workbench/inprocess_client.py
   -> StoryboardWorkbenchTaskSubmitter (optional)
 ```
 
+现有 Stage 1 生成链路已经通过 `StoryboardWorkbenchArtifactBridge` 把生成出的 frame media 注册为 Workbench artifact，并把 `workbench_state` 写回 snapshot / state store。`InProcessStoryboardWorkbenchClient` 是这些已注册 artifact 的消费方，不重新实现 artifact 注册语义。
+
 新增模块：
 
 ```text
@@ -257,6 +259,7 @@ class StoryboardWorkbenchClient(Protocol):
 职责：
 
 - 调用 `StoryboardWorkbenchService.list_image_candidates()`。
+- 消费 `StoryboardWorkbenchArtifactBridge` 已注册的 artifact / version / storage key，不重复创建 Workbench artifact。
 - 通过 `LocalReadableArtifactSource` 把 `storage_key` 解析成可直接供 Streamlit 展示的安全 payload。
 - 加载 / 保存 `StoryboardFrameWorkbenchState`。
 - 调用 `StoryboardWorkbenchService.select_image_version()`。
