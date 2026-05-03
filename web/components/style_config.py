@@ -343,10 +343,7 @@ def _render_media_placement_controls() -> MediaPlacement:
 def _render_layered_template_editor(
     state: LayeredTemplateEditorState,
 ) -> LayeredTemplateEditorState:
-    with render_middle_column_collapsible_section(
-        tr("layered_template.editor.title"),
-        expanded=False,
-    ):
+    with render_middle_column_detail_section(tr("layered_template.editor.title")):
         st.caption(tr("layered_template.editor.caption"))
         add_background_col, add_image_col, add_text_col = st.columns(3)
         next_counts = {
