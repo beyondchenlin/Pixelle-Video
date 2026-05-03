@@ -5,7 +5,7 @@ from types import ModuleType
 import pytest
 from PIL import Image
 
-from pixelle_video.services.frame_html import HTMLFrameGenerator
+from pixelle_video.services.frame_html import HTMLDocumentFrameRenderer, HTMLFrameGenerator
 from pixelle_video.services.frame_render_readiness import FrameRenderReadiness
 from web.state.async_runtime import AsyncRuntime, shutdown_all_async_runtimes
 from web.utils.async_helpers import run_async
@@ -133,6 +133,25 @@ def test_prepare_html_for_render_injects_template_base_href(tmp_path):
     prepared_html = generator._prepare_html_for_render(generator.template)
 
     assert f'<base href="{template_dir.resolve().as_uri()}/">' in prepared_html
+
+
+def test_html_document_frame_renderer_injects_base_href(tmp_path):
+    renderer = HTMLDocumentFrameRenderer(base_path=tmp_path / "assets")
+
+    prepared_html = renderer._prepare_html_for_render(
+        "<!DOCTYPE html><html><head><meta charset='utf-8'></head><body>demo</body></html>"
+    )
+
+    assert f'<base href="{(tmp_path / "assets").resolve().as_uri()}/">' in prepared_html
+
+
+def test_html_document_frame_renderer_keeps_existing_base_tag(tmp_path):
+    renderer = HTMLDocumentFrameRenderer(base_path=tmp_path / "assets")
+    html = "<html><head><base href='file:///existing/'></head><body>demo</body></html>"
+
+    prepared_html = renderer._prepare_html_for_render(html)
+
+    assert prepared_html == html
 
 
 def test_parse_template_parameters_excludes_runtime_reserved_placeholders(tmp_path):

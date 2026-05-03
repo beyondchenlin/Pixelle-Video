@@ -62,6 +62,7 @@ from api.routers import (
     frame_router,
     health_router,
     image_router,
+    layered_template_preview_router,
     llm_router,
     llm_trace_router,
     resources_router,
@@ -156,6 +157,7 @@ app.include_router(llm_router, prefix=api_config.api_prefix)
 app.include_router(llm_trace_router, prefix=api_config.api_prefix)
 app.include_router(tts_router, prefix=api_config.api_prefix)
 app.include_router(image_router, prefix=api_config.api_prefix)
+app.include_router(layered_template_preview_router, prefix=api_config.api_prefix)
 app.include_router(content_router, prefix=api_config.api_prefix)
 app.include_router(asset_bible_router, prefix=api_config.api_prefix)
 app.include_router(video_router, prefix=api_config.api_prefix)
@@ -181,6 +183,7 @@ async def root():
             "llm_traces": f"{api_config.api_prefix}/llm-traces",
             "tts": f"{api_config.api_prefix}/tts",
             "image": f"{api_config.api_prefix}/image",
+            "layered_templates": f"{api_config.api_prefix}/layered-templates",
             "content": f"{api_config.api_prefix}/content",
             "asset_bible": f"{api_config.api_prefix}/projects/{{project_id}}/asset-bible",
             "video": f"{api_config.api_prefix}/video",
