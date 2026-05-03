@@ -123,15 +123,27 @@ def test_render_layout_preview_workbench_sorts_recent_presets_and_limits_to_five
     )
 
     rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    recent_buttons = _recent_buttons(fake_ui)
     assert selected is None
-    assert rendered.count('<div class="layout-workbench-recent-chip"') == 5
-    assert "Template 6" in rendered
-    assert "Template 2" in rendered
+    assert "Template 6" not in rendered
+    assert "preset_6" not in rendered
+    assert "Template 2" not in rendered
+    assert "preset_2" not in rendered
     assert "Template 1" not in rendered
-    assert len(_recent_buttons(fake_ui)) == 5
+    assert "preset_1" not in rendered
+    assert [button["label"] for button in recent_buttons] == [
+        "\u6a21\u677f\u4e00",
+        "\u6a21\u677f\u4e8c",
+        "\u6a21\u677f\u4e09",
+        "\u6a21\u677f\u56db",
+        "\u6a21\u677f\u4e94",
+    ]
+    assert len(recent_buttons) == 5
 
 
-def test_render_layout_preview_workbench_uses_compact_recent_presets(monkeypatch):
+def test_render_layout_preview_workbench_uses_compact_generic_recent_preset_buttons(
+    monkeypatch,
+):
     from web.components import layout_preview_workbench
 
     fake_ui = _FakeUI()
@@ -154,12 +166,14 @@ def test_render_layout_preview_workbench_uses_compact_recent_presets(monkeypatch
 
     rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
     recent_buttons = _recent_buttons(fake_ui)
-    assert "layout-workbench-recent-chip" in rendered
     assert '<ol class="layout-workbench-recent">' not in rendered
     assert 'div[class*="st-key-layout_preview_recent_presets"] button' in rendered
     assert "min-height: 28px;" in rendered
     assert "font-size: 12px;" in rendered
-    assert [button["label"] for button in recent_buttons] == ["\u5957\u7528"]
+    assert "border-radius: 6px;" in rendered
+    assert "Template With A Very Long Name" not in rendered
+    assert "user:long_recent_template" not in rendered
+    assert [button["label"] for button in recent_buttons] == ["\u6a21\u677f\u4e00"]
     assert "Template With A Very Long Name" in recent_buttons[0]["help"]
 
 
@@ -190,8 +204,15 @@ def test_render_layout_preview_workbench_sorts_recent_presets_by_datetime(monkey
         ui=fake_ui,
     )
 
-    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
-    assert rendered.index("New") < rendered.index("Old")
+    recent_buttons = _recent_buttons(fake_ui)
+    assert [button["label"] for button in recent_buttons] == [
+        "\u6a21\u677f\u4e00",
+        "\u6a21\u677f\u4e8c",
+    ]
+    assert [button["help"] for button in recent_buttons] == [
+        "套用 New (new)。选择最近模板，主入口会据此回填完整规格。",
+        "套用 Old (old)。选择最近模板，主入口会据此回填完整规格。",
+    ]
 
 
 def test_render_layout_preview_workbench_sorts_recent_presets_by_absolute_time(monkeypatch):
@@ -221,8 +242,15 @@ def test_render_layout_preview_workbench_sorts_recent_presets_by_absolute_time(m
         ui=fake_ui,
     )
 
-    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
-    assert rendered.index("UTC Later") < rendered.index("Offset Earlier")
+    recent_buttons = _recent_buttons(fake_ui)
+    assert [button["label"] for button in recent_buttons] == [
+        "\u6a21\u677f\u4e00",
+        "\u6a21\u677f\u4e8c",
+    ]
+    assert [button["help"] for button in recent_buttons] == [
+        "套用 UTC Later (utc_later)。选择最近模板，主入口会据此回填完整规格。",
+        "套用 Offset Earlier (offset_earlier)。选择最近模板，主入口会据此回填完整规格。",
+    ]
 
 
 def test_render_layout_preview_workbench_renders_spec_summary_and_safe_html(monkeypatch):
@@ -566,9 +594,13 @@ def test_render_layout_preview_workbench_ignores_recent_preset_without_spec(monk
     )
 
     rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    recent_buttons = _recent_buttons(fake_ui)
     assert "Template Without Spec" not in rendered
-    assert "Template With Spec" in rendered
-    assert len(_recent_buttons(fake_ui)) == 1
+    assert "Template With Spec" not in rendered
+    assert len(recent_buttons) == 1
+    assert recent_buttons[0]["label"] == "\u6a21\u677f\u4e00"
+    assert "Template With Spec" in recent_buttons[0]["help"]
+    assert "Template Without Spec" not in recent_buttons[0]["help"]
 
 
 def test_render_layout_preview_workbench_rejects_untrusted_preview_html(monkeypatch):

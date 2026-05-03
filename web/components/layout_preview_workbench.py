@@ -52,6 +52,13 @@ class DefaultLayoutSummary:
 _RECENT_TITLE = "\u6700\u8fd1\u6a21\u677f\u5feb\u6377"
 _NO_RECENT = "\u6682\u65e0\u6700\u8fd1\u6a21\u677f\u3002"
 _APPLY_PREFIX = "\u5957\u7528"
+_RECENT_TEMPLATE_LABELS = (
+    "\u6a21\u677f\u4e00",
+    "\u6a21\u677f\u4e8c",
+    "\u6a21\u677f\u4e09",
+    "\u6a21\u677f\u56db",
+    "\u6a21\u677f\u4e94",
+)
 _APPLY_HELP = (
     "\u9009\u62e9\u6700\u8fd1\u6a21\u677f\uff0c\u4e3b\u5165\u53e3\u4f1a"
     "\u636e\u6b64\u56de\u586b\u5b8c\u6574\u89c4\u683c\u3002"
@@ -264,24 +271,22 @@ def _render_recent_presets(
             """,
             unsafe_allow_html=True,
         )
-        for preset in presets:
+        columns = _columns(ui, len(presets), gap="small")
+        for index, preset in enumerate(presets):
             preset_id = str(preset["preset_id"])
-            columns = _columns(ui, [0.78, 0.22], gap="small")
+            label = _recent_preset_display_label(index)
             if columns is None:
-                ui.markdown(_recent_preset_chip_html(preset), unsafe_allow_html=True)
                 if ui.button(
-                    _APPLY_PREFIX,
+                    label,
                     key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
                     help=_recent_preset_help(preset),
                     width="content",
                 ):
                     ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
             else:
-                with columns[0]:
-                    ui.markdown(_recent_preset_chip_html(preset), unsafe_allow_html=True)
-                with columns[1]:
+                with columns[index]:
                     if ui.button(
-                        _APPLY_PREFIX,
+                        label,
                         key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
                         help=_recent_preset_help(preset),
                         width="content",
@@ -412,12 +417,15 @@ def _build_workbench_css() -> str:
         gap: 4px;
       }}
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stHorizontalBlock"] {{
+        display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 6px !important;
+        justify-content: flex-start;
       }}
-      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stColumn"]:last-child {{
+      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stColumn"] {{
         width: auto !important;
-        min-width: 42px !important;
+        min-width: 58px !important;
         flex: 0 0 auto !important;
       }}
       div[class*="st-key-layout_preview_recent_presets"] .layout-workbench-card {{
@@ -436,35 +444,18 @@ def _build_workbench_css() -> str:
         width: 100% !important;
         max-width: 100% !important;
       }}
-      .layout-workbench-recent-chip {{
-        min-width: 0;
-        border: 1px solid rgba(80, 67, 44, .12);
-        border-radius: 6px;
-        padding: 4px 7px;
-        background: #fffdf8;
-        color: #5f5547;
-        font-size: 12px;
-        line-height: 1.25;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }}
-      .layout-workbench-recent-chip strong {{
-        color: #352a1f;
-        font-weight: 800;
-      }}
-      .layout-workbench-recent-chip small {{
-        color: #887b68;
-        font-size: 11px;
-        font-weight: 700;
-        margin-left: 6px;
-      }}
       div[class*="st-key-layout_preview_recent_presets"] button {{
         min-height: 28px;
-        padding: 2px 10px;
+        padding: 4px 8px;
+        border: 1px solid rgba(80, 67, 44, .12);
+        border-radius: 6px;
+        background: #fffdf8;
+        color: #352a1f;
         font-size: 12px;
-        line-height: 1.2;
+        font-weight: 800;
+        line-height: 1.25;
         white-space: nowrap;
+        box-shadow: none;
       }}
       .layout-workbench-grid {{
         display: grid;
@@ -695,22 +686,16 @@ def _default_chip_html(label: str, value: str) -> str:
     """
 
 
-def _recent_preset_chip_html(preset: Mapping[str, Any]) -> str:
-    label = str(preset["label"])
-    preset_id = str(preset["preset_id"])
-    title = f"{label} / {preset_id}"
-    return f"""
-    <div class="layout-workbench-recent-chip" title="{escape(title, quote=True)}">
-      <strong>{escape(label)}</strong>
-      <small>{escape(preset_id)}</small>
-    </div>
-    """
-
-
 def _recent_preset_help(preset: Mapping[str, Any]) -> str:
     label = str(preset["label"])
     preset_id = str(preset["preset_id"])
     return f"{_APPLY_PREFIX} {label} ({preset_id})。{_APPLY_HELP}"
+
+
+def _recent_preset_display_label(index: int) -> str:
+    if 0 <= index < len(_RECENT_TEMPLATE_LABELS):
+        return _RECENT_TEMPLATE_LABELS[index]
+    return f"\u6a21\u677f{index + 1}"
 
 
 def _build_summary_grid_html(
