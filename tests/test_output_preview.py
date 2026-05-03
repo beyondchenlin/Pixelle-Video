@@ -2085,6 +2085,56 @@ def test_render_layout_preview_workbench_section_refreshes_real_preview_frame(mo
     }
 
 
+def test_render_layout_preview_workbench_section_passes_real_preview_frame_to_workbench(
+    monkeypatch,
+):
+    spec_payload = _layered_template_spec_payload(
+        template_id="user:portrait_news",
+        metadata={"source_kind": "user"},
+    )
+    captured = {"real_preview_frame": None}
+
+    def _fake_render_layout_preview_workbench(**kwargs):
+        captured["real_preview_frame"] = kwargs.get("real_preview_frame")
+        return None
+
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        _fake_render_layout_preview_workbench,
+    )
+    monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
+    monkeypatch.setattr(
+        output_preview,
+        "st",
+        SimpleNamespace(
+            session_state={
+                "layout_preview_real_preview_frame": {
+                    "storage_key": "artifacts/workspace_demo/layout-preview.png",
+                    "url": "/api/files/artifacts/workspace_demo/layout-preview.png",
+                    "fingerprint": "preview-fingerprint",
+                }
+            },
+            rerun=lambda: None,
+            success=lambda *_args, **_kwargs: None,
+            error=lambda message: (_ for _ in ()).throw(AssertionError(message)),
+        ),
+    )
+
+    output_preview._render_layout_preview_workbench_section(
+        {
+            "layered_template_spec": spec_payload,
+            "workspace_id": "workspace_demo",
+        }
+    )
+
+    assert captured["real_preview_frame"] == {
+        "storage_key": "artifacts/workspace_demo/layout-preview.png",
+        "url": "/api/files/artifacts/workspace_demo/layout-preview.png",
+        "fingerprint": "preview-fingerprint",
+    }
+
+
 def test_render_layout_preview_workbench_section_does_not_save_template_when_thumbnail_generation_fails(
     monkeypatch,
     tmp_path,

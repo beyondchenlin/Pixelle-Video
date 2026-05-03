@@ -224,10 +224,59 @@ def test_render_layout_preview_workbench_renders_spec_summary_and_safe_html(monk
     assert fake_components.html_calls == [
         {
             "html": "<section data-preview>trusted-service-html</section>",
-            "height": 520,
+            "height": 320,
             "scrolling": True,
         }
     ]
+
+
+def test_render_layout_preview_workbench_prefers_real_preview_frame(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>fallback</main>"),
+        real_preview_frame={
+            "url": "/api/files/artifacts/workspace_demo/layout-preview.png",
+            "fingerprint": "preview-fingerprint",
+        },
+        ui=fake_ui,
+    )
+
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert "layout-workbench-real-preview" in rendered
+    assert "/api/files/artifacts/workspace_demo/layout-preview.png" in rendered
+    assert "preview-fingerprint" in rendered
+    assert fake_components.html_calls == []
+
+
+def test_render_layout_preview_workbench_uses_compact_empty_preview_for_empty_spec(
+    monkeypatch,
+):
+    from web.components import layout_preview_workbench
+
+    empty_spec = _spec_payload()
+    empty_spec["layers"] = []
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=empty_spec,
+        recent_presets=[],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>transparent</main>"),
+        ui=fake_ui,
+    )
+
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert "layout-workbench-empty-preview" in rendered
+    assert "当前模板还没有图层" in rendered
+    assert fake_components.html_calls == []
 
 
 def test_render_layout_preview_workbench_records_clicked_recent_preset(monkeypatch):

@@ -419,6 +419,7 @@ def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = 
         template_summary=video_params.get("layout_preview_template_summary")
         or video_params.get("selected_template_preset_id")
         or video_params.get("frame_template"),
+        real_preview_frame=st.session_state.get(LAYOUT_PREVIEW_REAL_PREVIEW_FRAME_KEY),
         key_suffix=key_suffix,
         ui=st,
     )

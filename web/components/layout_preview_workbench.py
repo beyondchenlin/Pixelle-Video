@@ -55,6 +55,7 @@ def render_layout_preview_workbench(
     spec_payload: LayeredTemplateSpec | Mapping[str, Any] | None,
     recent_presets: Sequence[Mapping[str, Any] | object] | None = None,
     preview_html: TrustedPreviewHTML | str | None = None,
+    real_preview_frame: Mapping[str, Any] | object | None = None,
     render_summary: str | None = None,
     template_summary: str | None = None,
     on_preset_selected: PresetSelectionCallback | None = None,
@@ -101,7 +102,12 @@ def render_layout_preview_workbench(
             ),
             unsafe_allow_html=True,
         )
-        _render_preview_container(ui=ui, preview_html=preview_html)
+        _render_preview_container(
+            ui=ui,
+            spec=spec,
+            preview_html=preview_html,
+            real_preview_frame=real_preview_frame,
+        )
 
     return selected_action or selected_preset
 
@@ -176,44 +182,47 @@ def _build_workbench_header_html() -> str:
     <style>
       .layout-workbench-shell {{
         border: 1px solid #d8d2c4;
-        border-radius: 18px;
-        padding: 18px 18px 10px;
+        border-radius: 8px;
+        padding: 10px 12px 8px;
         background: linear-gradient(135deg, #fffaf0 0%, #f6efe1 52%, #edf2e8 100%);
-        box-shadow: 0 14px 36px rgba(67, 54, 32, 0.10);
+        box-shadow: 0 10px 24px rgba(67, 54, 32, 0.08);
       }}
       .layout-workbench-kicker {{
         color: #74624a;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
-        letter-spacing: .14em;
+        letter-spacing: .1em;
         text-transform: uppercase;
       }}
       .layout-workbench-title {{
         color: #241d16;
-        font-size: 24px;
+        font-size: 18px;
         font-weight: 800;
         line-height: 1.2;
-        margin: 4px 0 6px;
+        margin: 2px 0 4px;
       }}
       .layout-workbench-copy {{
         color: #675b4b;
-        margin: 0 0 12px;
+        font-size: 13px;
+        line-height: 1.45;
+        margin: 0 0 8px;
       }}
       .layout-workbench-card {{
         border: 1px solid rgba(80, 67, 44, .16);
-        border-radius: 14px;
-        margin: 10px 0;
-        padding: 12px 14px;
+        border-radius: 8px;
+        margin: 8px 0;
+        padding: 10px 12px;
         background: rgba(255, 255, 255, .62);
       }}
       .layout-workbench-section-title {{
         color: #352a1f;
         font-weight: 800;
-        margin-bottom: 8px;
+        font-size: 13px;
+        margin-bottom: 6px;
       }}
       .layout-workbench-recent {{
         display: grid;
-        gap: 6px;
+        gap: 4px;
         margin: 0;
         padding-left: 20px;
       }}
@@ -227,24 +236,64 @@ def _build_workbench_header_html() -> str:
       }}
       .layout-workbench-grid {{
         display: grid;
-        gap: 10px;
+        gap: 8px;
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }}
       .layout-workbench-metric {{
         border-left: 4px solid #b98242;
-        border-radius: 12px;
-        padding: 10px 12px;
+        border-radius: 8px;
+        padding: 8px 10px;
         background: #fffdf8;
       }}
       .layout-workbench-label {{
         color: #756854;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
       }}
       .layout-workbench-value {{
         color: #211a13;
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 850;
+      }}
+      .layout-workbench-preview-card {{
+        border: 1px solid rgba(80, 67, 44, .16);
+        border-radius: 8px;
+        margin: 8px 0 0;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, .68);
+      }}
+      .layout-workbench-preview-frame {{
+        width: 100%;
+        height: 320px;
+        max-height: 42vh;
+        border-radius: 8px;
+        overflow: hidden;
+        background: linear-gradient(180deg, #f6f1e6 0%, #ece4d6 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }}
+      .layout-workbench-real-preview {{
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #f8f4ea;
+      }}
+      .layout-workbench-empty-preview {{
+        height: 180px;
+        min-height: 0;
+        text-align: center;
+        color: #6d624f;
+        font-size: 13px;
+        line-height: 1.5;
+        padding: 0 20px;
+      }}
+      .layout-workbench-preview-meta {{
+        color: #857963;
+        font-size: 11px;
+        margin-top: 6px;
+        word-break: break-all;
       }}
       @media (max-width: 720px) {{
         .layout-workbench-grid {{ grid-template-columns: 1fr; }}
@@ -303,12 +352,91 @@ def _metric_html(label: str, value: str) -> str:
     """
 
 
-def _render_preview_container(*, ui, preview_html: str | None) -> None:
+def _render_preview_container(
+    *,
+    ui,
+    spec: LayeredTemplateSpec | None,
+    preview_html: TrustedPreviewHTML | str | None,
+    real_preview_frame: Mapping[str, Any] | object | None,
+) -> None:
+    preview_url = _real_preview_frame_url(real_preview_frame)
+    preview_fingerprint = _real_preview_frame_fingerprint(real_preview_frame)
     trusted_preview_html = preview_html.html if isinstance(preview_html, TrustedPreviewHTML) else None
-    if not trusted_preview_html:
-        _info(ui, _NO_PREVIEW_HTML)
+    if preview_url:
+        ui.markdown(
+            _build_real_preview_frame_html(
+                preview_url=preview_url,
+                preview_fingerprint=preview_fingerprint,
+            ),
+            unsafe_allow_html=True,
+        )
         return
-    components.html(trusted_preview_html, height=520, scrolling=True)
+    if spec is not None and len(spec.layers) == 0:
+        ui.markdown(_build_empty_preview_html(), unsafe_allow_html=True)
+        return
+    if trusted_preview_html:
+        components.html(trusted_preview_html, height=320, scrolling=True)
+        return
+    _info(ui, _NO_PREVIEW_HTML)
+
+
+def _build_real_preview_frame_html(
+    *,
+    preview_url: str,
+    preview_fingerprint: str | None,
+) -> str:
+    meta = ""
+    if preview_fingerprint:
+        meta = (
+            '<div class="layout-workbench-preview-meta">'
+            f"{escape(preview_fingerprint)}"
+            "</div>"
+        )
+    return f"""
+    <section class="layout-workbench-preview-card">
+      <div class="layout-workbench-section-title">真实预览帧</div>
+      <div class="layout-workbench-preview-frame">
+        <img
+          class="layout-workbench-real-preview"
+          src="{escape(preview_url, quote=True)}"
+          alt="真实预览帧"
+          loading="lazy"
+        />
+      </div>
+      {meta}
+    </section>
+    """
+
+
+def _build_empty_preview_html() -> str:
+    return """
+    <section class="layout-workbench-preview-card">
+      <div class="layout-workbench-section-title">即时预览</div>
+      <div class="layout-workbench-preview-frame layout-workbench-empty-preview">
+        <div>当前模板还没有图层</div>
+      </div>
+    </section>
+    """
+
+
+def _real_preview_frame_url(frame: Mapping[str, Any] | object | None) -> str | None:
+    if frame is None:
+        return None
+    url = _read_field(frame, "url")
+    if url is None:
+        return None
+    candidate = str(url).strip()
+    return candidate or None
+
+
+def _real_preview_frame_fingerprint(frame: Mapping[str, Any] | object | None) -> str | None:
+    if frame is None:
+        return None
+    fingerprint = _read_field(frame, "fingerprint")
+    if fingerprint is None:
+        return None
+    candidate = str(fingerprint).strip()
+    return candidate or None
 
 
 def _coerce_spec(
