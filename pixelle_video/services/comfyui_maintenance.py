@@ -49,6 +49,8 @@ class ComfyUIExtensionReleaseResult:
     extension: str
     endpoint: str
     released: bool
+    safe_to_continue: bool = False
+    protocol_version: int | None = None
     missing_endpoint: bool = False
     message: str = ""
     response: dict[str, Any] | None = None
@@ -65,6 +67,8 @@ class ComfyUIExtensionReleaseResult:
             "extension": self.extension,
             "endpoint": self.endpoint,
             "released": self.released,
+            "safe_to_continue": self.safe_to_continue,
+            "protocol_version": self.protocol_version,
             "missing_endpoint": self.missing_endpoint,
             "message": self.message,
             "vram": vram,
@@ -86,6 +90,7 @@ class ComfyUIMemoryReleaseResult:
     system_vram_after: dict[str, Any] | None = None
     release_confirmed: bool = False
     release_confirmation_reason: str = ""
+    safe_to_continue: bool = False
     extensions: tuple[ComfyUIExtensionReleaseResult, ...] = ()
 
     def __bool__(self) -> bool:
@@ -105,6 +110,7 @@ class ComfyUIMemoryReleaseResult:
             "system_vram_after": self.system_vram_after,
             "release_confirmed": self.release_confirmed,
             "release_confirmation_reason": self.release_confirmation_reason,
+            "safe_to_continue": self.safe_to_continue,
             "extension_results": [
                 extension.to_log_dict()
                 for extension in self.extensions
@@ -210,14 +216,38 @@ class ComfyUIMaintenanceClient:
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
         missing_endpoint: ComfyUIExtensionMissingEndpointMode = "optional",
     ) -> ComfyUIMemoryReleaseResult:
-        result = await self.free_memory(intensity)
+        payload = _FREE_MEMORY_PAYLOADS.get(intensity)
+        if payload is None:
+            raise ValueError(f"Unsupported ComfyUI release intensity: {intensity}")
+
+        system_vram_before = await self._get_system_vram_snapshot()
         extension_results = await self.free_extension_models(
             extensions=extensions,
             missing_endpoint=missing_endpoint,
         )
-        return replace(
-            result,
-            released=result.released,
+        await self._post("/free", dict(payload))
+        system_vram_after, release_confirmed, release_confirmation_reason = (
+            await self._wait_for_memory_release_confirmation(system_vram_before)
+        )
+        safe_to_continue, extension_reason = self._extension_release_confirmation(
+            extension_results
+        )
+        released = safe_to_continue
+        if safe_to_continue and not release_confirmed:
+            release_confirmation_reason = extension_reason
+        elif not safe_to_continue and extension_reason:
+            release_confirmation_reason = extension_reason
+
+        return ComfyUIMemoryReleaseResult(
+            attempted=True,
+            released=released,
+            comfyui_released=release_confirmed,
+            intensity=intensity,
+            system_vram_before=system_vram_before,
+            system_vram_after=system_vram_after,
+            release_confirmed=release_confirmed,
+            release_confirmation_reason=release_confirmation_reason,
+            safe_to_continue=safe_to_continue,
             extensions=extension_results,
         )
 
@@ -278,11 +308,20 @@ class ComfyUIMaintenanceClient:
 
             payload = response.json()
             data = payload if isinstance(payload, dict) else {}
+            if self._parse_protocol_version(data) != 2:
+                message = (
+                    f"ComfyUI extension health endpoint {endpoint} does not expose "
+                    "Pixelle release protocol v2. Run tools/patch_indextts2_plugin.py "
+                    "against ComfyUI-Index-TTS, then restart ComfyUI."
+                )
+                raise RuntimeError(message)
             results.append(
                 ComfyUIExtensionReleaseResult(
                     extension=extension,
                     endpoint=endpoint,
                     released=False,
+                    safe_to_continue=bool(data.get("safe_to_continue")),
+                    protocol_version=self._parse_protocol_version(data),
                     response=data,
                 )
             )
@@ -323,11 +362,16 @@ class ComfyUIMaintenanceClient:
 
             payload = response.json()
             data = payload if isinstance(payload, dict) else {}
+            protocol_version = self._parse_protocol_version(data)
+            released = bool(data.get("released"))
+            safe_to_continue = self._is_extension_safe_to_continue(data)
             results.append(
                 ComfyUIExtensionReleaseResult(
                     extension=extension,
                     endpoint=endpoint,
-                    released=bool(data.get("released")),
+                    released=released,
+                    safe_to_continue=safe_to_continue,
+                    protocol_version=protocol_version,
                     response=data,
                 )
             )
@@ -359,13 +403,71 @@ class ComfyUIMaintenanceClient:
             extensions=extensions,
             missing_endpoint=missing_endpoint,
         )
+        safe_to_continue, reason = self._extension_release_confirmation(results)
         return ComfyUIMemoryReleaseResult(
             attempted=True,
-            released=any(result.released for result in results),
+            released=safe_to_continue,
             queue_running=running,
             queue_pending=pending,
+            release_confirmed=safe_to_continue,
+            release_confirmation_reason=reason,
+            safe_to_continue=safe_to_continue,
             extensions=results,
         )
+
+    def _extension_release_confirmation(
+        self,
+        results: tuple[ComfyUIExtensionReleaseResult, ...],
+    ) -> tuple[bool, str]:
+        if not results:
+            return False, ""
+
+        unconfirmed_reasons: list[str] = []
+        for result in results:
+            if result.missing_endpoint:
+                unconfirmed_reasons.append("extension_endpoint_missing")
+                continue
+            response = result.response or {}
+            if result.protocol_version != 2:
+                unconfirmed_reasons.append("extension_legacy_contract_unconfirmed")
+                continue
+            if result.safe_to_continue:
+                continue
+            residual_objects = response.get("residual_objects")
+            if isinstance(residual_objects, list) and residual_objects:
+                unconfirmed_reasons.append("extension_residual_objects")
+                continue
+            errors = response.get("errors")
+            if isinstance(errors, list) and errors:
+                unconfirmed_reasons.append("extension_errors")
+                continue
+            unconfirmed_reasons.append("extension_not_safe_to_continue")
+
+        if not unconfirmed_reasons:
+            return True, "extension_safe_to_continue"
+        return False, unconfirmed_reasons[0]
+
+    def _parse_protocol_version(self, data: dict[str, Any]) -> int | None:
+        value = data.get("protocol_version")
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _is_extension_safe_to_continue(self, data: dict[str, Any]) -> bool:
+        if self._parse_protocol_version(data) != 2:
+            return False
+        if not bool(data.get("safe_to_continue")):
+            return False
+        residual_objects = data.get("residual_objects")
+        if isinstance(residual_objects, list) and residual_objects:
+            return False
+        errors = data.get("errors")
+        if isinstance(errors, list) and errors:
+            return False
+        return True
 
     async def free_memory_when_idle(
         self,

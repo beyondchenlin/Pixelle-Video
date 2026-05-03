@@ -272,6 +272,39 @@ def load_utils_module(utils_path):
     return module
 
 
+def load_model_loader_module(loader_path, monkeypatch):
+    fake_cuda = type(
+        "FakeCuda",
+        (),
+        {
+            "empty_cache": staticmethod(lambda: None),
+            "ipc_collect": staticmethod(lambda: None),
+            "is_available": staticmethod(lambda: False),
+            "memory_allocated": staticmethod(lambda: 0),
+            "memory_reserved": staticmethod(lambda: 0),
+            "synchronize": staticmethod(lambda: None),
+        },
+    )()
+    fake_torch = type(
+        "FakeTorch",
+        (),
+        {
+            "cuda": fake_cuda,
+            "device": staticmethod(lambda value: value),
+            "float16": "float16",
+        },
+    )()
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    module_name = f"patched_indextts2_model_loader_{loader_path.parent.parent.name}"
+    spec = importlib.util.spec_from_file_location(module_name, loader_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_patch_plugin_updates_minimal_samples_idempotently(tmp_path):
     patch_module = load_module()
     plugin_dir, utils_path, infer_path = create_minimal_plugin(tmp_path)
@@ -442,8 +475,16 @@ def test_patch_plugin_adds_indextts2_release_contract_idempotently(tmp_path):
     assert "weakref.WeakSet()" in first_loader
     assert "_INDEXTTS2_LOADER_REGISTRY.add(self)" in first_loader
     assert "def unload_all_indextts2" in first_loader
+    assert '"protocol_version": 2' in first_loader
+    assert '"safe_to_continue"' in first_loader
+    assert '"objects_seen"' in first_loader
+    assert '"objects_released"' in first_loader
+    assert '"residual_objects"' in first_loader
+    assert '"tts_external_ref"' in first_loader
     assert "cuda_allocated_before" in first_loader
     assert "torch.cuda.ipc_collect()" in first_loader
+    assert "def _hook_comfy_soft_empty_cache" in first_loader
+    assert "_INDEXTTS2_SOFT_EMPTY_CACHE_PATCHED" in first_loader
     assert "semantic_model" in first_loader
     assert "bigvgan" in first_loader
 
@@ -453,6 +494,191 @@ def test_patch_plugin_adds_indextts2_release_contract_idempotently(tmp_path):
     assert "indextts2_release_health()" in first_routes
     assert "unload_all_indextts2()" in first_routes
     assert '"release_endpoint": "/pixelle/indextts2/free"' in first_loader
+    assert '"protocol_version": 2' in first_loader
+
+
+def test_patch_plugin_upgrades_existing_release_contract_to_protocol_v2(tmp_path):
+    patch_module = load_module()
+    plugin_dir, utils_path, infer_path, loader_path, init_path = create_minimal_plugin_with_loader_and_init(tmp_path)
+    routes_path = plugin_dir / "pixelle_routes.py"
+
+    patch_module.patch_plugin(plugin_dir)
+    legacy_loader = loader_path.read_text(encoding="utf-8").replace(
+        patch_module.STABLE_UNLOAD_ALL_INDEXTTS2,
+        '''def unload_all_indextts2() -> dict:
+    before = _cuda_memory_stats()
+    with _INDEXTTS2_LOADER_REGISTRY_LOCK:
+        loaders = list(_INDEXTTS2_LOADER_REGISTRY)
+
+    released = 0
+    errors = []
+    for loader in loaders:
+        try:
+            if loader.unload_tts():
+                released += 1
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+
+    _clear_cuda_cache()
+    after = _cuda_memory_stats()
+    return {
+        "released": released > 0,
+        "loaders_seen": len(loaders),
+        "loaders_released": released,
+        "errors": errors,
+        "cuda_allocated_before": before.get("cuda_allocated"),
+        "cuda_allocated_after": after.get("cuda_allocated"),
+        "cuda_reserved_before": before.get("cuda_reserved"),
+        "cuda_reserved_after": after.get("cuda_reserved"),
+    }
+
+
+''',
+    ).replace(
+        patch_module.STABLE_INDEXTTS2_HEALTH,
+        '''def indextts2_release_health() -> dict:
+    with _INDEXTTS2_LOADER_REGISTRY_LOCK:
+        loaders_seen = len(list(_INDEXTTS2_LOADER_REGISTRY))
+    return {
+        "ok": True,
+        "extension": "indextts2",
+        "release_endpoint": "/pixelle/indextts2/free",
+        "loaders_seen": loaders_seen,
+    }
+
+
+''',
+    ).replace(
+        patch_module.STABLE_INDEXTTS2_OBJECT_HELPERS,
+        "",
+    ).replace(
+        patch_module.STABLE_INDEXTTS2_COMFY_HOOK,
+        "",
+    ).replace(
+        '_INDEXTTS2_SOFT_EMPTY_CACHE_PATCHED = False\n',
+        "",
+    ).replace(
+        '_INDEXTTS2_CACHE_MODEL_KEYS = ("tts",)\n',
+        "",
+    ).replace(
+        '''def _weakref_or_none(value: Any):
+    if value is None:
+        return None
+    try:
+        return weakref.ref(value)
+    except TypeError:
+        return None
+
+
+''',
+        "",
+    )
+    loader_path.write_text(legacy_loader, encoding="utf-8")
+
+    result = patch_module.patch_plugin(plugin_dir)
+    upgraded_loader = loader_path.read_text(encoding="utf-8")
+    second_result = patch_module.patch_plugin(plugin_dir)
+
+    assert loader_path in result.changed_files
+    assert second_result.changed_files == []
+    assert "def _describe_loader_objects" in upgraded_loader
+    assert "def _hook_comfy_soft_empty_cache" in upgraded_loader
+    assert "_INDEXTTS2_SOFT_EMPTY_CACHE_PATCHED = False" in upgraded_loader
+    assert '_INDEXTTS2_CACHE_MODEL_KEYS = ("tts",)' in upgraded_loader
+    assert "def _weakref_or_none" in upgraded_loader
+    assert '"protocol_version": 2' in upgraded_loader
+    assert '"safe_to_continue"' in upgraded_loader
+    assert '"residual_objects"' in upgraded_loader
+
+
+def test_patch_plugin_upgrades_existing_release_contract_with_missing_weakref_helper(monkeypatch, tmp_path):
+    patch_module = load_module()
+    plugin_dir, utils_path, infer_path, loader_path, init_path = create_minimal_plugin_with_loader_and_init(tmp_path)
+
+    patch_module.patch_plugin(plugin_dir)
+    legacy_loader = loader_path.read_text(encoding="utf-8").replace(
+        '''def _weakref_or_none(value: Any):
+    if value is None:
+        return None
+    try:
+        return weakref.ref(value)
+    except TypeError:
+        return None
+
+
+''',
+        "",
+    )
+    loader_path.write_text(legacy_loader, encoding="utf-8")
+
+    result = patch_module.patch_plugin(plugin_dir)
+    upgraded_loader = loader_path.read_text(encoding="utf-8")
+    second_result = patch_module.patch_plugin(plugin_dir)
+    model_loader = load_model_loader_module(loader_path, monkeypatch)
+    loader = model_loader.IndexTTS2Loader()
+
+    loader._cache["tts"] = object()
+    release_result = loader.unload_tts()
+
+    assert loader_path in result.changed_files
+    assert second_result.changed_files == []
+    assert "def _weakref_or_none" in upgraded_loader
+    assert release_result["released"] is True
+    assert release_result["residual_objects"] == []
+
+
+def test_patched_unload_tts_handles_non_weakrefable_cached_tts(monkeypatch, tmp_path):
+    patch_module = load_module()
+    plugin_dir, utils_path, infer_path, loader_path, init_path = create_minimal_plugin_with_loader_and_init(tmp_path)
+    patch_module.patch_plugin(plugin_dir)
+    model_loader = load_model_loader_module(loader_path, monkeypatch)
+    loader = model_loader.IndexTTS2Loader()
+
+    loader._cache["tts"] = object()
+    result = loader.unload_tts()
+
+    assert result["released"] is True
+    assert result["objects_released"] == ["tts"]
+    assert result["residual_objects"] == []
+
+
+def test_patch_plugin_supports_loader_without_any_typing_import(tmp_path):
+    patch_module = load_module()
+    plugin_dir, utils_path, infer_path, loader_path, init_path = create_minimal_plugin_with_loader_and_init(tmp_path)
+    loader_path.write_text(
+        MODEL_LOADER_SAMPLE.replace(
+            "from typing import Optional, Dict, Any",
+            "from typing import Optional, Dict",
+        ),
+        encoding="utf-8",
+    )
+
+    patch_module.patch_plugin(plugin_dir)
+    patched_loader = loader_path.read_text(encoding="utf-8")
+    patch_module.patch_plugin(plugin_dir)
+
+    assert "from typing import Any, Dict, Optional" in patched_loader
+    assert patched_loader.count("from typing import") == 1
+    assert "_INDEXTTS2_LOADER_REGISTRY.add(self)" in patched_loader
+
+
+def test_patch_plugin_supports_unannotated_loader_cache(tmp_path):
+    patch_module = load_module()
+    plugin_dir, utils_path, infer_path, loader_path, init_path = create_minimal_plugin_with_loader_and_init(tmp_path)
+    loader_path.write_text(
+        MODEL_LOADER_SAMPLE.replace(
+            "        self._cache: Dict[str, Any] = {}",
+            "        self._cache = {}",
+        ),
+        encoding="utf-8",
+    )
+
+    patch_module.patch_plugin(plugin_dir)
+    patched_loader = loader_path.read_text(encoding="utf-8")
+    patch_module.patch_plugin(plugin_dir)
+
+    assert "        self._cache = {}" in patched_loader
+    assert "_INDEXTTS2_LOADER_REGISTRY.add(self)" in patched_loader
 
 
 def test_patch_plugin_requires_model_loader_for_release_contract(tmp_path):

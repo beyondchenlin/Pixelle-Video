@@ -1231,6 +1231,89 @@ async def test_release_comfyui_after_local_workflow_logs_structured_release_resu
 
 
 @pytest.mark.asyncio
+async def test_release_comfyui_after_index_tts2_workflow_logs_failed_confirmation_as_warning(monkeypatch):
+    log_events = []
+
+    class _BoundLogger:
+        def __init__(self, fields=None):
+            self.fields = fields or {}
+
+        def bind(self, **fields):
+            return _BoundLogger({**self.fields, **fields})
+
+        def info(self, message):
+            log_events.append(("info", message, self.fields))
+
+        def warning(self, message):
+            log_events.append(("warning", message, self.fields))
+
+    release_result = SimpleNamespace(
+        released=False,
+        to_log_fields=lambda: {
+            "released": False,
+            "comfyui_released": False,
+            "release_confirmed": False,
+            "safe_to_continue": False,
+            "release_confirmation_reason": "release_not_observed",
+            "extension_results": [],
+        },
+    )
+
+    class _Client:
+        def __init__(self, base_url, *, api_key=None):
+            pass
+
+        async def free_memory_with_extensions_when_idle(
+            self,
+            *,
+            intensity,
+            extensions=("indextts2",),
+            missing_endpoint="optional",
+        ):
+            return release_result
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                model_cleanup_mode="comfyui_and_extensions",
+            )
+        ),
+    )
+    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    monkeypatch.setattr(service_module, "logger", _BoundLogger())
+
+    core = PixelleVideoCore()
+
+    with pytest.raises(RuntimeError, match="memory release was not confirmed"):
+        await core.release_comfyui_after_index_tts2_workflow(
+            context="post-index-tts2-workflow",
+            missing_endpoint="required",
+        )
+
+    assert log_events == [
+        (
+            "warning",
+            "ComfyUI post-index-tts2-workflow memory release not confirmed",
+            {
+                "channel": "runtime",
+                "event": "comfyui_memory_release",
+                "context": "post-index-tts2-workflow",
+                "model_cleanup_mode": "comfyui_and_extensions",
+                "released": False,
+                "comfyui_released": False,
+                "release_confirmed": False,
+                "safe_to_continue": False,
+                "release_confirmation_reason": "release_not_observed",
+                "extension_results": [],
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_release_comfyui_after_index_tts2_workflow_releases_standard_and_plugin_models(monkeypatch):
     events = []
 

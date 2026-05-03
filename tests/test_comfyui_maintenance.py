@@ -62,10 +62,13 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
             return httpx.Response(
                 200,
                 json={
+                    "protocol_version": 2,
                     "ok": True,
                     "extension": "indextts2",
                     "release_endpoint": "/pixelle/indextts2/free",
                     "loaders_seen": 1,
+                    "safe_to_continue": True,
+                    "residual_objects": [],
                 },
                 request=request,
             )
@@ -73,9 +76,14 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
             return httpx.Response(
                 200,
                 json={
+                    "protocol_version": 2,
+                    "safe_to_continue": True,
                     "released": True,
                     "loaders_seen": 1,
                     "loaders_released": 1,
+                    "objects_seen": ["tts"],
+                    "objects_released": ["tts"],
+                    "residual_objects": [],
                     "cuda_allocated_before": 2048,
                     "cuda_allocated_after": 512,
                     "cuda_reserved_before": 4096,
@@ -356,14 +364,14 @@ async def test_free_memory_with_extensions_calls_comfyui_free_then_indextts2_end
     assert result.extensions[0].released is True
     assert transport.calls == [
         ("GET", "/system_stats", None),
+        ("POST", "/pixelle/indextts2/free", {}),
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
         ("GET", "/system_stats", None),
-        ("POST", "/pixelle/indextts2/free", {}),
     ]
 
 
 @pytest.mark.asyncio
-async def test_free_memory_with_extensions_requires_standard_comfyui_release(monkeypatch):
+async def test_free_memory_with_extensions_accepts_extension_safe_to_continue_when_vram_does_not_drop(monkeypatch):
     unchanged_snapshot = {
         "devices": [
             {
@@ -376,7 +384,253 @@ async def test_free_memory_with_extensions_requires_standard_comfyui_release(mon
             }
         ]
     }
-    transport = _RecordingTransport(system_stats_payloads=[unchanged_snapshot] * 10)
+
+    class _SafeExtensionTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/queue" and request.method == "GET":
+                if self.queue_payloads:
+                    return httpx.Response(200, json=self.queue_payloads.pop(0), request=request)
+                return httpx.Response(200, json=self.queue_payload, request=request)
+            if request.url.path == "/system_stats" and request.method == "GET":
+                if self.system_stats_payloads:
+                    payload = self.system_stats_payloads.pop(0)
+                    self.last_system_stats_payload = payload
+                else:
+                    payload = self.last_system_stats_payload or {}
+                return httpx.Response(200, json=payload, request=request)
+            if request.url.path == "/pixelle/indextts2/free":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "safe_to_continue": True,
+                        "released": False,
+                        "loaders_seen": 1,
+                        "loaders_released": 0,
+                        "objects_seen": [],
+                        "objects_released": [],
+                        "residual_objects": [],
+                        "errors": [],
+                        "cuda_allocated_before": 2048,
+                        "cuda_allocated_after": 2048,
+                        "cuda_reserved_before": 4096,
+                        "cuda_reserved_after": 4096,
+                    },
+                    request=request,
+                )
+            return await super().handle_async_request(request)
+
+    transport = _SafeExtensionTransport(system_stats_payloads=[unchanged_snapshot] * 10)
+    client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=transport,
+        release_settle_timeout=0.01,
+    )
+
+    async def _immediate_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
+
+    result = await client.free_memory_with_extensions(
+        "high",
+        extensions=("indextts2",),
+    )
+
+    assert result.comfyui_released is False
+    assert result.extensions[0].released is False
+    assert result.extensions[0].safe_to_continue is True
+    assert result.released is True
+    assert result.safe_to_continue is True
+    assert result.release_confirmation_reason == "extension_safe_to_continue"
+    assert transport.calls[:3] == [
+        ("GET", "/system_stats", None),
+        ("POST", "/pixelle/indextts2/free", {}),
+        ("POST", "/free", {"unload_models": True, "free_memory": True}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_free_memory_with_extensions_stops_when_extension_reports_residual_objects(monkeypatch):
+    unchanged_snapshot = {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_total": 8192,
+                "vram_free": 1024,
+                "torch_vram_total": 8192,
+                "torch_vram_free": 64,
+            }
+        ]
+    }
+
+    class _UnsafeExtensionTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/queue" and request.method == "GET":
+                if self.queue_payloads:
+                    return httpx.Response(200, json=self.queue_payloads.pop(0), request=request)
+                return httpx.Response(200, json=self.queue_payload, request=request)
+            if request.url.path == "/system_stats" and request.method == "GET":
+                if self.system_stats_payloads:
+                    payload = self.system_stats_payloads.pop(0)
+                    self.last_system_stats_payload = payload
+                else:
+                    payload = self.last_system_stats_payload or {}
+                return httpx.Response(200, json=payload, request=request)
+            if request.url.path == "/pixelle/indextts2/free":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "safe_to_continue": False,
+                        "released": False,
+                        "loaders_seen": 1,
+                        "loaders_released": 0,
+                        "objects_seen": ["tts"],
+                        "objects_released": [],
+                        "residual_objects": ["tts"],
+                        "errors": [],
+                    },
+                    request=request,
+                )
+            return await super().handle_async_request(request)
+
+    transport = _UnsafeExtensionTransport(system_stats_payloads=[unchanged_snapshot] * 10)
+    client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=transport,
+        release_settle_timeout=0.01,
+    )
+
+    async def _immediate_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
+
+    result = await client.free_memory_with_extensions(
+        "high",
+        extensions=("indextts2",),
+    )
+
+    assert result.comfyui_released is False
+    assert result.extensions[0].safe_to_continue is False
+    assert result.released is False
+    assert result.safe_to_continue is False
+    assert result.release_confirmation_reason == "extension_residual_objects"
+
+
+@pytest.mark.asyncio
+async def test_free_memory_with_extensions_rejects_legacy_extension_contract_when_comfyui_vram_does_not_drop(monkeypatch):
+    unchanged_snapshot = {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_total": 8192,
+                "vram_free": 1024,
+                "torch_vram_total": 8192,
+                "torch_vram_free": 64,
+            }
+        ]
+    }
+
+    class _LegacyExtensionTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/system_stats" and request.method == "GET":
+                if self.system_stats_payloads:
+                    payload = self.system_stats_payloads.pop(0)
+                    self.last_system_stats_payload = payload
+                else:
+                    payload = self.last_system_stats_payload or {}
+                return httpx.Response(200, json=payload, request=request)
+            if request.url.path == "/pixelle/indextts2/free":
+                return httpx.Response(
+                    200,
+                    json={
+                        "released": False,
+                        "loaders_seen": 1,
+                        "loaders_released": 0,
+                        "errors": [],
+                    },
+                    request=request,
+                )
+            return await super().handle_async_request(request)
+
+    transport = _LegacyExtensionTransport(system_stats_payloads=[unchanged_snapshot] * 10)
+    client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=transport,
+        release_settle_timeout=0.01,
+    )
+
+    async def _immediate_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
+
+    result = await client.free_memory_with_extensions(
+        "high",
+        extensions=("indextts2",),
+    )
+
+    assert result.comfyui_released is False
+    assert result.extensions[0].protocol_version is None
+    assert result.extensions[0].safe_to_continue is False
+    assert result.released is False
+    assert result.release_confirmation_reason == "extension_legacy_contract_unconfirmed"
+
+
+@pytest.mark.asyncio
+async def test_free_memory_with_extensions_rejects_legacy_extension_contract_even_when_released_true(monkeypatch):
+    unchanged_snapshot = {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_total": 8192,
+                "vram_free": 1024,
+                "torch_vram_total": 8192,
+                "torch_vram_free": 64,
+            }
+        ]
+    }
+
+    class _LegacyReleasedTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/system_stats" and request.method == "GET":
+                if self.system_stats_payloads:
+                    payload = self.system_stats_payloads.pop(0)
+                    self.last_system_stats_payload = payload
+                else:
+                    payload = self.last_system_stats_payload or {}
+                return httpx.Response(200, json=payload, request=request)
+            if request.url.path == "/pixelle/indextts2/free":
+                return httpx.Response(
+                    200,
+                    json={
+                        "released": True,
+                        "loaders_seen": 1,
+                        "loaders_released": 1,
+                        "errors": [],
+                    },
+                    request=request,
+                )
+            return await super().handle_async_request(request)
+
+    transport = _LegacyReleasedTransport(system_stats_payloads=[unchanged_snapshot] * 10)
     client = ComfyUIMaintenanceClient(
         "http://127.0.0.1:8000",
         transport=transport,
@@ -395,7 +649,11 @@ async def test_free_memory_with_extensions_requires_standard_comfyui_release(mon
 
     assert result.comfyui_released is False
     assert result.extensions[0].released is True
+    assert result.extensions[0].protocol_version is None
+    assert result.extensions[0].safe_to_continue is False
     assert result.released is False
+    assert result.safe_to_continue is False
+    assert result.release_confirmation_reason == "extension_legacy_contract_unconfirmed"
 
 
 @pytest.mark.asyncio
@@ -443,6 +701,8 @@ async def test_free_memory_with_extensions_preserves_extension_vram_snapshots():
             "extension": "indextts2",
             "endpoint": "/pixelle/indextts2/free",
             "released": True,
+            "safe_to_continue": True,
+            "protocol_version": 2,
             "missing_endpoint": False,
             "message": "",
             "vram": {
@@ -452,9 +712,14 @@ async def test_free_memory_with_extensions_preserves_extension_vram_snapshots():
                 "cuda_reserved_after": 1024,
             },
             "raw_response": {
+                "protocol_version": 2,
+                "safe_to_continue": True,
                 "released": True,
                 "loaders_seen": 1,
                 "loaders_released": 1,
+                "objects_seen": ["tts"],
+                "objects_released": ["tts"],
+                "residual_objects": [],
                 "cuda_allocated_before": 2048,
                 "cuda_allocated_after": 512,
                 "cuda_reserved_before": 4096,
@@ -481,9 +746,9 @@ async def test_free_memory_with_extensions_when_idle_checks_queue_before_release
     assert transport.calls == [
         ("GET", "/queue", None),
         ("GET", "/system_stats", None),
+        ("POST", "/pixelle/indextts2/free", {}),
         ("POST", "/free", {"unload_models": True, "free_memory": True}),
         ("GET", "/system_stats", None),
-        ("POST", "/pixelle/indextts2/free", {}),
     ]
 
 
@@ -574,6 +839,35 @@ async def test_preflight_extension_release_endpoints_fails_fast_when_required_en
 
 
 @pytest.mark.asyncio
+async def test_preflight_extension_release_endpoints_requires_protocol_v2():
+    class _LegacyHealthTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/pixelle/indextts2/health":
+                return httpx.Response(
+                    200,
+                    json={
+                        "ok": True,
+                        "extension": "indextts2",
+                        "release_endpoint": "/pixelle/indextts2/free",
+                        "loaders_seen": 1,
+                    },
+                    request=request,
+                )
+            return httpx.Response(200, request=request)
+
+    transport = _LegacyHealthTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    with pytest.raises(RuntimeError, match="release protocol v2"):
+        await client.preflight_extension_release_endpoints(extensions=("indextts2",))
+
+    assert transport.calls == [("GET", "/pixelle/indextts2/health", None)]
+
+
+@pytest.mark.asyncio
 async def test_preflight_extension_release_endpoints_uses_side_effect_free_health_endpoint():
     transport = _RecordingTransport()
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
@@ -584,10 +878,13 @@ async def test_preflight_extension_release_endpoints_uses_side_effect_free_healt
     assert results[0].endpoint == "/pixelle/indextts2/health"
     assert results[0].released is False
     assert results[0].response == {
+        "protocol_version": 2,
         "ok": True,
         "extension": "indextts2",
         "release_endpoint": "/pixelle/indextts2/free",
         "loaders_seen": 1,
+        "safe_to_continue": True,
+        "residual_objects": [],
     }
     assert transport.calls == [("GET", "/pixelle/indextts2/health", None)]
 

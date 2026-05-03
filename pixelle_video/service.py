@@ -359,13 +359,22 @@ class PixelleVideoCore:
             fields = result.to_log_fields()
         else:
             fields = {"released": bool(result)}
-        logger.bind(
+        bound_logger = logger.bind(
             channel="runtime",
             event="comfyui_memory_release",
             context=context,
             model_cleanup_mode=model_cleanup_mode,
             **fields,
-        ).info(f"ComfyUI {context} memory release completed")
+        )
+        if self._is_comfyui_release_confirmed(result):
+            bound_logger.info(f"ComfyUI {context} memory release completed")
+        else:
+            bound_logger.warning(f"ComfyUI {context} memory release not confirmed")
+
+    def _is_comfyui_release_confirmed(self, result) -> bool:
+        if hasattr(result, "released"):
+            return bool(result.released)
+        return bool(result)
 
     def _log_comfyui_extension_release_preflight(
         self,
@@ -417,7 +426,7 @@ class PixelleVideoCore:
                 model_cleanup_mode=model_cleanup_mode,
                 result=result,
             )
-            return bool(result)
+            return self._is_comfyui_release_confirmed(result)
         except Exception as e:
             raise RuntimeError(f"ComfyUI {context} memory release failed: {e}") from e
 
@@ -452,7 +461,7 @@ class PixelleVideoCore:
                 model_cleanup_mode=model_cleanup_mode,
                 result=result,
             )
-            return bool(result)
+            return self._is_comfyui_release_confirmed(result)
         except Exception as e:
             logger.warning(f"ComfyUI {context} memory release failed, continuing: {e}")
             return False

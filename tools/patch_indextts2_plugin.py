@@ -109,6 +109,24 @@ def _ensure_import(text: str, import_line: str) -> str:
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
 
 
+def _ensure_from_import_names(text: str, module_name: str, names: tuple[str, ...]) -> str:
+    lines = text.splitlines()
+    import_pattern = re.compile(rf"^from\s+{re.escape(module_name)}\s+import\s+(?P<names>.+)$")
+    for index, line in enumerate(lines):
+        match = import_pattern.match(line)
+        if not match:
+            continue
+        imported_names = {
+            item.strip()
+            for item in match.group("names").split(",")
+            if item.strip() and " as " not in item.strip()
+        }
+        imported_names.update(names)
+        lines[index] = f"from {module_name} import {', '.join(sorted(imported_names))}"
+        return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+    return _ensure_import(text, f"from {module_name} import {', '.join(names)}")
+
+
 def _patch_utils(text: str) -> str:
     text = _ensure_import(text, "import hashlib")
     text = re.sub(r"^INDEXTTS2_WAV_CACHE_DIR\s*=.*\n\n?", "", text, flags=re.MULTILINE)
@@ -260,6 +278,7 @@ def _patch_engine(text: str) -> str:
 def _patch_model_loader(text: str) -> str:
     text = _ensure_import(text, "import threading")
     text = _ensure_import(text, "import weakref")
+    text = _ensure_from_import_names(text, "typing", ("Any",))
 
     if "def unload_all_indextts2" not in text:
         text, count = re.subn(
@@ -271,6 +290,15 @@ def _patch_model_loader(text: str) -> str:
         )
         if count != 1:
             raise ValueError("could not find IndexTTS2Loader class to patch")
+    else:
+        text = _replace_function(
+            text,
+            "unload_all_indextts2",
+            STABLE_UNLOAD_ALL_INDEXTTS2,
+        )
+
+    text = _ensure_model_loader_release_globals(text)
+    text = _ensure_model_loader_release_functions(text)
 
     if "def indextts2_release_health" not in text:
         text, count = re.subn(
@@ -282,10 +310,38 @@ def _patch_model_loader(text: str) -> str:
         )
         if count != 1:
             raise ValueError("could not find IndexTTS2Loader class to patch health contract")
+    else:
+        text = _replace_function(
+            text,
+            "indextts2_release_health",
+            STABLE_INDEXTTS2_HEALTH,
+        )
+
+    if "def _describe_loader_objects" not in text:
+        text, count = re.subn(
+            r"^def unload_all_indextts2",
+            STABLE_INDEXTTS2_OBJECT_HELPERS + "def unload_all_indextts2",
+            text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if count != 1:
+            raise ValueError("could not find unload_all_indextts2 insertion point")
+
+    if "def _hook_comfy_soft_empty_cache" not in text:
+        text, count = re.subn(
+            r"^class IndexTTS2Loader:",
+            STABLE_INDEXTTS2_COMFY_HOOK + "class IndexTTS2Loader:",
+            text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if count != 1:
+            raise ValueError("could not find IndexTTS2Loader class to patch ComfyUI hook")
 
     if "_INDEXTTS2_LOADER_REGISTRY.add(self)" not in text:
         patched, count = re.subn(
-            r"(?P<indent>\s*)self\._cache:\s*Dict\[str,\s*Any\]\s*=\s*\{\}\s*$",
+            r"(?P<indent>\s*)self\._cache(?:\s*:\s*[^=]+)?\s*=\s*\{\}\s*$",
             "\\g<0>\n\\g<indent>with _INDEXTTS2_LOADER_REGISTRY_LOCK:\n"
             "\\g<indent>    _INDEXTTS2_LOADER_REGISTRY.add(self)",
             text,
@@ -299,8 +355,115 @@ def _patch_model_loader(text: str) -> str:
     return _replace_function(text, "unload_tts", STABLE_UNLOAD_TTS)
 
 
+_INDEXTTS2_RELEASE_GLOBALS = [
+    ("_INDEXTTS2_LOADER_REGISTRY", "_INDEXTTS2_LOADER_REGISTRY = weakref.WeakSet()\n"),
+    ("_INDEXTTS2_LOADER_REGISTRY_LOCK", "_INDEXTTS2_LOADER_REGISTRY_LOCK = threading.RLock()\n"),
+    ("_INDEXTTS2_SOFT_EMPTY_CACHE_PATCHED", "_INDEXTTS2_SOFT_EMPTY_CACHE_PATCHED = False\n"),
+    (
+        "_INDEXTTS2_TTS_ATTRS",
+        '''_INDEXTTS2_TTS_ATTRS = (
+    "gpt",
+    "semantic_model",
+    "semantic_codec",
+    "s2mel",
+    "campplus_model",
+    "bigvgan",
+    "qwen_emo",
+    "extract_features",
+    "semantic_mean",
+    "semantic_std",
+    "tokenizer",
+    "model",
+)
+''',
+    ),
+    ("_INDEXTTS2_CACHE_MODEL_KEYS", '_INDEXTTS2_CACHE_MODEL_KEYS = ("tts",)\n'),
+]
+
+
+def _ensure_model_loader_release_globals(text: str) -> str:
+    for name, replacement in _INDEXTTS2_RELEASE_GLOBALS:
+        if _has_top_level_assignment(text, name):
+            text = _replace_top_level_assignment(text, name, replacement)
+
+    missing = [
+        replacement
+        for name, replacement in _INDEXTTS2_RELEASE_GLOBALS
+        if not _has_top_level_assignment(text, name)
+    ]
+    if not missing:
+        return text
+    return _insert_before_release_support(text, "".join(missing) + "\n")
+
+
+def _ensure_model_loader_release_functions(text: str) -> str:
+    required_functions = [
+        ("_weakref_or_none", STABLE_WEAKREF_OR_NONE),
+    ]
+    for function_name, replacement in required_functions:
+        if f"def {function_name}" in text:
+            text = _replace_function(text, function_name, replacement)
+        else:
+            text = _insert_before_release_support(text, replacement)
+    return text
+
+
+def _has_top_level_assignment(text: str, name: str) -> bool:
+    return _find_top_level_assignment(text, name) is not None
+
+
+def _replace_top_level_assignment(text: str, name: str, replacement: str) -> str:
+    node = _find_top_level_assignment(text, name)
+    if node is None:
+        return text
+    if node.end_lineno is None:
+        raise ValueError(f"could not determine assignment bounds while patching: {name}")
+    lines = text.splitlines(keepends=True)
+    return "".join(lines[: node.lineno - 1]) + replacement + "".join(lines[node.end_lineno :])
+
+
+def _find_top_level_assignment(text: str, name: str) -> ast.Assign | ast.AnnAssign | None:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        raise ValueError(f"could not parse model_loader.py while locating assignment: {name}") from exc
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name for target in node.targets
+        ):
+            return node
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name:
+            return node
+    return None
+
+
+def _insert_before_release_support(text: str, snippet: str) -> str:
+    anchors = [
+        r"^_INDEXTTS2_LOADER_REGISTRY\s*=",
+        r"^_INDEXTTS2_LOADER_REGISTRY_LOCK\s*=",
+        r"^_INDEXTTS2_SOFT_EMPTY_CACHE_PATCHED\s*=",
+        r"^_INDEXTTS2_TTS_ATTRS\s*=",
+        r"^_INDEXTTS2_CACHE_MODEL_KEYS\s*=",
+        r"^def _cuda_memory_stats",
+        r"^def _clear_cuda_cache",
+        r"^def _release_tts_object",
+        r"^def _weakref_or_none",
+        r"^def _describe_loader_objects",
+        r"^def unload_all_indextts2",
+        r"^def indextts2_release_health",
+        r"^def _hook_comfy_soft_empty_cache",
+        r"^class IndexTTS2Loader:",
+    ]
+    for anchor in anchors:
+        patched, count = re.subn(anchor, snippet + r"\g<0>", text, count=1, flags=re.MULTILINE)
+        if count == 1:
+            return patched
+    raise ValueError("could not find insertion point for IndexTTS2 release globals")
+
+
 STABLE_INDEXTTS2_RELEASE_SUPPORT = '''_INDEXTTS2_LOADER_REGISTRY = weakref.WeakSet()
 _INDEXTTS2_LOADER_REGISTRY_LOCK = threading.RLock()
+_INDEXTTS2_SOFT_EMPTY_CACHE_PATCHED = False
 _INDEXTTS2_TTS_ATTRS = (
     "gpt",
     "semantic_model",
@@ -315,6 +478,7 @@ _INDEXTTS2_TTS_ATTRS = (
     "tokenizer",
     "model",
 )
+_INDEXTTS2_CACHE_MODEL_KEYS = ("tts",)
 
 
 def _cuda_memory_stats() -> dict:
@@ -358,66 +522,170 @@ def _release_tts_object(tts: Any) -> None:
             pass
 
 
-def unload_all_indextts2() -> dict:
-    before = _cuda_memory_stats()
-    with _INDEXTTS2_LOADER_REGISTRY_LOCK:
-        loaders = list(_INDEXTTS2_LOADER_REGISTRY)
+'''
 
-    released = 0
-    errors = []
-    for loader in loaders:
-        try:
-            if loader.unload_tts():
-                released += 1
-        except Exception as exc:
-            errors.append(f"{type(exc).__name__}: {exc}")
 
-    _clear_cuda_cache()
-    after = _cuda_memory_stats()
-    return {
-        "released": released > 0,
-        "loaders_seen": len(loaders),
-        "loaders_released": released,
-        "errors": errors,
-        "cuda_allocated_before": before.get("cuda_allocated"),
-        "cuda_allocated_after": after.get("cuda_allocated"),
-        "cuda_reserved_before": before.get("cuda_reserved"),
-        "cuda_reserved_after": after.get("cuda_reserved"),
-}
+STABLE_WEAKREF_OR_NONE = '''def _weakref_or_none(value: Any):
+    if value is None:
+        return None
+    try:
+        return weakref.ref(value)
+    except TypeError:
+        return None
 
 
 '''
 
 
-STABLE_INDEXTTS2_HEALTH = '''def indextts2_release_health() -> dict:
+STABLE_INDEXTTS2_OBJECT_HELPERS = '''def _describe_loader_objects(loader: Any) -> list[str]:
+    objects = []
+    cache = getattr(loader, "_cache", None)
+    if isinstance(cache, dict):
+        for key in _INDEXTTS2_CACHE_MODEL_KEYS:
+            if cache.get(key) is not None:
+                objects.append(key)
+    return objects
+
+
+def _unique_items(items: list[str]) -> list[str]:
+    return sorted({str(item) for item in items if item})
+
+
+'''
+
+
+STABLE_UNLOAD_ALL_INDEXTTS2 = '''def unload_all_indextts2() -> dict:
+    before = _cuda_memory_stats()
     with _INDEXTTS2_LOADER_REGISTRY_LOCK:
-        loaders_seen = len(list(_INDEXTTS2_LOADER_REGISTRY))
+        loaders = list(_INDEXTTS2_LOADER_REGISTRY)
+
+    loaders_released = 0
+    objects_seen = []
+    objects_released = []
+    residual_objects = []
+    errors = []
+    for loader in loaders:
+        try:
+            objects_seen.extend(_describe_loader_objects(loader))
+            release_result = loader.unload_tts()
+            if release_result.get("released"):
+                loaders_released += 1
+            objects_released.extend(release_result.get("objects_released", []))
+            residual_objects.extend(release_result.get("residual_objects", []))
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+
+    _clear_cuda_cache()
+    with _INDEXTTS2_LOADER_REGISTRY_LOCK:
+        loaders_after = list(_INDEXTTS2_LOADER_REGISTRY)
+    for loader in loaders_after:
+        residual_objects.extend(_describe_loader_objects(loader))
+
+    objects_seen = _unique_items(objects_seen)
+    objects_released = _unique_items(objects_released)
+    residual_objects = _unique_items(residual_objects)
+    after = _cuda_memory_stats()
+    safe_to_continue = not residual_objects and not errors
     return {
-        "ok": True,
-        "extension": "indextts2",
-        "release_endpoint": "/pixelle/indextts2/free",
-        "loaders_seen": loaders_seen,
+        "protocol_version": 2,
+        "safe_to_continue": safe_to_continue,
+        "released": bool(objects_released),
+        "loaders_seen": len(loaders),
+        "loaders_released": loaders_released,
+        "objects_seen": objects_seen,
+        "objects_released": objects_released,
+        "residual_objects": residual_objects,
+        "errors": errors,
+        "cuda_allocated_before": before.get("cuda_allocated"),
+        "cuda_allocated_after": after.get("cuda_allocated"),
+        "cuda_reserved_before": before.get("cuda_reserved"),
+        "cuda_reserved_after": after.get("cuda_reserved"),
     }
 
 
 '''
 
 
-STABLE_UNLOAD_TTS = '''    def unload_tts(self) -> bool:
+STABLE_INDEXTTS2_COMFY_HOOK = '''def _hook_comfy_soft_empty_cache() -> None:
+    global _INDEXTTS2_SOFT_EMPTY_CACHE_PATCHED
+    if _INDEXTTS2_SOFT_EMPTY_CACHE_PATCHED:
+        return
+    try:
+        import comfy.model_management as model_management
+    except Exception:
+        return
+
+    original_soft_empty_cache = getattr(model_management, "soft_empty_cache", None)
+    if not callable(original_soft_empty_cache):
+        return
+
+    def _pixelle_indextts2_soft_empty_cache(*args, **kwargs):
+        unload_all_indextts2()
+        return original_soft_empty_cache(*args, **kwargs)
+
+    model_management.soft_empty_cache = _pixelle_indextts2_soft_empty_cache
+    _INDEXTTS2_SOFT_EMPTY_CACHE_PATCHED = True
+
+
+_hook_comfy_soft_empty_cache()
+
+
+'''
+
+
+STABLE_INDEXTTS2_RELEASE_SUPPORT += (
+    STABLE_WEAKREF_OR_NONE
+    + STABLE_INDEXTTS2_OBJECT_HELPERS
+    + STABLE_UNLOAD_ALL_INDEXTTS2
+    + STABLE_INDEXTTS2_COMFY_HOOK
+)
+
+
+STABLE_INDEXTTS2_HEALTH = '''def indextts2_release_health() -> dict:
+    with _INDEXTTS2_LOADER_REGISTRY_LOCK:
+        loaders = list(_INDEXTTS2_LOADER_REGISTRY)
+    residual_objects = []
+    for loader in loaders:
+        residual_objects.extend(_describe_loader_objects(loader))
+    residual_objects = _unique_items(residual_objects)
+    return {
+        "protocol_version": 2,
+        "ok": True,
+        "extension": "indextts2",
+        "release_endpoint": "/pixelle/indextts2/free",
+        "loaders_seen": len(loaders),
+        "safe_to_continue": not residual_objects,
+        "residual_objects": residual_objects,
+    }
+
+
+'''
+
+
+STABLE_UNLOAD_TTS = '''    def unload_tts(self) -> dict:
         """
         Best-effort unload of cached TTS instance and free GPU cache to reduce VRAM.
         Safe to call even if not loaded.
         """
-        released = False
+        objects_released = []
+        residual_objects = []
         try:
             tts = self._cache.pop("tts", None)
-            released = tts is not None
+            if tts is not None:
+                objects_released.append("tts")
+            tts_ref = _weakref_or_none(tts)
             _release_tts_object(tts)
             del tts
+            if tts_ref is not None and tts_ref() is not None:
+                residual_objects.append("tts_external_ref")
         except Exception:
-            pass
+            residual_objects.append("tts_release_error")
         _clear_cuda_cache()
-        return released
+        return {
+            "released": bool(objects_released),
+            "objects_released": objects_released,
+            "residual_objects": residual_objects,
+        }
 '''
 
 
