@@ -3,11 +3,18 @@ from __future__ import annotations
 from os import PathLike
 from typing import Any, Mapping
 
+from pixelle_video.models.layered_template import (
+    LayeredTemplateSpec,
+    layered_template_fingerprint,
+)
 from pixelle_video.models.media_placement import resolve_media_placement
 from pixelle_video.models.render_package import resolve_media_layout_mode
 from pixelle_video.models.template_parameters import RESERVED_TEMPLATE_PARAM_NAMES
 from pixelle_video.models.template_visual_asset import TemplateVisualAsset
 from pixelle_video.services.frame_html import HTMLFrameGenerator
+from pixelle_video.services.layered_template_adapters.html_frame import (
+    LayeredTemplateHTMLFrameAdapter,
+)
 
 VALID_TEMPLATE_TEXT_POLICIES = {
     "caption_renderer",
@@ -48,6 +55,7 @@ class TemplateVisualMaterializer:
         template_id: str,
         output_path: str | PathLike[str],
         text_policy: str,
+        caption_text: str | None = None,
         template_params: Mapping[str, Any] | None = None,
         canvas_width: int | None = None,
         canvas_height: int | None = None,
@@ -56,9 +64,38 @@ class TemplateVisualMaterializer:
         media_width: int | None = None,
         media_height: int | None = None,
         media_placement: Any = None,
+        text_rendering: Mapping[str, Any] | None = None,
+        layered_template_spec: LayeredTemplateSpec | Mapping[str, Any] | None = None,
     ) -> TemplateVisualAsset:
         body_text = resolve_template_body_text(template_body_text, text_policy)
         validated_template_params = _validate_template_params(template_params)
+        spec = _coerce_layered_template_spec(layered_template_spec)
+        if spec is not None:
+            adapter = LayeredTemplateHTMLFrameAdapter()
+            generated_path = await adapter.render_frame(
+                spec=spec,
+                output_path=output_path,
+                title_text=title,
+                caption_text=caption_text if caption_text is not None else body_text,
+                text_rendering=text_rendering or {},
+                media_path=media_path,
+            )
+            return TemplateVisualAsset(
+                path=str(generated_path),
+                frame_index=int(frame_index),
+                template_id=spec.template_id,
+                template_path=f"layered_template:{spec.template_id}",
+                width=spec.canvas_width,
+                height=spec.canvas_height,
+                media_path=media_path,
+                text_policy=text_policy,
+                diagnostics={
+                    "layered_template_id": spec.template_id,
+                    "layered_template_fingerprint": layered_template_fingerprint(spec),
+                    "layered_template_canvas": f"{spec.canvas_width}x{spec.canvas_height}",
+                    "template_params_count": len(validated_template_params),
+                },
+            )
         resolved_media_layout_mode = resolve_media_layout_mode(media_layout_mode)
         generator = HTMLFrameGenerator(
             str(template_path),
@@ -94,3 +131,13 @@ class TemplateVisualMaterializer:
             text_policy=text_policy,
             diagnostics={"template_params_count": len(ext) - 1},
         )
+
+
+def _coerce_layered_template_spec(
+    value: LayeredTemplateSpec | Mapping[str, Any] | None,
+) -> LayeredTemplateSpec | None:
+    if value is None:
+        return None
+    if isinstance(value, LayeredTemplateSpec):
+        return value
+    return LayeredTemplateSpec.from_dict(value)

@@ -5,10 +5,31 @@ from types import ModuleType
 import pytest
 from PIL import Image
 
+from pixelle_video.services.layered_template_adapters.html_frame import (
+    LayeredTemplateHTMLFrameAdapter,
+)
 from pixelle_video.services.frame_html import HTMLDocumentFrameRenderer, HTMLFrameGenerator
 from pixelle_video.services.frame_render_readiness import FrameRenderReadiness
 from web.state.async_runtime import AsyncRuntime, shutdown_all_async_runtimes
 from web.utils.async_helpers import run_async
+
+
+def _layered_template_spec_payload(**overrides):
+    payload = {
+        "version": "layered_template.v1",
+        "template_id": "user:portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+        "layers": [],
+        "metadata": {"source_kind": "user"},
+    }
+    payload.update(overrides)
+    return payload
 
 
 def test_run_async_can_render_html_frames_across_multiple_calls(tmp_path):
@@ -152,6 +173,237 @@ def test_html_document_frame_renderer_keeps_existing_base_tag(tmp_path):
     prepared_html = renderer._prepare_html_for_render(html)
 
     assert prepared_html == html
+
+
+@pytest.mark.asyncio
+async def test_layered_template_html_frame_adapter_renders_document_with_spec_canvas(
+    tmp_path,
+):
+    calls = {}
+
+    class FakeTemplateService:
+        def render_preview_html(self, *, spec, title_text, caption_text, text_rendering):
+            calls["html_args"] = {
+                "spec": spec.to_dict(),
+                "title_text": title_text,
+                "caption_text": caption_text,
+                "text_rendering": dict(text_rendering),
+            }
+            return "<html>preview</html>"
+
+    class FakeRenderer:
+        async def render_html_document(self, *, html, output_path, width, height):
+            calls["render"] = {
+                "html": html,
+                "output_path": output_path,
+                "width": width,
+                "height": height,
+            }
+            Path(output_path).write_bytes(b"png")
+            return output_path
+
+    adapter = LayeredTemplateHTMLFrameAdapter(
+        template_service=FakeTemplateService(),
+        renderer=FakeRenderer(),
+    )
+
+    result = await adapter.render_frame(
+        spec=_layered_template_spec_payload(),
+        output_path=tmp_path / "frame.png",
+        title_text="Title",
+        caption_text="Caption",
+        text_rendering={"title_style": {"font_size": 88}},
+        media_path="raw.png",
+    )
+
+    assert result == tmp_path / "frame.png"
+    assert calls["render"]["html"] == "<html>preview</html>"
+    assert calls["render"]["width"] == 720
+    assert calls["render"]["height"] == 1280
+    assert calls["html_args"]["title_text"] == "Title"
+    assert calls["html_args"]["caption_text"] == "Caption"
+
+
+@pytest.mark.asyncio
+async def test_layered_template_html_frame_adapter_rejects_unknown_generated_media_ref(
+    tmp_path,
+):
+    spec = _layered_template_spec_payload(
+        layers=[
+            {
+                "id": "unknown-generated",
+                "type": "generated_media",
+                "name": "Unknown generated media",
+                "rect": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+                "z_index": 1,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": {
+                    "kind": "generated_media",
+                    "ref": "generated://secondary",
+                    "metadata": {},
+                },
+                "style": {},
+                "role": None,
+            }
+        ],
+    )
+
+    class FakeRenderer:
+        async def render_html_document(self, **_kwargs):
+            raise AssertionError("renderer must not run for unknown generated-media refs")
+
+    adapter = LayeredTemplateHTMLFrameAdapter(renderer=FakeRenderer())
+
+    with pytest.raises(ValueError, match="unsupported generated-media ref: generated://secondary"):
+        await adapter.render_frame(
+            spec=spec,
+            output_path=tmp_path / "frame.png",
+            title_text="Title",
+            caption_text="Caption",
+            text_rendering={},
+            media_path="raw.png",
+        )
+
+
+@pytest.mark.asyncio
+async def test_layered_template_html_frame_adapter_requires_media_path_for_primary_generated_media(
+    tmp_path,
+):
+    spec = _layered_template_spec_payload(
+        layers=[
+            {
+                "id": "primary-generated",
+                "type": "generated_media",
+                "name": "Primary generated media",
+                "rect": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+                "z_index": 1,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": {
+                    "kind": "generated_media",
+                    "ref": "generated://primary",
+                    "metadata": {},
+                },
+                "style": {},
+                "role": None,
+            }
+        ],
+    )
+
+    class FakeRenderer:
+        async def render_html_document(self, **_kwargs):
+            raise AssertionError("renderer must not render generated media placeholder")
+
+    adapter = LayeredTemplateHTMLFrameAdapter(renderer=FakeRenderer())
+
+    with pytest.raises(ValueError, match="generated://primary requires media_path"):
+        await adapter.render_frame(
+            spec=spec,
+            output_path=tmp_path / "frame.png",
+            title_text="Title",
+            caption_text="Caption",
+            text_rendering={},
+            media_path=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_layered_template_html_frame_adapter_rejects_generated_media_without_source(
+    tmp_path,
+):
+    spec = _layered_template_spec_payload(
+        layers=[
+            {
+                "id": "missing-generated-source",
+                "type": "generated_media",
+                "name": "Missing generated media",
+                "rect": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+                "z_index": 1,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": None,
+                "style": {},
+                "role": None,
+            }
+        ],
+    )
+
+    class FakeRenderer:
+        async def render_html_document(self, **_kwargs):
+            raise AssertionError("renderer must not render generated media placeholder")
+
+    adapter = LayeredTemplateHTMLFrameAdapter(renderer=FakeRenderer())
+
+    with pytest.raises(ValueError, match="generated-media layer missing source"):
+        await adapter.render_frame(
+            spec=spec,
+            output_path=tmp_path / "frame.png",
+            title_text="Title",
+            caption_text="Caption",
+            text_rendering={},
+            media_path=str(tmp_path / "primary.png"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_layered_template_html_frame_adapter_maps_primary_generated_media_to_media_path(
+    tmp_path,
+):
+    media_path = tmp_path / "primary.png"
+    media_path.write_bytes(b"png")
+    calls = {}
+    spec = _layered_template_spec_payload(
+        layers=[
+            {
+                "id": "primary-generated",
+                "type": "generated_media",
+                "name": "Primary generated media",
+                "rect": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+                "z_index": 1,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": {
+                    "kind": "generated_media",
+                    "ref": "generated://primary",
+                    "metadata": {},
+                },
+                "style": {},
+                "role": None,
+            }
+        ],
+    )
+
+    class FakeTemplateService:
+        def render_preview_html(self, *, spec, title_text, caption_text, text_rendering):
+            calls["layer_source"] = spec.layers[0].source.to_dict()
+            return "<html>preview</html>"
+
+    class FakeRenderer:
+        async def render_html_document(self, *, html, output_path, width, height):
+            Path(output_path).write_bytes(b"png")
+            return output_path
+
+    adapter = LayeredTemplateHTMLFrameAdapter(
+        template_service=FakeTemplateService(),
+        renderer=FakeRenderer(),
+    )
+
+    await adapter.render_frame(
+        spec=spec,
+        output_path=tmp_path / "frame.png",
+        title_text="Title",
+        caption_text="Caption",
+        text_rendering={},
+        media_path=str(media_path),
+    )
+
+    assert calls["layer_source"]["kind"] == "asset"
+    assert calls["layer_source"]["ref"] == media_path.resolve().as_uri()
 
 
 def test_parse_template_parameters_excludes_runtime_reserved_placeholders(tmp_path):

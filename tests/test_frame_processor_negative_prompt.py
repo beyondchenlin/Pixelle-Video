@@ -124,6 +124,73 @@ async def test_compose_frame_html_uses_caption_punctuation_mode_for_subtitle_tex
 
 
 @pytest.mark.asyncio
+async def test_compose_frame_html_forwards_layered_template_spec_to_materializer(
+    monkeypatch,
+    tmp_path,
+):
+    captured = {}
+
+    class _FakeMaterializer:
+        async def materialize_frame(self, **kwargs):
+            captured.update(kwargs)
+
+            class _Asset:
+                path = str(tmp_path / "layered.png")
+
+            Path(_Asset.path).write_bytes(b"png")
+            return _Asset()
+
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.TemplateVisualMaterializer",
+        _FakeMaterializer,
+    )
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
+
+    spec = {
+        "version": "layered_template.v1",
+        "template_id": "user:portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+        "layers": [],
+        "metadata": {"source_kind": "user"},
+    }
+    processor = FrameProcessor(None)
+    config = StoryboardConfig(
+        canvas_width=720,
+        canvas_height=1280,
+        media_width=640,
+        media_height=960,
+        task_id="task-1",
+        frame_template="1080x1920/image_default.html",
+        layered_template_spec=spec,
+    )
+    frame = StoryboardFrame(
+        index=0,
+        narration="caption",
+        image_prompt="prompt",
+        image_path=str(tmp_path / "frame.png"),
+        media_type="image",
+    )
+    storyboard = Storyboard(title="Layered title", config=config, frames=[frame])
+
+    await processor._compose_frame_html(
+        frame=frame,
+        storyboard=storyboard,
+        config=config,
+        output_path=str(tmp_path / "composed.png"),
+    )
+
+    assert captured["layered_template_spec"] == spec
+    assert captured["caption_text"] == "caption"
+    assert captured["text_rendering"] == {}
+
+
+@pytest.mark.asyncio
 async def test_compose_frame_html_uses_canvas_media_layout_when_media_syncs(monkeypatch, tmp_path):
     captured = {}
 

@@ -636,6 +636,7 @@ class FrameProcessor:
         asset = await TemplateVisualMaterializer().materialize_frame(
             title=storyboard.title,
             template_body_text=body_text,
+            caption_text=body_text,
             media_path=media_path,
             frame_index=frame.index,
             template_path=template_path,
@@ -650,6 +651,8 @@ class FrameProcessor:
             media_width=config.media_width,
             media_height=config.media_height,
             media_placement=config.media_placement,
+            text_rendering=getattr(config, "text_rendering", None) or {},
+            layered_template_spec=getattr(config, "layered_template_spec", None),
         )
         
         frame.template_visual_path = asset.path

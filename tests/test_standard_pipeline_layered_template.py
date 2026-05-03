@@ -2,7 +2,7 @@ import pytest
 
 from pixelle_video.models.layered_template import LayeredTemplateSpec, RectSpec
 from pixelle_video.models.render_package import AudioBlock, SentenceUnit
-from pixelle_video.models.storyboard import StoryboardConfig
+from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
@@ -170,3 +170,85 @@ def test_build_render_manifest_copies_layered_template_snapshot(tmp_path, monkey
     manifest = pipeline._build_render_manifest_for_current_timeline(ctx)
 
     assert manifest.layered_template_spec == spec
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_passes_layered_template_config_to_frame_processor(monkeypatch):
+    spec = _spec_payload()
+
+    class _FrameProcessor:
+        def __init__(self):
+            self.calls = []
+
+        async def __call__(
+            self,
+            *,
+            frame,
+            storyboard,
+            config,
+            total_frames=1,
+            progress_callback=None,
+            template_body_text=None,
+            element_motion_materializer=None,
+        ):
+            self.calls.append(
+                {
+                    "frame_index": frame.index,
+                    "layered_template_spec": config.layered_template_spec,
+                    "template_body_text": template_body_text,
+                }
+            )
+            frame.duration = 1.0
+            frame.image_path = f"image-{frame.index}.png"
+            frame.media_type = "image"
+            frame.composed_image_path = f"composed-{frame.index}.png"
+            frame.video_segment_path = f"segment-{frame.index}.mp4"
+            return frame
+
+    core = _DummyCore()
+    core.frame_processor = _FrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = PipelineContext(input_text="topic", params={})
+    ctx.task_id = "task-layered-produce"
+    ctx.config = StoryboardConfig(
+        task_id="task-layered-produce",
+        media_width=1080,
+        media_height=1920,
+        frame_template="1080x1920/image_default.html",
+        tts_inference_mode="local",
+        render_backend="legacy",
+        media_workflow=None,
+        layered_template_spec=spec,
+        selected_template_preset_id="user:demo",
+    )
+    ctx.storyboard = Storyboard(
+        title="Layered produce",
+        config=ctx.config,
+        frames=[
+            StoryboardFrame(index=0, narration="scene", image_prompt="prompt"),
+        ],
+    )
+    ctx.master_audio_path = "master-audio.wav"
+    ctx.master_audio_duration = 1.0
+
+    async def fake_prepare(context):
+        for frame in context.storyboard.frames:
+            frame.audio_path = f"master-{frame.index}.wav"
+            frame.duration = 1.0
+
+    monkeypatch.setattr(
+        pipeline,
+        "_prepare_legacy_master_track_audio",
+        fake_prepare,
+        raising=False,
+    )
+
+    await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.calls == [
+        {
+            "frame_index": 0,
+            "layered_template_spec": spec,
+            "template_body_text": "",
+        }
+    ]

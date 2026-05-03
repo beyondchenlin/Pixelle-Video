@@ -10,6 +10,24 @@ from pixelle_video.services.template_visual_materializer import (
 )
 
 
+def _layered_template_spec_payload(**overrides):
+    payload = {
+        "version": "layered_template.v1",
+        "template_id": "user:portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+        "layers": [],
+        "metadata": {"source_kind": "user"},
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_resolve_template_body_text_defaults_to_caption_renderer():
     assert resolve_template_body_text("Template body", "caption_renderer") == ""
     assert resolve_template_body_text("Template body", "none") == ""
@@ -178,6 +196,72 @@ async def test_template_visual_materializer_forwards_canvas_dimensions(
     assert calls["canvas_width"] == 1280
     assert calls["canvas_height"] == 720
     assert (result.width, result.height) == (1280, 720)
+
+
+@pytest.mark.asyncio
+async def test_template_visual_materializer_uses_layered_template_html_adapter(
+    tmp_path,
+    monkeypatch,
+):
+    calls = {}
+
+    def fail_if_legacy_constructed(*_args, **_kwargs):
+        raise AssertionError("legacy HTMLFrameGenerator must not render layered specs")
+
+    class FakeLayeredTemplateHTMLFrameAdapter:
+        async def render_frame(
+            self,
+            *,
+            spec,
+            output_path,
+            title_text,
+            caption_text,
+            text_rendering,
+            media_path,
+        ):
+            calls["spec"] = spec.to_dict()
+            calls["title_text"] = title_text
+            calls["caption_text"] = caption_text
+            calls["text_rendering"] = dict(text_rendering)
+            calls["media_path"] = media_path
+            Path(output_path).write_bytes(b"png")
+            return output_path
+
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.HTMLFrameGenerator",
+        fail_if_legacy_constructed,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.services.template_visual_materializer.LayeredTemplateHTMLFrameAdapter",
+        FakeLayeredTemplateHTMLFrameAdapter,
+    )
+
+    result = await TemplateVisualMaterializer().materialize_frame(
+        title="Runtime Title",
+        template_body_text="Runtime Caption",
+        media_path="raw.png",
+        frame_index=2,
+        template_path="templates/1080x1920/image_default.html",
+        template_id="legacy-image-default",
+        output_path=tmp_path / "frame.png",
+        text_policy="caption_renderer",
+        caption_text="Runtime Caption",
+        text_rendering={"title_style": {"font_size": 88}},
+        layered_template_spec=_layered_template_spec_payload(),
+    )
+
+    assert result.path == str(tmp_path / "frame.png")
+    assert (result.width, result.height) == (720, 1280)
+    assert result.template_id == "user:portrait_news"
+    assert result.template_path == "layered_template:user:portrait_news"
+    assert result.media_path == "raw.png"
+    assert result.text_policy == "caption_renderer"
+    assert result.diagnostics["layered_template_id"] == "user:portrait_news"
+    assert result.diagnostics["layered_template_canvas"] == "720x1280"
+    assert calls["title_text"] == "Runtime Title"
+    assert calls["caption_text"] == "Runtime Caption"
+    assert calls["media_path"] == "raw.png"
+    assert calls["text_rendering"] == {"title_style": {"font_size": 88}}
 
 
 @pytest.mark.asyncio
