@@ -3,6 +3,7 @@ import pytest
 from pixelle_video.utils.template_util import (
     get_supported_template_orientations,
     get_template_orientation,
+    get_template_preview_path,
     lint_repository_media_templates,
     parse_template_contract,
     resolve_compatible_template_for_orientation,
@@ -38,6 +39,24 @@ def test_parse_template_contract_exposes_square_orientation():
     assert contract.template_design_width == 1080
     assert contract.template_design_height == 1080
     assert contract.template_orientation == "square"
+
+
+def test_get_template_preview_path_resolves_gallery_asset():
+    preview_path = get_template_preview_path(
+        "1920x1080/image_landscape_minimal.html",
+        language="zh_CN",
+    )
+
+    assert preview_path == "docs/images/1920x1080/image_landscape_minimal.png"
+
+
+def test_get_template_preview_path_prefers_language_asset():
+    preview_path = get_template_preview_path(
+        "1920x1080/image_landscape_minimal.html",
+        language="en_US",
+    )
+
+    assert preview_path == "docs/images/1920x1080/image_landscape_minimal_en.png"
 
 
 def test_resolve_compatible_template_switches_to_matching_orientation():

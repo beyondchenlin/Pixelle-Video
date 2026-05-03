@@ -20,7 +20,12 @@ from typing import List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
-from pixelle_video.utils.os_util import get_resource_path, list_resource_dirs, list_resource_files
+from pixelle_video.utils.os_util import (
+    get_pixelle_video_root_path,
+    get_resource_path,
+    list_resource_dirs,
+    list_resource_files,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +163,50 @@ def parse_template_contract(template_path: str) -> TemplateContract:
         template_design_height=height,
         template_orientation=_template_orientation_from_dimensions(width, height),
     )
+
+
+def get_template_preview_path(template_path: str, language: str = "zh_CN") -> str:
+    """
+    Resolve the gallery preview image for a template.
+
+    Returns a project-relative docs/images path so Streamlit can render the same
+    asset from every UI surface. Chinese uses the base asset; other languages
+    prefer the `_en` variant and fall back to the base asset.
+    """
+    normalized = str(template_path or "").replace("\\", "/").strip()
+    parts = [part for part in normalized.split("/") if part]
+    size = ""
+    template_file = ""
+    for index, part in enumerate(parts[:-1]):
+        if "x" not in part:
+            continue
+        try:
+            width, height = part.split("x", 1)
+            int(width)
+            int(height)
+        except ValueError:
+            continue
+        size = part
+        template_file = parts[index + 1]
+
+    if not size or not template_file:
+        return ""
+
+    template_name = Path(template_file).stem
+    suffixes = [""] if language == "zh_CN" else ["_en", ""]
+    project_root = Path(get_pixelle_video_root_path())
+
+    for suffix in suffixes:
+        for extension in (".jpg", ".png"):
+            relative_path = (
+                Path("docs")
+                / "images"
+                / size
+                / f"{template_name}{suffix}{extension}"
+            )
+            if (project_root / relative_path).exists():
+                return relative_path.as_posix()
+    return ""
 
 
 def list_available_sizes() -> List[str]:

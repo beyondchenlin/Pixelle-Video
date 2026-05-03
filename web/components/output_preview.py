@@ -28,6 +28,7 @@ from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.models.layered_template import LayeredTemplateSpec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.models.render_package import resolve_media_layout_mode
 from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.template_preset import TemplatePreset
 from pixelle_video.models.video_generation_contract import (
@@ -47,7 +48,7 @@ from pixelle_video.services.frame_html import HTMLFrameGenerator
 from pixelle_video.services.template_registry import TemplateRegistry
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
-from pixelle_video.utils.template_util import resolve_template_path
+from pixelle_video.utils.template_util import get_template_preview_path, resolve_template_path
 from web.components.prompt_generation_performance import (
     copy_prompt_generation_performance_params,
 )
@@ -270,6 +271,110 @@ def _layout_preview_text(video_params, *keys: str, default: str = "") -> str:
     return default
 
 
+def _layout_preview_title(video_params) -> str:
+    explicit_title = _layout_preview_text(
+        video_params,
+        "title",
+        "layout_preview_title_text",
+    )
+    if explicit_title:
+        return explicit_title
+    return _preview_text_excerpt(
+        _layout_preview_text(video_params, "text"),
+        max_chars=28,
+        default="模板预览",
+    )
+
+
+def _layout_preview_caption(video_params) -> str:
+    return _preview_text_excerpt(
+        _layout_preview_text(
+            video_params,
+            "layout_preview_caption_text",
+            "text",
+        ),
+        max_chars=90,
+        default="当前模板即时预览",
+    )
+
+
+def _preview_text_excerpt(value: str, *, max_chars: int, default: str) -> str:
+    normalized = " ".join(str(value or "").split())
+    if not normalized:
+        return default
+    if len(normalized) <= max_chars:
+        return normalized
+    return f"{normalized[: max(1, max_chars - 1)].rstrip()}…"
+
+
+def _layout_preview_media_layout_mode(video_params) -> str:
+    return resolve_media_layout_mode(
+        video_params.get("media_layout_mode"),
+        sync_media_size_to_canvas=bool(video_params.get("sync_media_size_to_canvas")),
+    )
+
+
+def _local_media_uri(value: object) -> str | None:
+    if value is None:
+        return None
+    source = str(value).strip()
+    if not source:
+        return None
+    if source.startswith(("http://", "https://", "data:", "file://")):
+        return source
+    path = Path(source)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    if not path.exists():
+        return None
+    return path.resolve().as_uri()
+
+
+def _iter_layout_preview_media_candidates(video_params):
+    for key in (
+        "layout_preview_media_path",
+        "layout_preview_image_path",
+        "preview_media_ref",
+        "preview_media_path",
+        "image_path",
+        "media_path",
+        "composed_image_path",
+    ):
+        yield video_params.get(key)
+
+    template_params = video_params.get("template_params")
+    if isinstance(template_params, dict):
+        for key in ("image", "media", "media_path", "image_path"):
+            yield template_params.get(key)
+
+    for key in ("assets", "image_assets", "character_assets", "goods_assets"):
+        value = video_params.get(key)
+        if isinstance(value, (list, tuple)):
+            yield from value
+
+
+def _resolve_layout_preview_media_source(
+    video_params,
+    *,
+    frame_template: str,
+) -> str:
+    for candidate in _iter_layout_preview_media_candidates(video_params):
+        uri = _local_media_uri(candidate)
+        if uri:
+            return uri
+
+    default_media = _local_media_uri(Path("resources") / "example.png")
+    if default_media:
+        return default_media
+
+    template_preview = get_template_preview_path(frame_template)
+    template_uri = _local_media_uri(template_preview)
+    if template_uri:
+        return template_uri
+
+    return _build_layout_preview_media_placeholder()
+
+
 def _build_layout_preview_media_placeholder() -> str:
     svg = """
     <svg xmlns="http://www.w3.org/2000/svg" width="768" height="768" viewBox="0 0 768 768">
@@ -295,21 +400,15 @@ def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | Non
             canvas_height=size_contract.canvas_height,
         )
         html = generator._build_render_html(
-            title=_layout_preview_text(
+            title=_layout_preview_title(video_params),
+            text=_layout_preview_caption(video_params),
+            image=_resolve_layout_preview_media_source(
                 video_params,
-                "title",
-                "layout_preview_title_text",
-                default="默认模板预览",
+                frame_template=str(frame_template),
             ),
-            text=_layout_preview_text(
-                video_params,
-                "layout_preview_caption_text",
-                default="服务端预览前使用当前模板规则生成即时预览",
-            ),
-            image=_build_layout_preview_media_placeholder(),
             ext={
                 "index": 1,
-                "media_layout_mode": video_params.get("media_layout_mode") or "canvas",
+                "media_layout_mode": _layout_preview_media_layout_mode(video_params),
             },
             media_placement=_media_placement_payload(
                 video_params.get("media_placement"),
@@ -321,8 +420,8 @@ def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | Non
         )
         return trust_preview_html(
             generator._prepare_html_for_render(html),
-            width=size_contract.canvas_width,
-            height=size_contract.canvas_height,
+            width=generator.template_width,
+            height=generator.template_height,
         )
     except (FileNotFoundError, KeyError, TypeError, ValueError) as exc:
         logger.warning(f"Failed to build frame template preview HTML: {exc}")

@@ -2757,45 +2757,6 @@ def render_style_config(
     # Storyboard Template Section
     # ====================================================================
     
-    def get_template_preview_path(template_path: str, language: str = "zh_CN") -> str:
-        """
-        Get the preview image path for a template based on language.
-        
-        Args:
-            template_path: Template path like "1080x1920/image_default.html"
-            language: Language code, either "zh_CN" or "en"
-            
-        Returns:
-            Path to preview image in docs/images/
-        """
-        # Extract size and template name from path
-        # e.g., "1080x1920/image_default.html" -> size="1080x1920", name="image_default"
-        path_parts = template_path.split('/')
-        if len(path_parts) >= 2:
-            size = path_parts[0]  # e.g., "1080x1920"
-            template_file = path_parts[1]  # e.g., "image_default.html"
-            template_name = template_file.replace('.html', '')  # e.g., "image_default"
-            
-            # Build preview image path
-            # Format: docs/images/{size}/{template_name}.jpg or {template_name}_en.jpg
-            # Chinese uses Chinese preview, all other languages use English preview for better i18n
-            suffix = "" if language == "zh_CN" else "_en"
-            
-            # Try different image extensions
-            for ext in ['.jpg', '.png']:
-                preview_path = f"docs/images/{size}/{template_name}{suffix}{ext}"
-                if os.path.exists(preview_path):
-                    return preview_path
-            
-            # Fallback: try without language suffix (for templates with only one version)
-            for ext in ['.jpg', '.png']:
-                preview_path = f"docs/images/{size}/{template_name}{ext}"
-                if os.path.exists(preview_path):
-                    return preview_path
-        
-        # If no preview found, return empty string
-        return ""
-    
     with render_middle_column_collapsible_section(
         tr("section.template"),
         expanded=False,
@@ -2811,6 +2772,7 @@ def render_style_config(
         
         # Import template utilities
         from pixelle_video.utils.template_util import (
+            get_template_preview_path,
             get_supported_template_orientations,
             get_template_type,
             get_templates_grouped_by_size_and_type,

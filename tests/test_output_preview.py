@@ -2590,6 +2590,8 @@ def test_build_layout_preview_html_uses_default_frame_template_without_layered_s
                 "canvas_height": canvas_height,
             }
             self.template = Path(template_path).read_text(encoding="utf-8")
+            self.template_width = 1920
+            self.template_height = 1080
             self.width = int(canvas_width)
             self.height = int(canvas_height)
 
@@ -2610,8 +2612,8 @@ def test_build_layout_preview_html_uses_default_frame_template_without_layered_s
 
     html = output_preview._build_layout_preview_html(
         {
-            "title": "默认模板预览",
-            "layout_preview_caption_text": "默认字幕",
+            "title": "用户标题",
+            "text": "用户正文第一句，用来作为即时模板预览字幕。",
             "frame_template": "1920x1080/image_landscape_minimal.html",
             "canvas_width": 1280,
             "canvas_height": 720,
@@ -2629,10 +2631,12 @@ def test_build_layout_preview_html_uses_default_frame_template_without_layered_s
     )
 
     assert html is not None
-    assert html.width == 1280
-    assert html.height == 720
-    assert "默认模板预览" in html.html
-    assert "默认字幕" in html.html
+    assert html.width == 1920
+    assert html.height == 1080
+    assert "用户标题" in html.html
+    assert "用户正文第一句" in html.html
+    assert "默认模板预览" not in html.html
+    assert "服务端预览前使用当前模板规则生成即时预览" not in html.html
     assert "pixelle-media-layer" in html.html
     assert "must not be trusted" not in html.html
     assert captured["init"] == {
@@ -2643,6 +2647,11 @@ def test_build_layout_preview_html_uses_default_frame_template_without_layered_s
     assert captured["render_kwargs"]["media_placement"]["scale_percent"] == 90
     assert captured["render_kwargs"]["media_width"] == 768
     assert captured["render_kwargs"]["media_height"] == 768
+    assert (
+        captured["render_kwargs"]["image"]
+        == Path("resources/example.png").resolve().as_uri()
+    )
+    assert captured["render_kwargs"]["ext"]["media_layout_mode"] == "template"
 
 
 def test_render_single_output_preserves_ui_size_contract_when_generating(
