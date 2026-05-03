@@ -109,11 +109,26 @@ def get_or_create_local_platform_dependencies():
         from api.config import api_config
         from api.platform_dependencies import build_platform_dependencies
         from api.tasks.factory import build_local_task_runtime
+        from api.video.executor_factory import register_video_generation_executor
+        from api.workbench.executor_factory import register_storyboard_workbench_executors
 
         runtime = build_local_task_runtime(api_config)
         _LOCAL_TASK_EXECUTOR_REGISTRY = runtime.executor_registry
         _LOCAL_WORKER_REGISTRY = runtime.worker_registry
         _LOCAL_PLATFORM_TASK_MANAGER = runtime.task_manager
+
+        def provider():
+            return get_pixelle_video()
+
+        register_video_generation_executor(
+            _LOCAL_TASK_EXECUTOR_REGISTRY,
+            core_provider=provider,
+            artifact_store=_LOCAL_PLATFORM_TASK_MANAGER.registry.artifact_store,
+        )
+        register_storyboard_workbench_executors(
+            _LOCAL_TASK_EXECUTOR_REGISTRY,
+            core_provider=provider,
+        )
         run_async(_LOCAL_PLATFORM_TASK_MANAGER.start())
         _LOCAL_PLATFORM_DEPENDENCIES = build_platform_dependencies(
             api_config,

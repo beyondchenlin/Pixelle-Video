@@ -16,19 +16,20 @@ Task management endpoints
 Endpoints for managing async tasks (checking status, canceling, etc.)
 """
 
-from typing import List, Optional
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 
-from api.schemas.tasks import TaskListResponse
-from api.tasks import Task, TaskStatus, task_manager
+from api.schemas.tasks import TaskListResponse, TaskResponse
+from api.tasks import Task, TaskStatus, TaskType, task_manager
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
 
-@router.get("", response_model=List[Task])
+@router.get("", response_model=list[TaskResponse])
 async def list_tasks(
+    request: Request,
     status: Optional[TaskStatus] = Query(None, description="Filter by status"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of tasks")
 ):
@@ -44,7 +45,7 @@ async def list_tasks(
     """
     try:
         tasks = await task_manager.list_tasks(status=status, limit=limit)
-        return tasks
+        return [present_task(task, request=request) for task in tasks]
         
     except Exception as e:
         logger.error(f"List tasks error: {e}")
@@ -53,6 +54,7 @@ async def list_tasks(
 
 @router.get("/page", response_model=TaskListResponse)
 async def list_tasks_page(
+    request: Request,
     status: Optional[TaskStatus] = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=1000, description="Tasks per page"),
@@ -65,7 +67,7 @@ async def list_tasks_page(
         tasks = await task_manager.list_tasks(status=status, limit=page_size, offset=offset)
         total = await task_manager.count_tasks(status=status)
         return TaskListResponse(
-            tasks=tasks,
+            tasks=[present_task(task, request=request) for task in tasks],
             total=total,
             page=page,
             page_size=page_size,
@@ -76,8 +78,8 @@ async def list_tasks_page(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{task_id}", response_model=Task)
-async def get_task(task_id: str):
+@router.get("/{task_id}", response_model=TaskResponse)
+async def get_task(task_id: str, request: Request):
     """
     Get task details
     
@@ -93,7 +95,7 @@ async def get_task(task_id: str):
         if not task:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         
-        return task
+        return present_task(task, request=request)
         
     except HTTPException:
         raise
@@ -129,3 +131,30 @@ async def cancel_task(task_id: str):
     except Exception as e:
         logger.error(f"Cancel task error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def task_storage_key_to_url(request: Request, storage_key: str) -> str:
+    base_url = str(request.base_url).rstrip("/")
+    return f"{base_url}/api/files/{storage_key.lstrip('/')}"
+
+
+def present_task(task: Task, *, request: Request) -> TaskResponse:
+    result = task.result
+    if (
+        task.task_type is TaskType.VIDEO_GENERATION
+        and isinstance(result, dict)
+        and result.get("storage_key")
+        and "video_url" not in result
+    ):
+        result = {
+            **result,
+            "video_url": task_storage_key_to_url(request, str(result["storage_key"])),
+        }
+    return TaskResponse(
+        task_id=task.task_id,
+        task_type=task.task_type,
+        status=task.status,
+        progress=task.progress,
+        result=result,
+        error=task.error,
+    )

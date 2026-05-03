@@ -104,7 +104,7 @@ class TaskManager:
         request_params: dict,
     ):
         """Reserve or reuse an idempotent generation task through the registry."""
-        return await self.registry.reserve_or_reuse(
+        outcome = await self.registry.reserve_or_reuse(
             fingerprint=generation_fingerprint,
             task_type=task_type,
             request_params=request_params,
@@ -114,6 +114,25 @@ class TaskManager:
                 api_config.task_retention_time,
             ),
         )
+        if (
+            outcome.created
+            and self.execution_mode == "embedded"
+            and self.executor_registry.can_execute(task_type).can_execute
+        ):
+
+            async def _run_registered_executor(*, progress_dispatcher=None):
+                return await self.executor_registry.execute(
+                    task_type,
+                    task_id=outcome.task.task_id,
+                    request_params=dict(request_params),
+                    progress_dispatcher=progress_dispatcher,
+                )
+
+            await self.execute_task(
+                task_id=outcome.task.task_id,
+                coro_func=_run_registered_executor,
+            )
+        return outcome
 
     async def can_execute_task_type(self, task_type: TaskType) -> bool:
         """Return whether this runtime currently has an executor for a task type."""
