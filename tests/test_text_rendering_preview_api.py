@@ -71,6 +71,53 @@ def test_text_rendering_preview_frame_api_returns_public_artifact_contract(monke
     assert not hasattr(captured["request"], "template_params")
 
 
+def test_text_rendering_preview_frame_api_preserves_legacy_anchor_input(monkeypatch):
+    captured = {}
+
+    class FakeService:
+        def __init__(self, *, object_store, renderer=None):
+            pass
+
+        async def render_preview_frame(self, request):
+            captured["request"] = request
+            return TextRenderingPreviewFrameResult(
+                storage_key="artifacts/demo/frame.png",
+                url=None,
+                fingerprint="fp-api",
+            )
+
+    monkeypatch.setattr(
+        "api.routers.text_rendering_preview.TextRenderingPreviewFrameService",
+        FakeService,
+    )
+
+    app = FastAPI()
+    app.state.artifact_object_store = object()
+    app.include_router(router)
+    client = TestClient(app)
+
+    response = client.post(
+        "/text-rendering/preview-frame",
+        json={
+            "workspace_id": "demo",
+            "template_id": "image_default",
+            "canvas_width": 1080,
+            "canvas_height": 1920,
+            "media_width": 900,
+            "media_height": 1200,
+            "media_placement": {"anchor": "bottom_right", "scale_percent": 80},
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["request"].media_placement == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 80,
+        "anchor": "bottom_right",
+    }
+
+
 def test_text_rendering_preview_frame_requires_injected_object_store(monkeypatch):
     service_called = False
 

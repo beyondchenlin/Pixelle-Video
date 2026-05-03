@@ -195,6 +195,14 @@ def test_render_style_config_returns_layered_template_spec_payload(monkeypatch):
     assert [layer["type"] for layer in spec["layers"]] == ["background", "image"]
     assert "text_rendering_real_preview_frame" not in result
     assert "preview_media_url" not in result
+    assert result["media_placement"] == {
+        "basis": "canvas",
+        "fit": "contain",
+        "scale_percent": 100,
+        "offset_x": 0,
+        "offset_y": 0,
+    }
+    assert "anchor" not in result["media_placement"]
 
 
 def test_render_style_config_updates_layer_properties_from_editor_controls(monkeypatch):

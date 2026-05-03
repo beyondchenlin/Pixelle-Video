@@ -1,7 +1,23 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 from web.components import style_config
+
+
+def test_product_locales_do_not_expose_legacy_media_anchor_labels():
+    locale_paths = [
+        Path("web/i18n/locales/zh_CN.json"),
+        Path("web/i18n/locales/en_US.json"),
+    ]
+
+    for locale_path in locale_paths:
+        translations = json.loads(locale_path.read_text(encoding="utf-8"))["t"]
+
+        assert "media_placement.anchor" not in translations
+        assert "media_placement.summary" not in translations
+        assert not any(key.startswith("media_placement.anchor.") for key in translations)
+        assert "text_style.position.top_left" in translations
 
 
 def test_landscape_template_gallery_preview_assets_exist():
