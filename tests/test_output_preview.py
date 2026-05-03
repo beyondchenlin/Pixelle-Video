@@ -1,3 +1,4 @@
+import ast
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
@@ -147,6 +148,30 @@ def test_render_scaled_video_preview_uses_scoped_container(monkeypatch):
     assert ".st-key-output_video_preview [data-testid=\"stVideo\"]" in css
     assert captured["container_key"] == "output_video_preview"
     assert captured["video"] == ("final.mp4", "stretch")
+
+
+def test_single_generation_runner_initializes_rerun_flag_before_try_block():
+    source = (PROJECT_ROOT / "web" / "components" / "output_preview.py").read_text(
+        encoding="utf-8"
+    )
+    tree = ast.parse(source)
+    run_generation = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "run_generation"
+    )
+    first_try_index = next(
+        index for index, node in enumerate(run_generation.body)
+        if isinstance(node, ast.Try)
+    )
+    assigned_before_try = {
+        target.id
+        for node in run_generation.body[:first_try_index]
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+
+    assert "rerun_after_generation" in assigned_before_try
 
 
 def test_video_generation_pipelines_use_shared_scaled_preview_renderer():

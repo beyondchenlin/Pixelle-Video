@@ -799,6 +799,7 @@ def _render_generation_section(pixelle_video, video_params):
                     import time
 
                     start_time = time.time()
+                    rerun_after_generation = False
 
                     try:
                         request_id = new_correlation_id("req")
