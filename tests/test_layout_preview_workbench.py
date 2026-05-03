@@ -778,7 +778,16 @@ def test_render_layout_preview_workbench_scales_trusted_preview_html_with_dimens
     assert html_call["height"] == 360
     assert html_call["scrolling"] is False
     assert "layout-workbench-scaled-preview" in html_call["html"]
+    assert "layout-workbench-scaled-viewport" in html_call["html"]
     assert "layout-workbench-scaled-surface" in html_call["html"]
+    assert "width: 1280px;" in html_call["html"]
+    assert "height: 720px;" in html_call["html"]
+    assert "transform-origin: top left;" in html_call["html"]
+    assert "scale = Math.min(" in html_call["html"]
+    assert "viewport.style.width" in html_call["html"]
+    assert "viewport.style.height" in html_call["html"]
+    assert "surface.style.transform" in html_call["html"]
+    assert "surface.style.marginLeft" not in html_call["html"]
     assert 'data-preview-width="1280"' in html_call["html"]
     assert 'data-preview-max-height="360"' in html_call["html"]
     assert "background: transparent;" in html_call["html"]
@@ -817,7 +826,12 @@ def test_render_layout_preview_workbench_preserves_preview_aspect_for_portrait(
     html_call = fake_components.html_calls[0]
     assert html_call["height"] == 360
     assert html_call["scrolling"] is False
+    assert "layout-workbench-scaled-viewport" in html_call["html"]
+    assert "width: 720px;" in html_call["html"]
+    assert "height: 1280px;" in html_call["html"]
     assert 'data-preview-width="720"' in html_call["html"]
     assert 'data-preview-height="1280"' in html_call["html"]
-    assert "const targetWidth = targetHeight * sourceWidth / sourceHeight;" in html_call["html"]
+    assert "viewport.style.width" in html_call["html"]
+    assert "viewport.style.height" in html_call["html"]
+    assert "surface.style.transform" in html_call["html"]
     assert "portrait preview" in html_call["html"]

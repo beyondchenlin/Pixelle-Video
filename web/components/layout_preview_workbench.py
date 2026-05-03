@@ -828,19 +828,23 @@ def _build_scaled_preview_html(preview_html: TrustedPreviewHTML) -> str:
       overflow: hidden;
       background: transparent;
     }}
-    .layout-workbench-scaled-surface {{
-      width: {width}px;
-      height: {height}px;
-      max-width: 100%;
-      max-height: {max_height}px;
+    .layout-workbench-scaled-viewport {{
       flex: 0 0 auto;
       overflow: hidden;
       background: transparent;
     }}
+    .layout-workbench-scaled-surface {{
+      width: {width}px;
+      height: {height}px;
+      flex: 0 0 auto;
+      overflow: hidden;
+      background: transparent;
+      transform-origin: top left;
+    }}
     .layout-workbench-scaled-preview iframe {{
       display: block;
-      width: 100%;
-      height: 100%;
+      width: {width}px;
+      height: {height}px;
       border: 0;
       background: transparent;
     }}
@@ -853,27 +857,30 @@ def _build_scaled_preview_html(preview_html: TrustedPreviewHTML) -> str:
     data-preview-height="{height}"
     data-preview-max-height="{max_height}"
   >
-    <div class="layout-workbench-scaled-surface">
-      <iframe title="layout preview" srcdoc="{srcdoc}"></iframe>
+    <div class="layout-workbench-scaled-viewport">
+      <div class="layout-workbench-scaled-surface">
+        <iframe title="layout preview" srcdoc="{srcdoc}"></iframe>
+      </div>
     </div>
   </div>
   <script>
     const shell = document.querySelector('.layout-workbench-scaled-preview');
-    const surface = shell.querySelector('.layout-workbench-scaled-surface');
+    const viewport = shell.querySelector('.layout-workbench-scaled-viewport');
+    const surface = viewport.querySelector('.layout-workbench-scaled-surface');
     const sourceWidth = Number(shell.dataset.previewWidth);
     const sourceHeight = Number(shell.dataset.previewHeight);
     const maxHeight = Number(shell.dataset.previewMaxHeight);
     function fitPreview() {{
-      const targetHeight = Math.min(maxHeight, shell.clientHeight || maxHeight);
-      const targetWidth = targetHeight * sourceWidth / sourceHeight;
-      if (targetWidth <= shell.clientWidth) {{
-        surface.style.width = `${{targetWidth}}px`;
-        surface.style.height = `${{targetHeight}}px`;
-      }} else {{
-        surface.style.width = `${{shell.clientWidth}}px`;
-        surface.style.height = `${{shell.clientWidth * sourceHeight / sourceWidth}}px`;
-      }}
-      const renderedHeight = Math.ceil(surface.getBoundingClientRect().height);
+      const scale = Math.min(
+        shell.clientWidth / sourceWidth,
+        maxHeight / sourceHeight
+      );
+      surface.style.transform = `scale(${{Math.max(0.01, scale)}})`;
+      const renderedWidth = Math.ceil(sourceWidth * scale);
+      const renderedHeight = Math.ceil(sourceHeight * scale);
+      viewport.style.width = `${{renderedWidth}}px`;
+      viewport.style.height = `${{renderedHeight}}px`;
+      shell.style.height = `${{renderedHeight}}px`;
       if (window.frameElement && renderedHeight > 0) {{
         window.frameElement.style.height = `${{renderedHeight}}px`;
       }}

@@ -140,6 +140,25 @@ def test_all_image_templates_use_768_square_media_defaults(template_path):
     assert generator.get_media_size() == (768, 768)
 
 
+def test_square_minimal_template_reserves_title_caption_and_signature_regions():
+    template = Path("templates/1080x1080/image_minimal_framed.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "PixelleNotoSansSC" in template
+    assert "{{title}}" in template
+    assert "{{text}}" in template
+    assert "{{brand=LanRen}}" in template
+    assert "{{author=LanRen.AI}}" in template
+    assert "{{describe=LanRen}}" in template
+    assert "pixelle_media_layer" in template
+    assert "signature" in template
+    assert "display: grid;" in template
+    assert "grid-template-rows: 120px 602px 104px 82px;" in template
+    assert "aspect-ratio: 1 / 1;" in template
+    assert ".signature-mark" not in template
+
+
 def test_prepare_html_for_render_injects_template_base_href(tmp_path):
     test_root = tmp_path / "test_frame_html_base_href"
     template_dir = test_root / "templates" / "1920x1080"

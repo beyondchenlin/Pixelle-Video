@@ -5,54 +5,77 @@
     <meta name="template:media-width" content="768">
     <meta name="template:media-height" content="768">
     <meta name="viewport" content="width=1080, height=1080">
-    <title>极简边框风格 - 1080x1080</title>
+    <title>Square Minimal Framed - 1080x1080</title>
     <style>
+        @font-face {
+            font-family: 'PixelleNotoSansSC';
+            src: url('../../resources/hyperframes/runtime/fonts/assets/NotoSansSC-wght.ttf') format('truetype');
+            font-style: normal;
+            font-weight: 100 900;
+            font-display: swap;
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         html, body { width: 1080px; height: 1080px; overflow: hidden; }
 
         body {
-            font-family: 'PingFang SC', 'Source Han Sans', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: 'PixelleNotoSansSC', 'PingFang SC', 'Source Han Sans', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, sans-serif;
             background: #fafafa;
             color: #1a1a1a;
-            display: flex;
-            flex-direction: column;
-            padding: 100px 80px;
+            display: grid;
+            grid-template-rows: 120px 602px 104px 82px;
+            row-gap: 24px;
+            padding: 58px 84px;
         }
 
-        /* 顶部标题 - 极简风格 */
         .header {
             text-align: center;
-            margin-bottom: 60px;
-        }
-
-        .title {
-            font-size: 56px;
-            font-weight: 300;
-            line-height: 1.3;
-            color: #2d3436;
-            letter-spacing: 3px;
-        }
-
-        /* 图片区域 - 细边框，大留白 */
-        .image-section {
-            flex: 1;
+            position: relative;
+            z-index: 2;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 30px 0;
+        }
+
+        .title {
+            font-size: 52px;
+            font-weight: 650;
+            line-height: 1.24;
+            color: #2d3436;
+            letter-spacing: 0;
+            max-width: 830px;
+        }
+
+        .image-section {
+            display: flex;
+            align-items: center;
+            justify-content: center;
             min-height: 0;
         }
 
         .image-container {
-            width: 100%;
-            max-width: 720px;
-            height: 100%;
-            max-height: 100%;
+            width: 602px;
+            height: 602px;
+            aspect-ratio: 1 / 1;
             border: 2px solid #2d3436;
             background: #fff;
             padding: 8px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .image-container .pixelle-media-layer {
+            position: absolute;
+            inset: 8px;
+        }
+
+        .image-container .pixelle-media-box {
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
         }
 
         .image-container img {
@@ -62,25 +85,64 @@
             display: block;
         }
 
-        /* 底部文字 - 极简 */
         .footer {
             text-align: center;
-            margin-top: 50px;
+            position: relative;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .text {
-            font-size: 28px;
-            font-weight: 300;
-            line-height: 1.6;
+            font-size: 32px;
+            font-weight: 450;
+            line-height: 1.36;
             color: #636e72;
-            letter-spacing: 1px;
-            max-width: 700px;
+            letter-spacing: 0;
+            max-width: 720px;
             margin: 0 auto;
         }
 
-        @media (max-width: 1080px) { 
-            .title { font-size: 50px; } 
-            .text { font-size: 26px; } 
+        .signature {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 28px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(45, 52, 54, 0.16);
+            position: relative;
+            z-index: 2;
+        }
+
+        .signature-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            text-align: left;
+        }
+
+        .signature-brand {
+            font-size: 22px;
+            font-weight: 600;
+            color: #2d3436;
+        }
+
+        .signature-author {
+            font-size: 26px;
+            font-weight: 500;
+            color: #2d3436;
+        }
+
+        .signature-desc {
+            font-size: 20px;
+            line-height: 1.4;
+            color: #636e72;
+        }
+
+        @media (max-width: 1080px) {
+            .title { font-size: 50px; }
+            .text { font-size: 30px; }
         }
     </style>
 </head>
@@ -97,6 +159,14 @@
 
     <div class="footer">
         <div class="text">{{text}}</div>
+    </div>
+
+    <div class="signature">
+        <div class="signature-stack">
+            <div class="signature-brand">{{brand=LanRen}}</div>
+            <div class="signature-author">{{author=LanRen.AI}}</div>
+            <div class="signature-desc">{{describe=LanRen}}</div>
+        </div>
     </div>
 </body>
 </html>
