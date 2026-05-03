@@ -98,6 +98,36 @@ def test_platform_dependencies_attach_same_objects_to_core(tmp_path):
     assert Path(tmp_path / "output" / "_objects").is_dir()
 
 
+def test_platform_dependencies_mount_ip_apply_service_to_app_and_core(tmp_path):
+    from types import SimpleNamespace
+
+    from api.platform_dependencies import configure_platform_dependencies
+    from pixelle_video.services.asset_prompt_plan_apply import AssetPromptPlanApplyService
+    from pixelle_video.services.stale_write_integration import StaleAwarePromptPlanWriteService
+
+    app = FastAPI()
+    core = SimpleNamespace()
+    dependencies = configure_platform_dependencies(
+        app,
+        APIConfig(runtime_profile="dev", artifact_base_path=str(tmp_path / "output")),
+        core=core,
+    )
+
+    assert isinstance(dependencies.asset_prompt_plan_apply_service, AssetPromptPlanApplyService)
+    assert app.state.asset_prompt_plan_apply_service is dependencies.asset_prompt_plan_apply_service
+    assert core.asset_prompt_plan_apply_service is dependencies.asset_prompt_plan_apply_service
+    assert dependencies.asset_prompt_plan_apply_service.asset_bible_repository is (
+        dependencies.asset_bible_repository
+    )
+    assert dependencies.asset_prompt_plan_apply_service.prompt_plan_repository is (
+        dependencies.prompt_plan_repository
+    )
+    assert isinstance(
+        dependencies.asset_prompt_plan_apply_service.stale_prompt_plan_writer,
+        StaleAwarePromptPlanWriteService,
+    )
+
+
 def test_web_session_pixelle_video_mounts_storyboard_workbench_dependencies(monkeypatch, tmp_path):
     from api.config import api_config
     from web.state import session as web_session
@@ -125,6 +155,40 @@ def test_web_session_pixelle_video_mounts_storyboard_workbench_dependencies(monk
             "storyboard_workbench_service",
         ):
             assert getattr(core, attr_name) is getattr(dependencies, attr_name)
+    finally:
+        if core is not None:
+            web_session.run_async(core.cleanup())
+        web_session._PIXELLE_VIDEO_SESSIONS.clear()
+        shutdown_all_async_runtimes()
+        if web_session._LOCAL_PLATFORM_TASK_MANAGER is not None:
+            web_session.run_async(web_session._LOCAL_PLATFORM_TASK_MANAGER.stop())
+        web_session._LOCAL_PLATFORM_TASK_MANAGER = None
+        web_session._LOCAL_PLATFORM_DEPENDENCIES = None
+
+
+def test_web_session_pixelle_video_mounts_ip_apply_service(monkeypatch, tmp_path):
+    from api.config import api_config
+    from pixelle_video.services.asset_prompt_plan_apply import AssetPromptPlanApplyService
+    from web.state import session as web_session
+    from web.state.async_runtime import shutdown_all_async_runtimes
+
+    monkeypatch.setattr(api_config, "artifact_base_path", str(tmp_path / "output"))
+    web_session._LOCAL_PLATFORM_DEPENDENCIES = None
+    web_session._LOCAL_PLATFORM_TASK_MANAGER = None
+    web_session._PIXELLE_VIDEO_SESSIONS.clear()
+    monkeypatch.setattr(web_session, "get_current_session_key", lambda: "test_web_session_ip")
+    monkeypatch.setattr(web_session, "register_async_cleanup", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(web_session, "session_exists", lambda _session_key: True)
+
+    core = None
+    try:
+        core = web_session.get_pixelle_video()
+        dependencies = web_session.get_or_create_local_platform_dependencies()
+
+        assert isinstance(core.asset_prompt_plan_apply_service, AssetPromptPlanApplyService)
+        assert core.asset_prompt_plan_apply_service is (
+            dependencies.asset_prompt_plan_apply_service
+        )
     finally:
         if core is not None:
             web_session.run_async(core.cleanup())

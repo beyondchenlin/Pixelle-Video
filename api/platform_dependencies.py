@@ -15,6 +15,8 @@ from api.workbench.task_submitter import (
 from pixelle_video.services.artifact_dependency_integration import (
     ArtifactDependencyWriteService,
 )
+from pixelle_video.services.asset_prompt_plan_apply import AssetPromptPlanApplyService
+from pixelle_video.services.stale_write_integration import StaleAwarePromptPlanWriteService
 from pixelle_video.services.storyboard_workbench import StoryboardWorkbenchService
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 from pixelle_video.storage.dev_repositories import (
@@ -37,6 +39,7 @@ class PlatformDependencies:
     asset_bible_repository: FilesystemDevAssetBibleRepository
     dependency_edge_repository: FilesystemDevDependencyEdgeRepository
     stale_mark_repository: FilesystemDevStaleMarkRepository
+    asset_prompt_plan_apply_service: AssetPromptPlanApplyService
     storyboard_workbench_state_store: FilesystemDevStoryboardWorkbenchStateStore
     storyboard_workbench_service: StoryboardWorkbenchService
     task_executor_registry: TaskExecutorRegistry | None = None
@@ -92,6 +95,17 @@ def build_platform_dependencies(
     storyboard_workbench_state_store = FilesystemDevStoryboardWorkbenchStateStore(
         f"{platform_root}/storyboard_workbench"
     )
+    stale_prompt_plan_writer = StaleAwarePromptPlanWriteService(
+        prompt_plan_repository=prompt_plan_repository,
+        asset_bible_repository=asset_bible_repository,
+        edge_repository=dependency_edge_repository,
+        stale_repository=stale_mark_repository,
+    )
+    asset_prompt_plan_apply_service = AssetPromptPlanApplyService(
+        asset_bible_repository=asset_bible_repository,
+        prompt_plan_repository=prompt_plan_repository,
+        stale_prompt_plan_writer=stale_prompt_plan_writer,
+    )
     workbench_service = StoryboardWorkbenchService(
         artifact_repository=artifact_repository,
         object_store=artifact_object_store,
@@ -114,6 +128,7 @@ def build_platform_dependencies(
         asset_bible_repository=asset_bible_repository,
         dependency_edge_repository=dependency_edge_repository,
         stale_mark_repository=stale_mark_repository,
+        asset_prompt_plan_apply_service=asset_prompt_plan_apply_service,
         storyboard_workbench_state_store=storyboard_workbench_state_store,
         storyboard_workbench_service=workbench_service,
         task_executor_registry=task_executor_registry,
