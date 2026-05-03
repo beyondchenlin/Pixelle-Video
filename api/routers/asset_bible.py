@@ -10,6 +10,8 @@ from api.schemas.asset_bible import (
     AssetBibleDraftRequest,
     AssetBibleListResponse,
     AssetBibleResponse,
+    PromptPlanApplyRequest,
+    PromptPlanApplyResponse,
     PromptPlanProjectionPreviewRequest,
     PromptPlanProjectionPreviewResponse,
     SceneCastDraftRequest,
@@ -19,6 +21,13 @@ from api.schemas.asset_bible import (
 from api.schemas.storyboard_workbench import validate_public_reference_id
 from pixelle_video.models.asset_bible import AssetBible
 from pixelle_video.models.scene_cast import SceneCast
+from pixelle_video.services.asset_prompt_plan_apply import (
+    AssetPromptPlanApplyService,
+    PromptPlanApplyDependencyError,
+    PromptPlanApplyNotFoundError,
+    PromptPlanApplyRepositoryIdentityError,
+    PromptPlanApplyValidationError,
+)
 from pixelle_video.services.asset_prompt_plan_composer import (
     AssetBibleNotFoundError,
     AssetPromptPlanComposerService,
@@ -34,6 +43,7 @@ from pixelle_video.services.scene_casting import (
 )
 from pixelle_video.services.stale_write_integration import (
     StaleAwareAssetBibleWriteService,
+    StaleAwarePromptPlanWriteService,
     StaleWriteDependencyNotFoundError,
     StaleWriteIntegrationError,
 )
@@ -384,6 +394,56 @@ async def preview_prompt_plan_projection(
         ) from exc
 
 
+@router.post(
+    "/{project_id}/asset-bible/{asset_bible_id}/scene-casts/{scene_cast_id}/prompt-plan-apply",
+    response_model=PromptPlanApplyResponse,
+)
+async def apply_scene_cast_to_prompt_plan(
+    project_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+    payload: PromptPlanApplyRequest,
+    request: Request,
+) -> PromptPlanApplyResponse:
+    project_id = _validate_public_id("project_id", project_id)
+    asset_bible_id = _validate_public_id("asset_bible_id", asset_bible_id)
+    scene_cast_id = _validate_public_id("scene_cast_id", scene_cast_id)
+    service = AssetPromptPlanApplyService(
+        asset_bible_repository=_get_asset_bible_repository(request),
+        prompt_plan_repository=_get_prompt_plan_repository(request),
+        stale_prompt_plan_writer=_build_stale_prompt_plan_write_service(request),
+    )
+    try:
+        application = await service.apply_scene_cast_to_prompt_plan_bundle(
+            workspace_id=payload.workspace_id,
+            project_id=project_id,
+            asset_bible_id=asset_bible_id,
+            scene_cast_id=scene_cast_id,
+            storyboard_plan_id=payload.storyboard_plan_id,
+            frame_id=payload.frame_id,
+            actor_id=payload.actor_id,
+        )
+    except PromptPlanApplyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PromptPlanApplyValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except PromptPlanApplyRepositoryIdentityError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except PromptPlanApplyDependencyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        return PromptPlanApplyResponse(application=application.to_dict())
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=_safe_response_validation_detail(
+                exc,
+                response_name="prompt plan apply response",
+                default_field_path="application",
+            ),
+        ) from exc
+
+
 def _get_asset_bible_repository(request: Request):
     repository = getattr(request.app.state, "asset_bible_repository", None)
     if repository is None:
@@ -423,6 +483,22 @@ def _build_stale_asset_write_service(request: Request) -> StaleAwareAssetBibleWr
             detail="stale write repositories are not fully configured",
         )
     return StaleAwareAssetBibleWriteService(
+        asset_bible_repository=_get_asset_bible_repository(request),
+        edge_repository=edge_repository,
+        stale_repository=stale_repository,
+    )
+
+
+def _build_stale_prompt_plan_write_service(request: Request) -> StaleAwarePromptPlanWriteService:
+    edge_repository = _get_dependency_edge_repository(request)
+    stale_repository = _get_stale_mark_repository(request)
+    if edge_repository is None or stale_repository is None:
+        raise HTTPException(
+            status_code=503,
+            detail="stale write repositories are not fully configured",
+        )
+    return StaleAwarePromptPlanWriteService(
+        prompt_plan_repository=_get_prompt_plan_repository(request),
         asset_bible_repository=_get_asset_bible_repository(request),
         edge_repository=edge_repository,
         stale_repository=stale_repository,

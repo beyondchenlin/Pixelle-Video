@@ -93,6 +93,7 @@ class FakeAssetBibleRepository:
 class FakePromptPlanRepository:
     prompt_plans: dict[tuple[str, str], list[dict[str, Any]]] = field(default_factory=dict)
     load_calls: list[tuple[str, str]] = field(default_factory=list)
+    saved_bundles: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
 
     async def load_prompt_plans_by_storyboard(
         self,
@@ -101,6 +102,14 @@ class FakePromptPlanRepository:
     ) -> list[dict[str, Any]]:
         self.load_calls.append((workspace_id, storyboard_id))
         return self.prompt_plans.get((workspace_id, storyboard_id), [])
+
+    async def save_prompt_plan_bundle(
+        self,
+        workspace_id: str,
+        bundle: dict[str, Any],
+    ) -> dict[str, Any]:
+        self.saved_bundles.append((workspace_id, dict(bundle)))
+        return dict(bundle)
 
 
 @dataclass
@@ -959,6 +968,70 @@ def test_projection_preview_does_not_use_stale_write_repositories():
     assert response.status_code == 200
     assert edge_repository.edges == {}
     assert stale_repository.marks == {}
+
+
+def test_apply_scene_cast_to_prompt_plan_saves_projected_bundle():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    client.app.state.dependency_edge_repository = FakeDependencyEdgeRepository()
+    client.app.state.stale_mark_repository = FakeStaleMarkRepository()
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-apply",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["application"]["prompt_plan"]["character_ids"] == ["char_luna"]
+    assert body["application"]["prompt_plan"]["scene_id"] == "scene_lab"
+    assert body["application"]["prompt_plan"]["prop_ids"] == ["prop_compass"]
+    assert body["application"]["prompt_plan"]["style_id"] == "style_warm_comic"
+    assert body["application"]["source"] == {
+        "asset_bible_id": "bible_demo",
+        "scene_cast_id": "cast_frame_1",
+        "prompt_plan_id": "prompt_plan_1",
+    }
+    assert body["application"]["write"]["dependency_edge_count"] == 1
+    assert len(prompt_plan_repository.saved_bundles) == 1
+    saved_bundle = prompt_plan_repository.saved_bundles[0][1]
+    assert saved_bundle["prompt_plans"][0]["metadata"]["scene_cast_id"] == "cast_frame_1"
+    assert saved_bundle["prompt_plans"][0]["metadata"]["asset_bible_id"] == "bible_demo"
+
+
+def test_projection_preview_does_not_save_prompt_plan_bundle():
+    client, _, prompt_plan_repository = _client_with_projection_dependencies()
+    client.app.state.dependency_edge_repository = FakeDependencyEdgeRepository()
+    client.app.state.stale_mark_repository = FakeStaleMarkRepository()
+
+    response = client.post(
+        "/projects/project_1/asset-bible/bible_demo/scene-casts/cast_frame_1/prompt-plan-projection",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 200
+    assert prompt_plan_repository.saved_bundles == []
+
+
+def test_apply_rejects_path_like_ids_before_repository_calls():
+    repository = FakeAssetBibleRepository()
+    prompt_plan_repository = FakePromptPlanRepository()
+    client = _client(
+        repository,
+        prompt_plan_repository=prompt_plan_repository,
+        edge_repository=FakeDependencyEdgeRepository(),
+        stale_repository=FakeStaleMarkRepository(),
+    )
+
+    response = client.post(
+        "/projects/project_1/asset-bible/D:\\bad/scene-casts/cast_frame_1/prompt-plan-apply",
+        json=_projection_request_payload(),
+    )
+
+    assert response.status_code == 422
+    assert repository.load_asset_bible_calls == []
+    assert repository.load_scene_cast_calls == []
+    assert prompt_plan_repository.load_calls == []
 
 
 def test_prompt_plan_projection_api_rejects_text_rendering_metadata_from_repository():

@@ -469,6 +469,27 @@ class PromptPlanProjectionPreviewRequest(BaseModel):
         return validate_public_reference_id(info.field_name, value)
 
 
+class PromptPlanApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    storyboard_plan_id: str
+    frame_id: str
+    actor_id: str | None = None
+
+    @field_validator("workspace_id", "storyboard_plan_id", "frame_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator("actor_id")
+    @classmethod
+    def validate_optional_actor_id(cls, value: str | None, info) -> str | None:
+        if value is None:
+            return None
+        return validate_public_reference_id(info.field_name, value)
+
+
 class PromptPlanProjectionSourceResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -551,6 +572,40 @@ class PromptPlanProjectionPreviewResponse(BaseModel):
     success: bool = True
     message: str = "Success"
     projection: PromptPlanProjectionPayload
+
+
+class PromptPlanApplySourceResponse(PromptPlanProjectionSourceResponse):
+    pass
+
+
+class PromptPlanApplyWriteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version_tokens: list[str] = Field(default_factory=list)
+    dependency_edge_count: int = 0
+    stale_mark_count: int = 0
+
+    @field_validator("version_tokens")
+    @classmethod
+    def validate_version_tokens(cls, value: list[str], info) -> list[str]:
+        return [
+            validate_public_reference_id(info.field_name, item)
+            for item in value
+        ]
+
+
+class PromptPlanApplyPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt_plan: PromptPlanProjectionPromptPlanResponse
+    source: PromptPlanApplySourceResponse
+    write: PromptPlanApplyWriteResponse
+
+
+class PromptPlanApplyResponse(BaseModel):
+    success: bool = True
+    message: str = "Success"
+    application: PromptPlanApplyPayload
 
 
 def _reject_path_like_metadata(path: str, value: Any) -> None:
@@ -689,6 +744,11 @@ __all__ = [
     "AssetBibleListResponse",
     "AssetBibleResponse",
     "CharacterProfileDraft",
+    "PromptPlanApplyPayload",
+    "PromptPlanApplyRequest",
+    "PromptPlanApplyResponse",
+    "PromptPlanApplySourceResponse",
+    "PromptPlanApplyWriteResponse",
     "PromptPlanProjectionPayload",
     "PromptPlanProjectionPromptPlanResponse",
     "PromptPlanProjectionPreviewRequest",
