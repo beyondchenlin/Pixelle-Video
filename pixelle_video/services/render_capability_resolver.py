@@ -17,6 +17,8 @@ class RenderCapabilityInput:
     template_prerendered: bool
     element_motion_backend: str | None
     has_hyperframes_native_template: bool
+    has_layered_template_spec: bool = False
+    layered_template_prerender_available: bool = False
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,10 @@ class RenderCapabilityResolver:
             return RenderCapabilityResult(effective_backend=LEGACY_RENDER_BACKEND)
 
         if request.requested_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND:
+            if request.has_layered_template_spec:
+                return RenderCapabilityResult(
+                    effective_backend=HYPERFRAMES_COMPILED_RENDER_BACKEND
+                )
             if request.has_hyperframes_native_template:
                 return RenderCapabilityResult(
                     effective_backend=HYPERFRAMES_COMPILED_RENDER_BACKEND
@@ -41,6 +47,24 @@ class RenderCapabilityResolver:
             )
 
         if request.requested_backend == FFMPEG_MANIFEST_RENDER_BACKEND:
+            if request.has_layered_template_spec:
+                if request.element_motion_backend == "hyperframes_canvas":
+                    return RenderCapabilityResult(
+                        effective_backend=HYPERFRAMES_COMPILED_RENDER_BACKEND,
+                        fallback_reason=(
+                            "ffmpeg_manifest cannot render hyperframes_canvas element motion"
+                        ),
+                    )
+                if not request.layered_template_prerender_available:
+                    return RenderCapabilityResult(
+                        effective_backend=LEGACY_RENDER_BACKEND,
+                        fallback_reason=(
+                            "ffmpeg_manifest requires layered template prerendered assets"
+                        ),
+                    )
+                return RenderCapabilityResult(
+                    effective_backend=FFMPEG_MANIFEST_RENDER_BACKEND
+                )
             if not request.template_prerendered:
                 return RenderCapabilityResult(
                     effective_backend=LEGACY_RENDER_BACKEND,

@@ -13,6 +13,9 @@ from pixelle_video.models.template_render_context import TemplateRenderContext
 from pixelle_video.models.template_text_style_presets import resolve_template_text_style_preset
 from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID, TextStyleProfile
 from pixelle_video.services.font_discovery import resolve_font_file
+from pixelle_video.services.layered_template_adapters.hyperframes import (
+    LayeredTemplateHyperFramesAdapter,
+)
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
 from pixelle_video.services.text_style_resolver import TextStyleResolver
 from pixelle_video.services.text_style_css_contract import (
@@ -63,6 +66,21 @@ class HyperFramesCompiler:
         self.text_sanitizer = text_sanitizer or TextContentSanitizer()
 
     def compile(self, *, project_dir: Path, context: TemplateRenderContext) -> None:
+        if context.layered_template_spec is not None:
+            (project_dir / "compositions").mkdir(parents=True, exist_ok=True)
+            self._copy_runtime_assets(project_dir)
+            self._copy_custom_font_assets(
+                project_dir,
+                context.text_style_profiles,
+            )
+            LayeredTemplateHyperFramesAdapter(
+                text_sanitizer=self.text_sanitizer,
+            ).compile(
+                project_dir=project_dir,
+                context=context,
+            )
+            return
+
         template_dir = self.template_root / context.template_id
         index_template = (template_dir / "index.template.html").read_text(encoding="utf-8")
         captions_template = (

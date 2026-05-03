@@ -252,3 +252,103 @@ async def test_produce_assets_passes_layered_template_config_to_frame_processor(
             "template_body_text": "",
         }
     ]
+
+
+def test_resolve_effective_render_backend_allows_layered_template_hyperframes_without_native_template():
+    spec = _spec_payload()
+    pipeline = StandardPipeline(_DummyCore())
+    ctx = PipelineContext(input_text="topic", params={})
+    ctx.config = StoryboardConfig(
+        task_id="task-layered-hyperframes",
+        media_width=1080,
+        media_height=1920,
+        frame_template="1080x1920/image_layered_missing.html",
+        video_fps=30,
+        render_backend="hyperframes_compiled",
+        layered_template_spec=spec,
+        selected_template_preset_id="user:demo",
+    )
+
+    assert pipeline._resolve_effective_render_backend(ctx) == "hyperframes_compiled"
+    assert pipeline._get_render_backend_fallback_reason(ctx) is None
+
+
+def test_build_render_execution_plan_marks_layered_template_html_prerender(
+    tmp_path,
+    monkeypatch,
+):
+    spec = _spec_payload()
+    task_dir = tmp_path / "task-layered-plan"
+    audio_dir = task_dir / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    master_audio = audio_dir / "master_audio.wav"
+    master_audio.write_bytes(b"audio")
+    frame_path = task_dir / "frame_0.png"
+    frame_path.write_bytes(b"png")
+
+    pipeline = StandardPipeline(_DummyCore())
+    monkeypatch.setattr(
+        pipeline,
+        "_caption_renderer_enabled",
+        lambda *_args, **_kwargs: False,
+    )
+
+    ctx = PipelineContext(input_text="topic", params={})
+    ctx.task_id = "task-layered-plan"
+    ctx.task_dir = str(task_dir)
+    ctx.config = StoryboardConfig(
+        task_id="task-layered-plan",
+        media_width=1080,
+        media_height=1920,
+        frame_template="1080x1920/image_default.html",
+        video_fps=30,
+        render_backend="ffmpeg_manifest",
+        layered_template_spec=spec,
+        selected_template_preset_id="user:demo",
+    )
+    ctx.storyboard = type("StoryboardStub", (), {})()
+    ctx.storyboard.title = "Layered execution plan"
+    ctx.storyboard.frames = [
+        type(
+            "FrameStub",
+            (),
+            {
+                "index": 0,
+                "duration": 1.0,
+                "composed_image_path": str(frame_path),
+                "image_path": None,
+                "video_path": None,
+                "element_motion_video_path": None,
+                "element_animation_manifest_path": None,
+            },
+        )()
+    ]
+    ctx.master_audio_path = str(master_audio)
+    ctx.master_audio_duration = 1.0
+    ctx.timing_plan = TimingPlan(
+        sentences=[
+            SentenceUnit(
+                id="sentence-1",
+                text="first.",
+                frame_indices=[0],
+                block_id="block-1",
+                source_start=0.0,
+                source_end=1.0,
+            )
+        ],
+        blocks=[
+            AudioBlock(
+                id="block-1",
+                text="first.",
+                source_frame_indices=[0],
+                start=0.0,
+                end=1.0,
+            )
+        ],
+    )
+
+    manifest = pipeline._build_render_manifest_for_current_timeline(ctx)
+    plan = pipeline._build_render_execution_plan(ctx, manifest=manifest)
+
+    assert plan.template_materialization_mode == "layered_template_html_prerender"
+    assert plan.diagnostics["clip_count"] == 1

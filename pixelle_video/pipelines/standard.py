@@ -1013,6 +1013,14 @@ class StandardPipeline(LinearVideoPipeline):
                 template_prerendered=template_prerendered,
                 element_motion_backend=element_motion_backend,
                 has_hyperframes_native_template=has_hyperframes_native_template,
+                has_layered_template_spec=bool(
+                    getattr(ctx.config, "layered_template_spec", None)
+                ),
+                layered_template_prerender_available=bool(
+                    getattr(ctx.config, "layered_template_spec", None)
+                )
+                and execution_mode.template_type == "image"
+                and execution_mode.media_domain == "image",
             )
         )
 
@@ -2307,10 +2315,18 @@ class StandardPipeline(LinearVideoPipeline):
         visual_clips = list(manifest.visual_clips)
         effective_backend = self._resolve_effective_render_backend(ctx)
         if effective_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND:
-            template_mode = "hyperframes_native"
+            template_mode = (
+                "layered_template_hyperframes"
+                if manifest.layered_template_spec is not None
+                else "hyperframes_native"
+            )
         else:
             template_mode = (
-                "html_prerender"
+                (
+                    "layered_template_html_prerender"
+                    if manifest.layered_template_spec is not None
+                    else "html_prerender"
+                )
                 if any(clip.source_kind == "template_frame" for clip in visual_clips)
                 else "none"
             )

@@ -98,3 +98,58 @@ def test_resolver_falls_back_unknown_backend_to_legacy():
 
     assert result.effective_backend == "legacy"
     assert "unsupported render backend" in result.fallback_reason
+
+
+def test_resolver_allows_hyperframes_for_layered_template_without_native_template():
+    result = RenderCapabilityResolver().resolve(
+        RenderCapabilityInput(
+            requested_backend="hyperframes_compiled",
+            template_type="image",
+            media_domain="image",
+            template_prerendered=False,
+            element_motion_backend=None,
+            has_hyperframes_native_template=False,
+            has_layered_template_spec=True,
+            layered_template_prerender_available=True,
+        )
+    )
+
+    assert result.effective_backend == "hyperframes_compiled"
+    assert result.fallback_reason is None
+
+
+def test_resolver_requires_prerender_for_layered_template_ffmpeg_manifest():
+    result = RenderCapabilityResolver().resolve(
+        RenderCapabilityInput(
+            requested_backend="ffmpeg_manifest",
+            template_type="image",
+            media_domain="image",
+            template_prerendered=False,
+            element_motion_backend=None,
+            has_hyperframes_native_template=False,
+            has_layered_template_spec=True,
+            layered_template_prerender_available=False,
+        )
+    )
+
+    assert result.effective_backend == "legacy"
+    assert "layered template" in result.fallback_reason
+    assert "prerendered" in result.fallback_reason
+
+
+def test_resolver_routes_layered_template_hyperframes_canvas_motion_to_hyperframes():
+    result = RenderCapabilityResolver().resolve(
+        RenderCapabilityInput(
+            requested_backend="ffmpeg_manifest",
+            template_type="image",
+            media_domain="image",
+            template_prerendered=False,
+            element_motion_backend="hyperframes_canvas",
+            has_hyperframes_native_template=False,
+            has_layered_template_spec=True,
+            layered_template_prerender_available=True,
+        )
+    )
+
+    assert result.effective_backend == "hyperframes_compiled"
+    assert "hyperframes_canvas" in result.fallback_reason

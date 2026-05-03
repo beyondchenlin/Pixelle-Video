@@ -7,6 +7,53 @@ from pixelle_video.models.render_package import RenderManifest, VisualClip
 from pixelle_video.services.ffmpeg_manifest_renderer import FfmpegManifestRenderer
 
 
+def _layered_template_spec_payload() -> dict:
+    return {
+        "version": "layered_template.v1",
+        "template_id": "portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 1080,
+        "canvas_height": 1920,
+        "media_width": 1080,
+        "media_height": 1920,
+        "safe_area": {"x": 64, "y": 64, "width": 952, "height": 1792, "unit": "px"},
+        "layers": [
+            {
+                "id": "background",
+                "type": "background",
+                "name": "Background",
+                "rect": {"x": 0, "y": 0, "width": 1080, "height": 1920, "unit": "px"},
+                "z_index": 0,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": {"kind": "color", "ref": "#FFFFFF", "metadata": {}},
+                "style": {},
+                "role": None,
+            },
+            {
+                "id": "media",
+                "type": "generated_media",
+                "name": "Generated media",
+                "rect": {"x": 64, "y": 220, "width": 952, "height": 1180, "unit": "px"},
+                "z_index": 10,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": {
+                    "kind": "generated_media",
+                    "ref": "generated://primary",
+                    "metadata": {},
+                },
+                "style": {"object_fit": "contain"},
+                "role": None,
+            },
+        ],
+        "metadata": {"orientation": "portrait"},
+    }
+
+
 def _execution_plan() -> RenderExecutionPlan:
     return RenderExecutionPlan(
         requested_backend="ffmpeg_manifest",
@@ -372,3 +419,91 @@ def test_ffmpeg_manifest_renderer_requires_master_audio_for_single_clip(tmp_path
             execution_plan=_execution_plan(),
             output_path=str(tmp_path / "final.mp4"),
         )
+
+
+def test_ffmpeg_manifest_renderer_rejects_unprerendered_layered_template_visuals(tmp_path):
+    master_audio = tmp_path / "master.wav"
+    frame = tmp_path / "raw.png"
+    master_audio.write_bytes(b"audio")
+    frame.write_bytes(b"png")
+    manifest = RenderManifest(
+        task_id="task-layered-raw",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        master_audio_path=str(master_audio),
+        layered_template_spec=_layered_template_spec_payload(),
+        visual_clips=[
+            VisualClip(
+                id="clip-1",
+                frame_index=0,
+                start=0,
+                end=1,
+                media_path=str(frame),
+                media_type="image",
+                source_kind="raw_media",
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="prerendered template_frame assets"):
+        FfmpegManifestRenderer().render(
+            manifest=manifest,
+            execution_plan=_execution_plan(),
+            output_path=str(tmp_path / "final.mp4"),
+        )
+
+
+def test_ffmpeg_manifest_renderer_accepts_prerendered_layered_template_visuals(tmp_path):
+    calls = []
+
+    class FakeVideoService:
+        def create_video_from_image(self, image, audio, output, fps=30):
+            calls.append((image, audio, output, fps))
+            Path(output).parent.mkdir(parents=True, exist_ok=True)
+            Path(output).write_bytes(b"video")
+            return output
+
+    master_audio = tmp_path / "master.wav"
+    frame = tmp_path / "prerendered.png"
+    master_audio.write_bytes(b"audio")
+    frame.write_bytes(b"png")
+    manifest = RenderManifest(
+        task_id="task-layered-prerendered",
+        title="demo",
+        width=1080,
+        height=1920,
+        fps=30,
+        template_id="image_default",
+        master_audio_path=str(master_audio),
+        layered_template_spec=_layered_template_spec_payload(),
+        visual_clips=[
+            VisualClip(
+                id="clip-1",
+                frame_index=0,
+                start=0,
+                end=1,
+                media_path=str(frame),
+                media_type="image",
+                source_kind="template_frame",
+            )
+        ],
+    )
+
+    output = FfmpegManifestRenderer(video_service=FakeVideoService()).render(
+        manifest=manifest,
+        execution_plan=_execution_plan(),
+        output_path=str(tmp_path / "final.mp4"),
+    )
+
+    assert output == str(tmp_path / "final.mp4")
+    assert calls == [
+        (
+            str(frame),
+            str(master_audio),
+            str(tmp_path / "final.mp4"),
+            30,
+        )
+    ]

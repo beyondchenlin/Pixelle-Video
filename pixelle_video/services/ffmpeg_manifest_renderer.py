@@ -7,6 +7,9 @@ from pathlib import Path
 from pixelle_video.models.render_execution_plan import RenderExecutionPlan
 from pixelle_video.models.render_package import RenderManifest, VisualClip
 from pixelle_video.render_backend import FFMPEG_MANIFEST_RENDER_BACKEND
+from pixelle_video.services.layered_template_adapters.ffmpeg_manifest import (
+    LayeredTemplateFfmpegAdapter,
+)
 from pixelle_video.services.video import VideoService
 
 
@@ -30,6 +33,7 @@ class FfmpegManifestRenderer:
                 "FfmpegManifestRenderer requires effective_backend=ffmpeg_manifest"
             )
 
+        manifest = LayeredTemplateFfmpegAdapter().prepare_manifest(manifest)
         clips = list(manifest.visual_clips)
         if not clips:
             raise ValueError("ffmpeg_manifest requires at least one visual clip")

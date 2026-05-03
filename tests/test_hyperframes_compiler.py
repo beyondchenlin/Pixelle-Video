@@ -1779,3 +1779,167 @@ def test_image_landscape_minimal_template_expands_visual_when_media_syncs_to_can
     assert "--pixelle-media-left: 0px" in index_html
     assert "--pixelle-media-top: 0px" in index_html
     assert 'class="clip pixelle-media-clip"' in index_html
+
+
+def _layered_template_spec_payload(**overrides):
+    payload = {
+        "version": "layered_template.v1",
+        "template_id": "user:portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 48, "y": 48, "width": 624, "height": 1184, "unit": "px"},
+        "layers": [
+            {
+                "id": "background",
+                "type": "background",
+                "name": "Background",
+                "rect": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+                "z_index": 0,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": {"kind": "color", "ref": "#FAF4E8", "metadata": {}},
+                "style": {},
+                "role": None,
+            },
+            {
+                "id": "media",
+                "type": "generated_media",
+                "name": "Generated media",
+                "rect": {"x": 60, "y": 220, "width": 600, "height": 760, "unit": "px"},
+                "z_index": 10,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": {
+                    "kind": "generated_media",
+                    "ref": "generated://primary",
+                    "metadata": {},
+                },
+                "style": {"object_fit": "contain"},
+                "role": None,
+            },
+            {
+                "id": "title",
+                "type": "text",
+                "name": "Title",
+                "rect": {"x": 60, "y": 72, "width": 600, "height": 120, "unit": "px"},
+                "z_index": 20,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": None,
+                "style": {"font_size": 42, "primary_color": "#1F2937", "alignment": "center"},
+                "role": "title",
+            },
+            {
+                "id": "caption",
+                "type": "text",
+                "name": "Caption",
+                "rect": {"x": 84, "y": 1020, "width": 552, "height": 120, "unit": "px"},
+                "z_index": 30,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": None,
+                "style": {"font_size": 28, "primary_color": "#111827", "alignment": "center"},
+                "role": "caption",
+            },
+        ],
+        "metadata": {"orientation": "portrait"},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_hyperframes_compiler_uses_layered_template_adapter_when_spec_present(
+    tmp_path: Path,
+):
+    compiler = HyperFramesCompiler()
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=720,
+        canvas_height=1280,
+        duration=3.0,
+        fps=30,
+        title="Layered title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        layered_template_spec=_layered_template_spec_payload(),
+        visuals=[
+            VisualClip(
+                id="clip-1",
+                frame_index=0,
+                start=0.0,
+                end=3.0,
+                media_path="assets/images/layered-source.png",
+                media_type="image",
+            )
+        ],
+        captions=[
+            CaptionCue(
+                id="caption-1",
+                text="Layered caption",
+                start=0.0,
+                end=3.0,
+                frame_indices=[0],
+                style_profile="image_default",
+            )
+        ],
+        audio=TemplateAudioRef(path="assets/audio/master_audio.wav", duration=3.0),
+    )
+
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    captions_html = (tmp_path / "project" / "compositions" / "captions.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "pixelle-generated-media-slot" in index_html
+    assert "Layered title" in index_html
+    assert 'src="assets/images/layered-source.png"' in index_html
+    assert 'data-composition-src="compositions/captions.html"' in index_html
+    assert 'data-composition-src="compositions/text_layer.html"' in index_html
+    assert 'window.__timelines["main-comp"]' in index_html
+    assert "Layered caption" in captions_html
+
+
+def test_hyperframes_compiler_rejects_unsupported_generated_media_ref_for_layered_spec(
+    tmp_path: Path,
+):
+    compiler = HyperFramesCompiler()
+    spec = _layered_template_spec_payload()
+    spec["layers"][1]["source"]["ref"] = "generated://secondary"
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=720,
+        canvas_height=1280,
+        duration=3.0,
+        fps=30,
+        title="Layered title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        layered_template_spec=spec,
+        visuals=[
+            VisualClip(
+                id="clip-1",
+                frame_index=0,
+                start=0.0,
+                end=3.0,
+                media_path="assets/images/layered-source.png",
+                media_type="image",
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="unsupported generated-media ref"):
+        compiler.compile(project_dir=tmp_path / "project", context=context)
