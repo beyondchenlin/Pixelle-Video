@@ -47,23 +47,34 @@ st.set_page_config(
 
 def main():
     """Main entry point with navigation"""
+    # Set up navigation and run
+    pg = st.navigation(build_navigation_pages())
+    pg.run()
+
+
+def build_navigation_pages(page_factory=st.Page):
+    """Build the primary navigation pages for the Streamlit app."""
     # Define pages using st.Page
-    home_page = st.Page(
+    home_page = page_factory(
         "pages/1_🎬_Home.py",
         title="Home",
         icon="🎬",
         default=True
     )
     
-    history_page = st.Page(
+    history_page = page_factory(
         "pages/2_📚_History.py",
         title="History",
         icon="📚"
     )
-    
-    # Set up navigation and run
-    pg = st.navigation([home_page, history_page])
-    pg.run()
+
+    storyboard_workbench_page = page_factory(
+        "pages/3_🧭_Storyboard_Workbench.py",
+        title="Workbench",
+        icon="🧭",
+    )
+
+    return [home_page, history_page, storyboard_workbench_page]
 
 
 if __name__ == "__main__":

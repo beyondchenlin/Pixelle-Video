@@ -441,7 +441,7 @@ def test_storyboard_preview_extracts_artifact_from_nested_workbench_state(monkey
     assert calls[0]["selected_version_id"] == "artifact_version_nested_001"
 
 
-def test_storyboard_advanced_controls_passes_stale_context_to_preview_renderer(monkeypatch):
+def test_storyboard_advanced_controls_keeps_generation_settings_separate_from_workbench(monkeypatch):
     from web.components import storyboard_planning_controls
 
     fake_ui = _FakeUI()
@@ -453,12 +453,6 @@ def test_storyboard_advanced_controls_passes_stale_context_to_preview_renderer(m
             "workspace_id": "workspace_1",
         }
     )
-    captured: list[dict[str, Any]] = []
-
-    def preview_renderer(snapshot, *, stale_context=None):
-        captured.append({"snapshot": snapshot, "stale_context": stale_context})
-        return []
-
     monkeypatch.setattr(storyboard_planning_controls, "render_storyboard_planning_guide", lambda **_kwargs: None)
 
     payload = storyboard_planning_controls.render_storyboard_advanced_controls(
@@ -484,19 +478,71 @@ def test_storyboard_advanced_controls_passes_stale_context_to_preview_renderer(m
                 }
             ],
         },
-        preview_renderer=preview_renderer,
     )
 
-    assert captured[0]["snapshot"] == _planning_snapshot()
-    assert captured[0]["stale_context"] == {
-        "api_base_url": "http://localhost:8000/api",
-        "project_id": "project_1",
-        "workspace_id": "workspace_1",
-    }
+    rendered = "\n".join(
+        [item["message"] for item in fake_ui.markdowns]
+        + fake_ui.captions
+        + [item["label"] for item in fake_ui.expanders]
+    )
+    assert "storyboard.workbench.open_hint" in rendered
+    assert "storyboard.preview.title" not in rendered
+    assert "Dependency Radar" not in rendered
     assert payload["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert "frame_overrides" not in payload
 
 
-def test_storyboard_advanced_controls_renders_preview_when_snapshot_exists_even_if_editing_disabled(
+def test_storyboard_advanced_controls_does_not_render_preview_overrides_in_generation_settings(monkeypatch):
+    from web.components import storyboard_planning_controls
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state.update(
+        {
+            "storyboard_planning_enabled": True,
+            "api_base_url": "http://localhost:8000/api",
+            "project_id": "project_1",
+            "workspace_id": "workspace_1",
+        }
+    )
+    monkeypatch.setattr(storyboard_planning_controls, "render_storyboard_planning_guide", lambda **_kwargs: None)
+
+    payload = storyboard_planning_controls.render_storyboard_advanced_controls(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+        session_state=fake_ui.session_state,
+        preview_snapshot=_planning_snapshot(),
+        world_library_loader=lambda: {
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [
+                {
+                    "preset_id": "neutral_knowledge_storyboard",
+                    "display_name": "Neutral",
+                }
+            ],
+        },
+        shot_library_loader=lambda: {
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [
+                {
+                    "preset_id": "balanced_explainer",
+                    "display_name": "Balanced",
+                }
+            ],
+        },
+    )
+
+    rendered = "\n".join(
+        [item["message"] for item in fake_ui.markdowns]
+        + fake_ui.captions
+        + [item["label"] for item in fake_ui.expanders]
+    )
+    assert "storyboard.preview.title" not in rendered
+    assert "Dependency Radar" not in rendered
+    assert "storyboard.workbench.open_hint" in rendered
+    assert "frame_overrides" not in payload
+
+
+def test_storyboard_advanced_controls_shows_workbench_hint_when_editing_disabled(
     monkeypatch,
 ):
     from web.components import storyboard_planning_controls
@@ -510,12 +556,6 @@ def test_storyboard_advanced_controls_renders_preview_when_snapshot_exists_even_
             "workspace_id": "workspace_1",
         }
     )
-    captured: list[dict[str, Any]] = []
-
-    def preview_renderer(snapshot, *, stale_context=None):
-        captured.append({"snapshot": snapshot, "stale_context": stale_context})
-        return []
-
     monkeypatch.setattr(storyboard_planning_controls, "render_storyboard_planning_guide", lambda **_kwargs: None)
 
     payload = storyboard_planning_controls.render_storyboard_advanced_controls(
@@ -541,15 +581,15 @@ def test_storyboard_advanced_controls_renders_preview_when_snapshot_exists_even_
                 }
             ],
         },
-        preview_renderer=preview_renderer,
     )
 
-    assert len(captured) == 1
-    assert captured[0]["snapshot"] == _planning_snapshot()
+    rendered = "\n".join(fake_ui.captions)
+    assert "storyboard.workbench.open_hint" in rendered
+    assert "storyboard.preview.title" not in rendered
     assert payload == {}
 
 
-def test_storyboard_advanced_controls_does_not_retry_renderer_internal_type_error(monkeypatch):
+def test_storyboard_advanced_controls_does_not_call_preview_renderer_in_home(monkeypatch):
     from web.components import storyboard_planning_controls
 
     fake_ui = _FakeUI()
@@ -560,34 +600,23 @@ def test_storyboard_advanced_controls_does_not_retry_renderer_internal_type_erro
             "workspace_id": "workspace_1",
         }
     )
-    calls: list[dict[str, Any]] = []
-
-    def preview_renderer(snapshot, *, stale_context=None):
-        calls.append({"snapshot": snapshot, "stale_context": stale_context})
-        raise TypeError("renderer internal bug")
-
     monkeypatch.setattr(storyboard_planning_controls, "render_storyboard_planning_guide", lambda **_kwargs: None)
 
-    try:
-        storyboard_planning_controls.render_storyboard_advanced_controls(
-            ui=fake_ui,
-            translate=lambda key, **_kwargs: key,
-            session_state=fake_ui.session_state,
-            preview_snapshot=_planning_snapshot(),
-            world_library_loader=lambda: {
-                "default_world_preset_id": "neutral_knowledge_storyboard",
-                "items": [{"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}],
-            },
-            shot_library_loader=lambda: {
-                "default_shot_preset_id": "balanced_explainer",
-                "items": [{"preset_id": "balanced_explainer", "display_name": "Balanced"}],
-            },
-            preview_renderer=preview_renderer,
-        )
-    except TypeError as exc:
-        assert str(exc) == "renderer internal bug"
-    else:
-        raise AssertionError("renderer TypeError must propagate")
+    payload = storyboard_planning_controls.render_storyboard_advanced_controls(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+        session_state=fake_ui.session_state,
+        preview_snapshot=_planning_snapshot(),
+        world_library_loader=lambda: {
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [{"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}],
+        },
+        shot_library_loader=lambda: {
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [{"preset_id": "balanced_explainer", "display_name": "Balanced"}],
+        },
+    )
 
-    assert len(calls) == 1
-    assert calls[0]["stale_context"]["project_id"] == "project_1"
+    rendered = "\n".join(fake_ui.captions)
+    assert "storyboard.workbench.open_hint" in rendered
+    assert "frame_overrides" not in payload

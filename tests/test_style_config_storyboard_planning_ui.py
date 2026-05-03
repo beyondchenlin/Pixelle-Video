@@ -202,7 +202,7 @@ class _FakeStreamlit:
         return None
 
 
-def test_resolve_storyboard_toggle_default_prefers_session_state_then_preview_snapshot_then_default():
+def test_resolve_storyboard_toggle_default_prefers_session_state_then_default():
     assert (
         style_config.resolve_storyboard_toggle_default(
             {"storyboard_planning_enabled": False},
@@ -215,10 +215,10 @@ def test_resolve_storyboard_toggle_default_prefers_session_state_then_preview_sn
     assert (
         style_config.resolve_storyboard_toggle_default(
             {},
-            storyboard_default_enabled=True,
+            storyboard_default_enabled=False,
             preview_snapshot={"frame_overrides": []},
         )
-        is True
+        is False
     )
 
     assert (

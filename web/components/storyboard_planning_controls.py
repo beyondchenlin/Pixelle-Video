@@ -17,9 +17,7 @@ Shared storyboard-planning controls and payload helpers.
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import nullcontext
 from html import escape
-from inspect import Parameter, signature
 from textwrap import dedent
 
 import streamlit as st
@@ -34,8 +32,6 @@ from pixelle_video.models.video_generation_contract import (
     is_plan_frame_override_payload,
 )
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
-from web.components.storyboard_preview import render_storyboard_preview
-from web.components.storyboard_workbench_stale import build_stale_panel_context
 from web.i18n import tr
 from web.utils.streamlit_helpers import keyed_widget_default_kwargs
 
@@ -88,16 +84,15 @@ def build_storyboard_control_payload(
 def resolve_storyboard_toggle_default(
     session_state,
     storyboard_default_enabled: bool,
-    preview_snapshot,
+    preview_snapshot=None,
     template_type: str | None = None,
 ):
-    """Resolve the advanced-storyboard checkbox default from session state and preview."""
+    """Resolve the advanced-storyboard checkbox default for Home generation settings."""
+    _ = preview_snapshot
     if template_type == "static":
         return False
     if session_state is not None and "storyboard_planning_enabled" in session_state:
         return bool(session_state.get("storyboard_planning_enabled"))
-    if preview_snapshot is not None:
-        return bool(preview_snapshot)
     return bool(storyboard_default_enabled)
 
 
@@ -197,32 +192,6 @@ STORYBOARD_GUIDE_NOTE_SPECS: tuple[dict[str, str], ...] = (
         "body_color": "#44403c",
     },
 )
-
-
-def _preview_renderer_accepts_stale_context(preview_renderer: Callable[..., list[dict]]) -> bool:
-    try:
-        parameters = signature(preview_renderer).parameters
-    except (TypeError, ValueError):
-        return False
-    stale_context_parameter = parameters.get("stale_context")
-    return stale_context_parameter is not None or any(
-        parameter.kind is Parameter.VAR_KEYWORD
-        for parameter in parameters.values()
-    )
-
-
-def _render_preview_snapshot(
-    preview_snapshot,
-    *,
-    preview_renderer: Callable[[dict | None], list[dict]],
-    stale_context: dict[str, str],
-) -> list[dict]:
-    if _preview_renderer_accepts_stale_context(preview_renderer):
-        return preview_renderer(
-            preview_snapshot,
-            stale_context=stale_context,
-        )
-    return preview_renderer(preview_snapshot)
 
 
 def _normalize_storyboard_guide_html(html: str) -> str:
@@ -472,7 +441,6 @@ def render_storyboard_advanced_controls(
     preview_snapshot=None,
     world_library_loader: Callable[[], dict] | None = None,
     shot_library_loader: Callable[[], dict] | None = None,
-    preview_renderer: Callable[[dict | None], list[dict]] = render_storyboard_preview,
 ) -> dict:
     """Render the advanced storyboard controls gated behind a single checkbox."""
     world_library_loader = world_library_loader or config_manager.get_storyboard_world_preset_library
@@ -505,20 +473,8 @@ def render_storyboard_advanced_controls(
         ui.caption(translate("template.type.static_hint"))
         return {}
 
-    stale_context = build_stale_panel_context(session_state)
     if not storyboard_enabled:
-        if preview_snapshot is not None:
-            preview_context = nullcontext()
-            if hasattr(ui, "container"):
-                preview_context = ui.container()
-            with preview_context:
-                _render_preview_snapshot(
-                    preview_snapshot,
-                    preview_renderer=preview_renderer,
-                    stale_context=stale_context,
-                )
-        else:
-            ui.caption(translate("storyboard.preview.empty"))
+        ui.caption(translate("storyboard.workbench.open_hint"))
         return {}
 
     render_storyboard_planning_guide(ui=ui, translate=translate)
@@ -548,7 +504,6 @@ def render_storyboard_advanced_controls(
     storyboard_role_strategy = None
     storyboard_role_locking_strength = None
     storyboard_shot_strategy = None
-    storyboard_frame_overrides: list[dict] = []
 
     storyboard_col1, storyboard_col2 = ui.columns(2)
     with storyboard_col1:
@@ -616,15 +571,7 @@ def render_storyboard_advanced_controls(
             key="storyboard_shot_strategy",
         )
 
-    preview_context = nullcontext()
-    if hasattr(ui, "container"):
-        preview_context = ui.container()
-    with preview_context:
-        storyboard_frame_overrides = _render_preview_snapshot(
-            preview_snapshot,
-            preview_renderer=preview_renderer,
-            stale_context=stale_context,
-        )
+    ui.caption(translate("storyboard.workbench.open_hint"))
 
     return build_storyboard_control_payload(
         world_preset_id=storyboard_world_preset_id,
@@ -634,7 +581,7 @@ def render_storyboard_advanced_controls(
         role_strategy=storyboard_role_strategy,
         role_locking_strength=storyboard_role_locking_strength,
         shot_strategy=storyboard_shot_strategy,
-        frame_overrides=storyboard_frame_overrides,
+        frame_overrides=[],
     )
 
 
