@@ -48,6 +48,7 @@ from pixelle_video.models.size_contract import (
     STANDARD_VIDEO_SIZE_PRESETS,
     GenerationSizeContract,
 )
+from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
 )
@@ -3367,12 +3368,14 @@ def render_style_config(
         fallback_metadata={},
     )
     selected_template_preset_id = selected_spec_identity["template_id"]
-    layered_template_spec = layered_template_state.build_spec(
-        template_id=selected_template_preset_id,
-        template_name=selected_spec_identity["template_name"],
-        template_type=selected_spec_identity["template_type"],
-        metadata=selected_spec_identity["metadata"],
-    ).to_dict()
+    layered_template_spec = active_layered_template_spec(
+        layered_template_state.build_spec(
+            template_id=selected_template_preset_id,
+            template_name=selected_spec_identity["template_name"],
+            template_type=selected_spec_identity["template_type"],
+            metadata=selected_spec_identity["metadata"],
+        )
+    )
 
     result = {
         "tts_inference_mode": tts_mode,
@@ -3395,10 +3398,11 @@ def render_style_config(
             MediaPlacement().to_dict(),
         ),
         "text_rendering": text_rendering,
-        "layered_template_spec": layered_template_spec,
         "selected_template_preset_id": selected_template_preset_id,
         **element_animation_settings,
     }
+    if layered_template_spec is not None:
+        result["layered_template_spec"] = layered_template_spec
     return result
 
 

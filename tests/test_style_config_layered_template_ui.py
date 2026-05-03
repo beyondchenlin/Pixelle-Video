@@ -634,10 +634,9 @@ def test_render_style_config_no_longer_renders_middle_column_legacy_template_pre
         content_context={"title": "Runtime Title", "text": "Runtime Caption"},
     )
 
-    assert (
-        result["layered_template_spec"]["template_id"]
-        == "system:1080x1920/image_default.html"
-    )
+    assert result["selected_template_preset_id"] == "system:1080x1920/image_default.html"
+    assert result["frame_template"] == "1080x1920/image_default.html"
+    assert "layered_template_spec" not in result
     assert "btn_preview_template" not in {call.get("key") for call in button_calls}
 
 
