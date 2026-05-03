@@ -431,9 +431,10 @@ def test_render_layout_preview_workbench_renders_three_responsive_rows(monkeypat
         "grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), max-content));"
         in rendered
     )
-    assert "grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));" in rendered
-    assert "grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));" in rendered
+    assert "grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));" in rendered
+    assert "grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));" in rendered
     assert "place-items: center stretch;" in rendered
+    assert "grid-template-columns: minmax(0, 1fr);" in rendered
     assert (
         'div[class*="st-key-layout_preview_metric_row"] div[data-testid="stElementContainer"],'
         in rendered
@@ -442,6 +443,7 @@ def test_render_layout_preview_workbench_renders_three_responsive_rows(monkeypat
         'div[class*="st-key-layout_preview_meta_row"] div[data-testid="stMarkdownContainer"]'
         in rendered
     )
+    assert "width: 100% !important;" in rendered
     assert "@container (max-width: 980px)" not in rendered
     assert "@container (max-width: 560px)" in rendered
 

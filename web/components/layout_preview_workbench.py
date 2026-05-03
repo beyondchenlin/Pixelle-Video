@@ -281,10 +281,12 @@ def _build_workbench_css() -> str:
       }}
       .layout-workbench-metric-row {{
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         place-items: center stretch;
       }}
       .layout-workbench-meta-row {{
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         place-items: center stretch;
       }}
       .layout-workbench-actions-row-placeholder {{
@@ -326,6 +328,7 @@ def _build_workbench_css() -> str:
       div[class*="st-key-layout_preview_metric_row"],
       div[class*="st-key-layout_preview_meta_row"] {{
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         place-items: center stretch;
         container-type: inline-size;
         border: 1px solid rgba(80, 67, 44, .16);
@@ -336,14 +339,18 @@ def _build_workbench_css() -> str:
       }}
       div[class*="st-key-layout_preview_metric_row"] > div[data-testid="stVerticalBlock"],
       div[class*="st-key-layout_preview_meta_row"] > div[data-testid="stVerticalBlock"] {{
-        width: 100%;
+        width: 100% !important;
+        max-width: 100% !important;
         gap: 0;
       }}
       div[class*="st-key-layout_preview_metric_row"] div[data-testid="stElementContainer"],
       div[class*="st-key-layout_preview_meta_row"] div[data-testid="stElementContainer"],
+      div[class*="st-key-layout_preview_metric_row"] div[data-testid="stMarkdown"],
+      div[class*="st-key-layout_preview_meta_row"] div[data-testid="stMarkdown"],
       div[class*="st-key-layout_preview_metric_row"] div[data-testid="stMarkdownContainer"],
       div[class*="st-key-layout_preview_meta_row"] div[data-testid="stMarkdownContainer"] {{
-        width: 100%;
+        width: 100% !important;
+        max-width: 100% !important;
       }}
       .layout-workbench-section-title {{
         color: #352a1f;
@@ -372,24 +379,24 @@ def _build_workbench_css() -> str:
       }}
       .layout-workbench-summary-grid {{
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
         gap: 10px;
         height: 100%;
       }}
       .layout-workbench-metric {{
         border-left: 4px solid #b98242;
         border-radius: 8px;
-        padding: 10px 14px;
+        padding: 8px 12px;
         background: #fffdf8;
       }}
       .layout-workbench-label {{
         color: #756854;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 800;
       }}
       .layout-workbench-value {{
         color: #211a13;
-        font-size: 20px;
+        font-size: 18px;
         font-weight: 850;
       }}
       .layout-workbench-summary-grid .layout-workbench-metric {{
@@ -406,18 +413,18 @@ def _build_workbench_css() -> str:
       }}
       .layout-workbench-meta {{
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
         align-items: center;
         gap: 10px;
         min-width: 0;
         color: #675b4b;
-        font-size: 16px;
+        font-size: 14px;
         line-height: 1.35;
       }}
       .layout-workbench-meta-line {{
         min-width: 0;
         border-radius: 8px;
-        padding: 10px 12px;
+        padding: 8px 10px;
         background: #fffdf8;
         white-space: nowrap;
         overflow: hidden;
