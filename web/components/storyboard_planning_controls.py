@@ -33,6 +33,10 @@ from pixelle_video.models.video_generation_contract import (
 )
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from web.i18n import tr
+from web.state.storyboard_overrides import (
+    build_storyboard_override_snapshot_identity,
+    get_storyboard_override_values_for_snapshot,
+)
 from web.utils.streamlit_helpers import keyed_widget_default_kwargs
 
 STORYBOARD_SHOT_PRESET_AUTO_VALUE = "__auto__"
@@ -497,6 +501,11 @@ def render_storyboard_advanced_controls(
     if default_world_id not in world_ids and world_ids:
         default_world_id = world_ids[0]
 
+    active_frame_overrides = _resolve_active_storyboard_override_values(
+        session_state,
+        preview_snapshot=preview_snapshot,
+    )
+
     storyboard_world_preset_id = None
     storyboard_shot_preset_id = None
     storyboard_consistency_strength = None
@@ -581,7 +590,21 @@ def render_storyboard_advanced_controls(
         role_strategy=storyboard_role_strategy,
         role_locking_strength=storyboard_role_locking_strength,
         shot_strategy=storyboard_shot_strategy,
-        frame_overrides=[],
+        frame_overrides=active_frame_overrides,
+    )
+
+
+def _resolve_active_storyboard_override_values(
+    session_state,
+    *,
+    preview_snapshot,
+) -> list[dict]:
+    if session_state is None or preview_snapshot is None:
+        return []
+    snapshot_identity = build_storyboard_override_snapshot_identity(preview_snapshot)
+    return get_storyboard_override_values_for_snapshot(
+        session_state,
+        snapshot_identity=snapshot_identity,
     )
 
 

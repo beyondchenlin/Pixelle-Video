@@ -15,6 +15,7 @@ from pixelle_video.platform_context import first_text
 from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 from web.components.storyboard_workbench_stale import render_prompt_plan_stale_panel
 from web.i18n import tr
+from web.state.storyboard_overrides import build_storyboard_override_snapshot_identity
 
 EDITABLE_STORYBOARD_FIELDS: tuple[str, ...] = (
     "shot_type",
@@ -32,15 +33,7 @@ def build_storyboard_preview_snapshot_identity(
     planning_snapshot: Mapping[str, Any] | None,
 ) -> str:
     """Build a stable identity for the snapshot frames currently shown in preview."""
-    canonical_payload = json.dumps(
-        (planning_snapshot or {}).get("frames") or [],
-        ensure_ascii=True,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    fingerprint = hashlib.sha1(canonical_payload.encode("utf-8")).hexdigest()
-    return f"storyboard_snapshot_{fingerprint}"
+    return build_storyboard_override_snapshot_identity(planning_snapshot)
 
 
 def build_storyboard_preview_state_namespace(

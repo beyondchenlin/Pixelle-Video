@@ -91,10 +91,20 @@ def test_storyboard_workbench_page_renders_preview_overrides_in_main_area(monkey
         }
     )
     calls: list[dict[str, Any]] = []
+    frame_overrides = [
+        {
+            "plan_id": "prompt_plan_1",
+            "plan_revision": 2,
+            "frame_id": "frame_0001",
+            "source_digest": "a" * 64,
+            "locked_fields": ["shot_type"],
+            "shot_type": "medium_shot",
+        }
+    ]
 
     def preview_renderer(snapshot, *, stale_context=None):
         calls.append({"snapshot": snapshot, "stale_context": stale_context})
-        return []
+        return frame_overrides
 
     page.render_storyboard_workbench_page(
         ui=fake_ui,
@@ -119,11 +129,16 @@ def test_storyboard_workbench_page_renders_preview_overrides_in_main_area(monkey
             },
         }
     ]
+    assert fake_ui.session_state["storyboard_override_draft"]["frame_overrides"] == frame_overrides
 
 
 def test_storyboard_workbench_page_shows_empty_state_without_snapshot(monkeypatch):
     page = _load_workbench_page()
     fake_ui = _FakeUI()
+    fake_ui.session_state["storyboard_override_draft"] = {
+        "snapshot_identity": "storyboard_snapshot_abc",
+        "frame_overrides": [{"frame_id": "frame_0001"}],
+    }
 
     def fail_preview(**_kwargs):
         raise AssertionError("preview renderer must not run without a snapshot")
@@ -135,3 +150,4 @@ def test_storyboard_workbench_page_shows_empty_state_without_snapshot(monkeypatc
     )
 
     assert fake_ui.infos == ["storyboard.workbench.empty_state"]
+    assert fake_ui.session_state["storyboard_override_draft"] is None

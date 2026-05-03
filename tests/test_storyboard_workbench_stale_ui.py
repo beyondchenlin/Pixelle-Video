@@ -443,14 +443,29 @@ def test_storyboard_preview_extracts_artifact_from_nested_workbench_state(monkey
 
 def test_storyboard_advanced_controls_keeps_generation_settings_separate_from_workbench(monkeypatch):
     from web.components import storyboard_planning_controls
+    from web.state.storyboard_overrides import build_storyboard_override_snapshot_identity
 
     fake_ui = _FakeUI()
+    snapshot = _planning_snapshot()
     fake_ui.session_state.update(
         {
             "storyboard_planning_enabled": True,
             "api_base_url": "http://localhost:8000/api",
             "project_id": "project_1",
             "workspace_id": "workspace_1",
+            "storyboard_override_draft": {
+                "snapshot_identity": build_storyboard_override_snapshot_identity(snapshot),
+                "frame_overrides": [
+                    {
+                        "plan_id": "prompt_plan_1",
+                        "plan_revision": 2,
+                        "frame_id": "frame_0001",
+                        "source_digest": "a" * 64,
+                        "locked_fields": ["shot_type"],
+                        "shot_type": "medium_shot",
+                    }
+                ],
+            },
         }
     )
     monkeypatch.setattr(storyboard_planning_controls, "render_storyboard_planning_guide", lambda **_kwargs: None)
@@ -459,7 +474,7 @@ def test_storyboard_advanced_controls_keeps_generation_settings_separate_from_wo
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
         session_state=fake_ui.session_state,
-        preview_snapshot=_planning_snapshot(),
+        preview_snapshot=snapshot,
         world_library_loader=lambda: {
             "default_world_preset_id": "neutral_knowledge_storyboard",
             "items": [
@@ -489,6 +504,57 @@ def test_storyboard_advanced_controls_keeps_generation_settings_separate_from_wo
     assert "storyboard.preview.title" not in rendered
     assert "Dependency Radar" not in rendered
     assert payload["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert payload["frame_overrides"] == [
+        {
+            "plan_id": "prompt_plan_1",
+            "plan_revision": 2,
+            "frame_id": "frame_0001",
+            "source_digest": "a" * 64,
+            "locked_fields": ["shot_type"],
+            "shot_type": "medium_shot",
+        }
+    ]
+
+
+def test_storyboard_advanced_controls_ignores_workbench_overrides_for_stale_snapshot(monkeypatch):
+    from web.components import storyboard_planning_controls
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state.update(
+        {
+            "storyboard_planning_enabled": True,
+            "storyboard_override_draft": {
+                "snapshot_identity": "storyboard_snapshot_old",
+                "frame_overrides": [
+                    {
+                        "plan_id": "prompt_plan_1",
+                        "plan_revision": 2,
+                        "frame_id": "frame_0001",
+                        "source_digest": "a" * 64,
+                        "locked_fields": ["shot_type"],
+                        "shot_type": "medium_shot",
+                    }
+                ],
+            },
+        }
+    )
+    monkeypatch.setattr(storyboard_planning_controls, "render_storyboard_planning_guide", lambda **_kwargs: None)
+
+    payload = storyboard_planning_controls.render_storyboard_advanced_controls(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+        session_state=fake_ui.session_state,
+        preview_snapshot=_planning_snapshot(),
+        world_library_loader=lambda: {
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [{"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}],
+        },
+        shot_library_loader=lambda: {
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [{"preset_id": "balanced_explainer", "display_name": "Balanced"}],
+        },
+    )
+
     assert "frame_overrides" not in payload
 
 
