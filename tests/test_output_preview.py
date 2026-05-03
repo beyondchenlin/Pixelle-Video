@@ -15,6 +15,24 @@ from web.utils.streamlit_helpers import RefreshableSlot
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _layered_template_spec_payload(**overrides):
+    payload = {
+        "version": "layered_template.v1",
+        "template_id": "portrait_news",
+        "template_name": "Portrait News",
+        "template_type": "image",
+        "canvas_width": 720,
+        "canvas_height": 1280,
+        "media_width": 640,
+        "media_height": 960,
+        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+        "layers": [],
+        "metadata": {"orientation": "portrait"},
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_refreshable_slot_uses_stable_initial_suffix_and_refresh_suffix():
     captured = {"emptied": 0, "entered": 0, "suffixes": []}
 
@@ -1940,19 +1958,10 @@ def test_render_single_output_passes_key_suffix_to_workbench_refresh(
 def test_render_layout_preview_workbench_section_uses_registry_recent_and_marks_selection(
     monkeypatch,
 ):
-    spec_payload = {
-        "version": "layered_template.v1",
-        "template_id": "user:portrait_news",
-        "template_name": "Portrait News",
-        "template_type": "image",
-        "canvas_width": 720,
-        "canvas_height": 1280,
-        "media_width": 640,
-        "media_height": 960,
-        "safe_area": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
-        "layers": [],
-        "metadata": {"source_kind": "user"},
-    }
+    spec_payload = _layered_template_spec_payload(
+        template_id="user:portrait_news",
+        metadata={"source_kind": "user"},
+    )
     captured = {"list_recent": [], "mark_used": [], "recent_presets": None}
 
     class _FakeRegistry:
@@ -2009,6 +2018,280 @@ def test_render_layout_preview_workbench_section_uses_registry_recent_and_marks_
         == "user:portrait_news"
     )
     assert reruns == [True]
+
+
+def test_render_layout_preview_workbench_section_refreshes_real_preview_frame(monkeypatch):
+    spec_payload = _layered_template_spec_payload(
+        template_id="user:portrait_news",
+        metadata={"source_kind": "user"},
+    )
+    captured = {"request": None}
+
+    class _FakeLayeredTemplateService:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        async def render_preview_frame(self, request):
+            captured["request"] = request
+            return SimpleNamespace(
+                storage_key="artifacts/workspace_demo/layout-preview.png",
+                url="/api/files/artifacts/workspace_demo/layout-preview.png",
+                fingerprint="preview-fingerprint",
+            )
+
+    monkeypatch.setattr(output_preview, "LayeredTemplateService", _FakeLayeredTemplateService)
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        lambda **_kwargs: {"action": "refresh_preview_frame"},
+    )
+    monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(
+        output_preview,
+        "st",
+        SimpleNamespace(
+            session_state={},
+            rerun=lambda: None,
+            success=lambda *_args, **_kwargs: None,
+            error=lambda message: (_ for _ in ()).throw(AssertionError(message)),
+        ),
+    )
+
+    output_preview._render_layout_preview_workbench_section(
+        {
+            "layered_template_spec": spec_payload,
+            "title": "Demo Title",
+            "layout_preview_caption_text": "Demo Caption",
+            "text_rendering": {"title_style": {"font_size": 88}},
+            "workspace_id": "workspace_demo",
+        }
+    )
+
+    assert captured["request"] is not None
+    assert captured["request"].workspace_id == "workspace_demo"
+    assert captured["request"].title_text == "Demo Title"
+    assert captured["request"].caption_text == "Demo Caption"
+    assert captured["request"].text_rendering == {"title_style": {"font_size": 88}}
+    assert output_preview.st.session_state["layout_preview_real_preview_frame"] == {
+        "storage_key": "artifacts/workspace_demo/layout-preview.png",
+        "url": "/api/files/artifacts/workspace_demo/layout-preview.png",
+        "fingerprint": "preview-fingerprint",
+    }
+
+
+def test_render_layout_preview_workbench_section_does_not_save_template_when_thumbnail_generation_fails(
+    monkeypatch,
+    tmp_path,
+):
+    spec_payload = _layered_template_spec_payload(
+        template_id="user:portrait_news",
+        metadata={"source_kind": "user"},
+    )
+    repo_root = tmp_path / "template-presets"
+    captured = {"mark_used": []}
+
+    class _FakeLayeredTemplateService:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        async def render_preview_frame(self, request):
+            raise RuntimeError("thumbnail failed")
+
+    class _FakeRegistry:
+        def list_recent(self, *, limit=5):
+            return []
+
+        def mark_used(self, preset_id, used_at=None):
+            captured["mark_used"].append(preset_id)
+
+    monkeypatch.setattr(output_preview, "LayeredTemplateService", _FakeLayeredTemplateService)
+    monkeypatch.setattr(output_preview, "TemplateRegistry", _FakeRegistry, raising=False)
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        lambda **_kwargs: {"action": "save_template"},
+    )
+    monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    errors = []
+    monkeypatch.setattr(
+        output_preview,
+        "st",
+        SimpleNamespace(
+            session_state={},
+            rerun=lambda: None,
+            success=lambda *_args, **_kwargs: None,
+            error=lambda message: errors.append(message),
+        ),
+    )
+
+    output_preview._render_layout_preview_workbench_section(
+        {
+            "layered_template_spec": spec_payload,
+            "workspace_id": "workspace_demo",
+            "template_presets_root": str(repo_root),
+        }
+    )
+
+    assert errors
+    assert not (repo_root / "presets.json").exists()
+    assert captured["mark_used"] == []
+
+
+def test_render_layout_preview_workbench_section_rejects_temporary_asset_sources_before_saving(
+    monkeypatch,
+    tmp_path,
+):
+    spec_payload = _layered_template_spec_payload(
+        template_id="user:portrait_news",
+        metadata={"source_kind": "user"},
+        layers=[
+            {
+                "id": "uploaded-image",
+                "type": "image",
+                "name": "Uploaded Image",
+                "rect": {"x": 0, "y": 0, "width": 720, "height": 1280, "unit": "px"},
+                "z_index": 1,
+                "opacity": 1,
+                "rotation": 0,
+                "locked": False,
+                "source": {"kind": "asset", "ref": str(tmp_path / "upload.png"), "metadata": {}},
+                "style": {},
+                "role": None,
+            }
+        ],
+    )
+    repo_root = tmp_path / "template-presets"
+    captured = {"render_preview_frame": False, "mark_used": []}
+
+    class _FakeLayeredTemplateService:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        async def render_preview_frame(self, request):
+            captured["render_preview_frame"] = True
+            raise AssertionError("thumbnail generation must not run for invalid asset refs")
+
+    class _FakeRegistry:
+        def list_recent(self, *, limit=5):
+            return []
+
+        def mark_used(self, preset_id, used_at=None):
+            captured["mark_used"].append(preset_id)
+
+    monkeypatch.setattr(output_preview, "LayeredTemplateService", _FakeLayeredTemplateService)
+    monkeypatch.setattr(output_preview, "TemplateRegistry", _FakeRegistry, raising=False)
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        lambda **_kwargs: {"action": "save_template"},
+    )
+    monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
+    errors = []
+    monkeypatch.setattr(
+        output_preview,
+        "st",
+        SimpleNamespace(
+            session_state={},
+            rerun=lambda: None,
+            success=lambda *_args, **_kwargs: None,
+            error=lambda message: errors.append(message),
+        ),
+    )
+
+    output_preview._render_layout_preview_workbench_section(
+        {
+            "layered_template_spec": spec_payload,
+            "workspace_id": "workspace_demo",
+            "template_presets_root": str(repo_root),
+        }
+    )
+
+    assert errors == ["asset layers must reference repository asset keys before saving"]
+    assert captured["render_preview_frame"] is False
+    assert captured["mark_used"] == []
+    assert not (repo_root / "presets.json").exists()
+
+
+def test_render_layout_preview_workbench_section_saves_user_template_and_marks_recent(
+    monkeypatch,
+    tmp_path,
+):
+    spec_payload = _layered_template_spec_payload(
+        template_id="user:portrait_news",
+        metadata={"source_kind": "user"},
+    )
+    repo_root = tmp_path / "template-presets"
+    preview_png = tmp_path / "preview.png"
+    preview_png.write_bytes(b"png")
+    captured = {"mark_used": []}
+
+    class _FakeLayeredTemplateService:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        async def render_preview_frame(self, request):
+            return SimpleNamespace(
+                storage_key="artifacts/workspace_demo/layout-preview.png",
+                url="/api/files/artifacts/workspace_demo/layout-preview.png",
+                fingerprint="preview-fingerprint",
+            )
+
+    class _FakeObjectStore:
+        async def get_local_file_uri(self, storage_key):
+            assert storage_key == "artifacts/workspace_demo/layout-preview.png"
+            return preview_png.as_uri()
+
+    class _FakeRegistry:
+        def list_recent(self, *, limit=5):
+            return []
+
+        def mark_used(self, preset_id, used_at=None):
+            captured["mark_used"].append(preset_id)
+
+    monkeypatch.setattr(output_preview, "LayeredTemplateService", _FakeLayeredTemplateService)
+    monkeypatch.setattr(output_preview, "TemplateRegistry", _FakeRegistry, raising=False)
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        lambda **_kwargs: {"action": "save_template"},
+    )
+    monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(
+        output_preview,
+        "st",
+        SimpleNamespace(
+            session_state={},
+            rerun=lambda: None,
+            success=lambda *_args, **_kwargs: None,
+            error=lambda message: (_ for _ in ()).throw(AssertionError(message)),
+        ),
+    )
+
+    output_preview._render_layout_preview_workbench_section(
+        {
+            "layered_template_spec": spec_payload,
+            "workspace_id": "workspace_demo",
+            "project_id": "project_demo",
+            "artifact_object_store": _FakeObjectStore(),
+            "template_presets_root": str(repo_root),
+        }
+    )
+
+    from pixelle_video.repositories.template_presets import TemplatePresetRepository
+
+    repo = TemplatePresetRepository(root=repo_root)
+    saved = repo.list_all(source="user")
+    assert len(saved) == 1
+    assert saved[0].name == "Portrait News"
+    assert saved[0].source == "user"
+    assert saved[0].thumbnail_ref is not None
+    assert saved[0].thumbnail_ref.startswith("thumbnails/")
+    assert saved[0].last_used_at is not None
+    assert saved[0].spec.template_id == "user:portrait_news"
+    assert captured["mark_used"] == [saved[0].preset_id]
 
 
 def test_build_layout_preview_html_uses_layered_template_service():

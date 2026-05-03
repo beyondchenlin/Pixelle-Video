@@ -15,6 +15,10 @@ Output preview components for web UI (right column)
 """
 
 import os
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import urlparse, unquote
+from urllib.request import url2pathname
 
 import streamlit as st
 from loguru import logger
@@ -25,6 +29,7 @@ from pixelle_video.models.layered_template import LayeredTemplateSpec
 from pixelle_video.models.media_placement import MediaPlacement, resolve_media_placement
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.models.size_contract import GenerationSizeContract
+from pixelle_video.models.template_preset import TemplatePreset
 from pixelle_video.models.video_generation_contract import (
     STORYBOARD_GENERATION_OPTION_KEYS as CONTRACT_STORYBOARD_GENERATION_OPTION_KEYS,
 )
@@ -33,7 +38,11 @@ from pixelle_video.models.video_generation_contract import (
     is_plan_frame_override_payload,
 )
 from pixelle_video.platform_context import resolve_business_context
-from pixelle_video.services.layered_template_service import LayeredTemplateService
+from pixelle_video.repositories.template_presets import TemplatePresetRepository
+from pixelle_video.services.layered_template_service import (
+    LayeredTemplatePreviewFrameRequest,
+    LayeredTemplateService,
+)
 from pixelle_video.services.template_registry import TemplateRegistry
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
@@ -93,6 +102,7 @@ SINGLE_VIDEO_REQUESTED_KEY = "single_video_generation_requested"
 SINGLE_VIDEO_DUPLICATE_CLICK_KEY = "single_video_duplicate_click"
 SINGLE_VIDEO_BUTTON_KEY = "single_video_generate_button"
 SINGLE_VIDEO_RESULT_SUMMARY_KEY = "single_video_result_summary"
+LAYOUT_PREVIEW_REAL_PREVIEW_FRAME_KEY = "layout_preview_real_preview_frame"
 
 
 def _plan_identity_frame_overrides(video_params):
@@ -264,6 +274,141 @@ def _mark_layout_preview_preset_used(preset_id: str | None) -> None:
         logger.warning(f"Failed to mark layered template preset as used: {exc}")
 
 
+def _coerce_layered_template_spec(spec_payload) -> LayeredTemplateSpec | None:
+    if not spec_payload:
+        return None
+    try:
+        return (
+            spec_payload
+            if isinstance(spec_payload, LayeredTemplateSpec)
+            else LayeredTemplateSpec.from_dict(spec_payload)
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning(f"Invalid layered template spec for workbench action: {exc}")
+        return None
+
+
+def _build_layout_preview_frame_request(
+    video_params,
+    *,
+    spec: LayeredTemplateSpec,
+) -> LayeredTemplatePreviewFrameRequest:
+    business_context = resolve_business_context(video_params, st.session_state)
+    return LayeredTemplatePreviewFrameRequest(
+        workspace_id=business_context["workspace_id"],
+        spec=spec,
+        title_text=video_params.get("title")
+        or video_params.get("layout_preview_title_text")
+        or "",
+        caption_text=video_params.get("layout_preview_caption_text") or "",
+        text_rendering=video_params.get("text_rendering") or {},
+    )
+
+
+def _refresh_layout_preview_frame(video_params, *, spec: LayeredTemplateSpec) -> dict[str, str]:
+    request = _build_layout_preview_frame_request(video_params, spec=spec)
+    object_store = _resolve_layout_preview_object_store(video_params)
+    service = (
+        LayeredTemplateService(object_store=object_store)
+        if object_store is not None
+        else LayeredTemplateService()
+    )
+    result = run_async(service.render_preview_frame(request))
+    frame_payload = {
+        "storage_key": result.storage_key,
+        "url": result.url,
+        "fingerprint": result.fingerprint,
+    }
+    st.session_state[LAYOUT_PREVIEW_REAL_PREVIEW_FRAME_KEY] = frame_payload
+    return frame_payload
+
+
+def _resolve_layout_preview_object_store(video_params):
+    return video_params.get("artifact_object_store") or getattr(
+        video_params.get("pixelle_video"),
+        "artifact_object_store",
+        None,
+    )
+
+
+def _resolve_layout_preview_thumbnail_source_path(video_params, *, storage_key: str) -> Path:
+    object_store = _resolve_layout_preview_object_store(video_params)
+    if object_store is None:
+        raise RuntimeError("artifact object store is not configured for layered template save")
+    get_local_file_uri = getattr(object_store, "get_local_file_uri", None)
+    if get_local_file_uri is None:
+        raise RuntimeError("artifact object store does not support local preview file access")
+    local_uri = run_async(get_local_file_uri(storage_key))
+    parsed = urlparse(str(local_uri))
+    if parsed.scheme != "file":
+        raise RuntimeError("preview thumbnail must resolve to a local file URI before saving")
+    thumbnail_path = Path(url2pathname(unquote(parsed.path)))
+    if not thumbnail_path.is_file():
+        raise FileNotFoundError(f"preview thumbnail file not found: {thumbnail_path}")
+    return thumbnail_path
+
+
+def _validate_layout_preview_persistable_spec(spec: LayeredTemplateSpec) -> None:
+    for layer in spec.layers:
+        if layer.source is None:
+            continue
+        if layer.source.kind == "asset":
+            ref = str(layer.source.ref)
+            if not ref.startswith("assets/"):
+                raise ValueError("asset layers must reference repository asset keys before saving")
+            continue
+        if layer.source.kind == "generated_media":
+            ref = str(layer.source.ref)
+            if ref != "generated://primary":
+                raise ValueError("generated media layers must use the primary generated-media ref")
+
+
+def _build_user_template_preset(spec: LayeredTemplateSpec, *, thumbnail_ref: str) -> TemplatePreset:
+    timestamp = datetime.now(timezone.utc).isoformat()
+    orientation = str(spec.metadata.get("orientation") or "")
+    if not orientation:
+        if spec.canvas_width > spec.canvas_height:
+            orientation = "landscape"
+        elif spec.canvas_width < spec.canvas_height:
+            orientation = "portrait"
+        else:
+            orientation = "square"
+    return TemplatePreset(
+        preset_id=spec.template_id,
+        name=spec.template_name,
+        source="user",
+        orientation=orientation,
+        template_type=spec.template_type,
+        spec=spec,
+        thumbnail_ref=thumbnail_ref,
+        editable=True,
+        created_at=timestamp,
+        updated_at=timestamp,
+        last_used_at=timestamp,
+    )
+
+
+def _save_layout_preview_template(video_params, *, spec: LayeredTemplateSpec) -> TemplatePreset:
+    _validate_layout_preview_persistable_spec(spec)
+    frame_payload = _refresh_layout_preview_frame(video_params, spec=spec)
+    repository = TemplatePresetRepository(
+        root=video_params.get("template_presets_root", "data/template_presets")
+    )
+    thumbnail_source = _resolve_layout_preview_thumbnail_source_path(
+        video_params,
+        storage_key=frame_payload["storage_key"],
+    )
+    thumbnail_ref = repository.persist_thumbnail(
+        source_path=thumbnail_source,
+        preset_id=spec.template_id,
+    )
+    preset = _build_user_template_preset(spec, thumbnail_ref=thumbnail_ref)
+    repository.save(preset)
+    TemplateRegistry().mark_used(preset.preset_id, preset.last_used_at)
+    st.session_state["selected_template_preset_id"] = preset.preset_id
+    return preset
+
+
 def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = "") -> None:
     selected = render_layout_preview_workbench(
         spec_payload=video_params.get("layered_template_spec"),
@@ -277,6 +422,28 @@ def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = 
         key_suffix=key_suffix,
         ui=st,
     )
+    action = selected.get("action") if selected else None
+    spec = _coerce_layered_template_spec(video_params.get("layered_template_spec"))
+    if action == "refresh_preview_frame":
+        if spec is None:
+            st.error("当前没有可刷新的分层模板规格")
+            return
+        try:
+            _refresh_layout_preview_frame(video_params, spec=spec)
+            st.success("已刷新真实预览帧")
+        except Exception as exc:
+            st.error(str(exc))
+        return
+    if action == "save_template":
+        if spec is None:
+            st.error("当前没有可保存的分层模板规格")
+            return
+        try:
+            _save_layout_preview_template(video_params, spec=spec)
+            st.success("已保存到我的模板")
+        except Exception as exc:
+            st.error(str(exc))
+        return
     if selected and selected.get("spec_payload"):
         selected_preset_id = selected.get("preset_id")
         load_layered_template_spec_into_editor_state(

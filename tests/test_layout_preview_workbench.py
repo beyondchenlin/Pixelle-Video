@@ -45,6 +45,14 @@ class _FakeUI:
         self.infos.append(body)
 
 
+def _recent_buttons(fake_ui: _FakeUI) -> list[dict[str, Any]]:
+    return [
+        button
+        for button in fake_ui.buttons
+        if button["key"].startswith("layout_preview_recent_preset_")
+    ]
+
+
 def _spec_payload() -> dict[str, Any]:
     return {
         "version": "layered_template.v1",
@@ -120,7 +128,7 @@ def test_render_layout_preview_workbench_sorts_recent_presets_and_limits_to_five
     assert "Template 6" in rendered
     assert "Template 2" in rendered
     assert "Template 1" not in rendered
-    assert len(fake_ui.buttons) == 5
+    assert len(_recent_buttons(fake_ui)) == 5
 
 
 def test_render_layout_preview_workbench_sorts_recent_presets_by_datetime(monkeypatch):
@@ -150,7 +158,7 @@ def test_render_layout_preview_workbench_sorts_recent_presets_by_datetime(monkey
         ui=fake_ui,
     )
 
-    button_labels = [item["label"] for item in fake_ui.buttons]
+    button_labels = [item["label"] for item in _recent_buttons(fake_ui)]
     assert button_labels == ["\u5957\u7528 New", "\u5957\u7528 Old"]
 
 
@@ -181,7 +189,7 @@ def test_render_layout_preview_workbench_sorts_recent_presets_by_absolute_time(m
         ui=fake_ui,
     )
 
-    button_labels = [item["label"] for item in fake_ui.buttons]
+    button_labels = [item["label"] for item in _recent_buttons(fake_ui)]
     assert button_labels == ["\u5957\u7528 UTC Later", "\u5957\u7528 Offset Earlier"]
 
 
@@ -263,6 +271,48 @@ def test_render_layout_preview_workbench_records_clicked_recent_preset(monkeypat
     assert "_layout_preview_workbench_selection" not in fake_ui.session_state
 
 
+def test_render_layout_preview_workbench_returns_refresh_preview_action(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state["layout_preview_refresh_preview_frame"] = True
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    selected = layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        ui=fake_ui,
+    )
+
+    labels = [button["label"] for button in fake_ui.buttons]
+    assert "\u5237\u65b0\u771f\u5b9e\u9884\u89c8\u5e27" in labels
+    assert "\u4fdd\u5b58\u4e3a\u6211\u7684\u6a21\u677f" in labels
+    assert selected == {"action": "refresh_preview_frame"}
+
+
+def test_render_layout_preview_workbench_returns_save_template_action(monkeypatch):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state["layout_preview_save_template"] = True
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    selected = layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[],
+        preview_html=None,
+        ui=fake_ui,
+    )
+
+    labels = [button["label"] for button in fake_ui.buttons]
+    assert "\u5237\u65b0\u771f\u5b9e\u9884\u89c8\u5e27" in labels
+    assert "\u4fdd\u5b58\u4e3a\u6211\u7684\u6a21\u677f" in labels
+    assert selected == {"action": "save_template"}
+
+
 def test_render_layout_preview_workbench_applies_key_suffix_to_recent_buttons(monkeypatch):
     from web.components import layout_preview_workbench
 
@@ -285,8 +335,9 @@ def test_render_layout_preview_workbench_applies_key_suffix_to_recent_buttons(mo
         ui=fake_ui,
     )
 
-    assert fake_ui.buttons[0]["key"].startswith("layout_preview_recent_preset_")
-    assert fake_ui.buttons[0]["key"].endswith("_refresh_2")
+    recent_buttons = _recent_buttons(fake_ui)
+    assert recent_buttons[0]["key"].startswith("layout_preview_recent_preset_")
+    assert recent_buttons[0]["key"].endswith("_refresh_2")
 
 
 def test_render_layout_preview_workbench_uses_stable_safe_recent_button_keys(
@@ -319,7 +370,7 @@ def test_render_layout_preview_workbench_uses_stable_safe_recent_button_keys(
         ui=fake_ui,
     )
 
-    keys = [item["key"] for item in fake_ui.buttons]
+    keys = [item["key"] for item in _recent_buttons(fake_ui)]
     assert len(set(keys)) == 2
     assert all(key.startswith("layout_preview_recent_preset_") for key in keys)
     assert all(key.endswith("_refresh_2") for key in keys)
@@ -350,7 +401,7 @@ def test_render_layout_preview_workbench_ignores_recent_preset_without_spec(monk
     rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
     assert "Template Without Spec" not in rendered
     assert "Template With Spec" in rendered
-    assert len(fake_ui.buttons) == 1
+    assert len(_recent_buttons(fake_ui)) == 1
 
 
 def test_render_layout_preview_workbench_rejects_untrusted_preview_html(monkeypatch):

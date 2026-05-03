@@ -46,6 +46,8 @@ _NO_PREVIEW_HTML = (
     "\u6682\u65e0\u9884\u89c8 HTML\uff0c\u5b8c\u6210\u4e00\u6b21"
     "\u670d\u52a1\u7aef\u9884\u89c8\u540e\u4f1a\u663e\u793a\u5728\u8fd9\u91cc\u3002"
 )
+_REFRESH_PREVIEW_FRAME = "\u5237\u65b0\u771f\u5b9e\u9884\u89c8\u5e27"
+_SAVE_MY_TEMPLATE = "\u4fdd\u5b58\u4e3a\u6211\u7684\u6a21\u677f"
 
 
 def render_layout_preview_workbench(
@@ -68,12 +70,19 @@ def render_layout_preview_workbench(
 
     spec = _coerce_spec(spec_payload)
     presets = _recent_presets(recent_presets)
+    selected_action: PresetSelection | None = (
+        _consume_action(ui=ui, key_suffix=key_suffix) if spec is not None else None
+    )
     selected_preset = _consume_pending_selection(ui=ui, presets=presets)
     if selected_preset is not None and on_preset_selected is not None:
         on_preset_selected(selected_preset)
 
     with ui.container():
         ui.markdown(_build_workbench_header_html(), unsafe_allow_html=True)
+        if spec is not None:
+            rendered_action = _render_workbench_actions(ui=ui, key_suffix=key_suffix)
+            if selected_action is None:
+                selected_action = rendered_action
         _render_recent_presets(
             ui=ui,
             presets=presets,
@@ -94,7 +103,36 @@ def render_layout_preview_workbench(
         )
         _render_preview_container(ui=ui, preview_html=preview_html)
 
-    return selected_preset
+    return selected_action or selected_preset
+
+
+def _render_workbench_actions(*, ui, key_suffix: str) -> PresetSelection | None:
+    refresh_clicked = ui.button(
+        _REFRESH_PREVIEW_FRAME,
+        key=_action_button_key("refresh_preview_frame", key_suffix=key_suffix),
+    )
+    save_clicked = ui.button(
+        _SAVE_MY_TEMPLATE,
+        key=_action_button_key("save_template", key_suffix=key_suffix),
+    )
+    if refresh_clicked:
+        return {"action": "refresh_preview_frame"}
+    if save_clicked:
+        return {"action": "save_template"}
+    return None
+
+
+def _consume_action(*, ui, key_suffix: str) -> PresetSelection | None:
+    action_keys = {
+        _action_button_key("refresh_preview_frame", key_suffix=key_suffix): "refresh_preview_frame",
+        _action_button_key("save_template", key_suffix=key_suffix): "save_template",
+        "layout_preview_refresh_preview_frame": "refresh_preview_frame",
+        "layout_preview_save_template": "save_template",
+    }
+    for key, action in action_keys.items():
+        if ui.session_state.get(key):
+            return {"action": action}
+    return None
 
 
 def _render_recent_presets(
@@ -361,6 +399,10 @@ def _normalize_recent_timestamp(value: Any) -> datetime | None:
 def _recent_preset_button_key(preset_id: str, *, key_suffix: str) -> str:
     digest = hashlib.sha1(str(preset_id).encode("utf-8")).hexdigest()[:12]
     return f"layout_preview_recent_preset_{digest}{key_suffix}"
+
+
+def _action_button_key(action: str, *, key_suffix: str) -> str:
+    return f"layout_preview_{action}{key_suffix}"
 
 
 def trust_preview_html(value: str | None) -> TrustedPreviewHTML | None:
