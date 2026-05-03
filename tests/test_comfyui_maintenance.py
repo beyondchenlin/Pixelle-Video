@@ -41,6 +41,7 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
                 },
             ]
         )
+        self.last_system_stats_payload = None
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         body = await request.aread()
@@ -51,7 +52,11 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
                 return httpx.Response(200, json=self.queue_payloads.pop(0), request=request)
             return httpx.Response(200, json=self.queue_payload, request=request)
         if request.url.path == "/system_stats" and request.method == "GET":
-            payload = self.system_stats_payloads.pop(0) if self.system_stats_payloads else {}
+            if self.system_stats_payloads:
+                payload = self.system_stats_payloads.pop(0)
+                self.last_system_stats_payload = payload
+            else:
+                payload = self.last_system_stats_payload or {}
             return httpx.Response(200, json=payload, request=request)
         if request.url.path == "/pixelle/indextts2/health":
             return httpx.Response(
@@ -195,6 +200,117 @@ async def test_free_memory_when_idle_checks_queue_before_freeing():
 
 
 @pytest.mark.asyncio
+async def test_free_memory_waits_until_comfyui_applies_free_flag_before_confirming(monkeypatch):
+    transport = _RecordingTransport(
+        system_stats_payloads=[
+            {
+                "devices": [
+                    {
+                        "name": "NVIDIA",
+                        "type": "cuda",
+                        "vram_total": 8192,
+                        "vram_free": 1024,
+                        "torch_vram_total": 8192,
+                        "torch_vram_free": 64,
+                    }
+                ]
+            },
+            {
+                "devices": [
+                    {
+                        "name": "NVIDIA",
+                        "type": "cuda",
+                        "vram_total": 8192,
+                        "vram_free": 1024,
+                        "torch_vram_total": 8192,
+                        "torch_vram_free": 64,
+                    }
+                ]
+            },
+            {
+                "devices": [
+                    {
+                        "name": "NVIDIA",
+                        "type": "cuda",
+                        "vram_total": 8192,
+                        "vram_free": 7168,
+                        "torch_vram_total": 1024,
+                        "torch_vram_free": 896,
+                    }
+                ]
+            },
+        ]
+    )
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    async def _immediate_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
+
+    result = await client.free_memory("high")
+
+    assert result.released is True
+    assert result.comfyui_released is True
+    assert result.system_vram_after == {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_total": 8192,
+                "vram_free": 7168,
+                "torch_vram_total": 1024,
+                "torch_vram_free": 896,
+            }
+        ]
+    }
+    assert transport.calls == [
+        ("GET", "/system_stats", None),
+        ("POST", "/free", {"unload_models": True, "free_memory": True}),
+        ("GET", "/system_stats", None),
+        ("GET", "/system_stats", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_free_memory_reports_unconfirmed_when_busy_vram_never_drops(monkeypatch):
+    unchanged_snapshot = {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_total": 8192,
+                "vram_free": 1024,
+                "torch_vram_total": 8192,
+                "torch_vram_free": 64,
+            }
+        ]
+    }
+    transport = _RecordingTransport(system_stats_payloads=[unchanged_snapshot] * 10)
+    client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=transport,
+        release_settle_timeout=0.01,
+    )
+
+    async def _immediate_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
+
+    result = await client.free_memory("high")
+
+    assert result.released is False
+    assert result.comfyui_released is False
+    assert result.system_vram_after == unchanged_snapshot
+    assert transport.calls[:3] == [
+        ("GET", "/system_stats", None),
+        ("POST", "/free", {"unload_models": True, "free_memory": True}),
+        ("GET", "/system_stats", None),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_free_memory_when_idle_supports_low_intensity_release():
     transport = _RecordingTransport()
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
@@ -247,6 +363,42 @@ async def test_free_memory_with_extensions_calls_comfyui_free_then_indextts2_end
 
 
 @pytest.mark.asyncio
+async def test_free_memory_with_extensions_requires_standard_comfyui_release(monkeypatch):
+    unchanged_snapshot = {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_total": 8192,
+                "vram_free": 1024,
+                "torch_vram_total": 8192,
+                "torch_vram_free": 64,
+            }
+        ]
+    }
+    transport = _RecordingTransport(system_stats_payloads=[unchanged_snapshot] * 10)
+    client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=transport,
+        release_settle_timeout=0.01,
+    )
+
+    async def _immediate_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
+
+    result = await client.free_memory_with_extensions(
+        "high",
+        extensions=("indextts2",),
+    )
+
+    assert result.comfyui_released is False
+    assert result.extensions[0].released is True
+    assert result.released is False
+
+
+@pytest.mark.asyncio
 async def test_free_memory_keeps_release_success_when_system_stats_are_unavailable():
     class _NoSystemStatsTransport(_RecordingTransport):
         async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
@@ -262,8 +414,9 @@ async def test_free_memory_keeps_release_success_when_system_stats_are_unavailab
 
     result = await client.free_memory("high")
 
-    assert result.released is True
-    assert result.comfyui_released is True
+    assert result.released is False
+    assert result.comfyui_released is False
+    assert result.release_confirmation_reason == "system_stats_unavailable"
     assert result.system_vram_before is None
     assert result.system_vram_after is None
     assert transport.calls == [

@@ -12,6 +12,8 @@ ComfyUIReleaseIntensity = Literal["high", "low"]
 ComfyUIExtensionName = Literal["indextts2"]
 ComfyUIExtensionMissingEndpointMode = Literal["optional", "required"]
 _IDLE_POLL_INTERVAL_SECONDS = 0.2
+_RELEASE_SETTLE_POLL_INTERVAL_SECONDS = 0.5
+_RELEASE_MIN_VRAM_FREE_GAIN_BYTES = 512 * 1024 * 1024
 
 
 _FREE_MEMORY_PAYLOADS: dict[ComfyUIReleaseIntensity, dict[str, bool]] = {
@@ -82,6 +84,8 @@ class ComfyUIMemoryReleaseResult:
     queue_pending: int | None = None
     system_vram_before: dict[str, Any] | None = None
     system_vram_after: dict[str, Any] | None = None
+    release_confirmed: bool = False
+    release_confirmation_reason: str = ""
     extensions: tuple[ComfyUIExtensionReleaseResult, ...] = ()
 
     def __bool__(self) -> bool:
@@ -99,6 +103,8 @@ class ComfyUIMemoryReleaseResult:
             "queue_pending": self.queue_pending,
             "system_vram_before": self.system_vram_before,
             "system_vram_after": self.system_vram_after,
+            "release_confirmed": self.release_confirmed,
+            "release_confirmation_reason": self.release_confirmation_reason,
             "extension_results": [
                 extension.to_log_dict()
                 for extension in self.extensions
@@ -118,17 +124,25 @@ class ComfyUIMaintenanceClient:
         system_stats_timeout: float = 0.5,
         transport: httpx.AsyncBaseTransport | None = None,
         idle_wait_timeout: float = 20.0,
+        release_settle_timeout: float = 30.0,
+        release_poll_interval: float = _RELEASE_SETTLE_POLL_INTERVAL_SECONDS,
     ) -> None:
         if idle_wait_timeout <= 0:
             raise ValueError("idle_wait_timeout must be positive")
         if system_stats_timeout <= 0:
             raise ValueError("system_stats_timeout must be positive")
+        if release_settle_timeout <= 0:
+            raise ValueError("release_settle_timeout must be positive")
+        if release_poll_interval <= 0:
+            raise ValueError("release_poll_interval must be positive")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
         self.system_stats_timeout = system_stats_timeout
         self.transport = transport
         self.idle_wait_timeout = idle_wait_timeout
+        self.release_settle_timeout = release_settle_timeout
+        self.release_poll_interval = release_poll_interval
 
     async def cleanup_before_generation(self, mode: ComfyUICleanupMode) -> None:
         if mode == "force":
@@ -175,14 +189,18 @@ class ComfyUIMaintenanceClient:
             raise ValueError(f"Unsupported ComfyUI release intensity: {intensity}")
         system_vram_before = await self._get_system_vram_snapshot()
         await self._post("/free", dict(payload))
-        system_vram_after = await self._get_system_vram_snapshot()
+        system_vram_after, release_confirmed, release_confirmation_reason = (
+            await self._wait_for_memory_release_confirmation(system_vram_before)
+        )
         return ComfyUIMemoryReleaseResult(
             attempted=True,
-            released=True,
-            comfyui_released=True,
+            released=release_confirmed,
+            comfyui_released=release_confirmed,
             intensity=intensity,
             system_vram_before=system_vram_before,
             system_vram_after=system_vram_after,
+            release_confirmed=release_confirmed,
+            release_confirmation_reason=release_confirmation_reason,
         )
 
     async def free_memory_with_extensions(
@@ -199,7 +217,7 @@ class ComfyUIMaintenanceClient:
         )
         return replace(
             result,
-            released=result.released or any(extension.released for extension in extension_results),
+            released=result.released,
             extensions=extension_results,
         )
 
@@ -415,6 +433,107 @@ class ComfyUIMaintenanceClient:
         if not normalized_devices:
             return None
         return {"devices": normalized_devices}
+
+    async def _wait_for_memory_release_confirmation(
+        self,
+        system_vram_before: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any] | None, bool, str]:
+        if system_vram_before is None:
+            system_vram_after = await self._get_system_vram_snapshot()
+            reason = "system_stats_unavailable"
+            return system_vram_after, False, reason
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.release_settle_timeout
+        last_snapshot: dict[str, Any] | None = None
+        last_reason = "release_not_observed"
+        while True:
+            snapshot = await self._get_system_vram_snapshot()
+            if snapshot is None:
+                reason = "system_stats_unavailable_after_free"
+                return last_snapshot, False, reason
+            last_snapshot = snapshot
+
+            confirmed, reason = self._is_memory_release_confirmed(
+                system_vram_before,
+                snapshot,
+            )
+            last_reason = reason
+            if confirmed:
+                return snapshot, True, reason
+
+            if loop.time() >= deadline:
+                return snapshot, False, last_reason
+            await asyncio.sleep(self.release_poll_interval)
+
+    def _is_memory_release_confirmed(
+        self,
+        before: dict[str, Any],
+        after: dict[str, Any],
+    ) -> tuple[bool, str]:
+        before_device = self._primary_vram_device(before)
+        after_device = self._primary_vram_device(after)
+        if before_device is None or after_device is None:
+            return True, "vram_snapshot_missing_device"
+
+        before_torch_total = self._to_int(before_device.get("torch_vram_total"))
+        after_torch_total = self._to_int(after_device.get("torch_vram_total"))
+        if (
+            before_torch_total is not None
+            and after_torch_total is not None
+            and after_torch_total < before_torch_total
+        ):
+            return True, "torch_reserved_decreased"
+
+        before_vram_free = self._to_int(before_device.get("vram_free"))
+        after_vram_free = self._to_int(after_device.get("vram_free"))
+        if (
+            before_vram_free is not None
+            and after_vram_free is not None
+            and after_vram_free - before_vram_free >= self._release_vram_free_gain_threshold(after_device)
+        ):
+            return True, "device_vram_free_increased"
+
+        before_torch_free = self._to_int(before_device.get("torch_vram_free"))
+        after_torch_free = self._to_int(after_device.get("torch_vram_free"))
+        if (
+            before_torch_free is not None
+            and after_torch_free is not None
+            and before_torch_total is not None
+            and after_torch_total is not None
+            and before_torch_total > 0
+            and after_torch_total > 0
+            and after_torch_free / after_torch_total >= 0.8
+            and after_torch_free > before_torch_free
+        ):
+            return True, "torch_reserved_mostly_free"
+
+        return False, "release_not_observed"
+
+    def _primary_vram_device(self, snapshot: dict[str, Any]) -> dict[str, Any] | None:
+        devices = snapshot.get("devices")
+        if not isinstance(devices, list) or not devices:
+            return None
+        for device in devices:
+            if isinstance(device, dict) and device.get("type") == "cuda":
+                return device
+        first = devices[0]
+        return first if isinstance(first, dict) else None
+
+    def _to_int(self, value: Any) -> int | None:
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _release_vram_free_gain_threshold(self, device: dict[str, Any]) -> int:
+        vram_total = self._to_int(device.get("vram_total"))
+        if vram_total is None or vram_total <= 0:
+            return _RELEASE_MIN_VRAM_FREE_GAIN_BYTES
+        relative_threshold = max(1, int(vram_total * 0.05))
+        return min(_RELEASE_MIN_VRAM_FREE_GAIN_BYTES, relative_threshold)
 
     async def _wait_until_idle(self) -> None:
         loop = asyncio.get_running_loop()
