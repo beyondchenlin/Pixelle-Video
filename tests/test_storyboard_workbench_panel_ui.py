@@ -42,6 +42,8 @@ class _WorkbenchFakeUI:
 
     def button(self, label, **kwargs):
         self.buttons.append({"label": label, **kwargs})
+        if kwargs.get("disabled"):
+            return False
         return bool(self.session_state.get(kwargs.get("key"), False))
 
     def error(self, message):
@@ -73,7 +75,10 @@ def _candidate_response() -> dict[str, Any]:
                 "storage_key": "artifacts/workspace_1/frame_0001/artifact_version_001.png",
                 "status": "succeeded",
                 "provider": "comfyui",
-                "url": "https://cdn.pixelle.test/artifacts/frame_0001.png",
+                "image_display": {
+                    "kind": "url",
+                    "url": "https://cdn.pixelle.test/artifacts/frame_0001.png",
+                },
                 "width": 1024,
                 "height": 1024,
                 "trace_event_id": "generation_event_001",
@@ -86,7 +91,10 @@ def _candidate_response() -> dict[str, Any]:
                 "storage_key": "artifacts/workspace_1/frame_0001/artifact_version_002.png",
                 "status": "candidate",
                 "provider": "comfyui",
-                "url": "https://cdn.pixelle.test/artifacts/frame_0002.png",
+                "image_display": {
+                    "kind": "url",
+                    "url": "https://cdn.pixelle.test/artifacts/frame_0002.png",
+                },
                 "width": 1024,
                 "height": 1024,
                 "trace_event_id": "generation_event_002",
@@ -95,13 +103,64 @@ def _candidate_response() -> dict[str, Any]:
     }
 
 
-def test_render_storyboard_workbench_panel_requires_context_before_api_calls():
+class _FakeWorkbenchClient:
+    def __init__(
+        self,
+        *,
+        candidates: list[dict[str, Any]] | None = None,
+        can_regenerate: bool = True,
+        fail_list: bool = False,
+    ) -> None:
+        self.candidates = candidates if candidates is not None else _candidate_response()["candidates"]
+        self.can_regenerate = can_regenerate
+        self.fail_list = fail_list
+        self.calls: list[dict[str, Any]] = []
+
+    def get_capabilities(self):
+        return {
+            "can_regenerate_frame_image": self.can_regenerate,
+            "regenerate_unavailable_reason": (
+                None if self.can_regenerate else "task submitter is not configured"
+            ),
+        }
+
+    def list_image_candidates(self, **kwargs):
+        self.calls.append({"method": "list", **kwargs})
+        if self.fail_list:
+            raise RuntimeError(r"provider_url=https://provider.example D:\secret")
+        return {**_candidate_response(), "candidates": self.candidates}
+
+    def select_image_candidate(self, **kwargs):
+        self.calls.append({"method": "select", **kwargs})
+        return {
+            "success": True,
+            "state": {
+                "frame_id": "frame_0001",
+                "prompt_plan_id": "prompt_plan_001",
+                "selected_image_artifact_id": "artifact_frame_0001_image",
+                "selected_image_version_id": kwargs["version_id"],
+                "candidate_image_version_ids": ["artifact_version_001", kwargs["version_id"]],
+                "lock_policy": "unlocked",
+                "stale_flags": ["video_segment"],
+            },
+        }
+
+    def regenerate_frame_image(self, **kwargs):
+        self.calls.append({"method": "regenerate", **kwargs})
+        return {
+            "success": True,
+            "task_id": "regen-task-1",
+            "task_type": "frame_image_regeneration",
+            "created": True,
+            "generation_fingerprint": "fingerprint-frame-0001",
+        }
+
+
+def test_render_storyboard_workbench_panel_requires_context_before_client_calls():
     from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 
     fake_ui = _WorkbenchFakeUI()
-
-    def fail_loader(**_kwargs):
-        raise AssertionError("candidate API must not be called without context")
+    client = _FakeWorkbenchClient()
 
     render_storyboard_workbench_panel(
         workspace_id="workspace_1",
@@ -111,22 +170,37 @@ def test_render_storyboard_workbench_panel_requires_context_before_api_calls():
         selected_version_id="artifact_version_001",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        candidate_loader=fail_loader,
+        workbench_client=client,
     )
 
+    assert client.calls == []
     assert fake_ui.captions == ["workbench.panel.missing_context"]
     assert fake_ui.errors == []
+
+
+def test_render_storyboard_workbench_panel_fails_closed_without_client():
+    from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
+
+    fake_ui = _WorkbenchFakeUI()
+
+    render_storyboard_workbench_panel(
+        workspace_id="workspace_1",
+        storyboard_id="storyboard_001",
+        frame_id="frame_0001",
+        artifact_id="artifact_frame_0001_image",
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+        workbench_client=None,
+    )
+
+    assert fake_ui.captions == ["workbench.panel.unavailable"]
 
 
 def test_render_storyboard_workbench_panel_uses_default_workspace_context():
     from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 
     fake_ui = _WorkbenchFakeUI()
-    calls: list[dict[str, Any]] = []
-
-    def loader(**kwargs):
-        calls.append(kwargs)
-        return {**_candidate_response(), "candidates": []}
+    client = _FakeWorkbenchClient(candidates=[])
 
     render_storyboard_workbench_panel(
         workspace_id=None,
@@ -135,12 +209,12 @@ def test_render_storyboard_workbench_panel_uses_default_workspace_context():
         artifact_id="artifact_frame_0001_image",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        candidate_loader=loader,
+        workbench_client=client,
     )
 
-    assert calls == [
+    assert client.calls == [
         {
-            "api_base_url": "http://localhost:8001/api",
+            "method": "list",
             "workspace_id": "workspace_1",
             "storyboard_id": "storyboard_001",
             "frame_id": "frame_0001",
@@ -154,14 +228,9 @@ def test_render_storyboard_workbench_panel_lists_candidates_and_actions():
     from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 
     fake_ui = _WorkbenchFakeUI()
-    calls: list[dict[str, Any]] = []
-
-    def loader(**kwargs):
-        calls.append(kwargs)
-        return _candidate_response()
+    client = _FakeWorkbenchClient()
 
     render_storyboard_workbench_panel(
-        api_base_url="http://localhost:8000/api",
         workspace_id="workspace_1",
         storyboard_id="storyboard_001",
         frame_id="frame_0001",
@@ -169,21 +238,19 @@ def test_render_storyboard_workbench_panel_lists_candidates_and_actions():
         selected_version_id="artifact_version_001",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        candidate_loader=loader,
+        workbench_client=client,
     )
 
     rendered = "\n".join(item["message"] for item in fake_ui.markdowns)
     button_labels = [button["label"] for button in fake_ui.buttons]
 
-    assert calls == [
-        {
-            "api_base_url": "http://localhost:8000/api",
-            "workspace_id": "workspace_1",
-            "storyboard_id": "storyboard_001",
-            "frame_id": "frame_0001",
-            "artifact_id": "artifact_frame_0001_image",
-        }
-    ]
+    assert client.calls[0] == {
+        "method": "list",
+        "workspace_id": "workspace_1",
+        "storyboard_id": "storyboard_001",
+        "frame_id": "frame_0001",
+        "artifact_id": "artifact_frame_0001_image",
+    }
     assert "workbench.panel.title" in rendered
     assert "artifact_version_001" in rendered
     assert "artifact_version_002" in rendered
@@ -204,38 +271,39 @@ def test_render_storyboard_workbench_panel_lists_candidates_and_actions():
     assert "workbench.panel.regenerate" in button_labels
 
 
-def test_render_storyboard_workbench_panel_resolves_relative_candidate_urls_for_streamlit():
+def test_storyboard_workbench_panel_renders_bytes_display_without_api_base_url():
     from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 
     fake_ui = _WorkbenchFakeUI()
-    response = _candidate_response()
-    response["candidates"][0]["url"] = (
-        "/api/files/artifacts/workspace_1/frame_0001/artifact_version_001.png"
+    client = _FakeWorkbenchClient(
+        candidates=[
+            {
+                "artifact_id": "artifact_frame_0001_image",
+                "version_id": "artifact_version_001",
+                "frame_id": "frame_0001",
+                "status": "ready",
+                "image_display": {
+                    "kind": "bytes",
+                    "data": b"fake-image",
+                    "mime_type": "image/png",
+                },
+            }
+        ],
+        can_regenerate=False,
     )
-    response["candidates"] = response["candidates"][:1]
 
     render_storyboard_workbench_panel(
-        api_base_url="http://localhost:8001/api",
         workspace_id="workspace_1",
         storyboard_id="storyboard_001",
         frame_id="frame_0001",
         artifact_id="artifact_frame_0001_image",
-        selected_version_id="artifact_version_001",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        candidate_loader=lambda **_kwargs: response,
+        workbench_client=client,
     )
 
-    assert fake_ui.images == [
-        {
-            "image": (
-                "http://localhost:8001/api/files/artifacts/workspace_1/"
-                "frame_0001/artifact_version_001.png"
-            ),
-            "caption": "artifact_version_001",
-            "width": "stretch",
-        }
-    ]
+    assert fake_ui.images[0]["image"] == b"fake-image"
+    assert fake_ui.buttons[-1]["disabled"] is True
 
 
 def test_render_storyboard_workbench_panel_selects_candidate_and_refreshes_state():
@@ -243,28 +311,9 @@ def test_render_storyboard_workbench_panel_selects_candidate_and_refreshes_state
 
     fake_ui = _WorkbenchFakeUI()
     fake_ui.session_state["workbench_select_frame_0001_artifact_version_002"] = True
-    selection_calls: list[dict[str, Any]] = []
-
-    def selector(**kwargs):
-        selection_calls.append(kwargs)
-        return {
-            "success": True,
-            "state": {
-                "frame_id": "frame_0001",
-                "prompt_plan_id": "prompt_plan_001",
-                "selected_image_artifact_id": "artifact_frame_0001_image",
-                "selected_image_version_id": "artifact_version_002",
-                "candidate_image_version_ids": [
-                    "artifact_version_001",
-                    "artifact_version_002",
-                ],
-                "lock_policy": "unlocked",
-                "stale_flags": ["video_segment"],
-            },
-        }
+    client = _FakeWorkbenchClient()
 
     render_storyboard_workbench_panel(
-        api_base_url="http://localhost:8000/api",
         workspace_id="workspace_1",
         storyboard_id="storyboard_001",
         frame_id="frame_0001",
@@ -273,21 +322,18 @@ def test_render_storyboard_workbench_panel_selects_candidate_and_refreshes_state
         actor_id="user_1",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        candidate_loader=lambda **_kwargs: _candidate_response(),
-        candidate_selector=selector,
+        workbench_client=client,
     )
 
-    assert selection_calls == [
-        {
-            "api_base_url": "http://localhost:8000/api",
-            "workspace_id": "workspace_1",
-            "storyboard_id": "storyboard_001",
-            "frame_id": "frame_0001",
-            "artifact_id": "artifact_frame_0001_image",
-            "version_id": "artifact_version_002",
-            "actor_id": "user_1",
-        }
-    ]
+    assert client.calls[1] == {
+        "method": "select",
+        "workspace_id": "workspace_1",
+        "storyboard_id": "storyboard_001",
+        "frame_id": "frame_0001",
+        "artifact_id": "artifact_frame_0001_image",
+        "version_id": "artifact_version_002",
+        "actor_id": "user_1",
+    }
     assert fake_ui.session_state["workbench_selected_versions"]["frame_0001"] == "artifact_version_002"
     assert fake_ui.successes == ["workbench.panel.select_success"]
 
@@ -297,20 +343,9 @@ def test_render_storyboard_workbench_panel_requests_regeneration_task():
 
     fake_ui = _WorkbenchFakeUI()
     fake_ui.session_state["workbench_regenerate_frame_0001"] = True
-    regeneration_calls: list[dict[str, Any]] = []
-
-    def regenerator(**kwargs):
-        regeneration_calls.append(kwargs)
-        return {
-            "success": True,
-            "task_id": "regen-task-1",
-            "task_type": "frame_image_regeneration",
-            "created": True,
-            "generation_fingerprint": "fingerprint-frame-0001",
-        }
+    client = _FakeWorkbenchClient()
 
     render_storyboard_workbench_panel(
-        api_base_url="http://localhost:8000/api",
         workspace_id="workspace_1",
         storyboard_id="storyboard_001",
         frame_id="frame_0001",
@@ -318,33 +353,27 @@ def test_render_storyboard_workbench_panel_requests_regeneration_task():
         selected_version_id="artifact_version_001",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        candidate_loader=lambda **_kwargs: _candidate_response(),
-        frame_regenerator=regenerator,
+        workbench_client=client,
     )
 
-    assert regeneration_calls == [
-        {
-            "api_base_url": "http://localhost:8000/api",
-            "workspace_id": "workspace_1",
-            "storyboard_id": "storyboard_001",
-            "frame_id": "frame_0001",
-            "artifact_id": "artifact_frame_0001_image",
-        }
-    ]
+    assert client.calls[-1] == {
+        "method": "regenerate",
+        "workspace_id": "workspace_1",
+        "storyboard_id": "storyboard_001",
+        "frame_id": "frame_0001",
+        "artifact_id": "artifact_frame_0001_image",
+    }
     assert fake_ui.infos == ["workbench.panel.regenerate_started"]
     assert fake_ui.session_state["workbench_last_regeneration_tasks"]["frame_0001"] == "regen-task-1"
 
 
-def test_render_storyboard_workbench_panel_hides_loader_exception_details():
+def test_render_storyboard_workbench_panel_hides_client_exception_details():
     from web.components.storyboard_workbench_panel import render_storyboard_workbench_panel
 
     fake_ui = _WorkbenchFakeUI()
-
-    def loader(**_kwargs):
-        raise RuntimeError(r"provider_url=https://provider.example D:\secret")
+    client = _FakeWorkbenchClient(fail_list=True)
 
     render_storyboard_workbench_panel(
-        api_base_url="http://localhost:8000/api",
         workspace_id="workspace_1",
         storyboard_id="storyboard_001",
         frame_id="frame_0001",
@@ -352,7 +381,7 @@ def test_render_storyboard_workbench_panel_hides_loader_exception_details():
         selected_version_id="artifact_version_001",
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        candidate_loader=loader,
+        workbench_client=client,
     )
 
     rendered = "\n".join(fake_ui.captions + fake_ui.errors)

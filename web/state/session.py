@@ -43,9 +43,16 @@ class _PixelleVideoSessionState:
 
 
 _PIXELLE_VIDEO_SESSIONS: dict[str, _PixelleVideoSessionState] = {}
+_LOCAL_PLATFORM_DEPENDENCIES = None
+_LOCAL_PLATFORM_TASK_MANAGER = None
+_LOCAL_TASK_EXECUTOR_REGISTRY = None
+_LOCAL_WORKER_REGISTRY = None
 
 
 async def _cleanup_pixelle_video_session(session_key: str):
+    global _LOCAL_PLATFORM_DEPENDENCIES, _LOCAL_PLATFORM_TASK_MANAGER
+    global _LOCAL_TASK_EXECUTOR_REGISTRY, _LOCAL_WORKER_REGISTRY
+
     from pixelle_video.services.frame_html import HTMLFrameGenerator
 
     state = _PIXELLE_VIDEO_SESSIONS.get(session_key)
@@ -53,6 +60,12 @@ async def _cleanup_pixelle_video_session(session_key: str):
         await state.pixelle_video.cleanup()
     await HTMLFrameGenerator.close_browser()
     _PIXELLE_VIDEO_SESSIONS.pop(session_key, None)
+    if not _PIXELLE_VIDEO_SESSIONS and _LOCAL_PLATFORM_TASK_MANAGER is not None:
+        await _LOCAL_PLATFORM_TASK_MANAGER.stop()
+        _LOCAL_PLATFORM_TASK_MANAGER = None
+        _LOCAL_PLATFORM_DEPENDENCIES = None
+        _LOCAL_TASK_EXECUTOR_REGISTRY = None
+        _LOCAL_WORKER_REGISTRY = None
 
 
 def _cleanup_stale_pixelle_video_sessions(current_session_key: str):
@@ -87,11 +100,50 @@ def init_i18n():
     set_language(st.session_state.language)
 
 
+def get_or_create_local_platform_dependencies():
+    """Build Streamlit-local platform dependencies without falling back to API globals."""
+    global _LOCAL_PLATFORM_DEPENDENCIES, _LOCAL_PLATFORM_TASK_MANAGER
+    global _LOCAL_TASK_EXECUTOR_REGISTRY, _LOCAL_WORKER_REGISTRY
+
+    if _LOCAL_PLATFORM_DEPENDENCIES is None:
+        from api.config import api_config
+        from api.platform_dependencies import build_platform_dependencies
+        from api.tasks.factory import build_local_task_runtime
+        from api.video.executor_factory import register_video_generation_executor
+        from api.workbench.executor_factory import register_storyboard_workbench_executors
+
+        runtime = build_local_task_runtime(api_config)
+        _LOCAL_TASK_EXECUTOR_REGISTRY = runtime.executor_registry
+        _LOCAL_WORKER_REGISTRY = runtime.worker_registry
+        _LOCAL_PLATFORM_TASK_MANAGER = runtime.task_manager
+
+        def provider():
+            return get_pixelle_video()
+
+        register_video_generation_executor(
+            _LOCAL_TASK_EXECUTOR_REGISTRY,
+            core_provider=provider,
+            artifact_store=_LOCAL_PLATFORM_TASK_MANAGER.registry.artifact_store,
+        )
+        register_storyboard_workbench_executors(
+            _LOCAL_TASK_EXECUTOR_REGISTRY,
+            core_provider=provider,
+        )
+        run_async(_LOCAL_PLATFORM_TASK_MANAGER.start())
+        _LOCAL_PLATFORM_DEPENDENCIES = build_platform_dependencies(
+            api_config,
+            task_manager=_LOCAL_PLATFORM_TASK_MANAGER,
+            task_executor_registry=_LOCAL_TASK_EXECUTOR_REGISTRY,
+            worker_capability_registry=_LOCAL_WORKER_REGISTRY,
+            worker_registry=_LOCAL_WORKER_REGISTRY,
+        )
+    return _LOCAL_PLATFORM_DEPENDENCIES
+
+
 def get_pixelle_video():
     """
     Get initialized Pixelle-Video instance with session-scoped async resource management.
     """
-    from api.dependencies import get_or_create_platform_dependencies
     from api.platform_dependencies import attach_platform_dependencies
     from pixelle_video.config import config_manager
     from pixelle_video.service import PixelleVideoCore
@@ -125,7 +177,7 @@ def get_pixelle_video():
         pixelle_video = PixelleVideoCore()
         attach_platform_dependencies(
             pixelle_video,
-            get_or_create_platform_dependencies(),
+            get_or_create_local_platform_dependencies(),
         )
         run_async(pixelle_video.initialize())
         state.pixelle_video = pixelle_video

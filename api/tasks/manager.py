@@ -27,6 +27,7 @@ from loguru import logger
 
 from api.config import api_config
 from api.tasks.artifacts import MissingArtifactStore
+from api.tasks.executors import TaskExecutorRegistry, WorkerCapabilityRegistry
 from api.tasks.lease import InMemoryGenerationLease
 from api.tasks.models import Task, TaskProgress, TaskStatus, TaskType, utc_now
 from api.tasks.progress import TaskProgressSink
@@ -45,6 +46,8 @@ class TaskManager:
         store: TaskStore | None = None,
         registry: GenerationRegistry | None = None,
         execution_mode: str = "embedded",
+        executor_registry: TaskExecutorRegistry | None = None,
+        worker_capability_registry: WorkerCapabilityRegistry | None = None,
     ) -> None:
         self.store = store or InMemoryTaskStore()
         self.registry = registry or GenerationRegistry(
@@ -53,6 +56,8 @@ class TaskManager:
             artifact_store=MissingArtifactStore(),
         )
         self.execution_mode = execution_mode
+        self.executor_registry = executor_registry or TaskExecutorRegistry()
+        self.worker_capability_registry = worker_capability_registry
 
         # Legacy task map used by the current async video route until it migrates
         # to reserve_or_reuse_generation_task().
@@ -99,7 +104,7 @@ class TaskManager:
         request_params: dict,
     ):
         """Reserve or reuse an idempotent generation task through the registry."""
-        return await self.registry.reserve_or_reuse(
+        outcome = await self.registry.reserve_or_reuse(
             fingerprint=generation_fingerprint,
             task_type=task_type,
             request_params=request_params,
@@ -109,6 +114,39 @@ class TaskManager:
                 api_config.task_retention_time,
             ),
         )
+        if (
+            outcome.created
+            and self.execution_mode == "embedded"
+            and self.executor_registry.can_execute(task_type).can_execute
+        ):
+
+            async def _run_registered_executor(*, progress_dispatcher=None):
+                return await self.executor_registry.execute(
+                    task_type,
+                    task_id=outcome.task.task_id,
+                    request_params=dict(request_params),
+                    progress_dispatcher=progress_dispatcher,
+                )
+
+            await self.execute_task(
+                task_id=outcome.task.task_id,
+                coro_func=_run_registered_executor,
+            )
+        return outcome
+
+    async def can_execute_task_type(self, task_type: TaskType) -> bool:
+        """Return whether this runtime currently has an executor for a task type."""
+        if self.execution_mode == "embedded":
+            return self.executor_registry.can_execute(task_type).can_execute
+        if self.execution_mode == "worker" and self.worker_capability_registry is not None:
+            return await self.worker_capability_registry.supports(task_type)
+        return False
+
+    async def wait_for_task_completion_for_test(self, task_id: str) -> None:
+        """Wait for an embedded future in tests without exposing futures as API."""
+        future = self._task_futures.get(task_id)
+        if future is not None:
+            await future
 
     def create_task(
         self,

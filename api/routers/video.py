@@ -417,37 +417,6 @@ async def generate_video_async(
                 message=message,
             )
 
-        # Define async execution function
-        async def execute_video_generation(progress_dispatcher=None):
-            """Execute video generation in background"""
-            video_params = {
-                **generation_params,
-                "api_task_id": task.task_id,
-            }
-            if progress_dispatcher is not None:
-                video_params["progress_dispatcher"] = progress_dispatcher
-            
-            result = await pixelle_video.generate_video(**video_params)
-            
-            # Get file size
-            file_size = os.path.getsize(result.video_path) if os.path.exists(result.video_path) else 0
-            
-            # Convert path to URL
-            video_url = path_to_url(request, result.video_path)
-            
-            return {
-                "video_url": video_url,
-                "duration": result.duration,
-                "file_size": file_size,
-                "storage_key": path_to_storage_key(result.video_path),
-            }
-        
-        if getattr(task_manager, "execution_mode", "embedded") == "embedded":
-            await task_manager.execute_task(
-                task_id=task.task_id,
-                coro_func=execute_video_generation
-            )
-        
         return VideoGenerateAsyncResponse(
             task_id=task.task_id
         )

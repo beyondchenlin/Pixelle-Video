@@ -47,7 +47,6 @@ class LocalArtifactStore:
         return {
             "storage_backend": "local",
             "storage_key": storage_key,
-            "video_url": f"{self.base_url}/{storage_key}",
             "file_size": target.stat().st_size,
             "duration": duration,
         }
@@ -85,7 +84,6 @@ class MissingArtifactStore:
         return {
             "storage_backend": "memory",
             "storage_key": storage_key,
-            "video_url": storage_key,
             "file_size": 0,
             "duration": duration,
         }

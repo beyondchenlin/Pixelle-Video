@@ -6,11 +6,13 @@ import pytest
 
 from api.config import APIConfig
 from api.tasks.artifacts import LocalArtifactStore
+from api.tasks.executors import TaskExecutorRegistry
 from api.tasks.lease import InMemoryGenerationLease
-from api.tasks.models import TaskStatus, TaskType
+from api.tasks.models import TaskStatus, TaskType, utc_now
 from api.tasks.registry import GenerationRegistry
 from api.tasks.store import InMemoryTaskStore
 from api.tasks.worker import GenerationWorker
+from api.tasks.worker_registry import InMemoryWorkerRegistry, WorkerHeartbeat
 from pixelle_video.models.progress import ProgressEvent, ProgressEventType
 
 
@@ -38,11 +40,20 @@ async def test_worker_claims_pending_task_and_marks_completed(tmp_path):
         request_params={"text": "demo", "frame_template": "1080x1920/image_default.html"},
         reuse_completed_within_seconds=86400,
     )
+    executor_registry = TaskExecutorRegistry()
+    from api.video.executor_factory import register_video_generation_executor
+
+    register_video_generation_executor(
+        executor_registry,
+        core_provider=lambda: FakeCore(),
+        artifact_store=artifact_store,
+    )
     worker = GenerationWorker(
         registry=registry,
-        core=FakeCore(),
+        core=object(),
         artifact_store=artifact_store,
         output_root=tmp_path / "work",
+        executor_registry=executor_registry,
     )
 
     did_work = await worker.run_once()
@@ -62,9 +73,10 @@ async def test_worker_returns_false_when_no_pending_task(tmp_path):
     )
     worker = GenerationWorker(
         registry=registry,
-        core=FakeCore(),
+        core=object(),
         artifact_store=registry.artifact_store,
         output_root=tmp_path / "work",
+        executor_registry=TaskExecutorRegistry(),
     )
 
     assert await worker.run_once() is False
@@ -88,11 +100,20 @@ async def test_worker_marks_task_failed_when_generation_raises(tmp_path):
         request_params={"text": "demo"},
         reuse_completed_within_seconds=86400,
     )
+    executor_registry = TaskExecutorRegistry()
+    from api.video.executor_factory import register_video_generation_executor
+
+    register_video_generation_executor(
+        executor_registry,
+        core_provider=lambda: FailingCore(),
+        artifact_store=registry.artifact_store,
+    )
     worker = GenerationWorker(
         registry=registry,
-        core=FailingCore(),
+        core=object(),
         artifact_store=registry.artifact_store,
         output_root=tmp_path / "work",
+        executor_registry=executor_registry,
     )
 
     assert await worker.run_once() is True
@@ -132,12 +153,21 @@ async def test_worker_heartbeats_while_generation_is_running(tmp_path):
         request_params={"text": "demo"},
         reuse_completed_within_seconds=86400,
     )
+    executor_registry = TaskExecutorRegistry()
+    from api.video.executor_factory import register_video_generation_executor
+
+    register_video_generation_executor(
+        executor_registry,
+        core_provider=lambda: SlowCore(),
+        artifact_store=registry.artifact_store,
+    )
     worker = GenerationWorker(
         registry=registry,
-        core=SlowCore(),
+        core=object(),
         artifact_store=registry.artifact_store,
         output_root=tmp_path / "work",
         heartbeat_interval_seconds=0.005,
+        executor_registry=executor_registry,
     )
 
     assert await worker.run_once() is True
@@ -169,11 +199,20 @@ async def test_worker_leaves_cancelled_task_cancelled_after_generation_finishes(
         request_params={"text": "demo"},
         reuse_completed_within_seconds=86400,
     )
+    executor_registry = TaskExecutorRegistry()
+    from api.video.executor_factory import register_video_generation_executor
+
+    register_video_generation_executor(
+        executor_registry,
+        core_provider=lambda: CancellingCore(registry),
+        artifact_store=registry.artifact_store,
+    )
     worker = GenerationWorker(
         registry=registry,
-        core=CancellingCore(registry),
+        core=object(),
         artifact_store=registry.artifact_store,
         output_root=tmp_path / "work",
+        executor_registry=executor_registry,
     )
 
     assert await worker.run_once() is True
@@ -209,11 +248,20 @@ async def test_worker_persists_progress_from_pipeline_dispatcher(tmp_path):
         request_params={"text": "demo"},
         reuse_completed_within_seconds=86400,
     )
+    executor_registry = TaskExecutorRegistry()
+    from api.video.executor_factory import register_video_generation_executor
+
+    register_video_generation_executor(
+        executor_registry,
+        core_provider=lambda: ProgressCore(),
+        artifact_store=registry.artifact_store,
+    )
     worker = GenerationWorker(
         registry=registry,
-        core=ProgressCore(),
+        core=object(),
         artifact_store=registry.artifact_store,
         output_root=tmp_path / "work",
+        executor_registry=executor_registry,
     )
 
     assert await worker.run_once() is True
@@ -238,3 +286,76 @@ async def test_worker_core_factory_attaches_platform_dependencies(tmp_path):
         assert hasattr(core, "storyboard_workbench_state_store")
     finally:
         await core.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_worker_claims_frame_image_regeneration_tasks(tmp_path):
+    from api.tasks.artifacts import MissingArtifactStore
+
+    store = InMemoryTaskStore()
+    registry = GenerationRegistry(
+        store=store,
+        lease=InMemoryGenerationLease(),
+        artifact_store=MissingArtifactStore(),
+        task_id_factory=lambda: "regen-task-1",
+    )
+    await registry.reserve_or_reuse(
+        fingerprint="fingerprint-frame-0001",
+        task_type=TaskType.FRAME_IMAGE_REGENERATION,
+        request_params={"workspace_id": "workspace_1"},
+        reuse_completed_within_seconds=0,
+    )
+    calls: list[dict[str, object]] = []
+
+    async def executor(*, task_id: str, request_params: dict, progress_dispatcher=None):
+        calls.append({"task_id": task_id, "request_params": request_params})
+        return {"ok": True}
+
+    executor_registry = TaskExecutorRegistry()
+    executor_registry.register(TaskType.FRAME_IMAGE_REGENERATION, executor)
+    worker = GenerationWorker(
+        registry=registry,
+        core=object(),
+        artifact_store=registry.artifact_store,
+        output_root=tmp_path / "work",
+        worker_id="worker-1",
+        executor_registry=executor_registry,
+    )
+
+    assert await worker.run_once() is True
+    assert calls == [
+        {
+            "task_id": "regen-task-1",
+            "request_params": {"workspace_id": "workspace_1"},
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_worker_mode_manager_reports_frame_regeneration_executable_after_worker_heartbeat():
+    from api.tasks.manager import TaskManager
+
+    worker_registry = InMemoryWorkerRegistry()
+    await worker_registry.heartbeat(
+        WorkerHeartbeat(
+            worker_id="worker-1",
+            supported_task_types={TaskType.FRAME_IMAGE_REGENERATION},
+            heartbeat_at=utc_now(),
+        )
+    )
+
+    manager = TaskManager(
+        execution_mode="worker",
+        worker_capability_registry=worker_registry,
+    )
+
+    assert await manager.can_execute_task_type(TaskType.FRAME_IMAGE_REGENERATION) is True
+
+
+def test_generation_worker_executes_only_through_task_executor_registry():
+    source = Path("api/tasks/worker.py").read_text(encoding="utf-8")
+
+    assert "core.generate_video" not in source
+    assert "TaskType.VIDEO_GENERATION}" not in source
+    assert ".execute(" in source
+    assert "WorkerHeartbeat" in source

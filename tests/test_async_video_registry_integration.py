@@ -12,7 +12,6 @@ from pixelle_video.models.progress import ProgressEvent, ProgressEventType
 class FakeTaskManager:
     def __init__(self, *, created: bool) -> None:
         self.created = created
-        self.executed = []
         self.reserve_calls = []
         self.execution_mode = "embedded"
 
@@ -41,9 +40,6 @@ class FakeTaskManager:
             reused_reason=None if self.created else "active",
         )
 
-    async def execute_task(self, task_id, coro_func):
-        self.executed.append((task_id, coro_func))
-
 
 def build_request() -> VideoGenerateRequest:
     return VideoGenerateRequest(text="demo")
@@ -62,12 +58,11 @@ async def test_async_video_endpoint_returns_reused_task_without_execution(monkey
 
     assert response.task_id == "task-1"
     assert response.message == "Task already running"
-    assert manager.executed == []
     assert manager.reserve_calls[0]["task_type"] == TaskType.VIDEO_GENERATION
 
 
 @pytest.mark.asyncio
-async def test_async_video_endpoint_executes_new_task_in_embedded_mode(monkeypatch):
+async def test_async_video_endpoint_submits_new_task_without_router_execution(monkeypatch):
     manager = FakeTaskManager(created=True)
     monkeypatch.setattr(video, "task_manager", manager)
 
@@ -78,10 +73,10 @@ async def test_async_video_endpoint_executes_new_task_in_embedded_mode(monkeypat
     )
 
     assert response.task_id == "task-1"
-    assert [task_id for task_id, _ in manager.executed] == ["task-1"]
     request_params = manager.reserve_calls[0]["request_params"]
     assert request_params["generation_fingerprint"]
     assert request_params["request_id"].startswith("req_")
+    assert manager.reserve_calls[0]["task_type"] == TaskType.VIDEO_GENERATION
 
 
 @pytest.mark.asyncio

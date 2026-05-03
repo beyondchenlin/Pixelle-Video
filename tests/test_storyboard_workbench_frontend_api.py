@@ -268,3 +268,38 @@ def test_select_and_regenerate_storyboard_image_use_existing_workbench_endpoints
     ]
     assert selection["state"]["selected_image_version_id"] == "artifact_version_002"
     assert regeneration["task_id"] == "regen-task-1"
+
+
+def test_get_storyboard_workbench_capabilities_uses_backend_endpoint(monkeypatch):
+    from web.utils import storyboard_workbench_api
+
+    captured: dict[str, Any] = {}
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "success": True,
+                "message": "Success",
+                "can_regenerate_frame_image": True,
+                "regenerate_unavailable_reason": None,
+            }
+
+    def fake_get(endpoint, timeout):
+        captured["endpoint"] = endpoint
+        captured["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(storyboard_workbench_api.httpx, "get", fake_get)
+
+    result = storyboard_workbench_api.get_storyboard_workbench_capabilities(
+        api_base_url="http://localhost:8000/api/",
+    )
+
+    assert captured == {
+        "endpoint": "http://localhost:8000/api/storyboards/workbench/capabilities",
+        "timeout": 30.0,
+    }
+    assert result["can_regenerate_frame_image"] is True

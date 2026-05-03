@@ -13,9 +13,10 @@ from api.schemas.storyboard_workbench import (
     StoryboardFrameWorkbenchStateResponse,
     StoryboardImageCandidateListResponse,
     StoryboardImageCandidateResponse,
+    StoryboardWorkbenchCapabilitiesResponse,
     validate_public_reference_id,
 )
-from api.tasks.models import TaskType
+from api.workbench.task_submitter import get_storyboard_workbench_capabilities
 from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
 from pixelle_video.services.storyboard_workbench import (
     ArtifactVersionNotFoundError,
@@ -26,6 +27,17 @@ from pixelle_video.services.storyboard_workbench import (
 )
 
 router = APIRouter(prefix="/storyboards", tags=["Storyboard Workbench"])
+
+
+@router.get(
+    "/workbench/capabilities",
+    response_model=StoryboardWorkbenchCapabilitiesResponse,
+)
+async def get_workbench_capabilities(request: Request) -> StoryboardWorkbenchCapabilitiesResponse:
+    capabilities = await get_storyboard_workbench_capabilities(
+        _get_storyboard_workbench_task_submitter(request, required=False)
+    )
+    return StoryboardWorkbenchCapabilitiesResponse(**capabilities.to_dict())
 
 
 @router.get(
@@ -139,7 +151,14 @@ async def request_frame_image_regeneration(
     )
     service = _get_storyboard_workbench_service(request)
     state_store = _get_storyboard_workbench_state_store(request)
-    task_manager = _get_task_manager(request)
+    task_submitter = _get_storyboard_workbench_task_submitter(request)
+    capabilities = await task_submitter.get_capabilities()
+    if not capabilities.can_regenerate_frame_image:
+        raise HTTPException(
+            status_code=503,
+            detail=capabilities.regenerate_unavailable_reason
+            or "frame image regeneration execution is not configured",
+        )
     state = await _load_frame_state(
         state_store,
         workspace_id=payload.workspace_id,
@@ -161,8 +180,7 @@ async def request_frame_image_regeneration(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    outcome = await task_manager.reserve_or_reuse_generation_task(
-        task_type=TaskType.FRAME_IMAGE_REGENERATION,
+    submission = await task_submitter.reserve_frame_image_regeneration(
         generation_fingerprint=task_request.generation_fingerprint,
         request_params=dict(task_request.request_params),
     )
@@ -171,10 +189,10 @@ async def request_frame_image_regeneration(
         storyboard_id=storyboard_id,
         frame_id=frame_id,
         artifact_id=payload.artifact_id,
-        task_id=outcome.task.task_id,
-        task_type=outcome.task.task_type.value,
-        created=outcome.created,
-        reused_reason=outcome.reused_reason,
+        task_id=submission.task_id,
+        task_type=submission.task_type,
+        created=submission.created,
+        reused_reason=submission.reused_reason,
         generation_fingerprint=task_request.generation_fingerprint,
     )
 
@@ -199,11 +217,11 @@ def _get_storyboard_workbench_state_store(request: Request):
     return state_store
 
 
-def _get_task_manager(request: Request):
-    task_manager = getattr(request.app.state, "task_manager", None)
-    if task_manager is None:
-        raise HTTPException(status_code=503, detail="task manager is not configured")
-    return task_manager
+def _get_storyboard_workbench_task_submitter(request: Request, *, required: bool = True):
+    submitter = getattr(request.app.state, "storyboard_workbench_task_submitter", None)
+    if submitter is None and required:
+        raise HTTPException(status_code=503, detail="task submitter is not configured")
+    return submitter
 
 
 async def _load_frame_state(

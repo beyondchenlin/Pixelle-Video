@@ -991,7 +991,6 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
 
     output_path = tmp_path / "task-async" / "final.mp4"
     fake_pixelle_video = _FakePixelleVideo(output_path)
-    captured = {}
 
     monkeypatch.setattr(
         "pixelle_video.services.frame_html.HTMLFrameGenerator",
@@ -1006,6 +1005,9 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
     class _FakeTaskManager:
         execution_mode = "embedded"
 
+        def __init__(self) -> None:
+            self.reserve_calls = []
+
         async def reserve_or_reuse_generation_task(
             self,
             *,
@@ -1016,17 +1018,24 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
             assert task_type.value == "video_generation"
             assert generation_fingerprint
             assert request_params["generation_fingerprint"] == generation_fingerprint
+            self.reserve_calls.append(
+                {
+                    "task_type": task_type,
+                    "generation_fingerprint": generation_fingerprint,
+                    "request_params": request_params,
+                }
+            )
             return SimpleNamespace(
                 task=SimpleNamespace(task_id="task-1"),
                 created=True,
                 reused_reason=None,
             )
 
-        async def execute_task(self, *, task_id, coro_func):
-            captured["task_id"] = task_id
-            captured["result"] = await coro_func()
+        async def execute_task(self, **_kwargs):
+            raise AssertionError("async video route should submit but not execute tasks")
 
-    monkeypatch.setattr("api.routers.video.task_manager", _FakeTaskManager())
+    fake_task_manager = _FakeTaskManager()
+    monkeypatch.setattr("api.routers.video.task_manager", fake_task_manager)
 
     response = await generate_video_async(
         VideoGenerateRequest(
@@ -1048,10 +1057,10 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
     )
 
     assert response.task_id == "task-1"
-    assert captured["task_id"] == "task-1"
-    assert fake_pixelle_video.calls[0]["request_id"] == "req_test"
-    assert fake_pixelle_video.calls[0]["api_task_id"] == "task-1"
-    text_rendering = fake_pixelle_video.calls[0]["text_rendering"]
+    request_params = fake_task_manager.reserve_calls[0]["request_params"]
+    assert request_params["request_id"] == "req_test"
+    assert "api_task_id" not in request_params
+    text_rendering = request_params["text_rendering"]
     assert text_rendering["overlay"] == {
         "enabled": True,
         "mode": "hybrid",
@@ -1065,13 +1074,15 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
     assert text_rendering["image_text"]["negative_prompt"] == "letters"
     assert "caption_style" not in text_rendering
     assert "overlay_style" not in text_rendering
+    assert fake_pixelle_video.calls == []
 
 
 @pytest.mark.asyncio
-async def test_generate_video_async_passes_progress_dispatcher_to_video_core(monkeypatch, tmp_path):
+async def test_generate_video_async_submits_new_task_without_router_execution(
+    monkeypatch, tmp_path
+):
     output_path = tmp_path / "task-async" / "final.mp4"
     fake_pixelle_video = _FakePixelleVideo(output_path)
-    captured = {}
 
     monkeypatch.setattr(
         "pixelle_video.services.frame_html.HTMLFrameGenerator",
@@ -1086,18 +1097,22 @@ async def test_generate_video_async_passes_progress_dispatcher_to_video_core(mon
     class _FakeTaskManager:
         execution_mode = "embedded"
 
-        async def reserve_or_reuse_generation_task(self, **_kwargs):
+        def __init__(self) -> None:
+            self.reserve_calls = []
+
+        async def reserve_or_reuse_generation_task(self, **kwargs):
+            self.reserve_calls.append(kwargs)
             return SimpleNamespace(
                 task=SimpleNamespace(task_id="task-1"),
                 created=True,
                 reused_reason=None,
             )
 
-        async def execute_task(self, *, task_id, coro_func):
-            captured["task_id"] = task_id
-            captured["result"] = await coro_func(progress_dispatcher="dispatcher-token")
+        async def execute_task(self, **_kwargs):
+            raise AssertionError("async video route should submit but not execute tasks")
 
-    monkeypatch.setattr("api.routers.video.task_manager", _FakeTaskManager())
+    fake_task_manager = _FakeTaskManager()
+    monkeypatch.setattr("api.routers.video.task_manager", fake_task_manager)
 
     response = await generate_video_async(
         VideoGenerateRequest(text="demo"),
@@ -1106,8 +1121,9 @@ async def test_generate_video_async_passes_progress_dispatcher_to_video_core(mon
     )
 
     assert response.task_id == "task-1"
-    assert captured["task_id"] == "task-1"
-    assert fake_pixelle_video.calls[0]["progress_dispatcher"] == "dispatcher-token"
+    assert fake_task_manager.reserve_calls[0]["task_type"].value == "video_generation"
+    assert fake_task_manager.reserve_calls[0]["request_params"]["request_id"] == "req_test"
+    assert fake_pixelle_video.calls == []
 
 
 @pytest.mark.asyncio
@@ -1126,16 +1142,21 @@ async def test_generate_video_async_preserves_explicit_text_styles(monkeypatch, 
     monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
 
     class _FakeTaskManager:
-        async def reserve_or_reuse_generation_task(self, **_kwargs):
+        def __init__(self) -> None:
+            self.reserve_calls = []
+
+        async def reserve_or_reuse_generation_task(self, **kwargs):
+            self.reserve_calls.append(kwargs)
             return SimpleNamespace(
                 created=True,
                 task=SimpleNamespace(task_id="task-1"),
             )
 
-        async def execute_task(self, *, task_id, coro_func):
-            await coro_func()
+        async def execute_task(self, **_kwargs):
+            raise AssertionError("async video route should submit but not execute tasks")
 
-    monkeypatch.setattr("api.routers.video.task_manager", _FakeTaskManager())
+    fake_task_manager = _FakeTaskManager()
+    monkeypatch.setattr("api.routers.video.task_manager", fake_task_manager)
 
     await generate_video_async(
         VideoGenerateRequest(
@@ -1155,8 +1176,9 @@ async def test_generate_video_async_preserves_explicit_text_styles(monkeypatch, 
         SimpleNamespace(base_url="http://testserver/"),
     )
 
-    text_rendering = fake_pixelle_video.calls[0]["text_rendering"]
+    text_rendering = fake_task_manager.reserve_calls[0]["request_params"]["text_rendering"]
     assert text_rendering["caption_style"]["font_size"] == 72
     assert text_rendering["caption_style"]["primary_color"] == "#FFFF00"
     assert text_rendering["overlay_style"]["font_size"] == 88
     assert text_rendering["overlay_style"]["position"] == "center"
+    assert fake_pixelle_video.calls == []
