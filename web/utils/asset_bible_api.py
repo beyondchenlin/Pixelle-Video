@@ -50,6 +50,17 @@ def build_asset_bible_list_endpoint(
     return f"{api_base_url.rstrip('/')}/{project_id}/asset-bible"
 
 
+def build_asset_bible_detail_endpoint(
+    *,
+    api_base_url: str,
+    project_id: str,
+    asset_bible_id: str,
+) -> str:
+    project_id = _validate_public_reference_id("project_id", project_id)
+    asset_bible_id = _validate_public_reference_id("asset_bible_id", asset_bible_id)
+    return f"{api_base_url.rstrip('/')}/{project_id}/asset-bible/{asset_bible_id}"
+
+
 def build_scene_cast_list_endpoint(
     *,
     api_base_url: str,
@@ -59,6 +70,22 @@ def build_scene_cast_list_endpoint(
     project_id = _validate_public_reference_id("project_id", project_id)
     asset_bible_id = _validate_public_reference_id("asset_bible_id", asset_bible_id)
     return f"{api_base_url.rstrip('/')}/{project_id}/asset-bible/{asset_bible_id}/scene-casts"
+
+
+def build_scene_cast_detail_endpoint(
+    *,
+    api_base_url: str,
+    project_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+) -> str:
+    project_id = _validate_public_reference_id("project_id", project_id)
+    asset_bible_id = _validate_public_reference_id("asset_bible_id", asset_bible_id)
+    scene_cast_id = _validate_public_reference_id("scene_cast_id", scene_cast_id)
+    return (
+        f"{api_base_url.rstrip('/')}/{project_id}/asset-bible/"
+        f"{asset_bible_id}/scene-casts/{scene_cast_id}"
+    )
 
 
 def build_prompt_plan_projection_payload(
@@ -199,6 +226,66 @@ def create_asset_bible(
     return data
 
 
+def load_asset_bible(
+    *,
+    api_base_url: str,
+    project_id: str,
+    workspace_id: str,
+    asset_bible_id: str,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    endpoint = build_asset_bible_detail_endpoint(
+        api_base_url=api_base_url,
+        project_id=project_id,
+        asset_bible_id=asset_bible_id,
+    )
+    params = {
+        "workspace_id": _validate_public_reference_id("workspace_id", workspace_id),
+    }
+
+    response = httpx.get(endpoint, params=params, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("asset bible load response must be a JSON object")
+    if not isinstance(data.get("asset_bible"), dict):
+        raise ValueError("asset bible load response must include asset_bible")
+    return data
+
+
+def save_asset_bible(
+    *,
+    api_base_url: str,
+    project_id: str,
+    workspace_id: str,
+    asset_bible_id: str,
+    payload: dict[str, Any],
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    endpoint = build_asset_bible_detail_endpoint(
+        api_base_url=api_base_url,
+        project_id=project_id,
+        asset_bible_id=asset_bible_id,
+    )
+    request_payload = {
+        **dict(payload),
+        "workspace_id": _validate_public_reference_id("workspace_id", workspace_id),
+        "asset_bible_id": _validate_public_reference_id(
+            "asset_bible_id",
+            asset_bible_id,
+        ),
+    }
+
+    response = httpx.put(endpoint, json=request_payload, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("asset bible save response must be a JSON object")
+    if not isinstance(data.get("asset_bible"), dict):
+        raise ValueError("asset bible save response must include asset_bible")
+    return data
+
+
 def create_scene_cast(
     *,
     api_base_url: str,
@@ -251,6 +338,70 @@ def create_scene_cast(
         raise ValueError("scene cast create response must be a JSON object")
     if not isinstance(data.get("scene_cast"), dict):
         raise ValueError("scene cast create response must include scene_cast")
+    return data
+
+
+def load_scene_cast(
+    *,
+    api_base_url: str,
+    project_id: str,
+    workspace_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    endpoint = build_scene_cast_detail_endpoint(
+        api_base_url=api_base_url,
+        project_id=project_id,
+        asset_bible_id=asset_bible_id,
+        scene_cast_id=scene_cast_id,
+    )
+    params = {
+        "workspace_id": _validate_public_reference_id("workspace_id", workspace_id),
+    }
+
+    response = httpx.get(endpoint, params=params, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("scene cast load response must be a JSON object")
+    if not isinstance(data.get("scene_cast"), dict):
+        raise ValueError("scene cast load response must include scene_cast")
+    return data
+
+
+def save_scene_cast(
+    *,
+    api_base_url: str,
+    project_id: str,
+    workspace_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+    payload: dict[str, Any],
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    endpoint = build_scene_cast_detail_endpoint(
+        api_base_url=api_base_url,
+        project_id=project_id,
+        asset_bible_id=asset_bible_id,
+        scene_cast_id=scene_cast_id,
+    )
+    request_payload = {
+        **dict(payload),
+        "workspace_id": _validate_public_reference_id("workspace_id", workspace_id),
+        "scene_cast_id": _validate_public_reference_id(
+            "scene_cast_id",
+            scene_cast_id,
+        ),
+    }
+
+    response = httpx.put(endpoint, json=request_payload, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("scene cast save response must be a JSON object")
+    if not isinstance(data.get("scene_cast"), dict):
+        raise ValueError("scene cast save response must include scene_cast")
     return data
 
 

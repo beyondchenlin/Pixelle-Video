@@ -139,3 +139,33 @@ def test_element_animation_section_label_is_grouped_with_primary_sections():
 
         assert keys.index("section.element_animation") < keys.index("quick_create_flow.title")
         assert locale_data["t"]["section.element_animation"].startswith("\u2728 ")
+
+
+def test_ip_design_and_apply_translations_exist_in_supported_locales():
+    required_keys = [
+        "ip_design.page.title",
+        "ip_design.page.caption",
+        "ip_design.unavailable",
+        "ip_design.surface.title",
+        "ip_design.surface.caption",
+        "ip_design.asset_bible.title",
+        "ip_design.asset_bible.select",
+        "ip_design.asset_bible.save",
+        "ip_design.asset_bible.saved",
+        "ip_design.scene_cast.title",
+        "ip_design.scene_cast.select",
+        "ip_design.scene_cast.save",
+        "ip_design.scene_cast.saved",
+        "ip_workbench.panel.title",
+        "ip_workbench.panel.help",
+        "ip_workbench.panel.apply",
+        "ip_workbench.panel.apply_success",
+    ]
+    original_language = get_language()
+    try:
+        for language in ("zh_CN", "en_US"):
+            set_language(language)
+            for key in required_keys:
+                assert tr(key) != key
+    finally:
+        set_language(original_language)

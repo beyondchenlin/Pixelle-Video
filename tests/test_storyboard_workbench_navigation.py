@@ -37,5 +37,6 @@ def test_navigation_registers_storyboard_workbench_page():
     assert pages == [
         _PageSpec("pages/1_🎬_Home.py", title="Home", icon="🎬", default=True),
         _PageSpec("pages/2_📚_History.py", title="History", icon="📚"),
-        _PageSpec("pages/3_🧭_Storyboard_Workbench.py", title="Workbench", icon="🧭"),
+        _PageSpec("pages/3_IP_Design_Workbench.py", title="IP Design", icon="🎭"),
+        _PageSpec("pages/4_🧭_Storyboard_Workbench.py", title="Workbench", icon="🧭"),
     ]

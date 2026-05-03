@@ -1,0 +1,300 @@
+from __future__ import annotations
+
+from typing import Any
+
+
+class _NoopContext:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeUI:
+    def __init__(self) -> None:
+        self.session_state: dict[str, Any] = {}
+        self.markdowns: list[str] = []
+        self.captions: list[str] = []
+        self.infos: list[str] = []
+        self.errors: list[str] = []
+        self.successes: list[str] = []
+        self.text_inputs: list[dict[str, Any]] = []
+        self.text_areas: list[dict[str, Any]] = []
+        self.selectboxes: list[dict[str, Any]] = []
+        self.buttons: list[dict[str, Any]] = []
+
+    def container(self, **_kwargs):
+        return _NoopContext()
+
+    def expander(self, label, **kwargs):
+        self.markdowns.append(f"EXPANDER:{label}:{kwargs.get('expanded', False)}")
+        return _NoopContext()
+
+    def columns(self, count):
+        return [_NoopContext() for _ in range(count)]
+
+    def tabs(self, labels):
+        self.markdowns.append("TABS:" + ",".join(labels))
+        return [_NoopContext() for _ in labels]
+
+    def markdown(self, message, **_kwargs):
+        self.markdowns.append(message)
+
+    def caption(self, message):
+        self.captions.append(message)
+
+    def info(self, message):
+        self.infos.append(message)
+
+    def error(self, message):
+        self.errors.append(message)
+
+    def success(self, message):
+        self.successes.append(message)
+
+    def text_input(self, label, value="", **kwargs):
+        self.text_inputs.append({"label": label, "value": value, **kwargs})
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
+        return value
+
+    def text_area(self, label, value="", **kwargs):
+        self.text_areas.append({"label": label, "value": value, **kwargs})
+        key = kwargs.get("key")
+        if key in self.session_state:
+            return self.session_state[key]
+        return value
+
+    def selectbox(self, label, options, index=0, **kwargs):
+        option_list = list(options)
+        self.selectboxes.append({"label": label, "options": option_list, "index": index, **kwargs})
+        key = kwargs.get("key")
+        if key in self.session_state and self.session_state[key] in option_list:
+            return self.session_state[key]
+        if not option_list:
+            return None
+        return option_list[index]
+
+    def button(self, label, **kwargs):
+        self.buttons.append({"label": label, **kwargs})
+        if kwargs.get("disabled"):
+            return False
+        return bool(self.session_state.get(kwargs.get("key"), False))
+
+
+class _FakeIPDesignClient:
+    def __init__(self) -> None:
+        self.asset_bibles = [_asset_bible()]
+        self.scene_casts = [_scene_cast()]
+        self.calls: list[dict[str, Any]] = []
+
+    def list_asset_bibles(self, **kwargs):
+        self.calls.append({"method": "list_asset_bibles", **kwargs})
+        return {"success": True, "asset_bibles": self.asset_bibles}
+
+    def load_asset_bible(self, **kwargs):
+        self.calls.append({"method": "load_asset_bible", **kwargs})
+        return {"success": True, "asset_bible": self.asset_bibles[0]}
+
+    def save_asset_bible(self, **kwargs):
+        self.calls.append({"method": "save_asset_bible", **kwargs})
+        payload = _asset_bible(asset_bible_id=kwargs["asset_bible_id"])
+        payload["ip_profiles"][0]["name"] = kwargs["payload"]["ip_name"]
+        self.asset_bibles = [payload]
+        return {"success": True, "asset_bible": payload}
+
+    def list_scene_casts(self, **kwargs):
+        self.calls.append({"method": "list_scene_casts", **kwargs})
+        return {"success": True, "scene_casts": self.scene_casts}
+
+    def load_scene_cast(self, **kwargs):
+        self.calls.append({"method": "load_scene_cast", **kwargs})
+        return {"success": True, "scene_cast": self.scene_casts[0]}
+
+    def save_scene_cast(self, **kwargs):
+        self.calls.append({"method": "save_scene_cast", **kwargs})
+        payload = _scene_cast(scene_cast_id=kwargs["scene_cast_id"])
+        payload.update(kwargs["payload"])
+        payload["asset_bible_id"] = kwargs["asset_bible_id"]
+        self.scene_casts = [payload]
+        return {"success": True, "scene_cast": payload}
+
+
+def _asset_bible(**overrides: Any) -> dict[str, Any]:
+    payload = {
+        "asset_bible_id": "bible_demo",
+        "workspace_id": "workspace_1",
+        "project_id": "project_1",
+        "ip_profiles": [
+            {
+                "ip_profile_id": "ip_main",
+                "name": "Pixelle Demo",
+                "logline": "A compact character universe.",
+                "world_hint": "Floating academy",
+                "style_hint": "warm comic",
+                "forbidden_elements": ["brand logos"],
+            }
+        ],
+        "character_profiles": [{"character_id": "char_luna", "display_name": "Luna"}],
+        "scene_assets": [{"scene_id": "scene_lab", "display_name": "Sky Lab"}],
+        "prop_assets": [{"prop_id": "prop_compass", "display_name": "Star Compass"}],
+        "style_profiles": [{"style_id": "style_warm_comic", "display_name": "Warm Comic"}],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _scene_cast(**overrides: Any) -> dict[str, Any]:
+    payload = {
+        "scene_cast_id": "cast_frame_1",
+        "workspace_id": "workspace_1",
+        "project_id": "project_1",
+        "asset_bible_id": "bible_demo",
+        "storyboard_plan_id": "storyboard_plan_1",
+        "frame_id": "frame_0001",
+        "character_ids": ["char_luna"],
+        "scene_id": "scene_lab",
+        "prop_ids": ["prop_compass"],
+        "style_id": "style_warm_comic",
+        "continuity_notes": ["Keep goggles visible"],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_ip_design_workbench_fails_closed_without_client():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+
+    render_ip_design_workbench(
+        ip_design_client=None,
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert fake_ui.infos == ["ip_design.unavailable"]
+    assert fake_ui.buttons == []
+
+
+def test_ip_design_workbench_lists_assets_and_scene_casts():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+    client = _FakeIPDesignClient()
+
+    render_ip_design_workbench(
+        ip_design_client=client,
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    rendered = "\n".join(fake_ui.markdowns + fake_ui.captions)
+    assert "bible_demo" in rendered
+    assert "Pixelle Demo" in rendered
+    assert "cast_frame_1" in rendered
+    assert "char_luna" in rendered
+    assert client.calls[:2] == [
+        {
+            "method": "list_asset_bibles",
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+        },
+        {
+            "method": "list_scene_casts",
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "asset_bible_id": "bible_demo",
+        },
+    ]
+
+
+def test_ip_design_workbench_saves_asset_bible_through_client():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state.update(
+        {
+            "ip_design_asset_bible_id": "bible_new",
+            "ip_design_ip_profile_id": "ip_main",
+            "ip_design_ip_name": "New IP",
+            "ip_design_logline": "New logline",
+            "ip_design_world_hint": "New world",
+            "ip_design_style_hint": "New style",
+            "ip_design_forbidden_elements": "brand logos, horror",
+            "ip_design_save_asset_bible": True,
+        }
+    )
+    client = _FakeIPDesignClient()
+
+    render_ip_design_workbench(
+        ip_design_client=client,
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert client.calls[-1] == {
+        "method": "save_asset_bible",
+        "workspace_id": "workspace_1",
+        "project_id": "project_1",
+        "asset_bible_id": "bible_new",
+        "payload": {
+            "ip_profile_id": "ip_main",
+            "ip_name": "New IP",
+            "logline": "New logline",
+            "world_hint": "New world",
+            "style_hint": "New style",
+            "forbidden_elements": ["brand logos", "horror"],
+            "character_profiles": [],
+            "scene_assets": [],
+            "prop_assets": [],
+            "style_profiles": [],
+        },
+    }
+    assert fake_ui.successes == ["ip_design.asset_bible.saved"]
+
+
+def test_ip_design_workbench_saves_scene_cast_through_client():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state.update(
+        {
+            "ip_design_scene_cast_id": "cast_new",
+            "ip_design_storyboard_plan_id": "storyboard_new",
+            "ip_design_frame_id": "frame_0002",
+            "ip_design_character_ids": "char_luna, char_milo",
+            "ip_design_scene_id": "scene_lab",
+            "ip_design_prop_ids": "prop_compass",
+            "ip_design_style_id": "style_warm_comic",
+            "ip_design_continuity_notes": "Keep goggles visible\nKeep compass visible",
+            "ip_design_save_scene_cast": True,
+        }
+    )
+    client = _FakeIPDesignClient()
+
+    render_ip_design_workbench(
+        ip_design_client=client,
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert client.calls[-1] == {
+        "method": "save_scene_cast",
+        "workspace_id": "workspace_1",
+        "project_id": "project_1",
+        "asset_bible_id": "bible_demo",
+        "scene_cast_id": "cast_new",
+        "payload": {
+            "storyboard_plan_id": "storyboard_new",
+            "frame_id": "frame_0002",
+            "character_ids": ["char_luna", "char_milo"],
+            "scene_id": "scene_lab",
+            "prop_ids": ["prop_compass"],
+            "style_id": "style_warm_comic",
+            "continuity_notes": ["Keep goggles visible", "Keep compass visible"],
+        },
+    }
+    assert fake_ui.successes == ["ip_design.scene_cast.saved"]

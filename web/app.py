@@ -68,13 +68,19 @@ def build_navigation_pages(page_factory=st.Page):
         icon="📚"
     )
 
+    ip_design_page = page_factory(
+        "pages/3_IP_Design_Workbench.py",
+        title="IP Design",
+        icon="🎭",
+    )
+
     storyboard_workbench_page = page_factory(
-        "pages/3_🧭_Storyboard_Workbench.py",
+        "pages/4_🧭_Storyboard_Workbench.py",
         title="Workbench",
         icon="🧭",
     )
 
-    return [home_page, history_page, storyboard_workbench_page]
+    return [home_page, history_page, ip_design_page, storyboard_workbench_page]
 
 
 if __name__ == "__main__":

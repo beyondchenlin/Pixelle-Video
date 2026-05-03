@@ -257,7 +257,7 @@ def test_storyboard_workbench_ui_does_not_import_transport_or_display_helpers():
         Path("web/components/storyboard_workbench_panel.py"),
         Path("web/components/storyboard_workbench_stale.py"),
         Path("web/components/storyboard_preview.py"),
-        Path("web/pages/3_🧭_Storyboard_Workbench.py"),
+        Path("web/pages/4_🧭_Storyboard_Workbench.py"),
     ]
     forbidden = (
         "web.utils.storyboard_workbench_api",

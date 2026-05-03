@@ -34,7 +34,7 @@ class _FakeUI:
 
 def _load_workbench_page():
     pages_dir = Path(__file__).resolve().parents[1] / "web" / "pages"
-    module_path = pages_dir / "3_🧭_Storyboard_Workbench.py"
+    module_path = pages_dir / "4_🧭_Storyboard_Workbench.py"
     spec = importlib.util.spec_from_file_location("storyboard_workbench_page_test_module", module_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

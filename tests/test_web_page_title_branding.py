@@ -5,6 +5,7 @@ EXPECTED_BROWSER_TITLES = {
     "web/app.py": "懒人同城 - AI Video Generator",
     "web/pages/1_🎬_Home.py": "Home - 懒人同城",
     "web/pages/2_📚_History.py": "History - 懒人同城",
+    "web/pages/3_IP_Design_Workbench.py": "IP Design - 懒人同城",
 }
 
 
