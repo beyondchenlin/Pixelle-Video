@@ -51,6 +51,29 @@ def build_storyboard_frame_regenerate_endpoint(
     )
 
 
+def build_storyboard_workbench_capabilities_endpoint(*, api_base_url: str) -> str:
+    return f"{api_base_url.rstrip('/')}/storyboards/workbench/capabilities"
+
+
+def get_storyboard_workbench_capabilities(
+    *,
+    api_base_url: str,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    response = httpx.get(
+        build_storyboard_workbench_capabilities_endpoint(api_base_url=api_base_url),
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("capability response must be a JSON object")
+    return {
+        "can_regenerate_frame_image": bool(data.get("can_regenerate_frame_image")),
+        "regenerate_unavailable_reason": data.get("regenerate_unavailable_reason"),
+    }
+
+
 def list_storyboard_image_candidates(
     *,
     api_base_url: str,
@@ -275,6 +298,8 @@ __all__ = [
     "build_storyboard_frame_images_endpoint",
     "build_storyboard_frame_regenerate_endpoint",
     "build_storyboard_frame_select_endpoint",
+    "build_storyboard_workbench_capabilities_endpoint",
+    "get_storyboard_workbench_capabilities",
     "list_storyboard_image_candidates",
     "regenerate_storyboard_frame_image",
     "select_storyboard_image_candidate",
