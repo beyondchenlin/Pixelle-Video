@@ -798,15 +798,13 @@ def _render_preview_container(
 
 
 def _scaled_preview_height(preview_html: TrustedPreviewHTML) -> int:
-    width = max(1, int(preview_html.width or 1))
-    height = max(1, int(preview_html.height or 1))
-    aspect_height = int(round(360 * height / width))
-    return min(260, max(180, aspect_height))
+    return _preview_stage_max_height(preview_html)
 
 
 def _build_scaled_preview_html(preview_html: TrustedPreviewHTML) -> str:
     width = max(1, int(preview_html.width or 1))
     height = max(1, int(preview_html.height or 1))
+    max_height = _preview_stage_max_height(preview_html)
     srcdoc = escape(preview_html.html, quote=True)
     return f"""<!DOCTYPE html>
 <html>
@@ -818,7 +816,7 @@ def _build_scaled_preview_html(preview_html: TrustedPreviewHTML) -> str:
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #f8f4ea;
+      background: transparent;
     }}
     .layout-workbench-scaled-preview {{
       width: 100%;
@@ -826,36 +824,70 @@ def _build_scaled_preview_html(preview_html: TrustedPreviewHTML) -> str:
       display: flex;
       align-items: center;
       justify-content: center;
+      box-sizing: border-box;
       overflow: hidden;
+      background: transparent;
     }}
-    .layout-workbench-scaled-preview iframe {{
+    .layout-workbench-scaled-surface {{
       width: {width}px;
       height: {height}px;
+      max-width: 100%;
+      max-height: {max_height}px;
+      flex: 0 0 auto;
+      overflow: hidden;
+      background: transparent;
+    }}
+    .layout-workbench-scaled-preview iframe {{
+      display: block;
+      width: 100%;
+      height: 100%;
       border: 0;
       background: transparent;
-      transform-origin: center center;
-      flex: 0 0 auto;
     }}
   </style>
 </head>
 <body>
-  <div class="layout-workbench-scaled-preview" data-preview-width="{width}" data-preview-height="{height}">
-    <iframe title="layout preview" srcdoc="{srcdoc}"></iframe>
+  <div
+    class="layout-workbench-scaled-preview"
+    data-preview-width="{width}"
+    data-preview-height="{height}"
+    data-preview-max-height="{max_height}"
+  >
+    <div class="layout-workbench-scaled-surface">
+      <iframe title="layout preview" srcdoc="{srcdoc}"></iframe>
+    </div>
   </div>
   <script>
     const shell = document.querySelector('.layout-workbench-scaled-preview');
-    const frame = shell.querySelector('iframe');
+    const surface = shell.querySelector('.layout-workbench-scaled-surface');
     const sourceWidth = Number(shell.dataset.previewWidth);
     const sourceHeight = Number(shell.dataset.previewHeight);
+    const maxHeight = Number(shell.dataset.previewMaxHeight);
     function fitPreview() {{
-      const scale = Math.min(shell.clientWidth / sourceWidth, shell.clientHeight / sourceHeight);
-      frame.style.transform = `scale(${{Math.max(0.01, scale)}})`;
+      const targetHeight = Math.min(maxHeight, shell.clientHeight || maxHeight);
+      const targetWidth = targetHeight * sourceWidth / sourceHeight;
+      if (targetWidth <= shell.clientWidth) {{
+        surface.style.width = `${{targetWidth}}px`;
+        surface.style.height = `${{targetHeight}}px`;
+      }} else {{
+        surface.style.width = `${{shell.clientWidth}}px`;
+        surface.style.height = `${{shell.clientWidth * sourceHeight / sourceWidth}}px`;
+      }}
+      const renderedHeight = Math.ceil(surface.getBoundingClientRect().height);
+      if (window.frameElement && renderedHeight > 0) {{
+        window.frameElement.style.height = `${{renderedHeight}}px`;
+      }}
     }}
     window.addEventListener('resize', fitPreview);
+    new ResizeObserver(fitPreview).observe(shell);
     fitPreview();
   </script>
 </body>
 </html>"""
+
+
+def _preview_stage_max_height(preview_html: TrustedPreviewHTML) -> int:
+    return 360
 
 
 def _build_real_preview_frame_html(
