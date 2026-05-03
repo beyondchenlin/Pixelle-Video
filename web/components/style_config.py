@@ -385,15 +385,128 @@ def _render_layered_template_editor(
 
         if state.layers:
             for layer in sorted(state.layers, key=lambda item: item.z_index):
-                st.markdown(
-                    f"- **{escape(layer.name)}** "
-                    f"`{escape(layer.type)}` "
-                    f"{int(layer.rect.width)}x{int(layer.rect.height)}"
-                )
+                state = _render_layered_template_layer_controls(state, layer.id)
         else:
             st.info(tr("layered_template.editor.empty"))
 
     st.session_state[LAYERED_TEMPLATE_EDITOR_STATE_KEY] = state
+    return state
+
+
+def _render_layered_template_layer_controls(
+    state: LayeredTemplateEditorState,
+    layer_id: str,
+) -> LayeredTemplateEditorState:
+    layer = next((item for item in state.layers if item.id == layer_id), None)
+    if layer is None:
+        return state
+
+    label = (
+        f"{layer.name} · {layer.type} · "
+        f"{int(layer.rect.width)}x{int(layer.rect.height)} · z{layer.z_index}"
+    )
+    with st.container(border=True):
+        st.markdown(f"**{escape(label)}**")
+        key_prefix = f"layered_template_layer_{layer.id}"
+        name = st.text_input(
+            tr("layered_template.editor.layer_name"),
+            value=layer.name,
+            key=f"{key_prefix}_name",
+        )
+
+        geometry_columns = st.columns(4)
+        with geometry_columns[0]:
+            x = st.number_input(
+                tr("layered_template.editor.layer_x"),
+                value=float(layer.rect.x),
+                key=f"{key_prefix}_x",
+            )
+        with geometry_columns[1]:
+            y = st.number_input(
+                tr("layered_template.editor.layer_y"),
+                value=float(layer.rect.y),
+                key=f"{key_prefix}_y",
+            )
+        with geometry_columns[2]:
+            width = st.number_input(
+                tr("layered_template.editor.layer_width"),
+                min_value=1.0,
+                value=float(layer.rect.width),
+                key=f"{key_prefix}_width",
+            )
+        with geometry_columns[3]:
+            height = st.number_input(
+                tr("layered_template.editor.layer_height"),
+                min_value=1.0,
+                value=float(layer.rect.height),
+                key=f"{key_prefix}_height",
+            )
+
+        display_columns = st.columns(4)
+        with display_columns[0]:
+            z_index = st.number_input(
+                tr("layered_template.editor.layer_z_index"),
+                value=int(layer.z_index),
+                step=1,
+                key=f"{key_prefix}_z_index",
+            )
+        with display_columns[1]:
+            opacity = st.number_input(
+                tr("layered_template.editor.layer_opacity"),
+                min_value=0.0,
+                max_value=1.0,
+                value=float(layer.opacity),
+                step=0.05,
+                key=f"{key_prefix}_opacity",
+            )
+        with display_columns[2]:
+            rotation = st.number_input(
+                tr("layered_template.editor.layer_rotation"),
+                value=float(layer.rotation),
+                step=1.0,
+                key=f"{key_prefix}_rotation",
+            )
+        with display_columns[3]:
+            locked = st.checkbox(
+                tr("layered_template.editor.layer_locked"),
+                value=bool(layer.locked),
+                key=f"{key_prefix}_locked",
+            )
+
+        role = layer.role
+        if layer.type == "text":
+            role_options = ["", "title", "caption"]
+            current_role = role if role in role_options else ""
+            role = st.selectbox(
+                tr("layered_template.editor.layer_role"),
+                role_options,
+                index=role_options.index(current_role),
+                key=f"{key_prefix}_role",
+                format_func=lambda value: tr(
+                    f"layered_template.editor.layer_role.{value or 'none'}"
+                ),
+            )
+            role = role or None
+        elif role:
+            st.caption(
+                tr("layered_template.editor.layer_role_summary").format(
+                    role=escape(str(role))
+                )
+            )
+
+        state = state.update_layer_name(layer.id, name)
+        state = state.update_layer_rect(
+            layer.id,
+            x=float(x),
+            y=float(y),
+            width=max(1.0, float(width)),
+            height=max(1.0, float(height)),
+        )
+        state = state.update_layer_z_index(layer.id, int(z_index))
+        state = state.update_layer_opacity(layer.id, float(opacity))
+        state = state.update_layer_rotation(layer.id, float(rotation))
+        state = state.update_layer_locked(layer.id, bool(locked))
+        state = state.update_layer_role(layer.id, role)
     return state
 
 
