@@ -345,6 +345,25 @@ def test_omnivoice_dependency_docs_record_modelscope_priority():
         assert "python -m pytest tests/test_selfhost_workflows.py -k omnivoice -q" in text
 
 
+def test_tts_omnivoice_api_dependency_docs_record_modelscope_priority():
+    docs = {
+        "tts_omnivoice_longform_bf16": Path(
+            "workflows/down/tts_omnivoice_longform_bf16_\u4f9d\u8d56\u4e0e\u4e0b\u8f7d\u8bf4\u660e.md"
+        ),
+        "tts_omnivoice_clone_duration_bf16": Path(
+            "workflows/down/tts_omnivoice_clone_duration_bf16_\u4f9d\u8d56\u4e0e\u4e0b\u8f7d\u8bf4\u660e.md"
+        ),
+    }
+
+    for workflow_name, doc_path in docs.items():
+        text = doc_path.read_text(encoding="utf-8")
+        assert f"workflows/selfhost/{workflow_name}.json" in text
+        assert "ModelScope" in text
+        assert "OmniVoice-bf16" in text
+        assert "whisper-large-v3" in text
+        assert "python -m pytest tests/test_selfhost_workflows.py -k tts_omnivoice -q" in text
+
+
 def test_omnivoice_dependency_docs_record_current_model_install_state():
     all_doc = OMNIVOICE_DEPENDENCY_DOCS["OmniVoice_all"].read_text(encoding="utf-8")
     assert "当前默认工作流所需模型已存在" in all_doc
