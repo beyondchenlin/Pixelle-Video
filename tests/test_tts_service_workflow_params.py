@@ -12,8 +12,10 @@ from pixelle_video.tts_workflow_family import (
     is_tts_workflow_family,
 )
 from pixelle_video.tts_workflow_contract import (
+    get_required_tts_workflow_params,
     is_index_tts2_workflow_info,
     is_index_tts2_workflow_key,
+    tts_workflow_requires_ref_audio,
     resolve_workflow_output_audio_extension,
 )
 
@@ -167,6 +169,16 @@ def test_tts_workflow_family_falls_back_to_generic_for_unknown_workflow(tmp_path
     )
 
     assert infer_tts_workflow_family(workflow_path) == "generic"
+
+
+def test_tts_workflow_required_params_are_read_from_api_workflow_metadata():
+    assert get_required_tts_workflow_params(
+        "selfhost/tts_omnivoice_longform_bf16.json"
+    ) == frozenset({"ref_audio", "text"})
+    assert tts_workflow_requires_ref_audio(
+        "selfhost/tts_omnivoice_longform_bf16.json"
+    )
+    assert not tts_workflow_requires_ref_audio("selfhost/tts_edge.json")
 
 
 def test_selfhost_workflow_info_uses_path_content_for_index_tts2_detection(tmp_path):
