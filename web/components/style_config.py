@@ -537,6 +537,7 @@ def _render_template_gallery_preview(preview_path: str, template_name: str):
 def build_storyboard_control_payload(
     *,
     world_preset_id: str | None = None,
+    generation_world_hint: str | None = None,
     shot_preset_id: str | None = None,
     storyboard_prompt_language: str | None = None,
     consistency_strength: str | None = None,
@@ -549,6 +550,7 @@ def build_storyboard_control_payload(
     """Compatibility wrapper for shared storyboard payload normalization."""
     return storyboard_planning_controls.build_storyboard_control_payload(
         world_preset_id=world_preset_id,
+        generation_world_hint=generation_world_hint,
         shot_preset_id=shot_preset_id,
         storyboard_prompt_language=storyboard_prompt_language,
         consistency_strength=consistency_strength,

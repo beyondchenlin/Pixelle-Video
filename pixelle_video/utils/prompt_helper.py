@@ -56,7 +56,9 @@ _HEX_COLOR_RE = re.compile(
 )
 _FIELD_LABEL_RE = re.compile(
     r"['\"]?\b(?:summary_text|scene_text|title_hex|ip_presence_type|presence_mode|"
-    r"visible_text_whitelist|negative_constraints|identity_color_terms)\b['\"]?\s*[:：?]\s*",
+    r"visible_text_whitelist|negative_constraints|identity_color_terms|"
+    r"generation_world_profile|story_constraints|ip_integration_guidance|"
+    r"ip_adaptation)\b['\"]?\s*[:：?]\s*",
     re.IGNORECASE,
 )
 

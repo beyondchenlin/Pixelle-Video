@@ -130,6 +130,7 @@ def build_video_generation_params(
         "frame_template": raw_resource_params.get("frame_template"),
         "prompt_prefix": raw_resource_params.get("prompt_prefix"),
         "world_preset_id": request_body.world_preset_id,
+        "generation_world_hint": request_body.generation_world_hint,
         "shot_preset_id": request_body.shot_preset_id,
         "storyboard_prompt_language": request_body.storyboard_prompt_language,
         "consistency_strength": request_body.consistency_strength or "standard",

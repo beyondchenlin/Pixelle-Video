@@ -783,6 +783,13 @@ def copy_storyboard_generation_options(source, target):
         target["script_target_words"] = source["script_target_words"]
 
 
+def copy_generation_world_hint(source, target):
+    """Copy the request-scoped world hint without forwarding frontend-only IP metadata."""
+    storyboard_contract = _storyboard_controls_contract(source)
+    if storyboard_contract.generation_world_hint is not None:
+        target["generation_world_hint"] = storyboard_contract.generation_world_hint
+
+
 def copy_ip_prompt_chain_options(source, target):
     """Copy IP prompt-chain controls into a generation request dict."""
     if "ip_enabled" not in source:
@@ -868,6 +875,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     copy_tts_audio_strategy(video_params, request)
     copy_tts_split_settings(video_params, request)
     copy_storyboard_generation_options(video_params, request)
+    copy_generation_world_hint(video_params, request)
     copy_element_animation_options(video_params, request)
     copy_ip_prompt_chain_options(video_params, request)
     copy_prompt_generation_performance_params(video_params, request)
@@ -952,6 +960,7 @@ def build_batch_shared_config(video_params):
     copy_tts_audio_strategy(video_params, shared_config)
     copy_tts_split_settings(video_params, shared_config)
     copy_storyboard_generation_options(video_params, shared_config)
+    copy_generation_world_hint(video_params, shared_config)
     copy_element_animation_options(video_params, shared_config)
     copy_ip_prompt_chain_options(video_params, shared_config)
     copy_prompt_generation_performance_params(video_params, shared_config)

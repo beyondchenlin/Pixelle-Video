@@ -1,6 +1,7 @@
 import pytest
 
 from pixelle_video.models.asset_bible import IPProfile
+from pixelle_video.models.content_world import ContentWorldHintSource, ContentWorldProfile
 from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.storyboard_planning import FramePlan
@@ -676,6 +677,20 @@ def test_sanitize_visual_prompt_text_removes_full_width_colon_field_labels():
     assert "Gate" in prompt
 
 
+def test_sanitize_visual_prompt_text_removes_world_profile_field_labels():
+    prompt = sanitize_visual_prompt_text(
+        "generation_world_profile: city, story_constraints: protect gate, "
+        "ip_integration_guidance: low intrusion, ip_adaptation: guide"
+    )
+
+    assert "generation_world_profile" not in prompt
+    assert "story_constraints" not in prompt
+    assert "ip_integration_guidance" not in prompt
+    assert "ip_adaptation" not in prompt
+    assert "city" in prompt
+    assert "protect gate" in prompt
+
+
 @pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_style_resolution(monkeypatch):
     planner_calls = {}
@@ -691,6 +706,7 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
             planner_calls["resolved_style"] = kwargs["resolved_style"]
             planner_calls["storyboard_plan"] = kwargs["storyboard_plan"]
             planner_calls["scene_casts_by_frame"] = kwargs["scene_casts_by_frame"]
+            planner_calls["generation_world_profile"] = kwargs["generation_world_profile"]
             return [
                 type(
                     "Pkg",
@@ -757,12 +773,26 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
         fake_plan_storyboard_batch,
     )
 
+    class _WorldPlanner:
+        async def plan(self, **kwargs):
+            return ContentWorldProfile(
+                summary="正定古城清晨漫游",
+                story_constraints="不能替代长乐门",
+                ip_integration_guidance="IP 作为低侵入陪伴式向导",
+            )
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.ContentWorldPlanner",
+        lambda: _WorldPlanner(),
+    )
+
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
         narrations=["从长乐门出发。"],
         image_config={"prompt_prefix": "古城旅行纪录片风格"},
         storyboard_plan=plan,
         world_preset_id="neutral_knowledge_storyboard",
+        generation_world_hint="古城清晨漫游，低侵入陪伴。",
         ip_enabled=True,
         ip_profile=_ip_profile(),
         scene_casts_by_frame={"frame_1": {"ip_presence_type": "scene_integrated"}},
@@ -771,6 +801,7 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
     assert planner_calls["resolved_style"] is not None
     assert planner_calls["storyboard_plan"] is plan
     assert planner_calls["scene_casts_by_frame"] == {"frame_1": {"ip_presence_type": "scene_integrated"}}
+    assert planner_calls["generation_world_profile"].summary == "正定古城清晨漫游"
     assert isinstance(planner_calls["prompt_contexts"], PromptContextEnvelope)
     assert (
         planner_calls["prompt_contexts"].frame_contexts[0]["ip_adaptation"]["ip_presence_type"]
@@ -1087,6 +1118,115 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
 
 
 @pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_builds_generation_world_profile(monkeypatch):
+    captured = {}
+
+    class FakePlanner:
+        async def plan(self, **kwargs):
+            captured["world_planner_kwargs"] = kwargs
+            return ContentWorldProfile(
+                summary="正定古城清晨漫游",
+                story_constraints="不能替代长乐门",
+                ip_integration_guidance="IP 作为陪伴式向导",
+                hint_source=ContentWorldHintSource.MANUAL,
+            )
+
+    async def fake_plan_storyboard_batch(**kwargs):
+        captured["storyboard_kwargs"] = kwargs
+        return type(
+            "PlanResult",
+            (),
+            {
+                "frames": (
+                    FramePlan(
+                        scene_id="scene-1",
+                        shot_type="medium_shot",
+                        shot_purpose="context",
+                        world_elements=("青砖城墙",),
+                        prompt_intent="建立古城漫游开篇",
+                    ),
+                ),
+                "planning_snapshot": {
+                    "world_preset_id": "neutral_knowledge_storyboard",
+                    "world_preset": {
+                        "display_name": "Neutral Knowledge Storyboard",
+                    },
+                },
+            },
+        )()
+
+    async def fake_generate_image_prompts(*args, **kwargs):
+        captured["image_contexts"] = kwargs["prompt_contexts"]
+        return ["base prompt"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.ContentWorldPlanner",
+        lambda: FakePlanner(),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.plan_storyboard_batch",
+        fake_plan_storyboard_batch,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["从长乐门出发，这是正定的南大门。"],
+        image_config={},
+        world_preset_id="neutral_knowledge_storyboard",
+        generation_world_hint="古城清晨漫游，IP 是陪伴式向导。",
+        text_rendering=_suppress_image_text(),
+    )
+
+    assert captured["world_planner_kwargs"]["generation_world_hint"] == "古城清晨漫游，IP 是陪伴式向导。"
+    assert captured["storyboard_kwargs"]["generation_world_profile"].summary == "正定古城清晨漫游"
+    assert captured["image_contexts"].plan_context["generation_world_profile"]["summary"] == "正定古城清晨漫游"
+    assert result.planning_snapshot["generation_world_profile"]["summary"] == "正定古城清晨漫游"
+    assert result.planning_snapshot["generation_world_hint"] == "古城清晨漫游，IP 是陪伴式向导。"
+    assert result.planning_snapshot["generation_world_hint_source"] == "manual"
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_passes_generation_world_profile_to_real_prompt_builder(
+    monkeypatch,
+):
+    captured = {}
+
+    class _WorldPlanner:
+        async def plan(self, **kwargs):
+            return ContentWorldProfile(
+                summary="正定古城清晨漫游",
+                story_constraints="不能替代长乐门",
+                ip_integration_guidance="IP 作为低侵入陪伴式向导",
+                hint_source=ContentWorldHintSource.MANUAL,
+            )
+
+    async def fake_llm_service(**kwargs):
+        captured["prompt"] = kwargs["prompt"]
+        return type("Resp", (), {"image_prompts": ["base scene prompt"]})()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.ContentWorldPlanner",
+        lambda: _WorldPlanner(),
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=fake_llm_service,
+        narrations=["从长乐门出发，这是正定的南大门。"],
+        image_config={},
+        generation_world_hint="古城清晨漫游，IP 是陪伴式向导。",
+        text_rendering=_suppress_image_text(),
+    )
+
+    assert "generation_world_profile" in captured["prompt"]
+    assert "正定古城清晨漫游" in captured["prompt"]
+    assert result.planning_snapshot["generation_world_profile"]["summary"] == "正定古城清晨漫游"
+
+
+@pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_passes_prompt_contexts_to_storyboard_planner(monkeypatch):
     captured = {}
     prompt_contexts = [
@@ -1308,9 +1448,17 @@ async def test_generate_styled_image_prompt_batch_keeps_legacy_prompt_path_when_
     async def fail_plan_storyboard_batch(**kwargs):
         raise AssertionError("storyboard planner should not run without storyboard controls")
 
+    class FailWorldPlanner:
+        async def plan(self, **kwargs):
+            raise AssertionError("world planner should not run without world signals")
+
     async def fake_generate_image_prompts(*args, **kwargs):
         return ["base scene prompt"]
 
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.ContentWorldPlanner",
+        lambda: FailWorldPlanner(),
+    )
     monkeypatch.setattr(
         "pixelle_video.utils.content_generators.plan_storyboard_batch",
         fail_plan_storyboard_batch,

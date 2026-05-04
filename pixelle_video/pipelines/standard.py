@@ -558,6 +558,7 @@ class StandardPipeline(LinearVideoPipeline):
                 max_concurrency=ctx.params.get(LLM_PROMPT_BATCH_CONCURRENT_LIMIT_PARAM),
                 progress_callback=image_prompt_progress,
                 world_preset_id=storyboard_contract.world_preset_id,
+                generation_world_hint=storyboard_contract.generation_world_hint,
                 shot_preset_id=storyboard_contract.shot_preset_id,
                 consistency_strength=storyboard_contract.consistency_strength or "standard",
                 content_mode=storyboard_contract.content_mode,

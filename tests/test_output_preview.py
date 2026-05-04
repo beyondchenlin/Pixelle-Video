@@ -271,6 +271,40 @@ def test_build_single_generation_request_includes_ip_prompt_chain_controls():
     assert request["ip_profile_id"] == "ip_main"
 
 
+def test_build_single_generation_request_includes_generation_world_hint():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "generation_world_hint": "古城清晨漫游，IP 是陪伴式向导。",
+        },
+        progress_callback=_progress,
+        session_state={},
+    )
+
+    assert request["generation_world_hint"] == "古城清晨漫游，IP 是陪伴式向导。"
+
+
+def test_build_single_generation_request_does_not_forward_ip_profile_world_hint():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "ip_profile_world_hint": "frontend helper only",
+        },
+        progress_callback=_progress,
+        session_state={},
+    )
+
+    assert "ip_profile_world_hint" not in request
+
+
 def test_build_single_generation_request_omits_empty_layered_template_snapshot():
     def _progress(_event):
         return None
@@ -915,6 +949,16 @@ def test_build_batch_shared_config_includes_ip_prompt_chain_controls():
     assert shared_config["ip_enabled"] is True
     assert shared_config["ip_asset_bible_id"] == "bible_demo"
     assert shared_config["ip_profile_id"] == "ip_main"
+
+
+def test_build_batch_shared_config_includes_generation_world_hint():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "generation_world_hint": "古城清晨漫游，IP 是陪伴式向导。",
+        }
+    )
+
+    assert shared_config["generation_world_hint"] == "古城清晨漫游，IP 是陪伴式向导。"
 
 
 def test_build_batch_shared_config_omits_empty_layered_template_snapshot_duplicate():

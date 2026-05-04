@@ -78,6 +78,7 @@ STORYBOARD_GENERATION_OPTION_KEYS = (
 )
 STORYBOARD_PLANNING_OPTION_KEYS = (
     "world_preset_id",
+    "generation_world_hint",
     "shot_preset_id",
     "consistency_strength",
     "content_mode",
@@ -145,6 +146,7 @@ class StoryboardControlsContract:
     storyboard_max_scene_count: Any = None
     storyboard_prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE
     world_preset_id: str | None = None
+    generation_world_hint: str | None = None
     shot_preset_id: str | None = None
     consistency_strength: str | None = None
     content_mode: str | None = None
@@ -202,6 +204,9 @@ class StoryboardControlsContract:
                 default=default_prompt_language,
             ),
             world_preset_id=_normalize_optional_contract_string(mapping.get("world_preset_id")),
+            generation_world_hint=_normalize_optional_contract_string(
+                mapping.get("generation_world_hint")
+            ),
             shot_preset_id=_normalize_optional_contract_string(mapping.get("shot_preset_id")),
             consistency_strength=_normalize_optional_contract_string(mapping.get("consistency_strength")),
             content_mode=_normalize_optional_contract_string(mapping.get("content_mode")),
@@ -228,6 +233,7 @@ class StoryboardControlsContract:
             payload["storyboard_prompt_language"] = self.storyboard_prompt_language
         for key in (
             "world_preset_id",
+            "generation_world_hint",
             "shot_preset_id",
             "consistency_strength",
             "content_mode",

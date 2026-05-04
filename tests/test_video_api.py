@@ -32,6 +32,7 @@ from pixelle_video.models.size_contract import (
 )
 from pixelle_video.models.storyboard_limits import StoryboardGenerationLimits
 from pixelle_video.models.video_generation_contract import (
+    normalize_standard_video_generation_params,
     validate_standard_video_generation_params,
 )
 from pixelle_video.services.resource_resolver import ResolvedResource, StaticResourceResolver
@@ -165,6 +166,24 @@ def test_video_generate_request_accepts_ip_prompt_chain_controls():
     assert request.ip_profile_id == "ip_main"
 
 
+def test_video_generate_request_accepts_generation_world_hint():
+    request = VideoGenerateRequest(
+        text="demo",
+        generation_world_hint="古城漫游，清晨阳光，IP 作为陪伴式向导出现。",
+    )
+
+    assert request.generation_world_hint == "古城漫游，清晨阳光，IP 作为陪伴式向导出现。"
+
+
+def test_video_generate_request_normalizes_blank_generation_world_hint():
+    request = VideoGenerateRequest(
+        text="demo",
+        generation_world_hint="   ",
+    )
+
+    assert request.generation_world_hint is None
+
+
 def test_video_generate_request_rejects_enabled_ip_without_required_ids():
     with pytest.raises(ValidationError):
         VideoGenerateRequest(text="demo", ip_enabled=True, ip_asset_bible_id="bible_demo")
@@ -197,6 +216,34 @@ def test_build_video_generation_params_copies_ip_prompt_chain_controls():
     assert params["ip_enabled"] is True
     assert params["ip_asset_bible_id"] == "bible_demo"
     assert params["ip_profile_id"] == "ip_main"
+
+
+def test_build_video_generation_params_copies_generation_world_hint():
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            generation_world_hint="古城漫游，清晨阳光，IP 作为陪伴式向导出现。",
+        ),
+        request_id="req_world_hint",
+    )
+
+    assert params["generation_world_hint"] == "古城漫游，清晨阳光，IP 作为陪伴式向导出现。"
+
+
+def test_standard_video_generation_contract_normalizes_generation_world_hint():
+    params = normalize_standard_video_generation_params(
+        {"generation_world_hint": "  古城漫游  "}
+    )
+
+    assert params["generation_world_hint"] == "古城漫游"
+
+
+def test_standard_video_generation_contract_omits_blank_generation_world_hint():
+    params = normalize_standard_video_generation_params(
+        {"generation_world_hint": "   "}
+    )
+
+    assert "generation_world_hint" not in params
 
 
 def test_standard_video_generation_contract_requires_ip_ids_when_enabled():
@@ -964,6 +1011,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             script_length_mode="custom",
             script_target_words=180,
             world_preset_id="neutral_knowledge_storyboard",
+            generation_world_hint="古城漫游，IP 是陪伴式向导。",
             shot_preset_id="balanced_explainer",
             consistency_strength="strong",
             content_mode="concept_explainer",
@@ -1039,6 +1087,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "render_backend": "hyperframes_compiled",
             "tts_audio_strategy": "master_track",
             "world_preset_id": "neutral_knowledge_storyboard",
+            "generation_world_hint": "古城漫游，IP 是陪伴式向导。",
             "shot_preset_id": "balanced_explainer",
             "consistency_strength": "strong",
             "content_mode": "concept_explainer",

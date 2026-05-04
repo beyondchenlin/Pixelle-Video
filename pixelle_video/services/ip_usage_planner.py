@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from pixelle_video.models.asset_bible import IPProfile
+from pixelle_video.models.content_world import ContentWorldProfile
 from pixelle_video.models.ip_prompt_planning import (
     IPFrameAdaptationPackage,
     IPImageTextPlan,
@@ -13,6 +14,7 @@ from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanF
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
 
 ResolvedStyleInput = Mapping[str, Any] | ResolvedStyleSpec | None
+ContentWorldInput = ContentWorldProfile | Mapping[str, Any] | None
 
 
 class IPUsagePlanner:
@@ -25,14 +27,17 @@ class IPUsagePlanner:
         ip_profile: IPProfile,
         resolved_style: ResolvedStyleInput = None,
         scene_casts_by_frame: Mapping[str, Any] | None = None,
+        generation_world_profile: ContentWorldInput = None,
     ) -> list[IPFrameAdaptationPackage]:
         scene_casts = scene_casts_by_frame or {}
+        world_profile = _normalize_generation_world_profile(generation_world_profile)
         return [
             self.plan_frame(
                 frame=frame,
                 ip_profile=ip_profile,
                 resolved_style=resolved_style,
                 scene_cast=_scene_cast_for_frame(scene_casts, frame),
+                generation_world_profile=world_profile,
             )
             for frame in storyboard_plan.frames
         ]
@@ -44,16 +49,20 @@ class IPUsagePlanner:
         ip_profile: IPProfile,
         resolved_style: ResolvedStyleInput = None,
         scene_cast: Any | None = None,
+        generation_world_profile: ContentWorldInput = None,
     ) -> IPFrameAdaptationPackage:
         frame_text = _frame_text(frame)
+        world_profile = _normalize_generation_world_profile(generation_world_profile)
+        world_profile_text = _world_profile_text(world_profile)
         presence_type = _presence_type_for_frame(
             frame=frame,
             frame_text=frame_text,
             ip_profile=ip_profile,
             resolved_style=resolved_style,
             scene_cast=scene_cast,
+            world_profile_text=world_profile_text,
         )
-        landmark_terms = _landmark_terms(frame)
+        landmark_terms = _landmark_terms(frame, world_profile_text=world_profile_text)
         image_text_plan = _image_text_plan(frame, ip_profile, landmark_terms)
 
         return IPFrameAdaptationPackage(
@@ -96,6 +105,34 @@ def _frame_text(frame: StoryboardPlanFrame) -> str:
     return " ".join(part for part in parts if part)
 
 
+def _normalize_generation_world_profile(
+    generation_world_profile: ContentWorldInput,
+) -> ContentWorldProfile | None:
+    if generation_world_profile is None:
+        return None
+    if isinstance(generation_world_profile, ContentWorldProfile):
+        profile = generation_world_profile
+    elif isinstance(generation_world_profile, Mapping):
+        profile = ContentWorldProfile.from_dict(generation_world_profile)
+    else:
+        return None
+    return profile if profile.has_content() else None
+
+
+def _world_profile_text(generation_world_profile: ContentWorldProfile | None) -> str:
+    if generation_world_profile is None:
+        return ""
+    return " ".join(
+        value
+        for value in (
+            generation_world_profile.story_constraints,
+            generation_world_profile.ip_integration_guidance,
+            generation_world_profile.summary,
+        )
+        if value
+    )
+
+
 def _presence_type_for_frame(
     *,
     frame: StoryboardPlanFrame,
@@ -103,10 +140,15 @@ def _presence_type_for_frame(
     ip_profile: IPProfile,
     resolved_style: ResolvedStyleInput,
     scene_cast: Any | None,
+    world_profile_text: str = "",
 ) -> IPPresenceType:
     scene_cast_presence = _presence_type_from_scene_cast(scene_cast)
     if scene_cast_presence is not None:
         return scene_cast_presence
+    if _contains_any(world_profile_text, _PROTECTED_SUBJECT_KEYWORDS):
+        return IPPresenceType.LOW_INTRUSION
+    if _contains_any(world_profile_text, _LOW_INTRUSION_GUIDANCE_KEYWORDS):
+        return IPPresenceType.LOW_INTRUSION
     if _contains_any(frame_text, _PROTECTED_SUBJECT_KEYWORDS):
         return IPPresenceType.LOW_INTRUSION
     if _style_is_serious_documentary(resolved_style):
@@ -202,10 +244,11 @@ def _is_ip_hero_frame(frame_text: str, ip_profile: IPProfile) -> bool:
     )
 
 
-def _landmark_terms(frame: StoryboardPlanFrame) -> list[str]:
+def _landmark_terms(frame: StoryboardPlanFrame, *, world_profile_text: str = "") -> list[str]:
     candidates = [
         "长乐门",
         "古寺",
+        "佛像",
         "佛祖",
         "古寺壁画",
         "壁画",
@@ -213,7 +256,7 @@ def _landmark_terms(frame: StoryboardPlanFrame) -> list[str]:
         "宗教人物",
     ]
     text = _frame_text(frame)
-    terms = [term for term in candidates if term in text]
+    terms = [term for term in candidates if term in text or term in world_profile_text]
     if terms:
         return _unique(terms)
     if frame.primary_subject:
@@ -399,6 +442,16 @@ _PROTECTED_SUBJECT_KEYWORDS = (
     "纪录片",
     "真实人物",
     "历史说明",
+)
+_LOW_INTRUSION_GUIDANCE_KEYWORDS = (
+    "低侵入",
+    "不出现",
+    "避免强露出",
+    "只允许",
+    "象征性",
+    "symbolic",
+    "low intrusion",
+    "absent",
 )
 _PURE_LANDSCAPE_KEYWORDS = ("空镜", "纯风景", "风景切镜", "山水", "天空", "河流", "远山")
 _NARRATIVE_KEYWORDS = ("讲述", "说明", "叙事", "介绍", "导览", "科普", "铺开")

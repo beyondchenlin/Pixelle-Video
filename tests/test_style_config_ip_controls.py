@@ -57,6 +57,30 @@ def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
     ]
 
 
+def test_render_ip_prompt_chain_controls_returns_selected_profile_world_hint():
+    fake_ui = _FakeStyleConfigUI()
+    fake_ui.session_state["style_ip_enabled"] = True
+
+    payload = ip_prompt_chain_controls.render_ip_prompt_chain_controls(
+        ui=fake_ui,
+        asset_bibles=[
+            {
+                "asset_bible_id": "bible_demo",
+                "ip_profiles": [
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "白兔向导",
+                        "world_hint": "适合亲切文旅讲解世界。",
+                    }
+                ],
+            }
+        ],
+        translate=lambda key, **kwargs: key,
+    )
+
+    assert payload["ip_profile_world_hint"] == "适合亲切文旅讲解世界。"
+
+
 def test_style_config_hides_ip_selectors_when_disabled():
     fake_ui = _FakeStyleConfigUI()
 

@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.storyboard_preset_library import load_shot_preset_map, lookup_world_preset
+from pixelle_video.models.content_world import ContentWorldProfile
 from pixelle_video.models.prompt_context import (
     PromptContextEnvelope,
     PromptContextInput,
@@ -105,6 +106,18 @@ def _normalize_prompt_contexts(
         expected_count,
         error_prefix="storyboard prompt_contexts",
     )
+
+
+def _normalize_generation_world_profile(
+    generation_world_profile: ContentWorldProfile | Mapping[str, Any] | None,
+) -> ContentWorldProfile | None:
+    if generation_world_profile is None:
+        return None
+    if isinstance(generation_world_profile, ContentWorldProfile):
+        profile = generation_world_profile
+    else:
+        profile = ContentWorldProfile.from_dict(generation_world_profile)
+    return profile if profile.has_content() else None
 
 
 def _storyboard_planning_max_tokens(frame_count: int) -> int:
@@ -314,6 +327,7 @@ async def plan_storyboard_batch(
     role_locking_strength: str | None = None,
     shot_strategy: str | None = None,
     prompt_contexts: PromptContextInput | None = None,
+    generation_world_profile: ContentWorldProfile | Mapping[str, Any] | None = None,
     frame_overrides: Sequence[Mapping[str, Any]] | None = None,
     world_preset_library: Any | None = None,
     shot_preset_library: Any | None = None,
@@ -360,6 +374,8 @@ async def plan_storyboard_batch(
         prompt_contexts,
         len(narrations),
     )
+    world_profile = _normalize_generation_world_profile(generation_world_profile)
+    world_profile_payload = world_profile.to_dict() if world_profile is not None else None
 
     narration_batches = _chunk_narrations(narrations, STORYBOARD_PLANNING_BATCH_SIZE)
     planning_semaphore = asyncio.Semaphore(STORYBOARD_PLANNING_MAX_CONCURRENCY)
@@ -374,6 +390,7 @@ async def plan_storyboard_batch(
         planner_prompt = build_storyboard_planning_prompt(
             narrations=batch_narrations,
             prompt_contexts=batch_prompt_contexts,
+            generation_world_profile=world_profile_payload,
             world_preset=world_preset,
             shot_preset=shot_preset_map.get(resolved_shot_preset.preset_id, {}),
             resolved_mode=resolved_mode.mode,
@@ -439,6 +456,8 @@ async def plan_storyboard_batch(
         "planning_max_concurrency": STORYBOARD_PLANNING_MAX_CONCURRENCY,
         "planner_version": planner_version,
     }
+    if world_profile_payload is not None:
+        snapshot["generation_world_profile"] = world_profile_payload
     return StoryboardPlanningResult(
         requested_content_mode=content_mode,
         resolved_content_mode=resolved_mode,

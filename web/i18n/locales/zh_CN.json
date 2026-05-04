@@ -936,6 +936,8 @@
     "storyboard.advanced_enabled": "启用高级分镜规划",
     "storyboard.advanced_enabled_help": "打开预设驱动的高级分镜控制，并可在预览里锁定部分字段。",
     "storyboard.world_preset": "世界预设",
+    "storyboard.generation_world_hint": "世界观提示",
+    "storyboard.generation_world_hint_help": "描述本次文案发生的世界、叙事边界和 IP 融入方式；不会覆盖 IP 设计页的长期世界观提示。",
     "storyboard.prompt_language": "提示词语言",
     "storyboard.prompt_language_help": "控制分镜规划字段和最终图片提示词的生成语言。",
     "storyboard.shot_preset": "镜头预设",

@@ -21,7 +21,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -144,7 +143,7 @@ class WindowsPackageBuilder:
                     import time
                     time.sleep(2)  # Wait before retry
                 else:
-                    self.log(f"All download attempts failed", "ERROR")
+                    self.log("All download attempts failed", "ERROR")
                     # Try with curl as fallback
                     return self._download_with_curl(url, output_path, description)
         
@@ -208,7 +207,7 @@ class WindowsPackageBuilder:
                         if pip_check.returncode == 0:
                             self.log(f"Found Python {version} at {candidate}", "SUCCESS")
                             return candidate
-            except Exception as e:
+            except Exception:
                 continue
         
         return None

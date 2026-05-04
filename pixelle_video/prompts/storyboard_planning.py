@@ -33,6 +33,7 @@ def build_storyboard_planning_prompt(
     *,
     narrations: list[str],
     prompt_contexts: PromptContextInput | None = None,
+    generation_world_profile: Mapping[str, Any] | None = None,
     world_preset: Mapping[str, Any],
     shot_preset: Mapping[str, Any],
     resolved_mode: str,
@@ -70,6 +71,9 @@ def build_storyboard_planning_prompt(
         "required_frame_fields": required_frame_fields,
         "required_output": StoryboardPlanningResponse.model_json_schema(),
     }
+    has_generation_world_profile = generation_world_profile is not None
+    if has_generation_world_profile:
+        payload["generation_world_profile"] = dict(generation_world_profile)
     if uses_frame_context:
         payload["frame_source_texts"] = narrations
         payload["frame_source_items"] = frame_source_items
@@ -99,6 +103,10 @@ def build_storyboard_planning_prompt(
             "Validate the final payload against required_output before returning it.",
             "Do not wrap the JSON in markdown fences.",
         ]
+    if has_generation_world_profile:
+        payload["instructions"].append(
+            "Use generation_world_profile as the current script world. It refines this request and does not replace protected source subjects."
+        )
     if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE:
         payload["instructions"].append(
             "Write narration_fragment, knowledge_goal, focus_detail, and prompt_intent in Chinese."

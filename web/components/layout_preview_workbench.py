@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import hashlib
 from html import escape
 from typing import Any
 
@@ -330,86 +330,86 @@ def _render_recent_presets(
 
 
 def _build_workbench_css() -> str:
-    return f"""
+    return """
     <style>
-      .layout-workbench-copy {{
+      .layout-workbench-copy {
         color: #675b4b;
         font-size: 13px;
         line-height: 1.45;
         margin: 0 0 8px;
-      }}
-      .layout-workbench-card {{
+      }
+      .layout-workbench-card {
         border: 1px solid rgba(80, 67, 44, .16);
         border-radius: 8px;
         margin: 8px 0;
         padding: 10px 12px;
         background: rgba(255, 255, 255, .62);
-      }}
+      }
       .layout-workbench-actions-row,
       .layout-workbench-metric-row,
-      .layout-workbench-meta-row {{
+      .layout-workbench-meta-row {
         container-type: inline-size;
         border: 1px solid rgba(80, 67, 44, .16);
         border-radius: 8px;
         margin: 8px 0;
         padding: 10px 12px;
         background: rgba(255, 255, 255, .64);
-      }}
-      .layout-workbench-actions-row {{
+      }
+      .layout-workbench-actions-row {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), max-content));
         gap: 10px;
         justify-content: start;
         align-items: center;
-      }}
-      .layout-workbench-metric-row {{
+      }
+      .layout-workbench-metric-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         place-items: center stretch;
-      }}
-      .layout-workbench-meta-row {{
+      }
+      .layout-workbench-meta-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         place-items: center stretch;
-      }}
-      .layout-workbench-actions-row-placeholder {{
+      }
+      .layout-workbench-actions-row-placeholder {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), max-content));
         gap: 10px;
         justify-content: start;
-      }}
-      .layout-workbench-action-placeholder {{
+      }
+      .layout-workbench-action-placeholder {
         min-height: 42px;
-      }}
-      div[class*="st-key-layout_preview_actions_row"] {{
+      }
+      div[class*="st-key-layout_preview_actions_row"] {
         container-type: inline-size;
         border: 1px solid rgba(80, 67, 44, .16);
         border-radius: 8px;
         margin: 8px 0;
         padding: 10px 12px;
         background: rgba(255, 255, 255, .64);
-      }}
-      div[class*="st-key-layout_preview_actions_row"] > div[data-testid="stVerticalBlock"] {{
+      }
+      div[class*="st-key-layout_preview_actions_row"] > div[data-testid="stVerticalBlock"] {
         gap: 0;
-      }}
-      div[class*="st-key-layout_preview_actions_row"] div[data-testid="stHorizontalBlock"] {{
+      }
+      div[class*="st-key-layout_preview_actions_row"] div[data-testid="stHorizontalBlock"] {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), max-content));
         gap: 10px !important;
         justify-content: start;
-      }}
-      div[class*="st-key-layout_preview_actions_row"] div[data-testid="stColumn"] {{
+      }
+      div[class*="st-key-layout_preview_actions_row"] div[data-testid="stColumn"] {
         width: auto !important;
         min-width: 0 !important;
         flex: 0 0 auto !important;
-      }}
-      div[class*="st-key-layout_preview_actions_row"] button {{
+      }
+      div[class*="st-key-layout_preview_actions_row"] button {
         min-height: 42px;
         padding-inline: 16px;
         white-space: nowrap;
-      }}
+      }
       div[class*="st-key-layout_preview_metric_row"],
-      div[class*="st-key-layout_preview_meta_row"] {{
+      div[class*="st-key-layout_preview_meta_row"] {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         place-items: center stretch;
@@ -419,67 +419,67 @@ def _build_workbench_css() -> str:
         margin: 8px 0;
         padding: 10px 12px;
         background: rgba(255, 255, 255, .64);
-      }}
+      }
       div[class*="st-key-layout_preview_metric_row"] > div[data-testid="stVerticalBlock"],
-      div[class*="st-key-layout_preview_meta_row"] > div[data-testid="stVerticalBlock"] {{
+      div[class*="st-key-layout_preview_meta_row"] > div[data-testid="stVerticalBlock"] {
         width: 100% !important;
         max-width: 100% !important;
         gap: 0;
-      }}
+      }
       div[class*="st-key-layout_preview_metric_row"] div[data-testid="stElementContainer"],
       div[class*="st-key-layout_preview_meta_row"] div[data-testid="stElementContainer"],
       div[class*="st-key-layout_preview_metric_row"] div[data-testid="stMarkdown"],
       div[class*="st-key-layout_preview_meta_row"] div[data-testid="stMarkdown"],
       div[class*="st-key-layout_preview_metric_row"] div[data-testid="stMarkdownContainer"],
-      div[class*="st-key-layout_preview_meta_row"] div[data-testid="stMarkdownContainer"] {{
+      div[class*="st-key-layout_preview_meta_row"] div[data-testid="stMarkdownContainer"] {
         width: 100% !important;
         max-width: 100% !important;
-      }}
-      .layout-workbench-section-title {{
+      }
+      .layout-workbench-section-title {
         color: #352a1f;
         font-weight: 800;
         font-size: 13px;
         margin-bottom: 6px;
-      }}
-      div[class*="st-key-layout_preview_recent_presets"] {{
+      }
+      div[class*="st-key-layout_preview_recent_presets"] {
         border: 1px solid rgba(80, 67, 44, .16);
         border-radius: 8px;
         margin: 8px 0;
         padding: 8px 10px;
         background: rgba(255, 255, 255, .62);
-      }}
-      div[class*="st-key-layout_preview_recent_presets"] > div[data-testid="stVerticalBlock"] {{
+      }
+      div[class*="st-key-layout_preview_recent_presets"] > div[data-testid="stVerticalBlock"] {
         gap: 4px;
-      }}
-      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stHorizontalBlock"] {{
+      }
+      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stHorizontalBlock"] {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         gap: 6px !important;
         justify-content: flex-start;
-      }}
-      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stColumn"] {{
+      }
+      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stColumn"] {
         width: auto !important;
         min-width: 58px !important;
         flex: 0 0 auto !important;
-      }}
-      div[class*="st-key-layout_preview_recent_presets"] .layout-workbench-card {{
+      }
+      div[class*="st-key-layout_preview_recent_presets"] .layout-workbench-card {
         border: 0;
         border-radius: 0;
         margin: 0;
         padding: 0;
         background: transparent;
-      }}
-      div[class*="st-key-layout_preview_recent_presets"] .layout-workbench-section-title {{
+      }
+      div[class*="st-key-layout_preview_recent_presets"] .layout-workbench-section-title {
         margin-bottom: 2px;
-      }}
-      div[class*="st-key-layout_preview_recent_item_"] {{
+      }
+      div[class*="st-key-layout_preview_recent_item_"] {
         position: relative;
-      }}
-      div[class*="st-key-layout_preview_recent_item_"] > div[data-testid="stVerticalBlock"] {{
+      }
+      div[class*="st-key-layout_preview_recent_item_"] > div[data-testid="stVerticalBlock"] {
         gap: 0;
-      }}
-      div[class*="st-key-layout_preview_recent_item_"] div[class*="st-key-layout_preview_delete_recent_preset_"] {{
+      }
+      div[class*="st-key-layout_preview_recent_item_"] div[class*="st-key-layout_preview_delete_recent_preset_"] {
         position: absolute;
         top: -7px;
         right: -7px;
@@ -490,12 +490,12 @@ def _build_workbench_css() -> str:
         pointer-events: none;
         transition: opacity .12s ease;
         z-index: 3;
-      }}
-      div[class*="st-key-layout_preview_recent_item_"]:hover div[class*="st-key-layout_preview_delete_recent_preset_"] {{
+      }
+      div[class*="st-key-layout_preview_recent_item_"]:hover div[class*="st-key-layout_preview_delete_recent_preset_"] {
         opacity: 1;
         pointer-events: auto;
-      }}
-      div[class*="st-key-layout_preview_delete_recent_preset_"] button {{
+      }
+      div[class*="st-key-layout_preview_delete_recent_preset_"] button {
         min-height: 18px !important;
         height: 18px !important;
         width: 18px !important;
@@ -507,14 +507,14 @@ def _build_workbench_css() -> str:
         font-size: 13px !important;
         font-weight: 800 !important;
         line-height: 1 !important;
-      }}
+      }
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stMarkdown"],
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stMarkdownContainer"],
-      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stElementContainer"] {{
+      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stElementContainer"] {
         width: 100% !important;
         max-width: 100% !important;
-      }}
-      div[class*="st-key-layout_preview_recent_presets"] button {{
+      }
+      div[class*="st-key-layout_preview_recent_presets"] button {
         min-height: 28px;
         padding: 4px 8px;
         border: 1px solid rgba(80, 67, 44, .12);
@@ -526,54 +526,54 @@ def _build_workbench_css() -> str:
         line-height: 1.25;
         white-space: nowrap;
         box-shadow: none;
-      }}
-      .layout-workbench-grid {{
+      }
+      .layout-workbench-grid {
         display: grid;
         gap: 8px;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-      }}
-      .layout-workbench-summary-grid {{
+      }
+      .layout-workbench-summary-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
         gap: 10px;
         height: 100%;
-      }}
-      .layout-workbench-metric {{
+      }
+      .layout-workbench-metric {
         border-left: 4px solid #b98242;
         border-radius: 8px;
         padding: 8px 12px;
         background: #fffdf8;
-      }}
-      .layout-workbench-label {{
+      }
+      .layout-workbench-label {
         color: #756854;
         font-size: 13px;
         font-weight: 800;
-      }}
-      .layout-workbench-value {{
+      }
+      .layout-workbench-value {
         color: #211a13;
         font-size: 18px;
         font-weight: 850;
-      }}
-      .layout-workbench-summary-grid .layout-workbench-metric {{
+      }
+      .layout-workbench-summary-grid .layout-workbench-metric {
         min-width: 0;
-      }}
-      .layout-workbench-summary-grid .layout-workbench-label {{
+      }
+      .layout-workbench-summary-grid .layout-workbench-label {
         white-space: nowrap;
-      }}
-      .layout-workbench-summary-grid .layout-workbench-value {{
+      }
+      .layout-workbench-summary-grid .layout-workbench-value {
         line-height: 1.25;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-      }}
-      .layout-workbench-default-strip {{
+      }
+      .layout-workbench-default-strip {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         gap: 6px;
         margin-top: 4px;
-      }}
-      .layout-workbench-default-chip {{
+      }
+      .layout-workbench-default-chip {
         min-width: 0;
         border: 1px solid rgba(80, 67, 44, .12);
         border-radius: 6px;
@@ -585,12 +585,12 @@ def _build_workbench_css() -> str:
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-      }}
-      .layout-workbench-default-chip strong {{
+      }
+      .layout-workbench-default-chip strong {
         color: #352a1f;
         font-weight: 800;
-      }}
-      .layout-workbench-meta {{
+      }
+      .layout-workbench-meta {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
         align-items: center;
@@ -599,8 +599,8 @@ def _build_workbench_css() -> str:
         color: #675b4b;
         font-size: 14px;
         line-height: 1.35;
-      }}
-      .layout-workbench-meta-line {{
+      }
+      .layout-workbench-meta-line {
         min-width: 0;
         border-radius: 8px;
         padding: 8px 10px;
@@ -608,19 +608,19 @@ def _build_workbench_css() -> str:
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-      }}
-      .layout-workbench-meta-line strong {{
+      }
+      .layout-workbench-meta-line strong {
         color: #352a1f;
         font-weight: 800;
-      }}
-      .layout-workbench-preview-card {{
+      }
+      .layout-workbench-preview-card {
         border: 1px solid rgba(80, 67, 44, .16);
         border-radius: 8px;
         margin: 8px 0 0;
         padding: 10px 12px;
         background: rgba(255, 255, 255, .68);
-      }}
-      .layout-workbench-preview-frame {{
+      }
+      .layout-workbench-preview-frame {
         width: 100%;
         height: 320px;
         max-height: 42vh;
@@ -630,15 +630,15 @@ def _build_workbench_css() -> str:
         display: flex;
         align-items: center;
         justify-content: center;
-      }}
-      .layout-workbench-real-preview {{
+      }
+      .layout-workbench-real-preview {
         display: block;
         width: 100%;
         height: 100%;
         object-fit: contain;
         background: #f8f4ea;
-      }}
-      .layout-workbench-empty-preview {{
+      }
+      .layout-workbench-empty-preview {
         height: 180px;
         min-height: 0;
         text-align: center;
@@ -646,24 +646,24 @@ def _build_workbench_css() -> str:
         font-size: 13px;
         line-height: 1.5;
         padding: 0 20px;
-      }}
-      .layout-workbench-preview-meta {{
+      }
+      .layout-workbench-preview-meta {
         color: #857963;
         font-size: 11px;
         margin-top: 6px;
         word-break: break-all;
-      }}
-      @container (max-width: 560px) {{
+      }
+      @container (max-width: 560px) {
         .layout-workbench-actions-row,
         .layout-workbench-actions-row-placeholder,
         .layout-workbench-summary-grid,
-        .layout-workbench-meta {{
+        .layout-workbench-meta {
           grid-template-columns: 1fr;
-        }}
-      }}
-      @media (max-width: 720px) {{
-        .layout-workbench-grid {{ grid-template-columns: 1fr; }}
-      }}
+        }
+      }
+      @media (max-width: 720px) {
+        .layout-workbench-grid { grid-template-columns: 1fr; }
+      }
     </style>
     """
 
