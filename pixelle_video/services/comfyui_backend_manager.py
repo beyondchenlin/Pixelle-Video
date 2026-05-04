@@ -70,6 +70,11 @@ class ManagedComfyUIBackend:
     async def restart(self, *, reason: str) -> bool:
         if not self.can_manage():
             if self.management_mode == "required":
+                if not self.profile.managed:
+                    raise RuntimeError(
+                        "Pixelle-managed ComfyUI backend restart is required but "
+                        f"profile '{self.profile_name}' has managed=false: {self.comfyui_url}"
+                    )
                 raise RuntimeError(
                     "Pixelle-managed ComfyUI backend restart is required but the "
                     f"configured URL is not manageable: {self.comfyui_url}"

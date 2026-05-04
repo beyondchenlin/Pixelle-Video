@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from pixelle_video.config.schema import ComfyUIBackendProfile
 from pixelle_video.services.comfyui_backend_manager import ManagedComfyUIBackend
 
@@ -61,6 +63,27 @@ def test_managed_backend_profile_managed_false_disables_management(tmp_path):
     )
 
     assert backend.can_manage() is False
+
+
+@pytest.mark.asyncio
+async def test_required_restart_reports_profile_managed_false(tmp_path):
+    profile = ComfyUIBackendProfile(
+        url="http://127.0.0.1:8001",
+        managed=False,
+        data_root=str(tmp_path / "image-data"),
+        runtime_dir=str(tmp_path / "runtime" / "image"),
+        logs_dir=str(tmp_path / "logs" / "image"),
+        database_url=f"sqlite:///{(tmp_path / 'image-data' / 'user' / 'comfyui.db').as_posix()}",
+    )
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile_name="image",
+        profile=profile,
+        management_mode="required",
+    )
+
+    with pytest.raises(RuntimeError, match="profile 'image'.*managed=false"):
+        await backend.restart(reason="test-required-mode")
 
 
 def test_managed_backend_auto_mode_manages_local_profile_ports(tmp_path):
