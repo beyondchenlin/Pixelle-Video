@@ -124,6 +124,23 @@ class PixelleFloatInput:
         return (float(value),)
 
 
+class PixelleDurationInput:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "value": ("FLOAT", {"default": 8.0, "min": 0.5, "max": 60.0, "step": 0.5}),
+            }
+        }
+
+    RETURN_TYPES = ("FLOAT",)
+    FUNCTION = "get_value"
+    CATEGORY = "Pixelle/TTS"
+
+    def get_value(self, value):
+        return (float(value),)
+
+
 class PixelleOmniVoiceTranscribe:
     @classmethod
     def INPUT_TYPES(cls):
