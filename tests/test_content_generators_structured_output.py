@@ -143,6 +143,7 @@ def test_image_prompt_template_preserves_json_contract_and_explains_ip_presence_
     assert '"image_prompts"' in prompt
     assert "Only output JSON" in prompt
     assert "ip_presence_type" in prompt
+    assert "list[str]" not in prompt
     assert "strong" in prompt.lower()
     assert "symbolic" in prompt.lower()
     assert "absent" in prompt.lower()

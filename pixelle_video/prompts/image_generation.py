@@ -85,7 +85,7 @@ Based on the existing video script, create corresponding **{output_language_labe
 - Description length: {description_length_guidance}
 - If a style profile is provided, subject design, material, palette, lighting, world elements, and consistency must obey that style profile first
 - When `style_kind` is `ip_world`, redesign the subject into the target universe without replacing the subject semantics
-- Final output must remain `image_prompts: list[str]` in the required JSON object.
+- Final output must remain a JSON object with an `"image_prompts"` array of strings.
 - Each `image_prompts` item must be a pure visual description for the final image.
 - Do not output field names, JSON field names, parameter names, hex color codes, or English control-word explanations inside any final image prompt string.
 - If negative constraints are needed, write them as natural-language visual requirements instead of separate negative prompt syntax or parameter labels.
