@@ -606,7 +606,23 @@ def _asset_bible_response(
         raise HTTPException(status_code=502, detail="asset bible project does not match request")
     if asset_bible_id is not None and asset_bible.asset_bible_id != asset_bible_id:
         raise HTTPException(status_code=502, detail="asset bible ID does not match request")
-    return asset_bible.to_dict()
+    return _public_asset_bible_payload(asset_bible.to_dict())
+
+
+def _public_asset_bible_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    public_payload = dict(payload)
+    public_payload["ip_profiles"] = [
+        _public_ip_profile_payload(profile)
+        for profile in public_payload.get("ip_profiles") or []
+        if isinstance(profile, Mapping)
+    ]
+    return public_payload
+
+
+def _public_ip_profile_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    public_payload = dict(payload)
+    public_payload.pop("forbidden_elements", None)
+    return public_payload
 
 
 def _scene_cast_response(

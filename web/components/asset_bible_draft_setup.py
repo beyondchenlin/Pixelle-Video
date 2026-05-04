@@ -62,6 +62,12 @@ def _render_asset_bible_create_form(
         translate("stage2.asset_bible.id_label"),
         key="stage2_asset_bible_id",
     )
+    ip_profile_id = _text_input(
+        ui,
+        translate("stage2.asset_bible.ip_profile_id_label"),
+        key="stage2_ip_profile_id",
+        value="ip_main",
+    )
     ip_name = _text_input(
         ui,
         translate("stage2.asset_bible.ip_name_label"),
@@ -77,13 +83,23 @@ def _render_asset_bible_create_form(
         translate("stage2.asset_bible.style_hint_label"),
         key="stage2_style_hint",
     )
+    identity_lock = _text_input(
+        ui,
+        translate("stage2.asset_bible.identity_lock_label"),
+        key="stage2_identity_lock",
+    )
+    identity_anchors = _text_input(
+        ui,
+        translate("stage2.asset_bible.identity_anchors_label"),
+        key="stage2_identity_anchors",
+    )
 
     if not ui.button(
         translate("stage2.asset_bible.create"),
         key="stage2_create_asset_bible_submit",
     ):
         return
-    if _missing(project_id, workspace_id, asset_bible_id, ip_name):
+    if _missing(project_id, workspace_id, asset_bible_id, ip_profile_id, ip_name):
         ui.error(translate("stage2.asset_bible.missing_required"))
         return
 
@@ -91,11 +107,20 @@ def _render_asset_bible_create_form(
         result = create_asset_bible(
             api_base_url=api_base_url,
             project_id=project_id,
-            workspace_id=workspace_id,
-            asset_bible_id=asset_bible_id,
-            ip_name=ip_name,
-            world_hint=world_hint,
-            style_hint=style_hint,
+            payload={
+                "workspace_id": workspace_id,
+                "asset_bible_id": asset_bible_id,
+                "ip_profiles": [
+                    {
+                        "ip_profile_id": ip_profile_id,
+                        "name": ip_name,
+                        "world_hint": world_hint,
+                        "style_hint": style_hint,
+                        "identity_lock": _split_csv(identity_lock),
+                        "identity_anchors": _split_csv(identity_anchors),
+                    }
+                ],
+            },
         )
     except httpx.HTTPStatusError as exc:
         ui.error(

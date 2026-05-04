@@ -393,11 +393,20 @@ def test_create_asset_bible_posts_minimal_draft_payload(monkeypatch):
     result = asset_bible_api.create_asset_bible(
         api_base_url="http://localhost:8000/api/",
         project_id=" project_1 ",
-        workspace_id=" ws_1 ",
-        asset_bible_id=" bible_1 ",
-        ip_name=" Demo IP ",
-        world_hint=" sky city ",
-        style_hint=" clean comic ",
+        payload={
+            "workspace_id": " ws_1 ",
+            "asset_bible_id": " bible_1 ",
+            "ip_profiles": [
+                {
+                    "ip_profile_id": " ip_main ",
+                    "name": " Demo IP ",
+                    "world_hint": " sky city ",
+                    "style_hint": " clean comic ",
+                    "identity_lock": ["白色卡通兔子"],
+                    "identity_anchors": ["蓝色领结"],
+                }
+            ],
+        },
     )
 
     assert captured == {
@@ -405,9 +414,16 @@ def test_create_asset_bible_posts_minimal_draft_payload(monkeypatch):
         "json": {
             "workspace_id": "ws_1",
             "asset_bible_id": "bible_1",
-            "ip_name": "Demo IP",
-            "world_hint": "sky city",
-            "style_hint": "clean comic",
+            "ip_profiles": [
+                {
+                    "ip_profile_id": "ip_main",
+                    "name": "Demo IP",
+                    "world_hint": "sky city",
+                    "style_hint": "clean comic",
+                    "identity_lock": ["白色卡通兔子"],
+                    "identity_anchors": ["蓝色领结"],
+                }
+            ],
         },
         "timeout": 30.0,
     }
@@ -497,9 +513,12 @@ def test_render_asset_bible_draft_setup_creates_asset_bible(monkeypatch):
             "projection_frame_id": "frame_old",
             "projection_preview_result": {"projection": {"source": {"scene_cast_id": "cast_old"}}},
             "stage2_asset_bible_id": "bible_1",
+            "stage2_ip_profile_id": "ip_main",
             "stage2_ip_name": "Demo IP",
             "stage2_world_hint": "sky city",
             "stage2_style_hint": "clean comic",
+            "stage2_identity_lock": "白色卡通兔子, 长耳朵",
+            "stage2_identity_anchors": "蓝色领结",
             "stage2_create_asset_bible_submit": True,
         }
     )
@@ -534,11 +553,20 @@ def test_render_asset_bible_draft_setup_creates_asset_bible(monkeypatch):
     assert captured == {
         "api_base_url": "http://localhost:8000/api",
         "project_id": "project_1",
-        "workspace_id": "ws_1",
-        "asset_bible_id": "bible_1",
-        "ip_name": "Demo IP",
-        "world_hint": "sky city",
-        "style_hint": "clean comic",
+        "payload": {
+            "workspace_id": "ws_1",
+            "asset_bible_id": "bible_1",
+            "ip_profiles": [
+                {
+                    "ip_profile_id": "ip_main",
+                    "name": "Demo IP",
+                    "world_hint": "sky city",
+                    "style_hint": "clean comic",
+                    "identity_lock": ["白色卡通兔子", "长耳朵"],
+                    "identity_anchors": ["蓝色领结"],
+                }
+            ],
+        },
     }
     assert fake_ui.session_state["projection_asset_bible_id"] == "bible_1"
     assert fake_ui.session_state["projection_context_source"] == {

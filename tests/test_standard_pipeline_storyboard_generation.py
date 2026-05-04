@@ -67,6 +67,16 @@ class _RecordingAssetBibleRepository:
         ]
 
 
+class _EmptyIPAssetBibleRepository(_RecordingAssetBibleRepository):
+    async def load_asset_bible(self, workspace_id, asset_bible_id):
+        payload = await super().load_asset_bible(workspace_id, asset_bible_id)
+        if payload is None:
+            return None
+        payload["ip_profiles"][0]["identity_lock"] = []
+        payload["ip_profiles"][0]["identity_anchors"] = []
+        return payload
+
+
 def _plan(source_text="第一句。第二句。", mode="smart"):
     return StoryboardPlan.build(
         mode=mode,
@@ -315,6 +325,40 @@ async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypa
     scene_casts_by_frame = captured["scene_casts_by_frame"]
     assert list(scene_casts_by_frame) == [plan.frames[0].frame_id]
     assert scene_casts_by_frame[plan.frames[0].frame_id]["metadata"]["ip_presence_type"] == "scene_integrated"
+
+
+@pytest.mark.asyncio
+async def test_plan_visuals_rejects_enabled_ip_without_identity_anchors(monkeypatch):
+    async def fake_compose(self, **_kwargs):
+        raise AssertionError("IP readiness must be checked before prompt compose")
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.ImagePromptComposer.compose",
+        fake_compose,
+    )
+
+    plan = _plan()
+    repository = _EmptyIPAssetBibleRepository()
+    repository.current_storyboard_plan_id = plan.plan_id
+    repository.current_frame_id = plan.frames[0].frame_id
+    core = _DummyCore()
+    core.asset_bible_repository = repository
+    ctx = PipelineContext(
+        input_text="第一句。第二句。",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "ip_enabled": True,
+            "ip_asset_bible_id": "bible_demo",
+            "ip_profile_id": "ip_main",
+        },
+    )
+    ctx.task_id = "task-ip-empty-anchors"
+    ctx.storyboard_plan = plan
+
+    with pytest.raises(ValueError, match="身份锚点|identity anchors"):
+        await StandardPipeline(core).plan_visuals(ctx)
 
 
 @pytest.mark.asyncio

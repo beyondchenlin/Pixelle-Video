@@ -85,9 +85,14 @@ class _FakeUI:
 
 
 class _FakeIPDesignClient:
-    def __init__(self) -> None:
-        self.asset_bibles = [_asset_bible()]
-        self.scene_casts = [_scene_cast()]
+    def __init__(
+        self,
+        *,
+        asset_bibles: list[dict[str, Any]] | None = None,
+        scene_casts: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.asset_bibles = asset_bibles or [_asset_bible()]
+        self.scene_casts = scene_casts or [_scene_cast()]
         self.calls: list[dict[str, Any]] = []
 
     def list_asset_bibles(self, **kwargs):
@@ -101,7 +106,7 @@ class _FakeIPDesignClient:
     def save_asset_bible(self, **kwargs):
         self.calls.append({"method": "save_asset_bible", **kwargs})
         payload = _asset_bible(asset_bible_id=kwargs["asset_bible_id"])
-        payload["ip_profiles"][0]["name"] = kwargs["payload"]["ip_name"]
+        payload["ip_profiles"] = kwargs["payload"].get("ip_profiles") or [{}]
         self.asset_bibles = [payload]
         return {"success": True, "asset_bible": payload}
 
@@ -264,7 +269,13 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
             "ip_design_logline": "New logline",
             "ip_design_world_hint": "New world",
             "ip_design_style_hint": "New style",
-            "ip_design_forbidden_elements": "brand logos, horror",
+            "ip_design_identity_lock": "白色卡通兔子, 长耳朵, 圆润脸型",
+            "ip_design_identity_anchors": "蓝色领结, 浅粉色耳朵内侧",
+            "ip_design_identity_suppression_rules": "远景弱化耳朵内侧",
+            "ip_design_variable_slots": "动作, 表情, 站位",
+            "ip_design_semantic_boundary": "不能变成人类, 不能替代历史建筑",
+            "ip_design_negative_constraints": "避免画成普通人类讲解者, 避免多余文字",
+            "ip_design_visible_text_whitelist": "长乐门, 正定古城",
             "ip_design_save_asset_bible": True,
         }
     )
@@ -282,12 +293,22 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
         "project_id": "project_1",
         "asset_bible_id": "bible_new",
         "payload": {
-            "ip_profile_id": "ip_main",
-            "ip_name": "New IP",
-            "logline": "New logline",
-            "world_hint": "New world",
-            "style_hint": "New style",
-            "forbidden_elements": ["brand logos", "horror"],
+            "ip_profiles": [
+                {
+                    "ip_profile_id": "ip_main",
+                    "name": "New IP",
+                    "logline": "New logline",
+                    "world_hint": "New world",
+                    "style_hint": "New style",
+                    "identity_lock": ["白色卡通兔子", "长耳朵", "圆润脸型"],
+                    "identity_anchors": ["蓝色领结", "浅粉色耳朵内侧"],
+                    "identity_suppression_rules": ["远景弱化耳朵内侧"],
+                    "variable_slots": ["动作", "表情", "站位"],
+                    "semantic_boundary": ["不能变成人类", "不能替代历史建筑"],
+                    "negative_constraints": ["避免画成普通人类讲解者", "避免多余文字"],
+                    "visible_text_whitelist": ["长乐门", "正定古城"],
+                }
+            ],
             "character_profiles": [],
             "scene_assets": [],
             "prop_assets": [],
@@ -295,6 +316,41 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
         },
     }
     assert fake_ui.successes == ["ip_design.asset_bible.saved"]
+
+
+def test_ip_design_workbench_marks_ip_without_identity_anchors_unavailable():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+    client = _FakeIPDesignClient(
+        asset_bibles=[
+            {
+                "asset_bible_id": "bible_empty",
+                "workspace_id": "workspace_1",
+                "project_id": "project_1",
+                "ip_profiles": [
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "Empty IP",
+                        "identity_lock": [],
+                        "identity_anchors": [],
+                    }
+                ],
+                "character_profiles": [],
+                "scene_assets": [],
+                "prop_assets": [],
+                "style_profiles": [],
+            }
+        ],
+    )
+
+    render_ip_design_workbench(
+        ip_design_client=client,
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert "ip_design.asset_bible.generation_unavailable" in fake_ui.captions
 
 
 def test_ip_design_workbench_saves_scene_cast_through_client():

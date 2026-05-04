@@ -135,12 +135,52 @@ def _render_asset_bible_section(
             value=_first_text(ip_profile.get("style_hint")),
             height=68,
         )
-        forbidden_elements = _text_input(
+        identity_lock = _text_input(
             ui,
-            translate("ip_design.asset_bible.forbidden_elements"),
-            key="ip_design_forbidden_elements",
-            value=", ".join(_text_list(ip_profile.get("forbidden_elements"))),
+            translate("ip_design.asset_bible.identity_lock"),
+            key="ip_design_identity_lock",
+            value=", ".join(_text_list(ip_profile.get("identity_lock"))),
         )
+        identity_anchors = _text_input(
+            ui,
+            translate("ip_design.asset_bible.identity_anchors"),
+            key="ip_design_identity_anchors",
+            value=", ".join(_text_list(ip_profile.get("identity_anchors"))),
+        )
+        identity_suppression_rules = _text_input(
+            ui,
+            translate("ip_design.asset_bible.identity_suppression_rules"),
+            key="ip_design_identity_suppression_rules",
+            value=", ".join(_text_list(ip_profile.get("identity_suppression_rules"))),
+        )
+        variable_slots = _text_input(
+            ui,
+            translate("ip_design.asset_bible.variable_slots"),
+            key="ip_design_variable_slots",
+            value=", ".join(_text_list(ip_profile.get("variable_slots"))),
+        )
+        semantic_boundary = _text_input(
+            ui,
+            translate("ip_design.asset_bible.semantic_boundary"),
+            key="ip_design_semantic_boundary",
+            value=", ".join(_text_list(ip_profile.get("semantic_boundary"))),
+        )
+        negative_constraints = _text_input(
+            ui,
+            translate("ip_design.asset_bible.negative_constraints"),
+            key="ip_design_negative_constraints",
+            value=", ".join(_text_list(ip_profile.get("negative_constraints"))),
+        )
+        visible_text_whitelist = _text_input(
+            ui,
+            translate("ip_design.asset_bible.visible_text_whitelist"),
+            key="ip_design_visible_text_whitelist",
+            value=", ".join(_text_list(ip_profile.get("visible_text_whitelist"))),
+        )
+        if _ip_profile_ready_for_generation(ip_profile):
+            ui.caption(translate("ip_design.asset_bible.generation_available"))
+        else:
+            ui.caption(translate("ip_design.asset_bible.generation_unavailable"))
 
         if ui.button(
             translate("ip_design.asset_bible.save"),
@@ -149,12 +189,22 @@ def _render_asset_bible_section(
             is_existing_asset = asset_bible_id == selected_id
             source_asset_bible = selected_asset_bible if is_existing_asset else {}
             payload = {
-                "ip_profile_id": ip_profile_id,
-                "ip_name": ip_name,
-                "logline": logline,
-                "world_hint": world_hint,
-                "style_hint": style_hint,
-                "forbidden_elements": _split_csv(forbidden_elements),
+                "ip_profiles": [
+                    {
+                        "ip_profile_id": ip_profile_id,
+                        "name": ip_name,
+                        "logline": logline,
+                        "world_hint": world_hint,
+                        "style_hint": style_hint,
+                        "identity_lock": _split_csv(identity_lock),
+                        "identity_anchors": _split_csv(identity_anchors),
+                        "identity_suppression_rules": _split_csv(identity_suppression_rules),
+                        "variable_slots": _split_csv(variable_slots),
+                        "semantic_boundary": _split_csv(semantic_boundary),
+                        "negative_constraints": _split_csv(negative_constraints),
+                        "visible_text_whitelist": _split_csv(visible_text_whitelist),
+                    }
+                ],
                 "character_profiles": _list_of_dicts(
                     source_asset_bible.get("character_profiles")
                 ),
@@ -368,6 +418,13 @@ def _format_scene_cast_option(scene_cast: Mapping[str, Any]) -> str:
 
 def _first_ip_name(asset_bible: Mapping[str, Any]) -> str:
     return _first_text(_first_dict(asset_bible.get("ip_profiles")).get("name"))
+
+
+def _ip_profile_ready_for_generation(ip_profile: Mapping[str, Any]) -> bool:
+    return bool(
+        _text_list(ip_profile.get("identity_lock"))
+        or _text_list(ip_profile.get("identity_anchors"))
+    )
 
 
 def _text_input(ui, label: str, *, key: str, value: str = "") -> str:

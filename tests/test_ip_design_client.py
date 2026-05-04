@@ -55,7 +55,7 @@ def test_http_ip_design_client_wraps_asset_bible_helpers():
         workspace_id="workspace_1",
         project_id="project_1",
         asset_bible_id="bible_demo",
-        payload={"ip_name": "Demo IP"},
+        payload={"ip_profiles": [{"ip_profile_id": "ip_main", "name": "Demo IP"}]},
     )["asset_bible"]["asset_bible_id"] == "bible_demo"
     assert client.list_scene_casts(
         workspace_id="workspace_1",
@@ -133,7 +133,12 @@ def test_inprocess_ip_design_client_uses_asset_repository_without_http():
         project_id="project_1",
         asset_bible_id="bible_demo",
         payload={
-            "ip_name": "Demo IP",
+            "ip_profiles": [
+                {
+                    "ip_profile_id": "ip_main",
+                    "name": "Demo IP",
+                }
+            ],
             "character_profiles": [
                 {
                     "character_id": "char_luna",

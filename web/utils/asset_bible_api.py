@@ -189,34 +189,15 @@ def create_asset_bible(
     *,
     api_base_url: str,
     project_id: str,
-    workspace_id: str,
-    asset_bible_id: str,
-    ip_name: str,
-    world_hint: str = "",
-    style_hint: str = "",
+    payload: dict[str, Any],
     timeout: float = 30.0,
 ) -> dict[str, Any]:
     endpoint = build_asset_bible_list_endpoint(
         api_base_url=api_base_url,
         project_id=project_id,
     )
-    payload = _without_blank_values(
-        {
-            "workspace_id": _validate_public_reference_id(
-                "workspace_id",
-                workspace_id,
-            ),
-            "asset_bible_id": _validate_public_reference_id(
-                "asset_bible_id",
-                asset_bible_id,
-            ),
-            "ip_name": _require_text("ip_name", ip_name),
-            "world_hint": _optional_text(world_hint),
-            "style_hint": _optional_text(style_hint),
-        }
-    )
 
-    response = httpx.post(endpoint, json=payload, timeout=timeout)
+    response = httpx.post(endpoint, json=build_asset_bible_payload(payload), timeout=timeout)
     response.raise_for_status()
     data = response.json()
     if not isinstance(data, dict):
@@ -268,7 +249,7 @@ def save_asset_bible(
         asset_bible_id=asset_bible_id,
     )
     request_payload = {
-        **dict(payload),
+        **build_asset_bible_payload(payload, require_ids=False),
         "workspace_id": _validate_public_reference_id("workspace_id", workspace_id),
         "asset_bible_id": _validate_public_reference_id(
             "asset_bible_id",
@@ -284,6 +265,49 @@ def save_asset_bible(
     if not isinstance(data.get("asset_bible"), dict):
         raise ValueError("asset bible save response must include asset_bible")
     return data
+
+
+def build_asset_bible_payload(
+    payload: dict[str, Any],
+    *,
+    require_ids: bool = True,
+) -> dict[str, Any]:
+    normalized = dict(payload)
+    if require_ids:
+        normalized["workspace_id"] = _validate_public_reference_id(
+            "workspace_id",
+            str(normalized.get("workspace_id", "")),
+        )
+        normalized["asset_bible_id"] = _validate_public_reference_id(
+            "asset_bible_id",
+            str(normalized.get("asset_bible_id", "")),
+        )
+    else:
+        normalized.pop("workspace_id", None)
+        normalized.pop("asset_bible_id", None)
+    ip_profiles = normalized.get("ip_profiles")
+    if not isinstance(ip_profiles, list) or not ip_profiles:
+        raise ValueError("ip_profiles must include at least one IP profile")
+    normalized["ip_profiles"] = [
+        _build_ip_profile_payload(item, index=index)
+        for index, item in enumerate(ip_profiles)
+    ]
+    return _without_blank_values(normalized)
+
+
+def _build_ip_profile_payload(value: Any, *, index: int) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"ip_profiles[{index}] must be a JSON object")
+    profile = dict(value)
+    profile["ip_profile_id"] = _validate_public_reference_id(
+        "ip_profile_id",
+        str(profile.get("ip_profile_id", "")),
+    )
+    profile["name"] = _require_text("name", str(profile.get("name", "")))
+    for field_name in ("logline", "world_hint", "style_hint"):
+        if field_name in profile:
+            profile[field_name] = _optional_text(str(profile[field_name]))
+    return _without_blank_values(profile)
 
 
 def create_scene_cast(
