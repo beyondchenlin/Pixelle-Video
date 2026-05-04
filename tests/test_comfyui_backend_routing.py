@@ -197,3 +197,94 @@ def test_media_and_tts_registry_choose_dedicated_roles(monkeypatch):
 
     assert registry.resolve_role_for_media("selfhost/image_z.json", "image") == "image"
     assert registry.resolve_role_for_tts("selfhost/tts_index2.json") == "tts"
+
+
+@pytest.mark.asyncio
+async def test_restart_is_tracked_per_backend_role(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {
+                        "image": {
+                            "url": "http://127.0.0.1:8001",
+                            "restart_after_batch": True,
+                        }
+                    },
+                    "workflow_routing": {"image": "image"},
+                }
+            }
+        ),
+    )
+    core = PixelleVideoCore()
+    calls = []
+
+    async def fake_restart(role, reason):
+        calls.append((role, reason))
+
+    monkeypatch.setattr(core, "_restart_comfyui_backend_role", fake_restart)
+
+    core.schedule_comfyui_backend_restart("image", "post-image-batch")
+    core.schedule_comfyui_backend_restart("image", "duplicate")
+    await core.await_comfyui_backend_ready("image")
+
+    assert calls == [("image", "post-image-batch")]
+
+
+@pytest.mark.asyncio
+async def test_cpu_oom_restarts_managed_backend_before_retry(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {
+                        "image": {"url": "http://127.0.0.1:8001"},
+                    },
+                    "workflow_routing": {"image": "image"},
+                }
+            }
+        ),
+    )
+    core = PixelleVideoCore()
+    attempts = 0
+    restarted = []
+
+    async def fake_once(workflow_input, workflow_params, *, backend_role="default"):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("DefaultCPUAllocator: not enough memory")
+        return "ok"
+
+    async def fake_release(
+        *,
+        context,
+        backend_role="default",
+        include_extensions=False,
+        extensions=(),
+    ):
+        return True
+
+    async def fake_restart(role, reason):
+        restarted.append((role, reason))
+
+    async def fake_prepare(*, backend_role="default"):
+        return None
+
+    monkeypatch.setattr(core, "_execute_local_comfykit_workflow_once", fake_once)
+    monkeypatch.setattr(core, "force_release_comfyui_memory", fake_release)
+    monkeypatch.setattr(core, "_restart_comfyui_backend_role", fake_restart)
+    monkeypatch.setattr(core, "prepare_comfyui_for_local_workflow", fake_prepare)
+
+    result = await core._execute_local_comfykit_workflow(
+        "workflows/selfhost/image_z.json",
+        {},
+        backend_role="image",
+    )
+
+    assert result == "ok"
+    assert restarted == [("image", "oom-recovery")]

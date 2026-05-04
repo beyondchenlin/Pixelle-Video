@@ -134,15 +134,8 @@ def test_core_backend_registry_uses_latest_comfyui_config(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_core_maintenance_path_keeps_service_client_monkeypatch(monkeypatch):
+async def test_core_maintenance_path_uses_registry_client_factory(monkeypatch):
     calls = []
-
-    class _Client:
-        def __init__(self, base_url, *, api_key=None, idle_wait_timeout=20.0):
-            calls.append(("init", base_url, api_key, idle_wait_timeout))
-
-        async def cleanup_before_generation(self, mode):
-            calls.append(("cleanup", mode))
 
     monkeypatch.setattr(
         config_manager,
@@ -157,18 +150,23 @@ async def test_core_maintenance_path_keeps_service_client_monkeypatch(monkeypatc
             }
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
 
     core = PixelleVideoCore()
-    monkeypatch.setattr(
-        core,
-        "_get_comfyui_backend_registry",
-        lambda: pytest.fail("maintenance paths must not require the registry"),
-    )
+
+    class _Client:
+        async def cleanup_before_generation(self, mode):
+            calls.append(("cleanup", mode))
+
+    class _Registry:
+        def maintenance_client(self, role):
+            calls.append(("registry", role))
+            return _Client()
+
+    monkeypatch.setattr(core, "_get_comfyui_backend_registry", lambda: _Registry())
 
     await core.prepare_comfyui_for_local_workflow()
 
     assert calls == [
-        ("init", "http://127.0.0.1:8000", "secret-token", 45.0),
+        ("registry", "default"),
         ("cleanup", "force"),
     ]

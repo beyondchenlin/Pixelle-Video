@@ -16,10 +16,31 @@ from pixelle_video.services.generation_coordinator import (
 
 
 def _install_noop_extension_preflight(core):
-    async def _preflight(*, context, extensions=("indextts2",)):
+    async def _preflight(*, context, backend_role="default", extensions=("indextts2",)):
         return True
 
     core.preflight_comfyui_extension_release_endpoints = _preflight
+
+
+def _patch_maintenance_client(monkeypatch, client_cls):
+    class _ClientFactory(client_cls):
+        def __init__(self, base_url, **kwargs):
+            try:
+                super().__init__(base_url, **kwargs)
+            except TypeError as exc:
+                if "idle_wait_timeout" not in kwargs:
+                    raise
+                filtered_kwargs = dict(kwargs)
+                filtered_kwargs.pop("idle_wait_timeout", None)
+                try:
+                    super().__init__(base_url, **filtered_kwargs)
+                except TypeError:
+                    raise exc
+
+    monkeypatch.setattr(
+        "pixelle_video.services.comfyui_backend_registry.ComfyUIMaintenanceClient",
+        _ClientFactory,
+    )
 
 
 def test_generation_fingerprint_ignores_runtime_only_fields():
@@ -232,10 +253,10 @@ async def test_core_execute_local_comfy_workflow_runs_cleanup_around_execute():
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         calls.append(("prepare",))
 
-    async def _release():
+    async def _release(*, backend_role="default"):
         calls.append(("release",))
 
     async def _get_kit(backend_role="default"):
@@ -272,17 +293,17 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_models_after
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         calls.append(("prepare",))
 
-    async def _release_workflow():
+    async def _release_workflow(*, backend_role="default"):
         raise AssertionError("standalone IndexTTS2 workflow should use the IndexTTS2 release path")
 
-    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+    async def _release_index_tts2(*, context, backend_role="default", missing_endpoint="optional"):
         calls.append(("index_tts2_release", context, missing_endpoint))
         return True
 
-    async def _preflight(*, context, extensions=("indextts2",)):
+    async def _preflight(*, context, backend_role="default", extensions=("indextts2",)):
         calls.append(("preflight", context, extensions))
         return True
 
@@ -339,17 +360,17 @@ async def test_core_execute_gguf_workflow_releases_gguf_extension_after_execute(
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         calls.append(("prepare",))
 
-    async def _release_workflow():
+    async def _release_workflow(*, backend_role="default"):
         raise AssertionError("GGUF workflow should use the extension release path")
 
-    async def _release_extensions(*, context, extensions=("indextts2",), missing_endpoint="optional"):
+    async def _release_extensions(*, context, backend_role="default", extensions=("indextts2",), missing_endpoint="optional"):
         calls.append(("extension_release", context, extensions, missing_endpoint))
         return True
 
-    async def _preflight(*, context, extensions=("indextts2",)):
+    async def _preflight(*, context, backend_role="default", extensions=("indextts2",)):
         calls.append(("preflight", context, extensions))
         return True
 
@@ -390,10 +411,10 @@ async def test_core_execute_local_comfy_workflow_releases_after_failure():
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         calls.append("prepare")
 
-    async def _release():
+    async def _release(*, backend_role="default"):
         calls.append("release")
 
     async def _get_kit(backend_role="default"):
@@ -433,10 +454,10 @@ async def test_core_execute_local_comfy_workflow_recovers_once_after_oom():
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         calls.append(("prepare",))
 
-    async def _release():
+    async def _release(*, backend_role="default"):
         calls.append(("release",))
         return True
 
@@ -444,7 +465,13 @@ async def test_core_execute_local_comfy_workflow_recovers_once_after_oom():
         calls.append(("get_kit",))
         return _Kit()
 
-    async def _force_release(*, context):
+    async def _force_release(
+        *,
+        context,
+        backend_role="default",
+        include_extensions=False,
+        extensions=(),
+    ):
         calls.append(("force_release", context))
         return True
 
@@ -516,15 +543,19 @@ async def test_core_execute_index_tts2_oom_recovery_releases_plugin_cache_in_com
             )
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         calls.append(("prepare",))
 
-    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+    async def _release_index_tts2(*, context, backend_role="default", missing_endpoint="optional"):
         calls.append(("index_tts2_release", context, missing_endpoint))
+        return True
+
+    async def _restart(backend_role, reason):
+        calls.append(("restart", backend_role, reason))
         return True
 
     async def _get_kit(backend_role="default"):
@@ -533,6 +564,7 @@ async def test_core_execute_index_tts2_oom_recovery_releases_plugin_cache_in_com
 
     core.prepare_comfyui_for_local_workflow = _prepare
     core.release_comfyui_after_index_tts2_workflow = _release_index_tts2
+    core._restart_comfyui_backend_role = _restart
     _install_noop_extension_preflight(core)
     core._get_or_create_comfykit = _get_kit
 
@@ -549,6 +581,7 @@ async def test_core_execute_index_tts2_oom_recovery_releases_plugin_cache_in_com
         ("execute", 1, "workflows/selfhost/tts_index2.json"),
         ("client", "http://127.0.0.1:8000", "secret"),
         ("free_with_extensions", "high", ("indextts2",), "required"),
+        ("restart", "default", "oom-recovery"),
         ("prepare",),
         ("get_kit",),
         ("execute", 2, "workflows/selfhost/tts_index2.json"),
@@ -572,17 +605,23 @@ async def test_core_execute_local_comfy_workflow_stops_when_oom_release_fails():
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         calls.append(("prepare",))
 
-    async def _release():
+    async def _release(*, backend_role="default"):
         calls.append(("release",))
 
     async def _get_kit(backend_role="default"):
         calls.append(("get_kit",))
         return _Kit()
 
-    async def _force_release(*, context):
+    async def _force_release(
+        *,
+        context,
+        backend_role="default",
+        include_extensions=False,
+        extensions=(),
+    ):
         calls.append(("force_release", context))
         return False
 
@@ -618,11 +657,11 @@ async def test_core_execute_local_comfy_workflow_stops_when_cleanup_fails():
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         calls.append("prepare")
         raise RuntimeError("cleanup failed")
 
-    async def _release():
+    async def _release(*, backend_role="default"):
         calls.append("release")
 
     async def _get_kit(backend_role="default"):
@@ -654,10 +693,10 @@ async def test_core_execute_runninghub_workflow_bypasses_local_comfy_cleanup():
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         raise AssertionError("RunningHub workflow should not prepare local ComfyUI")
 
-    async def _release():
+    async def _release(*, backend_role="default"):
         raise AssertionError("RunningHub workflow should not release local ComfyUI")
 
     async def _get_kit(backend_role="default"):
@@ -696,10 +735,10 @@ async def test_core_execute_local_comfy_workflows_serialize_cleanup_boundary():
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append("prepare")
 
-    async def _release():
+    async def _release(*, backend_role="default"):
         events.append("release")
 
     async def _get_kit(backend_role="default"):
@@ -747,10 +786,10 @@ async def test_local_comfyui_workflow_session_keeps_lifecycle_open_across_batch(
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append(("prepare",))
 
-    async def _release():
+    async def _release(*, backend_role="default"):
         events.append(("release",))
 
     async def _get_kit(backend_role="default"):
@@ -796,10 +835,10 @@ async def test_index_tts2_workflow_session_releases_models_once_at_session_exit(
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append(("prepare",))
 
-    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+    async def _release_index_tts2(*, context, backend_role="default", missing_endpoint="optional"):
         events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
@@ -859,14 +898,14 @@ async def test_local_comfyui_workflow_session_releases_models_for_renamed_index_
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append(("prepare",))
 
-    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+    async def _release_index_tts2(*, context, backend_role="default", missing_endpoint="optional"):
         events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
-    async def _preflight(*, context, extensions=("indextts2",)):
+    async def _preflight(*, context, backend_role="default", extensions=("indextts2",)):
         events.append(("preflight", context, extensions))
         return True
 
@@ -907,10 +946,10 @@ async def test_index_tts2_workflow_session_releases_models_at_session_exit():
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append(("prepare",))
 
-    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+    async def _release_index_tts2(*, context, backend_role="default", missing_endpoint="optional"):
         events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
@@ -948,14 +987,14 @@ async def test_index_tts2_workflow_preflights_required_extension_endpoint_before
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append(("prepare",))
 
-    async def _preflight(*, context, extensions=("indextts2",)):
+    async def _preflight(*, context, backend_role="default", extensions=("indextts2",)):
         events.append(("preflight", context, extensions))
         return True
 
-    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+    async def _release_index_tts2(*, context, backend_role="default", missing_endpoint="optional"):
         events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
@@ -993,14 +1032,20 @@ async def test_index_tts2_workflow_session_does_not_force_release_on_normal_comp
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append(("prepare",))
 
-    async def _release_index_tts2(*, context, missing_endpoint="optional"):
+    async def _release_index_tts2(*, context, backend_role="default", missing_endpoint="optional"):
         events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
-    async def _force_release(*, context):
+    async def _force_release(
+        *,
+        context,
+        backend_role="default",
+        include_extensions=False,
+        extensions=(),
+    ):
         events.append(("force_release", context))
         raise AssertionError("IndexTTS2 should not force-release ComfyUI memory after a successful run")
 
@@ -1045,15 +1090,15 @@ async def test_local_comfyui_task_scope_releases_at_task_exit_after_workflow_ses
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append(("prepare",))
 
-    async def _release_workflow():
+    async def _release_workflow(*, backend_role="default"):
         events.append(("workflow_release",))
         core._mark_local_comfyui_released()
         return True
 
-    async def _release_task():
+    async def _release_task(*, backend_role="default"):
         events.append(("task_release",))
         return True
 
@@ -1096,15 +1141,15 @@ async def test_local_comfyui_workflow_session_can_release_at_batch_exit_inside_t
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append(("prepare",))
 
-    async def _release_workflow():
+    async def _release_workflow(*, backend_role="default"):
         events.append(("workflow_release",))
         core._mark_local_comfyui_released()
         return True
 
-    async def _release_task():
+    async def _release_task(*, backend_role="default"):
         events.append(("task_release",))
         return True
 
@@ -1150,7 +1195,7 @@ async def test_local_comfyui_workflow_session_fails_when_stage_release_is_not_co
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append(("prepare",))
 
     async def _get_kit(backend_role="default"):
@@ -1166,7 +1211,7 @@ async def test_local_comfyui_workflow_session_fails_when_stage_release_is_not_co
             )
         )
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
     core.prepare_comfyui_for_local_workflow = _prepare
     core._get_or_create_comfykit = _get_kit
 
@@ -1216,7 +1261,7 @@ async def test_release_comfyui_after_local_workflow_releases_models_after_batch(
             )
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
 
     core = PixelleVideoCore()
 
@@ -1275,7 +1320,7 @@ async def test_release_comfyui_after_local_workflow_logs_structured_release_resu
             )
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
     monkeypatch.setattr(service_module, "logger", _BoundLogger())
 
     core = PixelleVideoCore()
@@ -1351,7 +1396,7 @@ async def test_release_comfyui_after_index_tts2_workflow_logs_failed_confirmatio
             )
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
     monkeypatch.setattr(service_module, "logger", _BoundLogger())
 
     core = PixelleVideoCore()
@@ -1410,7 +1455,7 @@ async def test_release_comfyui_after_index_tts2_workflow_releases_standard_and_p
             )
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
 
     core = PixelleVideoCore()
 
@@ -1456,7 +1501,7 @@ async def test_release_comfyui_after_index_tts2_workflow_forces_extension_cleanu
             )
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
 
     core = PixelleVideoCore()
 
@@ -1497,7 +1542,7 @@ async def test_index_tts2_release_preflight_runs_in_comfyui_cleanup_mode(monkeyp
             )
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
 
     core = PixelleVideoCore()
 
@@ -1552,7 +1597,7 @@ async def test_prepare_comfyui_for_local_workflow_only_cleans_queue(monkeypatch)
             )
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
 
     core = PixelleVideoCore()
 
@@ -1590,7 +1635,7 @@ async def test_force_release_comfyui_memory_uses_comfyui_only_mode_high_intensit
             }
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
 
     core = PixelleVideoCore()
 
@@ -1630,7 +1675,7 @@ async def test_force_release_comfyui_memory_uses_required_extension_endpoint(mon
             )
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
 
     core = PixelleVideoCore()
 
@@ -1672,7 +1717,7 @@ async def test_prepare_comfyui_for_local_workflow_uses_configured_cleanup_timeou
             )
         ),
     )
-    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+    _patch_maintenance_client(monkeypatch, _Client)
 
     core = PixelleVideoCore()
 
@@ -1701,10 +1746,10 @@ async def test_local_comfyui_workflow_session_serializes_concurrent_workflows():
 
     core = PixelleVideoCore()
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append("prepare")
 
-    async def _release():
+    async def _release(*, backend_role="default"):
         events.append("release")
 
     async def _get_kit(backend_role="default"):
@@ -1759,10 +1804,10 @@ async def test_local_comfyui_workflow_session_is_scoped_to_core_instance():
 
         core = PixelleVideoCore()
 
-        async def _prepare():
+        async def _prepare(*, backend_role="default"):
             events.append((name, "prepare"))
 
-        async def _release():
+        async def _release(*, backend_role="default"):
             events.append((name, "release"))
 
         async def _get_kit(backend_role="default"):
@@ -1813,17 +1858,17 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
         ),
     )
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append("prepare")
 
-    async def _register_use():
+    async def _register_use(*, backend_role="default"):
         events.append("register_use")
 
-    async def _restart(reason):
+    async def _restart(backend_role, reason):
         events.append(("restart", reason))
         return True
 
-    async def _release_memory(context, *, include_extensions=False, extensions=(), missing_endpoint="optional"):
+    async def _release_memory(context, *, backend_role="default", include_extensions=False, extensions=(), missing_endpoint="optional"):
         events.append(("release_memory", context, include_extensions, extensions, missing_endpoint))
         return True
 
@@ -1849,7 +1894,7 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
     core.prepare_comfyui_for_local_workflow = _prepare
     core._register_local_comfyui_task_use = _register_use
     core._execute_local_comfykit_workflow_once = _execute_once
-    core.restart_managed_comfyui_backend = _restart
+    core._restart_comfyui_backend_role = _restart
     core._release_comfyui_memory_when_idle = _release_memory
     _install_noop_extension_preflight(core)
 
@@ -1890,14 +1935,14 @@ async def test_local_comfyui_workflow_session_ignores_legacy_gguf_restart_config
         ),
     )
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append("prepare")
 
-    async def _restart(reason):
+    async def _restart(backend_role, reason):
         events.append(("restart", reason))
         return True
 
-    async def _release_memory(context, *, include_extensions=False, extensions=(), missing_endpoint="optional"):
+    async def _release_memory(context, *, backend_role="default", include_extensions=False, extensions=(), missing_endpoint="optional"):
         events.append(("release_memory", context, include_extensions, extensions, missing_endpoint))
         return True
 
@@ -1906,7 +1951,7 @@ async def test_local_comfyui_workflow_session_ignores_legacy_gguf_restart_config
         return SimpleNamespace(status="completed")
 
     core.prepare_comfyui_for_local_workflow = _prepare
-    core.restart_managed_comfyui_backend = _restart
+    core._restart_comfyui_backend_role = _restart
     core._release_comfyui_memory_when_idle = _release_memory
     core._execute_local_comfykit_workflow_once = _execute_once
     _install_noop_extension_preflight(core)
@@ -1936,14 +1981,14 @@ async def test_local_comfyui_workflow_session_releases_gguf_batch(monkeypatch):
         PixelleVideoConfig(comfyui=ComfyUIConfig(comfyui_url="http://127.0.0.1:8000")),
     )
 
-    async def _prepare():
+    async def _prepare(*, backend_role="default"):
         events.append("prepare")
 
-    async def _restart(reason):
+    async def _restart(backend_role, reason):
         events.append(("restart", reason))
         return True
 
-    async def _release_extensions(*, context, extensions, missing_endpoint="required"):
+    async def _release_extensions(*, context, backend_role="default", extensions, missing_endpoint="required"):
         events.append(("release_extensions", context, extensions, missing_endpoint))
         core._mark_local_comfyui_released()
         return True
@@ -1953,7 +1998,7 @@ async def test_local_comfyui_workflow_session_releases_gguf_batch(monkeypatch):
         return SimpleNamespace(status="completed")
 
     core.prepare_comfyui_for_local_workflow = _prepare
-    core.restart_managed_comfyui_backend = _restart
+    core._restart_comfyui_backend_role = _restart
     core.release_comfyui_after_local_workflow_extensions = _release_extensions
     core._execute_local_comfykit_workflow_once = _execute_once
     _install_noop_extension_preflight(core)
@@ -1998,7 +2043,11 @@ async def test_restart_managed_comfyui_backend_closes_old_comfykit(monkeypatch):
 
     core._comfykit_by_backend["default"] = _ComfyKit()
     core._comfykit_config_hash_by_backend["default"] = "configured"
-    monkeypatch.setattr(core, "_get_managed_comfyui_backend", lambda: _Backend())
+    monkeypatch.setattr(
+        core,
+        "_get_managed_comfyui_backend",
+        lambda backend_role="default": _Backend(),
+    )
 
     restarted = await core.restart_managed_comfyui_backend("post_gguf_workflow")
 
