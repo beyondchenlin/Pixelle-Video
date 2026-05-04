@@ -143,6 +143,19 @@ if (-not (Test-ManagedComfyUIProcess $config $managedPid)) {
             }
         }
     }
+    if (-not $listener) {
+        Remove-BackendPidFiles $config
+        $payload = [ordered]@{
+            stopped = $false
+            reason = 'pid_file_points_to_unmanaged_process_without_listener'
+            pid = $managedPid
+            launcher_pid = $launcherPid
+            pid_file = $pidFile
+            launcher_pid_file = $launcherPidFile
+        }
+        Write-BackendMessage -Json:$Json -Payload $payload -Message "Removed stale ComfyUI backend PID file pointing to unmanaged PID $managedPid."
+        exit 0
+    }
     throw "PID file points to PID $managedPid, but that process is not the Pixelle-managed ComfyUI backend. Refusing to stop it. Command line: $($processInfo.CommandLine)"
 }
 

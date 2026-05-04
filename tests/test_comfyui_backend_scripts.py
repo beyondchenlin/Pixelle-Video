@@ -969,6 +969,34 @@ def test_stop_backend_does_not_kill_unmanaged_parent_launcher(tmp_path: Path) ->
         kill_fake_comfyui_processes(comfyui_root)
 
 
+def test_stop_backend_clears_unmanaged_stale_pid_without_listener(tmp_path: Path) -> None:
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    pid_file = runtime_dir / "comfyui-backend.pid"
+    launcher_pid_file = runtime_dir / "comfyui-backend.launcher.pid"
+    pid_file.write_text(str(os.getpid()), encoding="ascii")
+    launcher_pid_file.write_text(str(os.getpid()), encoding="ascii")
+    port = reserve_free_port()
+
+    result = run_powershell(
+        SCRIPT_DIR / "stop_backend.ps1",
+        "-Json",
+        "-RuntimeDir",
+        runtime_dir,
+        "-HostAddress",
+        "127.0.0.1",
+        "-Port",
+        str(port),
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["stopped"] is False
+    assert payload["reason"] == "pid_file_points_to_unmanaged_process_without_listener"
+    assert not pid_file.exists()
+    assert not launcher_pid_file.exists()
+
+
 def test_start_backend_cleans_up_when_backend_never_listens(tmp_path: Path) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
     write_fake_hanging_main_py(comfyui_root)

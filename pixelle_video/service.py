@@ -36,7 +36,11 @@ from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.alignment_service import AlignmentService
 from pixelle_video.services.audio_edit_service import AudioEditService
-from pixelle_video.services.comfyui_errors import looks_like_memory_exhaustion
+from pixelle_video.services.comfyui_backend_manager import ManagedComfyUIBackend
+from pixelle_video.services.comfyui_errors import (
+    looks_like_backend_connection_loss,
+    looks_like_memory_exhaustion,
+)
 from pixelle_video.services.comfyui_maintenance import (
     ComfyUIExtensionName,
     ComfyUIMaintenanceClient,
@@ -370,6 +374,43 @@ class PixelleVideoCore:
             return "comfyui_and_extensions"
         return mode
 
+    def _get_comfyui_backend_management_mode(self, comfyui_config: dict) -> str:
+        mode = (comfyui_config.get("backend_management_mode") or "auto").lower()
+        if mode not in {"auto", "required", "disabled"}:
+            logger.warning(f"Unsupported ComfyUI backend management mode: {mode}")
+            return "auto"
+        return mode
+
+    def _get_gguf_cleanup_strategy(self, comfyui_config: dict) -> str:
+        strategy = (comfyui_config.get("gguf_cleanup_strategy") or "process_restart").lower()
+        if strategy not in {"process_restart", "extension_release"}:
+            logger.warning(f"Unsupported GGUF cleanup strategy: {strategy}")
+            return "process_restart"
+        return strategy
+
+    def _get_managed_comfyui_backend(self) -> ManagedComfyUIBackend | None:
+        self.config = config_manager.config.to_dict()
+        comfyui_config = self.config.get("comfyui", {})
+        base_url = comfyui_config.get("comfyui_url")
+        if not base_url:
+            return None
+        return ManagedComfyUIBackend(
+            repo_root=Path(__file__).resolve().parents[1],
+            comfyui_url=base_url,
+            management_mode=self._get_comfyui_backend_management_mode(comfyui_config),
+        )
+
+    async def restart_managed_comfyui_backend(self, reason: str) -> bool:
+        backend = self._get_managed_comfyui_backend()
+        if backend is None:
+            return False
+        restarted = await backend.restart(reason=reason)
+        if restarted:
+            await self._close_comfykit_instance()
+            self._comfykit = None
+            self._comfykit_config_hash = None
+        return restarted
+
     def _log_comfyui_memory_release(
         self,
         *,
@@ -532,6 +573,19 @@ class PixelleVideoCore:
         """Release standard ComfyUI memory plus Pixelle-managed extension caches."""
         if not extensions:
             return await self.release_comfyui_after_local_workflow()
+
+        self.config = config_manager.config.to_dict()
+        comfyui_config = self.config.get("comfyui", {})
+        if (
+            "gguf" in extensions
+            and self._get_gguf_cleanup_strategy(comfyui_config) == "process_restart"
+        ):
+            restarted = await self.restart_managed_comfyui_backend(
+                reason=f"{context.replace('-', '_')}"
+            )
+            if restarted:
+                self._mark_local_comfyui_released()
+                return True
 
         released = await self._release_comfyui_memory_when_idle(
             context,
@@ -772,6 +826,21 @@ class PixelleVideoCore:
                 workflow_params,
             )
         except Exception as exc:
+            if looks_like_backend_connection_loss(str(exc)):
+                restarted = await self.restart_managed_comfyui_backend(
+                    reason="connection_lost_during_workflow"
+                )
+                if restarted:
+                    logger.warning(
+                        "Local ComfyUI workflow lost its backend connection; "
+                        "restarted managed backend and retrying once."
+                    )
+                    await self.prepare_comfyui_for_local_workflow()
+                    await self._register_local_comfyui_task_use()
+                    return await self._execute_local_comfykit_workflow_once(
+                        workflow_input,
+                        workflow_params,
+                    )
             if not looks_like_memory_exhaustion(str(exc)):
                 raise
 

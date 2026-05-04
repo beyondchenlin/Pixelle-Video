@@ -457,6 +457,15 @@ class ComfyUIConfig(BaseModel):
         default=None,
         description="Optional ComfyUI executor override for selfhost workflows",
     )
+    backend_management_mode: Literal["auto", "required", "disabled"] = Field(
+        default="auto",
+        description=(
+            "Controls Pixelle-managed ComfyUI backend supervision. 'auto' uses "
+            "the local managed backend when the configured URL points at localhost; "
+            "'required' fails if managed restart is unavailable; 'disabled' never "
+            "starts or stops ComfyUI."
+        ),
+    )
     pre_generation_cleanup_mode: Literal["force", "conservative"] = Field(
         default="force",
         description="ComfyUI cleanup mode before video generation",
@@ -473,6 +482,15 @@ class ComfyUIConfig(BaseModel):
             "Model memory cleanup scope used after Pixelle-owned local workflow "
             "stages; IndexTTS2 TTS plugin cache cleanup is required for local "
             "IndexTTS2 workflows"
+        ),
+    )
+    gguf_cleanup_strategy: Literal["process_restart", "extension_release"] = Field(
+        default="process_restart",
+        description=(
+            "Cleanup boundary for workflows using ComfyUI-GGUF loaders. "
+            "'process_restart' restarts the Pixelle-managed ComfyUI backend after "
+            "GGUF stages to clear native Torch/GGUF state; 'extension_release' "
+            "uses the in-process GGUF release endpoint."
         ),
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")

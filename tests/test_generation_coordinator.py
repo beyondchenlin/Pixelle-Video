@@ -3,6 +3,8 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from aiohttp.client_exceptions import ClientConnectorError
+from aiohttp.client_reqrep import ConnectionKey
 
 from pixelle_video import service as service_module
 from pixelle_video.config.schema import ComfyUIConfig, PixelleVideoConfig
@@ -1794,6 +1796,199 @@ async def test_local_comfyui_workflow_session_is_scoped_to_core_instance():
         ("second_core", "release"),
         ("first_core", "release"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_retries(monkeypatch):
+    events = []
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        events.append("prepare")
+
+    async def _register_use():
+        events.append("register_use")
+
+    async def _restart(reason):
+        events.append(("restart", reason))
+        return True
+
+    call_count = 0
+
+    async def _execute_once(workflow_input, workflow_params):
+        nonlocal call_count
+        call_count += 1
+        events.append(("execute_once", call_count, workflow_input))
+        if call_count == 1:
+            key = ConnectionKey(
+                host="127.0.0.1",
+                port=8000,
+                is_ssl=False,
+                ssl=True,
+                proxy=None,
+                proxy_auth=None,
+                proxy_headers_hash=None,
+            )
+            raise ClientConnectorError(key, ConnectionRefusedError(1225, "connection refused"))
+        return SimpleNamespace(status="completed")
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core._register_local_comfyui_task_use = _register_use
+    core._execute_local_comfykit_workflow_once = _execute_once
+    core.restart_managed_comfyui_backend = _restart
+    _install_noop_extension_preflight(core)
+
+    result = await core.execute_comfykit_workflow(
+        "selfhost/image_z_image_turbo_gguf.json",
+        {"prompt": "demo"},
+        workflow_source="selfhost",
+    )
+
+    assert result.status == "completed"
+    assert events == [
+        "prepare",
+        "register_use",
+        ("execute_once", 1, "selfhost/image_z_image_turbo_gguf.json"),
+        ("restart", "connection_lost_during_workflow"),
+        "prepare",
+        "register_use",
+        ("execute_once", 2, "selfhost/image_z_image_turbo_gguf.json"),
+        ("restart", "post_gguf_workflow"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_local_comfyui_workflow_session_restarts_backend_after_gguf_batch_when_configured(monkeypatch):
+    events = []
+    core = PixelleVideoCore()
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                gguf_cleanup_strategy="process_restart",
+            )
+        ),
+    )
+
+    async def _prepare():
+        events.append("prepare")
+
+    async def _restart(reason):
+        events.append(("restart", reason))
+        return True
+
+    async def _execute_once(workflow_input, workflow_params):
+        events.append(("execute_once", workflow_input))
+        return SimpleNamespace(status="completed")
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.restart_managed_comfyui_backend = _restart
+    core._execute_local_comfykit_workflow_once = _execute_once
+    _install_noop_extension_preflight(core)
+
+    async with core.local_comfyui_workflow_session(release_after_session=True):
+        await core.execute_comfykit_workflow(
+            "selfhost/image_z_image_turbo_gguf.json",
+            {"prompt": "demo"},
+            workflow_source="selfhost",
+        )
+
+    assert events == [
+        "prepare",
+        ("execute_once", "selfhost/image_z_image_turbo_gguf.json"),
+        ("restart", "post_gguf_workflow"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_local_comfyui_workflow_session_uses_extension_release_when_gguf_restart_is_disabled(monkeypatch):
+    events = []
+    core = PixelleVideoCore()
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                gguf_cleanup_strategy="extension_release",
+            )
+        ),
+    )
+
+    async def _prepare():
+        events.append("prepare")
+
+    async def _restart(reason):
+        events.append(("restart", reason))
+        return True
+
+    async def _release_extensions(*, context, extensions, missing_endpoint="required"):
+        events.append(("release_extensions", context, extensions, missing_endpoint))
+        core._mark_local_comfyui_released()
+        return True
+
+    async def _execute_once(workflow_input, workflow_params):
+        events.append(("execute_once", workflow_input))
+        return SimpleNamespace(status="completed")
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.restart_managed_comfyui_backend = _restart
+    core.release_comfyui_after_local_workflow_extensions = _release_extensions
+    core._execute_local_comfykit_workflow_once = _execute_once
+    _install_noop_extension_preflight(core)
+
+    async with core.local_comfyui_workflow_session(release_after_session=True):
+        await core.execute_comfykit_workflow(
+            "selfhost/image_z_image_turbo_gguf.json",
+            {"prompt": "demo"},
+            workflow_source="selfhost",
+        )
+
+    assert events == [
+        "prepare",
+        ("execute_once", "selfhost/image_z_image_turbo_gguf.json"),
+        (
+            "release_extensions",
+            "post-gguf-workflow",
+            ("gguf",),
+            "required",
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_restart_managed_comfyui_backend_closes_old_comfykit(monkeypatch):
+    closed = []
+    core = PixelleVideoCore()
+
+    class _CloseableExecutor:
+        async def close(self):
+            closed.append("http")
+
+    class _ComfyKit:
+        _runninghub_executor = object()
+        _http_executor = _CloseableExecutor()
+        _websocket_executor = object()
+
+    class _Backend:
+        async def restart(self, *, reason):
+            assert reason == "post_gguf_workflow"
+            return True
+
+    core._comfykit = _ComfyKit()
+    core._comfykit_config_hash = "configured"
+    monkeypatch.setattr(core, "_get_managed_comfyui_backend", lambda: _Backend())
+
+    restarted = await core.restart_managed_comfyui_backend("post_gguf_workflow")
+
+    assert restarted is True
+    assert closed == ["http"]
+    assert core._comfykit is None
+    assert core._comfykit_config_hash is None
 
 
 @pytest.mark.asyncio

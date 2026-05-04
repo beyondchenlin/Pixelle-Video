@@ -95,6 +95,18 @@ def test_comfyui_model_cleanup_mode_defaults_to_extensions():
     assert config.comfyui.model_cleanup_mode == "comfyui_and_extensions"
 
 
+def test_comfyui_backend_management_defaults_to_auto():
+    config = PixelleVideoConfig()
+
+    assert config.comfyui.backend_management_mode == "auto"
+
+
+def test_comfyui_gguf_cleanup_strategy_defaults_to_process_restart():
+    config = PixelleVideoConfig()
+
+    assert config.comfyui.gguf_cleanup_strategy == "process_restart"
+
+
 def test_comfyui_model_cleanup_mode_retires_disabled_value():
     config = PixelleVideoConfig.model_validate(
         {"comfyui": {"model_cleanup_mode": " Disabled "}}
@@ -146,6 +158,36 @@ def test_comfyui_config_exposes_model_cleanup_mode(monkeypatch):
     )
 
     assert config_manager.get_comfyui_config()["model_cleanup_mode"] == "comfyui"
+
+
+def test_comfyui_config_exposes_backend_management_mode(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                backend_management_mode="required",
+            )
+        ),
+    )
+
+    assert config_manager.get_comfyui_config()["backend_management_mode"] == "required"
+
+
+def test_comfyui_config_exposes_gguf_cleanup_strategy(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+                gguf_cleanup_strategy="extension_release",
+            )
+        ),
+    )
+
+    assert config_manager.get_comfyui_config()["gguf_cleanup_strategy"] == "extension_release"
 
 
 def test_set_comfyui_config_retires_disabled_model_cleanup_mode(monkeypatch):
