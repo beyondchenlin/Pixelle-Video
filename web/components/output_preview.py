@@ -49,6 +49,7 @@ from pixelle_video.services.layered_template_service import (
 )
 from pixelle_video.services.template_registry import TemplateRegistry
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
+from pixelle_video.tts_workflow_contract import tts_workflow_requires_ref_audio
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from pixelle_video.utils.template_util import get_template_preview_path, resolve_template_path
 from web.components.layered_template_state import load_layered_template_spec_into_editor_state
@@ -80,6 +81,24 @@ VIDEO_PREVIEW_WIDTH = "50%"
 
 def _resolve_video_tts_mode(video_params):
     return resolve_tts_inference_mode(None, video_params.get("tts_inference_mode"))
+
+
+def _validate_tts_reference_audio_contract(
+    *,
+    tts_inference_mode: str,
+    tts_workflow: str | None,
+    ref_audio: str | None,
+) -> None:
+    if tts_inference_mode != "comfyui":
+        return
+    if not tts_workflow_requires_ref_audio(tts_workflow):
+        return
+    if str(ref_audio or "").strip():
+        return
+    raise ValueError(
+        f"TTS workflow '{tts_workflow}' requires a reference audio. "
+        "Select a saved voice or upload and save a reference voice before generation."
+    )
 
 
 def _media_placement_payload(*sources) -> dict:
@@ -829,6 +848,11 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     else:
         request["tts_workflow"] = video_params.get("tts_workflow")
         ref_audio_path = video_params.get("ref_audio")
+        _validate_tts_reference_audio_contract(
+            tts_inference_mode=request["tts_inference_mode"],
+            tts_workflow=request.get("tts_workflow"),
+            ref_audio=str(ref_audio_path) if ref_audio_path else None,
+        )
         if ref_audio_path:
             request["ref_audio"] = str(ref_audio_path)
         ref_audio_text = video_params.get("ref_audio_text")
@@ -910,6 +934,11 @@ def build_batch_shared_config(video_params):
         if tts_workflow:
             shared_config["tts_workflow"] = tts_workflow
         ref_audio = video_params.get("ref_audio")
+        _validate_tts_reference_audio_contract(
+            tts_inference_mode=shared_config["tts_inference_mode"],
+            tts_workflow=shared_config.get("tts_workflow"),
+            ref_audio=str(ref_audio) if ref_audio else None,
+        )
         if ref_audio:
             shared_config["ref_audio"] = str(ref_audio)
         ref_audio_text = video_params.get("ref_audio_text")
