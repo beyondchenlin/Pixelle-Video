@@ -1,6 +1,8 @@
 from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.ip_prompt_planning import IPPresenceType
+from pixelle_video.models.scene_cast import SceneCast
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
+from pixelle_video.models.style_resolution import ResolvedStyleSpec
 from pixelle_video.services.ip_usage_planner import IPUsagePlanner
 
 
@@ -260,3 +262,132 @@ def test_usage_planner_treats_uppercase_english_documentary_style_as_low_intrusi
         IPPresenceType.SYMBOLIC_ONLY,
         IPPresenceType.ABSENT,
     }
+
+
+def test_usage_planner_reads_resolved_style_spec_positive_documentary_signals():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="镜头缓慢扫过城墙纹理。",
+        visual_goal="表现朴素、克制的记录感",
+        prompt_intent="空间质感说明",
+        shot_type="全景",
+        shot_purpose="说明环境",
+        primary_subject="城墙纹理",
+        world_elements=("砖石", "阴影", "墙面"),
+    )
+    documentary_style = ResolvedStyleSpec(
+        style_kind="visual_only",
+        prompt_template="Documentary visual language, restrained composition, {prompt}",
+    )
+    serious_style = ResolvedStyleSpec(
+        style_kind="visual_only",
+        style_profile={"shape_language": "SERIOUS DOCUMENTARY camera language"},
+    )
+
+    documentary_package = IPUsagePlanner().plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=_profile(),
+        resolved_style=documentary_style,
+    )[0]
+    serious_package = IPUsagePlanner().plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=_profile(),
+        resolved_style=serious_style,
+    )[0]
+
+    assert documentary_package.ip_presence_type in {
+        IPPresenceType.LOW_INTRUSION,
+        IPPresenceType.SYMBOLIC_ONLY,
+        IPPresenceType.ABSENT,
+    }
+    assert serious_package.ip_presence_type in {
+        IPPresenceType.LOW_INTRUSION,
+        IPPresenceType.SYMBOLIC_ONLY,
+        IPPresenceType.ABSENT,
+    }
+
+
+def test_usage_planner_ignores_resolved_style_spec_negative_documentary_signals():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="导览员讲述古城街巷的生活记忆。",
+        visual_goal="表现轻松的文化讲解氛围",
+        prompt_intent="讲解地方文化",
+        shot_type="中景",
+        shot_purpose="叙事说明",
+        primary_subject="古城街巷与生活细节",
+        world_elements=("街巷", "摊位", "行人"),
+    )
+    style = ResolvedStyleSpec(
+        style_kind="visual_only",
+        prompt_template="bright travel illustration, {prompt}",
+        negative_prompt="avoid Documentary style",
+        style_profile={
+            "shape_language": "friendly rounded cartoon language",
+            "negative_rules": "avoid SERIOUS DOCUMENTARY tone",
+        },
+    )
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=_profile(),
+        resolved_style=style,
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.BALANCED_NARRATIVE
+
+
+def test_usage_planner_reads_real_scene_cast_to_dict_metadata_ip_presence_type():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="古城路线从地图上展开。",
+        visual_goal="表现路线总览",
+        prompt_intent="旅行路线说明",
+        primary_subject="正定古城路线图",
+    )
+    plan = _plan(frame)
+    scene_cast = SceneCast(
+        scene_cast_id="cast_1",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        storyboard_plan_id=plan.plan_id,
+        frame_id=plan.frames[0].frame_id,
+        asset_bible_id="asset_bible_1",
+        metadata={"ip_presence_type": "strong_identity"},
+    )
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_profile(),
+        scene_casts_by_frame={plan.frames[0].frame_id: scene_cast.to_dict()},
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.STRONG_IDENTITY
+
+
+def test_usage_planner_reads_real_scene_cast_to_dict_metadata_presence_type():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="古城路线从地图上展开。",
+        visual_goal="表现路线总览",
+        prompt_intent="旅行路线说明",
+        primary_subject="正定古城路线图",
+    )
+    plan = _plan(frame)
+    scene_cast = SceneCast(
+        scene_cast_id="cast_1",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        storyboard_plan_id=plan.plan_id,
+        frame_id=plan.frames[0].frame_id,
+        asset_bible_id="asset_bible_1",
+        metadata={"presence_type": "strong_identity"},
+    )
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_profile(),
+        scene_casts_by_frame={plan.frames[0].frame_id: scene_cast.to_dict()},
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.STRONG_IDENTITY

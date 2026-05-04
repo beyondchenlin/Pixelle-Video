@@ -136,9 +136,33 @@ def _presence_type_from_scene_cast(scene_cast: Any | None) -> IPPresenceType | N
 
 
 def _style_is_serious_documentary(resolved_style: Mapping[str, Any] | None) -> bool:
-    if not isinstance(resolved_style, Mapping):
+    positive_style_text = _positive_style_signal_text(resolved_style)
+    if not positive_style_text:
         return False
-    return _contains_any(_flatten_mapping_text(resolved_style).lower(), _SERIOUS_STYLE_KEYWORDS)
+    return _contains_any(positive_style_text.lower(), _SERIOUS_STYLE_KEYWORDS)
+
+
+def _positive_style_signal_text(resolved_style: Any) -> str:
+    if isinstance(resolved_style, Mapping):
+        return _mapping_positive_style_signal_text(resolved_style)
+    values = [
+        getattr(resolved_style, "style_kind", None),
+        getattr(resolved_style, "prompt_template", None),
+        getattr(resolved_style, "raw_content", None),
+    ]
+    style_profile = getattr(resolved_style, "style_profile", None)
+    if isinstance(style_profile, Mapping):
+        values.append(_mapping_positive_style_signal_text(style_profile))
+    return " ".join(_flatten_mapping_text(value) for value in values if value)
+
+
+def _mapping_positive_style_signal_text(style_mapping: Mapping[str, Any]) -> str:
+    values = [
+        item
+        for key, item in style_mapping.items()
+        if str(key) not in _NEGATIVE_STYLE_SIGNAL_KEYS
+    ]
+    return " ".join(_flatten_mapping_text(value) for value in values if value)
 
 
 def _flatten_mapping_text(value: Any) -> str:
@@ -366,6 +390,7 @@ _PROTECTED_SUBJECT_KEYWORDS = (
 _PURE_LANDSCAPE_KEYWORDS = ("空镜", "纯风景", "风景切镜", "山水", "天空", "河流", "远山")
 _NARRATIVE_KEYWORDS = ("讲述", "说明", "叙事", "介绍", "导览", "科普", "铺开")
 _SERIOUS_STYLE_KEYWORDS = ("严肃纪实", "纪录片", "documentary", "serious documentary")
+_NEGATIVE_STYLE_SIGNAL_KEYS = ("negative_prompt", "negative_rules")
 
 
 __all__ = ["IPUsagePlanner"]
