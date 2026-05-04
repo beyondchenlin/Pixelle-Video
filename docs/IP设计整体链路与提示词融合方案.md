@@ -62,6 +62,8 @@ IP 不应简单地覆盖每一帧，也不应无条件成为所有画面的主�
 
 当前缺口是：IP 还没有真正进入图片提示词生成主链路。现有 `SceneCast` 更偏向资产 ID 绑定，尚未自动生成“这一帧 IP 如何出现、如何动作、如何穿着、如何站位”的文本表达。
 
+下一阶段的关键不是把更多自然语言直接塞进 `final_prompt`，而是把用户文案、高级分镜、风格前缀、IP 适配、画面中文文字和 Z-Image 输出要求先结构化，再由 Prompt Composer 重写成最终模型提示词。
+
 ## 4. IP 信息分层
 
 为了让大模型能稳定理解 IP，又不让 IP 约束压垮画面生成，IP 信息应该拆成四层。
@@ -140,7 +142,12 @@ IP 系统可以向镜头系统提出约束，例如“这帧必须看到蓝色�
 
 IP 是否出场，应按帧裁决，而不是全片统一硬塞。
 
-建议使用以下模式：
+这里需要区分两个概念：
+
+- `presence_mode`：偏底层语义，表示 IP 是否出现以及以什么语义身份出现。
+- `ip_presence_type`：偏产品和分镜策略，类似高级分镜里的远景、全景、中景、近景、特写，是给大模型选择的 IP 融合预设。
+
+`presence_mode` 建议使用以下模式：
 
 ### 5.1 `lead`
 
@@ -223,6 +230,34 @@ IP 不出现。
 - IP 出现会破坏氛围、逻辑或用户文案表达。
 - 需要纯场景铺垫、情绪空镜或严肃画面。
 
+### 5.6 `ip_presence_type` 融合预设
+
+`ip_presence_type` 是给高级分镜规划和 Prompt Composer 使用的策略维度。它不替代 `shot_type`，而是与 `shot_type` 并列。
+
+```text
+shot_type：远景 / 全景 / 中景 / 近景 / 特写
+ip_presence_type：强身份锁定 / 平衡叙事 / 场景融入 / 低侵入陪伴 / 符号化 / 不出场
+```
+
+建议枚举：
+
+- `strong_identity`：强身份锁定型。IP 识别度优先，适合品牌露出、封面、IP 主角帧。
+- `balanced_narrative`：平衡叙事型。文案主体优先，IP 作为稳定讲解员或陪伴角色。
+- `scene_integrated`：场景融入型。IP 自然进入场景，服装、道具、站位随场景变化。
+- `low_intrusion`：低侵入陪伴型。IP 只在边缘、前景小角色、角落或弱陪伴位置出现。
+- `symbolic_only`：符号化型。只出现 IP 徽章、贴纸、地图标识、招牌、剪影等。
+- `absent`：不出场。
+
+推荐默认选择规则：
+
+- 开篇建立场景：优先 `scene_integrated` 或 `low_intrusion`。
+- 讲解、转折、知识解释：优先 `balanced_narrative`。
+- 需要强品牌露出或角色主导：使用 `strong_identity`。
+- 历史主体、宗教主体、真实人物主体、严肃纪实场景：优先 `low_intrusion`、`symbolic_only` 或 `absent`。
+- 纯风景空镜：优先 `absent` 或 `symbolic_only`。
+
+大模型不应随机选择这些类型，而应结合 `FramePlan` 的 `primary_subject`、`shot_type`、`shot_purpose`、`world_elements`、`continuity_anchors` 和风格上下文进行裁决。
+
 ## 6. 长文案场景中的 IP 占比原则
 
 长文案生成图片时，不应该追求每一帧都出现 IP。应该按内容节奏做出场规划。
@@ -303,6 +338,42 @@ StoryboardPlan / FramePlan
 
 IP Usage Planner 不重新做分镜，而是读取每帧上下文，判断 IP 如何参与。
 
+IP 规划传给大模型时，应作为高级分镜上下文的一部分。推荐结构：
+
+```json
+{
+  "frame_context": {
+    "source_text": "从长乐门出发，这是正定的南大门...",
+    "visual_goal": "表现正定长乐门作为古城入口的历史感和出发感",
+    "primary_subject": "正定长乐门、青砖城墙、城楼",
+    "shot_type": "中远景",
+    "shot_purpose": "建立古城空间和旅程开篇",
+    "world_elements": ["青砖城墙", "城楼", "晨光", "滹沱河水汽"],
+    "continuity_anchors": ["正定古城", "七处印记", "本地向导视角"]
+  },
+  "style_context": {
+    "style_kind": "visual_only",
+    "visual_style": "写实古城旅行纪录片背景，柔和晨光，卡通 IP 自然融合",
+    "avoid_rules": ["角色贴纸感", "建筑变形", "现代商业广告感"]
+  },
+  "ip_profile": {
+    "identity_lock": ["白色卡通兔子", "长耳朵", "圆润脸型", "蓝色领带"],
+    "variable_slots": ["动作", "表情", "服装", "道具", "站位", "朝向"],
+    "semantic_boundary": ["不能替代古城主体", "不能替代真实历史对象"]
+  },
+  "ip_presence_options": [
+    "strong_identity",
+    "balanced_narrative",
+    "scene_integrated",
+    "low_intrusion",
+    "symbolic_only",
+    "absent"
+  ]
+}
+```
+
+这里的输出应先选择 `ip_presence_type`，再生成本帧的 IP 适配包，最后由 Prompt Composer 生成最终 Z-Image 提示词。
+
 ## 9. IP Frame Adaptation Package
 
 每帧应生成一个结构化的 IP 适配包，而不是直接生成一段散乱提示词。
@@ -311,12 +382,14 @@ IP Usage Planner 不重新做分镜，而是读取每帧上下文，判断 IP �
 
 ```text
 frame_id
+ip_presence_type
 presence_mode
 role_in_frame
 semantic_reason
 must_not_replace
 identity_anchors_visible
 identity_anchors_suppressed
+identity_color_terms
 outfit_theme
 outfit_condition
 accessories
@@ -331,18 +404,22 @@ depth_layer
 interaction_target
 continuity_from_previous
 shot_fit_notes
+image_text_plan
 prompt_weight
 negative_constraints
 ```
 
 字段说明：
 
+- `ip_presence_type`：strong_identity、balanced_narrative、scene_integrated、low_intrusion、symbolic_only、absent。
 - `presence_mode`：lead、support、symbolic、ambient、absent。
 - `role_in_frame`：主角、讲解员、观察者、旁白角色、背景符号等。
 - `semantic_reason`：为什么这样安排。
 - `must_not_replace`：不能替代的文案主体。
 - `identity_anchors_visible`：本帧需要显式保留的识别锚点。
 - `identity_anchors_suppressed`：由于镜头或场景原因暂时弱化的锚点。
+- `identity_color_terms`：最终提示词可使用的自然语言色彩描述，例如“纯白色身体”“鲜明宝蓝色领带”，不能直接把色号写进最终模型提示词。
+- `image_text_plan`：本帧允许出现的中文画面文字计划。
 - `prompt_weight`：IP 在最终 prompt 中的表达强度。
 - `negative_constraints`：防止角色跑偏的负面约束。
 
@@ -381,7 +458,194 @@ negative_constraints
 
 如果 IP 不出场，最终 prompt 中不应强行写 IP，只需要在 trace 中记录 `presence_mode=absent` 和原因。
 
-## 11. Z-Image 场景下的提示词策略
+同时要注意，最终给 Z-Image 的提示词必须是纯画面描述，不应混入策略说明、字段名、色号代码或面向人类的解释。
+
+内部可以记录：
+
+```text
+ip_presence_type = scene_integrated
+summary_text = 从长乐门出发
+title_color_hex = #5A2A12
+title_color_prompt = 深棕色墨迹
+```
+
+最终提示词只能写成：
+
+```text
+画面左上角以古风中文标题写着“从长乐门出发”，标题是深棕色墨迹质感。
+```
+
+不能写成：
+
+```text
+title_color_hex: #5A2A12
+标题颜色为 #5A2A12
+```
+
+因为 Z-Image 支持文字生成，`#5A2A12`、字段名、英文参数和数字代码都有可能被画进图片里。
+
+## 11. 中文画面文字规划
+
+Z-Image 支持中文文字生成，这对古城、文旅、知识类视频很有价值。画面文字不应被当作普通装饰，也不应由最终 prompt 随机发挥。它应成为高级分镜和 Prompt Composer 的结构化输入。
+
+建议拆成两类文字：
+
+### 11.1 `summary_text`
+
+`summary_text` 是对当前文案或当前帧主题的提炼。它通常承担标题、章节、手账题字或画面主题功能。
+
+示例：
+
+- “从长乐门出发”
+- “正定的浪漫”
+- “七处印记”
+- “古城第一站”
+
+适合载体：
+
+- 画面左上角标题。
+- 旅行手账标题。
+- 章节题字。
+- 画面边缘短句。
+
+要求：
+
+- 字数少。
+- 语义清楚。
+- 每帧最多一个主 `summary_text`。
+- 不抢画面主体。
+- 字体、颜色、位置由结构化字段控制。
+
+### 11.2 `scene_text`
+
+`scene_text` 是画面场景中自然存在的文字。它用于提高场景可信度和信息直观性。
+
+示例：
+
+- 城门匾额：“长乐门”
+- 地图文字：“七处印记”
+- 手账封面：“正定古城”
+- 路牌：“古城路线”
+
+适合载体：
+
+- 匾额。
+- 路牌。
+- 地图。
+- 手账。
+- 展板。
+- 票据。
+- 店招。
+
+要求：
+
+- 必须和场景自然绑定。
+- 不应凭空堆很多文字。
+- 可读性比装饰性更重要。
+- 同一帧的可见文字要有白名单，避免模型生成多余文字。
+
+### 11.3 推荐结构
+
+```json
+{
+  "image_text_plan": {
+    "summary_text": {
+      "text": "从长乐门出发",
+      "purpose": "概括当前画面的文案主题",
+      "carrier": "画面左上角古风题字",
+      "color_prompt": "深棕色墨迹",
+      "priority": "medium"
+    },
+    "scene_text": [
+      {
+        "text": "长乐门",
+        "carrier": "城门匾额",
+        "color_prompt": "旧金色或深墨色匾额字"
+      },
+      {
+        "text": "正定古城",
+        "carrier": "兔子手账封面",
+        "color_prompt": "深墨色手写字"
+      }
+    ],
+    "visible_text_whitelist": ["长乐门", "从长乐门出发", "正定古城"],
+    "text_safety_rules": [
+      "不出现英文",
+      "不出现色号",
+      "不出现参数名",
+      "不出现乱码",
+      "不出现水印",
+      "不出现白名单之外的多余文字"
+    ]
+  }
+}
+```
+
+最终提示词中，应显式写：
+
+```text
+画面中所有可见文字仅限中文“长乐门”“从长乐门出发”“正定古城”，不显示任何数字代码、颜色代码、英文、符号、水印或多余文字。
+```
+
+## 12. 色彩结构化与最终提示词安全
+
+为了让 IP 和文字色彩稳定，结构化数据中可以保存色号。但色号只给系统内部和前端使用，不能进入最终 Z-Image 提示词。
+
+推荐结构：
+
+```json
+{
+  "ip_color_palette": {
+    "body_hex": "#FFFFFF",
+    "body_prompt": "纯白色身体",
+    "tie_hex": "#006BFF",
+    "tie_prompt": "鲜明宝蓝色领带",
+    "inner_ear_hex": "#F7B6C8",
+    "inner_ear_prompt": "柔和浅粉色耳朵内侧",
+    "blush_hex": "#F4A6B6",
+    "blush_prompt": "浅粉色腮红",
+    "eyes_hex": "#111111",
+    "eyes_prompt": "黑色小眼睛"
+  },
+  "image_text_palette": {
+    "title_hex": "#5A2A12",
+    "title_prompt": "深棕色墨迹",
+    "small_text_hex": "#2B1A10",
+    "small_text_prompt": "深墨色手写字"
+  }
+}
+```
+
+Prompt Composer 最终只能使用 `*_prompt` 字段，不能把 `*_hex` 字段写入模型提示词。
+
+正确写法：
+
+```text
+白色卡通兔子，纯白色身体，长耳朵，柔和浅粉色耳朵内侧，浅粉色腮红，鲜明宝蓝色领带。
+```
+
+错误写法：
+
+```text
+白色卡通兔子，身体 #FFFFFF，领带 #006BFF，标题颜色 #5A2A12。
+```
+
+这个规则很重要，因为 Z-Image 会把 `#5A2A12` 这类可读字符当成画面文字生成出来。
+
+色号适合用于：
+
+- 前端色卡。
+- 用户编辑。
+- 版本记录。
+- 多模型转换。
+- 内部一致性追踪。
+
+色号不适合用于：
+
+- 最终 Z-Image prompt。
+- 任何会直接进入文生图模型的自然语言提示词。
+
+## 13. Z-Image 场景下的提示词策略
 
 Z-Image 属于文生图模型，适合较详细的提示词，但详细不等于堆叠。
 
@@ -394,7 +658,10 @@ Z-Image 属于文生图模型，适合较详细的提示词，但详细不等于
 - 风格描述不要污染主体身份。
 - 背景复杂度要受控。
 - 人物位置和占比要明确。
-- 负面约束要针对常见跑偏点。
+- Z-Image 不支持独立负向提示词字段时，负面约束必须合并进单段最终提示词。
+- 负面约束要写成画面要求，例如“避免角色悬浮、贴纸感、乱码、多余文字、英文水印、建筑变形”，不要以参数形式出现。
+- 最终提示词不能出现结构化字段名、色号、JSON、英文参数或解释性说明。
+- 画面中文字需要可见文字白名单。
 
 不建议每帧重复所有 IP 档案。每帧应该只写最必要的识别锚点和当前变化。
 
@@ -404,7 +671,7 @@ Z-Image 属于文生图模型，适合较详细的提示词，但详细不等于
 内部结构化信息可以多，最终 prompt 表达要少而精。
 ```
 
-## 12. 约束强度策略
+## 14. 约束强度策略
 
 IP 约束不是越多越好，也不是越少越好。
 
@@ -424,7 +691,7 @@ IP 约束不是越多越好，也不是越少越好。
 
 硬核是身份锚点，弹性是情境表达。
 
-## 13. 示例：小狗草地场景与兔子 IP
+## 15. 示例：小狗草地场景与兔子 IP
 
 用户文案：
 
@@ -434,7 +701,7 @@ IP 约束不是越多越好，也不是越少越好。
 
 假设 IP 是白色兔子，固定蓝色领带。
 
-### 13.1 不出场模式
+### 15.1 不出场模式
 
 适用于强调原文生活感，不希望 IP 干扰画面。
 
@@ -442,7 +709,7 @@ IP 约束不是越多越好，也不是越少越好。
 清晨的草地被柔和阳光照亮，一只小狗安静地趴在花坛边晒太阳，远处有一个路人从小径经过，画面温暖、平静、生活化。中景构图，花坛和草地形成自然前景，路人保持弱化，不抢夺小狗主体。整体保持所选风格的线条、色彩和光影，画面干净自然。
 ```
 
-### 13.2 陪伴观察者模式
+### 15.2 陪伴观察者模式
 
 适用于 IP 轻量融入，不替代小狗。
 
@@ -450,7 +717,7 @@ IP 约束不是越多越好，也不是越少越好。
 清晨阳光洒在草地和花坛上，一只小狗趴在花坛边晒太阳，画面右侧有一个白色兔子 IP 角色安静路过，保留长耳朵和蓝色领带两个清晰识别锚点。兔子微微侧身看向小狗，表情温和好奇，手里不拿复杂道具，姿态放松。小狗仍是画面主要生活主体，兔子只是陪伴观察者。中景平视构图，背景简洁，整体遵循所选风格的材质、线条和光影。
 ```
 
-### 13.3 符号化模式
+### 15.3 符号化模式
 
 适用于保留品牌存在感但不让 IP 角色入场。
 
@@ -458,7 +725,7 @@ IP 约束不是越多越好，也不是越少越好。
 清晨的阳光照在草地和花坛上，一只小狗趴在花坛边晒太阳，一个路人从小径旁自然经过。花坛边有一个小小的白兔蓝领带图案木牌，作为轻量视觉符号出现，不影响小狗和路人的生活场景。中景构图，草地、花坛、小径形成清晰层次，氛围温暖安静，整体使用所选风格的画面语言。
 ```
 
-### 13.4 IP 宇宙化主导模式
+### 15.4 IP 宇宙化主导模式
 
 只适用于用户明确希望 IP 主导画面。
 
@@ -468,7 +735,7 @@ IP 约束不是越多越好，也不是越少越好。
 
 这四种模式没有绝对好坏，选择取决于产品默认策略和用户是否希望 IP 强出场。默认更推荐 `support` 或 `symbolic`，避免 IP 过度干扰长文案原意。
 
-## 14. 可参考的外部文档结论
+## 16. 可参考的外部文档结论
 
 用户提供的《已有 IP 形象的 Z-Image 文生图提示词反推与复用流程》有参考价值，但它主要解决的是已有 IP 标准图如何反推出稳定提示词体系。
 
@@ -483,9 +750,9 @@ IP 约束不是越多越好，也不是越少越好。
 
 它的不足是没有解决长文案主链路中的每帧出场裁决，也没有解决和高级分镜、风格前缀、PromptPlan 的融合。因此它适合成为本系统中的 `IP Identity Profile / IP Prompt Bible` 子模块，而不是完整方案。
 
-## 15. 推荐产品能力边界
+## 17. 推荐产品能力边界
 
-### 15.1 IP 设计工作台
+### 17.1 IP 设计工作台
 
 主要负责：
 
@@ -493,20 +760,23 @@ IP 约束不是越多越好，也不是越少越好。
 - 图片反推 IP。
 - AI Chat 修改 IP。
 - 保存固定身份、识别锚点、可变模块和负面约束。
+- 保存 IP 色彩色号和最终提示词可用的自然语言色彩描述。
 - 维护 IP 版本。
 - 做母版和变量测试。
 
-### 15.2 IP 使用规划
+### 17.2 IP 使用规划
 
 主要负责：
 
 - 读取长文案生成后的分镜计划。
 - 对每帧做 IP 出场裁决。
 - 输出 IP Frame Adaptation Package。
+- 输出 `ip_presence_type`，让 IP 出场方式像高级分镜镜头类型一样可控。
+- 输出 `image_text_plan`，规划每帧的主题文字和场景文字。
 - 记录为什么出现或不出现。
 - 控制 IP 占比和提示词强度。
 
-### 15.3 Prompt Composer
+### 17.3 Prompt Composer
 
 主要负责：
 
@@ -514,22 +784,29 @@ IP 约束不是越多越好，也不是越少越好。
 - 融合高级分镜。
 - 融合风格前缀。
 - 融合 IP 适配包。
-- 生成最终 Z-Image prompt。
+- 融合中文画面文字计划。
+- 把负向约束合并进单段最终 Z-Image prompt。
+- 只使用自然语言色彩描述，不把色号、字段名、JSON 或参数写进最终 prompt。
+- 生成纯画面描述型最终 Z-Image prompt。
 - 保存可追踪的 PromptPlan。
 
-## 16. 后续实现方向
+## 18. 后续实现方向
 
 下一阶段不应先扩大手工表单，而应优先设计和实现以下能力：
 
 1. 扩展 IP 数据结构，补充固定锚点、可变模块、负面约束和版本信息。
-2. 新增 IP Usage Planner，在 StoryboardPlan 之后对每帧做出场裁决。
-3. 新增 IP Frame Adaptation Package 的结构化模型。
-4. 改造 Prompt Composer，让最终 prompt 从“拼接”变成“基于结构化输入重写”。
-5. 保留现有 `AssetBible / SceneCast / PromptPlan` 的资产引用能力，但让它们服务于主生成链路，而不是只做手工 apply。
-6. 建立测试样例，覆盖不出场、陪伴、符号化、主导四类 IP 使用方式。
-7. 以 Z-Image 为目标优化最终 prompt 的详细度和约束强度。
+2. 补充 IP 和画面文字的色彩结构，保存色号和最终 prompt 可用的自然语言色彩描述。
+3. 新增 IP Usage Planner，在 StoryboardPlan 之后对每帧做出场裁决。
+4. 新增 `ip_presence_type` 枚举，让强身份、平衡叙事、场景融入、低侵入陪伴、符号化、不出场成为可选择的高级分镜维度。
+5. 新增 IP Frame Adaptation Package 的结构化模型。
+6. 新增 Image Text Plan，支持 `summary_text` 和 `scene_text` 两类中文画面文字，并维护可见文字白名单。
+7. 改造 Prompt Composer，让最终 prompt 从“拼接”变成“基于结构化输入重写”。
+8. 改造 Prompt Composer 的 Z-Image 输出规则：负向约束合并进单段 prompt，色号、字段名、JSON、英文参数不进入最终 prompt。
+9. 保留现有 `AssetBible / SceneCast / PromptPlan` 的资产引用能力，但让它们服务于主生成链路，而不是只做手工 apply。
+10. 建立测试样例，覆盖不出场、陪伴、符号化、主导四类 IP 使用方式，以及中文文字和色号不外泄的回归样例。
+11. 以 Z-Image 为目标优化最终 prompt 的详细度、约束强度、中文文字可读性和画面一致性。
 
-## 17. 最终原则
+## 19. 最终原则
 
 当前 IP 系统的核心原则是：
 
