@@ -1,8 +1,8 @@
 {
   "id": "c9c2640a-3e5e-49f0-9b39-18fd3dc432bd",
   "revision": 0,
-  "last_node_id": 11,
-  "last_link_id": 12,
+  "last_node_id": 13,
+  "last_link_id": 16,
   "nodes": [
     {
       "id": 4,
@@ -50,7 +50,8 @@
           "name": "AUDIO",
           "type": "AUDIO",
           "links": [
-            4
+            4,
+            13
           ]
         }
       ],
@@ -78,7 +79,7 @@
         507.3406982421875
       ],
       "flags": {},
-      "order": 3,
+      "order": 4,
       "mode": 0,
       "inputs": [
         {
@@ -97,11 +98,13 @@
           "link": 12
         },
         {
-          "label": "whisper_model",
-          "name": "whisper_model",
-          "shape": 7,
-          "type": "WHISPER_ASR",
-          "link": 6
+          "label": "ref_text",
+          "name": "ref_text",
+          "type": "STRING",
+          "widget": {
+            "name": "ref_text"
+          },
+          "link": 15
         }
       ],
       "outputs": [
@@ -163,7 +166,7 @@
           "name": "whisper_model",
           "type": "WHISPER_ASR",
           "links": [
-            6
+            14
           ]
         }
       ],
@@ -190,7 +193,7 @@
         112
       ],
       "flags": {},
-      "order": 4,
+      "order": 6,
       "mode": 0,
       "inputs": [
         {
@@ -267,6 +270,89 @@
       "widgets_values": [
         "Generate a short, natural voice clone sample for the local OmniVoice workflow."
       ]
+    },
+    {
+      "id": 12,
+      "type": "PixelleOmniVoiceTranscribe",
+      "pos": [
+        297.0,
+        40.0
+      ],
+      "size": [
+        338.0,
+        86.0
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 13
+        },
+        {
+          "label": "whisper_model",
+          "name": "whisper_model",
+          "type": "WHISPER_ASR",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "label": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            15,
+            16
+          ]
+        }
+      ],
+      "title": "Reference audio to text",
+      "properties": {
+        "Node name for S&R": "PixelleOmniVoiceTranscribe",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 13,
+      "type": "PreviewAny",
+      "pos": [
+        704.0,
+        300.0
+      ],
+      "size": [
+        315.0,
+        82.0
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "source",
+          "name": "source",
+          "type": "*",
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "label": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "Reference transcript preview",
+      "properties": {
+        "Node name for S&R": "PreviewAny",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
     }
   ],
   "links": [
@@ -277,14 +363,6 @@
       6,
       0,
       "AUDIO"
-    ],
-    [
-      6,
-      7,
-      0,
-      6,
-      2,
-      "WHISPER_ASR"
     ],
     [
       11,
@@ -301,6 +379,38 @@
       6,
       1,
       "STRING"
+    ],
+    [
+      13,
+      4,
+      0,
+      12,
+      0,
+      "AUDIO"
+    ],
+    [
+      14,
+      7,
+      0,
+      12,
+      1,
+      "WHISPER_ASR"
+    ],
+    [
+      15,
+      12,
+      0,
+      6,
+      2,
+      "STRING"
+    ],
+    [
+      16,
+      12,
+      0,
+      13,
+      0,
+      "*"
     ]
   ],
   "groups": [
@@ -308,13 +418,13 @@
       "id": 1,
       "title": "OmniVoice BF16 Voice Clone",
       "bounding": [
-        -538.1067504882812,
-        -404.2988586425781,
-        4167.669921875,
-        308.8702087402344
+        -540,
+        -20,
+        2420,
+        780
       ],
       "color": "#3f789e",
-      "font_size": 240,
+      "font_size": 48,
       "flags": {}
     }
   ],

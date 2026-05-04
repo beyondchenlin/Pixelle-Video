@@ -217,7 +217,14 @@ def test_omnivoice_bf16_workflow_uses_intentional_readable_defaults():
     prompt_nodes = _nodes_by_type(workflow, "PrimitiveStringMultiline")
     assert len(prompt_nodes) == 1
     assert prompt_nodes[0]["widgets_values"] == [clean_prompt]
-    assert _nodes_by_type(workflow, "PreviewAny") == []
+
+    transcribe_nodes = _nodes_by_type(workflow, "PixelleOmniVoiceTranscribe")
+    assert len(transcribe_nodes) == 1
+    assert transcribe_nodes[0]["title"] == "Reference audio to text"
+
+    preview_nodes = _nodes_by_type(workflow, "PreviewAny")
+    assert len(preview_nodes) == 1
+    assert preview_nodes[0]["title"] == "Reference transcript preview"
 
 
 def test_omnivoice_bf16_voice_clone_uses_whisper_like_all_workflow():
@@ -226,20 +233,33 @@ def test_omnivoice_bf16_voice_clone_uses_whisper_like_all_workflow():
 
     assert _nodes_by_type(workflow, "Qwen3ASRLoader") == []
     assert _nodes_by_type(workflow, "Qwen3ASRTranscribe") == []
+    assert _nodes_by_type(workflow, "WhisperSTT") == []
     assert "Qwen/Qwen3-ASR" not in json.dumps(workflow, ensure_ascii=False)
 
     whisper_nodes = _nodes_by_type(workflow, "OmniVoiceWhisperLoader")
     assert len(whisper_nodes) == 1
     assert whisper_nodes[0]["widgets_values"] == ["whisper-large-v3", "auto", "fp32"]
 
+    transcribe_nodes = _nodes_by_type(workflow, "PixelleOmniVoiceTranscribe")
+    assert len(transcribe_nodes) == 1
+    transcribe_inputs = {
+        input_spec["name"]: input_spec for input_spec in transcribe_nodes[0]["inputs"]
+    }
+    assert transcribe_inputs["audio"]["type"] == "AUDIO"
+    assert transcribe_inputs["whisper_model"]["type"] == "WHISPER_ASR"
+
+    preview_nodes = _nodes_by_type(workflow, "PreviewAny")
+    assert len(preview_nodes) == 1
+    preview_inputs = {input_spec["name"]: input_spec for input_spec in preview_nodes[0]["inputs"]}
+
     clone_nodes = _nodes_by_type(workflow, "OmniVoiceVoiceCloneTTS")
     assert len(clone_nodes) == 1
     clone_inputs = {input_spec["name"]: input_spec for input_spec in clone_nodes[0]["inputs"]}
 
-    assert "ref_text" not in clone_inputs
     assert clone_inputs["text"]["type"] == "STRING"
+    assert clone_inputs["ref_text"]["type"] == "STRING"
     assert clone_inputs["ref_audio"]["type"] == "AUDIO"
-    assert clone_inputs["whisper_model"]["type"] == "WHISPER_ASR"
+    assert "whisper_model" not in clone_inputs
 
     prompt_nodes = _nodes_by_type(workflow, "PrimitiveStringMultiline")
     assert len(prompt_nodes) == 1
@@ -253,14 +273,44 @@ def test_omnivoice_bf16_voice_clone_uses_whisper_like_all_workflow():
         "STRING",
     ]
 
-    whisper_link = links[clone_inputs["whisper_model"]["link"]]
-    assert whisper_link == [
-        clone_inputs["whisper_model"]["link"],
+    audio_link = links[transcribe_inputs["audio"]["link"]]
+    assert audio_link == [
+        transcribe_inputs["audio"]["link"],
+        4,
+        0,
+        transcribe_nodes[0]["id"],
+        0,
+        "AUDIO",
+    ]
+
+    transcribe_whisper_link = links[transcribe_inputs["whisper_model"]["link"]]
+    assert transcribe_whisper_link == [
+        transcribe_inputs["whisper_model"]["link"],
         whisper_nodes[0]["id"],
+        0,
+        transcribe_nodes[0]["id"],
+        1,
+        "WHISPER_ASR",
+    ]
+
+    ref_text_link = links[clone_inputs["ref_text"]["link"]]
+    assert ref_text_link == [
+        clone_inputs["ref_text"]["link"],
+        transcribe_nodes[0]["id"],
         0,
         clone_nodes[0]["id"],
         2,
-        "WHISPER_ASR",
+        "STRING",
+    ]
+
+    preview_link = links[preview_inputs["source"]["link"]]
+    assert preview_link == [
+        preview_inputs["source"]["link"],
+        transcribe_nodes[0]["id"],
+        0,
+        preview_nodes[0]["id"],
+        0,
+        "*",
     ]
 
 
@@ -311,6 +361,9 @@ def test_omnivoice_docs_remove_qwen_asr_compat_flow():
     all_doc = OMNIVOICE_DEPENDENCY_DOCS["OmniVoice_all"].read_text(encoding="utf-8")
 
     assert "OmniVoiceWhisperLoader" in bf16_doc
+    assert "PixelleOmniVoiceTranscribe" in bf16_doc
+    assert "PreviewAny" in bf16_doc
+    assert "ComfyUI-Pixelle-TTS" in bf16_doc
     assert "whisper-large-v3" in bf16_doc
     assert "Qwen3-ASR" not in bf16_doc
     assert "qwen-asr" not in bf16_doc

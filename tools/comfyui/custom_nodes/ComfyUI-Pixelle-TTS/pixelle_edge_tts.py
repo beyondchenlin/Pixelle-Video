@@ -65,6 +65,40 @@ def decode_pcm_bytes_to_audio(pcm_bytes: bytes, sample_rate: int, torch_module=N
     return {"waveform": waveform.unsqueeze(0).unsqueeze(0), "sample_rate": sample_rate}
 
 
+def comfy_audio_to_mono_numpy(audio):
+    import numpy as np
+
+    if not isinstance(audio, dict) or "waveform" not in audio or "sample_rate" not in audio:
+        raise ValueError("audio must be a valid ComfyUI AUDIO value")
+
+    waveform = audio["waveform"]
+    sample_rate = int(audio["sample_rate"])
+
+    if hasattr(waveform, "detach"):
+        array = np.asarray(waveform.detach().cpu().float().numpy(), dtype=np.float32)
+    else:
+        array = np.asarray(waveform, dtype=np.float32)
+
+    if array.ndim == 3:
+        array = array[0]
+    if array.ndim == 2:
+        array = array.mean(axis=0 if array.shape[0] <= array.shape[-1] else 1)
+    elif array.ndim != 1:
+        array = array.reshape(-1)
+
+    if array.size == 0:
+        raise ValueError("audio waveform must not be empty")
+
+    return array.astype(np.float32, copy=False), sample_rate
+
+
+def transcribe_audio_with_pipeline(pipeline, audio_np, sample_rate: int) -> str:
+    result = pipeline({"array": audio_np, "sampling_rate": sample_rate})
+    if isinstance(result, dict):
+        return str(result.get("text", "")).strip()
+    return str(result).strip()
+
+
 def _run_coroutine(coro):
     def runner():
         return asyncio.run(coro)
@@ -88,6 +122,38 @@ class PixelleFloatInput:
 
     def get_value(self, value):
         return (float(value),)
+
+
+class PixelleOmniVoiceTranscribe:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "audio": ("AUDIO",),
+                "whisper_model": (
+                    "WHISPER_ASR",
+                    {
+                        "tooltip": (
+                            "Connect OmniVoice Whisper Loader output to reuse the "
+                            "same local Whisper ASR model for visible transcription."
+                        ),
+                    },
+                ),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    FUNCTION = "transcribe"
+    CATEGORY = "Pixelle/TTS"
+
+    def transcribe(self, audio, whisper_model):
+        pipeline = whisper_model.get("pipeline") if isinstance(whisper_model, dict) else None
+        if pipeline is None:
+            raise ValueError("whisper_model must be a valid OmniVoice whisper_model output")
+
+        audio_np, sample_rate = comfy_audio_to_mono_numpy(audio)
+        text = transcribe_audio_with_pipeline(pipeline, audio_np, sample_rate)
+        return (text,)
 
 
 class PixelleEdgeTTS:

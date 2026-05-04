@@ -44,6 +44,69 @@ def test_pixelle_float_input_returns_float_value():
     assert node.get_value(1.25) == (1.25,)
 
 
+def test_pixelle_omnivoice_transcribe_uses_preloaded_whisper_pipeline(monkeypatch):
+    module = _load_plugin_module()
+    node = module.PixelleOmniVoiceTranscribe()
+    calls = []
+
+    monkeypatch.setattr(
+        module,
+        "comfy_audio_to_mono_numpy",
+        lambda audio: ("audio-array", 16000),
+    )
+    monkeypatch.setattr(
+        module,
+        "transcribe_audio_with_pipeline",
+        lambda pipe, audio_np, sample_rate: calls.append((pipe, audio_np, sample_rate))
+        or "transcribed text",
+    )
+
+    result = node.transcribe(
+        {"waveform": object(), "sample_rate": 16000},
+        {"pipeline": "whisper-pipeline"},
+    )
+
+    assert result == ("transcribed text",)
+    assert calls == [("whisper-pipeline", "audio-array", 16000)]
+
+
+def test_comfy_audio_to_mono_numpy_mixes_channels(monkeypatch):
+    module = _load_plugin_module()
+
+    class FakeWaveform:
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def float(self):
+            return self
+
+        def numpy(self):
+            return [
+                [
+                    [1.0, 3.0, 5.0],
+                    [3.0, 5.0, 7.0],
+                ]
+            ]
+
+    audio_np, sample_rate = module.comfy_audio_to_mono_numpy(
+        {"waveform": FakeWaveform(), "sample_rate": 44100}
+    )
+
+    assert sample_rate == 44100
+    assert audio_np.tolist() == [2.0, 4.0, 6.0]
+
+
+def test_pixelle_omnivoice_transcribe_requires_whisper_pipeline():
+    module = _load_plugin_module()
+    node = module.PixelleOmniVoiceTranscribe()
+
+    with pytest.raises(ValueError, match="valid OmniVoice whisper_model"):
+        node.transcribe({"waveform": object(), "sample_rate": 16000}, {})
+
+
 def test_decode_pcm_bytes_to_audio_rejects_silent_waveform(monkeypatch):
     module = _load_plugin_module()
 
