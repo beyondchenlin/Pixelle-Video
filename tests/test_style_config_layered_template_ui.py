@@ -1009,7 +1009,7 @@ def test_render_layer_design_config_saves_current_design(monkeypatch):
         if call.get("key") == "layered_template_save_design"
     } == {"layered_template_save_design": "Save layer design"}
     assert saved_states == [result]
-    assert success_calls == ["Saved to My Templates"]
+    assert success_calls == []
 
 
 def test_render_style_config_surfaces_layer_add_tools_inside_layer_design_section(monkeypatch):

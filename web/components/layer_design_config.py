@@ -297,14 +297,6 @@ def render_layer_design_config(
             width="stretch",
         ):
             on_save_design(state)
-            ui.success(
-                _layered_template_editor_text(
-                    "layered_template.editor.save_success",
-                    zh="已保存到我的模板",
-                    en="Saved to My Templates",
-                    translate=translate,
-                )
-            )
 
     ui.session_state[LAYERED_TEMPLATE_EDITOR_STATE_KEY] = state
     return state

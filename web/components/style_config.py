@@ -2950,6 +2950,7 @@ def render_style_config(
             "template_type": preset.spec.template_type,
             "metadata": dict(preset.spec.metadata),
         }
+        st.success(tr("layered_template.editor.save_success"))
 
     # ====================================================================
     # Media Generation Section (conditional based on template)
