@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from pixelle_video.prompts.image_generation import build_image_prompt_prompt
 from pixelle_video.utils import content_generators
 
 
@@ -121,6 +122,54 @@ async def test_generate_image_prompts_uses_structured_output():
 
     assert captured_response_type == [content_generators.ImagePromptBatchResponse]
     assert prompts == ["prompt one", "prompt two"]
+
+
+def test_image_prompt_template_preserves_json_contract_and_explains_ip_presence_type():
+    prompt = build_image_prompt_prompt(
+        narrations=["Start from Changle Gate."],
+        min_words=30,
+        max_words=60,
+        prompt_contexts=[
+            {
+                "frame_source_text": "Start from Changle Gate.",
+                "ip_adaptation": {
+                    "ip_presence_type": "scene_integrated",
+                    "presence_mode": "support",
+                },
+            }
+        ],
+    )
+
+    assert '"image_prompts"' in prompt
+    assert "Only output JSON" in prompt
+    assert "ip_presence_type" in prompt
+    assert "list[str]" not in prompt
+    assert "strong" in prompt.lower()
+    assert "symbolic" in prompt.lower()
+    assert "absent" in prompt.lower()
+
+
+def test_image_prompt_template_carries_ip_adaptation_and_style_context_as_single_truth_source():
+    prompt = build_image_prompt_prompt(
+        narrations=["从长乐门出发。"],
+        min_words=30,
+        max_words=60,
+        prompt_contexts=[
+            {
+                "frame_source_text": "从长乐门出发。",
+                "ip_adaptation": {
+                    "ip_presence_type": "scene_integrated",
+                    "presence_mode": "support",
+                },
+                "style_context": {"style_kind": "visual_only"},
+            }
+        ],
+        prompt_language="zh_CN",
+    )
+
+    assert "ip_adaptation" in prompt
+    assert "style_context" in prompt
+    assert "truth source" in prompt.lower()
 
 
 @pytest.mark.asyncio

@@ -86,6 +86,11 @@ STORYBOARD_PLANNING_OPTION_KEYS = (
     "shot_strategy",
     "frame_overrides",
 )
+IP_PROMPT_CHAIN_OPTION_KEYS = (
+    "ip_enabled",
+    "ip_asset_bible_id",
+    "ip_profile_id",
+)
 
 
 def _normalize_optional_contract_string(value: Any) -> str | None:
@@ -93,6 +98,43 @@ def _normalize_optional_contract_string(value: Any) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+@dataclass(frozen=True)
+class IPControlsContract:
+    ip_enabled: bool = False
+    ip_asset_bible_id: str | None = None
+    ip_profile_id: str | None = None
+
+    @classmethod
+    def from_mapping(cls, params: Mapping[str, Any] | None) -> "IPControlsContract":
+        mapping = params or {}
+        ip_enabled = bool(mapping.get("ip_enabled", False))
+        ip_asset_bible_id = _normalize_optional_contract_string(
+            mapping.get("ip_asset_bible_id")
+        )
+        ip_profile_id = _normalize_optional_contract_string(mapping.get("ip_profile_id"))
+        return cls(
+            ip_enabled=ip_enabled,
+            ip_asset_bible_id=ip_asset_bible_id,
+            ip_profile_id=ip_profile_id,
+        )
+
+    def validate(self) -> None:
+        if not self.ip_enabled:
+            return
+        if self.ip_asset_bible_id is None:
+            raise ValueError("ip_asset_bible_id is required when ip_enabled=True")
+        if self.ip_profile_id is None:
+            raise ValueError("ip_profile_id is required when ip_enabled=True")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"ip_enabled": self.ip_enabled}
+        if self.ip_asset_bible_id is not None:
+            payload["ip_asset_bible_id"] = self.ip_asset_bible_id
+        if self.ip_profile_id is not None:
+            payload["ip_profile_id"] = self.ip_profile_id
+        return payload
 
 
 @dataclass(frozen=True)
@@ -211,10 +253,14 @@ def normalize_standard_video_generation_params(
         normalized,
         default_prompt_language=default_prompt_language,
     )
+    ip_contract = IPControlsContract.from_mapping(normalized)
     for key in (*STORYBOARD_GENERATION_OPTION_KEYS, *STORYBOARD_PLANNING_OPTION_KEYS):
+        normalized.pop(key, None)
+    for key in IP_PROMPT_CHAIN_OPTION_KEYS:
         normalized.pop(key, None)
     normalized.update(storyboard_contract.to_generation_dict())
     normalized.update(storyboard_contract.to_planning_dict(include_prompt_language=True))
+    normalized.update(ip_contract.to_dict())
     return normalized
 
 
@@ -322,6 +368,7 @@ def validate_standard_video_generation_params(
         raise ValueError("script_target_words is only valid with custom script length mode")
 
     validate_plan_frame_override_payloads(params.get("frame_overrides"))
+    IPControlsContract.from_mapping(params).validate()
 
 
 def is_plan_frame_override_payload(override: Mapping[str, Any]) -> bool:

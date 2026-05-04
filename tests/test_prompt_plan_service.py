@@ -89,6 +89,67 @@ def test_prompt_plan_bundle_serializes_for_repository_contract():
     )
 
 
+def test_build_prompt_plan_bundle_writes_ip_summary_metadata_from_frame_snapshot():
+    bundle = build_prompt_plan_bundle(
+        storyboard_plan=_storyboard_plan(),
+        image_prompts=[
+            "fox cub holding a lantern, warm storybook light",
+            "cozy village glowing at night, soft painted texture",
+        ],
+        planning_snapshot={
+            "ip_adaptations_by_frame": {
+                "frame_0001": {
+                    "ip_presence_type": "scene_integrated",
+                    "presence_mode": "support",
+                    "image_text_plan": {
+                        "summary_text": "Lantern route",
+                        "scene_text": ["Village Gate"],
+                        "visible_text_whitelist": ["Lantern route", "Village Gate"],
+                        "text_safety_rules": ["use only whitelisted text"],
+                    },
+                    "visible_text_whitelist": ["Lantern route"],
+                    "identity_anchors_visible": ["blue tie"],
+                },
+                "frame_0002": {
+                    "ip_presence_type": "absent",
+                    "image_text_plan": {
+                        "summary_text": "Quiet village",
+                        "visible_text_whitelist": ["Quiet village"],
+                    },
+                    "ip_profile": {"large": "object must not be copied"},
+                    "negative_constraints": ["avoid extra text"],
+                },
+            }
+        },
+    )
+
+    first_metadata = bundle.prompt_plans[0].to_dict()["metadata"]
+    second_metadata = bundle.prompt_plans[1].to_dict()["metadata"]
+
+    assert first_metadata == {
+        "frame_index": 1,
+        "ip_presence_type": "scene_integrated",
+        "image_text_plan": {
+            "summary_text": "Lantern route",
+            "scene_text": ["Village Gate"],
+            "visible_text_whitelist": ["Lantern route", "Village Gate"],
+        },
+        "visible_text_whitelist": ["Lantern route"],
+    }
+    assert second_metadata == {
+        "frame_index": 2,
+        "ip_presence_type": "absent",
+        "image_text_plan": {
+            "summary_text": "Quiet village",
+            "visible_text_whitelist": ["Quiet village"],
+        },
+        "visible_text_whitelist": ["Quiet village"],
+    }
+    assert "identity_anchors_visible" not in first_metadata
+    assert "ip_profile" not in second_metadata
+    assert "negative_constraints" not in second_metadata
+
+
 def test_build_prompt_plan_bundle_rejects_prompt_frame_count_mismatch():
     with pytest.raises(ValueError, match="image prompt count must match storyboard frame count"):
         build_prompt_plan_bundle(

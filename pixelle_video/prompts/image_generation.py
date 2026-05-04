@@ -73,6 +73,9 @@ Based on the existing video script, create corresponding **{output_language_labe
 - Read `plan_source_text` first to understand the complete script and maintain global meaning.
 - Use each frame's `frame_source_text`, `visual_goal`, `prompt_intent`, and `focus_detail` together; do not infer the image from an isolated text fragment alone.
 - Preserve continuity across frames by respecting shared subjects, world elements, and any `locked_fields` in the matching prompt_context.
+- Treat `ip_adaptation` as the truth source for this frame's IP planning. Do not invent a conflicting IP plan from the frame source text or style text.
+- `ip_presence_type` decides how visible the IP should be: strong identity foreground presence, balanced narrative presence, scene-integrated support, low-intrusion background presence, symbolic-only presence, or absent/no IP presence.
+- `summary_text`, `scene_text`, and `visible_text_whitelist` inside `ip_adaptation.image_text_plan` decide which Chinese visual text is allowed to appear in the image. Do not add other visible words.
 
 # Output Requirements
 
@@ -82,6 +85,10 @@ Based on the existing video script, create corresponding **{output_language_labe
 - Description length: {description_length_guidance}
 - If a style profile is provided, subject design, material, palette, lighting, world elements, and consistency must obey that style profile first
 - When `style_kind` is `ip_world`, redesign the subject into the target universe without replacing the subject semantics
+- Final output must remain a JSON object with an `"image_prompts"` array of strings.
+- Each `image_prompts` item must be a pure visual description for the final image.
+- Do not output field names, JSON field names, parameter names, hex color codes, or English control-word explanations inside any final image prompt string.
+- If negative constraints are needed, write them as natural-language visual requirements instead of separate negative prompt syntax or parameter labels.
 
 ## Visual Creative Requirements
 - Each image must accurately reflect the specific content and emotion of the corresponding frame source text

@@ -110,6 +110,52 @@ def test_prompt_projection_is_read_model_for_generation_and_stage2_refs():
     assert "provider_params" not in projection.to_dict()
 
 
+def test_prompt_plan_round_trips_ip_summary_metadata():
+    plan = PromptPlan(
+        prompt_plan_id="prompt_plan_001",
+        storyboard_plan_id="storyboard_plan_001",
+        frame_id="frame_0001",
+        image_prompt_draft_id="draft_001",
+        prompt_sections={"subject": "fox cub", "style": "storybook"},
+        final_prompt="fox cub, storybook",
+        metadata={
+            "ip_presence_type": "scene_integrated",
+            "image_text_plan": {
+                "summary_text": "Changle Gate",
+                "visible_text_whitelist": ["Changle Gate"],
+            },
+        },
+    )
+
+    restored = PromptPlan.from_dict(plan.to_dict())
+
+    assert restored == plan
+    assert restored.to_dict()["metadata"]["ip_presence_type"] == "scene_integrated"
+    assert restored.to_dict()["metadata"]["image_text_plan"] == {
+        "summary_text": "Changle Gate",
+        "visible_text_whitelist": ["Changle Gate"],
+    }
+
+
+def test_prompt_projection_rejects_structured_ip_or_text_plan_metadata():
+    plan = PromptPlan(
+        prompt_plan_id="prompt_plan_001",
+        storyboard_plan_id="storyboard_plan_001",
+        frame_id="frame_0001",
+        image_prompt_draft_id="draft_001",
+        prompt_sections={"subject": "fox cub", "style": "storybook"},
+        final_prompt="fox cub, storybook",
+        metadata={
+            "ip_presence_type": "scene_integrated",
+            "image_text_plan": {"summary_text": "Changle Gate"},
+            "ip_adaptation": {"identity_anchors_visible": ["blue tie"]},
+        },
+    )
+
+    with pytest.raises(ValueError, match="image_text_plan|ip_adaptation"):
+        PromptProjection.from_prompt_plan(plan, metadata=plan.metadata)
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

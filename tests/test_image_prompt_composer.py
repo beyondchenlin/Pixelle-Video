@@ -1,5 +1,6 @@
 import pytest
 
+from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
@@ -29,6 +30,21 @@ def _plan():
                 source_end=8,
             ),
         ],
+    )
+
+
+def _ip_profile():
+    return IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="Zhengding guide",
+        identity_lock=("white rabbit mascot", "long ears"),
+        identity_anchors=("blue tie",),
+        variable_slots=("action", "expression", "position"),
+        semantic_boundary=("must not replace historic architecture",),
+        negative_constraints=("avoid sticker-like character",),
+        visible_text_whitelist=("Changle Gate",),
     )
 
 
@@ -73,6 +89,7 @@ async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
     assert "narration_text" not in prompt_contexts.frame_contexts[0]
     assert prompt_contexts.frame_contexts[0]["visual_goal"] == "Show idea one."
     assert prompt_contexts.frame_contexts[1]["prompt_intent"] == "Visual metaphor two."
+    assert captured["storyboard_plan"] == plan
     assert result.prompts == ["prompt one", "prompt two"]
     assert result.planning_snapshot["frames"] == [{"scene_id": "1"}, {"scene_id": "2"}]
     assert result.planning_snapshot["storyboard_generation"]["resolved_scene_count"] == 2
@@ -89,6 +106,90 @@ async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
     ]
     assert prompt_plan_bundle.prompt_plans[0].final_prompt == "prompt one"
     assert prompt_plan_bundle.image_prompt_drafts[0].prompt_text == "prompt one"
+
+
+@pytest.mark.asyncio
+async def test_composer_passes_ip_controls_without_deciding_ip_adaptation(monkeypatch):
+    captured = {}
+    plan = _plan()
+    profile = _ip_profile()
+    scene_casts_by_frame = {plan.frames[0].frame_id: {"character_ids": ["char_guide"]}}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured.update(kwargs)
+        return type(
+            "Batch",
+            (),
+            {
+                "prompts": ["prompt one", "prompt two"],
+                "resolved_style": None,
+                "negative_prompt": None,
+                "planning_snapshot": {
+                    "ip_adaptations_by_frame": {
+                        plan.frames[0].frame_id: {
+                            "ip_presence_type": "scene_integrated",
+                            "image_text_plan": {
+                                "summary_text": "Changle Gate",
+                                "visible_text_whitelist": ["Changle Gate"],
+                            },
+                        }
+                    }
+                },
+            },
+        )()
+
+    monkeypatch.setattr(
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    result = await ImagePromptComposer().compose(
+        llm_service=object(),
+        storyboard_plan=plan,
+        image_config={},
+        ip_enabled=True,
+        ip_profile=profile,
+        scene_casts_by_frame=scene_casts_by_frame,
+    )
+
+    assert captured["storyboard_plan"] == plan
+    assert captured["ip_enabled"] is True
+    assert captured["ip_profile"] == profile
+    assert captured["scene_casts_by_frame"] == scene_casts_by_frame
+    assert "ip_adaptation" not in captured["prompt_contexts"].frame_contexts[0]
+    assert result.prompt_plan_bundle.prompt_plans[0].metadata["ip_presence_type"] == (
+        "scene_integrated"
+    )
+
+
+@pytest.mark.asyncio
+async def test_composer_rejects_ip_enabled_prompt_count_mismatch(monkeypatch):
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        return type(
+            "Batch",
+            (),
+            {
+                "prompts": ["prompt one"],
+                "resolved_style": None,
+                "negative_prompt": None,
+                "planning_snapshot": None,
+            },
+        )()
+
+    monkeypatch.setattr(
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    with pytest.raises(ValueError, match="image prompt count must match storyboard frame count"):
+        await ImagePromptComposer().compose(
+            llm_service=object(),
+            storyboard_plan=_plan(),
+            image_config={},
+            ip_enabled=True,
+            ip_profile=_ip_profile(),
+            scene_casts_by_frame={},
+        )
 
 
 @pytest.mark.asyncio

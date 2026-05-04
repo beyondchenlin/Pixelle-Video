@@ -175,3 +175,177 @@ def test_style_profile_rejects_text_rendering_style_metadata():
 def test_asset_profiles_reject_empty_or_duplicate_id_lists(asset_factory, field_name):
     with pytest.raises(ValueError, match=field_name):
         asset_factory()
+
+
+def test_ip_profile_supports_identity_locks_color_tokens_and_text_rules():
+    profile = IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="正定向导兔",
+        identity_lock=("白色卡通兔子", "长耳朵", "圆润脸型"),
+        identity_anchors=("蓝色领带", "浅粉色耳朵内侧"),
+        variable_slots=("动作", "表情", "服装", "道具", "站位"),
+        semantic_boundary=("不能替代历史建筑", "不能替代宗教人物"),
+        negative_constraints=("避免贴纸感", "避免多余文字"),
+        color_palette={
+            "body": {"hex": "#FFFFFF", "prompt": "纯白色身体"},
+            "tie": {"hex": "#006BFF", "prompt": "鲜明宝蓝色领带"},
+        },
+        image_text_palette={
+            "title": {"hex": "#5A2A12", "prompt": "深棕色墨迹"},
+        },
+        visible_text_whitelist=("长乐门", "正定古城"),
+    )
+
+    restored = IPProfile.from_dict(profile.to_dict())
+
+    assert restored.identity_lock == ("白色卡通兔子", "长耳朵", "圆润脸型")
+    assert restored.variable_slots == ("动作", "表情", "服装", "道具", "站位")
+    assert restored.color_palette["tie"]["prompt"] == "鲜明宝蓝色领带"
+    assert restored.visible_text_whitelist == ("长乐门", "正定古城")
+
+
+@pytest.mark.parametrize("field_name", ["logline", "world_hint", "style_hint"])
+def test_ip_profile_rejects_hex_colors_in_prompt_text_fields(field_name):
+    payload = {
+        "ip_profile_id": "ip_main",
+        "workspace_id": "workspace_1",
+        "project_id": "project_1",
+        "name": "正定向导兔",
+        field_name: "use #FFFFFF as a prompt color",
+    }
+
+    with pytest.raises(ValueError, match=field_name):
+        IPProfile(**payload)
+
+
+def test_non_ip_asset_text_tuples_preserve_existing_hex_color_behavior():
+    character = CharacterProfile(
+        character_id="char_luna",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        display_name="Luna",
+        continuity_notes=("#FFFFFF badge stays visible",),
+    )
+    scene = SceneAsset(
+        scene_id="scene_lab",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        display_name="Sky Lab",
+        environment_notes=("#006BFF light strips",),
+    )
+    prop = PropAsset(
+        prop_id="prop_compass",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        display_name="Star Compass",
+        usage_notes=("#5A2A12 engraving",),
+    )
+
+    assert character.continuity_notes == ("#FFFFFF badge stays visible",)
+    assert scene.environment_notes == ("#006BFF light strips",)
+    assert prop.usage_notes == ("#5A2A12 engraving",)
+
+
+@pytest.mark.parametrize(
+    "palette_field,palette_payload",
+    [
+        (
+            "color_palette",
+            {"tie": {"hex": "#006BFF", "prompt": "tie #006BFF"}},
+        ),
+        (
+            "image_text_palette",
+            {"title": {"hex": "#5A2A12", "color_prompt": "ink #5A2A12"}},
+        ),
+        (
+            "color_palette",
+            {"tie": {"hex": "#006BFF", "accent_prompt": "tie #006BFF"}},
+        ),
+        (
+            "color_palette",
+            {"tie": {"hex": "#006BFF", "prompt": ["tie #006BFF"]}},
+        ),
+        (
+            "image_text_palette",
+            {"title": {"hex": "#5A2A12", "prompt": {"primary": "ink #5A2A12"}}},
+        ),
+    ],
+)
+def test_ip_profile_palette_prompt_fields_reject_hex_colors(palette_field, palette_payload):
+    payload = {
+        "ip_profile_id": "ip_main",
+        "workspace_id": "workspace_1",
+        "project_id": "project_1",
+        "name": "正定向导兔",
+        palette_field: palette_payload,
+    }
+
+    with pytest.raises(ValueError, match=palette_field):
+        IPProfile(**payload)
+
+
+def test_ip_profile_palette_non_prompt_annotations_allow_hex_text_and_round_trip():
+    profile = IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="正定向导兔",
+        color_palette={
+            "tie": {
+                "hex": "#006BFF",
+                "prompt": "鲜明宝蓝色领带",
+                "label": "brand #006BFF reference",
+            },
+        },
+        image_text_palette={
+            "title": {
+                "hex": "#5A2A12",
+                "prompt": "深棕色墨迹",
+                "note": "legacy #5A2A12 swatch",
+            },
+        },
+    )
+
+    restored = IPProfile.from_dict(profile.to_dict())
+
+    assert restored.color_palette["tie"]["label"] == "brand #006BFF reference"
+    assert restored.image_text_palette["title"]["note"] == "legacy #5A2A12 swatch"
+
+
+def test_ip_profile_palette_mapping_errors_name_palette_field():
+    with pytest.raises(ValueError, match="color_palette"):
+        IPProfile(
+            ip_profile_id="ip_main",
+            workspace_id="workspace_1",
+            project_id="project_1",
+            name="正定向导兔",
+            color_palette=("not", "a", "mapping"),
+        )
+
+
+def test_ip_profile_from_dict_rejects_string_tuple_payloads():
+    with pytest.raises(ValueError, match="identity_lock"):
+        IPProfile.from_dict(
+            {
+                "ip_profile_id": "ip_main",
+                "workspace_id": "workspace_1",
+                "project_id": "project_1",
+                "name": "正定向导兔",
+                "identity_lock": "abc",
+            }
+        )
+
+
+def test_ip_profile_from_dict_rejects_forbidden_elements_string_payloads():
+    with pytest.raises(ValueError, match="forbidden_elements"):
+        IPProfile.from_dict(
+            {
+                "ip_profile_id": "ip_main",
+                "workspace_id": "workspace_1",
+                "project_id": "project_1",
+                "name": "正定向导兔",
+                "forbidden_elements": "abc",
+            }
+        )

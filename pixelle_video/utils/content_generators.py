@@ -45,6 +45,7 @@ from pixelle_video.models.text_overlay import (
     build_text_rendering_settings,
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
+from pixelle_video.services.ip_usage_planner import IPUsagePlanner
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
 from pixelle_video.utils.prompt_batching import (
@@ -63,6 +64,11 @@ from pixelle_video.utils.prompt_helper import (
     assemble_negative_prompt,
     assemble_storyboard_prompt,
     build_image_prompt,
+    build_visible_text_whitelist_clause,
+    ip_negative_constraints_from_context,
+    ip_visible_text_whitelist_from_context,
+    merge_z_image_constraints_into_prompt,
+    sanitize_visual_prompt_text,
     select_image_text_negative_prompt,
     select_negative_text_rules,
 )
@@ -135,6 +141,118 @@ def _normalize_prompt_contexts(
     expected_count: int,
 ) -> Optional[PromptContextEnvelope]:
     return normalize_prompt_contexts(prompt_contexts, expected_count)
+
+
+def _style_context_payload(
+    *,
+    resolved_style: Any,
+    normalized_style: dict[str, Any] | None,
+    style_profile: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if normalized_style is not None:
+        return {
+            "style_kind": normalized_style.get("style_kind"),
+            "style_profile": normalized_style.get("style_profile"),
+            "visual_suffix": normalized_style.get("visual_suffix"),
+        }
+    if resolved_style is not None:
+        return {
+            "style_kind": getattr(resolved_style, "style_kind", None),
+            "source_identity": getattr(resolved_style, "source_identity", None),
+            "style_profile": style_profile,
+        }
+    return {"style_profile": style_profile}
+
+
+def _ip_presence_options() -> list[str]:
+    return [
+        "strong_identity",
+        "balanced_narrative",
+        "scene_integrated",
+        "low_intrusion",
+        "symbolic_only",
+        "absent",
+    ]
+
+
+def _enrich_prompt_contexts_with_ip(
+    prompt_contexts: PromptContextEnvelope | None,
+    *,
+    expected_count: int,
+    packages: Sequence[Any],
+    style_context: dict[str, Any],
+) -> PromptContextEnvelope:
+    frame_contexts = [
+        dict(context)
+        for context in (
+            prompt_contexts.frame_contexts
+            if prompt_contexts is not None
+            else tuple({} for _ in range(expected_count))
+        )
+    ]
+    if len(frame_contexts) != expected_count:
+        raise ValueError("prompt_contexts must match storyboard frame count")
+    if len(packages) != expected_count:
+        raise ValueError("IP adaptation package count must match storyboard frame count")
+
+    for index, package in enumerate(packages):
+        package_payload = package.to_dict() if hasattr(package, "to_dict") else dict(package)
+        frame_contexts[index]["ip_adaptation"] = package_payload
+        frame_contexts[index]["ip_presence_options"] = _ip_presence_options()
+        frame_contexts[index]["style_context"] = style_context
+
+    return PromptContextEnvelope(
+        plan_context=prompt_contexts.plan_context if prompt_contexts is not None else {},
+        frame_contexts=frame_contexts,
+    )
+
+
+def _strip_ip_prompt_context_fields(
+    prompt_contexts: PromptContextEnvelope | None,
+) -> PromptContextEnvelope | None:
+    if prompt_contexts is None:
+        return None
+
+    frame_contexts: list[dict[str, Any]] = []
+    for context in prompt_contexts.frame_contexts:
+        cleaned = dict(context)
+        cleaned.pop("ip_adaptation", None)
+        cleaned.pop("ip_presence_options", None)
+        frame_contexts.append(cleaned)
+    return PromptContextEnvelope(
+        plan_context=prompt_contexts.plan_context,
+        frame_contexts=frame_contexts,
+    )
+
+
+def _frame_contexts_for_final_prompts(
+    prompt_contexts: PromptContextEnvelope | None,
+    prompt_count: int,
+) -> tuple[Mapping[str, Any], ...]:
+    if prompt_contexts is None:
+        return tuple({} for _ in range(prompt_count))
+    return prompt_contexts.frame_contexts
+
+
+def _ip_adaptations_by_frame(
+    *,
+    packages: Sequence[Any],
+    storyboard_plan: Any,
+) -> dict[str, dict[str, Any]]:
+    frame_ids = [
+        getattr(frame, "frame_id", "") or f"frame_{index + 1:04d}"
+        for index, frame in enumerate(getattr(storyboard_plan, "frames", ()) or ())
+    ]
+    snapshot: dict[str, dict[str, Any]] = {}
+    for index, package in enumerate(packages):
+        payload = package.to_dict() if hasattr(package, "to_dict") else dict(package)
+        frame_id = str(payload.get("frame_id") or getattr(package, "frame_id", "") or "")
+        if not frame_id and index < len(frame_ids):
+            frame_id = frame_ids[index]
+        if not frame_id:
+            frame_id = f"frame_{index + 1:04d}"
+        snapshot[frame_id] = payload
+    return snapshot
 
 
 def _slice_prompt_contexts(
@@ -828,11 +946,20 @@ async def generate_styled_image_prompt_batch(
     native_prompt_hints_by_frame: Optional[
         Mapping[int, Sequence[NativePromptHint | str]]
     ] = None,
+    storyboard_plan=None,
+    ip_enabled: bool = False,
+    ip_profile=None,
+    scene_casts_by_frame=None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
     normalized_prompt_contexts = _normalize_prompt_contexts(prompt_contexts, len(narrations))
+    ip_prompt_chain_enabled = ip_enabled and media_type == "image"
+    if ip_prompt_chain_enabled and storyboard_plan is None:
+        raise ValueError("storyboard_plan is required when ip_enabled=True")
+    if ip_prompt_chain_enabled and ip_profile is None:
+        raise ValueError("ip_profile is required when ip_enabled=True")
     text_rendering_settings = build_text_rendering_settings(text_rendering)
     native_hints = dict(native_prompt_hints_by_frame or {})
     resolved_text_policy = build_text_rendering_policy(text_rendering_settings.overlay)
@@ -1029,6 +1156,35 @@ async def generate_styled_image_prompt_batch(
             reason="storyboard controls disabled",
         )
 
+    prompt_contexts_for_generation = (
+        normalized_prompt_contexts
+        if ip_prompt_chain_enabled
+        else _strip_ip_prompt_context_fields(normalized_prompt_contexts)
+    )
+    if ip_prompt_chain_enabled:
+        style_context = _style_context_payload(
+            resolved_style=resolved_style,
+            normalized_style=normalized_style,
+            style_profile=style_profile,
+        )
+        ip_adaptation_packages = IPUsagePlanner().plan_batch(
+            storyboard_plan=storyboard_plan,
+            ip_profile=ip_profile,
+            resolved_style=resolved_style if normalized_style is None else normalized_style,
+            scene_casts_by_frame=scene_casts_by_frame,
+        )
+        prompt_contexts_for_generation = _enrich_prompt_contexts_with_ip(
+            normalized_prompt_contexts,
+            expected_count=len(narrations),
+            packages=ip_adaptation_packages,
+            style_context=style_context,
+        )
+        planning_snapshot = dict(planning_snapshot or {})
+        planning_snapshot["ip_adaptations_by_frame"] = _ip_adaptations_by_frame(
+            packages=ip_adaptation_packages,
+            storyboard_plan=storyboard_plan,
+        )
+
     if media_type == "video":
         base_prompts = await generate_video_prompts(
             llm_service=llm_service,
@@ -1041,7 +1197,7 @@ async def generate_styled_image_prompt_batch(
             max_retries=max_retries,
             progress_callback=progress_callback,
             style_profile=style_profile,
-            prompt_contexts=normalized_prompt_contexts,
+            prompt_contexts=prompt_contexts_for_generation,
             stage_callback=stage_callback,
         )
     else:
@@ -1056,7 +1212,7 @@ async def generate_styled_image_prompt_batch(
             max_retries=max_retries,
             progress_callback=progress_callback,
             style_profile=style_profile,
-            prompt_contexts=normalized_prompt_contexts,
+            prompt_contexts=prompt_contexts_for_generation,
             stage_callback=stage_callback,
         )
 
@@ -1146,35 +1302,89 @@ async def generate_styled_image_prompt_batch(
 
     has_any_native_hints = any(native_hints.values())
     native_text_allowed = resolved_text_policy.allow_native_text_in_image
+    frame_contexts_for_final_prompts = (
+        _frame_contexts_for_final_prompts(
+            prompt_contexts_for_generation,
+            len(final_prompts),
+        )
+        if ip_prompt_chain_enabled
+        else tuple({} for _ in range(len(final_prompts)))
+    )
+    ip_visible_text_whitelists = (
+        [
+            ip_visible_text_whitelist_from_context(frame_context)
+            for frame_context in frame_contexts_for_final_prompts
+        ]
+        if ip_prompt_chain_enabled
+        else [() for _ in final_prompts]
+    )
     final_prompts = [
         (
             prompt
             if native_text_allowed and bool(native_hints.get(index))
+            else ", ".join(
+                _normalize_prompt_fragments(
+                    [
+                        prompt,
+                        build_visible_text_whitelist_clause(
+                            ip_visible_text_whitelists[index]
+                        ),
+                    ]
+                )
+            )
+            if ip_visible_text_whitelists[index]
+            and not (media_type == "image" and not capabilities.supports_negative_prompt)
             else apply_image_text_policy(prompt, text_rendering_settings.image_text)
         )
         for index, prompt in enumerate(final_prompts)
     ]
 
-    extra_negative_rules: list[str] = []
+    shared_negative_rules: list[str] = []
     if has_any_native_hints and native_text_allowed:
         native_negative_rules = select_negative_text_rules(
             policy=resolved_text_policy,
             has_native_hints=True,
         )
         if native_negative_rules is not None:
-            extra_negative_rules.extend(native_negative_rules)
+            shared_negative_rules.extend(native_negative_rules)
     else:
         image_text_negative_prompt = select_image_text_negative_prompt(
             text_rendering_settings.image_text
         )
         if image_text_negative_prompt is not None:
-            extra_negative_rules.extend(image_text_negative_prompt)
+            shared_negative_rules.extend(image_text_negative_prompt)
+
+    ip_negative_rules_by_frame = (
+        [
+            ip_negative_constraints_from_context(frame_context)
+            for frame_context in frame_contexts_for_final_prompts
+        ]
+        if ip_prompt_chain_enabled
+        else [() for _ in final_prompts]
+    )
 
     negative_prompt = assemble_negative_prompt(
         resolved_style,
         supports_negative_prompt=capabilities.supports_negative_prompt,
-        extra_negative_rules=extra_negative_rules or None,
+        extra_negative_rules=shared_negative_rules or None,
     )
+    final_prompts = [
+        sanitize_visual_prompt_text(prompt)
+        for prompt in final_prompts
+    ]
+    if media_type == "image" and not capabilities.supports_negative_prompt:
+        final_prompts = [
+            merge_z_image_constraints_into_prompt(
+                prompt,
+                extra_constraints=[
+                    *(resolved_style.negative_prompt if resolved_style is not None else "",),
+                    *shared_negative_rules,
+                    *ip_negative_rules_by_frame[index],
+                ],
+                visible_text_whitelist=ip_visible_text_whitelists[index],
+            )
+            for index, prompt in enumerate(final_prompts)
+        ]
     if native_prompt_hints_by_frame is not None or text_rendering_settings.overlay.enabled:
         planning_snapshot = dict(planning_snapshot or {})
         planning_snapshot["text_rendering_policy"] = resolved_text_policy.to_dict()

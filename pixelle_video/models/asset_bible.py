@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
+
+_HEX_COLOR_RE = re.compile(r"(?<![0-9a-fA-F])#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])")
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,15 @@ class IPProfile:
     world_hint: str | None = None
     style_hint: str | None = None
     forbidden_elements: tuple[str, ...] = ()
+    identity_lock: tuple[str, ...] = ()
+    identity_anchors: tuple[str, ...] = ()
+    identity_suppression_rules: tuple[str, ...] = ()
+    variable_slots: tuple[str, ...] = ()
+    semantic_boundary: tuple[str, ...] = ()
+    negative_constraints: tuple[str, ...] = ()
+    color_palette: Mapping[str, Any] = field(default_factory=dict)
+    image_text_palette: Mapping[str, Any] = field(default_factory=dict)
+    visible_text_whitelist: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -24,14 +36,36 @@ class IPProfile:
         object.__setattr__(self, "workspace_id", _require_non_empty("workspace_id", self.workspace_id))
         object.__setattr__(self, "project_id", _require_non_empty("project_id", self.project_id))
         object.__setattr__(self, "name", _require_non_empty("name", self.name))
-        object.__setattr__(self, "logline", _optional_str(self.logline))
-        object.__setattr__(self, "world_hint", _optional_str(self.world_hint))
-        object.__setattr__(self, "style_hint", _optional_str(self.style_hint))
+        object.__setattr__(self, "logline", _optional_prompt_str("logline", self.logline))
+        object.__setattr__(self, "world_hint", _optional_prompt_str("world_hint", self.world_hint))
+        object.__setattr__(self, "style_hint", _optional_prompt_str("style_hint", self.style_hint))
         object.__setattr__(
             self,
             "forbidden_elements",
             _normalize_text_tuple("forbidden_elements", self.forbidden_elements),
         )
+        for field_name in (
+            "identity_lock",
+            "identity_anchors",
+            "identity_suppression_rules",
+            "variable_slots",
+            "semantic_boundary",
+            "negative_constraints",
+            "visible_text_whitelist",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _normalize_prompt_text_tuple(field_name, getattr(self, field_name)),
+            )
+        object.__setattr__(self, "color_palette", _deep_freeze_mapping(self.color_palette, field_name="color_palette"))
+        object.__setattr__(
+            self,
+            "image_text_palette",
+            _deep_freeze_mapping(self.image_text_palette, field_name="image_text_palette"),
+        )
+        _reject_hex_colors_in_prompt_values(self.color_palette, path="color_palette")
+        _reject_hex_colors_in_prompt_values(self.image_text_palette, path="image_text_palette")
         object.__setattr__(self, "metadata", _deep_freeze_mapping(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +78,15 @@ class IPProfile:
             "world_hint": self.world_hint,
             "style_hint": self.style_hint,
             "forbidden_elements": list(self.forbidden_elements),
+            "identity_lock": list(self.identity_lock),
+            "identity_anchors": list(self.identity_anchors),
+            "identity_suppression_rules": list(self.identity_suppression_rules),
+            "variable_slots": list(self.variable_slots),
+            "semantic_boundary": list(self.semantic_boundary),
+            "negative_constraints": list(self.negative_constraints),
+            "color_palette": _json_safe_copy(self.color_palette),
+            "image_text_palette": _json_safe_copy(self.image_text_palette),
+            "visible_text_whitelist": list(self.visible_text_whitelist),
             "metadata": _json_safe_copy(self.metadata),
         }
 
@@ -58,7 +101,16 @@ class IPProfile:
             logline=payload.get("logline"),
             world_hint=payload.get("world_hint"),
             style_hint=payload.get("style_hint"),
-            forbidden_elements=tuple(payload.get("forbidden_elements") or ()),
+            forbidden_elements=_payload_sequence_or_default(payload.get("forbidden_elements")),
+            identity_lock=_payload_sequence_or_default(payload.get("identity_lock")),
+            identity_anchors=_payload_sequence_or_default(payload.get("identity_anchors")),
+            identity_suppression_rules=_payload_sequence_or_default(payload.get("identity_suppression_rules")),
+            variable_slots=_payload_sequence_or_default(payload.get("variable_slots")),
+            semantic_boundary=_payload_sequence_or_default(payload.get("semantic_boundary")),
+            negative_constraints=_payload_sequence_or_default(payload.get("negative_constraints")),
+            color_palette=payload.get("color_palette") or {},
+            image_text_palette=payload.get("image_text_palette") or {},
+            visible_text_whitelist=_payload_sequence_or_default(payload.get("visible_text_whitelist")),
             metadata=payload.get("metadata") or {},
         )
 
@@ -399,6 +451,13 @@ def _optional_str(value: Any) -> str | None:
     return stripped or None
 
 
+def _optional_prompt_str(field_name: str, value: Any) -> str | None:
+    normalized = _optional_str(value)
+    if normalized is not None:
+        _reject_hex_color(field_name, normalized)
+    return normalized
+
+
 def _normalize_text_tuple(field_name: str, value: Sequence[str] | None) -> tuple[str, ...]:
     if value is None:
         return ()
@@ -408,6 +467,53 @@ def _normalize_text_tuple(field_name: str, value: Sequence[str] | None) -> tuple
     if len(set(normalized)) != len(normalized):
         raise ValueError(f"{field_name} must not contain duplicates")
     return normalized
+
+
+def _normalize_prompt_text_tuple(field_name: str, value: Sequence[str] | None) -> tuple[str, ...]:
+    normalized = _normalize_text_tuple(field_name, value)
+    for item in normalized:
+        _reject_hex_color(field_name, item)
+    return normalized
+
+
+def _reject_hex_color(field_name: str, value: str) -> None:
+    if _HEX_COLOR_RE.search(value):
+        raise ValueError(f"{field_name} must use prompt color terms, not hex colors")
+
+
+def _reject_hex_colors_in_prompt_values(value: Any, *, path: str) -> None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            key_name = str(key)
+            child_path = f"{path}.{key_name}"
+            if _is_palette_prompt_key(key_name):
+                _reject_hex_colors_in_string_leaves(item, path=child_path)
+                continue
+            _reject_hex_colors_in_prompt_values(item, path=child_path)
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _reject_hex_colors_in_prompt_values(item, path=f"{path}[{index}]")
+        return
+    if isinstance(value, str):
+        return
+
+
+def _is_palette_prompt_key(key: str) -> bool:
+    return key == "prompt" or key == "color_prompt" or key.endswith("_prompt")
+
+
+def _reject_hex_colors_in_string_leaves(value: Any, *, path: str) -> None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _reject_hex_colors_in_string_leaves(item, path=f"{path}.{key}")
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _reject_hex_colors_in_string_leaves(item, path=f"{path}[{index}]")
+        return
+    if isinstance(value, str):
+        _reject_hex_color(path, value)
 
 
 def _normalize_asset_tuple(
@@ -465,9 +571,9 @@ def _find_text_style_keys(
     return sorted(present)
 
 
-def _deep_freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
+def _deep_freeze_mapping(value: Mapping[str, Any], *, field_name: str = "metadata") -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
-        raise ValueError("metadata must be a mapping")
+        raise ValueError(f"{field_name} must be a mapping")
     return MappingProxyType({
         str(key): _deep_freeze(item)
         for key, item in value.items()
@@ -488,6 +594,12 @@ def _json_safe_copy(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_json_safe_copy(item) for item in value]
     return deepcopy(value)
+
+
+def _payload_sequence_or_default(value: Any) -> Any:
+    if value is None:
+        return ()
+    return value
 
 
 __all__ = [

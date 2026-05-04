@@ -46,6 +46,9 @@ class ImagePromptComposer:
         frame_overrides: Optional[list[dict[str, Any]]] = None,
         text_rendering: Optional[Mapping[str, Any]] = None,
         native_prompt_hints_by_frame: Optional[Mapping[int, Sequence[NativePromptHint | str]]] = None,
+        ip_enabled: bool = False,
+        ip_profile=None,
+        scene_casts_by_frame=None,
         stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> StyledImagePromptBatch:
         normalized_overrides = normalize_plan_frame_overrides(
@@ -62,6 +65,7 @@ class ImagePromptComposer:
                 str(context["frame_source_text"])
                 for context in prompt_contexts.frame_contexts
             ],
+            storyboard_plan=storyboard_plan,
             prompt_contexts=prompt_contexts,
             image_config=image_config,
             prompt_language=prompt_language,
@@ -84,6 +88,9 @@ class ImagePromptComposer:
             frame_overrides=normalized_overrides,
             text_rendering=project_prompt_text_rendering_request(text_rendering),
             native_prompt_hints_by_frame=native_prompt_hints_by_frame,
+            ip_enabled=ip_enabled,
+            ip_profile=ip_profile,
+            scene_casts_by_frame=scene_casts_by_frame,
             stage_callback=stage_callback,
         )
         if len(batch.prompts) != storyboard_plan.resolved_scene_count:
@@ -94,6 +101,7 @@ class ImagePromptComposer:
         prompt_plan_bundle = build_prompt_plan_bundle(
             storyboard_plan=storyboard_plan,
             image_prompts=batch.prompts,
+            planning_snapshot=planning_snapshot,
         )
         planning_snapshot["prompt_plan_bundle_ref"] = {
             "storyboard_plan_id": prompt_plan_bundle.storyboard_plan_id,

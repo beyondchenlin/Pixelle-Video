@@ -39,6 +39,7 @@ from pixelle_video.config.prompt_prefix_library import (
     resolve_prompt_prefix_gallery_cover,
 )
 from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
+from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.media_placement import MediaPlacement
 from pixelle_video.models.size_contract import (
     DEFAULT_MEDIA_ORIENTATION,
@@ -49,7 +50,6 @@ from pixelle_video.models.size_contract import (
     STANDARD_VIDEO_SIZE_PRESETS,
     GenerationSizeContract,
 )
-from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
 )
@@ -70,8 +70,11 @@ from pixelle_video.utils.text_splitting import (
     SUPPORTED_TTS_SENTENCE_JOINER_MODES,
 )
 from web.components import storyboard_planning_controls
+from web.components.ip_prompt_chain_controls import (
+    load_ip_prompt_chain_asset_bibles,
+    render_ip_prompt_chain_controls,
+)
 from web.components.layer_design_config import render_layer_design_config
-from web.components.output_preview import save_layered_template_design
 from web.components.layered_template_state import (
     LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY,
     LayeredTemplateEditorState,
@@ -79,9 +82,10 @@ from web.components.layered_template_state import (
     clear_layered_template_spec_identity,
     ensure_layered_template_editor_state,
     has_layered_template_spec_identity,
-    resolve_layered_template_spec_identity,
     resolve_layered_template_selected_size_params,
+    resolve_layered_template_spec_identity,
 )
+from web.components.output_preview import save_layered_template_design
 from web.components.selfhost_workflow_notice import (
     is_selfhost_workflow,
     render_selfhost_workflow_notice,
@@ -2539,8 +2543,8 @@ def render_style_config(
         
         # Import template utilities
         from pixelle_video.utils.template_util import (
-            get_template_preview_path,
             get_supported_template_orientations,
+            get_template_preview_path,
             get_template_type,
             get_templates_grouped_by_size_and_type,
             resolve_compatible_template_for_orientation,
@@ -2959,6 +2963,7 @@ def render_style_config(
     # Check if current template requires media generation
     template_media_type = st.session_state.get('template_media_type', 'image')
     template_requires_media = st.session_state.get('template_requires_media', True)
+    ip_prompt_chain_controls: dict[str, Any] = {"ip_enabled": False}
     
     if template_requires_media:
         # Template requires media - show Media Generation Section
@@ -3105,6 +3110,23 @@ def render_style_config(
                     workflow_display_map=workflow_display_map,
                 )
                 prompt_prefix = st.session_state.get("prompt_prefix_effective_value", "")
+
+                def _load_ip_asset_bibles_for_style_config() -> list[dict[str, Any]]:
+                    try:
+                        return load_ip_prompt_chain_asset_bibles(
+                            pixelle_video=pixelle_video,
+                            session_state=st.session_state,
+                        )
+                    except Exception:
+                        logger.exception("failed to load ip prompt chain asset bibles")
+                        st.warning(tr("style.ip_prompt_chain.load_failed"))
+                        return []
+
+                ip_prompt_chain_controls = render_ip_prompt_chain_controls(
+                    ui=st,
+                    asset_bible_loader=_load_ip_asset_bibles_for_style_config,
+                    translate=tr,
+                )
         
     
     else:
@@ -3167,6 +3189,7 @@ def render_style_config(
         ),
         "selected_template_preset_id": selected_template_preset_id,
         **element_animation_settings,
+        **ip_prompt_chain_controls,
     }
     if text_rendering:
         result["text_rendering"] = text_rendering

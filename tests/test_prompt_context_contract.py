@@ -89,3 +89,59 @@ def test_image_prompt_template_can_request_chinese_output():
 
     assert "必须使用中文" in prompt
     assert "Image prompts must use English" not in prompt
+
+
+def test_prompt_context_payload_can_carry_ip_adaptation_package():
+    envelope = PromptContextEnvelope(
+        plan_context={"plan_source_text": "从长乐门出发。"},
+        frame_contexts=[
+            {
+                "frame_source_text": "从长乐门出发。",
+                "ip_adaptation": {
+                    "ip_presence_type": "scene_integrated",
+                    "presence_mode": "support",
+                },
+                "ip_presence_options": ["scene_integrated", "low_intrusion", "absent"],
+                "style_context": {"style_kind": "visual_only"},
+            }
+        ],
+    )
+
+    payload = envelope.to_prompt_payload()
+
+    assert payload["prompt_contexts"][0]["ip_adaptation"]["ip_presence_type"] == "scene_integrated"
+    assert "low_intrusion" in payload["prompt_contexts"][0]["ip_presence_options"]
+    assert payload["prompt_contexts"][0]["style_context"]["style_kind"] == "visual_only"
+
+
+def test_image_prompt_template_explains_ip_adaptation_text_plan_contract():
+    prompt = build_image_prompt_prompt(
+        narrations=["Start from Changle Gate."],
+        min_words=30,
+        max_words=60,
+        prompt_contexts=PromptContextEnvelope(
+            plan_context={"plan_source_text": "Start from Changle Gate."},
+            frame_contexts=[
+                {
+                    "frame_source_text": "Start from Changle Gate.",
+                    "ip_adaptation": {
+                        "ip_presence_type": "scene_integrated",
+                        "image_text_plan": {
+                            "summary_text": "Start from Changle Gate",
+                            "scene_text": ["Changle Gate"],
+                            "visible_text_whitelist": [
+                                "Start from Changle Gate",
+                                "Changle Gate",
+                            ],
+                        },
+                    },
+                }
+            ],
+        ),
+    )
+
+    assert "ip_adaptation" in prompt
+    assert "summary_text" in prompt
+    assert "scene_text" in prompt
+    assert "visible_text_whitelist" in prompt
+    assert "do not output field names" in prompt.lower()
