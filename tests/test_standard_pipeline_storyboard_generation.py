@@ -18,6 +18,55 @@ class _DummyCore:
         self.video = None
 
 
+class _RecordingAssetBibleRepository:
+    def __init__(self):
+        self.load_calls = []
+        self.list_scene_cast_calls = []
+
+    async def load_asset_bible(self, workspace_id, asset_bible_id):
+        self.load_calls.append((workspace_id, asset_bible_id))
+        if asset_bible_id != "bible_demo":
+            return None
+        return {
+            "asset_bible_id": "bible_demo",
+            "workspace_id": workspace_id,
+            "project_id": "project_1",
+            "ip_profiles": [
+                {
+                    "ip_profile_id": "ip_main",
+                    "workspace_id": workspace_id,
+                    "project_id": "project_1",
+                    "name": "正定向导兔",
+                    "identity_lock": ["白色卡通兔子"],
+                    "identity_anchors": ["蓝色领带"],
+                }
+            ],
+        }
+
+    async def list_scene_casts(self, workspace_id, project_id, asset_bible_id):
+        self.list_scene_cast_calls.append((workspace_id, project_id, asset_bible_id))
+        return [
+            {
+                "scene_cast_id": "cast_1",
+                "workspace_id": workspace_id,
+                "project_id": project_id,
+                "storyboard_plan_id": "other_plan",
+                "frame_id": "ignored_frame",
+                "asset_bible_id": asset_bible_id,
+                "metadata": {"ip_presence_type": "absent"},
+            },
+            {
+                "scene_cast_id": "cast_2",
+                "workspace_id": workspace_id,
+                "project_id": project_id,
+                "storyboard_plan_id": self.current_storyboard_plan_id,
+                "frame_id": self.current_frame_id,
+                "asset_bible_id": asset_bible_id,
+                "metadata": {"ip_presence_type": "scene_integrated"},
+            },
+        ]
+
+
 def _plan(source_text="第一句。第二句。", mode="smart"):
     return StoryboardPlan.build(
         mode=mode,
@@ -217,6 +266,81 @@ async def test_plan_visuals_uses_image_prompt_composer(monkeypatch):
     assert ctx.image_prompts == ["prompt one", "prompt two"]
     assert ctx.media_negative_prompt == "bad anatomy"
     assert ctx.planning_snapshot["storyboard_generation"]["resolved_scene_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_plan_visuals_passes_ip_controls_to_image_prompt_composer(monkeypatch):
+    captured = {}
+
+    async def fake_compose(self, **kwargs):
+        captured.update(kwargs)
+        return StyledImagePromptBatch(
+            prompts=["prompt one", "prompt two"],
+            negative_prompt=None,
+            resolved_style=None,
+            planning_snapshot={"storyboard_generation": kwargs["storyboard_plan"].to_dict()},
+        )
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.ImagePromptComposer.compose",
+        fake_compose,
+    )
+
+    plan = _plan()
+    repository = _RecordingAssetBibleRepository()
+    repository.current_storyboard_plan_id = plan.plan_id
+    repository.current_frame_id = plan.frames[0].frame_id
+    core = _DummyCore()
+    core.asset_bible_repository = repository
+    ctx = PipelineContext(
+        input_text="第一句。第二句。",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "ip_enabled": True,
+            "ip_asset_bible_id": "bible_demo",
+            "ip_profile_id": "ip_main",
+        },
+    )
+    ctx.task_id = "task-ip-controls"
+    ctx.storyboard_plan = plan
+
+    await StandardPipeline(core).plan_visuals(ctx)
+
+    assert repository.load_calls == [("workspace_1", "bible_demo")]
+    assert repository.list_scene_cast_calls == [("workspace_1", "project_1", "bible_demo")]
+    assert captured["ip_enabled"] is True
+    assert captured["ip_profile"].ip_profile_id == "ip_main"
+    scene_casts_by_frame = captured["scene_casts_by_frame"]
+    assert list(scene_casts_by_frame) == [plan.frames[0].frame_id]
+    assert scene_casts_by_frame[plan.frames[0].frame_id]["metadata"]["ip_presence_type"] == "scene_integrated"
+
+
+@pytest.mark.asyncio
+async def test_plan_visuals_rejects_enabled_ip_without_asset_repository(monkeypatch):
+    async def fake_compose(self, **_kwargs):
+        raise AssertionError("IP resource loading must happen before prompt compose")
+
+    monkeypatch.setattr(
+        "pixelle_video.pipelines.standard.ImagePromptComposer.compose",
+        fake_compose,
+    )
+
+    ctx = PipelineContext(
+        input_text="第一句。第二句。",
+        params={
+            "frame_template": "1080x1920/image_default.html",
+            "ip_enabled": True,
+            "ip_asset_bible_id": "bible_demo",
+            "ip_profile_id": "ip_main",
+        },
+    )
+    ctx.task_id = "task-ip-missing-repository"
+    ctx.storyboard_plan = _plan()
+
+    with pytest.raises(ValueError, match="asset_bible_repository"):
+        await StandardPipeline(_DummyCore()).plan_visuals(ctx)
 
 
 @pytest.mark.asyncio

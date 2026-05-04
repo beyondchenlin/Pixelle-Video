@@ -233,6 +233,18 @@ class VideoGenerateRequest(BaseModel):
         None,
         description="Public media workflow preset resource ID resolved server-side",
     )
+    ip_enabled: bool = Field(
+        False,
+        description="Enable IP prompt chain for image prompt generation.",
+    )
+    ip_asset_bible_id: Optional[str] = Field(
+        None,
+        description="Public asset bible resource ID resolved server-side for IP prompt chain.",
+    )
+    ip_profile_id: Optional[str] = Field(
+        None,
+        description="IP profile ID inside the selected asset bible.",
+    )
     tts_audio_strategy: Optional[StandardTtsAudioStrategy] = Field(
         None,
         description="Standard video TTS audio strategy. Per-frame audio is not supported.",
@@ -404,6 +416,8 @@ class VideoGenerateRequest(BaseModel):
         "template_id",
         "bgm_id",
         "workflow_preset_id",
+        "ip_asset_bible_id",
+        "ip_profile_id",
     )
     @classmethod
     def validate_public_resource_ids(cls, value: str | None, info) -> str | None:
@@ -459,6 +473,12 @@ class VideoGenerateRequest(BaseModel):
                 raise ValueError("script_target_words is required with custom script length mode")
         elif self.script_target_words is not None:
             raise ValueError("script_target_words is only valid with custom script length mode")
+
+        if self.ip_enabled:
+            if self.ip_asset_bible_id is None:
+                raise ValueError("ip_asset_bible_id is required when ip_enabled=True")
+            if self.ip_profile_id is None:
+                raise ValueError("ip_profile_id is required when ip_enabled=True")
 
         size_params = {
             "canvas_width": self.canvas_width,

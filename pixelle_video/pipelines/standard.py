@@ -36,6 +36,7 @@ from loguru import logger
 
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.config.workflow_defaults import infer_workflow_domain
+from pixelle_video.models.asset_bible import AssetBible, IPProfile
 from pixelle_video.models.caption_speech_plan import build_caption_speech_plan
 from pixelle_video.models.creation_package import CreationPackage
 from pixelle_video.models.progress import (
@@ -71,10 +72,13 @@ from pixelle_video.models.storyboard import (
 )
 from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
 from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID
-from pixelle_video.models.video_generation_contract import StoryboardControlsContract
+from pixelle_video.models.video_generation_contract import (
+    IPControlsContract,
+    StoryboardControlsContract,
+)
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
-from pixelle_video.platform_context import resolve_workspace_id
+from pixelle_video.platform_context import resolve_project_id, resolve_workspace_id
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE
 from pixelle_video.render_backend import (
     FFMPEG_MANIFEST_RENDER_BACKEND,
@@ -535,6 +539,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
             if ctx.storyboard_plan is None:
                 raise ValueError("storyboard_plan must be generated before visual planning")
+            ip_profile, scene_casts_by_frame = await self._resolve_ip_prompt_chain_inputs(ctx)
 
             styled_batch = await ImagePromptComposer().compose(
                 llm_service=self.llm,
@@ -560,6 +565,9 @@ class StandardPipeline(LinearVideoPipeline):
                 frame_overrides=list(storyboard_contract.frame_overrides),
                 text_rendering=self._prompt_text_rendering_request(ctx),
                 native_prompt_hints_by_frame=native_hints,
+                ip_enabled=IPControlsContract.from_mapping(ctx.params).ip_enabled,
+                ip_profile=ip_profile,
+                scene_casts_by_frame=scene_casts_by_frame,
                 stage_callback=stage_callback,
             )
 
@@ -1771,9 +1779,70 @@ class StandardPipeline(LinearVideoPipeline):
             return ""
         return str(frame_payload.get("frame_id") or "").strip()
 
+    async def _resolve_ip_prompt_chain_inputs(
+        self,
+        ctx: PipelineContext,
+    ) -> tuple[IPProfile | None, dict[str, dict[str, Any]] | None]:
+        ip_contract = IPControlsContract.from_mapping(ctx.params)
+        if not ip_contract.ip_enabled:
+            return None, None
+
+        if ctx.storyboard_plan is None:
+            raise ValueError("storyboard_plan must be generated before IP prompt chain resolution")
+
+        repository = getattr(self.core, "asset_bible_repository", None)
+        if repository is None:
+            raise ValueError("asset_bible_repository is required when ip_enabled=True")
+
+        workspace_id = self._resolve_workspace_id(ctx)
+        project_id = self._resolve_project_id(ctx)
+        asset_bible_id = ip_contract.ip_asset_bible_id
+        ip_profile_id = ip_contract.ip_profile_id
+        if asset_bible_id is None or ip_profile_id is None:
+            raise ValueError("ip prompt chain controls must include asset bible and profile IDs")
+
+        loaded_asset_bible = await repository.load_asset_bible(workspace_id, asset_bible_id)
+        if loaded_asset_bible is None:
+            raise ValueError(f"asset bible was not found: {asset_bible_id}")
+        asset_bible = AssetBible.from_dict(loaded_asset_bible)
+        if asset_bible.workspace_id != workspace_id:
+            raise ValueError("asset bible workspace does not match current pipeline context")
+        if asset_bible.project_id != project_id:
+            raise ValueError("asset bible project does not match current pipeline context")
+
+        ip_profile = next(
+            (profile for profile in asset_bible.ip_profiles if profile.ip_profile_id == ip_profile_id),
+            None,
+        )
+        if ip_profile is None:
+            raise ValueError(f"ip profile was not found in asset bible: {ip_profile_id}")
+
+        scene_cast_payloads = await repository.list_scene_casts(
+            workspace_id,
+            project_id,
+            asset_bible_id,
+        )
+        storyboard_plan_id = ctx.storyboard_plan.plan_id
+        frame_ids = {frame.frame_id for frame in ctx.storyboard_plan.frames}
+        scene_casts_by_frame: dict[str, dict[str, Any]] = {}
+        for payload in scene_cast_payloads:
+            if not isinstance(payload, Mapping):
+                continue
+            candidate_storyboard_plan_id = str(payload.get("storyboard_plan_id") or "").strip()
+            frame_id = str(payload.get("frame_id") or "").strip()
+            if candidate_storyboard_plan_id != storyboard_plan_id or frame_id not in frame_ids:
+                continue
+            scene_casts_by_frame[frame_id] = dict(payload)
+
+        return ip_profile, (scene_casts_by_frame or None)
+
     @staticmethod
     def _resolve_workspace_id(ctx: PipelineContext) -> str:
         return resolve_workspace_id(ctx.params)
+
+    @staticmethod
+    def _resolve_project_id(ctx: PipelineContext) -> str:
+        return resolve_project_id(ctx.params)
 
     @staticmethod
     def _resolve_workbench_provider(ctx: PipelineContext) -> str | None:

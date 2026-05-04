@@ -31,6 +31,9 @@ from pixelle_video.models.size_contract import (
     GenerationSizeContract,
 )
 from pixelle_video.models.storyboard_limits import StoryboardGenerationLimits
+from pixelle_video.models.video_generation_contract import (
+    validate_standard_video_generation_params,
+)
 
 
 def _layered_spec_payload(template_id="demo") -> dict:
@@ -118,6 +121,63 @@ def test_video_generate_request_accepts_text_rendering_policy():
     assert request.text_rendering.overlay.enabled is True
     assert request.text_rendering.image_text.suppress_embedded_text is True
     assert request.text_rendering.image_text.positive_prompt == "no letters in image"
+
+
+def test_video_generate_request_accepts_ip_prompt_chain_controls():
+    request = VideoGenerateRequest(
+        text="demo",
+        ip_enabled=True,
+        ip_asset_bible_id="bible_demo",
+        ip_profile_id="ip_main",
+    )
+
+    assert request.ip_enabled is True
+    assert request.ip_asset_bible_id == "bible_demo"
+    assert request.ip_profile_id == "ip_main"
+
+
+def test_video_generate_request_rejects_enabled_ip_without_required_ids():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="demo", ip_enabled=True, ip_asset_bible_id="bible_demo")
+
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(text="demo", ip_enabled=True, ip_profile_id="ip_main")
+
+
+def test_video_generate_request_rejects_raw_ip_resource_id_syntax():
+    with pytest.raises(ValidationError):
+        VideoGenerateRequest(
+            text="demo",
+            ip_enabled=True,
+            ip_asset_bible_id="../bible_demo",
+            ip_profile_id="ip_main",
+        )
+
+
+def test_build_video_generation_params_copies_ip_prompt_chain_controls():
+    params = build_video_generation_params(
+        VideoGenerateRequest(
+            text="demo",
+            ip_enabled=True,
+            ip_asset_bible_id="bible_demo",
+            ip_profile_id="ip_main",
+        ),
+        request_id="req_test",
+    )
+
+    assert params["ip_enabled"] is True
+    assert params["ip_asset_bible_id"] == "bible_demo"
+    assert params["ip_profile_id"] == "ip_main"
+
+
+def test_standard_video_generation_contract_requires_ip_ids_when_enabled():
+    with pytest.raises(ValueError, match="ip_asset_bible_id"):
+        validate_standard_video_generation_params({"ip_enabled": True})
+
+    with pytest.raises(ValueError, match="ip_profile_id"):
+        validate_standard_video_generation_params(
+            {"ip_enabled": True, "ip_asset_bible_id": "bible_demo"}
+        )
 
 
 def test_build_video_generation_params_normalizes_layered_template_snapshot():
@@ -954,6 +1014,9 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "role_strategy": "auto",
             "role_locking_strength": "strong",
             "shot_strategy": "strict",
+            "ip_enabled": False,
+            "ip_asset_bible_id": None,
+            "ip_profile_id": None,
             "text_rendering": {
                 "overlay": {
                     "enabled": True,
