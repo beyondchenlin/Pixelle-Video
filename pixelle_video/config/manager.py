@@ -24,6 +24,9 @@ from .loader import load_config_dict, save_config_dict
 from .schema import PixelleVideoConfig
 
 
+_UNSET = object()
+
+
 class ConfigManager:
     """
     Configuration Manager (Singleton)
@@ -200,7 +203,7 @@ class ConfigManager:
         runninghub_concurrent_limit: Optional[int] = None,
         runninghub_instance_type: Optional[str] = None,
         backends: Optional[dict[str, Any]] = None,
-        workflow_routing: Optional[dict[str, str]] = None,
+        workflow_routing: Optional[dict[str, str]] | object = _UNSET,
     ):
         """Set ComfyUI global configuration"""
         updates = {}
@@ -228,7 +231,7 @@ class ConfigManager:
         if backends is not None:
             updates["backends"] = backends
             default_backend = backends.get("default") if isinstance(backends, dict) else None
-            if comfyui_url is None and isinstance(default_backend, dict):
+            if isinstance(default_backend, dict):
                 default_backend_url = default_backend.get("url")
                 if default_backend_url:
                     updates["comfyui_url"] = default_backend_url
@@ -243,11 +246,11 @@ class ConfigManager:
                 },
                 "default": default_backend,
             }
-        if workflow_routing is not None:
+        if workflow_routing is not _UNSET:
             updates["workflow_routing"] = workflow_routing
         
         if updates:
-            if "backends" in updates:
+            if "backends" in updates or "workflow_routing" in updates:
                 current = self.config.to_dict()
                 comfyui_updates = dict(updates)
                 current_comfyui = dict(current.get("comfyui", {}))

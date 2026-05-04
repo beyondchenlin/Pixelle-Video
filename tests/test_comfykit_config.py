@@ -313,3 +313,69 @@ def test_set_comfyui_config_syncs_legacy_url_from_default_backend(monkeypatch):
 
     assert config_manager.config.comfyui.comfyui_url == "http://127.0.0.1:9000"
     assert config_manager.config.comfyui.backends["default"].url == "http://127.0.0.1:9000"
+
+
+def test_set_comfyui_config_prefers_structured_default_backend_url_over_legacy_url(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig.model_validate(
+            {"comfyui": {"comfyui_url": "http://127.0.0.1:8000"}}
+        ),
+    )
+
+    config_manager.set_comfyui_config(
+        comfyui_url="http://127.0.0.1:8000",
+        backends={"default": {"url": "http://127.0.0.1:9000"}},
+    )
+
+    assert config_manager.config.comfyui.comfyui_url == "http://127.0.0.1:9000"
+    assert config_manager.config.comfyui.backends["default"].url == "http://127.0.0.1:9000"
+
+
+def test_set_comfyui_config_replaces_workflow_routing_instead_of_merging(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {
+                        "image": {"url": "http://127.0.0.1:8001"},
+                        "tts": {"url": "http://127.0.0.1:8002"},
+                    },
+                    "workflow_routing": {"image": "image", "tts": "tts"},
+                }
+            }
+        ),
+    )
+
+    config_manager.set_comfyui_config(workflow_routing={})
+
+    assert config_manager.config.comfyui.workflow_routing.image == "default"
+    assert config_manager.config.comfyui.workflow_routing.tts == "default"
+    assert config_manager.config.comfyui.workflow_routing.default == "default"
+
+
+def test_set_comfyui_config_accepts_none_workflow_routing_as_default(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {
+                        "image": {"url": "http://127.0.0.1:8001"},
+                        "tts": {"url": "http://127.0.0.1:8002"},
+                    },
+                    "workflow_routing": {"image": "image", "tts": "tts"},
+                }
+            }
+        ),
+    )
+
+    config_manager.set_comfyui_config(workflow_routing=None)
+
+    assert config_manager.config.comfyui.workflow_routing.image == "default"
+    assert config_manager.config.comfyui.workflow_routing.tts == "default"
+    assert config_manager.config.comfyui.workflow_routing.default == "default"
