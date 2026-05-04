@@ -91,11 +91,15 @@ def render_ip_prompt_chain_controls(
             )
         )
 
-    return {
+    payload = {
         "ip_enabled": True,
         "ip_asset_bible_id": asset_bible_id,
         "ip_profile_id": ip_profile_id,
     }
+    ip_profile_world_hint = _first_text(selected_profile.get("world_hint"))
+    if ip_profile_world_hint:
+        payload["ip_profile_world_hint"] = ip_profile_world_hint
+    return payload
 
 
 def load_ip_prompt_chain_asset_bibles(

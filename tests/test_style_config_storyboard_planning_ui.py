@@ -5,6 +5,7 @@ from pathlib import Path
 
 import web.components.quick_create_flow as quick_create_flow
 import web.components.selfhost_workflow_notice as selfhost_workflow_notice
+import web.components.storyboard_planning_controls as storyboard_planning_controls
 import web.components.style_config as style_config
 import web.components.text_rendering_config as text_rendering_config
 import web.pipelines.standard as standard_pipeline
@@ -395,6 +396,65 @@ def test_build_storyboard_control_payload_drops_auto_shot_preset_selection():
     )
 
     assert payload == {"world_preset_id": "neutral_knowledge_storyboard"}
+
+
+def test_build_storyboard_control_payload_includes_generation_world_hint():
+    payload = build_storyboard_control_payload(
+        world_preset_id="neutral_knowledge_storyboard",
+        generation_world_hint="  古城清晨漫游，IP 是陪伴式向导。  ",
+    )
+
+    assert payload == {
+        "world_preset_id": "neutral_knowledge_storyboard",
+        "generation_world_hint": "古城清晨漫游，IP 是陪伴式向导。",
+    }
+
+
+def test_build_storyboard_control_payload_omits_blank_generation_world_hint():
+    payload = build_storyboard_control_payload(
+        world_preset_id="neutral_knowledge_storyboard",
+        generation_world_hint=" ",
+    )
+
+    assert payload == {"world_preset_id": "neutral_knowledge_storyboard"}
+
+
+def test_render_storyboard_advanced_controls_renders_generation_world_hint(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["storyboard_planning_enabled"] = True
+    fake_st.session_state["storyboard_generation_world_hint"] = "古城清晨漫游"
+    text_area_calls = []
+
+    def _text_area(label, value="", **kwargs):
+        text_area_calls.append({"label": label, "value": value, **kwargs})
+        key = kwargs.get("key")
+        if key in fake_st.session_state:
+            return fake_st.session_state[key]
+        return value
+
+    fake_st.text_area = _text_area
+    monkeypatch.setattr(
+        storyboard_planning_controls,
+        "render_storyboard_planning_guide",
+        lambda **_kwargs: None,
+    )
+
+    payload = storyboard_planning_controls.render_storyboard_advanced_controls(
+        ui=fake_st,
+        translate=lambda key, **kwargs: key,
+        session_state=fake_st.session_state,
+        storyboard_default_enabled=True,
+        world_library_loader=lambda: {
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [
+                {"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}
+            ],
+        },
+        shot_library_loader=lambda: {"items": []},
+    )
+
+    assert payload["generation_world_hint"] == "古城清晨漫游"
+    assert any(call["label"] == "storyboard.generation_world_hint" for call in text_area_calls)
 
 
 def test_resolve_storyboard_preset_label_uses_translation_key_or_display_name_fallback(monkeypatch):

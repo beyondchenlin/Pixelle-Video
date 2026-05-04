@@ -45,6 +45,7 @@ STORYBOARD_SHOT_PRESET_AUTO_VALUE = "__auto__"
 def build_storyboard_control_payload(
     *,
     world_preset_id: str | None = None,
+    generation_world_hint: str | None = None,
     shot_preset_id: str | None = None,
     storyboard_prompt_language: str | None = None,
     consistency_strength: str | None = None,
@@ -69,6 +70,7 @@ def build_storyboard_control_payload(
     storyboard_contract = StoryboardControlsContract.from_mapping(
         {
             "world_preset_id": world_preset_id,
+            "generation_world_hint": generation_world_hint,
             "shot_preset_id": shot_preset_id,
             "storyboard_prompt_language": storyboard_prompt_language,
             "consistency_strength": consistency_strength,
@@ -507,6 +509,7 @@ def render_storyboard_advanced_controls(
     )
 
     storyboard_world_preset_id = None
+    storyboard_generation_world_hint = None
     storyboard_shot_preset_id = None
     storyboard_consistency_strength = None
     storyboard_content_mode = None
@@ -524,6 +527,12 @@ def render_storyboard_advanced_controls(
                 format_func=lambda value: world_label_map.get(value, value),
                 key="storyboard_world_preset_id",
             )
+        storyboard_generation_world_hint = ui.text_area(
+            translate("storyboard.generation_world_hint"),
+            key="storyboard_generation_world_hint",
+            height=96,
+            help=translate("storyboard.generation_world_hint_help"),
+        )
         storyboard_consistency_strength = ui.radio(
             translate("storyboard.consistency_strength"),
             options=["standard", "strong"],
@@ -584,6 +593,7 @@ def render_storyboard_advanced_controls(
 
     return build_storyboard_control_payload(
         world_preset_id=storyboard_world_preset_id,
+        generation_world_hint=storyboard_generation_world_hint,
         shot_preset_id=storyboard_shot_preset_id,
         consistency_strength=storyboard_consistency_strength,
         content_mode=storyboard_content_mode,

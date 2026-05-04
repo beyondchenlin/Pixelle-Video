@@ -939,6 +939,8 @@
     "storyboard.advanced_enabled": "Enable advanced storyboard planning",
     "storyboard.advanced_enabled_help": "Turn on preset-driven advanced planning controls and optional frame overrides.",
     "storyboard.world_preset": "World preset",
+    "storyboard.generation_world_hint": "World Hint",
+    "storyboard.generation_world_hint_help": "Describe the current script world, narrative boundaries, and how the IP should fit this generation. This does not overwrite the IP design world hint.",
     "storyboard.prompt_language": "Prompt language",
     "storyboard.prompt_language_help": "Controls the language used by storyboard planning fields and generated image prompts.",
     "storyboard.shot_preset": "Shot preset",
