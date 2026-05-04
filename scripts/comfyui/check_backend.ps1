@@ -70,9 +70,8 @@ $payload = [ordered]@{
     launcher_pid_file_present = [bool]$launcherPidFilePresent
     launcher_pid = $launcherPid
     launcher_pid_file = $launcherPidFile
-    runtime_dir = $config.RuntimeDir
-    logs_dir = $config.LogsDir
 }
+$payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
 
 if ($Json) {
     Write-BackendJson $payload

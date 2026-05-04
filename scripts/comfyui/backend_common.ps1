@@ -110,6 +110,19 @@ function Ensure-Directory {
     }
 }
 
+function Add-BackendProfilePayloadFields {
+    param(
+        [System.Collections.IDictionary]$Payload,
+        [hashtable]$Config
+    )
+
+    $Payload['data_root'] = $Config.DataRoot
+    $Payload['runtime_dir'] = $Config.RuntimeDir
+    $Payload['logs_dir'] = $Config.LogsDir
+    $Payload['database_url'] = $Config.DatabaseUrl
+    return $Payload
+}
+
 function Assert-BackendPrerequisites {
     param([hashtable]$Config)
 
@@ -124,10 +137,8 @@ function Assert-BackendPrerequisites {
     if (-not (Test-Path -LiteralPath $mainPy -PathType Leaf)) {
         throw "ComfyUI main.py does not exist: $mainPy"
     }
-    foreach ($directory in @($inputDir, $outputDir, $userDir)) {
-        if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
-            throw "ComfyUI data directory does not exist: $directory"
-        }
+    foreach ($directory in @($inputDir, $outputDir, $userDir, $Config.RuntimeDir, $Config.LogsDir)) {
+        Ensure-Directory $directory
     }
     if ($Config.ExtraModelsConfig -and -not (Test-Path -LiteralPath $Config.ExtraModelsConfig -PathType Leaf)) {
         throw "ComfyUI extra models config does not exist: $($Config.ExtraModelsConfig)"
@@ -197,6 +208,72 @@ function Get-ProcessInfo {
     return Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction SilentlyContinue
 }
 
+function Get-CommandLineValueVariants {
+    param([string]$Value)
+
+    $variants = New-Object System.Collections.Generic.List[string]
+    foreach ($candidate in @($Value, ($Value -replace '\\', '/'))) {
+        if ($candidate -and -not $variants.Contains($candidate)) {
+            [void]$variants.Add($candidate)
+        }
+    }
+    return [string[]]$variants.ToArray()
+}
+
+function Test-CommandLineContainsValue {
+    param(
+        [string]$CommandLine,
+        [string]$Value
+    )
+
+    if (-not $CommandLine -or -not $Value) {
+        return $false
+    }
+
+    foreach ($variant in (Get-CommandLineValueVariants $Value)) {
+        if ($CommandLine.IndexOf($variant, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Test-CommandLineArgumentValue {
+    param(
+        [string]$CommandLine,
+        [string]$Name,
+        [string]$Value
+    )
+
+    if (-not $CommandLine -or -not $Name -or -not $Value) {
+        return $false
+    }
+
+    $escapedName = [regex]::Escape($Name)
+    foreach ($variant in (Get-CommandLineValueVariants $Value)) {
+        $escapedValue = [regex]::Escape($variant)
+        $pattern = '(^|\s)' + $escapedName + '(?:(?:\s+)|=)(?:"' + $escapedValue + '"|' + $escapedValue + ')(?=\s|$)'
+        if ([regex]::IsMatch($CommandLine, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Test-ManagedComfyUICommandLine {
+    param(
+        [hashtable]$Config,
+        [string]$CommandLine
+    )
+
+    $mainPy = Join-Path $Config.ComfyUIRoot 'main.py'
+    return (
+        (Test-CommandLineContainsValue $CommandLine $mainPy) -and
+        (Test-CommandLineArgumentValue $CommandLine '--base-directory' $Config.DataRoot) -and
+        (Test-CommandLineArgumentValue $CommandLine '--port' ([string]$Config.Port))
+    )
+}
+
 function Test-ManagedComfyUIProcess {
     param(
         [hashtable]$Config,
@@ -209,8 +286,7 @@ function Test-ManagedComfyUIProcess {
     }
 
     $commandLine = [string]$processInfo.CommandLine
-    $mainPy = Join-Path $Config.ComfyUIRoot 'main.py'
-    return ($commandLine -like "*$mainPy*" -and $commandLine -like "*--base-directory*" -and $commandLine -like "*$($Config.DataRoot)*")
+    return Test-ManagedComfyUICommandLine $Config $commandLine
 }
 
 function Stop-ManagedComfyUIProcess {
@@ -233,13 +309,9 @@ function Stop-ManagedComfyUIProcess {
 function Stop-ManagedComfyUIProcessesForConfig {
     param([hashtable]$Config)
 
-    $mainPy = Join-Path $Config.ComfyUIRoot 'main.py'
     Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
-            $commandLine = [string]$_.CommandLine
-            $commandLine -like "*$mainPy*" -and
-            $commandLine -like "*--base-directory*" -and
-            $commandLine -like "*$($Config.DataRoot)*"
+            Test-ManagedComfyUICommandLine $Config ([string]$_.CommandLine)
         } |
         ForEach-Object {
             Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue

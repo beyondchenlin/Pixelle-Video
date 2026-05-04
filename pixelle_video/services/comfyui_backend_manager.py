@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
+from pixelle_video.config.schema import ComfyUIBackendProfile
+
 
 @dataclass(frozen=True)
 class ComfyUIBackendCommandResult:
@@ -28,11 +30,15 @@ class ManagedComfyUIBackend:
         *,
         repo_root: str | Path | None = None,
         comfyui_url: str | None = None,
+        profile_name: str = "default",
+        profile: ComfyUIBackendProfile | None = None,
         management_mode: str = "auto",
         ready_timeout_seconds: int = 90,
     ) -> None:
         self.repo_root = Path(repo_root) if repo_root else Path.cwd()
-        self.comfyui_url = str(comfyui_url or "").strip()
+        self.profile_name = (profile_name or "default").strip() or "default"
+        self.profile = profile or ComfyUIBackendProfile(url=comfyui_url)
+        self.comfyui_url = str(self.profile.url or comfyui_url or "").strip()
         self.management_mode = (management_mode or "auto").strip().lower()
         self.ready_timeout_seconds = ready_timeout_seconds
 
@@ -47,7 +53,17 @@ class ManagedComfyUIBackend:
             return True
         parsed = urlparse(self.comfyui_url)
         host = (parsed.hostname or "").lower()
-        return host in {"127.0.0.1", "localhost", "::1"} and self._resolved_port() == 8000
+        port = self._resolved_port()
+        if host not in {"127.0.0.1", "localhost", "::1"} or port is None:
+            return False
+        if port == 8000:
+            return True
+        return bool(
+            self.profile.data_root
+            and self.profile.runtime_dir
+            and self.profile.logs_dir
+            and port != 8188
+        )
 
     async def restart(self, *, reason: str) -> bool:
         if not self.can_manage():
@@ -99,7 +115,7 @@ class ManagedComfyUIBackend:
             str(script_path),
             "-Json",
         ]
-        command.extend(self._url_args())
+        command.extend(self._script_args())
         if extra_args:
             command.extend(extra_args)
 
@@ -135,7 +151,7 @@ class ManagedComfyUIBackend:
             )
         return result
 
-    def _url_args(self) -> list[str]:
+    def _script_args(self) -> list[str]:
         parsed = urlparse(self.comfyui_url)
         args: list[str] = []
         if parsed.hostname:
@@ -143,7 +159,24 @@ class ManagedComfyUIBackend:
         port = self._resolved_port()
         if port:
             args.extend(["-Port", str(port)])
+        self._append_profile_arg(args, "-DataRoot", self.profile.data_root)
+        self._append_profile_arg(args, "-RuntimeDir", self.profile.runtime_dir)
+        self._append_profile_arg(args, "-LogsDir", self.profile.logs_dir)
+        self._append_profile_arg(args, "-DatabaseUrl", self.profile.database_url)
+        self._append_profile_arg(args, "-PythonExe", self.profile.python_exe)
+        self._append_profile_arg(args, "-ComfyUIRoot", self.profile.comfyui_root)
+        self._append_profile_arg(args, "-ExtraModelsConfig", self.profile.extra_models_config)
+        self._append_profile_arg(args, "-FrontEndRoot", self.profile.frontend_root)
         return args
+
+    def _append_profile_arg(
+        self,
+        args: list[str],
+        name: str,
+        value: str | None,
+    ) -> None:
+        if value and value.strip():
+            args.extend([name, value])
 
     def _resolved_port(self) -> int | None:
         parsed = urlparse(self.comfyui_url)

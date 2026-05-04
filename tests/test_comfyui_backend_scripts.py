@@ -304,6 +304,171 @@ def assert_fake_backend_listener_absent(
     assert json.loads(check.stdout)["listener_present"] is False
 
 
+def test_start_backend_dry_run_initializes_missing_profile_dirs(
+    tmp_path: Path,
+) -> None:
+    comfyui_root = tmp_path / "ComfyUI"
+    data_root = tmp_path / "profiles" / "image-data"
+    runtime_dir = tmp_path / "runtime" / "image"
+    logs_dir = tmp_path / "logs" / "image"
+    comfyui_root.mkdir()
+    (comfyui_root / "web_custom_versions" / "desktop_app").mkdir(parents=True)
+    (comfyui_root / "main.py").write_text("print('fake comfyui')\n", encoding="utf-8")
+    extra_models_config = tmp_path / "extra_models_config.yaml"
+    extra_models_config.write_text("pixelle:\n  base_path: E:/ComfyUIData\n", encoding="utf-8")
+
+    result = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        runtime_dir,
+        "-LogsDir",
+        logs_dir,
+        "-HostAddress",
+        "127.0.0.1",
+        "-Port",
+        "65500",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["data_root"] == str(data_root)
+    assert payload["runtime_dir"] == str(runtime_dir)
+    assert payload["logs_dir"] == str(logs_dir)
+    assert payload["database_url"].endswith("/profiles/image-data/user/comfyui.db")
+    for directory in (
+        data_root / "input",
+        data_root / "output",
+        data_root / "user",
+        runtime_dir,
+        logs_dir,
+    ):
+        assert directory.is_dir()
+
+
+def test_backend_pid_and_logs_are_profile_scoped(tmp_path: Path) -> None:
+    first_root = tmp_path / "first"
+    first_root.mkdir()
+    comfyui_root, first_data_root, extra_models_config = make_fake_comfyui(
+        first_root
+    )
+    second_data_root = tmp_path / "second" / "ComfyUIData"
+    for name in ("input", "output", "user"):
+        (second_data_root / name).mkdir(parents=True)
+    first_runtime_dir = tmp_path / "runtime" / "image"
+    first_logs_dir = tmp_path / "logs" / "image"
+    second_runtime_dir = tmp_path / "runtime" / "tts"
+    second_logs_dir = tmp_path / "logs" / "tts"
+
+    first = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        first_data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        first_runtime_dir,
+        "-LogsDir",
+        first_logs_dir,
+        "-HostAddress",
+        "127.0.0.1",
+        "-Port",
+        "65500",
+    )
+    second = run_powershell(
+        SCRIPT_DIR / "start_backend.ps1",
+        "-DryRun",
+        "-Json",
+        "-PythonExe",
+        sys.executable,
+        "-ComfyUIRoot",
+        comfyui_root,
+        "-DataRoot",
+        second_data_root,
+        "-ExtraModelsConfig",
+        extra_models_config,
+        "-RuntimeDir",
+        second_runtime_dir,
+        "-LogsDir",
+        second_logs_dir,
+        "-HostAddress",
+        "127.0.0.1",
+        "-Port",
+        "65501",
+    )
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    first_payload = json.loads(first.stdout)
+    second_payload = json.loads(second.stdout)
+    assert first_payload["pid_file"] == str(first_runtime_dir / "comfyui-backend.pid")
+    assert second_payload["pid_file"] == str(second_runtime_dir / "comfyui-backend.pid")
+    assert first_payload["stdout_log"] == str(first_logs_dir / "comfyui-backend.stdout.log")
+    assert second_payload["stdout_log"] == str(second_logs_dir / "comfyui-backend.stdout.log")
+    assert first_payload["pid_file"] != second_payload["pid_file"]
+    assert first_payload["stdout_log"] != second_payload["stdout_log"]
+
+
+def test_process_with_same_data_root_but_different_port_is_not_managed(
+    tmp_path: Path,
+) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_listening_main_py(comfyui_root)
+    actual_port = reserve_free_port()
+    target_port = reserve_free_port()
+    process = start_fake_listening_comfyui(comfyui_root, data_root, actual_port)
+    try:
+        command = [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            (
+                ". (Join-Path $PWD 'scripts/comfyui/backend_common.ps1'); "
+                "$config = Resolve-PixelleComfyUIBackendConfig "
+                f"-PythonExe '{str(sys.executable).replace("'", "''")}' "
+                f"-ComfyUIRoot '{str(comfyui_root).replace("'", "''")}' "
+                f"-DataRoot '{str(data_root).replace("'", "''")}' "
+                f"-ExtraModelsConfig '{str(extra_models_config).replace("'", "''")}' "
+                "-RuntimeDir 'unused-runtime' "
+                "-HostAddress '127.0.0.1' "
+                f"-Port {target_port}; "
+                f"if (Test-ManagedComfyUIProcess $config {process.pid}) "
+                "{ 'managed' } else { 'unmanaged' }"
+            ),
+        ]
+        result = subprocess.run(
+            command,
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "unmanaged"
+
+
 def test_start_backend_dry_run_uses_headless_safe_args(tmp_path: Path) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
     result = run_powershell(

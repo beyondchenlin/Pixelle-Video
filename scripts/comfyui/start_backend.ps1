@@ -51,6 +51,7 @@ if ($listener) {
             pid_file = $pidFile
             launcher_pid_file = $launcherPidFile
         }
+        $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
         Write-BackendMessage -Json:$Json -Payload $payload -Message "ComfyUI backend is already running on $($config.HostAddress):$($config.Port) with PID $ownerPid."
         exit 0
     }
@@ -77,6 +78,7 @@ if ($DryRun) {
         pid_file = $pidFile
         launcher_pid_file = $launcherPidFile
     }
+    $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
     Write-BackendMessage -Json:$Json -Payload $payload -Message "Dry run: ComfyUI backend would start on $($config.HostAddress):$($config.Port)."
     exit 0
 }
@@ -138,6 +140,7 @@ try {
                 stdout_log = $stdoutLog
                 stderr_log = $stderrLog
             }
+            $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
             Write-BackendMessage -Json:$Json -Payload $payload -Message "Started ComfyUI backend on $($config.HostAddress):$($config.Port) with listener PID $listenerPid."
             exit 0
         }

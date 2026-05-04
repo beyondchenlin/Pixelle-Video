@@ -59,6 +59,7 @@ function Stop-MatchingBackendListenerForReason {
                 pid_file = $pidFile
                 launcher_pid_file = $launcherPidFile
             }
+            $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
             Write-BackendMessage -Json:$Json -Payload $payload -Message "Stopped matching ComfyUI backend listener PID $listenerPid ($Reason)."
             $script:StoppedMatchingBackendListener = $true
             return
@@ -83,6 +84,7 @@ if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf)) {
         pid_file = $pidFile
         launcher_pid_file = $launcherPidFile
     }
+    $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
     Write-BackendMessage -Json:$Json -Payload $payload -Message "No managed ComfyUI backend PID file found: $pidFile"
     exit 0
 }
@@ -101,6 +103,7 @@ if (-not $managedPid) {
         pid_file = $pidFile
         launcher_pid_file = $launcherPidFile
     }
+    $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
     Write-BackendMessage -Json:$Json -Payload $payload -Message "Removed invalid ComfyUI backend PID file: $pidFile"
     exit 0
 }
@@ -120,6 +123,7 @@ if (-not $processInfo) {
         pid_file = $pidFile
         launcher_pid_file = $launcherPidFile
     }
+    $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
     Write-BackendMessage -Json:$Json -Payload $payload -Message "ComfyUI backend PID $managedPid is no longer running. Removed stale PID file."
     exit 0
 }
@@ -153,6 +157,7 @@ if (-not (Test-ManagedComfyUIProcess $config $managedPid)) {
             pid_file = $pidFile
             launcher_pid_file = $launcherPidFile
         }
+        $payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
         Write-BackendMessage -Json:$Json -Payload $payload -Message "Removed stale ComfyUI backend PID file pointing to unmanaged PID $managedPid."
         exit 0
     }
@@ -204,4 +209,5 @@ $payload = [ordered]@{
     pid_file = $pidFile
     launcher_pid_file = $launcherPidFile
 }
+$payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
 Write-BackendMessage -Json:$Json -Payload $payload -Message "Stopped Pixelle-managed ComfyUI backend PID $managedPid."
