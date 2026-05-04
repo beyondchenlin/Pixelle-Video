@@ -4,10 +4,11 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from api.dependencies import get_pixelle_video
-from api.routers.content import generate_image_prompt
+from api.routers.content import generate_image_prompt, generate_world_hint_draft
 from api.routers.content import router as content_router
 from api.schemas.content import (
     ImagePromptGenerateRequest,
+    WorldHintDraftGenerateRequest,
 )
 from api.schemas.content import (
     StoryboardFrameOverride as ContentStoryboardFrameOverride,
@@ -27,8 +28,61 @@ class _FakePixelleVideo:
                     "prompt_prefix": "legacy prefix",
                     "prompt_prefix_library": {"active_prefix_id": None, "items": []},
                 }
-            }
+            },
+            "storyboard_world_preset_library": {
+                "default_world_preset_id": "neutral_knowledge_storyboard",
+                "items": [
+                    {
+                        "preset_id": "neutral_knowledge_storyboard",
+                        "display_name": "Neutral Knowledge Storyboard",
+                    }
+                ],
+            },
         }
+
+
+def test_world_hint_draft_request_rejects_blank_source_text():
+    with pytest.raises(ValidationError):
+        WorldHintDraftGenerateRequest(source_text="   ")
+
+
+@pytest.mark.asyncio
+async def test_generate_world_hint_draft_endpoint_uses_content_world_planner(monkeypatch):
+    captured = {}
+
+    class FakePlanner:
+        async def plan(self, **kwargs):
+            captured.update(kwargs)
+            from pixelle_video.models.content_world import (
+                ContentWorldHintSource,
+                ContentWorldProfile,
+            )
+
+            return ContentWorldProfile(
+                summary="正定古城清晨漫游",
+                story_constraints="不能替代真实古建筑",
+                ip_integration_guidance="IP 作为陪伴式向导",
+                hint_source=ContentWorldHintSource.GENERATED_FROM_SCRIPT,
+            )
+
+    monkeypatch.setattr("api.routers.content.ContentWorldPlanner", lambda: FakePlanner())
+
+    response = await generate_world_hint_draft(
+        WorldHintDraftGenerateRequest(
+            source_text="从长乐门出发，这是正定的南大门。",
+            title="正定漫游",
+            world_preset_id="neutral_knowledge_storyboard",
+            ip_default_world_hint="适合亲切文旅讲解世界。",
+            storyboard_prompt_language="zh_CN",
+        ),
+        _FakePixelleVideo(),
+    )
+
+    assert captured["ip_world_hint"] == "适合亲切文旅讲解世界。"
+    assert "标题：正定漫游" in captured["source_text"]
+    assert "正定古城清晨漫游" in response.world_hint_draft
+    assert response.generation_world_profile["summary"] == "正定古城清晨漫游"
+    assert response.hint_source == "generated_from_script"
 
 
 def _storyboard_plan() -> StoryboardPlan:

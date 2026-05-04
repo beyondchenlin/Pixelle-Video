@@ -27,8 +27,13 @@ from api.schemas.content import (
     NarrationGenerateResponse,
     TitleGenerateRequest,
     TitleGenerateResponse,
+    WorldHintDraftGenerateRequest,
+    WorldHintDraftGenerateResponse,
 )
+from pixelle_video.config.storyboard_preset_library import lookup_world_preset
 from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
+from pixelle_video.services.content_world_hint_draft_builder import build_world_hint_draft
+from pixelle_video.services.content_world_planner import ContentWorldPlanner
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 from pixelle_video.utils.content_generators import (
     generate_narrations_from_topic,
@@ -47,6 +52,50 @@ def _serialize_frame_overrides(frame_overrides):
     if frame_overrides is None:
         return None
     return [override.model_dump(exclude_none=True) for override in frame_overrides]
+
+
+@router.post("/world-hint-draft", response_model=WorldHintDraftGenerateResponse)
+async def generate_world_hint_draft(
+    request: WorldHintDraftGenerateRequest,
+    pixelle_video: PixelleVideoDep,
+):
+    """Generate an editable world-hint draft without triggering the formal generation pipeline."""
+    try:
+        world_library = pixelle_video.config.get("storyboard_world_preset_library", {})
+        world_preset = lookup_world_preset(world_library, request.world_preset_id)
+        source_text = (
+            f"标题：{request.title}\n正文：{request.source_text}"
+            if request.title
+            else request.source_text
+        )
+        profile = await ContentWorldPlanner().plan(
+            llm_service=pixelle_video.llm,
+            source_text=source_text,
+            generation_world_hint=None,
+            ip_world_hint=request.ip_default_world_hint,
+            world_preset=world_preset,
+        )
+        draft = build_world_hint_draft(
+            profile,
+            prompt_language=request.storyboard_prompt_language,
+        )
+        return WorldHintDraftGenerateResponse(
+            world_hint_draft=draft,
+            generation_world_profile=profile.to_dict(),
+            hint_source=profile.hint_source.value,
+        )
+    except ValueError as e:
+        error_msg = str(e)
+        logger.warning(f"World hint draft validation error: {error_msg}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error_msg,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"World hint draft generation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/narration", response_model=NarrationGenerateResponse)

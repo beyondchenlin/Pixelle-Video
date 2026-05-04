@@ -73,6 +73,7 @@ from web.components import storyboard_planning_controls
 from web.components.ip_prompt_chain_controls import (
     load_ip_prompt_chain_asset_bibles,
     render_ip_prompt_chain_controls,
+    resolve_selected_ip_prompt_chain_profile_summary,
 )
 from web.components.layer_design_config import render_layer_design_config
 from web.components.layered_template_state import (
@@ -2998,6 +2999,8 @@ def render_style_config(
     template_media_type = st.session_state.get('template_media_type', 'image')
     template_requires_media = st.session_state.get('template_requires_media', True)
     ip_prompt_chain_controls: dict[str, Any] = {"ip_enabled": False}
+    ip_asset_bibles: list[dict[str, Any]] = []
+    selected_ip_prompt_chain_profile_summary: dict[str, Any] = {}
     
     if template_requires_media:
         # Template requires media - show Media Generation Section
@@ -3156,10 +3159,22 @@ def render_style_config(
                         st.warning(tr("style.ip_prompt_chain.load_failed"))
                         return []
 
+                ip_asset_bibles = _load_ip_asset_bibles_for_style_config()
+                st.session_state["style_ip_asset_bibles"] = ip_asset_bibles
                 ip_prompt_chain_controls = render_ip_prompt_chain_controls(
                     ui=st,
-                    asset_bible_loader=_load_ip_asset_bibles_for_style_config,
+                    asset_bibles=ip_asset_bibles,
                     translate=tr,
+                )
+                selected_ip_prompt_chain_profile_summary = (
+                    resolve_selected_ip_prompt_chain_profile_summary(
+                        session_state=st.session_state,
+                        asset_bibles=ip_asset_bibles,
+                    )
+                )
+                st.session_state["style_ip_profile_world_hint"] = (
+                    ip_prompt_chain_controls.get("ip_profile_world_hint")
+                    or selected_ip_prompt_chain_profile_summary.get("ip_profile_world_hint")
                 )
         
     
