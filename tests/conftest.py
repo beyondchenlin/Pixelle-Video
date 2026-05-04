@@ -1,10 +1,15 @@
 import os
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYTEST_BASETEMP_ROOT = REPO_ROOT / "_runtime" / "pytest-basetemp"
+
+repo_root_path = str(REPO_ROOT)
+if sys.path[0] != repo_root_path:
+    sys.path.insert(0, repo_root_path)
 
 
 @pytest.hookimpl(tryfirst=True)
