@@ -81,6 +81,31 @@ def test_render_ip_prompt_chain_controls_returns_selected_profile_world_hint():
     assert payload["ip_profile_world_hint"] == "适合亲切文旅讲解世界。"
 
 
+def test_resolve_selected_ip_prompt_chain_profile_summary_returns_world_hint():
+    summary = ip_prompt_chain_controls.resolve_selected_ip_prompt_chain_profile_summary(
+        session_state={
+            "style_ip_enabled": True,
+            "style_ip_asset_bible_id": "bible_demo",
+            "style_ip_profile_id": "ip_main",
+        },
+        asset_bibles=[
+            {
+                "asset_bible_id": "bible_demo",
+                "ip_profiles": [
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "White Rabbit Guide",
+                        "world_hint": "Friendly guide world.",
+                    }
+                ],
+            }
+        ],
+    )
+
+    assert summary["ip_profile_world_hint"] == "Friendly guide world."
+    assert summary["ip_profile_name"] == "White Rabbit Guide"
+
+
 def test_style_config_hides_ip_selectors_when_disabled():
     fake_ui = _FakeStyleConfigUI()
 

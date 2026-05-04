@@ -116,6 +116,35 @@ def load_ip_prompt_chain_asset_bibles(
     return _list_of_dicts(response.get("asset_bibles"))
 
 
+def resolve_selected_ip_prompt_chain_profile_summary(
+    *,
+    session_state,
+    asset_bibles,
+) -> dict[str, Any]:
+    """Resolve the currently selected IP profile without rendering Streamlit widgets."""
+    if not bool(session_state.get("style_ip_enabled", False)):
+        return {}
+    asset_bible = _find_mapping_item(
+        [dict(item) for item in asset_bibles if isinstance(item, Mapping)],
+        "asset_bible_id",
+        session_state.get("style_ip_asset_bible_id"),
+    ) or {}
+    profile = _find_mapping_item(
+        _list_of_dicts(asset_bible.get("ip_profiles")),
+        "ip_profile_id",
+        session_state.get("style_ip_profile_id"),
+    ) or {}
+    summary = {
+        "ip_asset_bible_id": _first_text(asset_bible.get("asset_bible_id")),
+        "ip_profile_id": _first_text(profile.get("ip_profile_id")),
+        "ip_profile_name": _first_text(profile.get("name")),
+    }
+    world_hint = _first_text(profile.get("world_hint"))
+    if world_hint:
+        summary["ip_profile_world_hint"] = world_hint
+    return {key: value for key, value in summary.items() if value}
+
+
 def _select_valid_option(
     *,
     ui,
@@ -191,4 +220,5 @@ def _first_text(*values: Any) -> str:
 __all__ = [
     "load_ip_prompt_chain_asset_bibles",
     "render_ip_prompt_chain_controls",
+    "resolve_selected_ip_prompt_chain_profile_summary",
 ]
