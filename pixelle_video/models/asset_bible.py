@@ -102,16 +102,16 @@ class IPProfile:
             logline=payload.get("logline"),
             world_hint=payload.get("world_hint"),
             style_hint=payload.get("style_hint"),
-            forbidden_elements=tuple(payload.get("forbidden_elements") or ()),
-            identity_lock=tuple(payload.get("identity_lock") or ()),
-            identity_anchors=tuple(payload.get("identity_anchors") or ()),
-            identity_suppression_rules=tuple(payload.get("identity_suppression_rules") or ()),
-            variable_slots=tuple(payload.get("variable_slots") or ()),
-            semantic_boundary=tuple(payload.get("semantic_boundary") or ()),
-            negative_constraints=tuple(payload.get("negative_constraints") or ()),
+            forbidden_elements=_payload_sequence_or_default(payload.get("forbidden_elements")),
+            identity_lock=_payload_sequence_or_default(payload.get("identity_lock")),
+            identity_anchors=_payload_sequence_or_default(payload.get("identity_anchors")),
+            identity_suppression_rules=_payload_sequence_or_default(payload.get("identity_suppression_rules")),
+            variable_slots=_payload_sequence_or_default(payload.get("variable_slots")),
+            semantic_boundary=_payload_sequence_or_default(payload.get("semantic_boundary")),
+            negative_constraints=_payload_sequence_or_default(payload.get("negative_constraints")),
             color_palette=payload.get("color_palette") or {},
             image_text_palette=payload.get("image_text_palette") or {},
-            visible_text_whitelist=tuple(payload.get("visible_text_whitelist") or ()),
+            visible_text_whitelist=_payload_sequence_or_default(payload.get("visible_text_whitelist")),
             metadata=payload.get("metadata") or {},
         )
 
@@ -595,6 +595,12 @@ def _json_safe_copy(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_json_safe_copy(item) for item in value]
     return deepcopy(value)
+
+
+def _payload_sequence_or_default(value: Any) -> Any:
+    if value is None:
+        return ()
+    return value
 
 
 __all__ = [

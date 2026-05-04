@@ -116,3 +116,19 @@ def test_ip_frame_adaptation_package_serializes_numeric_prompt_weight_as_float()
 
     assert package.prompt_weight == 1.0
     assert isinstance(package.to_dict()["prompt_weight"], float)
+
+
+def test_ip_image_text_plan_from_dict_rejects_string_tuple_payloads():
+    with pytest.raises(ValueError, match="scene_text"):
+        IPImageTextPlan.from_dict({"scene_text": "abc"})
+
+
+def test_ip_frame_adaptation_package_from_dict_rejects_string_tuple_payloads():
+    with pytest.raises(ValueError, match="identity_color_terms"):
+        IPFrameAdaptationPackage.from_dict(
+            {
+                "frame_id": "frame_0006",
+                "ip_presence_type": "scene_integrated",
+                "identity_color_terms": "abc",
+            }
+        )

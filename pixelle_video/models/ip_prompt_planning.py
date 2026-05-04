@@ -54,9 +54,9 @@ class IPImageTextPlan:
         _require_mapping("IPImageTextPlan", payload)
         return cls(
             summary_text=payload.get("summary_text"),
-            scene_text=tuple(payload.get("scene_text") or ()),
-            visible_text_whitelist=tuple(payload.get("visible_text_whitelist") or ()),
-            text_safety_rules=tuple(payload.get("text_safety_rules") or ()),
+            scene_text=_payload_sequence_or_default(payload.get("scene_text")),
+            visible_text_whitelist=_payload_sequence_or_default(payload.get("visible_text_whitelist")),
+            text_safety_rules=_payload_sequence_or_default(payload.get("text_safety_rules")),
         )
 
 
@@ -156,13 +156,13 @@ class IPFrameAdaptationPackage:
             ip_presence_type=payload.get("ip_presence_type", IPPresenceType.ABSENT),
             presence_mode=payload.get("presence_mode"),
             semantic_reason=payload.get("semantic_reason"),
-            must_not_replace=tuple(payload.get("must_not_replace") or ()),
-            identity_anchors_visible=tuple(payload.get("identity_anchors_visible") or ()),
-            identity_anchors_suppressed=tuple(payload.get("identity_anchors_suppressed") or ()),
-            identity_color_terms=tuple(payload.get("identity_color_terms") or ()),
+            must_not_replace=_payload_sequence_or_default(payload.get("must_not_replace")),
+            identity_anchors_visible=_payload_sequence_or_default(payload.get("identity_anchors_visible")),
+            identity_anchors_suppressed=_payload_sequence_or_default(payload.get("identity_anchors_suppressed")),
+            identity_color_terms=_payload_sequence_or_default(payload.get("identity_color_terms")),
             outfit_theme=payload.get("outfit_theme"),
             outfit_condition=payload.get("outfit_condition"),
-            accessories=tuple(payload.get("accessories") or ()),
+            accessories=_payload_sequence_or_default(payload.get("accessories")),
             action=payload.get("action"),
             expression=payload.get("expression"),
             pose=payload.get("pose"),
@@ -173,7 +173,7 @@ class IPFrameAdaptationPackage:
             shot_fit_notes=payload.get("shot_fit_notes"),
             image_text_plan=IPImageTextPlan.from_dict(image_text_plan) if image_text_plan else None,
             prompt_weight=payload.get("prompt_weight"),
-            negative_constraints=tuple(payload.get("negative_constraints") or ()),
+            negative_constraints=_payload_sequence_or_default(payload.get("negative_constraints")),
         )
 
 
@@ -223,6 +223,12 @@ def _normalize_prompt_weight(value: Any) -> float:
     if not math.isfinite(normalized):
         raise ValueError("prompt_weight must be a finite int or float")
     return normalized
+
+
+def _payload_sequence_or_default(value: Any) -> Any:
+    if value is None:
+        return ()
+    return value
 
 
 __all__ = [

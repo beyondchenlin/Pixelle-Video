@@ -323,3 +323,29 @@ def test_ip_profile_palette_mapping_errors_name_palette_field():
             name="正定向导兔",
             color_palette=("not", "a", "mapping"),
         )
+
+
+def test_ip_profile_from_dict_rejects_string_tuple_payloads():
+    with pytest.raises(ValueError, match="identity_lock"):
+        IPProfile.from_dict(
+            {
+                "ip_profile_id": "ip_main",
+                "workspace_id": "workspace_1",
+                "project_id": "project_1",
+                "name": "正定向导兔",
+                "identity_lock": "abc",
+            }
+        )
+
+
+def test_ip_profile_from_dict_rejects_forbidden_elements_string_payloads():
+    with pytest.raises(ValueError, match="forbidden_elements"):
+        IPProfile.from_dict(
+            {
+                "ip_profile_id": "ip_main",
+                "workspace_id": "workspace_1",
+                "project_id": "project_1",
+                "name": "正定向导兔",
+                "forbidden_elements": "abc",
+            }
+        )
