@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+import re
 from html import escape
 from pathlib import Path
-import re
 from typing import Any, Mapping
 
 from pixelle_video.models.layered_template import LayeredTemplateSpec, TemplateLayer
 from pixelle_video.models.render_package import CaptionCue, VisualClip
 from pixelle_video.models.template_render_context import TemplateRenderContext
+from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
     render_text_style_css,
     text_style_lines,
 )
-from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
 
 _HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 _UNSAFE_FONT_CHARS = {'"', "'", ";", ":", "{", "}", "(", ")", "\\", "/"}

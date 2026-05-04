@@ -4,7 +4,6 @@ from .pixelle_edge_tts import (
     PixelleOmniVoiceTranscribe,
 )
 
-
 NODE_CLASS_MAPPINGS = {
     "PixelleEdgeTTS": PixelleEdgeTTS,
     "PixelleFloatInput": PixelleFloatInput,

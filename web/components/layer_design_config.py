@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from html import escape
 from pathlib import Path
-import re
 
 import streamlit as st
 
@@ -19,7 +19,6 @@ from web.components.text_rendering_config import (
     _render_text_style_controls,
 )
 from web.i18n import get_language, tr
-
 
 _HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 _SAFE_UPLOAD_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}

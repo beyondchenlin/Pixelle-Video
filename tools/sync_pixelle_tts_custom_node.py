@@ -4,7 +4,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_DIRNAME = "ComfyUI-Pixelle-TTS"
 CUSTOM_NODES_DIRNAME = "custom_nodes"

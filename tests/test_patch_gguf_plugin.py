@@ -1,9 +1,6 @@
-import importlib.util
-import sys
 from pathlib import Path
 
 from tools import patch_gguf_plugin
-
 
 PLUGIN_INIT_SAMPLE = """from .nodes import NODE_CLASS_MAPPINGS
 """
