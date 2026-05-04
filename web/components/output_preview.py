@@ -49,7 +49,7 @@ from pixelle_video.services.layered_template_service import (
 )
 from pixelle_video.services.template_registry import TemplateRegistry
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
-from pixelle_video.tts_workflow_contract import tts_workflow_requires_ref_audio
+from pixelle_video.tts_workflow_contract import tts_workflow_missing_required_ref_audio
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from pixelle_video.utils.template_util import get_template_preview_path, resolve_template_path
 from web.components.layered_template_state import load_layered_template_spec_into_editor_state
@@ -91,9 +91,7 @@ def _validate_tts_reference_audio_contract(
 ) -> None:
     if tts_inference_mode != "comfyui":
         return
-    if not tts_workflow_requires_ref_audio(tts_workflow):
-        return
-    if str(ref_audio or "").strip():
+    if not tts_workflow_missing_required_ref_audio(tts_workflow, ref_audio):
         return
     raise ValueError(
         f"TTS workflow '{tts_workflow}' requires a reference audio. "

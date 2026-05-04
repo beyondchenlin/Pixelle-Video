@@ -465,6 +465,7 @@
     "tts.how": "Place the exported tts_xxx.json workflow file(API format) into the workflows/selfhost/ folder (for local ComfyUI) or the workflows/runninghub/ folder (for cloud)",
     "tts.ref_audio": "Reference Audio",
     "tts.ref_audio_help": "Upload audio file for voice cloning (only supported by some workflows)",
+    "tts.reference_audio_required": "The selected TTS workflow requires reference audio. Select a saved voice, or upload and save a reference voice before generating.",
     "tts.ref_audio_text": "Reference Audio Transcript",
     "tts.ref_audio_text_help": "Transcript of the reference audio. Some reference-audio cloning workflows use this to improve similarity and stability.",
     "tts.ref_audio_text_placeholder": "Enter the exact words spoken in the reference audio...",

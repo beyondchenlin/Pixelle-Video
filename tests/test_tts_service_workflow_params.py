@@ -13,10 +13,12 @@ from pixelle_video.tts_workflow_family import (
 )
 from pixelle_video.tts_workflow_contract import (
     get_required_tts_workflow_params,
+    get_missing_required_tts_workflow_params,
     is_index_tts2_workflow_info,
     is_index_tts2_workflow_key,
-    tts_workflow_requires_ref_audio,
     resolve_workflow_output_audio_extension,
+    tts_workflow_missing_required_ref_audio,
+    tts_workflow_requires_ref_audio,
 )
 
 
@@ -179,6 +181,18 @@ def test_tts_workflow_required_params_are_read_from_api_workflow_metadata():
         "selfhost/tts_omnivoice_longform_bf16.json"
     )
     assert not tts_workflow_requires_ref_audio("selfhost/tts_edge.json")
+
+
+def test_tts_workflow_contract_reports_missing_required_ref_audio_from_metadata():
+    workflow_key = "selfhost/tts_omnivoice_longform_bf16.json"
+
+    assert get_missing_required_tts_workflow_params(
+        workflow_key,
+        {"text": "narration", "ref_audio": ""},
+    ) == ("ref_audio",)
+    assert tts_workflow_missing_required_ref_audio(workflow_key, None) is True
+    assert tts_workflow_missing_required_ref_audio(workflow_key, "voice.wav") is False
+    assert tts_workflow_missing_required_ref_audio("selfhost/tts_edge.json", None) is False
 
 
 def test_selfhost_workflow_info_uses_path_content_for_index_tts2_detection(tmp_path):

@@ -122,7 +122,6 @@ from pixelle_video.tts_workflow_contract import (
     resolve_workflow_output_audio_extension_from_info,
     resolve_workflow_output_audio_extension_from_key,
 )
-from pixelle_video.tts_workflow_family import infer_tts_workflow_family
 from pixelle_video.utils.content_generators import (
     generate_title,
 )
@@ -667,6 +666,7 @@ class StandardPipeline(LinearVideoPipeline):
             voice_id=final_voice_id,
             tts_workflow=final_tts_workflow,
             tts_speed=ctx.params.get("tts_speed", 1.2),
+            tts_duration=ctx.params.get("tts_duration"),
             ref_audio=ctx.params.get("ref_audio"),
             ref_audio_text=ctx.params.get("ref_audio_text") or ctx.params.get("prompt_text"),
             **resolve_storyboard_render_kwargs(self.core.config, ctx.params),
@@ -1244,7 +1244,8 @@ class StandardPipeline(LinearVideoPipeline):
         return is_index_tts2_workflow_key(workflow_key)
 
     def _uses_omnivoice_longform_workflow(self, workflow_key: str | None) -> bool:
-        return infer_tts_workflow_family(workflow_key) == "omnivoice"
+        normalized_key = str(workflow_key or "").replace("\\", "/").rsplit("/", 1)[-1]
+        return normalized_key == "tts_omnivoice_longform_bf16.json"
 
     def _should_use_omnivoice_longform_blocks(
         self,
@@ -3769,6 +3770,8 @@ class StandardPipeline(LinearVideoPipeline):
                 tts_params["ref_audio"] = config.ref_audio
             if config.ref_audio_text:
                 tts_params["reference_audio_text"] = config.ref_audio_text
+            if config.tts_duration is not None:
+                tts_params["duration"] = config.tts_duration
 
         return tts_params
 

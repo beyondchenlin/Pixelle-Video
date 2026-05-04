@@ -3,10 +3,11 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from api.routers.video import build_video_generation_params
+from api.routers.video import build_video_generation_params, validate_video_tts_contract
 from api.schemas.video import VideoGenerateRequest
 from api.schemas.video_internal import VideoGenerateInternalRequest
-from pixelle_video.services.resource_resolver import StaticResourceResolver
+from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
+from pixelle_video.services.resource_resolver import ResolvedResource, StaticResourceResolver
 from pixelle_video.utils.template_util import DEFAULT_IMAGE_TEMPLATE
 
 
@@ -113,3 +114,86 @@ def test_public_video_generation_params_resolve_resource_ids():
     assert "style_id" not in params
     assert "template_id" not in params
     assert "workflow_preset_id" not in params
+
+
+def test_public_video_generation_contract_accepts_edge_voice_id_resource():
+    resolver = StaticResourceResolver(
+        voices={"voice_cn": "zh-CN-XiaoxiaoNeural"},
+    )
+    params = build_video_generation_params(
+        VideoGenerateRequest(text="demo", voice_id="voice_cn"),
+        request_id="req-edge-voice",
+        resource_resolver=resolver,
+    )
+
+    assert params["voice_id"] == "zh-CN-XiaoxiaoNeural"
+    validate_video_tts_contract(params)
+
+
+def test_public_video_generation_params_resolve_omnivoice_voice_metadata():
+    resolver = StaticResourceResolver(
+        voices={
+            "bange": ResolvedResource(
+                resource_id="bange",
+                resolved_value="reference_audio/omnivoice/bange.wav",
+                metadata={
+                    "tts_workflow": "selfhost/tts_omnivoice_longform_bf16.json",
+                    "ref_audio": "reference_audio/omnivoice/bange.wav",
+                    "ref_audio_text": "大家好，这是参考音频文本。",
+                },
+            )
+        },
+    )
+    request = VideoGenerateRequest(text="demo", voice_id="bange")
+
+    params = build_video_generation_params(
+        request,
+        request_id="req-omnivoice",
+        resource_resolver=resolver,
+    )
+
+    assert params["tts_workflow"] == "selfhost/tts_omnivoice_longform_bf16.json"
+    assert params["ref_audio"] == "reference_audio/omnivoice/bange.wav"
+    assert params["ref_audio_text"] == "大家好，这是参考音频文本。"
+    assert "voice_id" not in params
+
+
+def test_public_video_generation_params_copy_tts_duration():
+    request = VideoGenerateRequest(text="demo", tts_duration=8.0)
+
+    params = build_video_generation_params(request, request_id="req-duration")
+
+    assert params["tts_duration"] == 8.0
+
+
+def test_public_video_generation_contract_rejects_default_omnivoice_without_voice():
+    params = build_video_generation_params(
+        VideoGenerateRequest(text="demo"),
+        request_id="req-missing-voice",
+    )
+
+    with pytest.raises(ValueError, match="requires a reference audio"):
+        validate_video_tts_contract(params)
+
+
+def test_public_video_generation_contract_accepts_omnivoice_voice_metadata():
+    resolver = StaticResourceResolver(
+        voices={
+            "bange": ResolvedResource(
+                resource_id="bange",
+                resolved_value="reference_audio/omnivoice/bange.wav",
+                metadata={
+                    "tts_workflow": DEFAULT_TTS_WORKFLOW,
+                    "ref_audio": "reference_audio/omnivoice/bange.wav",
+                    "ref_audio_text": "大家好，这是参考音频文本。",
+                },
+            )
+        },
+    )
+    params = build_video_generation_params(
+        VideoGenerateRequest(text="demo", voice_id="bange"),
+        request_id="req-voice",
+        resource_resolver=resolver,
+    )
+
+    validate_video_tts_contract(params)

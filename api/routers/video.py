@@ -31,6 +31,7 @@ from api.schemas.video import (
 from api.tasks import TaskType, task_manager
 from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.size_contract import GenerationSizeContract
+from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
 from pixelle_video.services.generation_coordinator import build_generation_fingerprint
 from pixelle_video.services.resource_resolver import (
     ResourceIdInvalidError,
@@ -38,6 +39,7 @@ from pixelle_video.services.resource_resolver import (
     ResourceResolver,
     ResourceResolverError,
 )
+from pixelle_video.tts_workflow_contract import tts_workflow_missing_required_ref_audio
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from pixelle_video.utils.prompt_generation_performance import (
     copy_prompt_generation_performance_params,
@@ -153,11 +155,16 @@ def build_video_generation_params(
     if raw_resource_params.get("ref_audio"):
         video_params["ref_audio"] = raw_resource_params["ref_audio"]
 
+    if raw_resource_params.get("ref_audio_text"):
+        video_params["ref_audio_text"] = raw_resource_params["ref_audio_text"]
+
     if raw_resource_params.get("voice_id"):
         video_params["voice_id"] = raw_resource_params["voice_id"]
 
     if request_body.tts_audio_strategy is not None:
         video_params["tts_audio_strategy"] = request_body.tts_audio_strategy
+    if request_body.tts_duration is not None:
+        video_params["tts_duration"] = request_body.tts_duration
 
     if request_body.template_params:
         video_params["template_params"] = request_body.template_params
@@ -196,6 +203,7 @@ def _build_raw_resource_params(
         "media_workflow": getattr(request_body, "media_workflow", None),
         "tts_workflow": getattr(request_body, "tts_workflow", None),
         "ref_audio": getattr(request_body, "ref_audio", None),
+        "ref_audio_text": getattr(request_body, "ref_audio_text", None),
     }
     if not _has_public_resource_ids(request_body):
         return raw_params
@@ -211,9 +219,17 @@ def _build_raw_resource_params(
             request_body.template_id
         ).resolved_value
     if request_body.voice_id:
-        raw_params["voice_id"] = resource_resolver.resolve_voice_id(
-            request_body.voice_id
-        ).resolved_value
+        voice_resource = resource_resolver.resolve_voice_id(request_body.voice_id)
+        raw_params["voice_id"] = voice_resource.resolved_value
+        voice_metadata = dict(voice_resource.metadata)
+        if isinstance(voice_metadata.get("tts_workflow"), str):
+            raw_params["tts_workflow"] = str(voice_metadata["tts_workflow"])
+            raw_params["voice_id"] = None
+        if isinstance(voice_metadata.get("ref_audio"), str):
+            raw_params["ref_audio"] = str(voice_metadata["ref_audio"])
+            raw_params["voice_id"] = None
+        if isinstance(voice_metadata.get("ref_audio_text"), str):
+            raw_params["ref_audio_text"] = str(voice_metadata["ref_audio_text"])
     if request_body.bgm_id:
         raw_params["bgm_path"] = resource_resolver.resolve_bgm_id(
             request_body.bgm_id
@@ -250,6 +266,28 @@ def _resource_resolver_http_exception(exc: ResourceResolverError) -> HTTPExcepti
     if isinstance(exc, ResourceNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
     return HTTPException(status_code=400, detail=str(exc))
+
+
+def validate_video_tts_contract(video_params: dict) -> None:
+    if video_params.get("voice_id") and not video_params.get("tts_workflow"):
+        return
+
+    tts_inference_mode = str(video_params.get("tts_inference_mode") or "comfyui").strip().lower()
+    if tts_inference_mode != "comfyui":
+        return
+
+    tts_workflow = str(video_params.get("tts_workflow") or DEFAULT_TTS_WORKFLOW).strip()
+    if not tts_workflow:
+        return
+
+    ref_audio = video_params.get("ref_audio")
+    if not tts_workflow_missing_required_ref_audio(tts_workflow, ref_audio):
+        return
+
+    raise ValueError(
+        f"TTS workflow '{tts_workflow}' requires a reference audio. "
+        "Provide a voice_id that resolves to a saved reference voice before generation."
+    )
 
 
 def path_to_storage_key(file_path: str) -> str:
@@ -333,6 +371,7 @@ async def generate_video_sync(
             request_id=request_id,
             resource_resolver=resource_resolver,
         )
+        validate_video_tts_contract(video_params)
         
         # Call video generator service
         result = await pixelle_video.generate_video(**video_params)
@@ -353,6 +392,8 @@ async def generate_video_sync(
         raise
     except ResourceResolverError as e:
         raise _resource_resolver_http_exception(e)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.error(f"Sync video generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -395,6 +436,7 @@ async def generate_video_async(
             request_id=request_id,
             resource_resolver=resource_resolver,
         )
+        validate_video_tts_contract(generation_params)
         generation_fingerprint = build_generation_fingerprint(
             text=request_body.text,
             pipeline="standard",
@@ -431,6 +473,8 @@ async def generate_video_async(
         raise
     except ResourceResolverError as e:
         raise _resource_resolver_http_exception(e)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.error(f"Async video generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

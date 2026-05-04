@@ -122,7 +122,11 @@ from web.utils.streamlit_helpers import (
 )
 from web.utils.tts_audio_strategy_ui import get_tts_audio_strategy_default
 from web.utils.tts_split_mode_ui import get_tts_split_mode_default
-from web.utils.tts_ui import resolve_comfyui_tts_speed, resolve_configured_tts_mode
+from web.utils.tts_ui import (
+    resolve_comfyui_tts_speed,
+    resolve_configured_tts_mode,
+    tts_workflow_reference_audio_missing,
+)
 from web.utils.workflow_defaults import resolve_selectbox_default_index
 
 STORYBOARD_SHOT_PRESET_AUTO_VALUE = storyboard_planning_controls.STORYBOARD_SHOT_PRESET_AUTO_VALUE
@@ -2352,6 +2356,7 @@ def render_style_config(
             index=0 if resolve_configured_tts_mode(tts_config) == "local" else 1,
             key="tts_inference_mode"
         )
+        missing_required_ref_audio = False
         
         # Show hint based on mode
         if tts_mode == "local":
@@ -2458,6 +2463,13 @@ def render_style_config(
                 expanded=True,
             )
             ref_audio_path, ref_audio_text = render_tts_voice_profile_controls(tts_workflow_key)
+            missing_required_ref_audio = tts_workflow_reference_audio_missing(
+                tts_mode=tts_mode,
+                tts_workflow_key=tts_workflow_key,
+                ref_audio_path=str(ref_audio_path) if ref_audio_path else None,
+            )
+            if missing_required_ref_audio:
+                st.warning(tr("tts.reference_audio_required"))
             
             # Variables for video generation
             selected_voice = None
@@ -2476,7 +2488,12 @@ def render_style_config(
             )
             
             # Preview button
-            if st.button(tr("tts.preview_button"), key="preview_tts", width="stretch"):
+            if st.button(
+                tr("tts.preview_button"),
+                key="preview_tts",
+                width="stretch",
+                disabled=bool(missing_required_ref_audio),
+            ):
                 with st.spinner(tr("tts.previewing")):
                     try:
                         # Build TTS params based on mode
