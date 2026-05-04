@@ -4,9 +4,9 @@
 
 **Goal:** Create two Pixelle-executable OmniVoice bf16 API workflows: one for longform narration and one for short voice-clone generation with target duration.
 
-**Architecture:** Keep the existing ComfyUI UI workflows (`OmniVoice_bf16.json` and `OmniVoice_all.json`) as manual visual debugging assets, and add separate `tts_*.json` API workflows under `workflows/selfhost/` for Pixelle runtime execution. The workflows expose parameters through ComfyKit title markers so `WorkflowParser` can map `text`, `ref_audio`, `reference_audio_text`, and `duration` into ComfyUI nodes.
+**Architecture:** Keep the existing ComfyUI UI workflows (`OmniVoice_bf16.json` and `OmniVoice_all.json`) as manual visual debugging assets, and add separate `tts_*.json` API workflows under `workflows/selfhost/` for Pixelle runtime execution. The workflows expose parameters through ComfyKit title markers so `WorkflowParser` can map `text`, `ref_audio`, `reference_audio_text`, and `duration` into ComfyUI nodes. The short duration workflow uses a dedicated `PixelleDurationInput` node instead of reusing `PixelleFloatInput`, because the existing float node is tuned for Edge TTS speed values in the `0.5-2.0` range.
 
-**Tech Stack:** ComfyUI API workflow JSON, ComfyKit `WorkflowParser`, pytest, OmniVoice bf16 model assets, ModelScope-first dependency documentation.
+**Tech Stack:** ComfyUI API workflow JSON, ComfyKit `WorkflowParser`, Pixelle ComfyUI custom node, pytest, OmniVoice bf16 model assets, ModelScope-first dependency documentation.
 
 ---
 
@@ -19,6 +19,7 @@ This plan is the prerequisite for:
 Boundary:
 
 - This plan creates and verifies the two API-format workflow files and their dependency docs.
+- This plan also adds the `PixelleDurationInput` custom node required by the short precise-duration workflow.
 - The system integration plan handles default TTS switching, saved voice profiles, runtime parameter propagation, and master-track longform block planning.
 
 Do not modify `workflows/selfhost/OmniVoice_bf16.json` or `workflows/selfhost/OmniVoice_all.json` in this plan.
@@ -35,6 +36,9 @@ Do not modify `workflows/selfhost/OmniVoice_bf16.json` or `workflows/selfhost/Om
 **Modify**
 
 - `tests/test_selfhost_workflows.py`
+- `tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS/pixelle_edge_tts.py`
+- `tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS/__init__.py`
+- `tests/test_pixelle_tts_custom_node.py`
 
 **Reference Only**
 
@@ -142,6 +146,11 @@ def test_tts_omnivoice_clone_duration_bf16_uses_voice_clone_node_and_duration_pa
     assert inputs["device"] == "auto"
     assert inputs["dtype"] == "auto"
     assert inputs["steps"] == 48
+    duration_nodes = [
+        node for node in workflow.values() if node["class_type"] == "PixelleDurationInput"
+    ]
+    assert len(duration_nodes) == 1
+    assert duration_nodes[0]["inputs"]["value"] == 8.0
     assert inputs["duration"] == ["8", 0]
 ```
 
@@ -155,13 +164,13 @@ python -m pytest tests/test_selfhost_workflows.py -k "tts_omnivoice" -v
 
 Expected: FAIL because the new workflow files do not exist yet.
 
-- [ ] **Step 5: Commit the failing tests**
+- [ ] **Step 5: Keep the failing tests local**
 
 ```powershell
-git add tests/test_selfhost_workflows.py
-git commit -m "test: 描述 OmniVoice API 工作流契约"
-git push
+git diff -- tests/test_selfhost_workflows.py
 ```
+
+Expected: the diff only contains the new OmniVoice API workflow tests. Do not commit or push this failing state; commit these tests in Task 4 after both API workflows and the duration input node turn the workflow tests green.
 
 ---
 
@@ -269,7 +278,7 @@ Run:
 python -m pytest tests/test_selfhost_workflows.py -k "tts_omnivoice_longform" -v
 ```
 
-Expected: PASS for longform tests; clone-duration tests still fail until Task 3.
+Expected: PASS for longform tests; clone-duration tests still fail until Task 4.
 
 - [ ] **Step 3: Commit**
 
@@ -281,7 +290,116 @@ git push
 
 ---
 
-### Task 3: Create the Short Clone Duration OmniVoice API Workflow
+### Task 3: Add a Dedicated Duration Input Node for OmniVoice
+
+**Files:**
+- Modify: `tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS/pixelle_edge_tts.py`
+- Modify: `tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS/__init__.py`
+- Modify: `tests/test_pixelle_tts_custom_node.py`
+
+- [ ] **Step 1: Add failing custom-node tests for a duration input**
+
+Append to `tests/test_pixelle_tts_custom_node.py`:
+
+```python
+def test_pixelle_duration_input_returns_float_value():
+    module = _load_plugin_module()
+    node = module.PixelleDurationInput()
+
+    assert node.get_value(8.0) == (8.0,)
+
+
+def test_pixelle_duration_input_accepts_duration_scale_defaults():
+    module = _load_plugin_module()
+
+    input_types = module.PixelleDurationInput.INPUT_TYPES()
+    config = input_types["required"]["value"][1]
+    assert config["default"] == 8.0
+    assert config["min"] == 0.5
+    assert config["max"] == 60.0
+    assert config["step"] == 0.5
+```
+
+- [ ] **Step 2: Run tests and verify the expected failure**
+
+Run:
+
+```powershell
+python -m pytest tests/test_pixelle_tts_custom_node.py -k "duration_input" -v
+```
+
+Expected: FAIL because `PixelleDurationInput` does not exist yet.
+
+- [ ] **Step 3: Implement the duration input node**
+
+In `tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS/pixelle_edge_tts.py`, add:
+
+```python
+class PixelleDurationInput:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "value": ("FLOAT", {"default": 8.0, "min": 0.5, "max": 60.0, "step": 0.5}),
+            }
+        }
+
+    RETURN_TYPES = ("FLOAT",)
+    FUNCTION = "get_value"
+    CATEGORY = "Pixelle/TTS"
+
+    def get_value(self, value):
+        return (float(value),)
+```
+
+In `tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS/__init__.py`, register it:
+
+```python
+from .pixelle_edge_tts import (
+    PixelleDurationInput,
+    PixelleEdgeTTS,
+    PixelleFloatInput,
+    PixelleOmniVoiceTranscribe,
+)
+
+
+NODE_CLASS_MAPPINGS = {
+    "PixelleEdgeTTS": PixelleEdgeTTS,
+    "PixelleFloatInput": PixelleFloatInput,
+    "PixelleDurationInput": PixelleDurationInput,
+    "PixelleOmniVoiceTranscribe": PixelleOmniVoiceTranscribe,
+}
+
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "PixelleEdgeTTS": "Pixelle Edge TTS",
+    "PixelleFloatInput": "Pixelle Float Input",
+    "PixelleDurationInput": "Pixelle Duration Input",
+    "PixelleOmniVoiceTranscribe": "Pixelle OmniVoice Transcribe",
+}
+```
+
+- [ ] **Step 4: Run tests and verify they pass**
+
+Run:
+
+```powershell
+python -m pytest tests/test_pixelle_tts_custom_node.py -k "duration_input or pixelle_float_input" -v
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS/pixelle_edge_tts.py tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS/__init__.py tests/test_pixelle_tts_custom_node.py
+git commit -m "feat: 新增 OmniVoice 定长输入自定义节点"
+git push
+```
+
+---
+
+### Task 4: Create the Short Clone Duration OmniVoice API Workflow
 
 **Files:**
 - Create: `workflows/selfhost/tts_omnivoice_clone_duration_bf16.json`
@@ -326,7 +444,7 @@ Create `workflows/selfhost/tts_omnivoice_clone_duration_bf16.json`:
     "inputs": {
       "value": 8.0
     },
-    "class_type": "PixelleFloatInput",
+    "class_type": "PixelleDurationInput",
     "_meta": {
       "title": "$duration.value"
     }
@@ -411,14 +529,14 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```powershell
-git add workflows/selfhost/tts_omnivoice_clone_duration_bf16.json
+git add workflows/selfhost/tts_omnivoice_clone_duration_bf16.json tests/test_selfhost_workflows.py
 git commit -m "feat: 新增 OmniVoice 定长克隆 API 工作流"
 git push
 ```
 
 ---
 
-### Task 4: Add Dependency Docs for the Two API Workflows
+### Task 5: Add Dependency Docs for the Two API Workflows
 
 **Files:**
 - Create: `workflows/down/tts_omnivoice_longform_bf16_依赖与下载说明.md`
@@ -532,7 +650,8 @@ Create `workflows/down/tts_omnivoice_clone_duration_bf16_依赖与下载说明.m
 
 - 工作流文件：`workflows/selfhost/tts_omnivoice_clone_duration_bf16.json`
 - 用途：Pixelle 可传参执行的 OmniVoice bf16 短文本定长克隆工作流。
-- 节点清单包含 `PixelleFloatInput` 和 `OmniVoiceVoiceCloneTTS`。
+- 节点清单包含 `PixelleDurationInput` 和 `OmniVoiceVoiceCloneTTS`。
+- `PixelleDurationInput` 来自 `ComfyUI-Pixelle-TTS`，用于暴露 0.5-60 秒范围的 `$duration.value`；不要使用 `PixelleFloatInput`，它保留给 Edge TTS speed 参数。
 - 常见问题增加：`duration` 只适合短文本定长，不建议用于长文本整体控时长。
 
 - [ ] **Step 5: Run focused tests**
@@ -555,7 +674,7 @@ git push
 
 ---
 
-### Task 5: Final Workflow Verification
+### Task 6: Final Workflow Verification
 
 **Files:**
 - `tests/test_selfhost_workflows.py`
@@ -608,16 +727,17 @@ Expected: clean after committed changes.
 ## Self-Review
 
 - Spec coverage:
-  - Two API workflow files are covered by Tasks 2 and 3.
-  - `WorkflowParser` parameter mapping is covered by Task 1 and Task 5.
-  - Dependency docs with ModelScope-first policy are covered by Task 4.
+  - Two API workflow files are covered by Tasks 2 and 4.
+  - Dedicated duration input support is covered by Task 3.
+  - `WorkflowParser` parameter mapping is covered by Task 1 and Task 6.
+  - Dependency docs with ModelScope-first policy are covered by Task 5.
   - Existing UI workflows are explicitly out of scope and preserved.
 - Placeholder scan:
   - No placeholder markers remain.
   - JSON workflow bodies are fully specified.
 - Type consistency:
   - Longform workflow exposes `text`, `ref_audio`, and `reference_audio_text`.
-  - Clone-duration workflow exposes `text`, `ref_audio`, `reference_audio_text`, and `duration`.
+  - Clone-duration workflow exposes `text`, `ref_audio`, `reference_audio_text`, and `duration` through `PixelleDurationInput`.
   - Both workflows use `OmniVoice-bf16`, `device=auto`, and `dtype=auto`.
 
 ## Execution Handoff

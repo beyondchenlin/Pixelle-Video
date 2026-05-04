@@ -18,7 +18,7 @@
 
 两个计划的边界如下：
 
-- **API 工作流专项计划**：只负责创建和验证 `tts_omnivoice_longform_bf16.json` 与 `tts_omnivoice_clone_duration_bf16.json`，并补充对应依赖说明。
+- **API 工作流专项计划**：负责创建和验证 `tts_omnivoice_longform_bf16.json` 与 `tts_omnivoice_clone_duration_bf16.json`，新增 `PixelleDurationInput` 定长输入节点，并补充对应依赖说明。
 - **本系统集成计划**：在两个 API 工作流已存在且可解析的前提下，完成默认 TTS、保存音色、长文本主音轨保护分段、前端选择和兼容逻辑。
 
 执行顺序必须是：
@@ -61,6 +61,7 @@
 - `workflows/selfhost/tts_omnivoice_clone_duration_bf16.json`
 - `workflows/down/tts_omnivoice_longform_bf16_依赖与下载说明.md`
 - `workflows/down/tts_omnivoice_clone_duration_bf16_依赖与下载说明.md`
+- `tools/comfyui/custom_nodes/ComfyUI-Pixelle-TTS` 已注册 `PixelleDurationInput`
 
 ---
 
@@ -303,9 +304,13 @@ Append to `tests/test_tts_comfyui_defaults.py`:
 
 ```python
 def test_builtin_default_tts_workflow_is_omnivoice_longform():
-    from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
+    from pixelle_video.config.workflow_defaults import (
+        BUILTIN_DEFAULT_WORKFLOWS,
+        DEFAULT_TTS_WORKFLOW,
+    )
 
     assert DEFAULT_TTS_WORKFLOW == "selfhost/tts_omnivoice_longform_bf16.json"
+    assert BUILTIN_DEFAULT_WORKFLOWS["tts"] == "selfhost/tts_omnivoice_longform_bf16.json"
 ```
 
 - [ ] **Step 2: Run tests and verify the expected failure**
@@ -318,7 +323,7 @@ python -m pytest tests/test_selfhost_workflows.py tests/test_tts_comfyui_default
 
 Expected: FAIL until the API workflow plan has completed and default config still references IndexTTS2.
 
-- [ ] **Step 3: Update defaults**
+- [ ] **Step 3: Update defaults and existing default assertions**
 
 In `pixelle_video/config/workflow_defaults.py`, set:
 
@@ -331,6 +336,14 @@ In `config.yaml` and `config.example.yaml`, set the local TTS default workflow t
 ```yaml
 default_workflow: selfhost/tts_omnivoice_longform_bf16.json
 ```
+
+In `tests/test_tts_comfyui_defaults.py`, replace the existing module-level constant:
+
+```python
+DEFAULT_TTS_WORKFLOW = "selfhost/tts_omnivoice_longform_bf16.json"
+```
+
+Keep the existing migration tests for explicit `selfhost/tts_edge.json` and `selfhost/tts_index2.json` values unchanged; those tests prove user-configured legacy workflows still override the builtin default.
 
 - [ ] **Step 4: Run tests and verify they pass**
 
@@ -374,7 +387,7 @@ async def test_tts_service_passes_omnivoice_duration_to_workflow(monkeypatch):
         captured["workflow_params"] = dict(workflow_params)
         return SimpleNamespace(status="completed", audios=["output.flac"], files=[], outputs={})
 
-    service = TTSService(api_key="dummy")
+    service = TTSService({"comfyui": {"tts": {}}})
     monkeypatch.setattr(service, "_execute_workflow", fake_execute)
     monkeypatch.setattr(
         service,
@@ -386,7 +399,7 @@ async def test_tts_service_passes_omnivoice_duration_to_workflow(monkeypatch):
         },
     )
 
-    await service.generate(
+    await service(
         text="short line",
         workflow="selfhost/tts_omnivoice_clone_duration_bf16.json",
         ref_audio="ref.wav",
@@ -450,6 +463,8 @@ else:
 ```
 
 Then call `build_ref_audio_text_params(...)` exactly as today so workflows exposing `reference_audio_text` receive that value.
+
+Keep the existing `__call__(...)` entrypoint signature intact. This task should not invent a new `generate(...)` method on `TTSService`.
 
 - [ ] **Step 6: Run tests and verify they pass**
 
@@ -529,6 +544,21 @@ def test_list_voice_profiles_filters_omnivoice_profiles(tmp_path):
     )
 
     assert [profile["id"] for profile in profiles] == ["omnivoice"]
+
+
+def test_omnivoice_longform_and_duration_workflows_share_voice_profile_namespace():
+    assert (
+        tts_voice_profiles.infer_tts_model_slug(
+            "selfhost/tts_omnivoice_longform_bf16.json"
+        )
+        == "omnivoice"
+    )
+    assert (
+        tts_voice_profiles.infer_tts_model_slug(
+            "selfhost/tts_omnivoice_clone_duration_bf16.json"
+        )
+        == "omnivoice"
+    )
 ```
 
 - [ ] **Step 2: Run tests and verify the expected failure**
@@ -540,6 +570,8 @@ python -m pytest tests/test_tts_voice_profiles.py -k "omnivoice" -v
 ```
 
 Expected: FAIL until voice profile slug inference uses the unified family module.
+
+Design decision: both OmniVoice API workflows share the same saved-voice namespace (`model_slug = "omnivoice"`). A saved reference voice should be reusable in longform narration and short duration-controlled clone mode.
 
 - [ ] **Step 3: Use workflow family detection for model slug inference**
 
@@ -916,9 +948,11 @@ def _should_use_omnivoice_longform_blocks(self, config: StoryboardConfig, text: 
     return len(text or "") > 6000
 ```
 
+Keep `6000` as a code-level constant in the first implementation. Do not add a new config field in this task. The threshold is an implementation default for protecting single ComfyUI jobs, not a user-facing tuning surface yet.
+
 - [ ] **Step 4: Integrate block planning into master-track synthesis**
 
-Inside the master-track path that currently sends one audio block to TTS, branch before calling `core.tts(...)`:
+Inside the master-track path that currently sends one audio block to TTS, branch before calling `core.tts(...)`. This task depends on Task 3 already landing, so `reference_audio_text` is accepted while `ref_audio_text` compatibility remains intact:
 
 ```python
 if self._should_use_omnivoice_longform_blocks(config, block.text):
@@ -994,20 +1028,45 @@ Ensure TTS workflow select boxes list both:
 
 Do not hide IndexTTS2 or Edge TTS workflows.
 
-- [ ] **Step 3: Run focused UI tests**
+- [ ] **Step 3: Add a default-resolution regression test**
+
+Append to `tests/test_tts_comfyui_defaults.py`:
+
+```python
+def test_resolve_default_workflow_prefers_omnivoice_longform_when_config_is_empty():
+    from pixelle_video.config.workflow_defaults import resolve_default_workflow
+
+    assert (
+        resolve_default_workflow(
+            "tts",
+            [
+                "selfhost/tts_edge.json",
+                "selfhost/tts_index2.json",
+                "selfhost/tts_omnivoice_clone_duration_bf16.json",
+                "selfhost/tts_omnivoice_longform_bf16.json",
+            ],
+            None,
+        )
+        == "selfhost/tts_omnivoice_longform_bf16.json"
+    )
+```
+
+This locks the default to the longform workflow even when the workflow list is sorted differently.
+
+- [ ] **Step 4: Run focused UI tests**
 
 Run:
 
 ```powershell
-python -m pytest tests/test_style_config_storyboard_planning_ui.py tests/test_digital_tts_config.py -k "tts_workflow" -v
+python -m pytest tests/test_style_config_storyboard_planning_ui.py tests/test_digital_tts_config.py tests/test_tts_comfyui_defaults.py -k "tts_workflow or default_workflow" -v
 ```
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```powershell
-git add web/components/style_config.py web/i18n/locales/zh_CN.json web/i18n/locales/en_US.json
+git add web/components/style_config.py web/i18n/locales/zh_CN.json web/i18n/locales/en_US.json tests/test_tts_comfyui_defaults.py
 git commit -m "docs: 调整 TTS 工作流选择说明"
 git push
 ```
