@@ -1,0 +1,1241 @@
+{
+  "id": "c238ce19-d517-44ba-b91d-7b1ff93a715d",
+  "revision": 0,
+  "last_node_id": 35,
+  "last_link_id": 44,
+  "nodes": [
+    {
+      "id": 31,
+      "type": "SaveAudio",
+      "pos": [
+        1228.301513671875,
+        3899.435546875
+      ],
+      "size": [
+        270,
+        112
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 4,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 38
+        },
+        {
+          "label": "filename_prefix",
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          }
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveAudio",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "audio/ComfyUI"
+      ]
+    },
+    {
+      "id": 16,
+      "type": "PreviewAudio",
+      "pos": [
+        728.923095703125,
+        4315.29638671875
+      ],
+      "size": [
+        453.3684997558594,
+        88
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 4,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 19
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewAudio",
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 33,
+      "type": "SaveAudio",
+      "pos": [
+        1201.29296875,
+        3477.234375
+      ],
+      "size": [
+        270,
+        112
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 4,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 40
+        },
+        {
+          "label": "filename_prefix",
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          }
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveAudio",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "audio/ComfyUI"
+      ]
+    },
+    {
+      "id": 15,
+      "type": "PreviewAudio",
+      "pos": [
+        744.638916015625,
+        3474.33642578125
+      ],
+      "size": [
+        396.89569091796875,
+        111.40234375
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 4,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 34
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewAudio",
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 14,
+      "type": "OmniVoiceWhisperLoader",
+      "pos": [
+        733.1436767578125,
+        3240.240966796875
+      ],
+      "size": [
+        325.3941955566406,
+        112.41754150390625
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 4,
+      "inputs": [],
+      "outputs": [
+        {
+          "label": "whisper_model",
+          "name": "whisper_model",
+          "type": "WHISPER_ASR",
+          "links": [
+            33
+          ]
+        }
+      ],
+      "title": "OmniVoice Whisper\u7487\ue162\u7176\u7487\u55d7\u57c6\u59af\u2033\u7037",
+      "properties": {
+        "Node name for S&R": "OmniVoiceWhisperLoader",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "whisper-large-v3",
+        "auto",
+        "fp32"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "OmniVoiceVoiceDesignTTS",
+      "pos": [
+        720.8472900390625,
+        3747.921142578125
+      ],
+      "size": [
+        468.0063781738281,
+        512.2073974609375
+      ],
+      "flags": {
+        "collapsed": false
+      },
+      "order": 1,
+      "mode": 4,
+      "inputs": [],
+      "outputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            19,
+            38
+          ]
+        }
+      ],
+      "title": "OmniVoice \u6fb9\u4f34\u7176\u7481\u6350\ue178/\u93b9\u5fdb\u7176\u9479?(Voice Design)",
+      "properties": {
+        "Node name for S&R": "OmniVoiceVoiceDesignTTS",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "OmniVoice-bf16",
+        "\u4e98\u8e4f \u4e98\u8cf6\u4e47 \u5345\u4e15\u8e55\u4e15\u592d \u8cf1\u4e15\u8cf7\u8cf6\u8bf0\u8e60\u8cf1\u8e60\u536e \u723b\u8cf6\u8cf3\u8cf6\u8cef\u8cf6. \u723b\u8e50\u8cf3\u5345\u8cf6\u8cf7 \u5345\u8cf6\u4e3f\u4e47\u4e15\u8cf0 \u9b32\u8e5b\u79ba\u8cf3\u8cf6\u8cf0\u8cf6\u723b\u8cf6 \u5345\u4e15\u4e47\u8cef\u8cf6\u8cf1\u8cf6\u8cef \u8cf7\u8e5b\u502c\u8cf7\u8e5b\u8bc3\u8cf6 \u4e98\u8cf6\u4e47 \u5345\u4e15\u8e55\u4e15\u592d \u8cf7\u4e15\u4e47\u8cf6\u9b32\u8cf6\u8cf2\u8cf6\u592d. \u5345\u8e4f\u8cf7\u777e\u8e4f\u4e47 \u9b32\u8cf6\u8cf1\u8cf6\u4e3f\u8cf6\u8cf0\u8cf6 \u9b32\u8e60\u8cf1\u8e60\u502c\u502c\u8e4f\u592d\u8cf6 \u5345\u8cf6\u8cf3\u9b32\u4e15\u8cf7\u8cf6\u8cf3 \u9b32\u8e60\u4e98\u8cf6\u5345\u8cf6\u8cf7 \u8e55\u8e60 \u4e47\u4e15\u8e55\u4e15\u8cf3 \u8da9\u8cf6\u8cef\u8cf6\u4e3f\u8e4f.",
+        "\u6fc2\u7b79\u7d1d\u95c8\u6391\u52fe\u951b\u5c7e\u4fef\u93cc\u65d3\u7d1d\u9357\u6c2c\ue179",
+        32,
+        2,
+        0.1,
+        1,
+        0,
+        "auto",
+        "auto",
+        "auto",
+        85,
+        "fixed",
+        5,
+        0,
+        5,
+        true,
+        true,
+        false
+      ]
+    },
+    {
+      "id": 28,
+      "type": "OmniVoiceVoiceCloneTTS",
+      "pos": [
+        1087.932373046875,
+        2993.4951171875
+      ],
+      "size": [
+        400,
+        426
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 4,
+      "inputs": [
+        {
+          "label": "ref_audio",
+          "name": "ref_audio",
+          "type": "AUDIO",
+          "link": 32
+        },
+        {
+          "label": "whisper_model",
+          "name": "whisper_model",
+          "shape": 7,
+          "type": "WHISPER_ASR",
+          "link": 33
+        }
+      ],
+      "outputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            34,
+            40
+          ]
+        }
+      ],
+      "title": "OmniVoice \u6fb9\u4f34\u7176\u934f\u5b2e\u6b95 (Voice Clone)",
+      "properties": {
+        "Node name for S&R": "OmniVoiceVoiceCloneTTS",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "OmniVoice-bf16",
+        "\u4e98\u8e4f \u8cf7\u8e60\u4e47\u8bcf\u8e60 \u723b\u8cf6\u592d \u5345\u4e15\u8e55\u4e15\u592d \u8bf0\u4e15\u723b\u8cf6\u8cf1 \u8cef\u8cf6\u8cf1\u8cf2\u4e15\u8cef\u8da9\u8cf6 \u4e98\u8cf5\u8cf1\u777e\u4e15\u8cf3 \u9b32\u8e5b\u8cf0\u8cf6\u723b\u9b32\u8cf3\u8cf6 \u9b32\u8cf5\u8cf1\u4e3f\u8e4f\u4e47\u8e4f\u8bc3",
+        "\u4e98\u8e4f \u8cf7\u8e60\u4e47\u8bcf\u8e60 \u8cf0\u8cf6\u8cf1\u8cf5\u8cf3\u8cf1\u4e15\u8cf3\u777e\u4e15\u8cf3 \u5345\u4e15\u8e55\u4e15\u592d\u8cf3\u8cf6\u8bc3 \u9b32\u8e5b\u8cf0\u8cf6\u723b\u9b32\u8cf6\u8cf3\u8cf6 \u9b32\u8cf5\u8cf1\u4e3f\u8e4f\u4e47\u8e4f\u8bc3",
+        32,
+        2,
+        0.1,
+        1.1,
+        0,
+        "auto",
+        "auto",
+        "auto",
+        55,
+        "fixed",
+        5,
+        0,
+        5,
+        true,
+        true,
+        true,
+        true,
+        ""
+      ]
+    },
+    {
+      "id": 13,
+      "type": "LoadAudio",
+      "pos": [
+        742.24072265625,
+        3009.291259765625
+      ],
+      "size": [
+        282.798828125,
+        136
+      ],
+      "flags": {
+        "collapsed": false
+      },
+      "order": 2,
+      "mode": 4,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "COMBO",
+          "widget": {
+            "name": "audio"
+          }
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        },
+        {
+          "label": "upload",
+          "name": "upload",
+          "type": "AUDIOUPLOAD",
+          "widget": {
+            "name": "upload"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "AUDIO",
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            32
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadAudio",
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "None",
+        null,
+        null
+      ]
+    },
+    {
+      "id": 35,
+      "type": "Fast Groups Bypasser (rgthree)",
+      "pos": [
+        447.1319580078125,
+        2966.535888671875
+      ],
+      "size": [
+        236.74765014648438,
+        130
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "label": "OPT_CONNECTION",
+          "name": "OPT_CONNECTION",
+          "type": "*"
+        }
+      ],
+      "properties": {
+        "matchColors": "",
+        "matchTitle": "",
+        "showNav": true,
+        "sort": "position",
+        "customSortAlphabet": "",
+        "toggleRestriction": "always one",
+        "widget_ue_connectable": {}
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 24,
+      "type": "OmniVoiceMultiSpeakerTTS",
+      "pos": [
+        2014.0146484375,
+        3738.156005859375
+      ],
+      "size": [
+        309.0650329589844,
+        420
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "num_speakers.speaker_1_audio",
+          "name": "num_speakers.speaker_1_audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 42
+        },
+        {
+          "label": "num_speakers.speaker_2_audio",
+          "name": "num_speakers.speaker_2_audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 44
+        }
+      ],
+      "outputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            27,
+            39
+          ]
+        }
+      ],
+      "title": "OmniVoice \u6fb6\u6c33\ue757\u9479\u8336\ue1e2\u95ca\u51b2\u608e\u93b4?(Multi-Speaker)",
+      "properties": {
+        "Node name for S&R": "OmniVoiceMultiSpeakerTTS",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "OmniVoice-bf16",
+        "[Speaker_1]: \u4e98\u4e15\u5669\u8cf6\u8c99 \u723b\u8e60\u8cf3 \u5345\u8e4e\u592d\u8e50\u8bc3\u8cf3\u8cf6 \u4e98\u8cf6\u4e47 \u8da9\u8cf6\u4e47\u4e15\u8cf7\u8cf1\u8cf6\u8cef \u8cef\u8cf6\u592d\u777e\u4e15 \u5345\u8e4e\u592d\u8bcf\u8e60\u4e47\u9b32\u8cf6\u502c\u8c99  \u5345\u4e15\u8cf1\u8e55\u4e15\u723b\u9b32\u8cf6\u8cf3\u8cf6\u8bc3  \u777e\u4e15\u4e47\u8cf6\u777e\u4e15 \u4e98\u8e5b\u4e47\u8cf6\u502c \u5345\u8e4f\u8cf3\u8cf6 \u5345\u4e15\u8cf1\u4e3f\u4e15\u502c \u8da9\u8cf6\u8cef. \u8cf2\u8e60\u8cf3 \u723b\u8e5b\u8cf3\u8cf6 \u8cf0\u8e4e\u592d\u8cf6\u9b32\u8cf6\u502c \u9b32\u8e4f\u4e47\u8cf6\u8cf2\u8e60\u8cf3.\n[Speaker_2]: \u5345\u4e15\u8cf0\u4e15\u8c99 \u723b\u8cf6\u592d \u8cf2\u8e5b\u8cf3\u8cf6 \u4e98\u8cf5\u592d\u8e60\u8cf0 \u8cef\u8cf6\u8cf1\u8cf2\u4e15\u8bc3! \u8cf2\u8e60\u8cf3 \u8cef\u4e15\u8cf3\u8da9\u8e60 \u5345\u8e4e\u592d\u8bcf\u8e60\u4e47\u8bcf\u8e60\u8cf3 \u4e98\u8cf6\u8cf1\u8e60\u8cf3\u8c99 \u4e98\u8e4f \u723b\u8e5b\u8cf2\u8cf6\u592d \u8cef\u8cf5\u4e47\u723b\u8cf6\u8cef\u8cf6\u8cf2 \u4e98\u8cf6\u8cf1\u8e60\u8cf3 \u723b\u8e60\u9b32 \u4e98\u8e4f\u4e47\u8cf3\u8cf6\u8cf2 \u8cf7\u8e60\u8cf3\u8cf6\u8cf1\u4e15 \u8da9\u8cf6\u8cef\u8cf6\u502c \u9b32\u8e4f\u4e47\u8cf6\u4e3f\u8e4f.  \u5345\u4e15\u8cf1\u8e55\u4e15\u723b\u9b32\u8cf6 \u8cf2\u8e5b\u8cf3\u8cf6 \u8cf0\u8e4e\u4e47\u723b\u8e60\u8c99 \u82a6\u4e98\u8e4f \u8cef\u8cf6\u592d \u8cf3\u8e5b\u8cf2\u4e15\u8cf3\u8da9\u8e60 \u723b\u8e60\u9b32\u8c99 \u8cf3\u8e5b\u8cf2\u4e15\u8cf3\u8da9\u8e60 \u723b\u8e5b\u8cf2\u8cf6\u592d\u7984 \u4e3f\u8e60\u502c \u4e98\u8cf6\u4e47\u8cf6\u8cf3\u8da9\u8cf6 \u4e98\u8cf5\u8cf1\u8e4f\u502c \u8cf2\u8e5b\u8cf3\u8cf6 \u9b32\u8e4f\u9b32\u8e4f\u8e55\u4e15\u8cf1\u8cf6\u4e3f\u8e4f!\n[Speaker_1]: \u8e55\u4e15\u8cf7 \u723b\u8e5b\u8cf2\u8cf6\u592d-\u8bf0\u8e60\u8c99 \u723b\u8e5b\u8cf3\u8cf6\u8bc3 \u536e\u8e4f \u723b\u8e5b\u8cf2\u8cf6\u592d\u8cf1\u8cf6\u8cf0\u8cf6\u8bc3  \u5345\u4e15\u8cf1\u8e55\u4e15\u723b\u9b32\u8cf6\u8cf3\u8cf6\u8cf2\u8e4f \u8cef\u8cf5\u4e47\u8cef\u8e4f\u9b32\u8e4f\u502c \u8cef\u4e15\u8da9\u8e4f\u4e47\u8cf6\u4e3f\u8e4f\u8c99 \u5345\u8e60\u8cf3\u723b\u8cf6\u4e47\u8cf6\u8cf2\u8e60! \u723b\u8e60\u8cf3 \u4e98\u8e5b\u4e47\u8cf6\u8e55\u8e60\u4e47\u8c99 \u8cf2\u8e60\u8cf3 \u8cf0\u8e60\u8cf7\u8cf3\u8cf6\u8bc3\u4e3f\u8e60 \u9b32\u8e4f\u4e47\u8cf6\u8cf2\u8e60\u8cf3\u8c99 \u4e98\u8cf6\u4e47\u8e60\u4e47 \u5345\u8cf6\u536e \u4e98\u8cf5\u8cf1\u723b\u4e15 \u8cef\u8e4f\u8cf1\u8cf6\u8cef\u8cf6\u8bc3\u4e3f\u8cf6\u8cf3 \u9b32\u4e15\u4e47\u9b32\u8cf6\u502c \u9b32\u4e15\u4e47\u9b32\u8cf6\u502c \u8da9\u8cf6\u8cef\u8cf6\u4e47\u8cf6\u8e55\u4e15\u8cf1\u8cf6\u8cf2\u8e60\u8cf3!",
+        32,
+        2,
+        0.1,
+        1,
+        0.3,
+        "auto",
+        "auto",
+        "auto",
+        5,
+        0,
+        5,
+        true,
+        true,
+        true,
+        464680202,
+        "randomize",
+        false,
+        "2",
+        " \u4e98\u8cf5\u8cf1\u8cf2\u4e15\u8cf7\u4e3f\u8e4f \u4e98\u8cf5\u8cf1\u8cf2\u4e15\u8cf7\u4e3f\u8e4f\u8c99 \u8bf0\u8e5b\u8cf1\u8cf6\u8cef\u8cf6 \u5345\u4e15\u8cf1\u8e55\u4e15\u723b\u9b32\u8cf6\u8cf1\u4e15\u4e47\u8cf3\u8cf6\u8bc3  \u8cef\u8cf6\u8cf7\u4e15 \u8da9\u8cf6\u8cf7\u4e15\u8cf1\u8cf6\u4e47\u8cf6 \u4e98\u8e60\u8cf0\u8cf2\u8e4f \u8cf7\u4e15\u8cf2\u4e15\u8cf3 \u5345\u8cf6\u8cf0\u8e60\u8cf3\u8c99  \u5345\u4e15\u4e3f\u8e60\u8cf2\u8cf3\u8cf6\u8bc3 \u5345\u8cf6\u8da9\u8cf6\u8cf3\u8cf6 \u5345\u8e5b\u8cf1\u8cf6\u536e\u9b32\u8e4f\u4e47\u8cf6\u8e55\u8e5b\u9b32\u8cf6\u4e3f\u8cf6\u8cf0\u8e60\u8cf3\u8c99  \u4e98\u8cf6\u592d \u4e98\u4e15\u536e\u8cef\u8cf6\u8da9\u8e60 \u9b32\u4e15\u8cef\u4e15\u4e98\u8cf6\u8cf1 \u9b32\u8e4f\u4e47\u8e4f\u536e\u8cf3\u8cf6\u8bc3 \u5345\u4e15\u8cf2\u4e15\u8cf1\u8cf6\u8cf3\u8cf6 \u9b32\u4e15\u502c\u4e15\u8cf7\u8cf1\u8cf6 \u8bf0\u8e60 . ",
+        " \u8bf0\u8e60\u8cf7 \u8c99 \u8cf7\u4e15\u8cef \u8c99 \u8cf7\u4e15\u8cef \u8c99 \u8cf7\u4e15\u8cef .  \u8cf2\u8e60\u8cf3 \u4e98\u8e4f \u8cf7\u8e60\u4e47\u8cf3\u8cf6\u8bc3 \u8cef\u4e15\u8cf7\u723b\u8cf6 \u9b32\u4e15\u777e \u5345\u8cf6\u8cf0\u8e60\u8cf3\u8cf1\u8cf6\u8cf0\u8cf6\u8cf3\u8cf6\u8c99  \u777e\u4e15\u4e47\u8cf3\u8cf6\u8bc3 \u8cf3\u4e15\u8cf2\u8cf6 \u8cf3\u8e5b\u8cf2\u8e60 \u8c99  \u8bf0\u8e60\u8cf2 \u5345\u8e4f \u777e\u4e15\u4e47\u8cf6\u4e3f\u8cf6\u8cf0\u8cf6 \u8cef\u4e15\u8cf7\u723b\u8cf6 \u5345\u4e15\u8cf1\u8e55\u4e15\u723b\u9b32\u8cf6  \u5345\u8cf6\u8cf0\u8e60\u8cf3\u8cf1\u8cf6\u8cf0\u8cf6\u8cf3\u8cf6\u8c99  \u8cf0\u8e50\u8cf3 \u502c\u8e5b\u9b32\u8cf6\u536e\u8cef\u4e15 \u8cef\u4e15\u8cf7\u723b\u8cf6 \u8cf7\u8cf5\u8cf1 \u4e98\u8cf6\u8cf1\u8e60\u8cf3 \u8cf2\u4e15\u8bc3\u8cf6\u4e3f\u8cf6\u777e\u4e15\u8cf3\u8cf1\u8cf6\u8cef\u8cf6\u8cf3\u8cf6 \u723b\u8cf5\u4e47\u8cf6\u8cf2\u4e15\u8cef\u8da9\u8cf6 \u5345\u8cf6\u4e3f\u8cf6\u8cf2\u8c99  \u5345\u8e4f\u723b\u9b32\u4e15\u592d\u8cf6\u8cf2 \u8cf2\u8e5b\u8cf3\u8cf6 \u4e98\u8cf6\u8cf1\u8cf6\u502c \u8cf0\u8e5b\u8cf1\u8cf6\u536e\u8cf0\u8e60 \u5345\u8e60\u8e55\u8e60\u9b32\u8cf0\u8e60\u8cf3 \u8c99  \u9b32\u8e60\u8cf1\u8cf6\u8cf2 \u4e98\u8e60\u4e47\u723b\u8cf6\u8bc3\u8cf6\u592d \u4e98\u8cf5\u502c\u9b32\u8cf6\u8cf0\u8e60\u8cf3. "
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 32,
+      "type": "SaveAudio",
+      "pos": [
+        2451.0673828125,
+        3737.1455078125
+      ],
+      "size": [
+        270,
+        112
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 39
+        },
+        {
+          "label": "filename_prefix",
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          }
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveAudio",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "audio/ComfyUI"
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 21,
+      "type": "PreviewAudio",
+      "pos": [
+        2017.6964111328125,
+        4241.75634765625
+      ],
+      "size": [
+        719.9677124023438,
+        88
+      ],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 27
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewAudio",
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [],
+      "color": "#2a363b",
+      "bgcolor": "#3f5159"
+    },
+    {
+      "id": 5,
+      "type": "LoadAudio",
+      "pos": [
+        1686.8450927734375,
+        3004.19775390625
+      ],
+      "size": [
+        282.798828125,
+        136
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 4,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "COMBO",
+          "widget": {
+            "name": "audio"
+          }
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        },
+        {
+          "label": "upload",
+          "name": "upload",
+          "type": "AUDIOUPLOAD",
+          "widget": {
+            "name": "upload"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "AUDIO",
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            14
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadAudio",
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "None",
+        null,
+        null
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 12,
+      "type": "OmniVoiceLongformTTS",
+      "pos": [
+        2036.3260498046875,
+        2999.430908203125
+      ],
+      "size": [
+        400,
+        426
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 4,
+      "inputs": [
+        {
+          "label": "ref_audio",
+          "name": "ref_audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 14
+        },
+        {
+          "label": "whisper_model",
+          "name": "whisper_model",
+          "shape": 7,
+          "type": "WHISPER_ASR",
+          "link": 13
+        }
+      ],
+      "outputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            15,
+            41
+          ]
+        }
+      ],
+      "title": "OmniVoice \u95c0\u630e\u6783\u93c8\ue103\ue1e2\u95ca\u51b2\u608e\u93b4?(Longform)",
+      "properties": {
+        "Node name for S&R": "OmniVoiceLongformTTS",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "OmniVoice-bf16",
+        "\u4e98\u8e4f \u8cf7\u8e60\u4e47\u8bcf\u8e60 \u723b\u8cf6\u592d \u5345\u4e15\u8e55\u4e15\u592d \u8bf0\u4e15\u723b\u8cf6\u8cf1 \u8cef\u8cf6\u8cf1\u8cf2\u4e15\u8cef\u8da9\u8cf6 \u4e98\u8cf5\u8cf1\u777e\u4e15\u8cf3 \u9b32\u8e5b\u8cf0\u8cf6\u723b\u9b32\u8cf3\u8cf6 \u9b32\u8cf5\u8cf1\u4e3f\u8e4f\u4e47\u8e4f\u8bc3",
+        "\u4e98\u8e4f \u8cf7\u8e60\u4e47\u8bcf\u8e60 \u8cf0\u8cf6\u8cf1\u8cf5\u8cf3\u8cf1\u4e15\u8cf3\u777e\u4e15\u8cf3 \u5345\u4e15\u8e55\u4e15\u592d\u8cf3\u8cf6\u8bc3 \u9b32\u8e5b\u8cf0\u8cf6\u723b\u9b32\u8cf6\u8cf3\u8cf6 \u9b32\u8cf5\u8cf1\u4e3f\u8e4f\u4e47\u8e4f\u8bc3",
+        64,
+        2,
+        0.1,
+        0.8,
+        0,
+        "cuda",
+        "fp16",
+        "auto",
+        20,
+        "fixed",
+        100,
+        5,
+        0,
+        5,
+        true,
+        true,
+        true,
+        false,
+        ""
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 11,
+      "type": "OmniVoiceWhisperLoader",
+      "pos": [
+        1679.70458984375,
+        3194.7333984375
+      ],
+      "size": [
+        280.4712829589844,
+        106
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 4,
+      "inputs": [],
+      "outputs": [
+        {
+          "label": "whisper_model",
+          "name": "whisper_model",
+          "type": "WHISPER_ASR",
+          "links": [
+            13
+          ]
+        }
+      ],
+      "title": "OmniVoice Whisper\u7487\ue162\u7176\u7487\u55d7\u57c6\u59af\u2033\u7037",
+      "properties": {
+        "Node name for S&R": "OmniVoiceWhisperLoader",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "whisper-large-v3",
+        "cuda",
+        "fp16"
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 34,
+      "type": "SaveAudio",
+      "pos": [
+        1703.2115478515625,
+        3469.014892578125
+      ],
+      "size": [
+        270,
+        112
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 4,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 41
+        },
+        {
+          "label": "filename_prefix",
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          }
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveAudio",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "audio/ComfyUI"
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 2,
+      "type": "PreviewAudio",
+      "pos": [
+        2042.8192138671875,
+        3472.712646484375
+      ],
+      "size": [
+        396.89569091796875,
+        115.41639709472656
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 4,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 15
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PreviewAudio",
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 22,
+      "type": "MarkdownNote",
+      "pos": [
+        -375.6144714355469,
+        2965.697998046875
+      ],
+      "size": [
+        606.2223510742188,
+        857.7362670898438
+      ],
+      "flags": {
+        "pinned": true
+      },
+      "order": 6,
+      "mode": 4,
+      "inputs": [],
+      "outputs": [],
+      "title": "-",
+      "properties": {
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "# OmniVoice TTS\n\n  ## Auto-Download\n\n  **Models auto-download on first run** - no manual setup needed!\n\n  | Model | VRAM | Size |\n  |-------|------|------|\n  | OmniVoice (fp32) | ~8-12GB | ~4GB |\n  | OmniVoice-bf16 | ~4-6GB | ~2GB |\n  ---\n\n  ## Manual Download\n\n  | File | Size | Link |\n  |------|------|------|\n  | OmniVoice (Full fp32) | ~4GB | [Download](https://huggingface.co/k2-fsa/OmniVoice) |\n  | OmniVoice-bf16 | ~2GB | [Download](https://huggingface.co/drbaph/OmniVoice-bf16) |\n\n\n```\n  \u9983\u6428 ComfyUI/\n  \u9239\u6ebe\u6522\u9239\u20ac \u9983\u6428 models/\n  \u9239?  \u9239\u6ebe\u6522\u9239\u20ac \u9983\u6428 omnivoice/\n  \u9239?  \u9239?     \u9239\u6ebe\u6522\u9239\u20ac \u9983\u6428 OmniVoice/\n  \u9239?  \u9239?     \u9239?     \u9239\u6ebe\u6522\u9239\u20ac config.json\n  \u9239?  \u9239?     \u9239?     \u9239\u65ba\u6522\u9239\u20ac model.safetensors\n  \u9239?  \u9239?     \u9239\u65ba\u6522\u9239\u20ac \u9983\u6428 OmniVoice-bf16/\n  \u9239?  \u9239?            \u9239\u6ebe\u6522\u9239\u20ac config.json\n  \u9239?  \u9239?            \u9239\u65ba\u6522\u9239\u20ac model.safetensors\n  \u9239?  \u9239\u65ba\u6522\u9239\u20ac \u9983\u6428 audio_encoders/\n  \u9239?         \u9239\u6ebe\u6522\u9239\u20ac \u9983\u6428 openai_whisper-large-v3-turbo/\n  \u9239?         \u9239?     \u9239\u6ebe\u6522\u9239\u20ac config.json\n  \u9239?         \u9239?     \u9239\u65ba\u6522\u9239\u20ac model.safetensors\n  \u9239?         \u9239\u65ba\u6522\u9239\u20ac \u9983\u6428 openai_whisper-medium/\n  \u9239?                \u9239\u6ebe\u6522\u9239\u20ac config.json\n  \u9239?                \u9239\u65ba\u6522\u9239\u20ac model.safetensors\n```\n\n  ---\n\n  ## Whisper ASR models (for auto-transcription)\n\n  | Model | VRAM | Link |\n  |-------|------|------|\n  | whisper-large-v3-turbo | ~1.5GB | [Download](https://huggingface.co/openai/whisper-large-v3-turbo) |\n  | whisper-large-v3 | ~3GB | [Download](https://huggingface.co/openai/whisper-large-v3) |\n  | whisper-medium | ~1.5GB | [Download](https://huggingface.co/openai/whisper-medium) |\n  | whisper-small | ~0.5GB | [Download](https://huggingface.co/openai/whisper-small) |\n  | whisper-tiny | ~0.4GB | [Download](https://huggingface.co/openai/whisper-tiny) |\n\n  ---\n\n  ## Non-verbal expression tags:\n\n  `[laughter]` `[sigh]` `[sniff]` `[question-en]` `[question-ah]` `[question-oh]` `[question-ei]` `[question-yi]` `[surprise-ah]` `[surprise-oh]` `[surprise-wa]` `[surprise-yo]` `[dissatisfaction-hnn]` `[confirmation-en]`\n\n  ---\n\n  ## Voice design attributes (comma-separated):\n\n  | Category | Options |\n  |----------|---------|\n  | Gender | `male`, `female` |\n  | Age | `child`, `young`, `middle-aged`, `elderly` |\n  | Pitch | `very low pitch`, `low pitch`, `medium pitch`, `high pitch`, `very high pitch` |\n  | Style | `whisper` |\n  | English Accents | `american accent`, `british accent`, `australian accent`, `canadian accent`, `indian accent`, `irish accent`, `scottish accent`, `south african accent` |\n  | Chinese Dialects | `\u9365\u6d98\u7a9b\u7487\u6f19, `\u95c4\u66e1\u30bf\u7487\u6f19, `\u9a9e\u5938\u7b22\u7487\u6f19, `\u6d93\u6ec3\u5bf3\u7487\u6f19, `\u705e\u53d8\u7b22\u7487\u6f19, `\u5a0c\u51b2\u5d21\u7487\u6f19, `\u6d93\u5a43\u6363\u7487\u6f19, `\u95c2\u85c9\u5d21\u7487\u6f19, `\u7039\u3220\ue18d\u7487\u6f19 |\n\n  **Example:** `female, young, high pitch, british accent, whisper`\n\n  ---\n\n  ## Multi-speaker dialogue format:\n\n  [Speaker_1]: Hello, I'm speaker one.\n  [Speaker_2]: And I'm speaker two!\n  [Speaker_1]: Nice to meet you!\n\n  ---\n\n  ## Links\n\n  - Original [OmniVoice](https://huggingface.co/k2-fsa/OmniVoice)\n  - Models [OmniVoice](https://huggingface.co/k2-fsa/OmniVoice) / [OmniVoice-bf16](https://huggingface.co/drbaph/OmniVoice-bf16)\n  - Paper [arXiv:2604.00688](https://arxiv.org/abs/2604.00688)\n  - Issues [Report Bug](https://github.com/saganaki22/ComfyUI-OmniVoice-TTS/issues)"
+      ],
+      "color": "#c09430",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 19,
+      "type": "LoadAudio",
+      "pos": [
+        1682.993896484375,
+        3926.75537109375
+      ],
+      "size": [
+        282.798828125,
+        136
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "COMBO",
+          "widget": {
+            "name": "audio"
+          }
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        },
+        {
+          "label": "upload",
+          "name": "upload",
+          "type": "AUDIOUPLOAD",
+          "widget": {
+            "name": "upload"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "AUDIO",
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            26,
+            44
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadAudio",
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "eba2a4347c33229552a1d4b5850357d4618e22b28d3e6d89d5c19318759c8f95.mp3",
+        null,
+        null
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 18,
+      "type": "LoadAudio",
+      "pos": [
+        1679.5184326171875,
+        3734.896484375
+      ],
+      "size": [
+        282.798828125,
+        136
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "COMBO",
+          "widget": {
+            "name": "audio"
+          }
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        },
+        {
+          "label": "upload",
+          "name": "upload",
+          "type": "AUDIOUPLOAD",
+          "widget": {
+            "name": "upload"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "AUDIO",
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            25,
+            42
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadAudio",
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "15a66431d303fb3d3a14dec3263d74dcc438a76054eb65d536e935d6600e094c.mp3",
+        null,
+        null
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    }
+  ],
+  "links": [
+    [
+      13,
+      11,
+      0,
+      12,
+      1,
+      "WHISPER_ASR"
+    ],
+    [
+      14,
+      5,
+      0,
+      12,
+      0,
+      "AUDIO"
+    ],
+    [
+      15,
+      12,
+      0,
+      2,
+      0,
+      "AUDIO"
+    ],
+    [
+      19,
+      4,
+      0,
+      16,
+      0,
+      "AUDIO"
+    ],
+    [
+      25,
+      18,
+      0,
+      24,
+      0,
+      "AUDIO"
+    ],
+    [
+      26,
+      19,
+      0,
+      24,
+      1,
+      "AUDIO"
+    ],
+    [
+      27,
+      24,
+      0,
+      21,
+      0,
+      "AUDIO"
+    ],
+    [
+      32,
+      13,
+      0,
+      28,
+      0,
+      "AUDIO"
+    ],
+    [
+      33,
+      14,
+      0,
+      28,
+      1,
+      "WHISPER_ASR"
+    ],
+    [
+      34,
+      28,
+      0,
+      15,
+      0,
+      "AUDIO"
+    ],
+    [
+      38,
+      4,
+      0,
+      31,
+      0,
+      "AUDIO"
+    ],
+    [
+      39,
+      24,
+      0,
+      32,
+      0,
+      "AUDIO"
+    ],
+    [
+      40,
+      28,
+      0,
+      33,
+      0,
+      "AUDIO"
+    ],
+    [
+      41,
+      12,
+      0,
+      34,
+      0,
+      "AUDIO"
+    ],
+    [
+      42,
+      18,
+      0,
+      24,
+      10,
+      "AUDIO"
+    ],
+    [
+      44,
+      19,
+      0,
+      24,
+      12,
+      "AUDIO"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "\u7487\ue162\u7176\u934f\u5b2e\u6b95",
+      "bounding": [
+        723.6134643554688,
+        2928.376708984375,
+        779.5203857421875,
+        683.7578735351562
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {
+        "pinned": true
+      }
+    },
+    {
+      "id": 2,
+      "title": "\u7487\ue162\u7176\u934f\u5b2e\u6b95\u95c0\u5757\u7176\u68f0\u6220\u6553\u93b4?",
+      "bounding": [
+        1668.158935546875,
+        2925.830810546875,
+        781.555908203125,
+        672.2982788085938
+      ],
+      "color": "#88A",
+      "font_size": 24,
+      "flags": {
+        "pinned": true
+      }
+    },
+    {
+      "id": 3,
+      "title": "\u7487\ue162\u7176\u7481\u6350\ue178",
+      "bounding": [
+        710.8472900390625,
+        3674.321044921875,
+        804.0465698242188,
+        746.0360717773438
+      ],
+      "color": "#8A8",
+      "font_size": 24,
+      "flags": {
+        "pinned": true
+      }
+    },
+    {
+      "id": 4,
+      "title": "\u6fb6\u6c2b\u6c49\u7035\u7845\u763d",
+      "bounding": [
+        1669.5184326171875,
+        3661.296630859375,
+        1076.1678466796875,
+        770.6250610351562
+      ],
+      "color": "#391466",
+      "font_size": 24,
+      "flags": {
+        "pinned": true
+      }
+    }
+  ],
+  "config": {},
+  "extra": {
+    "VHS_KeepIntermediate": true,
+    "links_added_by_ue": [],
+    "VHS_MetadataImage": true,
+    "ue_links": [],
+    "0246.VERSION": [
+      0,
+      0,
+      4
+    ],
+    "VHS_latentpreviewrate": 0,
+    "frontendVersion": "1.23.0",
+    "VHS_latentpreview": false,
+    "ds": {
+      "scale": 1.167184107045001,
+      "offset": [
+        532.3130681585653,
+        -2930.1503771592925
+      ]
+    }
+  },
+  "version": 0.4
+}

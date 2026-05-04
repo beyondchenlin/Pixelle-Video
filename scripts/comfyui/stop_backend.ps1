@@ -124,6 +124,15 @@ if (-not $processInfo) {
     exit 0
 }
 
+$launcherInfo = $null
+$launcherIsManagedBackend = $false
+if ($launcherPid -and $launcherPid -ne $managedPid) {
+    $launcherInfo = Get-ProcessInfo $launcherPid
+    if ($launcherInfo) {
+        $launcherIsManagedBackend = Test-ManagedComfyUIProcess $config $launcherPid
+    }
+}
+
 if (-not (Test-ManagedComfyUIProcess $config $managedPid)) {
     if ($listener) {
         $listenerPid = [int]$listener.OwningProcess
@@ -159,13 +168,14 @@ if ($listenerPid -and $listenerPid -eq $managedPid) {
 
 $stoppedLauncher = $false
 if ($launcherPid -and $launcherPid -ne $managedPid) {
-    $launcherInfo = Get-ProcessInfo $launcherPid
+    if (-not $launcherInfo) {
+        $launcherInfo = Get-ProcessInfo $launcherPid
+    }
     if ($launcherInfo) {
-        if (-not (Test-ManagedComfyUIProcess $config $launcherPid)) {
-            throw "Launcher PID file points to PID $launcherPid, but that process is not the Pixelle-managed ComfyUI backend. Refusing to stop it. Command line: $($launcherInfo.CommandLine)"
+        if ($launcherIsManagedBackend) {
+            Stop-ManagedComfyUIProcess $config $launcherPid | Out-Null
+            $stoppedLauncher = $true
         }
-        Stop-ManagedComfyUIProcess $config $launcherPid | Out-Null
-        $stoppedLauncher = $true
     }
 }
 

@@ -4,6 +4,22 @@ from pathlib import Path
 from comfykit.comfyui.workflow_parser import WorkflowParser
 
 
+OMNIVOICE_UI_WORKFLOW_PATHS = (
+    Path("workflows/selfhost/OmniVoice_all.json"),
+    Path("workflows/selfhost/OmniVoice_bf16.json"),
+)
+
+OMNIVOICE_WIDGET_COUNTS = {
+    "OmniVoiceWhisperLoader": 3,
+    "OmniVoiceVoiceDesignTTS": 19,
+    "OmniVoiceVoiceCloneTTS": 21,
+    "OmniVoiceLongformTTS": 22,
+    "OmniVoiceMultiSpeakerTTS": 22,
+    "Qwen3ASRLoader": 6,
+    "Qwen3ASRTranscribe": 3,
+}
+
+
 def _assert_prompt_mapping_is_declared_once(metadata):
     prompt_mappings = [
         (mapping.node_id, mapping.input_field)
@@ -29,6 +45,78 @@ def _assert_default_image_size_is_768(workflow_path: str):
     assert len(height_nodes) == 1
     assert width_nodes[0]["inputs"]["value"] == 768
     assert height_nodes[0]["inputs"]["value"] == 768
+
+
+def _load_ui_workflow(path: Path):
+    workflow = json.loads(path.read_text(encoding="utf-8"))
+
+    assert isinstance(workflow.get("nodes"), list)
+    assert isinstance(workflow.get("links"), list)
+
+    return workflow
+
+
+def test_omnivoice_ui_workflows_are_valid_json_graphs():
+    for workflow_path in OMNIVOICE_UI_WORKFLOW_PATHS:
+        workflow = _load_ui_workflow(workflow_path)
+
+        assert workflow["version"] == 0.4
+        assert workflow["nodes"]
+        assert workflow["links"]
+
+
+def test_omnivoice_nodes_use_current_widget_layout():
+    for workflow_path in OMNIVOICE_UI_WORKFLOW_PATHS:
+        workflow = _load_ui_workflow(workflow_path)
+
+        for node in workflow["nodes"]:
+            expected_widget_count = OMNIVOICE_WIDGET_COUNTS.get(node["type"])
+            if expected_widget_count is None:
+                continue
+
+            assert len(node.get("widgets_values", [])) == expected_widget_count, (
+                workflow_path,
+                node["id"],
+                node["type"],
+            )
+
+
+def test_omnivoice_ui_workflows_keep_only_linked_node_inputs():
+    checked_node_count = 0
+
+    for workflow_path in OMNIVOICE_UI_WORKFLOW_PATHS:
+        workflow = _load_ui_workflow(workflow_path)
+
+        for node in workflow["nodes"]:
+            if node["type"] not in OMNIVOICE_WIDGET_COUNTS:
+                continue
+
+            checked_node_count += 1
+            stale_inputs = [
+                input_spec["name"]
+                for input_spec in node.get("inputs", [])
+                if input_spec.get("link") is None
+            ]
+
+            assert stale_inputs == [], (workflow_path, node["id"], node["type"])
+
+    assert checked_node_count > 0
+
+
+def test_omnivoice_dependency_docs_record_modelscope_priority():
+    docs = {
+        "OmniVoice_all": Path("workflows/down/OmniVoice_all_依赖与下载说明.md"),
+        "OmniVoice_bf16": Path("workflows/down/OmniVoice_bf16_依赖与下载说明.md"),
+    }
+
+    for workflow_name, doc_path in docs.items():
+        text = doc_path.read_text(encoding="utf-8")
+
+        assert f"workflows/selfhost/{workflow_name}.json" in text
+        assert "ModelScope" in text
+        assert "E:\\ComfyUIData\\models\\omnivoice" in text
+        assert "E:\\ComfyUIData\\custom_nodes" in text
+        assert "python -m pytest tests/test_selfhost_workflows.py -k omnivoice -q" in text
 
 
 def test_image_z_image_workflow_is_parseable():

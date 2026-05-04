@@ -87,14 +87,26 @@ Ensure-Directory $config.LogsDir
 $stdoutLog = Get-BackendStdoutLog $config
 $stderrLog = Get-BackendStderrLog $config
 
-$process = Start-Process `
-    -FilePath $config.PythonExe `
-    -ArgumentList $arguments `
-    -WorkingDirectory $config.ComfyUIRoot `
-    -RedirectStandardOutput $stdoutLog `
-    -RedirectStandardError $stderrLog `
-    -WindowStyle Hidden `
-    -PassThru
+$previousPythonIoEncoding = $env:PYTHONIOENCODING
+$env:PYTHONIOENCODING = 'utf-8'
+try {
+    $process = Start-Process `
+        -FilePath $config.PythonExe `
+        -ArgumentList $arguments `
+        -WorkingDirectory $config.ComfyUIRoot `
+        -RedirectStandardOutput $stdoutLog `
+        -RedirectStandardError $stderrLog `
+        -WindowStyle Hidden `
+        -PassThru
+}
+finally {
+    if ($null -eq $previousPythonIoEncoding) {
+        Remove-Item Env:\PYTHONIOENCODING -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:PYTHONIOENCODING = $previousPythonIoEncoding
+    }
+}
 
 Set-Content -LiteralPath $pidFile -Value ([string]$process.Id) -Encoding ASCII
 Set-Content -LiteralPath $launcherPidFile -Value ([string]$process.Id) -Encoding ASCII

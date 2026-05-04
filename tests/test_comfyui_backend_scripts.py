@@ -128,6 +128,55 @@ def write_fake_reexec_main_py(comfyui_root: Path) -> None:
     )
 
 
+def write_fake_unicode_sensitive_main_py(comfyui_root: Path) -> None:
+    (comfyui_root / "main.py").write_text(
+        "\n".join(
+            [
+                "import argparse",
+                "import os",
+                "import socket",
+                "import time",
+                "parser = argparse.ArgumentParser()",
+                "parser.add_argument('--listen', default='127.0.0.1')",
+                "parser.add_argument('--port', type=int, required=True)",
+                "parser.add_argument('--user-directory')",
+                "parser.add_argument('--input-directory')",
+                "parser.add_argument('--output-directory')",
+                "parser.add_argument('--base-directory')",
+                "args, _ = parser.parse_known_args()",
+                "if os.environ.get('PYTHONIOENCODING') != 'utf-8':",
+                "    raise RuntimeError('PYTHONIOENCODING was not propagated')",
+                "print('\\U0001f389 fake comfyui started', flush=True)",
+                "sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)",
+                "sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)",
+                "sock.bind((args.listen, args.port))",
+                "sock.listen(1)",
+                "time.sleep(20)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def write_fake_external_launcher(
+    launcher_path: Path,
+    comfyui_root: Path,
+) -> None:
+    launcher_path.write_text(
+        "\n".join(
+            [
+                "import subprocess",
+                "import sys",
+                "import time",
+                "subprocess.Popen([sys.executable, r'%s'] + sys.argv[1:])"
+                % str(comfyui_root / "main.py"),
+                "time.sleep(20)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 def reserve_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind(("127.0.0.1", 0))
@@ -719,6 +768,47 @@ def test_start_backend_tracks_listener_pid_when_launcher_spawns_child(tmp_path: 
         kill_fake_comfyui_processes(comfyui_root)
 
 
+def test_start_backend_forces_utf8_child_output_encoding(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_unicode_sensitive_main_py(comfyui_root)
+    runtime_dir = tmp_path / "runtime"
+    logs_dir = tmp_path / "logs"
+    port = reserve_free_port()
+
+    try:
+        result = run_powershell(
+            SCRIPT_DIR / "start_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-LogsDir",
+            logs_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+            "-ReadyTimeoutSeconds",
+            "8",
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["started"] is True
+        assert (logs_dir / "comfyui-backend.stdout.log").read_text(
+            encoding="utf-8"
+        ).startswith("\U0001f389 fake comfyui started")
+    finally:
+        kill_fake_comfyui_processes(comfyui_root)
+
+
 def test_stop_backend_stops_listener_when_pid_file_points_to_launcher(tmp_path: Path) -> None:
     comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
     write_fake_reexec_main_py(comfyui_root)
@@ -794,6 +884,88 @@ def test_stop_backend_stops_listener_when_pid_file_points_to_launcher(tmp_path: 
         assert check.returncode == 0, check.stderr
         assert json.loads(check.stdout)["listener_present"] is False
     finally:
+        kill_fake_comfyui_processes(comfyui_root)
+
+
+def test_stop_backend_does_not_kill_unmanaged_parent_launcher(tmp_path: Path) -> None:
+    comfyui_root, data_root, extra_models_config = make_fake_comfyui(tmp_path)
+    write_fake_listening_main_py(comfyui_root)
+    launcher_path = tmp_path / "external_launcher.py"
+    write_fake_external_launcher(launcher_path, comfyui_root)
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    port = reserve_free_port()
+    launcher = subprocess.Popen(
+        [
+            sys.executable,
+            str(launcher_path),
+            "--user-directory",
+            str(data_root / "user"),
+            "--input-directory",
+            str(data_root / "input"),
+            "--output-directory",
+            str(data_root / "output"),
+            "--base-directory",
+            str(data_root),
+            "--listen",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ]
+    )
+
+    try:
+        wait_for_port(port)
+        listener_check = run_powershell(
+            SCRIPT_DIR / "check_backend.ps1",
+            "-Json",
+            "-PythonExe",
+            sys.executable,
+            "-ComfyUIRoot",
+            comfyui_root,
+            "-DataRoot",
+            data_root,
+            "-ExtraModelsConfig",
+            extra_models_config,
+            "-RuntimeDir",
+            runtime_dir,
+            "-HostAddress",
+            "127.0.0.1",
+            "-Port",
+            str(port),
+        )
+        assert listener_check.returncode == 0, listener_check.stderr
+        listener_pid = json.loads(listener_check.stdout)["listener_pid"]
+        (runtime_dir / "comfyui-backend.pid").write_text(
+            str(listener_pid),
+            encoding="ascii",
+        )
+        (runtime_dir / "comfyui-backend.launcher.pid").write_text(
+            str(launcher.pid),
+            encoding="ascii",
+        )
+
+        stop = run_fake_backend_stop(
+            comfyui_root=comfyui_root,
+            data_root=data_root,
+            extra_models_config=extra_models_config,
+            runtime_dir=runtime_dir,
+            port=port,
+        )
+
+        assert stop.returncode == 0, stop.stderr
+        payload = json.loads(stop.stdout)
+        assert payload["stopped"] is True
+        assert payload["stopped_listener"] is True
+        assert payload["stopped_launcher"] is False
+        assert launcher.poll() is None
+    finally:
+        launcher.terminate()
+        try:
+            launcher.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            launcher.kill()
+            launcher.wait(timeout=10)
         kill_fake_comfyui_processes(comfyui_root)
 
 

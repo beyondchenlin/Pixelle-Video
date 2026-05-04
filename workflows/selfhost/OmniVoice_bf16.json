@@ -1,0 +1,472 @@
+{
+  "id": "c9c2640a-3e5e-49f0-9b39-18fd3dc432bd",
+  "revision": 0,
+  "last_node_id": 11,
+  "last_link_id": 12,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "PreviewAny",
+      "pos": [
+        1457.0394287109375,
+        317.7225341796875
+      ],
+      "size": [
+        254.97756958007812,
+        93.90634155273438
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "source",
+          "name": "source",
+          "type": "*",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "label": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewAny",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 10,
+      "type": "SaveAudio",
+      "pos": [
+        1469.13134765625,
+        81.9948501586914
+      ],
+      "size": [
+        270,
+        112
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 11
+        },
+        {
+          "label": "filename_prefix",
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          }
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveAudio",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "audio/ComfyUI"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "Qwen3ASRLoader",
+      "pos": [
+        201.39306640625,
+        281.9137878417969
+      ],
+      "size": [
+        315,
+        174
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "label": "model",
+          "name": "model",
+          "type": "QWEN3_ASR_MODEL",
+          "links": [
+            6
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Qwen3ASRLoader",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "Qwen/Qwen3-ASR-1.7B",
+        "ModelScope",
+        "bf16",
+        "auto",
+        "None",
+        ""
+      ]
+    },
+    {
+      "id": 4,
+      "type": "LoadAudio",
+      "pos": [
+        -219.9365692138672,
+        229.5189666748047
+      ],
+      "size": [
+        282.798828125,
+        136
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "COMBO",
+          "widget": {
+            "name": "audio"
+          }
+        },
+        {
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
+        },
+        {
+          "label": "upload",
+          "name": "upload",
+          "type": "AUDIOUPLOAD",
+          "widget": {
+            "name": "upload"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "AUDIO",
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            4,
+            7
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadAudio",
+        "cnr_id": "comfy-core",
+        "ver": "0.17.0",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "aa96e6c5e69d1615851a6bdb233f3482cea5b228e033eac75d822386d18596f3.wav",
+        null,
+        null
+      ]
+    },
+    {
+      "id": 6,
+      "type": "OmniVoiceVoiceCloneTTS",
+      "pos": [
+        918.306640625,
+        63.3663215637207
+      ],
+      "size": [
+        476.5643310546875,
+        507.3406982421875
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "ref_audio",
+          "name": "ref_audio",
+          "type": "AUDIO",
+          "link": 4
+        },
+        {
+          "label": "text",
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": 12
+        },
+        {
+          "label": "ref_text",
+          "name": "ref_text",
+          "type": "STRING",
+          "widget": {
+            "name": "ref_text"
+          },
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            11
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "OmniVoiceVoiceCloneTTS",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "OmniVoice-bf16",
+        "\u9428\u56e6\u7b02\u9428\u52ef\u6f70\u9479\u53c9\u6e6d\u9359\u6a48\u7d1d\u7039\u6d98\ue6e7\u95c6\u66de\ue516\u9478\ue104\u6f64\u59dd\ue76e\u7d1d\u6d60\u682b\u6b91\u942a\u95f4\u8151\u95c2\ue047\u7e43\u6d93\u20ac\u6d93\u6fc6\u59e9\u6d5c\u8679\u6b91\u5a13\u2541\u5bb3\u9286\u5099\u7cac\u5a23\u8fa8\u7e41\u9366\u626e\u6e45\u6d5c\u55db\u5045\u6d63\u5d85\u7e5d\u8e47\u51ad\u20ac\u80ef\u20ac\u8de8\u6b91\u9477\uff45\u74d9\u6d93\u20ac\u942a\u7877\u7d1d\u7f01\u581c\u7c2c\u5bee\u20ac\u9359\uff4f\u7d30\u9225\u6ec6\ue1ef\u951b\u5c7e\u579c\u6d7c\u6c2c\u5540\u9470\u51ad\u6abb\u9470\u51ad\u6abb\u9428\u52e9\u20ac\u5097\u20ac\u6fc5\u7cac\u9428\u52eb\uff10\u95ca\u5145\u7d86\u5a0c\u5909\u7b16\u9367\u6c2c\u757e\u951b\u5c80\u6680\u6d93\u5b2c\u2516\u59d8\u65be\u8151\u95c5\u6130\u6ba3\u9428\u52ec\u68e4\u6fc2\u581c\u7b0c\u93cc\u65c0\u510f\u9286?",
+        "",
+        32,
+        2,
+        0.1,
+        1,
+        0,
+        "auto",
+        "auto",
+        "auto",
+        1146600167,
+        "randomize",
+        5,
+        0,
+        5,
+        true,
+        true,
+        true,
+        false,
+        ""
+      ]
+    },
+    {
+      "id": 11,
+      "type": "CR Prompt Text",
+      "pos": [
+        120.88452911376953,
+        610.627685546875
+      ],
+      "size": [
+        400,
+        200
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "links": [
+            12
+          ]
+        },
+        {
+          "label": "show_help",
+          "name": "show_help",
+          "type": "STRING"
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CR Prompt Text",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "\u9428\u56e6\u7b02\u9428\u52ef\u6f70\u9479\u53c9\u6e6d\u9359\u6a48\u7d1d\u7039\u6d98\ue6e7\u95c6\u66de\ue516\u9478\ue104\u6f64\u59dd\ue76e\u7d1d\u6d60\u682b\u6b91\u942a\u95f4\u8151\u95c2\ue047\u7e43\u6d93\u20ac\u6d93\u6fc6\u59e9\u6d5c\u8679\u6b91\u5a13\u2541\u5bb3\u9286\u5099\u7cac\u5a23\u8fa8\u7e41\u9366\u626e\u6e45\u6d5c\u55db\u5045\u6d63\u5d85\u7e5d\u8e47\u51ad\u20ac\u80ef\u20ac\u8de8\u6b91\u9477\uff45\u74d9\u6d93\u20ac\u942a\u7877\u7d1d\u7f01\u581c\u7c2c\u5bee\u20ac\u9359\uff4f\u7d30\u9225\u6ec6\ue1ef\u951b\u5c7e\u579c\u6d7c\u6c2c\u5540\u9470\u51ad\u6abb\u9470\u51ad\u6abb\u9428\u52e9\u20ac\u5097\u20ac\u6fc5\u7cac\u9428\u52eb\uff10\u95ca\u5145\u7d86\u5a0c\u5909\u7b16\u9367\u6c2c\u757e\u951b\u5c80\u6680\u6d93\u5b2c\u2516\u59d8\u65be\u8151\u95c5\u6130\u6ba3\u9428\u52ec\u68e4\u6fc2\u581c\u7b0c\u93cc\u65c0\u510f\u9286?"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "Qwen3ASRTranscribe",
+      "pos": [
+        547.6699829101562,
+        294.86236572265625
+      ],
+      "size": [
+        270,
+        78
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "model",
+          "name": "model",
+          "type": "QWEN3_ASR_MODEL",
+          "link": 6
+        },
+        {
+          "label": "audio",
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "label": "text",
+          "name": "text",
+          "type": "STRING",
+          "links": [
+            8,
+            9
+          ]
+        },
+        {
+          "label": "language",
+          "name": "language",
+          "type": "STRING"
+        },
+        {
+          "label": "timestamps",
+          "name": "timestamps",
+          "type": "STRING"
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Qwen3ASRTranscribe",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "auto",
+        "",
+        false
+      ]
+    }
+  ],
+  "links": [
+    [
+      4,
+      4,
+      0,
+      6,
+      0,
+      "AUDIO"
+    ],
+    [
+      6,
+      7,
+      0,
+      8,
+      0,
+      "QWEN3_ASR_MODEL"
+    ],
+    [
+      7,
+      4,
+      0,
+      8,
+      1,
+      "AUDIO"
+    ],
+    [
+      8,
+      8,
+      0,
+      6,
+      4,
+      "STRING"
+    ],
+    [
+      9,
+      8,
+      0,
+      1,
+      0,
+      "*"
+    ],
+    [
+      11,
+      6,
+      0,
+      10,
+      0,
+      "AUDIO"
+    ],
+    [
+      12,
+      11,
+      0,
+      6,
+      3,
+      "STRING"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "B\u7ed4\u6b0d\u20ac\u4e4aoutube\u951b\u6b4d8star-Aix",
+      "bounding": [
+        -538.1067504882812,
+        -404.2988586425781,
+        4167.669921875,
+        308.8702087402344
+      ],
+      "color": "#3f789e",
+      "font_size": 240,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "links_added_by_ue": [],
+    "ue_links": [],
+    "0246.VERSION": [
+      0,
+      0,
+      4
+    ],
+    "ds": {
+      "scale": 1.0610764609500007,
+      "offset": [
+        692.9278941772102,
+        188.22419176939536
+      ]
+    },
+    "frontendVersion": "1.23.0",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}
