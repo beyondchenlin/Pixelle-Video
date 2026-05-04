@@ -143,6 +143,11 @@ class ConfigManager:
             "runninghub_api_key": self.config.comfyui.runninghub_api_key,
             "runninghub_concurrent_limit": self.config.comfyui.runninghub_concurrent_limit,
             "runninghub_instance_type": self.config.comfyui.runninghub_instance_type,
+            "backends": {
+                name: profile.model_dump()
+                for name, profile in self.config.comfyui.backends.items()
+            },
+            "workflow_routing": self.config.comfyui.workflow_routing.model_dump(),
             "tts": {
                 "default_workflow": self.config.comfyui.tts.default_workflow,
                 "inference_mode": self.config.comfyui.tts.inference_mode,
@@ -193,7 +198,9 @@ class ConfigManager:
         comfyui_api_key: Optional[str] = None,
         runninghub_api_key: Optional[str] = None,
         runninghub_concurrent_limit: Optional[int] = None,
-        runninghub_instance_type: Optional[str] = None
+        runninghub_instance_type: Optional[str] = None,
+        backends: Optional[dict[str, Any]] = None,
+        workflow_routing: Optional[dict[str, str]] = None,
     ):
         """Set ComfyUI global configuration"""
         updates = {}
@@ -218,6 +225,10 @@ class ConfigManager:
         if runninghub_instance_type is not None:
             # Empty string means disable (treat as None for storage)
             updates["runninghub_instance_type"] = runninghub_instance_type if runninghub_instance_type else None
+        if backends is not None:
+            updates["backends"] = backends
+        if workflow_routing is not None:
+            updates["workflow_routing"] = workflow_routing
         
         if updates:
             self.update({"comfyui": updates})

@@ -15,6 +15,7 @@ Configuration schema with Pydantic models
 
 Single source of truth for all configuration defaults and validation.
 """
+import re
 from typing import Any, Literal, Optional
 
 from loguru import logger
@@ -453,9 +454,78 @@ def _validate_storyboard_cross_references(world_library: StoryboardWorldPresetLi
             )
 
 
+DEFAULT_COMFYUI_URL = "http://127.0.0.1:8188"
+_BACKEND_PROFILE_NAME_PATTERN = re.compile(r"^[a-z0-9_-]+$")
+
+
+class ComfyUIBackendProfile(BaseModel):
+    """Single ComfyUI backend profile."""
+
+    url: str = Field(default="", description="ComfyUI backend server URL")
+    python_exe: Optional[str] = Field(default=None, description="Python executable for managed ComfyUI")
+    comfyui_root: Optional[str] = Field(default=None, description="ComfyUI application root directory")
+    frontend_root: Optional[str] = Field(default=None, description="ComfyUI frontend root directory")
+    extra_models_config: Optional[str] = Field(default=None, description="Extra model paths configuration file")
+    managed: bool = Field(default=True, description="Whether Pixelle manages this backend process")
+    restart_after_batch: bool = Field(default=False, description="Restart backend after each workflow batch")
+    data_root: str = Field(default="", description="ComfyUI data root for this profile")
+    runtime_dir: str = Field(default="", description="Runtime directory for this profile")
+    logs_dir: str = Field(default="", description="Log directory for this profile")
+    database_url: str = Field(default="", description="ComfyUI database URL for this profile")
+
+
+class ComfyUIWorkflowRouting(BaseModel):
+    """Workflow type to ComfyUI backend profile routing."""
+
+    image: str = Field(default="default", description="Backend profile for image workflows")
+    tts: str = Field(default="default", description="Backend profile for TTS workflows")
+    default: str = Field(default="default", description="Fallback backend profile")
+
+
+def _validate_backend_profile_name(profile_name: str) -> None:
+    if not _BACKEND_PROFILE_NAME_PATTERN.fullmatch(profile_name):
+        raise ValueError(
+            "backend profile name must contain only lowercase letters, "
+            "numbers, underscores, and hyphens"
+        )
+
+
+def _default_backend_profile_payload(profile_name: str, fallback_url: str) -> dict[str, Any]:
+    data_root = f"E:/ComfyUIData/pixelle-{profile_name}"
+    return {
+        "url": fallback_url,
+        "managed": True,
+        "restart_after_batch": False,
+        "data_root": data_root,
+        "runtime_dir": f"_runtime/comfyui/{profile_name}",
+        "logs_dir": f"logs/comfyui/{profile_name}",
+        "database_url": f"sqlite:///{data_root}/user/comfyui.db",
+    }
+
+
+def _normalize_backend_profile(
+    profile_name: str,
+    profile: ComfyUIBackendProfile,
+    fallback_url: str,
+) -> ComfyUIBackendProfile:
+    payload = profile.model_dump()
+    defaults = _default_backend_profile_payload(profile_name, fallback_url)
+    for field_name, default_value in defaults.items():
+        if field_name == "database_url":
+            continue
+        current_value = payload.get(field_name)
+        if current_value is None or (isinstance(current_value, str) and not current_value):
+            payload[field_name] = default_value
+    payload["data_root"] = payload["data_root"].replace("\\", "/").rstrip("/")
+    if not payload.get("database_url"):
+        payload["database_url"] = f"sqlite:///{payload['data_root']}/user/comfyui.db"
+
+    return ComfyUIBackendProfile.model_validate(payload)
+
+
 class ComfyUIConfig(BaseModel):
     """ComfyUI configuration (includes global settings and service-specific configs)"""
-    comfyui_url: str = Field(default="http://127.0.0.1:8188", description="ComfyUI Server URL")
+    comfyui_url: str = Field(default=DEFAULT_COMFYUI_URL, description="ComfyUI Server URL")
     executor_type: Optional[Literal["http", "websocket"]] = Field(
         default=None,
         description="Optional ComfyUI executor override for selfhost workflows",
@@ -491,6 +561,14 @@ class ComfyUIConfig(BaseModel):
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")
     runninghub_concurrent_limit: int = Field(default=1, ge=1, le=10, description="RunningHub concurrent execution limit (1-10)")
     runninghub_instance_type: Optional[str] = Field(default=None, description="RunningHub instance type (optional, set to 'plus' for 48GB VRAM)")
+    backends: dict[str, ComfyUIBackendProfile] = Field(
+        default_factory=dict,
+        description="Named ComfyUI backend profiles",
+    )
+    workflow_routing: ComfyUIWorkflowRouting = Field(
+        default_factory=ComfyUIWorkflowRouting,
+        description="Workflow type to backend profile routing",
+    )
     tts: TTSSubConfig = Field(default_factory=TTSSubConfig, description="TTS-specific configuration")
     image: ImageSubConfig = Field(default_factory=ImageSubConfig, description="Image-specific configuration")
     video: VideoSubConfig = Field(default_factory=VideoSubConfig, description="Video-specific configuration")
@@ -541,6 +619,37 @@ class ComfyUIConfig(BaseModel):
             )
 
         return normalized
+
+    @model_validator(mode="after")
+    def normalize_backend_profiles_and_routing(self):
+        fallback_url = self.comfyui_url or DEFAULT_COMFYUI_URL
+        normalized_backends: dict[str, ComfyUIBackendProfile] = {}
+
+        for profile_name, profile in self.backends.items():
+            _validate_backend_profile_name(profile_name)
+            normalized_backends[profile_name] = _normalize_backend_profile(
+                profile_name,
+                profile,
+                fallback_url,
+            )
+
+        if "default" not in normalized_backends:
+            normalized_backends["default"] = _normalize_backend_profile(
+                "default",
+                ComfyUIBackendProfile(),
+                fallback_url,
+            )
+
+        self.backends = normalized_backends
+
+        for field_name in ("image", "tts", "default"):
+            routed_profile = getattr(self.workflow_routing, field_name)
+            if routed_profile not in self.backends:
+                raise ValueError(
+                    f"workflow_routing.{field_name} must reference an existing backend profile"
+                )
+
+        return self
 
 
 class TemplateConfig(BaseModel):

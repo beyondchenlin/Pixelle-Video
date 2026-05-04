@@ -216,3 +216,46 @@ def test_legacy_post_generation_cleanup_fields_are_not_exposed(monkeypatch):
 
     assert "post_generation_cleanup_mode" not in comfyui_config
     assert "post_generation_cleanup_intensity" not in comfyui_config
+
+
+def test_comfyui_config_exposes_backends_and_workflow_routing(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "comfyui_url": "http://127.0.0.1:8000",
+                    "backends": {
+                        "image": {"url": "http://127.0.0.1:8001"},
+                        "tts": {"url": "http://127.0.0.1:8002"},
+                    },
+                    "workflow_routing": {"image": "image", "tts": "tts"},
+                }
+            }
+        ),
+    )
+
+    comfyui_config = config_manager.get_comfyui_config()
+
+    assert comfyui_config["backends"]["image"]["url"] == "http://127.0.0.1:8001"
+    assert comfyui_config["backends"]["tts"]["url"] == "http://127.0.0.1:8002"
+    assert comfyui_config["workflow_routing"]["image"] == "image"
+    assert comfyui_config["workflow_routing"]["tts"] == "tts"
+
+
+def test_set_comfyui_config_accepts_backends_and_workflow_routing(monkeypatch):
+    monkeypatch.setattr(config_manager, "config", PixelleVideoConfig())
+
+    config_manager.set_comfyui_config(
+        backends={
+            "image": {"url": "http://127.0.0.1:8001"},
+            "tts": {"url": "http://127.0.0.1:8002"},
+        },
+        workflow_routing={"image": "image", "tts": "tts"},
+    )
+
+    assert config_manager.config.comfyui.backends["image"].url == "http://127.0.0.1:8001"
+    assert config_manager.config.comfyui.backends["tts"].url == "http://127.0.0.1:8002"
+    assert config_manager.config.comfyui.workflow_routing.image == "image"
+    assert config_manager.config.comfyui.workflow_routing.tts == "tts"
