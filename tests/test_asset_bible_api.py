@@ -195,11 +195,14 @@ def _asset_bible_payload(**overrides) -> dict[str, Any]:
     payload = {
         "workspace_id": "workspace_1",
         "asset_bible_id": "bible_demo",
-        "ip_profile_id": "ip_main",
-        "ip_name": "Pixelle Demo",
-        "world_hint": "Soft futuristic city.",
-        "style_hint": "clean comic panels",
-        "forbidden_elements": ["brand logos"],
+        "ip_profiles": [
+            {
+                "ip_profile_id": "ip_main",
+                "name": "Pixelle Demo",
+                "world_hint": "Soft futuristic city.",
+                "style_hint": "clean comic panels",
+            }
+        ],
         "character_profiles": [
             {
                 "character_id": "char_luna",
@@ -315,9 +318,6 @@ def test_asset_bible_api_creates_draft_through_repository_without_local_paths():
     assert body["asset_bible"]["asset_bible_id"] == "bible_demo"
     assert body["asset_bible"]["project_id"] == "project_1"
     assert body["asset_bible"]["ip_profiles"][0]["name"] == "Pixelle Demo"
-    assert body["asset_bible"]["ip_profiles"][0]["forbidden_elements"] == [
-        "brand logos"
-    ]
     assert body["asset_bible"]["character_profiles"][0]["character_id"] == "char_luna"
     assert "local_path" not in str(body)
     assert "C:\\" not in str(body)
@@ -482,7 +482,9 @@ def test_asset_bible_api_updates_draft_through_repository():
 
     response = client.put(
         "/projects/project_1/asset-bible/bible_demo",
-        json=_asset_bible_payload(ip_name="Updated IP"),
+        json=_asset_bible_payload(
+            ip_profiles=[{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+        ),
     )
 
     assert response.status_code == 200
@@ -503,7 +505,9 @@ def test_asset_bible_api_update_uses_stale_aware_write_service_when_configured()
 
     response = client.put(
         "/projects/project_1/asset-bible/bible_demo",
-        json=_asset_bible_payload(ip_name="Updated IP"),
+        json=_asset_bible_payload(
+            ip_profiles=[{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+        ),
     )
 
     assert response.status_code == 200
@@ -521,7 +525,9 @@ def test_asset_bible_api_update_rejects_partial_stale_repository_configuration()
 
     response = client.put(
         "/projects/project_1/asset-bible/bible_demo",
-        json=_asset_bible_payload(ip_name="Updated IP"),
+        json=_asset_bible_payload(
+            ip_profiles=[{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+        ),
     )
 
     assert response.status_code == 503
@@ -563,12 +569,64 @@ def test_asset_bible_api_maps_domain_validation_errors_to_422():
 
     response = client.post(
         "/projects/project_1/asset-bible",
-        json=_asset_bible_payload(forbidden_elements=[""]),
+        json=_asset_bible_payload(
+            ip_profiles=[
+                {
+                    "ip_profile_id": "ip_main",
+                    "name": "Pixelle Demo",
+                    "identity_anchors": [""],
+                }
+            ],
+        ),
     )
 
     assert response.status_code == 422
-    assert "forbidden_elements" in response.json()["detail"]
+    assert "identity_anchors" in str(response.json()["detail"])
     assert repository.saved == []
+
+
+def test_update_asset_bible_preserves_structured_ip_profile_fields():
+    repository = FakeAssetBibleRepository()
+    client = _client(repository)
+    payload = _asset_bible_payload(
+        ip_profiles=[
+            {
+                "ip_profile_id": "ip_main",
+                "name": "正定向导兔",
+                "logline": "一只白色兔子古城向导。",
+                "world_hint": "正定古城、城墙、古寺、青砖、历史文化旅游。",
+                "style_hint": "亲和、清爽、适合文旅短视频。",
+                "identity_lock": ["白色卡通兔子", "长耳朵", "圆润脸型"],
+                "identity_anchors": ["蓝色领结", "浅粉色耳朵内侧"],
+                "identity_suppression_rules": ["远景时弱化耳朵内侧细节"],
+                "variable_slots": ["动作", "表情", "站位"],
+                "semantic_boundary": ["不能变成人类", "不能替代历史建筑"],
+                "negative_constraints": ["避免画成普通人类讲解者", "避免多余文字"],
+                "color_palette": {
+                    "tie": {"hex": "#006BFF", "prompt": "鲜明宝蓝色领结"}
+                },
+                "image_text_palette": {
+                    "title": {"hex": "#5A2A12", "prompt": "深棕色墨迹标题字"}
+                },
+                "visible_text_whitelist": ["长乐门", "正定古城"],
+                "metadata": {"source": "unit-test"},
+            }
+        ],
+    )
+
+    response = client.put(
+        "/projects/project_1/asset-bible/bible_demo",
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    profile = response.json()["asset_bible"]["ip_profiles"][0]
+    assert profile["identity_lock"] == ["白色卡通兔子", "长耳朵", "圆润脸型"]
+    assert profile["identity_anchors"] == ["蓝色领结", "浅粉色耳朵内侧"]
+    assert profile["semantic_boundary"] == ["不能变成人类", "不能替代历史建筑"]
+    assert profile["negative_constraints"] == ["避免画成普通人类讲解者", "避免多余文字"]
+    assert profile["color_palette"]["tie"]["prompt"] == "鲜明宝蓝色领结"
+    assert profile["visible_text_whitelist"] == ["长乐门", "正定古城"]
 
 
 def test_asset_bible_api_rejects_text_rendering_style_metadata():

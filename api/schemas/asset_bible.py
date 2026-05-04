@@ -90,45 +90,111 @@ class StyleProfileDraft(PublicMetadataModel):
         return validate_public_reference_id(info.field_name, value)
 
 
+class IPProfileDraft(PublicMetadataModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ip_profile_id: str
+    name: str
+    logline: str | None = None
+    world_hint: str | None = None
+    style_hint: str | None = None
+    identity_lock: list[str] = Field(default_factory=list)
+    identity_anchors: list[str] = Field(default_factory=list)
+    identity_suppression_rules: list[str] = Field(default_factory=list)
+    variable_slots: list[str] = Field(default_factory=list)
+    semantic_boundary: list[str] = Field(default_factory=list)
+    negative_constraints: list[str] = Field(default_factory=list)
+    color_palette: dict[str, Any] = Field(default_factory=dict)
+    image_text_palette: dict[str, Any] = Field(default_factory=dict)
+    visible_text_whitelist: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("ip_profile_id")
+    @classmethod
+    def validate_ids(cls, value: str, info) -> str:
+        return validate_public_reference_id(info.field_name, value)
+
+    @field_validator(
+        "identity_lock",
+        "identity_anchors",
+        "identity_suppression_rules",
+        "variable_slots",
+        "semantic_boundary",
+        "negative_constraints",
+        "visible_text_whitelist",
+    )
+    @classmethod
+    def validate_text_list(cls, value: list[str], info) -> list[str]:
+        cleaned = [item.strip() for item in value if isinstance(item, str) and item.strip()]
+        if len(cleaned) != len(value):
+            raise ValueError(f"{info.field_name} must not include blank values")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError(f"{info.field_name} must not include duplicate values")
+        return cleaned
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        reject_unsafe_public_metadata("metadata", value)
+        return value
+
+    def to_model(self, *, workspace_id: str, project_id: str) -> IPProfile:
+        return IPProfile(
+            ip_profile_id=self.ip_profile_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            name=self.name,
+            logline=self.logline,
+            world_hint=self.world_hint,
+            style_hint=self.style_hint,
+            identity_lock=tuple(self.identity_lock),
+            identity_anchors=tuple(self.identity_anchors),
+            identity_suppression_rules=tuple(self.identity_suppression_rules),
+            variable_slots=tuple(self.variable_slots),
+            semantic_boundary=tuple(self.semantic_boundary),
+            negative_constraints=tuple(self.negative_constraints),
+            color_palette=self.color_palette,
+            image_text_palette=self.image_text_palette,
+            visible_text_whitelist=tuple(self.visible_text_whitelist),
+            metadata=self.metadata,
+        )
+
+
 class AssetBibleDraftRequest(PublicMetadataModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: str
     asset_bible_id: str
-    ip_profile_id: str = "ip_default"
-    ip_name: str
-    logline: str | None = None
-    world_hint: str | None = None
-    style_hint: str | None = None
-    forbidden_elements: list[str] = Field(default_factory=list)
+    ip_profiles: list[IPProfileDraft] = Field(min_length=1)
     character_profiles: list[CharacterProfileDraft] = Field(default_factory=list)
     scene_assets: list[SceneAssetDraft] = Field(default_factory=list)
     prop_assets: list[PropAssetDraft] = Field(default_factory=list)
     style_profiles: list[StyleProfileDraft] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("workspace_id", "asset_bible_id", "ip_profile_id")
+    @field_validator("workspace_id", "asset_bible_id")
     @classmethod
     def validate_ids(cls, value: str, info) -> str:
         return validate_public_reference_id(info.field_name, value)
 
+    @field_validator("ip_profiles")
+    @classmethod
+    def validate_ip_profiles(cls, value: list[IPProfileDraft]) -> list[IPProfileDraft]:
+        ids = [item.ip_profile_id for item in value]
+        if len(set(ids)) != len(ids):
+            raise ValueError("ip_profiles must not include duplicate ip_profile_id")
+        return value
+
     def to_model(self, *, project_id: str) -> AssetBible:
+        ip_profiles = tuple(
+            profile.to_model(workspace_id=self.workspace_id, project_id=project_id)
+            for profile in self.ip_profiles
+        )
         return AssetBible(
             asset_bible_id=self.asset_bible_id,
             workspace_id=self.workspace_id,
             project_id=project_id,
-            ip_profiles=(
-                IPProfile(
-                    ip_profile_id=self.ip_profile_id,
-                    workspace_id=self.workspace_id,
-                    project_id=project_id,
-                    name=self.ip_name,
-                    logline=self.logline,
-                    world_hint=self.world_hint,
-                    style_hint=self.style_hint,
-                    forbidden_elements=tuple(self.forbidden_elements),
-                ),
-            ),
+            ip_profiles=ip_profiles,
             character_profiles=tuple(
                 CharacterProfile(
                     character_id=profile.character_id,
@@ -270,7 +336,15 @@ class IPProfileResponse(BaseModel):
     logline: str | None = None
     world_hint: str | None = None
     style_hint: str | None = None
-    forbidden_elements: list[str] = Field(default_factory=list)
+    identity_lock: list[str] = Field(default_factory=list)
+    identity_anchors: list[str] = Field(default_factory=list)
+    identity_suppression_rules: list[str] = Field(default_factory=list)
+    variable_slots: list[str] = Field(default_factory=list)
+    semantic_boundary: list[str] = Field(default_factory=list)
+    negative_constraints: list[str] = Field(default_factory=list)
+    color_palette: dict[str, Any] = Field(default_factory=dict)
+    image_text_palette: dict[str, Any] = Field(default_factory=dict)
+    visible_text_whitelist: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("ip_profile_id", "workspace_id", "project_id")
@@ -744,6 +818,7 @@ __all__ = [
     "AssetBibleListResponse",
     "AssetBibleResponse",
     "CharacterProfileDraft",
+    "IPProfileDraft",
     "PromptPlanApplyPayload",
     "PromptPlanApplyRequest",
     "PromptPlanApplyResponse",
