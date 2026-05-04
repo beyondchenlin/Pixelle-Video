@@ -38,12 +38,15 @@ def build_tts_generation_kwargs(
         tts_workflow = video_params.get("tts_workflow")
         ref_audio = video_params.get("ref_audio")
         ref_audio_text = video_params.get("ref_audio_text")
+        tts_duration = video_params.get("tts_duration")
         if tts_workflow:
             tts_kwargs["workflow"] = tts_workflow
         if ref_audio:
             tts_kwargs["ref_audio"] = ref_audio
         if ref_audio_text:
             tts_kwargs["ref_audio_text"] = ref_audio_text
+        if tts_duration is not None:
+            tts_kwargs["duration"] = tts_duration
 
     return tts_kwargs
 

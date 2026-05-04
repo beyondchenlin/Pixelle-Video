@@ -125,6 +125,7 @@ from web.utils.tts_split_mode_ui import get_tts_split_mode_default
 from web.utils.tts_ui import (
     resolve_comfyui_tts_speed,
     resolve_configured_tts_mode,
+    tts_workflow_supports_duration,
     tts_workflow_reference_audio_missing,
 )
 from web.utils.workflow_defaults import resolve_selectbox_default_index
@@ -2426,6 +2427,7 @@ def render_style_config(
             tts_workflow_key = None
             ref_audio_path = None
             ref_audio_text = None
+            tts_duration = None
         
         # ================================================================
         # ComfyUI Mode UI
@@ -2465,6 +2467,16 @@ def render_style_config(
                 expanded=True,
             )
             ref_audio_path, ref_audio_text = render_tts_voice_profile_controls(tts_workflow_key)
+            tts_duration = None
+            if tts_workflow_supports_duration(tts_workflow_key):
+                tts_duration = st.number_input(
+                    tr("tts.duration_seconds"),
+                    min_value=0.5,
+                    max_value=60.0,
+                    value=8.0,
+                    step=0.1,
+                    key="tts_duration_seconds",
+                )
             missing_required_ref_audio = tts_workflow_reference_audio_missing(
                 tts_mode=tts_mode,
                 tts_workflow_key=tts_workflow_key,
@@ -2514,6 +2526,8 @@ def render_style_config(
                                 tts_params["ref_audio"] = str(ref_audio_path)
                             if ref_audio_text:
                                 tts_params["ref_audio_text"] = ref_audio_text
+                            if tts_duration is not None:
+                                tts_params["duration"] = tts_duration
                         
                         audio_path = run_async(pixelle_video.tts(**tts_params))
                         
@@ -3192,6 +3206,7 @@ def render_style_config(
         "tts_voice": selected_voice if tts_mode == "local" else None,
         "tts_speed": tts_speed,
         "tts_workflow": tts_workflow_key if tts_mode == "comfyui" else None,
+        "tts_duration": tts_duration if tts_mode == "comfyui" else None,
         "ref_audio": str(ref_audio_path) if ref_audio_path else None,
         "ref_audio_text": ref_audio_text if tts_mode == "comfyui" and ref_audio_text else None,
         "render_backend": render_backend,

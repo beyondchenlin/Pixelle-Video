@@ -51,6 +51,10 @@ async def test_storyboard_persistence_round_trip_preserves_planning_snapshot_and
             role_strategy="stable_explainer_cast",
             role_locking_strength="strong",
             shot_strategy="strict",
+            tts_workflow="selfhost/tts_omnivoice_clone_duration_bf16.json",
+            tts_duration=8.0,
+            ref_audio="reference_audio/omnivoice/bange.wav",
+            ref_audio_text="这是参考音频文本。",
         ),
         frames=[
             StoryboardFrame(
@@ -92,6 +96,10 @@ async def test_storyboard_persistence_round_trip_preserves_planning_snapshot_and
     assert loaded.config.role_strategy == "stable_explainer_cast"
     assert loaded.config.role_locking_strength == "strong"
     assert loaded.config.shot_strategy == "strict"
+    assert loaded.config.tts_workflow == "selfhost/tts_omnivoice_clone_duration_bf16.json"
+    assert loaded.config.tts_duration == 8.0
+    assert loaded.config.ref_audio == "reference_audio/omnivoice/bange.wav"
+    assert loaded.config.ref_audio_text == "这是参考音频文本。"
     assert loaded.frames[0].shot_type == "medium_shot"
     assert loaded.frames[0].shot_purpose == "context"
     assert loaded.frames[0].frame_source == "planner_generated"

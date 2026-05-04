@@ -18,6 +18,10 @@ class VideoGenerateInternalRequest(VideoGenerateRequest):
         None,
         description="Internal reference audio path or object key",
     )
+    ref_audio_text: Optional[str] = Field(
+        None,
+        description="Internal reference audio transcript resolved by trusted tooling",
+    )
     media_workflow: Optional[str] = Field(
         None,
         description="Internal media workflow key or path resolved by trusted tooling",

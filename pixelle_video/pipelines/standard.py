@@ -1231,6 +1231,12 @@ class StandardPipeline(LinearVideoPipeline):
             single_audio_block = True
             if config.tts_split_mode != INTERNAL_ONLY_TTS_SPLIT_MODE:
                 max_chars = max(1, int(config.max_chars_per_tts_segment))
+        elif (
+            self._uses_omnivoice_longform_workflow(config.tts_workflow)
+            and getattr(config, "tts_audio_strategy", "per_frame")
+            == MASTER_TRACK_TTS_AUDIO_STRATEGY
+        ):
+            single_audio_block = True
 
         return max_sentences, max_chars, normalize_block_text_for_tts, single_audio_block
 

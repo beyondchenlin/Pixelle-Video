@@ -18,6 +18,7 @@ RESOURCE_METHODS = {
     "resolve_voice_id",
     "resolve_bgm_id",
     "resolve_workflow_preset_id",
+    "resolve_tts_workflow_preset_id",
     "resolve_provider_preset_id",
 }
 
@@ -41,6 +42,7 @@ def test_static_resource_resolver_resolves_configured_resource_ids():
         voices={"narrator": "voice:narrator"},
         bgms={"ambient": "bgm:ambient"},
         workflow_presets={"imageTurbo": "workflow-preset:image-turbo"},
+        tts_workflow_presets={"voiceDuration": "tts-workflow-preset:duration"},
         provider_presets={"defaultProvider": "provider-preset:default"},
     )
 
@@ -69,6 +71,11 @@ def test_static_resource_resolver_resolves_configured_resource_ids():
         resolved_value="workflow-preset:image-turbo",
         metadata=MappingProxyType({}),
     )
+    assert resolver.resolve_tts_workflow_preset_id("voiceDuration") == ResolvedResource(
+        resource_id="voiceDuration",
+        resolved_value="tts-workflow-preset:duration",
+        metadata=MappingProxyType({}),
+    )
     assert resolver.resolve_provider_preset_id("defaultProvider") == ResolvedResource(
         resource_id="defaultProvider",
         resolved_value="provider-preset:default",
@@ -89,6 +96,7 @@ def test_static_resource_resolver_copies_configured_mappings():
     voices = {"narrator": "voice:narrator"}
     bgms = {"ambient": "bgm:ambient"}
     workflow_presets = {"imageTurbo": "workflow-preset:image-turbo"}
+    tts_workflow_presets = {"voiceDuration": "tts-workflow-preset:duration"}
     provider_presets = {"defaultProvider": "provider-preset:default"}
     resolver = StaticResourceResolver(
         styles=styles,
@@ -96,6 +104,7 @@ def test_static_resource_resolver_copies_configured_mappings():
         voices=voices,
         bgms=bgms,
         workflow_presets=workflow_presets,
+        tts_workflow_presets=tts_workflow_presets,
         provider_presets=provider_presets,
     )
 
@@ -104,6 +113,7 @@ def test_static_resource_resolver_copies_configured_mappings():
     voices["narrator"] = "voice:mutated"
     bgms["ambient"] = "bgm:mutated"
     workflow_presets["imageTurbo"] = "workflow-preset:mutated"
+    tts_workflow_presets["voiceDuration"] = "tts-workflow-preset:mutated"
     provider_presets["defaultProvider"] = "provider-preset:mutated"
 
     assert resolver.resolve_style_id("cinematic").resolved_value == "style:cinematic"
@@ -113,6 +123,10 @@ def test_static_resource_resolver_copies_configured_mappings():
     assert (
         resolver.resolve_workflow_preset_id("imageTurbo").resolved_value
         == "workflow-preset:image-turbo"
+    )
+    assert (
+        resolver.resolve_tts_workflow_preset_id("voiceDuration").resolved_value
+        == "tts-workflow-preset:duration"
     )
     assert (
         resolver.resolve_provider_preset_id("defaultProvider").resolved_value

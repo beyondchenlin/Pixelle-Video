@@ -35,6 +35,13 @@ def get_required_tts_workflow_params(workflow_key: Any) -> frozenset[str]:
     )
 
 
+def tts_workflow_exposes_param(workflow_key: Any, param_name: str) -> bool:
+    metadata = get_tts_workflow_metadata(workflow_key)
+    if metadata is None:
+        return False
+    return str(param_name) in metadata.params
+
+
 def tts_workflow_requires_ref_audio(workflow_key: Any) -> bool:
     return "ref_audio" in get_required_tts_workflow_params(workflow_key)
 

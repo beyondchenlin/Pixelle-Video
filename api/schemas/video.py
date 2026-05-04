@@ -233,6 +233,10 @@ class VideoGenerateRequest(BaseModel):
         None,
         description="Public media workflow preset resource ID resolved server-side",
     )
+    tts_workflow_preset_id: Optional[str] = Field(
+        None,
+        description="Public TTS workflow preset resource ID resolved server-side",
+    )
     ip_enabled: bool = Field(
         False,
         description="Enable IP prompt chain for image prompt generation.",
@@ -430,6 +434,7 @@ class VideoGenerateRequest(BaseModel):
         "template_id",
         "bgm_id",
         "workflow_preset_id",
+        "tts_workflow_preset_id",
         "ip_asset_bible_id",
         "ip_profile_id",
     )

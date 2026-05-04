@@ -54,6 +54,7 @@ def test_public_video_request_rejects_raw_generation_controls(raw_field: str, ra
         ("voice_id", "voices/cn.wav"),
         ("bgm_id", r"C:\music\bgm.mp3"),
         ("workflow_preset_id", "selfhost/image_z_image_turbo_gguf.json"),
+        ("tts_workflow_preset_id", "selfhost/tts_omnivoice_clone_duration_bf16.json"),
     ],
 )
 def test_public_video_request_rejects_path_like_resource_ids(
@@ -73,6 +74,7 @@ def test_internal_video_request_keeps_raw_debug_controls():
         frame_template=DEFAULT_IMAGE_TEMPLATE,
         bgm_path=r"D:\music\bgm.mp3",
         ref_audio=r"D:\voice\sample.wav",
+        ref_audio_text="reference transcript",
     )
 
     assert request.prompt_prefix == "arbitrary cinematic noir prefix"
@@ -81,6 +83,7 @@ def test_internal_video_request_keeps_raw_debug_controls():
     assert request.frame_template == DEFAULT_IMAGE_TEMPLATE
     assert request.bgm_path == r"D:\music\bgm.mp3"
     assert request.ref_audio == r"D:\voice\sample.wav"
+    assert request.ref_audio_text == "reference transcript"
 
 
 def test_public_video_generation_params_resolve_resource_ids():
@@ -90,6 +93,9 @@ def test_public_video_generation_params_resolve_resource_ids():
         voices={"voice_cn": "zh-CN-XiaoxiaoNeural"},
         bgms={"soft_bgm": "bgm/soft.mp3"},
         workflow_presets={"z_image_fast": "selfhost/image_z_image_turbo_gguf.json"},
+        tts_workflow_presets={
+            "omnivoice_duration": "selfhost/tts_omnivoice_clone_duration_bf16.json"
+        },
     )
     request = VideoGenerateRequest(
         text="demo",
@@ -98,6 +104,7 @@ def test_public_video_generation_params_resolve_resource_ids():
         voice_id="voice_cn",
         bgm_id="soft_bgm",
         workflow_preset_id="z_image_fast",
+        tts_workflow_preset_id="omnivoice_duration",
     )
 
     params = build_video_generation_params(
@@ -111,9 +118,11 @@ def test_public_video_generation_params_resolve_resource_ids():
     assert params["voice_id"] == "zh-CN-XiaoxiaoNeural"
     assert params["bgm_path"] == "bgm/soft.mp3"
     assert params["media_workflow"] == "selfhost/image_z_image_turbo_gguf.json"
+    assert params["tts_workflow"] == "selfhost/tts_omnivoice_clone_duration_bf16.json"
     assert "style_id" not in params
     assert "template_id" not in params
     assert "workflow_preset_id" not in params
+    assert "tts_workflow_preset_id" not in params
 
 
 def test_public_video_generation_contract_accepts_edge_voice_id_resource():

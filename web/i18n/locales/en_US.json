@@ -472,6 +472,7 @@
     "tts.ref_audio_help": "Upload audio file for voice cloning (only supported by some workflows)",
     "tts.reference_audio_required": "The selected TTS workflow requires reference audio. Select a saved voice, or upload and save a reference voice before generating.",
     "tts.ref_audio_text": "Reference Audio Transcript",
+    "tts.duration_seconds": "Target Duration (s)",
     "tts.ref_audio_text_help": "Transcript of the reference audio. Some reference-audio cloning workflows use this to improve similarity and stability.",
     "tts.ref_audio_text_placeholder": "Enter the exact words spoken in the reference audio...",
     "tts.voice_profile_select": "Saved Voice",

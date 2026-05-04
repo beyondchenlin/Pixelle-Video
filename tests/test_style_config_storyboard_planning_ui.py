@@ -674,6 +674,140 @@ def test_render_style_config_warns_when_selected_tts_requires_reference_audio(mo
     assert preview_buttons[-1]["disabled"] is True
 
 
+def test_render_style_config_returns_tts_duration_for_duration_workflow(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["template_type_selector"] = "static"
+    fake_st.session_state["tts_inference_mode"] = "comfyui"
+    fake_st.session_state["tts_workflow_select"] = "OmniVoice Duration"
+    fake_st.session_state["tts_duration_seconds"] = 8.0
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key.format(**kwargs) if kwargs else key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_comfyui_config",
+        lambda: {
+            "comfyui_url": "http://127.0.0.1:8000",
+            "tts": {
+                "inference_mode": "comfyui",
+                "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2},
+                "comfyui": {
+                    "default_workflow": "selfhost/tts_omnivoice_longform_bf16.json"
+                },
+            },
+            "image": {},
+            "video": {},
+        },
+    )
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "render_backend")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
+    monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(style_config, "render_selfhost_workflow_notice", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        style_config,
+        "render_tts_voice_profile_controls",
+        lambda _workflow_key, **_kwargs: ("voice.wav", "参考音频文本"),
+    )
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_storyboard_world_preset_library",
+        lambda: {
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [{"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}],
+        },
+    )
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_storyboard_shot_preset_library",
+        lambda: {
+            "default_shot_preset_id": "balanced_explainer",
+            "items": [{"preset_id": "balanced_explainer", "display_name": "Balanced"}],
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_template_type",
+        lambda _template_name: "static",
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
+        lambda _template_type: {
+            "1080x1920": [
+                type(
+                    "TemplateInfo",
+                    (),
+                    {
+                        "template_path": "1080x1920/static_default.html",
+                        "display_info": type(
+                            "DisplayInfo",
+                            (),
+                            {
+                                "name": "static_default",
+                                "orientation": "portrait",
+                                "width": 1080,
+                                "height": 1920,
+                            },
+                        )(),
+                    },
+                )()
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.parse_template_size",
+        lambda _path: (1080, 1920),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda path: path,
+    )
+
+    class _FakeFrameGenerator:
+        def __init__(self, _template_path):
+            self._template_path = _template_path
+
+        def parse_template_parameters(self):
+            return {}
+
+        def get_media_size(self):
+            return (1080, 1920)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+
+    class _FakeTTS:
+        @staticmethod
+        def list_workflows():
+            return [
+                {
+                    "display_name": "OmniVoice Duration",
+                    "key": "selfhost/tts_omnivoice_clone_duration_bf16.json",
+                },
+                {
+                    "display_name": "OmniVoice Longform",
+                    "key": "selfhost/tts_omnivoice_longform_bf16.json",
+                },
+            ]
+
+    class _FakeMedia:
+        @staticmethod
+        def list_workflows():
+            return []
+
+    class _FakeVideo:
+        config = {"template": {}}
+        tts = _FakeTTS()
+        media = _FakeMedia()
+
+    result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
+
+    assert result["tts_workflow"] == "selfhost/tts_omnivoice_clone_duration_bf16.json"
+    assert result["tts_duration"] == 8.0
+
+
 def test_render_style_config_local_mode_preview_button_does_not_require_ref_audio(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "static"

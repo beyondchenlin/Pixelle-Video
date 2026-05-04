@@ -1255,6 +1255,27 @@ def test_build_single_generation_request_includes_tts_speed_for_comfyui():
     assert request["tts_workflow"] == "selfhost/tts_index2.json"
 
 
+def test_build_single_generation_request_includes_tts_duration_for_comfyui():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "title": "Demo",
+            "tts_inference_mode": "comfyui",
+            "tts_workflow": "selfhost/tts_omnivoice_clone_duration_bf16.json",
+            "tts_duration": 8.0,
+            "ref_audio": "temp/ref.wav",
+        },
+        progress_callback=_progress,
+        session_state={"template_media_width": 1080, "template_media_height": 1920},
+    )
+
+    assert request["tts_duration"] == 8.0
+
+
 def test_build_single_generation_request_rejects_ref_audio_required_workflow_without_voice():
     def _progress(_event):
         return None
@@ -1290,6 +1311,20 @@ def test_build_batch_shared_config_includes_tts_speed_for_comfyui():
 
     assert shared_config["tts_workflow"] == "selfhost/tts_index2.json"
     assert shared_config["tts_speed"] == 1.2
+
+
+def test_build_batch_shared_config_includes_tts_duration_for_comfyui():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "title_prefix": "Series",
+            "tts_inference_mode": "comfyui",
+            "tts_workflow": "selfhost/tts_omnivoice_clone_duration_bf16.json",
+            "tts_duration": 8.0,
+            "ref_audio": "temp/ref.wav",
+        }
+    )
+
+    assert shared_config["tts_duration"] == 8.0
 
 
 def test_build_batch_shared_config_rejects_ref_audio_required_workflow_without_voice():

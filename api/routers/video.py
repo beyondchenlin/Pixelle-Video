@@ -65,6 +65,7 @@ PUBLIC_RESOURCE_PARAM_NAMES = (
     "voice_id",
     "bgm_id",
     "workflow_preset_id",
+    "tts_workflow_preset_id",
 )
 
 
@@ -238,6 +239,10 @@ def _build_raw_resource_params(
     if request_body.workflow_preset_id:
         raw_params["media_workflow"] = resource_resolver.resolve_workflow_preset_id(
             request_body.workflow_preset_id
+        ).resolved_value
+    if request_body.tts_workflow_preset_id:
+        raw_params["tts_workflow"] = resource_resolver.resolve_tts_workflow_preset_id(
+            request_body.tts_workflow_preset_id
         ).resolved_value
     return raw_params
 

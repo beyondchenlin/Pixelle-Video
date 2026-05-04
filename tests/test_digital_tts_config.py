@@ -345,6 +345,94 @@ def test_digital_tts_config_warns_when_selected_tts_requires_reference_audio(mon
     }
 
 
+def test_digital_tts_config_returns_tts_duration_for_duration_workflow(monkeypatch):
+    class FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeStreamlit(FakeContext):
+        session_state = {
+            "digital_tts_workflow_select": "OmniVoice Duration",
+            "digital_tts_duration_seconds": 8.0,
+        }
+
+        def container(self, border=False):
+            return self
+
+        def expander(self, label, expanded=False):
+            return self
+
+        def markdown(self, body):
+            return None
+
+        def radio(self, label, options, *, horizontal, format_func, index, key):
+            return "comfyui"
+
+        def caption(self, body):
+            return None
+
+        def selectbox(self, label, options, *, index=0, key=None, label_visibility=None):
+            return self.session_state.get(key, options[index])
+
+        def number_input(self, label, value=0.0, **kwargs):
+            return self.session_state.get(kwargs.get("key"), value)
+
+        def text_input(self, label, *, value, placeholder, key):
+            return value
+
+        def button(self, label, *, key, width, disabled=False):
+            return False
+
+    class FakeConfigManager:
+        def get_comfyui_config(self):
+            return {
+                "tts": {
+                    "inference_mode": "comfyui",
+                    "local": {"speed": 1.2},
+                    "comfyui": {
+                        "default_workflow": "selfhost/tts_omnivoice_longform_bf16.json"
+                    },
+                }
+            }
+
+    class FakeTTS:
+        def list_workflows(self):
+            return [
+                {
+                    "display_name": "OmniVoice Duration",
+                    "key": "selfhost/tts_omnivoice_clone_duration_bf16.json",
+                },
+                {
+                    "display_name": "OmniVoice Longform",
+                    "key": "selfhost/tts_omnivoice_longform_bf16.json",
+                },
+            ]
+
+    fake_pixelle_video = type("FakePixelleVideo", (), {"tts": FakeTTS()})()
+
+    monkeypatch.setattr(digital_tts_config, "st", FakeStreamlit())
+    monkeypatch.setattr(digital_tts_config, "config_manager", FakeConfigManager())
+    monkeypatch.setattr(digital_tts_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(
+        digital_tts_config,
+        "render_selfhost_workflow_notice",
+        lambda _workflow_key: None,
+    )
+    monkeypatch.setattr(
+        digital_tts_config,
+        "render_tts_voice_profile_controls",
+        lambda _workflow_key, *, key_prefix: ("voice.wav", "参考音频文本"),
+    )
+
+    result = digital_tts_config.render_style_config(fake_pixelle_video)
+
+    assert result["tts_workflow"] == "selfhost/tts_omnivoice_clone_duration_bf16.json"
+    assert result["tts_duration"] == 8.0
+
+
 def test_digital_tts_config_local_mode_preview_button_does_not_require_ref_audio(monkeypatch):
     captured = {"buttons": []}
 

@@ -286,6 +286,38 @@ async def test_standard_pipeline_master_concat_uses_boundary_fade(monkeypatch, t
 
 
 @pytest.mark.asyncio
+async def test_standard_pipeline_initialize_storyboard_uses_single_block_for_omnivoice_longform():
+    pipeline = StandardPipeline(_FakeCore())
+    segment = "这一段讲系统如何把长文本交给 OmniVoice 统一生成。"
+    segments = [f"{segment}{index}" for index in range(40)]
+    ctx = PipelineContext(
+        input_text="demo",
+        params={
+            "media_width": 1080,
+            "media_height": 1920,
+            "tts_inference_mode": "comfyui",
+            "tts_workflow": "selfhost/tts_omnivoice_longform_bf16.json",
+            "tts_audio_strategy": "master_track",
+            "ref_audio": "voice.wav",
+            "ref_audio_text": "这是参考音频文本。",
+        },
+    )
+    ctx.task_id = "task-omnivoice-longform-init"
+    ctx.title = "demo"
+    ctx.storyboard_plan = _storyboard_plan_from_segments(segments)
+    ctx.image_prompts = [f"prompt {index}" for index in range(len(segments))]
+
+    await pipeline.initialize_storyboard(ctx)
+
+    assert ctx.timing_plan is not None
+    assert len(ctx.timing_plan.blocks) == 1
+    assert ctx.timing_plan.blocks[0].text == ctx.caption_speech_plan.source_text
+    assert sorted(set(ctx.timing_plan.blocks[0].source_frame_indices)) == list(
+        range(len(segments))
+    )
+
+
+@pytest.mark.asyncio
 async def test_standard_pipeline_master_track_omnivoice_uses_longform_blocks(monkeypatch, tmp_path):
     class RecordingTts:
         def __init__(self):

@@ -49,6 +49,8 @@ class ResourceResolver(Protocol):
 
     def resolve_workflow_preset_id(self, resource_id: str) -> ResolvedResource: ...
 
+    def resolve_tts_workflow_preset_id(self, resource_id: str) -> ResolvedResource: ...
+
     def resolve_provider_preset_id(self, resource_id: str) -> ResolvedResource: ...
 
 
@@ -66,6 +68,7 @@ class StaticResourceResolver:
         voices: ResourceMapping | None = None,
         bgms: ResourceMapping | None = None,
         workflow_presets: ResourceMapping | None = None,
+        tts_workflow_presets: ResourceMapping | None = None,
         provider_presets: ResourceMapping | None = None,
     ) -> None:
         self._styles = _freeze_mapping("style", styles)
@@ -73,6 +76,10 @@ class StaticResourceResolver:
         self._voices = _freeze_mapping("voice", voices)
         self._bgms = _freeze_mapping("bgm", bgms)
         self._workflow_presets = _freeze_mapping("workflow_preset", workflow_presets)
+        self._tts_workflow_presets = _freeze_mapping(
+            "tts_workflow_preset",
+            tts_workflow_presets,
+        )
         self._provider_presets = _freeze_mapping("provider_preset", provider_presets)
 
     def resolve_style_id(self, resource_id: str) -> ResolvedResource:
@@ -89,6 +96,13 @@ class StaticResourceResolver:
 
     def resolve_workflow_preset_id(self, resource_id: str) -> ResolvedResource:
         return self._resolve("workflow_preset", resource_id, self._workflow_presets)
+
+    def resolve_tts_workflow_preset_id(self, resource_id: str) -> ResolvedResource:
+        return self._resolve(
+            "tts_workflow_preset",
+            resource_id,
+            self._tts_workflow_presets,
+        )
 
     def resolve_provider_preset_id(self, resource_id: str) -> ResolvedResource:
         return self._resolve("provider_preset", resource_id, self._provider_presets)

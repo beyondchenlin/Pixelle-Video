@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from pixelle_video.config.tts_defaults import get_configured_tts_inference_mode
-from pixelle_video.tts_workflow_contract import tts_workflow_missing_required_ref_audio
+from pixelle_video.tts_workflow_contract import (
+    tts_workflow_exposes_param,
+    tts_workflow_missing_required_ref_audio,
+)
 
 
 def resolve_configured_tts_mode(tts_config: dict | None) -> str:
@@ -34,3 +37,7 @@ def tts_workflow_reference_audio_missing(
         tts_mode == "comfyui"
         and tts_workflow_missing_required_ref_audio(tts_workflow_key, ref_audio_path)
     )
+
+
+def tts_workflow_supports_duration(tts_workflow_key: str | None) -> bool:
+    return tts_workflow_exposes_param(tts_workflow_key, "duration")

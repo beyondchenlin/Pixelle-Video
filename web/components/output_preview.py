@@ -863,6 +863,9 @@ def build_single_generation_request(video_params, *, progress_callback, session_
         ref_audio_text = video_params.get("ref_audio_text")
         if ref_audio_text:
             request["ref_audio_text"] = ref_audio_text
+        tts_duration = video_params.get("tts_duration")
+        if tts_duration is not None:
+            request["tts_duration"] = tts_duration
 
     tts_speed = video_params.get("tts_speed")
     if tts_speed is not None:
@@ -950,6 +953,9 @@ def build_batch_shared_config(video_params):
         ref_audio_text = video_params.get("ref_audio_text")
         if ref_audio_text:
             shared_config["ref_audio_text"] = ref_audio_text
+        tts_duration = video_params.get("tts_duration")
+        if tts_duration is not None:
+            shared_config["tts_duration"] = tts_duration
 
     if video_params.get("template_params"):
         shared_config["template_params"] = video_params["template_params"]
@@ -1170,6 +1176,7 @@ def _render_generation_section(pixelle_video, video_params):
                                 "tts_voice": selected_voice,
                                 "tts_speed": tts_speed,
                                 "tts_workflow": tts_workflow_key,
+                                "tts_duration": video_params.get("tts_duration"),
                                 "ref_audio": ref_audio_path,
                                 "ref_audio_text": ref_audio_text,
                                 "template_params": custom_values_for_video,
