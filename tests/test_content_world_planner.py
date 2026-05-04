@@ -81,6 +81,24 @@ async def test_content_world_planner_falls_back_when_llm_fails():
 
 
 @pytest.mark.asyncio
+async def test_content_world_planner_falls_back_when_llm_returns_empty_profile():
+    async def empty_llm(**kwargs):
+        return {}
+
+    profile = await ContentWorldPlanner().plan(
+        llm_service=empty_llm,
+        source_text="从长乐门出发，这是正定的南大门。",
+        generation_world_hint=None,
+        ip_world_hint=None,
+        world_preset={"display_name": "Neutral"},
+    )
+
+    assert profile.hint_source == ContentWorldHintSource.FALLBACK
+    assert profile.generation_failed is True
+    assert "从长乐门出发" in profile.summary
+
+
+@pytest.mark.asyncio
 async def test_content_world_planner_logs_warning_before_fallback(monkeypatch):
     warnings = []
 

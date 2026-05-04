@@ -1190,6 +1190,43 @@ async def test_generate_styled_image_prompt_batch_builds_generation_world_profil
 
 
 @pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_passes_generation_world_profile_to_real_prompt_builder(
+    monkeypatch,
+):
+    captured = {}
+
+    class _WorldPlanner:
+        async def plan(self, **kwargs):
+            return ContentWorldProfile(
+                summary="正定古城清晨漫游",
+                story_constraints="不能替代长乐门",
+                ip_integration_guidance="IP 作为低侵入陪伴式向导",
+                hint_source=ContentWorldHintSource.MANUAL,
+            )
+
+    async def fake_llm_service(**kwargs):
+        captured["prompt"] = kwargs["prompt"]
+        return type("Resp", (), {"image_prompts": ["base scene prompt"]})()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.ContentWorldPlanner",
+        lambda: _WorldPlanner(),
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=fake_llm_service,
+        narrations=["从长乐门出发，这是正定的南大门。"],
+        image_config={},
+        generation_world_hint="古城清晨漫游，IP 是陪伴式向导。",
+        text_rendering=_suppress_image_text(),
+    )
+
+    assert "generation_world_profile" in captured["prompt"]
+    assert "正定古城清晨漫游" in captured["prompt"]
+    assert result.planning_snapshot["generation_world_profile"]["summary"] == "正定古城清晨漫游"
+
+
+@pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_passes_prompt_contexts_to_storyboard_planner(monkeypatch):
     captured = {}
     prompt_contexts = [
