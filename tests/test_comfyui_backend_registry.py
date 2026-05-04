@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from pixelle_video import service as service_module
 from pixelle_video.config import config_manager
 from pixelle_video.config.schema import ComfyUIConfig, PixelleVideoConfig
 from pixelle_video.service import PixelleVideoCore
@@ -96,3 +97,44 @@ def test_core_backend_registry_uses_latest_comfyui_config(monkeypatch):
 
     assert first_registry.profile("image").url == "http://127.0.0.1:8001"
     assert latest_registry.profile("image").url == "http://127.0.0.1:9001"
+
+
+@pytest.mark.asyncio
+async def test_core_maintenance_path_keeps_service_client_monkeypatch(monkeypatch):
+    calls = []
+
+    class _Client:
+        def __init__(self, base_url, *, api_key=None, idle_wait_timeout=20.0):
+            calls.append(("init", base_url, api_key, idle_wait_timeout))
+
+        async def cleanup_before_generation(self, mode):
+            calls.append(("cleanup", mode))
+
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "comfyui_url": "http://127.0.0.1:8000",
+                    "comfyui_api_key": "secret-token",
+                    "pre_generation_cleanup_timeout_seconds": 45.0,
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(service_module, "ComfyUIMaintenanceClient", _Client)
+
+    core = PixelleVideoCore()
+    monkeypatch.setattr(
+        core,
+        "_get_comfyui_backend_registry",
+        lambda: pytest.fail("maintenance paths must not require the registry"),
+    )
+
+    await core.prepare_comfyui_for_local_workflow()
+
+    assert calls == [
+        ("init", "http://127.0.0.1:8000", "secret-token", 45.0),
+        ("cleanup", "force"),
+    ]
