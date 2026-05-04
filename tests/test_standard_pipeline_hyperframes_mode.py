@@ -627,6 +627,19 @@ def test_resolve_effective_render_backend_falls_back_to_ffmpeg_manifest_for_long
     assert "long-duration" in fallback_reason
 
 
+def test_resolve_effective_render_backend_uses_two_minute_duration_threshold(
+    tmp_path,
+):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes_compiled")
+    ctx.config.video_fps = 10
+    ctx.master_audio_duration = 121.0
+    ctx.storyboard.total_duration = 121.0
+
+    assert pipeline._resolve_effective_render_backend(ctx) == "ffmpeg_manifest"
+
+
 def test_resolve_effective_render_backend_estimates_long_hyperframes_before_audio_exists(
     tmp_path,
 ):

@@ -149,7 +149,7 @@ from pixelle_video.utils.workflow_capabilities import (
     get_workflow_capabilities,
 )
 
-HYPERFRAMES_LONG_RENDER_FALLBACK_FRAME_THRESHOLD = 3600
+HYPERFRAMES_LONG_RENDER_FALLBACK_SECONDS = 120.0
 HYPERFRAMES_CJK_CHARS_PER_SECOND_ESTIMATE = 4.0
 HYPERFRAMES_LATIN_WORDS_PER_SECOND_ESTIMATE = 2.5
 
@@ -964,9 +964,7 @@ class StandardPipeline(LinearVideoPipeline):
             return None
         return self._get_hyperframes_template_unavailable_reason(ctx)
 
-    def _estimate_hyperframes_render_frame_count(self, ctx: PipelineContext) -> Optional[int]:
-        fps = max(int(getattr(ctx.config, "video_fps", 0) or 0), 1)
-
+    def _estimate_hyperframes_render_duration(self, ctx: PipelineContext) -> Optional[float]:
         master_audio_duration = getattr(ctx, "master_audio_duration", None)
         if master_audio_duration is None:
             master_audio_duration = getattr(getattr(ctx, "storyboard", None), "total_duration", None)
@@ -983,7 +981,24 @@ class StandardPipeline(LinearVideoPipeline):
         if duration <= 0:
             return None
 
-        return int(round(duration * fps))
+        return duration
+
+    def _estimate_hyperframes_render_frame_count(
+        self,
+        ctx: PipelineContext,
+        *,
+        duration: Optional[float] = None,
+    ) -> Optional[int]:
+        fps = max(int(getattr(ctx.config, "video_fps", 0) or 0), 1)
+        render_duration = (
+            self._estimate_hyperframes_render_duration(ctx)
+            if duration is None
+            else duration
+        )
+        if render_duration is None:
+            return None
+
+        return int(round(max(float(render_duration), 0.0) * fps))
 
     def _estimate_narration_duration_for_render_routing(
         self,
@@ -1022,15 +1037,20 @@ class StandardPipeline(LinearVideoPipeline):
         if getattr(ctx.config, "element_animation_enabled", False):
             return None
 
-        frame_count = self._estimate_hyperframes_render_frame_count(ctx)
-        if frame_count is None:
+        duration = self._estimate_hyperframes_render_duration(ctx)
+        if duration is None:
             return None
-        if frame_count <= HYPERFRAMES_LONG_RENDER_FALLBACK_FRAME_THRESHOLD:
+        if duration <= HYPERFRAMES_LONG_RENDER_FALLBACK_SECONDS:
             return None
 
+        frame_count = self._estimate_hyperframes_render_frame_count(
+            ctx,
+            duration=duration,
+        )
         return (
             "ffmpeg_manifest selected for long-duration static render: "
-            f"estimated HyperFrames screenshot workload is {frame_count} frames"
+            f"estimated duration is {duration:.1f}s and estimated HyperFrames "
+            f"screenshot workload is {frame_count} frames"
         )
 
     def _get_hyperframes_template_unavailable_reason(
