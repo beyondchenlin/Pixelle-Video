@@ -214,7 +214,9 @@ def test_omnivoice_bf16_workflow_uses_intentional_readable_defaults():
         "Generate a short, natural voice clone sample for the local OmniVoice workflow."
     )
     assert _node_by_id(workflow, 6)["widgets_values"][1:3] == [clean_prompt, ""]
-    assert _nodes_by_type(workflow, "CR Prompt Text") == []
+    prompt_nodes = _nodes_by_type(workflow, "PrimitiveStringMultiline")
+    assert len(prompt_nodes) == 1
+    assert prompt_nodes[0]["widgets_values"] == [clean_prompt]
     assert _nodes_by_type(workflow, "PreviewAny") == []
 
 
@@ -235,9 +237,21 @@ def test_omnivoice_bf16_voice_clone_uses_whisper_like_all_workflow():
     clone_inputs = {input_spec["name"]: input_spec for input_spec in clone_nodes[0]["inputs"]}
 
     assert "ref_text" not in clone_inputs
-    assert "text" not in clone_inputs
+    assert clone_inputs["text"]["type"] == "STRING"
     assert clone_inputs["ref_audio"]["type"] == "AUDIO"
     assert clone_inputs["whisper_model"]["type"] == "WHISPER_ASR"
+
+    prompt_nodes = _nodes_by_type(workflow, "PrimitiveStringMultiline")
+    assert len(prompt_nodes) == 1
+    text_link = links[clone_inputs["text"]["link"]]
+    assert text_link == [
+        clone_inputs["text"]["link"],
+        prompt_nodes[0]["id"],
+        0,
+        clone_nodes[0]["id"],
+        1,
+        "STRING",
+    ]
 
     whisper_link = links[clone_inputs["whisper_model"]["link"]]
     assert whisper_link == [
@@ -245,7 +259,7 @@ def test_omnivoice_bf16_voice_clone_uses_whisper_like_all_workflow():
         whisper_nodes[0]["id"],
         0,
         clone_nodes[0]["id"],
-        1,
+        2,
         "WHISPER_ASR",
     ]
 

@@ -1,8 +1,8 @@
 {
   "id": "c9c2640a-3e5e-49f0-9b39-18fd3dc432bd",
   "revision": 0,
-  "last_node_id": 10,
-  "last_link_id": 11,
+  "last_node_id": 11,
+  "last_link_id": 12,
   "nodes": [
     {
       "id": 4,
@@ -78,7 +78,7 @@
         507.3406982421875
       ],
       "flags": {},
-      "order": 2,
+      "order": 3,
       "mode": 0,
       "inputs": [
         {
@@ -86,6 +86,15 @@
           "name": "ref_audio",
           "type": "AUDIO",
           "link": 4
+        },
+        {
+          "label": "text",
+          "name": "text",
+          "type": "STRING",
+          "widget": {
+            "name": "text"
+          },
+          "link": 12
         },
         {
           "label": "whisper_model",
@@ -181,7 +190,7 @@
         112
       ],
       "flags": {},
-      "order": 3,
+      "order": 4,
       "mode": 0,
       "inputs": [
         {
@@ -215,6 +224,49 @@
       "widgets_values": [
         "audio/ComfyUI"
       ]
+    },
+    {
+      "id": 11,
+      "type": "PrimitiveStringMultiline",
+      "pos": [
+        114.0,
+        540.0
+      ],
+      "size": [
+        430.0,
+        155.0
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "value",
+          "name": "value",
+          "type": "STRING",
+          "widget": {
+            "name": "value"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "label": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            12
+          ]
+        }
+      ],
+      "title": "Text to synthesize",
+      "properties": {
+        "Node name for S&R": "PrimitiveStringMultiline",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "Generate a short, natural voice clone sample for the local OmniVoice workflow."
+      ]
     }
   ],
   "links": [
@@ -231,7 +283,7 @@
       7,
       0,
       6,
-      1,
+      2,
       "WHISPER_ASR"
     ],
     [
@@ -241,6 +293,14 @@
       10,
       0,
       "AUDIO"
+    ],
+    [
+      12,
+      11,
+      0,
+      6,
+      1,
+      "STRING"
     ]
   ],
   "groups": [
