@@ -179,3 +179,84 @@ def test_usage_planner_uses_serious_documentary_style_as_low_intrusion_signal():
         IPPresenceType.SYMBOLIC_ONLY,
         IPPresenceType.ABSENT,
     }
+
+
+def test_usage_planner_reads_scene_cast_metadata_ip_presence_type_override():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="古城路线从地图上展开。",
+        visual_goal="表现路线总览",
+        prompt_intent="旅行路线说明",
+        primary_subject="正定古城路线图",
+    )
+    plan = _plan(frame)
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_profile(),
+        scene_casts_by_frame={
+            plan.frames[0].frame_id: {
+                "metadata": {"ip_presence_type": "strong_identity"},
+            },
+        },
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.STRONG_IDENTITY
+
+
+def test_usage_planner_reads_scene_cast_metadata_presence_type_override():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="古城路线从地图上展开。",
+        visual_goal="表现路线总览",
+        prompt_intent="旅行路线说明",
+        primary_subject="正定古城路线图",
+    )
+    plan = _plan(frame)
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_profile(),
+        scene_casts_by_frame={
+            plan.frames[0].frame_id: {
+                "metadata": {"presence_type": "strong_identity"},
+            },
+        },
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.STRONG_IDENTITY
+
+
+def test_usage_planner_treats_uppercase_english_documentary_style_as_low_intrusion():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="镜头缓慢扫过城墙纹理。",
+        visual_goal="表现朴素、克制的记录感",
+        prompt_intent="空间质感说明",
+        shot_type="全景",
+        shot_purpose="说明环境",
+        primary_subject="城墙纹理",
+        world_elements=("砖石", "阴影", "墙面"),
+    )
+
+    documentary_package = IPUsagePlanner().plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=_profile(),
+        resolved_style={"style_kind": "Documentary"},
+    )[0]
+    serious_package = IPUsagePlanner().plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=_profile(),
+        resolved_style={"style_kind": "SERIOUS DOCUMENTARY"},
+    )[0]
+
+    assert documentary_package.ip_presence_type in {
+        IPPresenceType.LOW_INTRUSION,
+        IPPresenceType.SYMBOLIC_ONLY,
+        IPPresenceType.ABSENT,
+    }
+    assert serious_package.ip_presence_type in {
+        IPPresenceType.LOW_INTRUSION,
+        IPPresenceType.SYMBOLIC_ONLY,
+        IPPresenceType.ABSENT,
+    }

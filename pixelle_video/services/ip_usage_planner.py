@@ -124,6 +124,10 @@ def _presence_type_from_scene_cast(scene_cast: Any | None) -> IPPresenceType | N
         return None
     value = scene_cast.get("ip_presence_type") or scene_cast.get("presence_type")
     if value is None:
+        metadata = scene_cast.get("metadata")
+        if isinstance(metadata, Mapping):
+            value = metadata.get("ip_presence_type") or metadata.get("presence_type")
+    if value is None:
         return None
     try:
         return IPPresenceType(value)
@@ -134,7 +138,7 @@ def _presence_type_from_scene_cast(scene_cast: Any | None) -> IPPresenceType | N
 def _style_is_serious_documentary(resolved_style: Mapping[str, Any] | None) -> bool:
     if not isinstance(resolved_style, Mapping):
         return False
-    return _contains_any(_flatten_mapping_text(resolved_style), _SERIOUS_STYLE_KEYWORDS)
+    return _contains_any(_flatten_mapping_text(resolved_style).lower(), _SERIOUS_STYLE_KEYWORDS)
 
 
 def _flatten_mapping_text(value: Any) -> str:
