@@ -53,6 +53,16 @@ def _build_layered_template_editor_css() -> str:
         overflow: hidden;
         text-overflow: ellipsis;
     }
+    div[class*="st-key-layered_template_layer_card_"] {
+        container-type: inline-size;
+    }
+    div[class*="st-key-layered_template_layer_card_"] div[data-testid="stHorizontalBlock"] {
+        align-items: center;
+    }
+    div[class*="st-key-layered_template_layer_card_"] button {
+        min-height: 2rem;
+        white-space: nowrap;
+    }
     </style>
     """
 
@@ -153,9 +163,34 @@ def _render_layered_template_layer_controls(
         f"{layer.name} - {layer.type} - "
         f"{int(layer.rect.width)}x{int(layer.rect.height)} - z{layer.z_index}"
     )
-    with ui.container(border=True):
-        ui.markdown(f"**{escape(label)}**")
-        key_prefix = f"layered_template_layer_{layer.id}"
+    key_prefix = f"layered_template_layer_{layer.id}"
+    expanded_key = f"{key_prefix}_expanded"
+    expanded = bool(ui.session_state.get(expanded_key, layer.id == state.selected_layer_id))
+    ui.session_state[expanded_key] = expanded
+    with ui.container(border=True, key=f"layered_template_layer_card_{layer.id}"):
+        header_columns = ui.columns([4, 1])
+        with header_columns[0]:
+            ui.markdown(f"**{escape(label)}**")
+        with header_columns[1]:
+            toggle_label = _layered_template_editor_text(
+                "layered_template.editor.layer_collapse"
+                if expanded
+                else "layered_template.editor.layer_expand",
+                zh="收起" if expanded else "展开",
+                en="Collapse" if expanded else "Expand",
+                translate=translate,
+            )
+            if ui.button(
+                toggle_label,
+                key=f"{key_prefix}_toggle",
+                width="stretch",
+            ):
+                expanded = not expanded
+                ui.session_state[expanded_key] = expanded
+
+        if not expanded:
+            return state
+
         name = ui.text_input(
             translate("layered_template.editor.layer_name"),
             value=layer.name,

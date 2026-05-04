@@ -725,6 +725,73 @@ def test_render_style_config_adds_layers_from_layered_template_editor_buttons(mo
     ] == ["background", "image", "text"]
 
 
+def test_render_layer_design_config_collapses_non_selected_layer_cards(monkeypatch):
+    from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
+    from web.components import layer_design_config
+
+    state = (
+        LayeredTemplateEditorState.empty(
+            canvas_width=720,
+            canvas_height=1280,
+            media_width=768,
+            media_height=768,
+        )
+        .append_background_layer("Background layer 1")
+        .append_text_layer("Text layer 1")
+    )
+    background_layer_id = state.layers[0].id
+    text_layer_id = state.layers[1].id
+    fake_st = _FakeStreamlit()
+    fake_st.session_state.update(
+        {
+            f"layered_template_layer_{background_layer_id}_expanded": False,
+            f"layered_template_layer_{text_layer_id}_expanded": True,
+        }
+    )
+
+    button_calls = []
+    text_input_keys = []
+
+    def fake_button(label, **kwargs):
+        button_calls.append({"label": label, **kwargs})
+        return False
+
+    def fake_text_input(_label, **kwargs):
+        text_input_keys.append(kwargs["key"])
+        return kwargs.get("value", "")
+
+    fake_st.button = fake_button
+    fake_st.text_input = fake_text_input
+    monkeypatch.setattr(layer_design_config, "get_language", lambda: "en_US")
+
+    result = layer_design_config.render_layer_design_config(
+        state,
+        ui=fake_st,
+        translate=lambda key, fallback=None, **_kwargs: fallback or key,
+    )
+
+    layer_card_containers = [
+        call for call in fake_st.container_calls if call.get("key", "").startswith(
+            "layered_template_layer_card_"
+        )
+    ]
+    assert [call["key"] for call in layer_card_containers] == [
+        f"layered_template_layer_card_{background_layer_id}",
+        f"layered_template_layer_card_{text_layer_id}",
+    ]
+    assert {
+        call["key"]: call["label"]
+        for call in button_calls
+        if call.get("key", "").endswith("_toggle")
+    } == {
+        f"layered_template_layer_{background_layer_id}_toggle": "Expand",
+        f"layered_template_layer_{text_layer_id}_toggle": "Collapse",
+    }
+    assert f"layered_template_layer_{background_layer_id}_name" not in text_input_keys
+    assert f"layered_template_layer_{text_layer_id}_name" in text_input_keys
+    assert result.layers == state.layers
+
+
 def test_render_style_config_surfaces_layer_add_tools_inside_layer_design_section(monkeypatch):
     from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
     from web.components import style_config
