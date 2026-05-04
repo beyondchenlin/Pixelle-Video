@@ -8,6 +8,11 @@ OMNIVOICE_UI_WORKFLOW_PATHS = (
     Path("workflows/selfhost/OmniVoice_bf16.json"),
 )
 
+OMNIVOICE_API_WORKFLOW_PATHS = (
+    Path("workflows/selfhost/tts_omnivoice_longform_bf16.json"),
+    Path("workflows/selfhost/tts_omnivoice_clone_duration_bf16.json"),
+)
+
 OMNIVOICE_DEPENDENCY_DOCS = {
     "OmniVoice_all": Path(
         "workflows/down/OmniVoice_all_\u4f9d\u8d56\u4e0e\u4e0b\u8f7d\u8bf4\u660e.md"
@@ -564,6 +569,85 @@ def test_tts_index2_8g_workflow_is_parseable_and_uses_low_vram_defaults():
     assert workflow["5"]["inputs"]["max_mel_tokens"] == 800
     assert workflow["5"]["inputs"]["max_tokens_per_sentence"] == 60
     assert workflow["13"]["inputs"]["keep_models_cached"] is True
+
+
+def test_tts_omnivoice_longform_bf16_workflow_is_parseable_for_pixelle_api():
+    metadata = WorkflowParser().parse_workflow_file(
+        str(Path("workflows/selfhost/tts_omnivoice_longform_bf16.json"))
+    )
+
+    assert set(metadata.params.keys()) == {
+        "text",
+        "ref_audio",
+        "reference_audio_text",
+    }
+    assert metadata.params["text"].required is True
+    assert metadata.params["ref_audio"].required is True
+    assert metadata.params["ref_audio"].need_upload is True
+    assert metadata.params["reference_audio_text"].required is False
+    assert metadata.params["reference_audio_text"].default
+
+
+def test_tts_omnivoice_clone_duration_bf16_workflow_is_parseable_for_pixelle_api():
+    metadata = WorkflowParser().parse_workflow_file(
+        str(Path("workflows/selfhost/tts_omnivoice_clone_duration_bf16.json"))
+    )
+
+    assert set(metadata.params.keys()) == {
+        "text",
+        "ref_audio",
+        "reference_audio_text",
+        "duration",
+    }
+    assert metadata.params["text"].required is True
+    assert metadata.params["ref_audio"].required is True
+    assert metadata.params["ref_audio"].need_upload is True
+    assert metadata.params["duration"].required is False
+    assert metadata.params["duration"].default == 8.0
+
+
+def test_tts_omnivoice_longform_bf16_uses_longform_node_and_safe_defaults():
+    workflow = json.loads(
+        Path("workflows/selfhost/tts_omnivoice_longform_bf16.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    longform_nodes = [
+        node for node in workflow.values() if node["class_type"] == "OmniVoiceLongformTTS"
+    ]
+    assert len(longform_nodes) == 1
+    inputs = longform_nodes[0]["inputs"]
+    assert inputs["model"] == "OmniVoice-bf16"
+    assert inputs["device"] == "auto"
+    assert inputs["dtype"] == "auto"
+    assert inputs["steps"] == 48
+    assert inputs["duration"] == 0
+    assert inputs["words_per_chunk"] == 100
+
+
+def test_tts_omnivoice_clone_duration_bf16_uses_voice_clone_node_and_duration_param():
+    workflow = json.loads(
+        Path("workflows/selfhost/tts_omnivoice_clone_duration_bf16.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    clone_nodes = [
+        node for node in workflow.values() if node["class_type"] == "OmniVoiceVoiceCloneTTS"
+    ]
+    assert len(clone_nodes) == 1
+    inputs = clone_nodes[0]["inputs"]
+    assert inputs["model"] == "OmniVoice-bf16"
+    assert inputs["device"] == "auto"
+    assert inputs["dtype"] == "auto"
+    assert inputs["steps"] == 48
+    duration_nodes = [
+        node for node in workflow.values() if node["class_type"] == "PixelleDurationInput"
+    ]
+    assert len(duration_nodes) == 1
+    assert duration_nodes[0]["inputs"]["value"] == 8.0
+    assert inputs["duration"] == ["8", 0]
 
 
 def test_tts_edge_workflow_is_parseable_and_uses_pixelle_nodes():
