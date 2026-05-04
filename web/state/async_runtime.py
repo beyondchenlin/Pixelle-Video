@@ -97,7 +97,12 @@ class AsyncRuntime:
                 future.cancel()
             raise
 
-    def close(self, async_cleanup: Optional[Callable[[], Awaitable[None]]] = None) -> bool:
+    def close(
+        self,
+        async_cleanup: Optional[Callable[[], Awaitable[None]]] = None,
+        *,
+        suppress_logs: bool = False,
+    ) -> bool:
         """Stop the runtime after running optional async cleanup on the same loop."""
         with self._close_lock:
             if self._closed:
@@ -109,7 +114,8 @@ class AsyncRuntime:
                 try:
                     self.run(async_cleanup())
                 except Exception as e:
-                    logger.warning(f"Async runtime cleanup failed for '{self._name}': {e}")
+                    if not suppress_logs:
+                        logger.warning(f"Async runtime cleanup failed for '{self._name}': {e}")
 
             self._closed = True
             if loop is not None:
@@ -117,10 +123,11 @@ class AsyncRuntime:
 
         self._thread.join(timeout=RUNTIME_CLOSE_TIMEOUT_SECONDS)
         if self._thread.is_alive():
-            logger.error(
-                f"Async runtime '{self._name}' did not stop within "
-                f"{RUNTIME_CLOSE_TIMEOUT_SECONDS} seconds"
-            )
+            if not suppress_logs:
+                logger.error(
+                    f"Async runtime '{self._name}' did not stop within "
+                    f"{RUNTIME_CLOSE_TIMEOUT_SECONDS} seconds"
+                )
             return False
 
         return True
@@ -192,13 +199,35 @@ def session_exists(session_key: str) -> bool:
         return False
 
 
-def _close_managed_runtime(session_key: str, handle: ManagedAsyncRuntime) -> bool:
-    logger.info(f"Cleaning up async runtime for stale session: {session_key}")
+def _close_managed_runtime(
+    session_key: str,
+    handle: ManagedAsyncRuntime,
+    *,
+    log: bool = True,
+) -> bool:
+    if log:
+        logger.info(f"Cleaning up async runtime for stale session: {session_key}")
     try:
-        return handle.runtime.close(async_cleanup=handle.async_cleanup)
+        return _close_runtime_handle(
+            handle.runtime,
+            async_cleanup=handle.async_cleanup,
+            suppress_logs=not log,
+        )
     except Exception as e:
-        logger.error(f"Failed to close async runtime for session {session_key}: {e}")
+        if log:
+            logger.error(f"Failed to close async runtime for session {session_key}: {e}")
         return False
+
+
+def _close_runtime_handle(
+    runtime,
+    *,
+    async_cleanup: Optional[Callable[[], Awaitable[None]]] = None,
+    suppress_logs: bool = False,
+) -> bool:
+    if suppress_logs and isinstance(runtime, AsyncRuntime):
+        return runtime.close(async_cleanup=async_cleanup, suppress_logs=True)
+    return runtime.close(async_cleanup=async_cleanup)
 
 
 def _cleanup_stale_runtimes(current_session_key: str):
@@ -252,13 +281,13 @@ def register_async_cleanup(
         handle.async_cleanup = async_cleanup
 
 
-def shutdown_all_async_runtimes():
+def shutdown_all_async_runtimes(*, log: bool = True):
     """Shutdown all managed runtimes. Used by tests and process exit."""
     with _RUNTIMES_LOCK:
         runtime_items = list(_RUNTIMES.items())
 
     for session_key, handle in runtime_items:
-        if not _close_managed_runtime(session_key, handle):
+        if not _close_managed_runtime(session_key, handle, log=log):
             continue
 
         with _RUNTIMES_LOCK:
@@ -266,4 +295,8 @@ def shutdown_all_async_runtimes():
                 _RUNTIMES.pop(session_key, None)
 
 
-atexit.register(shutdown_all_async_runtimes)
+def _shutdown_all_async_runtimes_at_exit():
+    shutdown_all_async_runtimes(log=False)
+
+
+atexit.register(_shutdown_all_async_runtimes_at_exit)

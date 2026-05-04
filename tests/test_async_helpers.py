@@ -1,8 +1,10 @@
 import asyncio
 import sys
+from io import StringIO
 from types import SimpleNamespace
 
 import pytest
+from loguru import logger
 
 from web.state import async_runtime
 from web.state import session as session_state
@@ -143,6 +145,40 @@ def test_cleanup_stale_runtimes_keeps_handles_when_close_fails(monkeypatch):
         async_runtime._RUNTIMES.clear()
 
     assert stale_runtime.close_calls == 1
+
+
+def test_atexit_async_runtime_shutdown_does_not_log_to_closed_streams(capsys):
+    class FakeRuntime:
+        def __init__(self):
+            self.close_calls = 0
+
+        def close(self, async_cleanup=None):
+            self.close_calls += 1
+            return True
+
+    closed_stream = StringIO()
+    sink_id = logger.add(closed_stream, level="INFO")
+    closed_stream.close()
+    fake_runtime = FakeRuntime()
+    async_runtime._RUNTIMES.clear()
+    async_runtime._RUNTIMES[async_runtime.DEFAULT_SESSION_KEY] = (
+        async_runtime.ManagedAsyncRuntime(runtime=fake_runtime)
+    )
+
+    try:
+        async_runtime._shutdown_all_async_runtimes_at_exit()
+    finally:
+        try:
+            logger.remove(sink_id)
+        except ValueError:
+            pass
+        async_runtime._RUNTIMES.clear()
+
+    captured = capsys.readouterr()
+    assert fake_runtime.close_calls == 1
+    assert "Logging error in Loguru Handler" not in captured.err
+    assert "I/O operation on closed file" not in captured.err
+    assert "Cleaning up async runtime" not in captured.err
 
 
 def test_cleanup_stale_pixelle_video_sessions_keeps_reconnectable_sessions(monkeypatch):
