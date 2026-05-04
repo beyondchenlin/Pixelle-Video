@@ -560,11 +560,15 @@ async def test_generate_styled_image_prompt_batch_merges_all_z_image_constraints
     assert "avoid IP sticker" in result.prompts[0]
     assert "Changle Gate" in result.prompts[0]
     assert "only whitelisted text" in result.prompts[0].lower()
+    assert result.prompts[0].lower().count("only whitelisted text") == 1
 
 
 @pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_ignores_stale_ip_adaptation_when_ip_disabled(monkeypatch):
+    captured = {}
+
     async def fake_generate_image_prompts(*args, **kwargs):
+        captured["prompt_contexts"] = kwargs["prompt_contexts"]
         return ["base frame prompt"]
 
     monkeypatch.setattr(
@@ -595,6 +599,9 @@ async def test_generate_styled_image_prompt_batch_ignores_stale_ip_adaptation_wh
 
     assert "Stale Text" not in result.prompts[0]
     assert "stale IP negative" not in result.prompts[0]
+    assert isinstance(captured["prompt_contexts"], PromptContextEnvelope)
+    assert "ip_adaptation" not in captured["prompt_contexts"].frame_contexts[0]
+    assert "ip_presence_options" not in captured["prompt_contexts"].frame_contexts[0]
     assert result.planning_snapshot is None
 
 
@@ -627,11 +634,21 @@ async def test_generate_styled_image_prompt_batch_does_not_apply_ip_chain_to_vid
         storyboard_plan=_storyboard_plan(),
         ip_enabled=True,
         ip_profile=_ip_profile(),
-        prompt_contexts=[{"visual_goal": "Keep plain video context."}],
+        prompt_contexts=[
+            {
+                "visual_goal": "Keep plain video context.",
+                "ip_adaptation": {
+                    "negative_constraints": ["stale video IP negative"],
+                    "image_text_plan": {"visible_text_whitelist": ["Video Stale Text"]},
+                },
+                "ip_presence_options": ["scene_integrated"],
+            }
+        ],
     )
 
     assert isinstance(captured["prompt_contexts"], PromptContextEnvelope)
     assert "ip_adaptation" not in captured["prompt_contexts"].frame_contexts[0]
+    assert "ip_presence_options" not in captured["prompt_contexts"].frame_contexts[0]
     assert "only whitelisted text" not in result.prompts[0].lower()
     assert "ip_adaptations_by_frame" not in (result.planning_snapshot or {})
 
@@ -646,6 +663,17 @@ def test_sanitize_visual_prompt_text_removes_short_long_and_quoted_field_labels(
     assert "summary_text" not in prompt
     assert "title_hex" not in prompt
     assert "scene_text" not in prompt
+
+
+def test_sanitize_visual_prompt_text_removes_full_width_colon_field_labels():
+    prompt = sanitize_visual_prompt_text(
+        '"summary_text"： Start, visible_text_whitelist： Gate'
+    )
+
+    assert "summary_text" not in prompt
+    assert "visible_text_whitelist" not in prompt
+    assert "Start" in prompt
+    assert "Gate" in prompt
 
 
 @pytest.mark.asyncio

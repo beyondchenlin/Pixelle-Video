@@ -207,6 +207,24 @@ def _enrich_prompt_contexts_with_ip(
     )
 
 
+def _strip_ip_prompt_context_fields(
+    prompt_contexts: PromptContextEnvelope | None,
+) -> PromptContextEnvelope | None:
+    if prompt_contexts is None:
+        return None
+
+    frame_contexts: list[dict[str, Any]] = []
+    for context in prompt_contexts.frame_contexts:
+        cleaned = dict(context)
+        cleaned.pop("ip_adaptation", None)
+        cleaned.pop("ip_presence_options", None)
+        frame_contexts.append(cleaned)
+    return PromptContextEnvelope(
+        plan_context=prompt_contexts.plan_context,
+        frame_contexts=frame_contexts,
+    )
+
+
 def _frame_contexts_for_final_prompts(
     prompt_contexts: PromptContextEnvelope | None,
     prompt_count: int,
@@ -1138,7 +1156,11 @@ async def generate_styled_image_prompt_batch(
             reason="storyboard controls disabled",
         )
 
-    prompt_contexts_for_generation = normalized_prompt_contexts
+    prompt_contexts_for_generation = (
+        normalized_prompt_contexts
+        if ip_prompt_chain_enabled
+        else _strip_ip_prompt_context_fields(normalized_prompt_contexts)
+    )
     if ip_prompt_chain_enabled:
         style_context = _style_context_payload(
             resolved_style=resolved_style,
@@ -1311,6 +1333,7 @@ async def generate_styled_image_prompt_batch(
                 )
             )
             if ip_visible_text_whitelists[index]
+            and not (media_type == "image" and not capabilities.supports_negative_prompt)
             else apply_image_text_policy(prompt, text_rendering_settings.image_text)
         )
         for index, prompt in enumerate(final_prompts)
