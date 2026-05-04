@@ -157,7 +157,8 @@ class _FakeStreamlit:
         return None
 
     def button(self, *_args, **_kwargs):
-        return False
+        key = _kwargs.get("key")
+        return bool(self.session_state.get("_button_returns", {}).get(key, False))
 
     def text_input(self, _label, value="", **_kwargs):
         key = _kwargs.get("key")
@@ -998,6 +999,78 @@ def test_render_storyboard_advanced_controls_renders_generation_world_hint(monke
 
     assert payload["generation_world_hint"] == "古城清晨漫游"
     assert any(call["label"] == "storyboard.generation_world_hint" for call in text_area_calls)
+
+
+def test_render_storyboard_advanced_controls_can_fill_world_hint_from_ip_default(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["storyboard_planning_enabled"] = True
+    fake_st.session_state["_button_returns"] = {
+        "storyboard_world_hint_use_ip_default": True,
+    }
+    monkeypatch.setattr(
+        storyboard_planning_controls,
+        "render_storyboard_planning_guide",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(storyboard_planning_controls, "safe_rerun", lambda: None)
+
+    storyboard_planning_controls.render_storyboard_advanced_controls(
+        ui=fake_st,
+        translate=lambda key, **kwargs: key,
+        session_state=fake_st.session_state,
+        storyboard_default_enabled=True,
+        world_library_loader=lambda: {"default_world_preset_id": None, "items": []},
+        shot_library_loader=lambda: {"items": []},
+        ip_profile_world_hint="Friendly guide world.",
+        content_context={"title": "demo", "text": "demo"},
+    )
+
+    assert fake_st.session_state["storyboard_generation_world_hint"] == "Friendly guide world."
+
+
+def test_render_storyboard_advanced_controls_can_fill_world_hint_from_generated_draft(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["storyboard_planning_enabled"] = True
+    fake_st.session_state["_button_returns"] = {
+        "storyboard_world_hint_generate_from_content": True,
+    }
+    captured = {}
+    monkeypatch.setattr(
+        storyboard_planning_controls,
+        "render_storyboard_planning_guide",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(storyboard_planning_controls, "safe_rerun", lambda: None)
+
+    def _draft_generator(**payload):
+        captured.update(payload)
+        return {"world_hint_draft": "Ancient city dawn walk. The IP is a companion guide."}
+
+    storyboard_planning_controls.render_storyboard_advanced_controls(
+        ui=fake_st,
+        translate=lambda key, **kwargs: key,
+        session_state=fake_st.session_state,
+        storyboard_default_enabled=True,
+        world_library_loader=lambda: {
+            "default_world_preset_id": "neutral_knowledge_storyboard",
+            "items": [
+                {"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}
+            ],
+        },
+        shot_library_loader=lambda: {"items": []},
+        ip_profile_world_hint="Friendly guide world.",
+        content_context={"title": "Zhengding walk", "text": "Start from Changle Gate."},
+        world_hint_draft_generator=_draft_generator,
+    )
+
+    assert captured["source_text"] == "Start from Changle Gate."
+    assert captured["title"] == "Zhengding walk"
+    assert captured["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert captured["ip_default_world_hint"] == "Friendly guide world."
+    assert (
+        fake_st.session_state["storyboard_generation_world_hint"]
+        == "Ancient city dawn walk. The IP is a companion guide."
+    )
 
 
 def test_resolve_storyboard_preset_label_uses_translation_key_or_display_name_fallback(monkeypatch):
@@ -2741,6 +2814,10 @@ def test_storyboard_planning_guide_translation_keys_exist_in_supported_locales()
         "storyboard.guide.combo.iteration.title",
         "storyboard.guide.combo.iteration.body",
         "storyboard.guide.fields_title",
+        "storyboard.generation_world_hint_generate",
+        "storyboard.generation_world_hint_use_ip_default",
+        "storyboard.generation_world_hint_missing_content",
+        "storyboard.generation_world_hint_missing_ip_default",
         "storyboard.guide.field.world_preset",
         "storyboard.guide.field.shot_preset",
         "storyboard.guide.field.consistency_strength",

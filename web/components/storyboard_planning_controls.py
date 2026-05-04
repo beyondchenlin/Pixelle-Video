@@ -16,7 +16,7 @@ Shared storyboard-planning controls and payload helpers.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from html import escape
 from textwrap import dedent
 
@@ -37,7 +37,8 @@ from web.state.storyboard_overrides import (
     build_storyboard_override_snapshot_identity,
     get_storyboard_override_values_for_snapshot,
 )
-from web.utils.streamlit_helpers import keyed_widget_default_kwargs
+from web.utils.content_api import generate_world_hint_draft
+from web.utils.streamlit_helpers import keyed_widget_default_kwargs, safe_rerun
 
 STORYBOARD_SHOT_PRESET_AUTO_VALUE = "__auto__"
 
@@ -447,6 +448,9 @@ def render_storyboard_advanced_controls(
     preview_snapshot=None,
     world_library_loader: Callable[[], dict] | None = None,
     shot_library_loader: Callable[[], dict] | None = None,
+    content_context: Mapping[str, object] | None = None,
+    ip_profile_world_hint: str | None = None,
+    world_hint_draft_generator=None,
 ) -> dict:
     """Render the advanced storyboard controls gated behind a single checkbox."""
     world_library_loader = world_library_loader or config_manager.get_storyboard_world_preset_library
@@ -533,6 +537,45 @@ def render_storyboard_advanced_controls(
             height=96,
             help=translate("storyboard.generation_world_hint_help"),
         )
+        draft_generator = world_hint_draft_generator or generate_world_hint_draft
+        action_col1, action_col2 = ui.columns(2)
+        with action_col1:
+            if ui.button(
+                translate("storyboard.generation_world_hint_generate"),
+                key="storyboard_world_hint_generate_from_content",
+                width="stretch",
+            ):
+                source_text = str((content_context or {}).get("text") or "").strip()
+                if not source_text:
+                    ui.warning(translate("storyboard.generation_world_hint_missing_content"))
+                else:
+                    response = draft_generator(
+                        source_text=source_text,
+                        title=str((content_context or {}).get("title") or "").strip() or None,
+                        world_preset_id=storyboard_world_preset_id,
+                        storyboard_prompt_language=CHINESE_PROMPT_LANGUAGE,
+                        ip_default_world_hint=(
+                            str(ip_profile_world_hint).strip()
+                            if ip_profile_world_hint
+                            else None
+                        ),
+                    )
+                    ui.session_state["storyboard_generation_world_hint"] = str(
+                        response.get("world_hint_draft") or ""
+                    ).strip()
+                    safe_rerun()
+        with action_col2:
+            if ui.button(
+                translate("storyboard.generation_world_hint_use_ip_default"),
+                key="storyboard_world_hint_use_ip_default",
+                width="stretch",
+            ):
+                ip_world_hint = str(ip_profile_world_hint or "").strip()
+                if not ip_world_hint:
+                    ui.warning(translate("storyboard.generation_world_hint_missing_ip_default"))
+                else:
+                    ui.session_state["storyboard_generation_world_hint"] = ip_world_hint
+                    safe_rerun()
         storyboard_consistency_strength = ui.radio(
             translate("storyboard.consistency_strength"),
             options=["standard", "strong"],
