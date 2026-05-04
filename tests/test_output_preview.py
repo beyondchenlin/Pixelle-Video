@@ -248,6 +248,27 @@ def test_build_single_generation_request_includes_render_backend():
     assert request["progress_callback"] is _progress
 
 
+def test_build_single_generation_request_includes_ip_prompt_chain_controls():
+    def _progress(_event):
+        return None
+
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "ip_enabled": True,
+            "ip_asset_bible_id": "bible_demo",
+            "ip_profile_id": "ip_main",
+        },
+        progress_callback=_progress,
+        session_state={},
+    )
+
+    assert request["ip_enabled"] is True
+    assert request["ip_asset_bible_id"] == "bible_demo"
+    assert request["ip_profile_id"] == "ip_main"
+
+
 def test_build_single_generation_request_omits_empty_layered_template_snapshot():
     def _progress(_event):
         return None
@@ -877,6 +898,21 @@ def test_build_batch_shared_config_includes_render_backend():
 
     assert shared_config["render_backend"] == "hyperframes_compiled"
     assert shared_config["tts_audio_strategy"] == "master_track"
+
+
+def test_build_batch_shared_config_includes_ip_prompt_chain_controls():
+    shared_config = output_preview.build_batch_shared_config(
+        {
+            "title_prefix": "Series",
+            "ip_enabled": True,
+            "ip_asset_bible_id": "bible_demo",
+            "ip_profile_id": "ip_main",
+        }
+    )
+
+    assert shared_config["ip_enabled"] is True
+    assert shared_config["ip_asset_bible_id"] == "bible_demo"
+    assert shared_config["ip_profile_id"] == "ip_main"
 
 
 def test_build_batch_shared_config_omits_empty_layered_template_snapshot_duplicate():

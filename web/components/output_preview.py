@@ -17,7 +17,7 @@ Output preview components for web UI (right column)
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote, urlparse, unquote
+from urllib.parse import quote, unquote, urlparse
 from urllib.request import url2pathname
 
 import streamlit as st
@@ -35,34 +35,35 @@ from pixelle_video.models.video_generation_contract import (
     STORYBOARD_GENERATION_OPTION_KEYS as CONTRACT_STORYBOARD_GENERATION_OPTION_KEYS,
 )
 from pixelle_video.models.video_generation_contract import (
+    IPControlsContract,
     StoryboardControlsContract,
     is_plan_frame_override_payload,
 )
 from pixelle_video.platform_context import resolve_business_context
+from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.repositories.template_presets import TemplatePresetRepository
+from pixelle_video.services.frame_html import HTMLFrameGenerator
 from pixelle_video.services.layered_template_service import (
     LayeredTemplatePreviewFrameRequest,
     LayeredTemplateService,
 )
-from pixelle_video.services.frame_html import HTMLFrameGenerator
 from pixelle_video.services.template_registry import TemplateRegistry
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
-from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from pixelle_video.utils.template_util import get_template_preview_path, resolve_template_path
-from web.components.prompt_generation_performance import (
-    copy_prompt_generation_performance_params,
-)
-from web.components.recent_video_gallery import (
-    render_recent_video_gallery,
-    store_recent_generated_video,
-)
 from web.components.layered_template_state import load_layered_template_spec_into_editor_state
 from web.components.layout_preview_workbench import (
     DefaultLayoutSummary,
     TrustedPreviewHTML,
     render_layout_preview_workbench,
     trust_preview_html,
+)
+from web.components.prompt_generation_performance import (
+    copy_prompt_generation_performance_params,
+)
+from web.components.recent_video_gallery import (
+    render_recent_video_gallery,
+    store_recent_generated_video,
 )
 from web.i18n import tr
 from web.state.storyboard_preview import set_storyboard_preview_snapshot
@@ -765,6 +766,14 @@ def copy_storyboard_generation_options(source, target):
         target["script_target_words"] = source["script_target_words"]
 
 
+def copy_ip_prompt_chain_options(source, target):
+    """Copy IP prompt-chain controls into a generation request dict."""
+    if "ip_enabled" not in source:
+        return
+    contract = IPControlsContract.from_mapping(source)
+    target.update(contract.to_dict())
+
+
 def render_output_preview(pixelle_video, video_params):
     """Render output preview section (right column)"""
     # Check if batch mode
@@ -838,6 +847,7 @@ def build_single_generation_request(video_params, *, progress_callback, session_
     copy_tts_split_settings(video_params, request)
     copy_storyboard_generation_options(video_params, request)
     copy_element_animation_options(video_params, request)
+    copy_ip_prompt_chain_options(video_params, request)
     copy_prompt_generation_performance_params(video_params, request)
     if video_params.get("text_rendering") is not None:
         request["text_rendering"] = video_params["text_rendering"]
@@ -916,6 +926,7 @@ def build_batch_shared_config(video_params):
     copy_tts_split_settings(video_params, shared_config)
     copy_storyboard_generation_options(video_params, shared_config)
     copy_element_animation_options(video_params, shared_config)
+    copy_ip_prompt_chain_options(video_params, shared_config)
     copy_prompt_generation_performance_params(video_params, shared_config)
     if video_params.get("text_rendering") is not None:
         shared_config["text_rendering"] = video_params["text_rendering"]
@@ -1047,7 +1058,6 @@ def _render_generation_section(pixelle_video, video_params):
 
         if generation_requested:
             can_generate = True
-            rerun_after_generation = False
             # Validate system configuration
             if not config_manager.validate():
                 st.error(tr("settings.not_configured"))
@@ -1139,6 +1149,11 @@ def _render_generation_section(pixelle_video, video_params):
                                 "selected_template_preset_id": video_params.get(
                                     "selected_template_preset_id"
                                 ),
+                                "ip_enabled": video_params.get("ip_enabled"),
+                                "ip_asset_bible_id": video_params.get(
+                                    "ip_asset_bible_id"
+                                ),
+                                "ip_profile_id": video_params.get("ip_profile_id"),
                                 **storyboard_contract.to_planning_dict(),
                                 "text_rendering": video_params.get("text_rendering"),
                                 **{
