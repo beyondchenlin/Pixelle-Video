@@ -8,13 +8,16 @@ from typing import Any
 
 from pixelle_video.models.asset_bible import AssetBible
 from pixelle_video.models.asset_bible_preset import AssetBiblePreset
+from pixelle_video.utils.os_util import get_pixelle_video_root_path
 
-DEFAULT_ASSET_BIBLE_PRESET_ROOT = Path("resources/presets/asset_bibles")
+DEFAULT_ASSET_BIBLE_PRESET_ROOT = (
+    Path(get_pixelle_video_root_path()) / "resources" / "presets" / "asset_bibles"
+)
 
 
 class AssetBiblePresetRegistry:
     def __init__(self, root: str | Path = DEFAULT_ASSET_BIBLE_PRESET_ROOT) -> None:
-        self.root = Path(root)
+        self.root = Path(root).expanduser().resolve()
 
     def list_presets(self) -> list[AssetBiblePreset]:
         return sorted(self._load_all(), key=lambda preset: preset.display_name)
@@ -77,12 +80,20 @@ class AssetBiblePresetRegistry:
         if not self.root.exists():
             return []
         presets: list[AssetBiblePreset] = []
+        preset_paths: dict[str, Path] = {}
         for path in sorted(self.root.glob("*.json")):
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except json.JSONDecodeError as exc:
                 raise ValueError(f"invalid asset bible preset JSON: {path}") from exc
-            presets.append(AssetBiblePreset.from_dict(payload))
+            preset = AssetBiblePreset.from_dict(payload)
+            if preset.preset_id in preset_paths:
+                raise ValueError(
+                    "duplicate asset bible preset_id: "
+                    f"{preset.preset_id} ({preset_paths[preset.preset_id]} and {path})"
+                )
+            preset_paths[preset.preset_id] = path
+            presets.append(preset)
         return presets
 
 

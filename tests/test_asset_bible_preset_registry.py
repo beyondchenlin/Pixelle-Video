@@ -5,7 +5,10 @@ from pathlib import Path
 import pytest
 
 from pixelle_video.models.asset_bible_preset import AssetBiblePreset
-from pixelle_video.services.asset_bible_preset_registry import AssetBiblePresetRegistry
+from pixelle_video.services.asset_bible_preset_registry import (
+    DEFAULT_ASSET_BIBLE_PRESET_ROOT,
+    AssetBiblePresetRegistry,
+)
 
 
 def _preset_payload() -> dict:
@@ -110,6 +113,32 @@ def test_registry_loads_json_presets_from_root(tmp_path: Path):
         "builtin_asset_bible_demo"
     ]
     assert registry.get_preset("builtin_asset_bible_demo").display_name == "Demo IP"
+
+
+def test_default_registry_root_is_absolute_and_cwd_independent(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+
+    registry = AssetBiblePresetRegistry()
+    preset = registry.get_preset("builtin_asset_bible_zhengding_guide")
+
+    assert DEFAULT_ASSET_BIBLE_PRESET_ROOT.is_absolute()
+    assert preset.preset_id == "builtin_asset_bible_zhengding_guide"
+
+
+def test_registry_rejects_duplicate_preset_ids(tmp_path: Path):
+    root = tmp_path / "asset_bibles"
+    root.mkdir()
+    (root / "demo.json").write_text(json.dumps(_preset_payload()), encoding="utf-8")
+    duplicate = _preset_payload()
+    duplicate["display_name"] = "Duplicate Demo"
+    (root / "duplicate.json").write_text(json.dumps(duplicate), encoding="utf-8")
+    registry = AssetBiblePresetRegistry(root=root)
+
+    with pytest.raises(ValueError, match="duplicate asset bible preset_id"):
+        registry.list_presets()
 
 
 def test_registry_builds_project_asset_bible_with_origin_metadata(tmp_path: Path):

@@ -124,8 +124,13 @@ def test_inprocess_ip_design_client_uses_asset_repository_without_http():
             return self.asset_bibles.get((workspace_id, asset_bible_id))
 
         async def save_asset_bible(self, workspace_id, asset_bible):
-            self.asset_bibles[(workspace_id, asset_bible["asset_bible_id"])] = dict(asset_bible)
-            return dict(asset_bible)
+            payload = dict(asset_bible)
+            payload["ip_profiles"] = [
+                {**dict(profile), "forbidden_elements": ["private"]}
+                for profile in payload.get("ip_profiles", [])
+            ]
+            self.asset_bibles[(workspace_id, payload["asset_bible_id"])] = payload
+            return payload
 
         async def list_scene_casts(self, workspace_id, project_id, asset_bible_id):
             return [
@@ -186,10 +191,22 @@ def test_inprocess_ip_design_client_uses_asset_repository_without_http():
         },
     )
     assert saved_asset["asset_bible"]["asset_bible_id"] == "bible_demo"
+    assert "forbidden_elements" not in saved_asset["asset_bible"]["ip_profiles"][0]
     assert client.list_asset_bibles(
         workspace_id="workspace_1",
         project_id="project_1",
     )["asset_bibles"][0]["ip_profiles"][0]["name"] == "Demo IP"
+    listed_asset = client.list_asset_bibles(
+        workspace_id="workspace_1",
+        project_id="project_1",
+    )["asset_bibles"][0]
+    loaded_asset = client.load_asset_bible(
+        workspace_id="workspace_1",
+        project_id="project_1",
+        asset_bible_id="bible_demo",
+    )["asset_bible"]
+    assert "forbidden_elements" not in listed_asset["ip_profiles"][0]
+    assert "forbidden_elements" not in loaded_asset["ip_profiles"][0]
 
     saved_cast = client.save_scene_cast(
         workspace_id="workspace_1",
@@ -211,6 +228,76 @@ def test_inprocess_ip_design_client_uses_asset_repository_without_http():
         project_id="project_1",
         asset_bible_id="bible_demo",
     )["scene_casts"][0]["scene_cast_id"] == "cast_frame_1"
+
+
+def test_inprocess_ip_design_client_save_marks_imported_asset_bible_customized():
+    from web.ip_design.inprocess_client import InProcessIPDesignClient
+
+    class AssetRepository:
+        def __init__(self):
+            self.asset_bibles: dict[tuple[str, str], dict[str, Any]] = {
+                (
+                    "workspace_1",
+                    "bible_demo",
+                ): {
+                    "asset_bible_id": "bible_demo",
+                    "workspace_id": "workspace_1",
+                    "project_id": "project_1",
+                    "ip_profiles": [
+                        {
+                            "ip_profile_id": "ip_main",
+                            "workspace_id": "workspace_1",
+                            "project_id": "project_1",
+                            "name": "Demo IP",
+                            "forbidden_elements": ["private"],
+                        }
+                    ],
+                    "character_profiles": [],
+                    "scene_assets": [],
+                    "prop_assets": [],
+                    "style_profiles": [],
+                    "metadata": {
+                        "source_kind": "imported",
+                        "origin_preset_id": "builtin_asset_bible_demo",
+                        "origin_revision": "2026-05-04.1",
+                        "imported_at": "2026-05-04T00:00:00Z",
+                        "customized": False,
+                    },
+                }
+            }
+
+        async def load_asset_bible(self, workspace_id, asset_bible_id):
+            return self.asset_bibles.get((workspace_id, asset_bible_id))
+
+        async def save_asset_bible(self, workspace_id, asset_bible):
+            payload = dict(asset_bible)
+            self.asset_bibles[(workspace_id, payload["asset_bible_id"])] = payload
+            return payload
+
+    repository = AssetRepository()
+    core = type("Core", (), {"asset_bible_repository": repository})()
+    client = InProcessIPDesignClient(pixelle_video=core, async_runner=asyncio.run)
+
+    response = client.save_asset_bible(
+        workspace_id="workspace_1",
+        project_id="project_1",
+        asset_bible_id="bible_demo",
+        payload={
+            "ip_profiles": [{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+            "metadata": {"source_kind": "imported", "customized": False},
+        },
+    )
+
+    saved = repository.asset_bibles[("workspace_1", "bible_demo")]
+    assert saved["metadata"] == {
+        "source_kind": "imported",
+        "origin_preset_id": "builtin_asset_bible_demo",
+        "origin_revision": "2026-05-04.1",
+        "imported_at": "2026-05-04T00:00:00Z",
+        "customized": True,
+    }
+    assert response["asset_bible"]["metadata"] == saved["metadata"]
+    assert "forbidden_elements" not in response["asset_bible"]["ip_profiles"][0]
 
 
 def test_inprocess_ip_design_client_imports_builtin_asset_bible_without_leaking_private_fields():

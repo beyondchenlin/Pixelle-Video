@@ -26,6 +26,9 @@ from api.schemas.asset_bible import (
 from api.schemas.storyboard_workbench import validate_public_reference_id
 from pixelle_video.models.asset_bible import AssetBible
 from pixelle_video.models.scene_cast import SceneCast
+from pixelle_video.services.asset_bible_import_metadata import (
+    mark_imported_asset_bible_customized,
+)
 from pixelle_video.services.asset_prompt_plan_apply import (
     AssetPromptPlanApplyService,
     PromptPlanApplyDependencyError,
@@ -157,6 +160,13 @@ async def update_asset_bible_draft(
     repository = _get_asset_bible_repository(request)
     asset_bible = _request_to_model(payload, project_id=project_id)
     service = _build_stale_asset_write_service(request)
+    existing = await repository.load_asset_bible(payload.workspace_id, asset_bible_id)
+    asset_bible = _asset_bible_from_payload(
+        mark_imported_asset_bible_customized(
+            asset_bible.to_dict(),
+            existing,
+        )
+    )
     if service is None:
         saved = await repository.save_asset_bible(
             payload.workspace_id,
@@ -553,6 +563,13 @@ def _build_scene_cast_list_response(
 def _request_to_model(payload: AssetBibleDraftRequest, *, project_id: str) -> AssetBible:
     try:
         return payload.to_model(project_id=project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _asset_bible_from_payload(payload: Mapping[str, Any]) -> AssetBible:
+    try:
+        return AssetBible.from_dict(payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

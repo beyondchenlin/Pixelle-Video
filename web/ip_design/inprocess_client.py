@@ -6,6 +6,9 @@ from api.asset_bible_responses import asset_bible_response_payload
 from api.schemas.asset_bible import AssetBibleDraftRequest, SceneCastDraftRequest
 from api.schemas.storyboard_workbench import validate_public_reference_id
 from pixelle_video.models.asset_bible import AssetBible
+from pixelle_video.services.asset_bible_import_metadata import (
+    mark_imported_asset_bible_customized,
+)
 from pixelle_video.services.scene_casting import validate_scene_cast
 from web.state.async_runtime import get_async_runtime
 
@@ -70,7 +73,13 @@ class InProcessIPDesignClient:
     ) -> dict[str, Any]:
         repository = self._require_attr("asset_bible_repository")
         asset_bibles = self._run_async(repository.list_asset_bibles(workspace_id, project_id))
-        return {"success": True, "asset_bibles": list(asset_bibles)}
+        return {
+            "success": True,
+            "asset_bibles": [
+                asset_bible_response_payload(item, project_id=project_id)
+                for item in asset_bibles
+            ],
+        }
 
     def load_asset_bible(
         self,
@@ -83,9 +92,14 @@ class InProcessIPDesignClient:
         asset_bible = self._run_async(repository.load_asset_bible(workspace_id, asset_bible_id))
         if asset_bible is None:
             raise ValueError("asset bible draft was not found")
-        if asset_bible.get("project_id") != project_id:
-            raise ValueError("asset bible project does not match request")
-        return {"success": True, "asset_bible": dict(asset_bible)}
+        return {
+            "success": True,
+            "asset_bible": asset_bible_response_payload(
+                asset_bible,
+                project_id=project_id,
+                asset_bible_id=asset_bible_id,
+            ),
+        }
 
     def save_asset_bible(
         self,
@@ -103,13 +117,25 @@ class InProcessIPDesignClient:
                 "asset_bible_id": asset_bible_id,
             }
         )
+        existing = self._run_async(repository.load_asset_bible(workspace_id, asset_bible_id))
+        asset_bible_payload = mark_imported_asset_bible_customized(
+            request.to_model(project_id=project_id).to_dict(),
+            existing,
+        )
         saved = self._run_async(
             repository.save_asset_bible(
                 workspace_id,
-                request.to_model(project_id=project_id).to_dict(),
+                AssetBible.from_dict(asset_bible_payload).to_dict(),
             )
         )
-        return {"success": True, "asset_bible": dict(saved)}
+        return {
+            "success": True,
+            "asset_bible": asset_bible_response_payload(
+                saved,
+                project_id=project_id,
+                asset_bible_id=asset_bible_id,
+            ),
+        }
 
     def list_scene_casts(
         self,

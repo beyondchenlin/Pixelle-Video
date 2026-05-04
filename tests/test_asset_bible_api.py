@@ -493,6 +493,40 @@ def test_asset_bible_api_updates_draft_through_repository():
     assert repository.saved[-1][1]["asset_bible_id"] == "bible_demo"
 
 
+def test_asset_bible_api_update_marks_imported_draft_customized_and_preserves_origin_metadata():
+    repository = FakeAssetBibleRepository()
+    repository.asset_bibles[("workspace_1", "bible_demo")] = _asset_bible_payload(
+        metadata={
+            "source_kind": "imported",
+            "origin_preset_id": "builtin_asset_bible_demo",
+            "origin_revision": "2026-05-04.1",
+            "imported_at": "2026-05-04T00:00:00Z",
+            "customized": False,
+        }
+    )
+    client = _client(repository)
+
+    response = client.put(
+        "/projects/project_1/asset-bible/bible_demo",
+        json=_asset_bible_payload(
+            ip_profiles=[{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+            metadata={"source_kind": "imported", "customized": False},
+        ),
+    )
+
+    assert response.status_code == 200
+    saved_metadata = repository.saved[-1][1]["metadata"]
+    body_metadata = response.json()["asset_bible"]["metadata"]
+    assert saved_metadata == {
+        "source_kind": "imported",
+        "origin_preset_id": "builtin_asset_bible_demo",
+        "origin_revision": "2026-05-04.1",
+        "imported_at": "2026-05-04T00:00:00Z",
+        "customized": True,
+    }
+    assert body_metadata == saved_metadata
+
+
 def test_asset_bible_api_update_uses_stale_aware_write_service_when_configured():
     repository = FakeAssetBibleRepository()
     edge_repository = FakeDependencyEdgeRepository()
@@ -513,6 +547,40 @@ def test_asset_bible_api_update_uses_stale_aware_write_service_when_configured()
     assert response.status_code == 200
     assert response.json()["asset_bible"]["asset_bible_id"] == "bible_demo"
     assert repository.saved[-1][1]["asset_bible_id"] == "bible_demo"
+
+
+def test_asset_bible_api_stale_update_marks_imported_draft_customized():
+    repository = FakeAssetBibleRepository()
+    repository.asset_bibles[("workspace_1", "bible_demo")] = _asset_bible_payload(
+        metadata={
+            "source_kind": "imported",
+            "origin_preset_id": "builtin_asset_bible_demo",
+            "origin_revision": "2026-05-04.1",
+            "imported_at": "2026-05-04T00:00:00Z",
+            "customized": False,
+        }
+    )
+    edge_repository = FakeDependencyEdgeRepository()
+    stale_repository = FakeStaleMarkRepository()
+    client = _client(
+        repository,
+        edge_repository=edge_repository,
+        stale_repository=stale_repository,
+    )
+
+    response = client.put(
+        "/projects/project_1/asset-bible/bible_demo",
+        json=_asset_bible_payload(
+            ip_profiles=[{"ip_profile_id": "ip_main", "name": "Updated IP"}],
+        ),
+    )
+
+    assert response.status_code == 200
+    assert repository.saved[-1][1]["metadata"]["customized"] is True
+    assert (
+        repository.saved[-1][1]["metadata"]["origin_preset_id"]
+        == "builtin_asset_bible_demo"
+    )
 
 
 def test_asset_bible_api_update_rejects_partial_stale_repository_configuration():
