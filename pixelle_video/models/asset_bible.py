@@ -481,8 +481,10 @@ def _reject_hex_color(field_name: str, value: str) -> None:
 def _reject_hex_colors_in_prompt_values(value: Any, *, path: str) -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():
-            child_path = f"{path}.{key}"
-            if key == "hex":
+            key_name = str(key)
+            child_path = f"{path}.{key_name}"
+            if _is_palette_prompt_key(key_name) and isinstance(item, str):
+                _reject_hex_color(child_path, item)
                 continue
             _reject_hex_colors_in_prompt_values(item, path=child_path)
         return
@@ -491,7 +493,11 @@ def _reject_hex_colors_in_prompt_values(value: Any, *, path: str) -> None:
             _reject_hex_colors_in_prompt_values(item, path=f"{path}[{index}]")
         return
     if isinstance(value, str):
-        _reject_hex_color(path, value)
+        return
+
+
+def _is_palette_prompt_key(key: str) -> bool:
+    return key == "prompt" or key == "color_prompt" or key.endswith("_prompt")
 
 
 def _normalize_asset_tuple(

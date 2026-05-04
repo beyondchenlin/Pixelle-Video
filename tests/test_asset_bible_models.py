@@ -246,3 +246,61 @@ def test_non_ip_asset_text_tuples_preserve_existing_hex_color_behavior():
     assert character.continuity_notes == ("#FFFFFF badge stays visible",)
     assert scene.environment_notes == ("#006BFF light strips",)
     assert prop.usage_notes == ("#5A2A12 engraving",)
+
+
+@pytest.mark.parametrize(
+    "palette_field,palette_payload",
+    [
+        (
+            "color_palette",
+            {"tie": {"hex": "#006BFF", "prompt": "tie #006BFF"}},
+        ),
+        (
+            "image_text_palette",
+            {"title": {"hex": "#5A2A12", "color_prompt": "ink #5A2A12"}},
+        ),
+        (
+            "color_palette",
+            {"tie": {"hex": "#006BFF", "accent_prompt": "tie #006BFF"}},
+        ),
+    ],
+)
+def test_ip_profile_palette_prompt_fields_reject_hex_colors(palette_field, palette_payload):
+    payload = {
+        "ip_profile_id": "ip_main",
+        "workspace_id": "workspace_1",
+        "project_id": "project_1",
+        "name": "正定向导兔",
+        palette_field: palette_payload,
+    }
+
+    with pytest.raises(ValueError, match=palette_field):
+        IPProfile(**payload)
+
+
+def test_ip_profile_palette_non_prompt_annotations_allow_hex_text_and_round_trip():
+    profile = IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="正定向导兔",
+        color_palette={
+            "tie": {
+                "hex": "#006BFF",
+                "prompt": "鲜明宝蓝色领带",
+                "label": "brand #006BFF reference",
+            },
+        },
+        image_text_palette={
+            "title": {
+                "hex": "#5A2A12",
+                "prompt": "深棕色墨迹",
+                "note": "legacy #5A2A12 swatch",
+            },
+        },
+    )
+
+    restored = IPProfile.from_dict(profile.to_dict())
+
+    assert restored.color_palette["tie"]["label"] == "brand #006BFF reference"
+    assert restored.image_text_palette["title"]["note"] == "legacy #5A2A12 swatch"
