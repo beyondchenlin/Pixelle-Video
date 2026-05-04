@@ -1803,6 +1803,16 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
     events = []
     core = PixelleVideoCore()
 
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+            )
+        ),
+    )
+
     async def _prepare():
         events.append("prepare")
 
@@ -1811,6 +1821,10 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
 
     async def _restart(reason):
         events.append(("restart", reason))
+        return True
+
+    async def _release_memory(context, *, include_extensions=False, extensions=(), missing_endpoint="optional"):
+        events.append(("release_memory", context, include_extensions, extensions, missing_endpoint))
         return True
 
     call_count = 0
@@ -1836,6 +1850,7 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
     core._register_local_comfyui_task_use = _register_use
     core._execute_local_comfykit_workflow_once = _execute_once
     core.restart_managed_comfyui_backend = _restart
+    core._release_comfyui_memory_when_idle = _release_memory
     _install_noop_extension_preflight(core)
 
     result = await core.execute_comfykit_workflow(
@@ -1853,12 +1868,12 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
         "prepare",
         "register_use",
         ("execute_once", 2, "selfhost/image_z_image_turbo_gguf.json"),
-        ("restart", "post_gguf_workflow"),
+        ("release_memory", "post-gguf-workflow", True, ("gguf",), "required"),
     ]
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_workflow_session_restarts_backend_after_gguf_batch_when_configured(monkeypatch):
+async def test_local_comfyui_workflow_session_releases_gguf_batch_even_when_legacy_restart_is_configured(monkeypatch):
     events = []
     core = PixelleVideoCore()
 
@@ -1880,12 +1895,17 @@ async def test_local_comfyui_workflow_session_restarts_backend_after_gguf_batch_
         events.append(("restart", reason))
         return True
 
+    async def _release_memory(context, *, include_extensions=False, extensions=(), missing_endpoint="optional"):
+        events.append(("release_memory", context, include_extensions, extensions, missing_endpoint))
+        return True
+
     async def _execute_once(workflow_input, workflow_params):
         events.append(("execute_once", workflow_input))
         return SimpleNamespace(status="completed")
 
     core.prepare_comfyui_for_local_workflow = _prepare
     core.restart_managed_comfyui_backend = _restart
+    core._release_comfyui_memory_when_idle = _release_memory
     core._execute_local_comfykit_workflow_once = _execute_once
     _install_noop_extension_preflight(core)
 
@@ -1899,7 +1919,7 @@ async def test_local_comfyui_workflow_session_restarts_backend_after_gguf_batch_
     assert events == [
         "prepare",
         ("execute_once", "selfhost/image_z_image_turbo_gguf.json"),
-        ("restart", "post_gguf_workflow"),
+        ("release_memory", "post-gguf-workflow", True, ("gguf",), "required"),
     ]
 
 

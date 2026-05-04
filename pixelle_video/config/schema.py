@@ -484,13 +484,13 @@ class ComfyUIConfig(BaseModel):
             "IndexTTS2 workflows"
         ),
     )
-    gguf_cleanup_strategy: Literal["process_restart", "extension_release"] = Field(
-        default="process_restart",
+    gguf_cleanup_strategy: Literal["extension_release"] = Field(
+        default="extension_release",
         description=(
             "Cleanup boundary for workflows using ComfyUI-GGUF loaders. "
-            "'process_restart' restarts the Pixelle-managed ComfyUI backend after "
-            "GGUF stages to clear native Torch/GGUF state; 'extension_release' "
-            "uses the in-process GGUF release endpoint."
+            "Normal GGUF stage boundaries release models through ComfyUI /free "
+            "and the in-process /pixelle/gguf/free endpoint. Managed backend "
+            "restart is reserved for crash or connection-loss recovery."
         ),
     )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
@@ -529,12 +529,25 @@ class ComfyUIConfig(BaseModel):
         if isinstance(raw_model_cleanup_mode, str):
             normalized["model_cleanup_mode"] = raw_model_cleanup_mode.strip().lower()
 
+        raw_gguf_cleanup_strategy = normalized.get("gguf_cleanup_strategy")
+        if isinstance(raw_gguf_cleanup_strategy, str):
+            normalized["gguf_cleanup_strategy"] = raw_gguf_cleanup_strategy.strip().lower()
+
         if normalized.get("model_cleanup_mode") == "disabled":
             normalized["model_cleanup_mode"] = "comfyui_and_extensions"
             logger.warning(
                 "Retired ComfyUI model_cleanup_mode 'disabled' was migrated to "
                 "'comfyui_and_extensions'. Pixelle-owned local stages must release "
                 "their models before the next stage."
+            )
+
+        if normalized.get("gguf_cleanup_strategy") == "process_restart":
+            normalized["gguf_cleanup_strategy"] = "extension_release"
+            logger.warning(
+                "Retired ComfyUI gguf_cleanup_strategy 'process_restart' was "
+                "migrated to 'extension_release'. Normal GGUF stage cleanup must "
+                "release models in-process; managed backend restart is reserved "
+                "for crash recovery."
             )
 
         return normalized

@@ -382,10 +382,17 @@ class PixelleVideoCore:
         return mode
 
     def _get_gguf_cleanup_strategy(self, comfyui_config: dict) -> str:
-        strategy = (comfyui_config.get("gguf_cleanup_strategy") or "process_restart").lower()
-        if strategy not in {"process_restart", "extension_release"}:
+        strategy = (comfyui_config.get("gguf_cleanup_strategy") or "extension_release").lower()
+        if strategy == "process_restart":
+            logger.warning(
+                "Ignoring retired GGUF cleanup strategy 'process_restart'; "
+                "normal GGUF stage cleanup uses extension release. Managed "
+                "backend restart is reserved for crash recovery."
+            )
+            return "extension_release"
+        if strategy != "extension_release":
             logger.warning(f"Unsupported GGUF cleanup strategy: {strategy}")
-            return "process_restart"
+            return "extension_release"
         return strategy
 
     def _get_managed_comfyui_backend(self) -> ManagedComfyUIBackend | None:
@@ -573,19 +580,6 @@ class PixelleVideoCore:
         """Release standard ComfyUI memory plus Pixelle-managed extension caches."""
         if not extensions:
             return await self.release_comfyui_after_local_workflow()
-
-        self.config = config_manager.config.to_dict()
-        comfyui_config = self.config.get("comfyui", {})
-        if (
-            "gguf" in extensions
-            and self._get_gguf_cleanup_strategy(comfyui_config) == "process_restart"
-        ):
-            restarted = await self.restart_managed_comfyui_backend(
-                reason=f"{context.replace('-', '_')}"
-            )
-            if restarted:
-                self._mark_local_comfyui_released()
-                return True
 
         released = await self._release_comfyui_memory_when_idle(
             context,

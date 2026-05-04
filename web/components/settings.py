@@ -236,10 +236,6 @@ def render_advanced_settings():
                     "required": tr("settings.comfyui.backend_management_required"),
                     "disabled": tr("settings.comfyui.backend_management_disabled"),
                 }
-                gguf_cleanup_labels = {
-                    "process_restart": tr("settings.comfyui.gguf_cleanup_process_restart"),
-                    "extension_release": tr("settings.comfyui.gguf_cleanup_extension_release"),
-                }
                 current_executor_type = comfyui_config.get("executor_type")
                 if current_executor_type in executor_labels:
                     default_executor_type = current_executor_type
@@ -260,12 +256,6 @@ def render_advanced_settings():
                 )
                 if current_backend_management_mode not in backend_management_labels:
                     current_backend_management_mode = "auto"
-                current_gguf_cleanup_strategy = comfyui_config.get(
-                    "gguf_cleanup_strategy",
-                    "process_restart",
-                )
-                if current_gguf_cleanup_strategy not in gguf_cleanup_labels:
-                    current_gguf_cleanup_strategy = "process_restart"
                 current_cleanup_timeout_seconds = comfyui_config.get(
                     "pre_generation_cleanup_timeout_seconds",
                     20.0,
@@ -341,14 +331,6 @@ def render_advanced_settings():
                     key="comfyui_backend_management_mode_input",
                 )
 
-                gguf_cleanup_strategy = st.selectbox(
-                    tr("settings.comfyui.gguf_cleanup_strategy"),
-                    options=list(gguf_cleanup_labels.keys()),
-                    index=list(gguf_cleanup_labels.keys()).index(current_gguf_cleanup_strategy),
-                    format_func=lambda key: gguf_cleanup_labels[key],
-                    help=tr("settings.comfyui.gguf_cleanup_strategy_help"),
-                    key="comfyui_gguf_cleanup_strategy_input",
-                )
                 st.caption(tr("settings.comfyui.post_generation_cleanup_notice"))
 
                 # Test connection button
@@ -439,7 +421,7 @@ def render_advanced_settings():
                         pre_generation_cleanup_mode=cleanup_mode,
                         pre_generation_cleanup_timeout_seconds=float(cleanup_timeout_seconds),
                         model_cleanup_mode=model_cleanup_mode,
-                        gguf_cleanup_strategy=gguf_cleanup_strategy,
+                        gguf_cleanup_strategy="extension_release",
                         comfyui_api_key=comfyui_api_key if comfyui_api_key else None,
                         runninghub_api_key=runninghub_api_key if runninghub_api_key else None,
                         runninghub_concurrent_limit=int(runninghub_concurrent_limit),

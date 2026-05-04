@@ -101,10 +101,10 @@ def test_comfyui_backend_management_defaults_to_auto():
     assert config.comfyui.backend_management_mode == "auto"
 
 
-def test_comfyui_gguf_cleanup_strategy_defaults_to_process_restart():
+def test_comfyui_gguf_cleanup_strategy_defaults_to_extension_release():
     config = PixelleVideoConfig()
 
-    assert config.comfyui.gguf_cleanup_strategy == "process_restart"
+    assert config.comfyui.gguf_cleanup_strategy == "extension_release"
 
 
 def test_comfyui_model_cleanup_mode_retires_disabled_value():
