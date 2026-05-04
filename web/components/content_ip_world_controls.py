@@ -60,9 +60,10 @@ def render_content_ip_world_controls(
     """Render left-column content IP and request-scoped world hint controls."""
     session_state = ui.session_state
     with ui.expander(translate("content.ip_world.section_title"), expanded=True):
+        resolved_asset_bible_loader = asset_bible_loader
         asset_bibles: Sequence[Mapping[str, Any]] = ()
-        if asset_bible_loader is None:
-            asset_bibles = _load_content_ip_asset_bibles(
+        if resolved_asset_bible_loader is None:
+            resolved_asset_bible_loader = lambda: _load_content_ip_asset_bibles(
                 pixelle_video=pixelle_video,
                 session_state=session_state,
                 ui=ui,
@@ -72,7 +73,7 @@ def render_content_ip_world_controls(
         ip_payload = render_ip_prompt_chain_controls(
             ui=ui,
             asset_bibles=asset_bibles,
-            asset_bible_loader=asset_bible_loader,
+            asset_bible_loader=resolved_asset_bible_loader,
             translate=translate,
             state_key_prefix=CONTENT_IP_STATE_PREFIX,
             label_key_prefix="content.ip_world",
@@ -80,6 +81,8 @@ def render_content_ip_world_controls(
         ip_profile_world_hint = _first_text(ip_payload.pop("ip_profile_world_hint", None))
         if ip_profile_world_hint:
             session_state[CONTENT_IP_PROFILE_WORLD_HINT_KEY] = ip_profile_world_hint
+        else:
+            session_state.pop(CONTENT_IP_PROFILE_WORLD_HINT_KEY, None)
 
         generation_world_hint = ui.text_area(
             translate("content.ip_world.generation_world_hint"),

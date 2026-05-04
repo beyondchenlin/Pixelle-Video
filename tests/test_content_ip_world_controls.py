@@ -101,6 +101,27 @@ def test_render_content_ip_world_controls_keeps_world_hint_without_ip():
     assert fake_ui.expanders == [{"label": "content.ip_world.section_title", "expanded": True}]
 
 
+def test_render_content_ip_world_controls_default_loader_is_lazy_when_ip_disabled(monkeypatch):
+    fake_ui = _FakeContentIPWorldUI()
+    loader_calls = []
+
+    monkeypatch.setattr(
+        content_ip_world_controls,
+        "load_ip_prompt_chain_asset_bibles",
+        lambda **_kwargs: loader_calls.append("called"),
+    )
+
+    payload = content_ip_world_controls.render_content_ip_world_controls(
+        ui=fake_ui,
+        translate=_tr,
+        pixelle_video=object(),
+        content_context={"title": "Demo", "text": "Script text"},
+    )
+
+    assert payload == {"ip_enabled": False}
+    assert loader_calls == []
+
+
 
 def test_render_content_ip_world_controls_returns_selected_ip_payload_without_helper_field():
     fake_ui = _FakeContentIPWorldUI()
@@ -156,6 +177,53 @@ def test_render_content_ip_world_controls_can_use_ip_default(monkeypatch):
     assert fake_ui.session_state["content_generation_world_hint"] == "Friendly guide world."
     assert fake_ui.session_state["content_generation_world_hint_source"] == "ip_default"
     assert reruns == ["rerun"]
+
+
+def test_render_content_ip_world_controls_clears_stale_ip_world_hint_when_ip_disabled():
+    fake_ui = _FakeContentIPWorldUI()
+    fake_ui.session_state["content_ip_profile_world_hint"] = "Stale helper world."
+
+    content_ip_world_controls.render_content_ip_world_controls(
+        ui=fake_ui,
+        translate=_tr,
+        pixelle_video=None,
+        content_context={"title": "Demo", "text": "Script text"},
+        asset_bible_loader=_asset_bibles,
+    )
+
+    assert "content_ip_profile_world_hint" not in fake_ui.session_state
+
+
+def test_render_content_ip_world_controls_clears_stale_ip_world_hint_when_profile_has_no_hint():
+    fake_ui = _FakeContentIPWorldUI()
+    fake_ui.session_state.update(
+        {
+            "content_ip_enabled": True,
+            "content_ip_asset_bible_id": "bible_demo",
+            "content_ip_profile_id": "ip_main",
+            "content_ip_profile_world_hint": "Stale helper world.",
+        }
+    )
+
+    content_ip_world_controls.render_content_ip_world_controls(
+        ui=fake_ui,
+        translate=_tr,
+        pixelle_video=None,
+        content_context={"title": "Demo", "text": "Script text"},
+        asset_bible_loader=lambda: [
+            {
+                "asset_bible_id": "bible_demo",
+                "ip_profiles": [
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "White Rabbit Guide",
+                    }
+                ],
+            }
+        ],
+    )
+
+    assert "content_ip_profile_world_hint" not in fake_ui.session_state
 
 
 
