@@ -180,6 +180,50 @@ class ImagePromptGenerateResponse(BaseModel):
 
 
 # ============================================================================
+# World Hint Draft Generation
+# ============================================================================
+
+class WorldHintDraftGenerateRequest(BaseModel):
+    """Request for generating an editable request-scoped world hint draft."""
+
+    source_text: str = Field(
+        ...,
+        description="Source text used to derive a request-scoped world hint draft",
+    )
+    title: Optional[str] = Field(None, description="Optional title used as extra world context")
+    world_preset_id: Optional[str] = Field(None, description="Storyboard world preset id")
+    storyboard_prompt_language: StoryboardPromptLanguage = Field(
+        "zh_CN",
+        description="Language used for the returned world hint draft",
+    )
+    ip_default_world_hint: Optional[str] = Field(
+        None,
+        description="Frontend-only selected IP default world hint used as planner guidance",
+    )
+
+    @model_validator(mode="after")
+    def validate_source_text(self) -> "WorldHintDraftGenerateRequest":
+        self.source_text = self.source_text.strip()
+        if not self.source_text:
+            raise ValueError("source_text must not be blank")
+        if self.title is not None:
+            self.title = self.title.strip() or None
+        if self.ip_default_world_hint is not None:
+            self.ip_default_world_hint = self.ip_default_world_hint.strip() or None
+        return self
+
+
+class WorldHintDraftGenerateResponse(BaseModel):
+    """Response containing an editable world hint draft."""
+
+    success: bool = True
+    message: str = "Success"
+    world_hint_draft: str
+    generation_world_profile: dict
+    hint_source: str
+
+
+# ============================================================================
 # Title Generation
 # ============================================================================
 
