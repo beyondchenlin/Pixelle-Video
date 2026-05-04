@@ -473,6 +473,29 @@ async def test_produce_assets_staged_materializes_element_motion_after_compose_b
 
 
 @pytest.mark.asyncio
+async def test_produce_assets_ffmpeg_manifest_skips_redundant_segment_generation(monkeypatch):
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx(render_backend="ffmpeg_manifest")
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
+
+    await pipeline.produce_assets(ctx)
+
+    assert core.frame_processor.calls == [
+        ("media", 0),
+        ("media", 1),
+        ("compose", 0),
+        ("compose", 1),
+    ]
+    assert [frame.video_segment_path for frame in ctx.storyboard.frames] == [
+        None,
+        None,
+    ]
+    assert ctx.storyboard.total_duration == 3.0
+
+
+@pytest.mark.asyncio
 async def test_prepare_legacy_master_track_audio_requires_timing_plan():
     pipeline = StandardPipeline(_DummyCore())
     ctx = _build_storyboard_ctx(tts_inference_mode="comfyui")

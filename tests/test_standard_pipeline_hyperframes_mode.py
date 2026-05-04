@@ -600,6 +600,50 @@ def test_render_manifest_visual_clips_use_raw_media_for_hyperframes_when_shell_e
     assert [clip.source_kind for clip in clips] == ["raw_media", "raw_media"]
 
 
+def test_resolve_effective_render_backend_falls_back_to_ffmpeg_manifest_for_long_static_hyperframes(
+    tmp_path,
+):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes_compiled")
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        Path(frame.image_path).write_bytes(b"raw")
+
+    long_duration = 271.910113
+    ctx.master_audio_duration = long_duration
+    ctx.storyboard.total_duration = long_duration
+    ctx.timing_plan.sentences[0].source_start = 0.0
+    ctx.timing_plan.sentences[0].source_end = 120.0
+    ctx.timing_plan.sentences[1].source_start = 120.0
+    ctx.timing_plan.sentences[1].source_end = long_duration
+
+    assert pipeline._resolve_effective_render_backend(ctx) == "ffmpeg_manifest"
+    fallback_reason = pipeline._get_render_backend_fallback_reason(ctx)
+    assert fallback_reason is not None
+    assert "ffmpeg_manifest" in fallback_reason
+    assert "long-duration" in fallback_reason
+
+
+def test_resolve_effective_render_backend_estimates_long_hyperframes_before_audio_exists(
+    tmp_path,
+):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes_compiled")
+    long_narration = "长视频旁白。" * 360
+    for frame in ctx.storyboard.frames:
+        frame.narration = long_narration
+    for block in ctx.timing_plan.blocks:
+        block.text = long_narration
+    ctx.master_audio_duration = None
+    ctx.storyboard.total_duration = 0.0
+
+    assert pipeline._resolve_effective_render_backend(ctx) == "ffmpeg_manifest"
+
+
 @pytest.mark.asyncio
 async def test_hyperframes_element_motion_uses_raw_media_when_shell_artifact_exists(
     monkeypatch,

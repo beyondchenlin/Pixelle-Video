@@ -61,12 +61,14 @@ def test_render_materializes_template_and_invokes_node_bridge(monkeypatch, tmp_p
     expected_output = project_dir / "renders" / "task-6.mp4"
     captured: dict[str, object] = {}
 
-    def fake_run(command, capture_output, text, check, cwd):
+    def fake_run(command, capture_output, text, check, cwd, encoding=None, errors=None):
         captured["command"] = command
         captured["capture_output"] = capture_output
         captured["text"] = text
         captured["check"] = check
         captured["cwd"] = cwd
+        captured["encoding"] = encoding
+        captured["errors"] = errors
         return subprocess.CompletedProcess(
             args=command,
             returncode=0,
@@ -94,6 +96,8 @@ def test_render_materializes_template_and_invokes_node_bridge(monkeypatch, tmp_p
         str(expected_output),
     ]
     assert captured["cwd"] == str(project_dir)
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
     assert (project_dir / "index.html").read_text(encoding="utf-8") == "<!doctype html><title>template</title>"
     assert (project_dir / "compositions" / "captions.html").exists()
 
@@ -115,7 +119,7 @@ def test_render_preserves_compiled_project_entrypoint_when_present(monkeypatch, 
     bridge_script = tmp_path / "render.mjs"
     bridge_script.write_text("// bridge placeholder", encoding="utf-8")
 
-    def fake_run(command, capture_output, text, check, cwd):
+    def fake_run(command, capture_output, text, check, cwd, encoding=None, errors=None):
         return subprocess.CompletedProcess(
             args=command,
             returncode=0,
@@ -155,7 +159,7 @@ def test_render_allows_compiled_project_without_manifest_when_output_path_is_exp
     bridge_script.write_text("// bridge placeholder", encoding="utf-8")
     explicit_output = project_dir / "renders" / "task-compiled.mp4"
 
-    def fake_run(command, capture_output, text, check, cwd):
+    def fake_run(command, capture_output, text, check, cwd, encoding=None, errors=None):
         return subprocess.CompletedProcess(
             args=command,
             returncode=0,
@@ -189,7 +193,7 @@ def test_render_rejects_video_without_audio_stream(monkeypatch, tmp_path):
     bridge_script = tmp_path / "render.mjs"
     bridge_script.write_text("// bridge placeholder", encoding="utf-8")
 
-    def fake_run(command, capture_output, text, check, cwd):
+    def fake_run(command, capture_output, text, check, cwd, encoding=None, errors=None):
         return subprocess.CompletedProcess(
             args=command,
             returncode=0,

@@ -22,6 +22,7 @@ import asyncio
 import inspect
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -147,6 +148,10 @@ from pixelle_video.utils.workflow_capabilities import (
     WorkflowCapabilities,
     get_workflow_capabilities,
 )
+
+HYPERFRAMES_LONG_RENDER_FALLBACK_FRAME_THRESHOLD = 3600
+HYPERFRAMES_CJK_CHARS_PER_SECOND_ESTIMATE = 4.0
+HYPERFRAMES_LATIN_WORDS_PER_SECOND_ESTIMATE = 2.5
 
 LocalMediaSessionPolicy = Literal["none", "batch", "per_frame"]
 
@@ -959,6 +964,75 @@ class StandardPipeline(LinearVideoPipeline):
             return None
         return self._get_hyperframes_template_unavailable_reason(ctx)
 
+    def _estimate_hyperframes_render_frame_count(self, ctx: PipelineContext) -> Optional[int]:
+        fps = max(int(getattr(ctx.config, "video_fps", 0) or 0), 1)
+
+        master_audio_duration = getattr(ctx, "master_audio_duration", None)
+        if master_audio_duration is None:
+            master_audio_duration = getattr(getattr(ctx, "storyboard", None), "total_duration", None)
+        if master_audio_duration is not None:
+            try:
+                duration = max(float(master_audio_duration), 0.0)
+            except (TypeError, ValueError):
+                duration = 0.0
+            if duration <= 0:
+                duration = self._estimate_narration_duration_for_render_routing(ctx)
+        else:
+            duration = self._estimate_narration_duration_for_render_routing(ctx)
+
+        if duration <= 0:
+            return None
+
+        return int(round(duration * fps))
+
+    def _estimate_narration_duration_for_render_routing(
+        self,
+        ctx: PipelineContext,
+    ) -> float:
+        texts: list[str] = []
+        timing_plan = getattr(ctx, "timing_plan", None)
+        if timing_plan is not None:
+            texts.extend(
+                str(getattr(block, "text", "") or "")
+                for block in getattr(timing_plan, "blocks", []) or []
+            )
+        if not texts:
+            texts.extend(self._text_rendering_frame_texts(ctx))
+
+        text = " ".join(item for item in texts if item)
+        if not text.strip():
+            return 0.0
+
+        cjk_chars = sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
+        latin_words = len(re.findall(r"[A-Za-z0-9']+", text))
+        estimated_duration = max(
+            cjk_chars / HYPERFRAMES_CJK_CHARS_PER_SECOND_ESTIMATE,
+            latin_words / HYPERFRAMES_LATIN_WORDS_PER_SECOND_ESTIMATE,
+        )
+        return estimated_duration
+
+    def _get_hyperframes_long_render_fallback_reason(
+        self,
+        ctx: PipelineContext,
+    ) -> Optional[str]:
+        if ctx.config.render_backend != HYPERFRAMES_COMPILED_RENDER_BACKEND:
+            return None
+        if getattr(ctx.config, "layered_template_spec", None):
+            return None
+        if getattr(ctx.config, "element_animation_enabled", False):
+            return None
+
+        frame_count = self._estimate_hyperframes_render_frame_count(ctx)
+        if frame_count is None:
+            return None
+        if frame_count <= HYPERFRAMES_LONG_RENDER_FALLBACK_FRAME_THRESHOLD:
+            return None
+
+        return (
+            "ffmpeg_manifest selected for long-duration static render: "
+            f"estimated HyperFrames screenshot workload is {frame_count} frames"
+        )
+
     def _get_hyperframes_template_unavailable_reason(
         self,
         ctx: PipelineContext,
@@ -1025,6 +1099,17 @@ class StandardPipeline(LinearVideoPipeline):
         )
 
         fallback_reason = result.fallback_reason
+        long_render_fallback_reason = self._get_hyperframes_long_render_fallback_reason(ctx)
+        if (
+            requested_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND
+            and long_render_fallback_reason is not None
+            and result.effective_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND
+        ):
+            result = RenderCapabilityResult(
+                effective_backend=FFMPEG_MANIFEST_RENDER_BACKEND,
+                fallback_reason=long_render_fallback_reason,
+            )
+            fallback_reason = long_render_fallback_reason
         if (
             result.fallback_reason
             and requested_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND
@@ -1342,6 +1427,10 @@ class StandardPipeline(LinearVideoPipeline):
         storyboard = ctx.storyboard
         config = ctx.config
         total_frames = len(storyboard.frames)
+        skip_segment_generation = (
+            self._resolve_effective_render_backend(ctx)
+            == FFMPEG_MANIFEST_RENDER_BACKEND
+        )
 
         logger.info("Using staged selfhost image processing")
 
@@ -1397,7 +1486,8 @@ class StandardPipeline(LinearVideoPipeline):
                 action=ProgressFrameAction.VIDEO,
             )
             await self._materialize_element_motion_for_frame(ctx, frame)
-            await self.core.frame_processor._step_create_video_segment(frame, config)
+            if not skip_segment_generation:
+                await self.core.frame_processor._step_create_video_segment(frame, config)
             storyboard.total_duration += frame.duration
 
     async def _produce_staged_media(
