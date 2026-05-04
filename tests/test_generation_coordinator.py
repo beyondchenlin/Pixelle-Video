@@ -1873,18 +1873,20 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_workflow_session_releases_gguf_batch_even_when_legacy_restart_is_configured(monkeypatch):
+async def test_local_comfyui_workflow_session_ignores_legacy_gguf_restart_config(monkeypatch):
     events = []
     core = PixelleVideoCore()
 
     monkeypatch.setattr(
         service_module.config_manager,
         "config",
-        PixelleVideoConfig(
-            comfyui=ComfyUIConfig(
-                comfyui_url="http://127.0.0.1:8000",
-                gguf_cleanup_strategy="process_restart",
-            )
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "comfyui_url": "http://127.0.0.1:8000",
+                    "gguf_cleanup_strategy": "process_restart",
+                }
+            }
         ),
     )
 
@@ -1924,19 +1926,14 @@ async def test_local_comfyui_workflow_session_releases_gguf_batch_even_when_lega
 
 
 @pytest.mark.asyncio
-async def test_local_comfyui_workflow_session_uses_extension_release_when_gguf_restart_is_disabled(monkeypatch):
+async def test_local_comfyui_workflow_session_releases_gguf_batch(monkeypatch):
     events = []
     core = PixelleVideoCore()
 
     monkeypatch.setattr(
         service_module.config_manager,
         "config",
-        PixelleVideoConfig(
-            comfyui=ComfyUIConfig(
-                comfyui_url="http://127.0.0.1:8000",
-                gguf_cleanup_strategy="extension_release",
-            )
-        ),
+        PixelleVideoConfig(comfyui=ComfyUIConfig(comfyui_url="http://127.0.0.1:8000")),
     )
 
     async def _prepare():

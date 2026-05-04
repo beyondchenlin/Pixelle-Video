@@ -101,10 +101,13 @@ def test_comfyui_backend_management_defaults_to_auto():
     assert config.comfyui.backend_management_mode == "auto"
 
 
-def test_comfyui_gguf_cleanup_strategy_defaults_to_extension_release():
-    config = PixelleVideoConfig()
+def test_comfyui_legacy_gguf_cleanup_strategy_is_retired():
+    config = PixelleVideoConfig.model_validate(
+        {"comfyui": {"gguf_cleanup_strategy": "process_restart"}}
+    )
 
-    assert config.comfyui.gguf_cleanup_strategy == "extension_release"
+    assert not hasattr(config.comfyui, "gguf_cleanup_strategy")
+    assert "gguf_cleanup_strategy" not in config.comfyui.model_dump()
 
 
 def test_comfyui_model_cleanup_mode_retires_disabled_value():
@@ -175,19 +178,14 @@ def test_comfyui_config_exposes_backend_management_mode(monkeypatch):
     assert config_manager.get_comfyui_config()["backend_management_mode"] == "required"
 
 
-def test_comfyui_config_exposes_gguf_cleanup_strategy(monkeypatch):
+def test_comfyui_config_does_not_expose_retired_gguf_cleanup_strategy(monkeypatch):
     monkeypatch.setattr(
         config_manager,
         "config",
-        PixelleVideoConfig(
-            comfyui=ComfyUIConfig(
-                comfyui_url="http://127.0.0.1:8000",
-                gguf_cleanup_strategy="extension_release",
-            )
-        ),
+        PixelleVideoConfig(comfyui=ComfyUIConfig(comfyui_url="http://127.0.0.1:8000")),
     )
 
-    assert config_manager.get_comfyui_config()["gguf_cleanup_strategy"] == "extension_release"
+    assert "gguf_cleanup_strategy" not in config_manager.get_comfyui_config()
 
 
 def test_set_comfyui_config_retires_disabled_model_cleanup_mode(monkeypatch):

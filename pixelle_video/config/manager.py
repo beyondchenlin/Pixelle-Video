@@ -139,7 +139,6 @@ class ConfigManager:
             "pre_generation_cleanup_mode": self.config.comfyui.pre_generation_cleanup_mode,
             "pre_generation_cleanup_timeout_seconds": self.config.comfyui.pre_generation_cleanup_timeout_seconds,
             "model_cleanup_mode": self.config.comfyui.model_cleanup_mode,
-            "gguf_cleanup_strategy": self.config.comfyui.gguf_cleanup_strategy,
             "comfyui_api_key": self.config.comfyui.comfyui_api_key,
             "runninghub_api_key": self.config.comfyui.runninghub_api_key,
             "runninghub_concurrent_limit": self.config.comfyui.runninghub_concurrent_limit,
@@ -191,7 +190,6 @@ class ConfigManager:
         pre_generation_cleanup_mode: Optional[str] = None,
         pre_generation_cleanup_timeout_seconds: Optional[float] = None,
         model_cleanup_mode: Optional[str] = None,
-        gguf_cleanup_strategy: Optional[str] = None,
         comfyui_api_key: Optional[str] = None,
         runninghub_api_key: Optional[str] = None,
         runninghub_concurrent_limit: Optional[int] = None,
@@ -211,8 +209,6 @@ class ConfigManager:
             updates["pre_generation_cleanup_timeout_seconds"] = pre_generation_cleanup_timeout_seconds
         if model_cleanup_mode is not None:
             updates["model_cleanup_mode"] = model_cleanup_mode
-        if gguf_cleanup_strategy is not None:
-            updates["gguf_cleanup_strategy"] = gguf_cleanup_strategy
         if comfyui_api_key is not None:
             updates["comfyui_api_key"] = comfyui_api_key
         if runninghub_api_key is not None:

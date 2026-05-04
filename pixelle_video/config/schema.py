@@ -484,15 +484,6 @@ class ComfyUIConfig(BaseModel):
             "IndexTTS2 workflows"
         ),
     )
-    gguf_cleanup_strategy: Literal["extension_release"] = Field(
-        default="extension_release",
-        description=(
-            "Cleanup boundary for workflows using ComfyUI-GGUF loaders. "
-            "Normal GGUF stage boundaries release models through ComfyUI /free "
-            "and the in-process /pixelle/gguf/free endpoint. Managed backend "
-            "restart is reserved for crash or connection-loss recovery."
-        ),
-    )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")
     runninghub_concurrent_limit: int = Field(default=1, ge=1, le=10, description="RunningHub concurrent execution limit (1-10)")
@@ -529,9 +520,14 @@ class ComfyUIConfig(BaseModel):
         if isinstance(raw_model_cleanup_mode, str):
             normalized["model_cleanup_mode"] = raw_model_cleanup_mode.strip().lower()
 
-        raw_gguf_cleanup_strategy = normalized.get("gguf_cleanup_strategy")
-        if isinstance(raw_gguf_cleanup_strategy, str):
-            normalized["gguf_cleanup_strategy"] = raw_gguf_cleanup_strategy.strip().lower()
+        if "gguf_cleanup_strategy" in normalized:
+            normalized.pop("gguf_cleanup_strategy", None)
+            logger.warning(
+                "Ignoring retired ComfyUI config field: gguf_cleanup_strategy. "
+                "Normal GGUF stages always release ComfyUI models and the "
+                "/pixelle/gguf/free extension cache; managed backend restart is "
+                "reserved for crash recovery."
+            )
 
         if normalized.get("model_cleanup_mode") == "disabled":
             normalized["model_cleanup_mode"] = "comfyui_and_extensions"
@@ -539,15 +535,6 @@ class ComfyUIConfig(BaseModel):
                 "Retired ComfyUI model_cleanup_mode 'disabled' was migrated to "
                 "'comfyui_and_extensions'. Pixelle-owned local stages must release "
                 "their models before the next stage."
-            )
-
-        if normalized.get("gguf_cleanup_strategy") == "process_restart":
-            normalized["gguf_cleanup_strategy"] = "extension_release"
-            logger.warning(
-                "Retired ComfyUI gguf_cleanup_strategy 'process_restart' was "
-                "migrated to 'extension_release'. Normal GGUF stage cleanup must "
-                "release models in-process; managed backend restart is reserved "
-                "for crash recovery."
             )
 
         return normalized

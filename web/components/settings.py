@@ -421,7 +421,6 @@ def render_advanced_settings():
                         pre_generation_cleanup_mode=cleanup_mode,
                         pre_generation_cleanup_timeout_seconds=float(cleanup_timeout_seconds),
                         model_cleanup_mode=model_cleanup_mode,
-                        gguf_cleanup_strategy="extension_release",
                         comfyui_api_key=comfyui_api_key if comfyui_api_key else None,
                         runninghub_api_key=runninghub_api_key if runninghub_api_key else None,
                         runninghub_concurrent_limit=int(runninghub_concurrent_limit),

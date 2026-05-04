@@ -381,20 +381,6 @@ class PixelleVideoCore:
             return "auto"
         return mode
 
-    def _get_gguf_cleanup_strategy(self, comfyui_config: dict) -> str:
-        strategy = (comfyui_config.get("gguf_cleanup_strategy") or "extension_release").lower()
-        if strategy == "process_restart":
-            logger.warning(
-                "Ignoring retired GGUF cleanup strategy 'process_restart'; "
-                "normal GGUF stage cleanup uses extension release. Managed "
-                "backend restart is reserved for crash recovery."
-            )
-            return "extension_release"
-        if strategy != "extension_release":
-            logger.warning(f"Unsupported GGUF cleanup strategy: {strategy}")
-            return "extension_release"
-        return strategy
-
     def _get_managed_comfyui_backend(self) -> ManagedComfyUIBackend | None:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
