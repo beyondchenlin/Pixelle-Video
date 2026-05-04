@@ -4,7 +4,7 @@
 
 **Goal:** 将现有 IP 设计与 SceneCast 资产能力真正接入图片提示词主链路，让长文案生成图片时可以基于高级分镜、风格提示词、IP 使用策略、中文画面文字和 Z-Image 约束产出稳定可执行的最终 prompt。
 
-**Architecture:** 保留现有 `AssetBible / SceneCast / IP Design Workbench / IP Workbench apply` 作为资产编辑与手工绑定能力，不重做 UI 基座。新增一条面向图片生成主链路的结构化 IP 使用规划层：`StoryboardPlan -> IP Usage Planner -> ImagePromptComposer prompt_context -> image_generation prompt -> Prompt Composer / helper finalization`。IP 不直接拼接到 `final_prompt`，而是先生成结构化帧级上下文，再由 LLM 和本地 helper 协同重写为最终 Z-Image prompt。
+**Architecture:** 保留现有 `AssetBible / SceneCast / IP Design Workbench / IP Workbench apply` 作为资产编辑与手工绑定能力，不重做 UI 基座。`ImagePromptComposer` 只负责把 `StoryboardPlan` 和 IP 控制参数带入图片提示词主链路；真正的 IP 出场裁决必须在 `generate_styled_image_prompt_batch(...)` 中完成，因为这里才同时拥有 style resolution、高级分镜规划、workflow capability 和最终 prompt 组装上下文。IP 不直接拼接到 `final_prompt`，而是在风格解析和分镜规划之后生成结构化帧级 `ip_adaptation`，再由 LLM 和本地 helper 协同重写为最终 Z-Image prompt。
 
 **Tech Stack:** Python dataclasses, existing PromptContext contract, StandardPipeline, FastAPI/Pydantic request contracts, Streamlit UI payload wiring, pytest, ruff.
 
@@ -70,9 +70,9 @@
 - Modify: `pixelle_video/models/prompt_context.py`
   - 支持更丰富的帧级规划上下文
 - Modify: `pixelle_video/services/image_prompt_composer.py`
-  - 在 `_build_prompt_contexts(...)` 中注入 IP 使用规划结果
+  - 只透传 `storyboard_plan / ip_enabled / ip_profile / scene_casts_by_frame` 到 `generate_styled_image_prompt_batch(...)`，不拥有 IP 裁决逻辑
 - Modify: `pixelle_video/utils/content_generators.py`
-  - 调用 `IPUsagePlanner`，并在 final prompt 组装阶段应用 Z-Image/IP 规则
+  - 在 style resolution 和 storyboard planning 后调用 `IPUsagePlanner`，把 `ip_adaptation` 注入 `PromptContextEnvelope` 后再调用 `generate_image_prompts(...)`，并在 final prompt 组装阶段应用 Z-Image/IP 规则
 - Modify: `pixelle_video/utils/prompt_helper.py`
   - 新增“单段最终 prompt 合并”和“禁止色号/字段名泄漏”的 helper
 - Modify: `pixelle_video/prompts/image_generation.py`
@@ -100,6 +100,7 @@
   - Modify `tests/test_prompt_context_contract.py`
   - Modify `tests/test_image_prompt_composer.py`
   - Modify `tests/test_styled_image_prompt_batch.py`
+  - Modify `tests/test_content_generators_structured_output.py`
   - Modify `tests/test_content_generators_text_policy.py`
   - Modify `tests/test_video_api.py`
   - Modify `tests/test_standard_pipeline_storyboard_generation.py`
@@ -459,7 +460,7 @@ git commit -m "feat: 增加IP按帧使用规划器"
 git push origin $(git branch --show-current)
 ```
 
-## Task 3: 把 IP 规划注入 ImagePromptComposer 与 PromptPlan
+## Task 3: 打通 ImagePromptComposer 的 IP 控制透传与 PromptPlan 摘要合同
 
 **Files:**
 - Modify: `pixelle_video/services/image_prompt_composer.py`
@@ -468,13 +469,13 @@ git push origin $(git branch --show-current)
 - Test: `tests/test_image_prompt_composer.py`
 - Test: `tests/test_prompt_plan_model.py`
 
-- [ ] **Step 1: 写失败测试，锁定 composer 注入行为**
+- [ ] **Step 1: 写失败测试，锁定 composer 透传行为**
 
 扩展 `tests/test_image_prompt_composer.py`：
 
 ```python
 @pytest.mark.asyncio
-async def test_composer_injects_ip_adaptation_into_prompt_contexts(monkeypatch):
+async def test_composer_forwards_ip_controls_to_styled_prompt_batch(monkeypatch):
     captured = {}
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
@@ -495,21 +496,22 @@ async def test_composer_injects_ip_adaptation_into_prompt_contexts(monkeypatch):
         fake_generate_styled_image_prompt_batch,
     )
 
+    ip_profile = _ip_profile()
+
     await ImagePromptComposer().compose(
         llm_service=object(),
         storyboard_plan=_plan(),
         image_config={},
         ip_enabled=True,
-        ip_profile=_ip_profile(),
+        ip_profile=ip_profile,
+        scene_casts_by_frame={"frame_0001": {"role": "guide"}},
     )
 
-    frame_context = captured["prompt_contexts"].frame_contexts[0]
-    assert frame_context["ip_adaptation"]["ip_presence_type"] in {
-        "scene_integrated",
-        "balanced_narrative",
-        "low_intrusion",
-    }
-    assert "ip_presence_options" in frame_context
+    assert captured["ip_enabled"] is True
+    assert captured["ip_profile"] is ip_profile
+    assert captured["storyboard_plan"].plan_id == _plan().plan_id
+    assert captured["scene_casts_by_frame"] == {"frame_0001": {"role": "guide"}}
+    assert "ip_adaptation" not in captured["prompt_contexts"].frame_contexts[0]
 
 
 @pytest.mark.asyncio
@@ -577,9 +579,9 @@ def test_prompt_plan_can_store_ip_planning_metadata_without_polluting_projection
 python -m pytest -q tests/test_image_prompt_composer.py tests/test_prompt_plan_model.py
 ```
 
-预期：失败，因为 composer 还未接入 IP planner。
+预期：失败，因为 composer 还没有接收和透传 IP 控制参数。
 
-- [ ] **Step 3: 实现 composer 注入**
+- [ ] **Step 3: 实现 composer 透传和 PromptPlan 摘要合同**
 
 修改 `pixelle_video/services/image_prompt_composer.py`：
 
@@ -587,11 +589,9 @@ python -m pytest -q tests/test_image_prompt_composer.py tests/test_prompt_plan_m
   - `ip_profile`
   - `scene_casts_by_frame`
   - `ip_enabled`
-- 在 `_build_prompt_contexts(...)` 前调用 `IPUsagePlanner.plan_batch(...)`
-- 每帧 `frame_context` 增加：
-  - `ip_adaptation`
-  - `ip_presence_options`
-  - `style_context`
+- 调用 `generate_styled_image_prompt_batch(...)` 时原样透传这些参数，并显式传入原始 `storyboard_plan`
+- `_build_prompt_contexts(...)` 只继续负责 `StoryboardPlan` 与 frame override 的基础上下文，不调用 `IPUsagePlanner`
+- 这一步禁止新增第二套 style/storyboard/IP 裁决逻辑；IP 决策属于 `content_generators.generate_styled_image_prompt_batch(...)`
 
 修改 `pixelle_video/services/prompt_plan_service.py`：
 
@@ -599,11 +599,13 @@ python -m pytest -q tests/test_image_prompt_composer.py tests/test_prompt_plan_m
   - `PromptPlan.metadata["ip_presence_type"]`
   - `PromptPlan.metadata["image_text_plan"]`
   - `PromptPlan.metadata["visible_text_whitelist"]`
+- 摘要来源是 `planning_snapshot["ip_adaptations_by_frame"]` 或等价的 frame-id 索引结构，由 Task 5 在主链路中生成
 
 要求：
 
 - `PromptProjection` 仍保持轻量，不把完整结构化大对象暴露为投影主字段
 - `PromptPlan.metadata` 中只存摘要，不存冗余整份 profile
+- `ImagePromptComposer` 不拥有 IP 使用规划，只在生成完成后把 batch 返回的 planning snapshot 带入 PromptPlan bundle
 
 - [ ] **Step 4: 运行测试，确认 GREEN**
 
@@ -619,7 +621,7 @@ python -m pytest -q tests/test_image_prompt_composer.py tests/test_prompt_plan_m
 
 ```powershell
 git add -- pixelle_video/services/image_prompt_composer.py pixelle_video/models/prompt_plan.py pixelle_video/services/prompt_plan_service.py tests/test_image_prompt_composer.py tests/test_prompt_plan_model.py
-git commit -m "feat: 将IP规划注入提示词编排链路"
+git commit -m "feat: 打通IP提示词控制透传合同"
 git push origin $(git branch --show-current)
 ```
 
@@ -736,6 +738,7 @@ git push origin $(git branch --show-current)
 - Modify: `pixelle_video/utils/prompt_helper.py`
 - Modify: `pixelle_video/utils/content_generators.py`
 - Test: `tests/test_styled_image_prompt_batch.py`
+- Test: `tests/test_content_generators_structured_output.py`
 - Test: `tests/test_content_generators_text_policy.py`
 
 - [ ] **Step 1: 写失败测试，锁定 Z-Image 单段 prompt 规则**
@@ -743,6 +746,30 @@ git push origin $(git branch --show-current)
 扩展 `tests/test_styled_image_prompt_batch.py`：
 
 ```python
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
+
+
+def _storyboard_plan():
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="从长乐门出发。",
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text="从长乐门出发。",
+                visual_goal="表现正定长乐门作为古城入口的历史感和出发感",
+                prompt_intent="建立古城空间和旅程开篇",
+                shot_type="中远景",
+                shot_purpose="建立场景",
+                primary_subject="正定长乐门、青砖城墙",
+                world_elements=("青砖城墙", "城楼", "晨光"),
+            )
+        ],
+    )
+
+
 @pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints_into_single_prompt_when_negative_prompt_unsupported(monkeypatch):
     async def fake_generate_image_prompts(**_kwargs):
@@ -777,6 +804,64 @@ async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints
     assert result.negative_prompt is None
     assert "避免多余文字" in result.prompts[0]
     assert "避免角色贴纸感" in result.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_style_resolution(monkeypatch):
+    planner_calls = {}
+
+    async def fake_generate_image_prompts(**kwargs):
+        prompt_contexts = kwargs["prompt_contexts"]
+        planner_calls["prompt_contexts"] = prompt_contexts
+        return ["正定长乐门晨光画面，白色兔子自然陪伴在城墙边。"]
+
+    class _Planner:
+        def plan_batch(self, **kwargs):
+            planner_calls["resolved_style"] = kwargs["resolved_style"]
+            planner_calls["storyboard_plan"] = kwargs["storyboard_plan"]
+            return [
+                type(
+                    "Pkg",
+                    (),
+                    {
+                        "to_dict": lambda self: {
+                            "ip_presence_type": "scene_integrated",
+                            "presence_mode": "support",
+                            "image_text_plan": {
+                                "summary_text": "从长乐门出发",
+                                "visible_text_whitelist": ["从长乐门出发", "长乐门"],
+                            },
+                        }
+                    },
+                )()
+            ]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        _Planner,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["从长乐门出发。"],
+        image_config={"prompt_prefix": "古城旅行纪录片风格"},
+        storyboard_plan=_storyboard_plan(),
+        world_preset_id="neutral_knowledge_storyboard",
+        ip_enabled=True,
+        ip_profile=_ip_profile(),
+    )
+
+    assert planner_calls["resolved_style"] is not None
+    assert planner_calls["storyboard_plan"] is not None
+    assert (
+        planner_calls["prompt_contexts"].frame_contexts[0]["ip_adaptation"]["ip_presence_type"]
+        == "scene_integrated"
+    )
+    assert result.planning_snapshot["ip_adaptations_by_frame"]
 
 
 @pytest.mark.asyncio
@@ -856,12 +941,37 @@ def test_text_policy_prefers_whitelist_language_over_generic_no_text_when_ip_tex
     assert "no visible text" not in clause
 ```
 
+扩展 `tests/test_content_generators_structured_output.py`：
+
+```python
+def test_styled_prompt_batch_requires_single_ip_truth_source_in_content_generators():
+    prompt = build_image_prompt_prompt(
+        narrations=["从长乐门出发。"],
+        min_words=30,
+        max_words=60,
+        prompt_contexts=[
+            {
+                "frame_source_text": "从长乐门出发。",
+                "ip_adaptation": {
+                    "ip_presence_type": "scene_integrated",
+                    "presence_mode": "support",
+                },
+                "style_context": {"style_kind": "visual_only"},
+            }
+        ],
+        prompt_language="zh_CN",
+    )
+
+    assert "ip_adaptation" in prompt
+    assert "style_context" in prompt
+```
+
 - [ ] **Step 2: 运行测试，确认 RED**
 
 运行：
 
 ```powershell
-python -m pytest -q tests/test_styled_image_prompt_batch.py tests/test_content_generators_text_policy.py
+python -m pytest -q tests/test_styled_image_prompt_batch.py tests/test_content_generators_structured_output.py tests/test_content_generators_text_policy.py
 ```
 
 预期：失败，因为现有 helper 还不知道 IP 文字/色彩规则。
@@ -881,19 +991,35 @@ python -m pytest -q tests/test_styled_image_prompt_batch.py tests/test_content_g
 
 修改 `pixelle_video/utils/content_generators.py`：
 
-- 在 `generate_styled_image_prompt_batch(...)` 中读取 `ip_adaptation`
+- `generate_styled_image_prompt_batch(...)` 新增输入：
+  - `storyboard_plan`
+  - `ip_enabled`
+  - `ip_profile`
+  - `scene_casts_by_frame`
+- `storyboard_plan` 默认为 `None`，用于保持 `/content/image-prompt`、风格预览和直接 batch 调用兼容；只有 `ip_enabled=True` 时才要求必须传入 `storyboard_plan` 和 `ip_profile`
+- 在 style resolution 完成、storyboard planning 得到 `frame_plans` 和 `normalized_style` 后：
+  - 调用 `IPUsagePlanner.plan_batch(...)`
+  - `storyboard_plan` 是 IP 裁决的分镜事实源，`frame_plans` 是高级分镜增强上下文；不能从 prompt 字符串或 LLM 输出反推分镜事实
+  - 基于现有 `PromptContextEnvelope` 生成新的 enriched envelope
+  - 每帧 `frame_context` 增加：
+    - `ip_adaptation`
+    - `ip_presence_options`
+    - `style_context`
+  - 用 enriched envelope 调用 `generate_image_prompts(...)`
+- `planning_snapshot` 中写入按 `frame_id` 索引的 IP 摘要，供 Task 3 的 PromptPlan 摘要投影复用
 - 当 `native_text_allowed` 且存在 `image_text_plan` 时：
   - 不再走通用 `apply_no_text_policy`
   - 改为注入 whitelist 型中文文字约束
 - 当 workflow `supports_negative_prompt=False` 时：
   - 把 `negative_constraints`、文字白名单规则、风格负向约束合并进最终 prompt
+- 这里是唯一允许决定 `ip_adaptation` 的位置；`ImagePromptComposer` 和 UI/API 层只能透传控制参数，不能重复做裁决
 
 - [ ] **Step 4: 运行测试，确认 GREEN**
 
 运行：
 
 ```powershell
-python -m pytest -q tests/test_styled_image_prompt_batch.py tests/test_content_generators_text_policy.py
+python -m pytest -q tests/test_styled_image_prompt_batch.py tests/test_content_generators_structured_output.py tests/test_content_generators_text_policy.py
 ```
 
 预期：通过。
@@ -901,7 +1027,7 @@ python -m pytest -q tests/test_styled_image_prompt_batch.py tests/test_content_g
 - [ ] **Step 5: 提交并推送**
 
 ```powershell
-git add -- pixelle_video/utils/prompt_helper.py pixelle_video/utils/content_generators.py tests/test_styled_image_prompt_batch.py tests/test_content_generators_text_policy.py
+git add -- pixelle_video/utils/prompt_helper.py pixelle_video/utils/content_generators.py tests/test_styled_image_prompt_batch.py tests/test_content_generators_structured_output.py tests/test_content_generators_text_policy.py
 git commit -m "feat: 完善Z-Image的IP提示词融合规则"
 git push origin $(git branch --show-current)
 ```
