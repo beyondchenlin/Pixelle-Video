@@ -42,10 +42,14 @@ class IPUsagePlanner:
         resolved_style: Mapping[str, Any] | None = None,
         scene_cast: Any | None = None,
     ) -> IPFrameAdaptationPackage:
-        del resolved_style, scene_cast
-
         frame_text = _frame_text(frame)
-        presence_type = _presence_type_for_frame(frame, frame_text, ip_profile)
+        presence_type = _presence_type_for_frame(
+            frame=frame,
+            frame_text=frame_text,
+            ip_profile=ip_profile,
+            resolved_style=resolved_style,
+            scene_cast=scene_cast,
+        )
         landmark_terms = _landmark_terms(frame)
         image_text_plan = _image_text_plan(frame, ip_profile, landmark_terms)
 
@@ -90,11 +94,19 @@ def _frame_text(frame: StoryboardPlanFrame) -> str:
 
 
 def _presence_type_for_frame(
+    *,
     frame: StoryboardPlanFrame,
     frame_text: str,
     ip_profile: IPProfile,
+    resolved_style: Mapping[str, Any] | None,
+    scene_cast: Any | None,
 ) -> IPPresenceType:
+    scene_cast_presence = _presence_type_from_scene_cast(scene_cast)
+    if scene_cast_presence is not None:
+        return scene_cast_presence
     if _contains_any(frame_text, _PROTECTED_SUBJECT_KEYWORDS):
+        return IPPresenceType.LOW_INTRUSION
+    if _style_is_serious_documentary(resolved_style):
         return IPPresenceType.LOW_INTRUSION
     if _contains_any(frame_text, _PURE_LANDSCAPE_KEYWORDS) and not _contains_any(frame_text, _NARRATIVE_KEYWORDS):
         return IPPresenceType.SYMBOLIC_ONLY
@@ -105,6 +117,34 @@ def _presence_type_for_frame(
     if _contains_any(frame_text, _NARRATIVE_KEYWORDS):
         return IPPresenceType.BALANCED_NARRATIVE
     return IPPresenceType.BALANCED_NARRATIVE
+
+
+def _presence_type_from_scene_cast(scene_cast: Any | None) -> IPPresenceType | None:
+    if not isinstance(scene_cast, Mapping):
+        return None
+    value = scene_cast.get("ip_presence_type") or scene_cast.get("presence_type")
+    if value is None:
+        return None
+    try:
+        return IPPresenceType(value)
+    except ValueError:
+        return None
+
+
+def _style_is_serious_documentary(resolved_style: Mapping[str, Any] | None) -> bool:
+    if not isinstance(resolved_style, Mapping):
+        return False
+    return _contains_any(_flatten_mapping_text(resolved_style), _SERIOUS_STYLE_KEYWORDS)
+
+
+def _flatten_mapping_text(value: Any) -> str:
+    if isinstance(value, Mapping):
+        return " ".join(_flatten_mapping_text(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(_flatten_mapping_text(item) for item in value)
+    if value is None:
+        return ""
+    return str(value)
 
 
 def _is_opening_or_establishing_frame(frame: StoryboardPlanFrame, frame_text: str) -> bool:
@@ -321,6 +361,7 @@ _PROTECTED_SUBJECT_KEYWORDS = (
 )
 _PURE_LANDSCAPE_KEYWORDS = ("空镜", "纯风景", "风景切镜", "山水", "天空", "河流", "远山")
 _NARRATIVE_KEYWORDS = ("讲述", "说明", "叙事", "介绍", "导览", "科普", "铺开")
+_SERIOUS_STYLE_KEYWORDS = ("严肃纪实", "纪录片", "documentary", "serious documentary")
 
 
 __all__ = ["IPUsagePlanner"]

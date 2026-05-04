@@ -92,3 +92,90 @@ def test_usage_planner_generates_summary_and_scene_text_plan():
 
     assert package.image_text_plan.summary_text in {"从长乐门出发", "正定古城"}
     assert "长乐门" in package.image_text_plan.visible_text_whitelist
+
+
+def test_usage_planner_marks_explanation_frame_as_balanced_narrative():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="导览员讲述古城街巷的生活记忆。",
+        visual_goal="表现轻松的文化讲解氛围",
+        prompt_intent="讲解地方文化",
+        shot_type="中景",
+        shot_purpose="叙事说明",
+        primary_subject="古城街巷与生活细节",
+        world_elements=("街巷", "摊位", "行人"),
+    )
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=_profile(),
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.BALANCED_NARRATIVE
+    assert package.presence_mode == "guide"
+
+
+def test_usage_planner_marks_explicit_ip_hero_frame_as_strong_identity():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="正定向导兔作为品牌主角面向镜头开场。",
+        visual_goal="表现IP主角强露出的欢迎画面",
+        prompt_intent="品牌主画面",
+        shot_type="近景",
+        shot_purpose="IP主画面",
+        primary_subject="正定向导兔",
+    )
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=_profile(),
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.STRONG_IDENTITY
+    assert package.presence_mode == "hero"
+
+
+def test_usage_planner_allows_scene_cast_to_request_strong_identity():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="古城路线从地图上展开。",
+        visual_goal="表现路线总览",
+        prompt_intent="旅行路线说明",
+        primary_subject="正定古城路线图",
+    )
+    plan = _plan(frame)
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_profile(),
+        scene_casts_by_frame={
+            plan.frames[0].frame_id: {"presence_type": "strong_identity"},
+        },
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.STRONG_IDENTITY
+
+
+def test_usage_planner_uses_serious_documentary_style_as_low_intrusion_signal():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="镜头缓慢扫过城墙纹理。",
+        visual_goal="表现朴素、克制的记录感",
+        prompt_intent="空间质感说明",
+        shot_type="全景",
+        shot_purpose="说明环境",
+        primary_subject="城墙纹理",
+        world_elements=("砖石", "阴影", "墙面"),
+    )
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=_profile(),
+        resolved_style={"style_kind": "严肃纪实纪录片"},
+    )[0]
+
+    assert package.ip_presence_type in {
+        IPPresenceType.LOW_INTRUSION,
+        IPPresenceType.SYMBOLIC_ONLY,
+        IPPresenceType.ABSENT,
+    }
