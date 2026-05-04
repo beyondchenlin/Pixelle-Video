@@ -364,6 +364,18 @@ def test_tts_omnivoice_api_dependency_docs_record_modelscope_priority():
         assert "python -m pytest tests/test_selfhost_workflows.py -k tts_omnivoice -q" in text
 
 
+def test_omnivoice_api_workflow_dependency_docs_exist():
+    docs = [
+        Path("workflows/down/tts_omnivoice_longform_bf16_\u4f9d\u8d56\u4e0e\u4e0b\u8f7d\u8bf4\u660e.md"),
+        Path("workflows/down/tts_omnivoice_clone_duration_bf16_\u4f9d\u8d56\u4e0e\u4e0b\u8f7d\u8bf4\u660e.md"),
+    ]
+    for doc_path in docs:
+        text = doc_path.read_text(encoding="utf-8")
+        assert "ModelScope" in text
+        assert "OmniVoice-bf16" in text
+        assert "whisper-large-v3" in text
+
+
 def test_omnivoice_api_workflows_exist_before_default_switch():
     assert Path("workflows/selfhost/tts_omnivoice_longform_bf16.json").exists()
     assert Path("workflows/selfhost/tts_omnivoice_clone_duration_bf16.json").exists()
@@ -609,7 +621,7 @@ def test_tts_omnivoice_longform_bf16_workflow_is_parseable_for_pixelle_api():
     assert metadata.params["ref_audio"].required is True
     assert metadata.params["ref_audio"].need_upload is True
     assert metadata.params["reference_audio_text"].required is False
-    assert metadata.params["reference_audio_text"].default
+    assert metadata.params["reference_audio_text"].default == ""
 
 
 def test_tts_omnivoice_clone_duration_bf16_workflow_is_parseable_for_pixelle_api():
@@ -626,6 +638,8 @@ def test_tts_omnivoice_clone_duration_bf16_workflow_is_parseable_for_pixelle_api
     assert metadata.params["text"].required is True
     assert metadata.params["ref_audio"].required is True
     assert metadata.params["ref_audio"].need_upload is True
+    assert metadata.params["reference_audio_text"].required is False
+    assert metadata.params["reference_audio_text"].default == ""
     assert metadata.params["duration"].required is False
     assert metadata.params["duration"].default == 8.0
 

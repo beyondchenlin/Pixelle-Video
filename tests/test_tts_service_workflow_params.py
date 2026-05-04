@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from api.routers import tts as tts_router
 from api.schemas.tts import TTSSynthesizeRequest
@@ -300,6 +301,36 @@ async def test_tts_router_forwards_omnivoice_duration_and_reference_text(monkeyp
             "duration": 8.0,
         }
     ]
+
+
+def test_tts_request_rejects_duration_outside_pixelle_duration_range():
+    with pytest.raises(ValidationError):
+        TTSSynthesizeRequest(text="short line", duration=0.0)
+
+    with pytest.raises(ValidationError):
+        TTSSynthesizeRequest(text="short line", duration=60.5)
+
+
+@pytest.mark.asyncio
+async def test_tts_router_returns_422_for_missing_required_workflow_params():
+    class _MissingRefAudioCore:
+        async def tts(self, **_params):
+            raise ValueError(
+                "TTS workflow 'selfhost/tts_omnivoice_longform_bf16.json' "
+                "missing required params: ref_audio"
+            )
+
+    with pytest.raises(tts_router.HTTPException) as exc_info:
+        await tts_router.tts_synthesize(
+            TTSSynthesizeRequest(
+                text="long narration",
+                workflow="selfhost/tts_omnivoice_longform_bf16.json",
+            ),
+            _MissingRefAudioCore(),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "missing required params: ref_audio" in str(exc_info.value.detail)
 
 
 @pytest.mark.asyncio
