@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from html import escape
 from pathlib import Path
+import re
 from typing import Any, Mapping
 
 from pixelle_video.models.layered_template import LayeredTemplateSpec, TemplateLayer
 from pixelle_video.models.render_package import CaptionCue, VisualClip
 from pixelle_video.models.template_render_context import TemplateRenderContext
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
+
+_HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
+_UNSAFE_FONT_CHARS = {'"', "'", ";", ":", "{", "}", "(", ")", "\\", "/"}
 
 
 class LayeredTemplateHyperFramesAdapter:
@@ -420,7 +424,7 @@ class LayeredTemplateHyperFramesAdapter:
         background = layer.style.get("background_color")
         if background is None and layer.source is not None:
             background = layer.source.ref
-        if isinstance(background, str) and background:
+        if _is_hex_color(background):
             return f"background:{escape(background, quote=True)};"
         return ""
 
@@ -430,15 +434,21 @@ class LayeredTemplateHyperFramesAdapter:
             return ""
         style: Mapping[str, Any] = layer.style
         css = []
+        font_family = _safe_font_family(style.get("font_family"))
+        if font_family is not None:
+            css.append(f"font-family:{font_family};")
         font_size = style.get("font_size")
         if font_size is not None:
             try:
-                css.append(f"font-size:{max(1, int(font_size))}px;")
+                css.append(f"font-size:{min(max(1, int(font_size)), 512)}px;")
             except (TypeError, ValueError):
                 pass
         color = style.get("primary_color") or style.get("color")
-        if isinstance(color, str) and color:
+        if _is_hex_color(color):
             css.append(f"color:{escape(color, quote=True)};")
+        background_color = style.get("background_color")
+        if _is_hex_color(background_color):
+            css.append(f"background:{escape(background_color, quote=True)};")
         alignment = style.get("alignment")
         if alignment in {"left", "center", "right"}:
             justify = {
@@ -458,3 +468,20 @@ class LayeredTemplateHyperFramesAdapter:
 
 
 __all__ = ["LayeredTemplateHyperFramesAdapter"]
+
+
+def _is_hex_color(value: Any) -> bool:
+    return isinstance(value, str) and bool(_HEX_COLOR_PATTERN.fullmatch(value))
+
+
+def _safe_font_family(value: Any) -> str | None:
+    raw_value = str(value or "").replace("\r", " ").replace("\n", " ")
+    if not raw_value.strip() or any(char in raw_value for char in _UNSAFE_FONT_CHARS):
+        return None
+    cleaned_chars = []
+    for char in raw_value:
+        if char.isalnum() or char.isspace() or char in {"-", "_", ",", "."}:
+            cleaned_chars.append(char)
+    cleaned = " ".join("".join(cleaned_chars).split())
+    families = [family.strip() for family in cleaned.split(",") if family.strip()]
+    return ", ".join(families) or None

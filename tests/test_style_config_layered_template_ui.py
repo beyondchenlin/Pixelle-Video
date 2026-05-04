@@ -276,6 +276,70 @@ def test_render_style_config_updates_layer_properties_from_editor_controls(monke
     assert '"anchor"' not in json.dumps(result["layered_template_spec"])
 
 
+def test_render_style_config_updates_text_layer_style_from_editor_controls(monkeypatch):
+    from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
+    from web.components import style_config
+
+    initial_state = LayeredTemplateEditorState.empty(
+        canvas_width=720,
+        canvas_height=1280,
+        media_width=768,
+        media_height=768,
+    ).append_text_layer("Free Text")
+    layer_id = initial_state.layers[0].id
+    fake_st = _FakeStreamlit()
+    fake_st.session_state.update(
+        {
+            "template_type_selector": "image",
+            "layered_template_editor_state": initial_state,
+            f"layered_template_layer_{layer_id}_expanded": True,
+            f"layered_template_layer_{layer_id}_text": "Independent text",
+            f"layered_template_layer_{layer_id}_font_family": "SimHei",
+            f"layered_template_layer_{layer_id}_font_size": 54,
+            f"layered_template_layer_{layer_id}_primary_color": "#112233",
+            f"layered_template_layer_{layer_id}_background_color": "#F8FAFC",
+            f"layered_template_layer_{layer_id}_alignment": "right",
+            f"layered_template_layer_{layer_id}_role": "custom",
+        }
+    )
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **_kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "hyperframes")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_tts_split_settings", lambda: {})
+    monkeypatch.setattr(style_config, "render_element_animation_controls", lambda: {})
+    monkeypatch.setattr(style_config, "render_text_rendering_controls", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(style_config.config_manager, "get_comfyui_config", _fake_comfyui_config)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_supported_template_orientations", lambda _template_type: ["portrait"])
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_default_template_for_type_and_orientation", lambda *_args: "1080x1920/image_default.html")
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_compatible_template_for_orientation", lambda current_template, **_kwargs: current_template)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_template_type", lambda _template_name: "image")
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type", lambda _template_type: _template_groups())
+    monkeypatch.setattr("pixelle_video.utils.template_util.parse_template_size", lambda _path: (1080, 1920))
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
+    monkeypatch.setattr("pixelle_video.services.frame_html.HTMLFrameGenerator", _FakeFrameGenerator)
+
+    result = style_config.render_style_config(
+        _FakeVideo(),
+        content_context={"title": "Runtime Title", "text": "Runtime Caption"},
+    )
+
+    layer = result["layered_template_spec"]["layers"][0]
+    assert layer["role"] is None
+    assert layer["style"] == {
+        "text_content": "Independent text",
+        "font_family": "SimHei",
+        "font_size": 54,
+        "primary_color": "#112233",
+        "background_color": "#F8FAFC",
+        "alignment": "right",
+    }
+    assert "text_rendering" not in result
+
+
 class _FakeUpload:
     def __init__(self, name: str, data: bytes):
         self.name = name

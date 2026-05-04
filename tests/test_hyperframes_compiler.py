@@ -2003,6 +2003,59 @@ def test_hyperframes_compiler_uses_layered_template_adapter_when_spec_present(
     assert "Layered caption" in captions_html
 
 
+def test_hyperframes_compiler_uses_layer_text_style_without_global_text_rendering(
+    tmp_path: Path,
+):
+    compiler = HyperFramesCompiler()
+    spec = _layered_template_spec_payload()
+    spec["layers"] = [
+        {
+            "id": "custom-text",
+            "type": "text",
+            "name": "Custom Text",
+            "rect": {"x": 60, "y": 72, "width": 600, "height": 120, "unit": "px"},
+            "z_index": 20,
+            "opacity": 1,
+            "rotation": 0,
+            "locked": False,
+            "source": None,
+            "style": {
+                "text_content": "Independent text",
+                "font_family": "SimHei",
+                "font_size": 54,
+                "primary_color": "#112233",
+                "background_color": "#F8FAFC",
+                "alignment": "right",
+            },
+            "role": None,
+        }
+    ]
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=720,
+        canvas_height=1280,
+        duration=3.0,
+        fps=30,
+        title="Runtime Title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        layered_template_spec=spec,
+    )
+
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "Independent text" in index_html
+    assert "font-family:SimHei;" in index_html
+    assert "font-size:54px;" in index_html
+    assert "color:#112233;" in index_html
+    assert "background:#F8FAFC;" in index_html
+    assert "text-align:right;justify-content:flex-end;" in index_html
+    assert "Runtime Title" not in index_html
+
+
 def test_hyperframes_compiler_skips_disabled_layered_template_layers(
     tmp_path: Path,
 ):

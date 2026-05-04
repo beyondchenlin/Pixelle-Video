@@ -9,6 +9,7 @@ from pixelle_video.models.layered_template import LayeredTemplateSpec, TemplateL
 _HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 _ARTIFACT_KEY_PATTERN = re.compile(r"^artifacts/[A-Za-z0-9_-]+/[0-9A-Za-z][0-9A-Za-z_.-]*$")
 _SAFE_URL_PREFIXES = ("http://", "https://", "data:image/", "file://", "/api/files/")
+_UNSAFE_FONT_CHARS = {'"', "'", ";", ":", "{", "}", "(", ")", "\\", "/"}
 
 
 def render_layered_template_preview_html(
@@ -210,6 +211,9 @@ def _text_style_css(
     style.update(layer.style)
 
     css = []
+    font_family = _safe_font_family(style.get("font_family"))
+    if font_family is not None:
+        css.append(f"font-family:{font_family};")
     font_size = _safe_int(style.get("font_size"), minimum=1, maximum=512)
     if font_size is not None:
         css.append(f"font-size:{font_size}px;")
@@ -245,6 +249,19 @@ def _safe_int(value: Any, *, minimum: int, maximum: int) -> int | None:
     if not minimum <= parsed <= maximum:
         return None
     return parsed
+
+
+def _safe_font_family(value: Any) -> str | None:
+    raw_value = str(value or "").replace("\r", " ").replace("\n", " ")
+    if not raw_value.strip() or any(char in raw_value for char in _UNSAFE_FONT_CHARS):
+        return None
+    cleaned_chars = []
+    for char in raw_value:
+        if char.isalnum() or char.isspace() or char in {"-", "_", ",", "."}:
+            cleaned_chars.append(char)
+    cleaned = " ".join("".join(cleaned_chars).split())
+    families = [family.strip() for family in cleaned.split(",") if family.strip()]
+    return ", ".join(families) or None
 
 
 def _justify_content(alignment: str) -> str:

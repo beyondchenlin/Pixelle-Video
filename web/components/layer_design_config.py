@@ -18,6 +18,7 @@ from web.i18n import get_language, tr
 
 _HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 _SAFE_UPLOAD_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+_TEXT_ALIGNMENT_OPTIONS = ("left", "center", "right")
 
 
 def _layered_template_editor_text(
@@ -84,6 +85,29 @@ def _merge_layer_style(layer, **updates) -> dict:
         else:
             style[key] = value
     return style
+
+
+def _style_text(value: object, *, default: str = "") -> str:
+    candidate = str(value or "").strip()
+    return candidate or default
+
+
+def _style_int(value: object, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        parsed = default
+    return min(max(parsed, minimum), maximum)
+
+
+def _style_hex_color(value: object, *, default: str) -> str:
+    candidate = str(value or "").strip()
+    return candidate if _HEX_COLOR_PATTERN.fullmatch(candidate) else default
+
+
+def _style_alignment(value: object, *, default: str = "center") -> str:
+    candidate = str(value or "").strip()
+    return candidate if candidate in _TEXT_ALIGNMENT_OPTIONS else default
 
 
 def _safe_upload_suffix(uploaded_file) -> str:
@@ -155,7 +179,14 @@ def _render_layer_content_controls(
             layer.id,
             _merge_layer_style(layer, text_content=str(text_content).strip() or None),
         )
-        return state
+        layer = next((item for item in state.layers if item.id == layer.id), layer)
+        return _render_text_layer_style_controls(
+            state,
+            layer,
+            key_prefix,
+            ui=ui,
+            translate=translate,
+        )
 
     if layer.type in {"image", "background"}:
         upload_label = _layered_template_editor_text(
@@ -300,6 +331,103 @@ def render_layer_design_config(
 
     ui.session_state[LAYERED_TEMPLATE_EDITOR_STATE_KEY] = state
     return state
+
+
+def _render_text_layer_style_controls(
+    state: LayeredTemplateEditorState,
+    layer,
+    key_prefix: str,
+    *,
+    ui=st,
+    translate=tr,
+) -> LayeredTemplateEditorState:
+    style = dict(layer.style)
+    session_state = getattr(ui, "session_state", {})
+    font_family_key = f"{key_prefix}_font_family"
+    font_size_key = f"{key_prefix}_font_size"
+    primary_color_key = f"{key_prefix}_primary_color"
+    background_color_key = f"{key_prefix}_background_color"
+    alignment_key = f"{key_prefix}_alignment"
+    font_family = ui.text_input(
+        _layered_template_editor_text(
+            "layered_template.editor.layer_font_family",
+            zh="字体",
+            en="Font family",
+            translate=translate,
+        ),
+        value=_style_text(style.get("font_family"), default="Noto Sans CJK SC"),
+        key=font_family_key,
+    )
+    font_size = ui.number_input(
+        _layered_template_editor_text(
+            "layered_template.editor.layer_font_size",
+            zh="字号",
+            en="Font size",
+            translate=translate,
+        ),
+        min_value=8,
+        max_value=240,
+        step=1,
+        value=_style_int(style.get("font_size"), default=42, minimum=8, maximum=240),
+        key=font_size_key,
+    )
+    color_columns = ui.columns(2)
+    with color_columns[0]:
+        primary_color = ui.color_picker(
+            _layered_template_editor_text(
+                "layered_template.editor.layer_primary_color",
+                zh="文字颜色",
+                en="Text color",
+                translate=translate,
+            ),
+            value=_style_hex_color(style.get("primary_color"), default="#FFFFFF"),
+            key=primary_color_key,
+        )
+    with color_columns[1]:
+        background_color = ui.color_picker(
+            _layered_template_editor_text(
+                "layered_template.editor.layer_text_background_color",
+                zh="文字背景",
+                en="Text background",
+                translate=translate,
+            ),
+            value=_style_hex_color(style.get("background_color"), default="#000000"),
+            key=background_color_key,
+        )
+    alignment = ui.selectbox(
+        _layered_template_editor_text(
+            "layered_template.editor.layer_alignment",
+            zh="对齐方式",
+            en="Alignment",
+            translate=translate,
+        ),
+        list(_TEXT_ALIGNMENT_OPTIONS),
+        index=_TEXT_ALIGNMENT_OPTIONS.index(
+            _style_alignment(style.get("alignment"), default="center")
+        ),
+        key=alignment_key,
+        format_func=lambda value: translate(f"text_style.alignment.{value}"),
+    )
+    updates = {}
+    if style.get("font_family") is not None or font_family_key in session_state:
+        updates["font_family"] = _style_text(font_family) or None
+    if style.get("font_size") is not None or font_size_key in session_state:
+        updates["font_size"] = _style_int(font_size, default=42, minimum=8, maximum=240)
+    if style.get("primary_color") is not None or primary_color_key in session_state:
+        updates["primary_color"] = (
+            str(primary_color) if _HEX_COLOR_PATTERN.fullmatch(str(primary_color)) else None
+        )
+    if style.get("background_color") is not None or background_color_key in session_state:
+        updates["background_color"] = (
+            str(background_color)
+            if _HEX_COLOR_PATTERN.fullmatch(str(background_color))
+            else None
+        )
+    if style.get("alignment") is not None or alignment_key in session_state:
+        updates["alignment"] = _style_alignment(alignment, default="center")
+    if not updates:
+        return state
+    return state.update_layer_style(layer.id, _merge_layer_style(layer, **updates))
 
 
 def _render_layered_template_layer_controls(

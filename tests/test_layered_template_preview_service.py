@@ -206,6 +206,60 @@ def test_render_preview_html_prefers_layer_text_content_over_runtime_title():
     assert "Runtime Title" not in html
 
 
+def test_render_preview_html_uses_text_layer_style_without_global_text_rendering():
+    base = _preview_spec()
+    spec = LayeredTemplateSpec(
+        version=base.version,
+        template_id=base.template_id,
+        template_name=base.template_name,
+        template_type=base.template_type,
+        canvas_width=base.canvas_width,
+        canvas_height=base.canvas_height,
+        media_width=base.media_width,
+        media_height=base.media_height,
+        safe_area=base.safe_area,
+        layers=(
+            TemplateLayer(
+                id="custom-text",
+                type="text",
+                name="Custom Text",
+                rect=RectSpec(x=96, y=120, width=888, height=220),
+                z_index=20,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=None,
+                style={
+                    "text_content": "Independent text",
+                    "font_family": "SimHei",
+                    "font_size": 54,
+                    "primary_color": "#112233",
+                    "background_color": "#F8FAFC",
+                    "alignment": "right",
+                },
+                role=None,
+            ),
+        ),
+        metadata=base.metadata,
+    )
+
+    html = LayeredTemplateService().render_preview_html(
+        spec=spec,
+        title_text="Runtime Title",
+        caption_text="Runtime Caption",
+        text_rendering={},
+    )
+
+    assert "Independent text" in html
+    assert "font-family:SimHei;" in html
+    assert "font-size:54px;" in html
+    assert "color:#112233;" in html
+    assert "background:#F8FAFC;" in html
+    assert "text-align:right;justify-content:flex-end;" in html
+    assert "Runtime Title" not in html
+    assert "Runtime Caption" not in html
+
+
 def test_render_preview_html_renders_media_layers_with_safe_sources():
     base = _preview_spec()
     spec = LayeredTemplateSpec(

@@ -3162,10 +3162,11 @@ def render_style_config(
             "media_placement",
             MediaPlacement().to_dict(),
         ),
-        "text_rendering": text_rendering,
         "selected_template_preset_id": selected_template_preset_id,
         **element_animation_settings,
     }
+    if text_rendering:
+        result["text_rendering"] = text_rendering
     if layered_template_spec is not None:
         result["layered_template_spec"] = layered_template_spec
     return result
