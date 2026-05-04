@@ -337,6 +337,37 @@ def test_usage_planner_ignores_resolved_style_spec_negative_documentary_signals(
     assert package.ip_presence_type is IPPresenceType.BALANCED_NARRATIVE
 
 
+def test_usage_planner_ignores_resolved_style_spec_raw_content_documentary_signal():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="导览员讲述古城街巷的生活记忆。",
+        visual_goal="表现轻松的文化讲解氛围",
+        prompt_intent="讲解地方文化",
+        shot_type="中景",
+        shot_purpose="叙事说明",
+        primary_subject="古城街巷与生活细节",
+        world_elements=("街巷", "摊位", "行人"),
+    )
+    style = ResolvedStyleSpec(
+        style_kind="visual_only",
+        prompt_template="bright travel illustration, {prompt}",
+        negative_prompt="avoid documentary style",
+        style_profile={
+            "shape_language": "friendly rounded cartoon language",
+            "negative_rules": "avoid serious documentary tone",
+        },
+        raw_content="bright travel illustration, avoid documentary style",
+    )
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=_profile(),
+        resolved_style=style,
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.BALANCED_NARRATIVE
+
+
 def test_usage_planner_ignores_nested_negative_rules_in_mapping_resolved_style():
     frame = StoryboardPlanFrame(
         index=1,

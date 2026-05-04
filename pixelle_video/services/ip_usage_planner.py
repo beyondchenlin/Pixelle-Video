@@ -151,7 +151,6 @@ def _positive_style_signal_text(resolved_style: ResolvedStyleInput) -> str:
     values = [
         getattr(resolved_style, "style_kind", None),
         getattr(resolved_style, "prompt_template", None),
-        getattr(resolved_style, "raw_content", None),
     ]
     style_profile = getattr(resolved_style, "style_profile", None)
     if isinstance(style_profile, Mapping):
