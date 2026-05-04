@@ -169,7 +169,7 @@ def _mapping_positive_style_signal_text(style_mapping: Mapping[str, Any]) -> str
 def _iter_positive_style_values(style_mapping: Mapping[str, Any]) -> list[Any]:
     values: list[Any] = []
     for key, item in style_mapping.items():
-        if str(key) in _NEGATIVE_STYLE_SIGNAL_KEYS:
+        if str(key) in _NON_POSITIVE_STYLE_SIGNAL_KEYS:
             continue
         if isinstance(item, Mapping):
             values.extend(_iter_positive_style_values(item))
@@ -403,7 +403,7 @@ _PROTECTED_SUBJECT_KEYWORDS = (
 _PURE_LANDSCAPE_KEYWORDS = ("空镜", "纯风景", "风景切镜", "山水", "天空", "河流", "远山")
 _NARRATIVE_KEYWORDS = ("讲述", "说明", "叙事", "介绍", "导览", "科普", "铺开")
 _SERIOUS_STYLE_KEYWORDS = ("严肃纪实", "纪录片", "documentary", "serious documentary")
-_NEGATIVE_STYLE_SIGNAL_KEYS = ("negative_prompt", "negative_rules")
+_NON_POSITIVE_STYLE_SIGNAL_KEYS = ("negative_prompt", "negative_rules", "raw_content")
 
 
 __all__ = ["IPUsagePlanner"]
