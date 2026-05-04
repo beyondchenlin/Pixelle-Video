@@ -57,6 +57,13 @@ def test_visible_text_whitelist_clause_does_not_use_generic_no_text_rule():
     assert "no visible text" not in clause
 
 
+def test_visible_text_whitelist_clause_is_not_used_when_helper_gets_empty_input():
+    helper = getattr(prompt_helper, "build_visible_text_whitelist_clause", None)
+    assert helper is not None
+
+    assert helper([]) == ""
+
+
 def test_image_text_policy_routes_custom_positive_and_negative_prompts():
     policy = {
         "suppress_embedded_text": True,

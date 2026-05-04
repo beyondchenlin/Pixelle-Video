@@ -6,7 +6,7 @@ from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanF
 from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec, StyleSourceSpec
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
-from pixelle_video.utils.prompt_helper import apply_no_text_policy
+from pixelle_video.utils.prompt_helper import apply_no_text_policy, sanitize_visual_prompt_text
 
 
 def _progress_message_key(message):
@@ -60,6 +60,32 @@ def _storyboard_plan() -> StoryboardPlan:
         requested_scene_count=None,
         source_text=frame.source_text,
         frames=[frame],
+    )
+
+
+def _storyboard_plan_two_frames() -> StoryboardPlan:
+    frames = [
+        StoryboardPlanFrame(
+            index=1,
+            source_text="frame one",
+            visual_goal="show frame one",
+            prompt_intent="plan frame one",
+            primary_subject="gate one",
+        ),
+        StoryboardPlanFrame(
+            index=2,
+            source_text="frame two",
+            visual_goal="show frame two",
+            prompt_intent="plan frame two",
+            primary_subject="gate two",
+        ),
+    ]
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="frame one frame two",
+        frames=frames,
     )
 
 
@@ -285,6 +311,7 @@ async def test_generate_styled_image_prompt_batch_ignores_capability_probe_failu
 
     assert result.prompts == [
         apply_no_text_policy("base scene prompt, same playful bird-universe silhouette")
+        + ", photo realism, realistic fur"
     ]
     assert result.negative_prompt is None
 
@@ -321,7 +348,224 @@ async def test_generate_styled_image_prompt_batch_appends_no_text_policy_when_ne
 @pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints_for_z_image(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
-        return ["正定长乐门晨光画面，白色兔子自然陪伴在城墙边。"]
+        return ["Zhengding gate prompt"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
+        lambda *args, **kwargs: type("Caps", (), {"supports_negative_prompt": False})(),
+    )
+    plan = _storyboard_plan()
+
+    class _Planner:
+        def plan_batch(self, **kwargs):
+            return [
+                type(
+                    "Pkg",
+                    (),
+                    {
+                        "frame_id": plan.frames[0].frame_id,
+                        "to_dict": lambda self: {
+                            "frame_id": plan.frames[0].frame_id,
+                            "ip_presence_type": "scene_integrated",
+                            "negative_constraints": ["avoid extra text", "avoid sticker-like IP"],
+                        },
+                    },
+                )()
+            ]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        _Planner,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["Start from Changle Gate."],
+        image_config={},
+        media_service=object(),
+        workflow="selfhost/image_z_image_turbo.json",
+        storyboard_plan=plan,
+        ip_enabled=True,
+        ip_profile=_ip_profile(),
+    )
+
+    assert result.negative_prompt is None
+    assert "avoid extra text" in result.prompts[0]
+    assert "avoid sticker-like IP" in result.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_keeps_per_frame_ip_negative_out_of_batch_negative_prompt(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["frame one prompt", "frame two prompt"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: StyleSourceSpec(
+            origin="request",
+            raw_content="Angry Birds style",
+            content_hash="hash-123",
+            source_identity="request:hash-123",
+            item_id=None,
+        ),
+    )
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        return _resolved_ip_world()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
+        lambda *args, **kwargs: type("Caps", (), {"supports_negative_prompt": True})(),
+    )
+    plan = _storyboard_plan_two_frames()
+
+    class _Planner:
+        def plan_batch(self, **kwargs):
+            return [
+                type(
+                    "Pkg",
+                    (),
+                    {
+                        "frame_id": plan.frames[0].frame_id,
+                        "to_dict": lambda self: {
+                            "frame_id": plan.frames[0].frame_id,
+                            "ip_presence_type": "scene_integrated",
+                            "negative_constraints": ["avoid frame one sticker"],
+                        },
+                    },
+                )(),
+                type(
+                    "Pkg",
+                    (),
+                    {
+                        "frame_id": plan.frames[1].frame_id,
+                        "to_dict": lambda self: {
+                            "frame_id": plan.frames[1].frame_id,
+                            "ip_presence_type": "scene_integrated",
+                            "negative_constraints": ["avoid frame two mascot"],
+                        },
+                    },
+                )(),
+            ]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        _Planner,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["frame one", "frame two"],
+        image_config={},
+        media_service=object(),
+        workflow="selfhost/image_flux.json",
+        storyboard_plan=plan,
+        ip_enabled=True,
+        ip_profile=_ip_profile(),
+        text_rendering=_suppress_image_text("letters"),
+    )
+
+    assert result.negative_prompt is not None
+    assert "photo realism" in result.negative_prompt
+    assert "letters" in result.negative_prompt
+    assert "avoid frame one sticker" not in result.negative_prompt
+    assert "avoid frame two mascot" not in result.negative_prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_merges_all_z_image_constraints_when_negative_prompt_unsupported(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["styled frame prompt"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: StyleSourceSpec(
+            origin="request",
+            raw_content="Angry Birds style",
+            content_hash="hash-123",
+            source_identity="request:hash-123",
+            item_id=None,
+        ),
+    )
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        return _resolved_ip_world()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
+        lambda *args, **kwargs: type("Caps", (), {"supports_negative_prompt": False})(),
+    )
+    plan = _storyboard_plan()
+
+    class _Planner:
+        def plan_batch(self, **kwargs):
+            return [
+                type(
+                    "Pkg",
+                    (),
+                    {
+                        "frame_id": plan.frames[0].frame_id,
+                        "to_dict": lambda self: {
+                            "frame_id": plan.frames[0].frame_id,
+                            "ip_presence_type": "scene_integrated",
+                            "negative_constraints": ["avoid IP sticker"],
+                            "image_text_plan": {
+                                "visible_text_whitelist": ["Changle Gate"],
+                            },
+                        },
+                    },
+                )()
+            ]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        _Planner,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["frame one"],
+        image_config={},
+        media_service=object(),
+        workflow="selfhost/image_z_image_turbo.json",
+        storyboard_plan=plan,
+        ip_enabled=True,
+        ip_profile=_ip_profile(),
+        text_rendering=_suppress_image_text("letters"),
+    )
+
+    assert result.negative_prompt is None
+    assert "photo realism" in result.prompts[0]
+    assert "letters" in result.prompts[0]
+    assert "avoid IP sticker" in result.prompts[0]
+    assert "Changle Gate" in result.prompts[0]
+    assert "only whitelisted text" in result.prompts[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_ignores_stale_ip_adaptation_when_ip_disabled(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["base frame prompt"]
 
     monkeypatch.setattr(
         "pixelle_video.utils.content_generators.generate_image_prompts",
@@ -334,24 +578,74 @@ async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints
 
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
-        narrations=["从长乐门出发。"],
+        narrations=["frame one"],
         image_config={},
         media_service=object(),
         workflow="selfhost/image_z_image_turbo.json",
+        ip_enabled=False,
         prompt_contexts=[
             {
-                "frame_source_text": "从长乐门出发。",
                 "ip_adaptation": {
-                    "ip_presence_type": "scene_integrated",
-                    "negative_constraints": ["避免多余文字", "避免角色贴纸感"],
+                    "negative_constraints": ["stale IP negative"],
+                    "image_text_plan": {"visible_text_whitelist": ["Stale Text"]},
                 },
             }
         ],
     )
 
-    assert result.negative_prompt is None
-    assert "避免多余文字" in result.prompts[0]
-    assert "避免角色贴纸感" in result.prompts[0]
+    assert "Stale Text" not in result.prompts[0]
+    assert "stale IP negative" not in result.prompts[0]
+    assert result.planning_snapshot is None
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_does_not_apply_ip_chain_to_video(monkeypatch):
+    captured = {}
+
+    async def fake_generate_video_prompts(*args, **kwargs):
+        captured["prompt_contexts"] = kwargs["prompt_contexts"]
+        return ["video prompt with no IP text"]
+
+    class _Planner:
+        def plan_batch(self, **kwargs):
+            raise AssertionError("IP planner should not run for video prompts")
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_video_prompts",
+        fake_generate_video_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        _Planner,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["frame one"],
+        image_config={},
+        media_type="video",
+        storyboard_plan=_storyboard_plan(),
+        ip_enabled=True,
+        ip_profile=_ip_profile(),
+        prompt_contexts=[{"visual_goal": "Keep plain video context."}],
+    )
+
+    assert isinstance(captured["prompt_contexts"], PromptContextEnvelope)
+    assert "ip_adaptation" not in captured["prompt_contexts"].frame_contexts[0]
+    assert "only whitelisted text" not in result.prompts[0].lower()
+    assert "ip_adaptations_by_frame" not in (result.planning_snapshot or {})
+
+
+def test_sanitize_visual_prompt_text_removes_short_long_and_quoted_field_labels():
+    prompt = sanitize_visual_prompt_text(
+        '"summary_text": Start, \'title_hex\': #FFF, "scene_text": Gate, color #FFFFFFFF'
+    )
+
+    assert "#FFF" not in prompt
+    assert "#FFFFFFFF" not in prompt
+    assert "summary_text" not in prompt
+    assert "title_hex" not in prompt
+    assert "scene_text" not in prompt
 
 
 @pytest.mark.asyncio
@@ -497,34 +791,52 @@ async def test_generate_styled_image_prompt_batch_never_leaks_hex_codes_or_field
 @pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_uses_visible_text_whitelist_for_ip_text_plan(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
-        return ["长乐门城墙，白色兔子手持旅行手册。"]
+        return ["Changle Gate wall with white guide rabbit."]
 
     monkeypatch.setattr(
         "pixelle_video.utils.content_generators.generate_image_prompts",
         fake_generate_image_prompts,
     )
+    plan = _storyboard_plan()
+
+    class _Planner:
+        def plan_batch(self, **kwargs):
+            return [
+                type(
+                    "Pkg",
+                    (),
+                    {
+                        "frame_id": plan.frames[0].frame_id,
+                        "to_dict": lambda self: {
+                            "frame_id": plan.frames[0].frame_id,
+                            "ip_presence_type": "scene_integrated",
+                            "image_text_plan": {
+                                "summary_text": "Start from Changle Gate",
+                                "scene_text": ["Changle Gate"],
+                                "visible_text_whitelist": ["Start from Changle Gate", "Changle Gate"],
+                            },
+                        },
+                    },
+                )()
+            ]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        _Planner,
+    )
 
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
-        narrations=["从长乐门出发。"],
+        narrations=["Start from Changle Gate."],
         image_config={},
-        prompt_contexts=[
-            {
-                "frame_source_text": "从长乐门出发。",
-                "ip_adaptation": {
-                    "image_text_plan": {
-                        "summary_text": "从长乐门出发",
-                        "scene_text": ["长乐门"],
-                        "visible_text_whitelist": ["从长乐门出发", "长乐门"],
-                    },
-                },
-            }
-        ],
+        storyboard_plan=plan,
+        ip_enabled=True,
+        ip_profile=_ip_profile(),
     )
 
-    assert "从长乐门出发" in result.prompts[0]
-    assert "长乐门" in result.prompts[0]
-    assert "白名单" in result.prompts[0] or "only whitelisted text" in result.prompts[0].lower()
+    assert "Start from Changle Gate" in result.prompts[0]
+    assert "Changle Gate" in result.prompts[0]
+    assert "only whitelisted text" in result.prompts[0].lower()
     assert "no visible text" not in result.prompts[0]
 
 

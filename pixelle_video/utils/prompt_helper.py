@@ -51,10 +51,12 @@ PLANNED_TEXT_NEGATIVE_RULES: tuple[str, ...] = (
     "extra captions",
     "extra subtitles",
 )
-_HEX_COLOR_RE = re.compile(r"(?<![0-9a-fA-F])#(?:[0-9a-fA-F]{6})(?![0-9a-fA-F])")
+_HEX_COLOR_RE = re.compile(
+    r"(?<![0-9a-fA-F])#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])"
+)
 _FIELD_LABEL_RE = re.compile(
-    r"\b(?:summary_text|scene_text|title_hex|ip_presence_type|presence_mode|"
-    r"visible_text_whitelist|negative_constraints|identity_color_terms)\s*[:：]\s*",
+    r"['\"]?\b(?:summary_text|scene_text|title_hex|ip_presence_type|presence_mode|"
+    r"visible_text_whitelist|negative_constraints|identity_color_terms)\b['\"]?\s*[:?]\s*",
     re.IGNORECASE,
 )
 

@@ -937,9 +937,10 @@ async def generate_styled_image_prompt_batch(
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
     normalized_prompt_contexts = _normalize_prompt_contexts(prompt_contexts, len(narrations))
-    if ip_enabled and storyboard_plan is None:
+    ip_prompt_chain_enabled = ip_enabled and media_type == "image"
+    if ip_prompt_chain_enabled and storyboard_plan is None:
         raise ValueError("storyboard_plan is required when ip_enabled=True")
-    if ip_enabled and ip_profile is None:
+    if ip_prompt_chain_enabled and ip_profile is None:
         raise ValueError("ip_profile is required when ip_enabled=True")
     text_rendering_settings = build_text_rendering_settings(text_rendering)
     native_hints = dict(native_prompt_hints_by_frame or {})
@@ -1138,7 +1139,7 @@ async def generate_styled_image_prompt_batch(
         )
 
     prompt_contexts_for_generation = normalized_prompt_contexts
-    if ip_enabled:
+    if ip_prompt_chain_enabled:
         style_context = _style_context_payload(
             resolved_style=resolved_style,
             normalized_style=normalized_style,
@@ -1279,14 +1280,22 @@ async def generate_styled_image_prompt_batch(
 
     has_any_native_hints = any(native_hints.values())
     native_text_allowed = resolved_text_policy.allow_native_text_in_image
-    frame_contexts_for_final_prompts = _frame_contexts_for_final_prompts(
-        prompt_contexts_for_generation,
-        len(final_prompts),
+    frame_contexts_for_final_prompts = (
+        _frame_contexts_for_final_prompts(
+            prompt_contexts_for_generation,
+            len(final_prompts),
+        )
+        if ip_prompt_chain_enabled
+        else tuple({} for _ in range(len(final_prompts)))
     )
-    ip_visible_text_whitelists = [
-        ip_visible_text_whitelist_from_context(frame_context)
-        for frame_context in frame_contexts_for_final_prompts
-    ]
+    ip_visible_text_whitelists = (
+        [
+            ip_visible_text_whitelist_from_context(frame_context)
+            for frame_context in frame_contexts_for_final_prompts
+        ]
+        if ip_prompt_chain_enabled
+        else [() for _ in final_prompts]
+    )
     final_prompts = [
         (
             prompt
@@ -1307,42 +1316,48 @@ async def generate_styled_image_prompt_batch(
         for index, prompt in enumerate(final_prompts)
     ]
 
-    extra_negative_rules: list[str] = []
+    shared_negative_rules: list[str] = []
     if has_any_native_hints and native_text_allowed:
         native_negative_rules = select_negative_text_rules(
             policy=resolved_text_policy,
             has_native_hints=True,
         )
         if native_negative_rules is not None:
-            extra_negative_rules.extend(native_negative_rules)
+            shared_negative_rules.extend(native_negative_rules)
     else:
         image_text_negative_prompt = select_image_text_negative_prompt(
             text_rendering_settings.image_text
         )
         if image_text_negative_prompt is not None:
-            extra_negative_rules.extend(image_text_negative_prompt)
+            shared_negative_rules.extend(image_text_negative_prompt)
 
-    ip_negative_rules_by_frame = [
-        ip_negative_constraints_from_context(frame_context)
-        for frame_context in frame_contexts_for_final_prompts
-    ]
-    for rules in ip_negative_rules_by_frame:
-        extra_negative_rules.extend(rules)
+    ip_negative_rules_by_frame = (
+        [
+            ip_negative_constraints_from_context(frame_context)
+            for frame_context in frame_contexts_for_final_prompts
+        ]
+        if ip_prompt_chain_enabled
+        else [() for _ in final_prompts]
+    )
 
     negative_prompt = assemble_negative_prompt(
         resolved_style,
         supports_negative_prompt=capabilities.supports_negative_prompt,
-        extra_negative_rules=extra_negative_rules or None,
+        extra_negative_rules=shared_negative_rules or None,
     )
     final_prompts = [
         sanitize_visual_prompt_text(prompt)
         for prompt in final_prompts
     ]
-    if not capabilities.supports_negative_prompt:
+    if media_type == "image" and not capabilities.supports_negative_prompt:
         final_prompts = [
             merge_z_image_constraints_into_prompt(
                 prompt,
-                extra_constraints=ip_negative_rules_by_frame[index],
+                extra_constraints=[
+                    *(resolved_style.negative_prompt if resolved_style is not None else "",),
+                    *shared_negative_rules,
+                    *ip_negative_rules_by_frame[index],
+                ],
                 visible_text_whitelist=ip_visible_text_whitelists[index],
             )
             for index, prompt in enumerate(final_prompts)
