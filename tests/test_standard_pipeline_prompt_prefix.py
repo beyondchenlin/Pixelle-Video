@@ -45,6 +45,7 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
         captured["has_forbid_embedded_text_arg"] = "forbid_embedded_text_in_image" in kwargs
         captured["prompt_contexts"] = kwargs.get("prompt_contexts")
         captured["text_rendering"] = kwargs.get("text_rendering")
+        captured["generation_world_hint"] = kwargs.get("generation_world_hint")
         captured["world_preset_id"] = kwargs["world_preset_id"]
         captured["shot_preset_id"] = kwargs["shot_preset_id"]
         captured["content_mode"] = kwargs["content_mode"]
@@ -52,6 +53,7 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
         captured["role_strategy"] = kwargs["role_strategy"]
         captured["role_locking_strength"] = kwargs["role_locking_strength"]
         captured["shot_strategy"] = kwargs["shot_strategy"]
+        kwargs.pop("generation_world_hint", None)
         return await generate_styled_image_prompt_batch(**kwargs)
 
     async def fake_generate_image_prompts(*args, **kwargs):
@@ -146,6 +148,7 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
             "media_height": 1024,
             "world_preset_id": "neutral_knowledge_storyboard",
             "shot_preset_id": "balanced_explainer",
+            "generation_world_hint": "古城清晨漫游",
             "content_mode": "concept_explainer",
             "consistency_strength": "strong",
             "role_strategy": "auto",
@@ -161,6 +164,7 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
     await pipeline.initialize_storyboard(ctx)
 
     assert captured["world_preset_id"] == "neutral_knowledge_storyboard"
+    assert captured["generation_world_hint"] == "古城清晨漫游"
     assert isinstance(captured["prompt_contexts"], PromptContextEnvelope)
     assert captured["prompt_contexts"].frame_contexts[0]["visual_goal"] == "Show the scene clearly."
     assert captured["has_forbid_embedded_text_arg"] is False

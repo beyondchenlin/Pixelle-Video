@@ -109,6 +109,38 @@ async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_composer_passes_generation_world_hint_to_styled_batch(monkeypatch):
+    captured = {}
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        captured.update(kwargs)
+        return type(
+            "Batch",
+            (),
+            {
+                "prompts": ["prompt one", "prompt two"],
+                "resolved_style": None,
+                "negative_prompt": None,
+                "planning_snapshot": None,
+            },
+        )()
+
+    monkeypatch.setattr(
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    await ImagePromptComposer().compose(
+        llm_service=object(),
+        storyboard_plan=_plan(),
+        image_config={},
+        generation_world_hint="古城清晨漫游",
+    )
+
+    assert captured["generation_world_hint"] == "古城清晨漫游"
+
+
+@pytest.mark.asyncio
 async def test_composer_passes_ip_controls_without_deciding_ip_adaptation(monkeypatch):
     captured = {}
     plan = _plan()
