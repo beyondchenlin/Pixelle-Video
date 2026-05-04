@@ -1,4 +1,5 @@
 import json
+import sys
 from types import SimpleNamespace
 
 from pixelle_video.models.layered_template import LayerSourceSpec
@@ -724,9 +725,11 @@ def test_render_style_config_adds_layers_from_layered_template_editor_buttons(mo
     ] == ["background", "image", "text"]
 
 
-def test_render_style_config_surfaces_layer_add_tools_inside_template_section(monkeypatch):
+def test_render_style_config_surfaces_layer_add_tools_inside_layer_design_section(monkeypatch):
     from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
     from web.components import style_config
+
+    layer_design_config = sys.modules[style_config.render_layer_design_config.__module__]
 
     fake_st = _FakeStreamlit()
     fake_st.session_state.update(
@@ -753,11 +756,23 @@ def test_render_style_config_surfaces_layer_add_tools_inside_template_section(mo
     monkeypatch.setattr(style_config, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", fake_tr)
     monkeypatch.setattr(style_config, "get_language", lambda: "zh_CN")
+    monkeypatch.setattr(layer_design_config, "st", fake_st)
+    monkeypatch.setattr(layer_design_config, "tr", fake_tr)
+    monkeypatch.setattr(layer_design_config, "get_language", lambda: "zh_CN")
     monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "hyperframes")
     monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
     monkeypatch.setattr(style_config, "render_tts_split_settings", lambda: {})
     monkeypatch.setattr(style_config, "render_element_animation_controls", lambda: {})
-    monkeypatch.setattr(style_config, "render_text_rendering_controls", lambda *_args, **_kwargs: {})
+
+    def fake_render_text_rendering_controls(*_args, **_kwargs):
+        fake_st.expanders.append(("section.text_rendering", False))
+        return {}
+
+    monkeypatch.setattr(
+        style_config,
+        "render_text_rendering_controls",
+        fake_render_text_rendering_controls,
+    )
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
     monkeypatch.setattr(style_config.config_manager, "get_comfyui_config", _fake_comfyui_config)
     monkeypatch.setattr(
@@ -795,6 +810,15 @@ def test_render_style_config_surfaces_layer_add_tools_inside_template_section(mo
         content_context={"title": "Runtime Title", "text": "Runtime Caption"},
     )
 
+    assert ("section.template", False) in fake_st.expanders
+    assert ("section.layer_design", False) in fake_st.expanders
+    assert fake_st.expanders.index(("section.template", False)) < fake_st.expanders.index(
+        ("section.layer_design", False)
+    )
+    assert fake_st.expanders.index(("section.layer_design", False)) < fake_st.expanders.index(
+        ("section.text_rendering", False)
+    )
+
     add_buttons = {
         call["key"]: call["label"]
         for call in button_calls
@@ -807,7 +831,7 @@ def test_render_style_config_surfaces_layer_add_tools_inside_template_section(mo
     }
     assert {"key": "layered_template_add_row"} in fake_st.container_calls
     rendered_markdown = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)
-    assert "**图层**" in rendered_markdown
+    assert "**图层**" not in rendered_markdown
     assert ".st-key-layered_template_add_row" in rendered_markdown
     assert "repeat(auto-fit, minmax(min(128px, 100%), 1fr))" in rendered_markdown
     assert "layered_template.editor.title" not in rendered_markdown

@@ -141,6 +141,18 @@ def test_element_animation_section_label_is_grouped_with_primary_sections():
         assert locale_data["t"]["section.element_animation"].startswith("\u2728 ")
 
 
+def test_layer_design_section_label_is_grouped_after_template():
+    locales_dir = Path(__file__).resolve().parents[1] / "web" / "i18n" / "locales"
+
+    for locale_name in ("zh_CN", "en_US"):
+        locale_data = json.loads((locales_dir / f"{locale_name}.json").read_text(encoding="utf-8"))
+        keys = list(locale_data["t"].keys())
+
+        assert keys.index("section.template") < keys.index("section.layer_design")
+        assert keys.index("section.layer_design") < keys.index("section.text_rendering")
+        assert locale_data["t"]["section.layer_design"].startswith("\U0001f39b\ufe0f ")
+
+
 def test_ip_design_and_apply_translations_exist_in_supported_locales():
     required_keys = [
         "ip_design.page.title",

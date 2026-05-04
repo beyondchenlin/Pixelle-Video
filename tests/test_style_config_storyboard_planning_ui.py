@@ -1877,6 +1877,7 @@ def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_i
         ("section.tts", False),
         ("section.render_backend", False),
         ("section.template", False),
+        ("section.layer_design", False),
     }
 
     assert expected_collapsed_sections.issubset(set(fake_st.expanders))
