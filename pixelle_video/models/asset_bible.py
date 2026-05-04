@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
+
+
+_HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}\b")
 
 
 @dataclass(frozen=True)
@@ -17,6 +21,15 @@ class IPProfile:
     world_hint: str | None = None
     style_hint: str | None = None
     forbidden_elements: tuple[str, ...] = ()
+    identity_lock: tuple[str, ...] = ()
+    identity_anchors: tuple[str, ...] = ()
+    identity_suppression_rules: tuple[str, ...] = ()
+    variable_slots: tuple[str, ...] = ()
+    semantic_boundary: tuple[str, ...] = ()
+    negative_constraints: tuple[str, ...] = ()
+    color_palette: Mapping[str, Any] = field(default_factory=dict)
+    image_text_palette: Mapping[str, Any] = field(default_factory=dict)
+    visible_text_whitelist: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -27,11 +40,25 @@ class IPProfile:
         object.__setattr__(self, "logline", _optional_str(self.logline))
         object.__setattr__(self, "world_hint", _optional_str(self.world_hint))
         object.__setattr__(self, "style_hint", _optional_str(self.style_hint))
-        object.__setattr__(
-            self,
+        for field_name in (
             "forbidden_elements",
-            _normalize_text_tuple("forbidden_elements", self.forbidden_elements),
-        )
+            "identity_lock",
+            "identity_anchors",
+            "identity_suppression_rules",
+            "variable_slots",
+            "semantic_boundary",
+            "negative_constraints",
+            "visible_text_whitelist",
+        ):
+            object.__setattr__(
+                self,
+                field_name,
+                _normalize_text_tuple(field_name, getattr(self, field_name)),
+            )
+        object.__setattr__(self, "color_palette", _deep_freeze_mapping(self.color_palette))
+        object.__setattr__(self, "image_text_palette", _deep_freeze_mapping(self.image_text_palette))
+        _reject_hex_colors_in_prompt_values(self.color_palette, path="color_palette")
+        _reject_hex_colors_in_prompt_values(self.image_text_palette, path="image_text_palette")
         object.__setattr__(self, "metadata", _deep_freeze_mapping(self.metadata))
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +71,15 @@ class IPProfile:
             "world_hint": self.world_hint,
             "style_hint": self.style_hint,
             "forbidden_elements": list(self.forbidden_elements),
+            "identity_lock": list(self.identity_lock),
+            "identity_anchors": list(self.identity_anchors),
+            "identity_suppression_rules": list(self.identity_suppression_rules),
+            "variable_slots": list(self.variable_slots),
+            "semantic_boundary": list(self.semantic_boundary),
+            "negative_constraints": list(self.negative_constraints),
+            "color_palette": _json_safe_copy(self.color_palette),
+            "image_text_palette": _json_safe_copy(self.image_text_palette),
+            "visible_text_whitelist": list(self.visible_text_whitelist),
             "metadata": _json_safe_copy(self.metadata),
         }
 
@@ -59,6 +95,15 @@ class IPProfile:
             world_hint=payload.get("world_hint"),
             style_hint=payload.get("style_hint"),
             forbidden_elements=tuple(payload.get("forbidden_elements") or ()),
+            identity_lock=tuple(payload.get("identity_lock") or ()),
+            identity_anchors=tuple(payload.get("identity_anchors") or ()),
+            identity_suppression_rules=tuple(payload.get("identity_suppression_rules") or ()),
+            variable_slots=tuple(payload.get("variable_slots") or ()),
+            semantic_boundary=tuple(payload.get("semantic_boundary") or ()),
+            negative_constraints=tuple(payload.get("negative_constraints") or ()),
+            color_palette=payload.get("color_palette") or {},
+            image_text_palette=payload.get("image_text_palette") or {},
+            visible_text_whitelist=tuple(payload.get("visible_text_whitelist") or ()),
             metadata=payload.get("metadata") or {},
         )
 
@@ -407,7 +452,30 @@ def _normalize_text_tuple(field_name: str, value: Sequence[str] | None) -> tuple
     normalized = tuple(_require_non_empty(field_name, item) for item in value)
     if len(set(normalized)) != len(normalized):
         raise ValueError(f"{field_name} must not contain duplicates")
+    for item in normalized:
+        _reject_hex_color(field_name, item)
     return normalized
+
+
+def _reject_hex_color(field_name: str, value: str) -> None:
+    if _HEX_COLOR_RE.search(value):
+        raise ValueError(f"{field_name} must use prompt color terms, not hex colors")
+
+
+def _reject_hex_colors_in_prompt_values(value: Any, *, path: str) -> None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            child_path = f"{path}.{key}"
+            if key == "hex":
+                continue
+            _reject_hex_colors_in_prompt_values(item, path=child_path)
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _reject_hex_colors_in_prompt_values(item, path=f"{path}[{index}]")
+        return
+    if isinstance(value, str):
+        _reject_hex_color(path, value)
 
 
 def _normalize_asset_tuple(
