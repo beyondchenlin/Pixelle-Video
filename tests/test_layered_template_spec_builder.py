@@ -1,11 +1,11 @@
 from pixelle_video.models.layered_template import LayerSourceSpec
 from web.components.layered_template_state import (
-    LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY,
-    LAYERED_TEMPLATE_SELECTED_SIZE_PARAMS_KEY,
     LAYERED_TEMPLATE_PENDING_WIDGET_STATE_KEY,
-    apply_pending_layered_template_widget_state,
+    LAYERED_TEMPLATE_SELECTED_SIZE_PARAMS_KEY,
+    LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY,
     LayeredTemplateEditorState,
     LayeredTemplateSpecBuilder,
+    apply_pending_layered_template_widget_state,
     ensure_layered_template_editor_state,
     load_layered_template_spec_into_editor_state,
     resolve_layered_template_spec_identity,

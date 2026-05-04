@@ -5,11 +5,11 @@ from types import ModuleType
 import pytest
 from PIL import Image
 
+from pixelle_video.services.frame_html import HTMLDocumentFrameRenderer, HTMLFrameGenerator
+from pixelle_video.services.frame_render_readiness import FrameRenderReadiness
 from pixelle_video.services.layered_template_adapters.html_frame import (
     LayeredTemplateHTMLFrameAdapter,
 )
-from pixelle_video.services.frame_html import HTMLDocumentFrameRenderer, HTMLFrameGenerator
-from pixelle_video.services.frame_render_readiness import FrameRenderReadiness
 from web.state.async_runtime import AsyncRuntime, shutdown_all_async_runtimes
 from web.utils.async_helpers import run_async
 

@@ -18,11 +18,11 @@ from pixelle_video.services.layered_template_adapters.hyperframes import (
     LayeredTemplateHyperFramesAdapter,
 )
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
-from pixelle_video.services.text_style_resolver import TextStyleResolver
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
     resolve_text_style_layout,
 )
+from pixelle_video.services.text_style_resolver import TextStyleResolver
 
 
 @dataclass(frozen=True)

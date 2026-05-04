@@ -500,7 +500,6 @@ def test_patch_plugin_adds_indextts2_release_contract_idempotently(tmp_path):
 def test_patch_plugin_upgrades_existing_release_contract_to_protocol_v2(tmp_path):
     patch_module = load_module()
     plugin_dir, utils_path, infer_path, loader_path, init_path = create_minimal_plugin_with_loader_and_init(tmp_path)
-    routes_path = plugin_dir / "pixelle_routes.py"
 
     patch_module.patch_plugin(plugin_dir)
     legacy_loader = loader_path.read_text(encoding="utf-8").replace(

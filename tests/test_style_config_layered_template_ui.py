@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 from pixelle_video.models.layered_template import LayerSourceSpec
 from web.components.layered_template_state import (
-    LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY,
     LAYERED_TEMPLATE_SELECTED_SIZE_PARAMS_KEY,
+    LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY,
     LayeredTemplateEditorState,
 )
 

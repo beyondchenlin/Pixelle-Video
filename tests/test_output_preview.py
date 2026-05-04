@@ -3706,7 +3706,7 @@ def test_render_single_output_does_not_stop_before_gallery_on_input_error(monkey
     assert captured == {"gallery": True, "generated": False}
 
 
-def test_render_single_output_renders_workbench_between_generation_and_recent(monkeypatch):
+def test_render_single_output_sections_orders_generation_workbench_and_recent(monkeypatch):
     sections = []
 
     monkeypatch.setattr(
