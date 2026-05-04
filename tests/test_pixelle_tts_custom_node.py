@@ -44,6 +44,24 @@ def test_pixelle_float_input_returns_float_value():
     assert node.get_value(1.25) == (1.25,)
 
 
+def test_pixelle_duration_input_returns_float_value():
+    module = _load_plugin_module()
+    node = module.PixelleDurationInput()
+
+    assert node.get_value(8.0) == (8.0,)
+
+
+def test_pixelle_duration_input_accepts_duration_scale_defaults():
+    module = _load_plugin_module()
+
+    input_types = module.PixelleDurationInput.INPUT_TYPES()
+    config = input_types["required"]["value"][1]
+    assert config["default"] == 8.0
+    assert config["min"] == 0.5
+    assert config["max"] == 60.0
+    assert config["step"] == 0.5
+
+
 def test_pixelle_omnivoice_transcribe_uses_preloaded_whisper_pipeline(monkeypatch):
     module = _load_plugin_module()
     node = module.PixelleOmniVoiceTranscribe()

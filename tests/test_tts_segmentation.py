@@ -1,5 +1,8 @@
 import pytest
 
+from pixelle_video.services.omnivoice_longform_blocks import (
+    build_omnivoice_longform_block_plan,
+)
 from pixelle_video.services.tts_segmentation import (
     BoundaryType,
     build_external_tts_segmentation_plan,
@@ -84,3 +87,32 @@ def test_external_splitter_error_policy_rejects_hard_limit_overflow():
             boundary_search_radius=2,
             overflow_policy="error",
         )
+
+
+def test_omnivoice_longform_block_plan_prefers_sentence_boundaries():
+    text = (
+        "第一段结束。第二段继续讲解系统设计。"
+        "Third sentence explains the longform planner. Final sentence closes the section."
+    )
+    plan = build_omnivoice_longform_block_plan(
+        text,
+        max_chars_per_block=24,
+        hard_max_chars_per_block=40,
+    )
+
+    assert "".join(block.text for block in plan.blocks) == text
+    assert len(plan.blocks) >= 2
+    assert plan.mode == "omnivoice_master_track_longform"
+
+
+def test_omnivoice_longform_block_plan_does_not_split_decimal_or_domain():
+    text = "Version 3.14 is stable. Visit example.com for details. Then continue the narration."
+    plan = build_omnivoice_longform_block_plan(
+        text,
+        max_chars_per_block=35,
+        hard_max_chars_per_block=60,
+    )
+
+    combined = "".join(block.text for block in plan.blocks)
+    assert "3.14" in combined
+    assert "example.com" in combined

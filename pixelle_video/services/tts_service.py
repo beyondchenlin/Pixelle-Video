@@ -19,13 +19,16 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from comfykit.comfyui.workflow_parser import WorkflowParser
 from loguru import logger
 
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.tts_voices import speed_to_rate
-from pixelle_video.tts_workflow_contract import build_ref_audio_text_params
+from pixelle_video.tts_workflow_contract import (
+    build_ref_audio_text_params,
+    get_missing_required_tts_workflow_params,
+    get_tts_workflow_metadata,
+)
 from pixelle_video.utils.os_util import get_output_path
 from pixelle_video.utils.tts_util import edge_tts
 
@@ -226,10 +229,13 @@ class TTSService(ComfyBaseService):
         
         # 1. Build workflow parameters (ComfyKit config is now managed by core)
         workflow_params = {"text": text}
-        ref_audio_text = params.pop("ref_audio_text", None)
+        ref_audio_text = params.pop("reference_audio_text", None)
+        if ref_audio_text is None:
+            ref_audio_text = params.pop("ref_audio_text", None)
         if ref_audio_text is None:
             ref_audio_text = params.pop("prompt_text", None)
         else:
+            params.pop("ref_audio_text", None)
             params.pop("prompt_text", None)
         
         # Add optional TTS parameters (only if explicitly provided and not None)
@@ -346,40 +352,19 @@ class TTSService(ComfyBaseService):
         return str(target_path)
 
     def _get_workflow_metadata(self, workflow_info: dict):
-        workflow_path = workflow_info.get("path")
-        if not workflow_path or not Path(str(workflow_path)).exists():
-            return None
-
-        try:
-            return WorkflowParser().parse_workflow_file(str(workflow_path))
-        except Exception as exc:
-            logger.warning(f"Failed to parse TTS workflow params for {workflow_path}: {exc}")
-            return None
+        return get_tts_workflow_metadata(workflow_info.get("path"))
 
     def _validate_required_workflow_params(
         self,
         workflow_info: dict,
         workflow_params: dict[str, object],
     ) -> None:
-        metadata = self._get_workflow_metadata(workflow_info)
-        if metadata is None:
-            return
-
-        missing_required_params = []
-        for param_name, param in metadata.params.items():
-            if not param.required:
-                continue
-
-            value = workflow_params.get(param_name)
-            if value is None:
-                missing_required_params.append(param_name)
-                continue
-
-            if isinstance(value, str) and not value.strip():
-                missing_required_params.append(param_name)
-
+        missing_required_params = get_missing_required_tts_workflow_params(
+            workflow_info.get("path"),
+            workflow_params,
+        )
         if missing_required_params:
-            missing_params = ", ".join(sorted(missing_required_params))
+            missing_params = ", ".join(missing_required_params)
             raise ValueError(
                 f"TTS workflow '{workflow_info['key']}' missing required params: {missing_params}"
             )

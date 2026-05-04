@@ -107,6 +107,7 @@ from pixelle_video.services.text_rendering_contract_summary import (
 )
 from pixelle_video.services.text_rendering_orchestrator import TextRenderingOrchestrator
 from pixelle_video.services.timing_planner import TimingPlanner
+from pixelle_video.services.omnivoice_longform_blocks import build_omnivoice_longform_block_plan
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.services.video import VideoService
 from pixelle_video.tts_audio_strategy import (
@@ -121,6 +122,7 @@ from pixelle_video.tts_workflow_contract import (
     resolve_workflow_output_audio_extension_from_info,
     resolve_workflow_output_audio_extension_from_key,
 )
+from pixelle_video.tts_workflow_family import is_omnivoice_longform_workflow_key
 from pixelle_video.utils.content_generators import (
     generate_title,
 )
@@ -665,6 +667,7 @@ class StandardPipeline(LinearVideoPipeline):
             voice_id=final_voice_id,
             tts_workflow=final_tts_workflow,
             tts_speed=ctx.params.get("tts_speed", 1.2),
+            tts_duration=ctx.params.get("tts_duration"),
             ref_audio=ctx.params.get("ref_audio"),
             ref_audio_text=ctx.params.get("ref_audio_text") or ctx.params.get("prompt_text"),
             **resolve_storyboard_render_kwargs(self.core.config, ctx.params),
@@ -1240,6 +1243,22 @@ class StandardPipeline(LinearVideoPipeline):
                 workflow_key = config.tts_workflow or workflow_key
 
         return is_index_tts2_workflow_key(workflow_key)
+
+    def _uses_omnivoice_longform_workflow(self, workflow_key: str | None) -> bool:
+        return is_omnivoice_longform_workflow_key(workflow_key)
+
+    def _should_use_omnivoice_longform_blocks(
+        self,
+        config: StoryboardConfig,
+        text: str,
+    ) -> bool:
+        if config.tts_inference_mode != "comfyui":
+            return False
+        if not self._uses_omnivoice_longform_workflow(config.tts_workflow):
+            return False
+        if getattr(config, "tts_audio_strategy", "per_frame") != MASTER_TRACK_TTS_AUDIO_STRATEGY:
+            return False
+        return len(text or "") > 6000
 
     def _resolve_tts_source_extension(self, config: StoryboardConfig) -> str:
         if config.tts_inference_mode != "comfyui":
@@ -3613,6 +3632,15 @@ class StandardPipeline(LinearVideoPipeline):
         task_audio_dir: Path,
         block_output_path: Path,
     ) -> str:
+        if self._should_use_omnivoice_longform_blocks(ctx.config, block_text):
+            return await self._synthesize_omnivoice_longform_block(
+                ctx,
+                block_id=block_id,
+                block_text=block_text,
+                task_audio_dir=task_audio_dir,
+                block_output_path=block_output_path,
+            )
+
         segments = [block_text]
         if (
             self._uses_index_tts2_workflow(ctx.config)
@@ -3672,6 +3700,47 @@ class StandardPipeline(LinearVideoPipeline):
         )
         return str(block_output_path)
 
+    async def _synthesize_omnivoice_longform_block(
+        self,
+        ctx: PipelineContext,
+        *,
+        block_id: str,
+        block_text: str,
+        task_audio_dir: Path,
+        block_output_path: Path,
+    ) -> str:
+        plan = build_omnivoice_longform_block_plan(block_text)
+        self._record_tts_segmentation_plan(ctx, plan)
+        source_extension = self._resolve_tts_source_extension(ctx.config)
+        generated_paths: List[str] = []
+
+        for index, omnivoice_block in enumerate(plan.blocks, start=1):
+            segment_source_path = task_audio_dir / (
+                f"{block_id}_omnivoice_{index:03d}_source{source_extension}"
+            )
+            segment_output_path = task_audio_dir / f"{block_id}_omnivoice_{index:03d}.wav"
+            tts_params = self._build_tts_params(
+                config=ctx.config,
+                text=omnivoice_block.text,
+                output_path=str(segment_source_path),
+            )
+            self._record_tts_workflow_text(ctx, block_id, index, tts_params)
+            await self.core.tts(**tts_params)
+            normalized_path = self._normalize_audio_for_hyperframes(
+                str(segment_source_path),
+                str(segment_output_path),
+            )
+            omnivoice_block.source_audio_path = str(segment_source_path)
+            omnivoice_block.normalized_audio_path = normalized_path
+            generated_paths.append(normalized_path)
+
+        self._concat_audio_files(
+            generated_paths,
+            str(block_output_path),
+            fade_ms=ctx.config.tts_audio_boundary_fade_ms,
+        )
+        return str(block_output_path)
+
     def _build_tts_params(
         self,
         *,
@@ -3700,7 +3769,9 @@ class StandardPipeline(LinearVideoPipeline):
             if config.ref_audio:
                 tts_params["ref_audio"] = config.ref_audio
             if config.ref_audio_text:
-                tts_params["ref_audio_text"] = config.ref_audio_text
+                tts_params["reference_audio_text"] = config.ref_audio_text
+            if config.tts_duration is not None:
+                tts_params["duration"] = config.tts_duration
 
         return tts_params
 

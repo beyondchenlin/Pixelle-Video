@@ -249,6 +249,12 @@ class VideoGenerateRequest(BaseModel):
         None,
         description="Standard video TTS audio strategy. Per-frame audio is not supported.",
     )
+    tts_duration: Optional[float] = Field(
+        None,
+        ge=0.5,
+        le=60.0,
+        description="Target duration in seconds for TTS workflows that expose a duration parameter.",
+    )
     tts_split_mode: Optional[TtsSplitMode] = Field(
         None,
         description="IndexTTS2 text split mode: internal_only or external_only",

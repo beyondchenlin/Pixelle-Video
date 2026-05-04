@@ -8,20 +8,19 @@ from uuid import uuid4
 
 from loguru import logger
 
+from pixelle_video.tts_workflow_family import infer_tts_workflow_family
+
 VOICE_PROFILE_ROOT = Path("data/reference_audio")
 VOICE_PROFILE_MANIFEST = VOICE_PROFILE_ROOT / "voice_profiles.json"
 ALLOWED_AUDIO_SUFFIXES = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"}
 
 
 def infer_tts_model_slug(workflow_key: str | None) -> str:
+    family = infer_tts_workflow_family(workflow_key)
+    if family != "generic":
+        return family
+
     workflow_name = Path(str(workflow_key or "")).stem.lower()
-    normalized = workflow_name.replace("_", "").replace("-", "")
-
-    if "index2" in normalized or "indextts2" in normalized:
-        return "indextts2"
-    if "edge" in normalized:
-        return "edge"
-
     slug = re.sub(r"[^a-z0-9]+", "-", workflow_name).strip("-")
     return slug or "tts"
 

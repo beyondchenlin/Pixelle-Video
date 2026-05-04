@@ -34,6 +34,7 @@ from pixelle_video.models.storyboard_limits import StoryboardGenerationLimits
 from pixelle_video.models.video_generation_contract import (
     validate_standard_video_generation_params,
 )
+from pixelle_video.services.resource_resolver import ResolvedResource, StaticResourceResolver
 
 
 def _layered_spec_payload(template_id="demo") -> dict:
@@ -81,6 +82,34 @@ class _FakePixelleVideo:
             video_path=str(self.output_path),
             duration=2.5,
         )
+
+
+OMNIVOICE_TEST_VOICE = ResolvedResource(
+    resource_id="bange",
+    resolved_value="reference_audio/omnivoice/bange.wav",
+    metadata={
+        "tts_workflow": "selfhost/tts_omnivoice_longform_bf16.json",
+        "ref_audio": "reference_audio/omnivoice/bange.wav",
+        "ref_audio_text": "大家好，这是参考音频文本。",
+    },
+)
+
+
+def _api_request_context(base_url: str = "http://testserver/"):
+    return SimpleNamespace(
+        base_url=base_url,
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                resource_resolver=StaticResourceResolver(
+                    voices={"bange": OMNIVOICE_TEST_VOICE}
+                )
+            )
+        ),
+    )
+
+
+def _public_video_request(**kwargs) -> VideoGenerateRequest:
+    return VideoGenerateRequest(voice_id="bange", **kwargs)
 
 
 def test_api_video_preset_literals_match_size_contract():
@@ -705,7 +734,7 @@ async def test_generate_video_sync_passes_tts_text_policy_controls_to_video_core
     monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
 
     await generate_video_sync(
-        VideoGenerateRequest(
+        _public_video_request(
             text="demo",
             tts_split_mode="external_only",
             max_chars_per_tts_segment=88,
@@ -718,7 +747,7 @@ async def test_generate_video_sync_passes_tts_text_policy_controls_to_video_core
             preserve_natural_punctuation=False,
         ),
         fake_pixelle_video,
-        SimpleNamespace(base_url="http://testserver/"),
+        _api_request_context(),
     )
 
     call = fake_pixelle_video.calls[0]
@@ -759,13 +788,13 @@ async def test_generate_video_sync_passes_prompt_generation_performance_controls
     monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
 
     await generate_video_sync(
-        VideoGenerateRequest(
+        _public_video_request(
             text="demo",
             llm_prompt_batch_size=8,
             llm_prompt_batch_concurrent_limit=3,
         ),
         fake_pixelle_video,
-        SimpleNamespace(base_url="http://testserver/"),
+        _api_request_context(),
     )
 
     call = fake_pixelle_video.calls[0]
@@ -791,7 +820,7 @@ async def test_generate_video_sync_passes_explicit_size_contract_without_templat
     monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
 
     await generate_video_sync(
-        VideoGenerateRequest(
+        _public_video_request(
             text="demo",
             canvas_width=1280,
             canvas_height=720,
@@ -804,7 +833,7 @@ async def test_generate_video_sync_passes_explicit_size_contract_without_templat
             sync_media_size_to_canvas=False,
         ),
         fake_pixelle_video,
-        SimpleNamespace(base_url="http://testserver/"),
+        _api_request_context(),
     )
 
     call = fake_pixelle_video.calls[0]
@@ -925,6 +954,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
         VideoGenerateInternalRequest(
             text="demo",
             frame_template="1080x1920/image_default.html",
+            tts_workflow="selfhost/tts_edge.json",
             render_backend="hyperframes_compiled",
             tts_audio_strategy="master_track",
             storyboard_mode="smart",
@@ -999,6 +1029,7 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
                 "offset_y": 0,
             },
             "media_workflow": None,
+            "tts_workflow": "selfhost/tts_edge.json",
             "video_fps": 30,
             "frame_template": "1080x1920/image_default.html",
             "prompt_prefix": None,
@@ -1080,11 +1111,11 @@ async def test_generate_video_async_reuses_active_duplicate_task(monkeypatch, tm
     monkeypatch.setattr("api.routers.video.new_correlation_id", lambda prefix: f"{prefix}_test")
 
     response = await generate_video_async(
-        VideoGenerateRequest(
+        _public_video_request(
             text="demo",
         ),
         fake_pixelle_video,
-        SimpleNamespace(base_url="http://testserver/"),
+        _api_request_context(),
     )
 
     assert response.task_id == "existing-task"
@@ -1150,7 +1181,7 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
     monkeypatch.setattr("api.routers.video.task_manager", fake_task_manager)
 
     response = await generate_video_async(
-        VideoGenerateRequest(
+        _public_video_request(
             text="demo",
             text_rendering={
                 "overlay": {
@@ -1165,7 +1196,7 @@ async def test_generate_video_async_passes_text_rendering_to_video_core(monkeypa
             },
         ),
         fake_pixelle_video,
-        SimpleNamespace(base_url="http://testserver/"),
+        _api_request_context(),
     )
 
     assert response.task_id == "task-1"
@@ -1227,9 +1258,9 @@ async def test_generate_video_async_submits_new_task_without_router_execution(
     monkeypatch.setattr("api.routers.video.task_manager", fake_task_manager)
 
     response = await generate_video_async(
-        VideoGenerateRequest(text="demo"),
+        _public_video_request(text="demo"),
         fake_pixelle_video,
-        SimpleNamespace(base_url="http://testserver/"),
+        _api_request_context(),
     )
 
     assert response.task_id == "task-1"
@@ -1271,7 +1302,7 @@ async def test_generate_video_async_preserves_explicit_text_styles(monkeypatch, 
     monkeypatch.setattr("api.routers.video.task_manager", fake_task_manager)
 
     await generate_video_async(
-        VideoGenerateRequest(
+        _public_video_request(
             text="demo",
             text_rendering={
                 "caption_style": {
@@ -1285,7 +1316,7 @@ async def test_generate_video_async_preserves_explicit_text_styles(monkeypatch, 
             },
         ),
         fake_pixelle_video,
-        SimpleNamespace(base_url="http://testserver/"),
+        _api_request_context(),
     )
 
     text_rendering = fake_task_manager.reserve_calls[0]["request_params"]["text_rendering"]

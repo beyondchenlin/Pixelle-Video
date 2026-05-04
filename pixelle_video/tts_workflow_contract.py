@@ -2,6 +2,10 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from loguru import logger
+
+from pixelle_video.tts_workflow_family import infer_tts_workflow_family
+
 INDEX_TTS2_WORKFLOW_STEMS = frozenset({"tts_index2", "indextts2", "index_tts2"})
 INDEX_TTS2_NODE_CLASS_TYPES = frozenset(
     {
@@ -18,14 +22,56 @@ SAVE_AUDIO_OUTPUT_EXTENSIONS = {
 
 
 def is_index_tts2_workflow_key(workflow_key: Any) -> bool:
-    if isinstance(workflow_key, Mapping):
-        return is_index_tts2_workflow(workflow_key)
+    return infer_tts_workflow_family(workflow_key) == "indextts2"
 
-    workflow = _load_workflow_from_key(workflow_key)
-    if workflow is not None:
-        return is_index_tts2_workflow(workflow)
 
-    return _is_index_tts2_workflow_stem(workflow_key)
+def get_required_tts_workflow_params(workflow_key: Any) -> frozenset[str]:
+    metadata = get_tts_workflow_metadata(workflow_key)
+    if metadata is None:
+        return frozenset()
+
+    return frozenset(
+        param_name for param_name, param in metadata.params.items() if param.required
+    )
+
+
+def tts_workflow_requires_ref_audio(workflow_key: Any) -> bool:
+    return "ref_audio" in get_required_tts_workflow_params(workflow_key)
+
+
+def get_missing_required_tts_workflow_params(
+    workflow_key: Any,
+    workflow_params: Mapping[str, Any] | None,
+) -> tuple[str, ...]:
+    metadata = get_tts_workflow_metadata(workflow_key)
+    if metadata is None:
+        return ()
+
+    provided_params = workflow_params or {}
+    missing_required_params: list[str] = []
+    for param_name, param in metadata.params.items():
+        if not param.required:
+            continue
+
+        value = provided_params.get(param_name)
+        if value is None:
+            missing_required_params.append(param_name)
+            continue
+
+        if isinstance(value, str) and not value.strip():
+            missing_required_params.append(param_name)
+
+    return tuple(sorted(missing_required_params))
+
+
+def tts_workflow_missing_required_ref_audio(
+    workflow_key: Any,
+    ref_audio: Any,
+) -> bool:
+    return "ref_audio" in get_missing_required_tts_workflow_params(
+        workflow_key,
+        {"ref_audio": ref_audio},
+    )
 
 
 def is_index_tts2_workflow(workflow: Mapping[str, Any] | None) -> bool:
@@ -99,17 +145,50 @@ def _load_workflow_from_key(workflow_key: Any) -> Mapping[str, Any] | None:
     if not workflow_key:
         return None
 
-    key_path = Path(str(workflow_key))
-    candidates = [key_path, Path("workflows") / key_path]
-    if len(key_path.parts) == 1:
-        candidates.append(Path("workflows") / "selfhost" / key_path)
-
-    for candidate in candidates:
+    for candidate in _resolve_workflow_path_candidates(workflow_key):
         workflow = _load_workflow_from_file(candidate)
         if workflow is not None:
             return workflow
 
     return None
+
+
+def get_tts_workflow_metadata(workflow_key: Any):
+    try:
+        from comfykit.comfyui.workflow_parser import WorkflowParser
+    except Exception as exc:
+        logger.warning(f"Failed to import ComfyUI workflow parser: {exc}")
+        return None
+
+    for candidate in _resolve_workflow_path_candidates(workflow_key):
+        if not candidate.exists():
+            continue
+        try:
+            return WorkflowParser().parse_workflow_file(str(candidate))
+        except Exception as exc:
+            logger.warning(f"Failed to parse TTS workflow params for {candidate}: {exc}")
+            continue
+
+    return None
+
+
+def _resolve_workflow_path_candidates(workflow_key: Any) -> tuple[Path, ...]:
+    key_path = Path(str(workflow_key or ""))
+    candidates = [key_path]
+    if not key_path.is_absolute():
+        candidates.append(Path("workflows") / key_path)
+    if len(key_path.parts) == 1:
+        candidates.append(Path("workflows") / "selfhost" / key_path)
+
+    resolved_candidates = []
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved_candidates.append(candidate)
+    return tuple(resolved_candidates)
 
 
 def build_ref_audio_text_params(

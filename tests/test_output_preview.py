@@ -3,6 +3,8 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from pixelle_video.models.progress import ProgressI18nMessage
 from web.components import output_preview
 from web.components.prompt_generation_performance import (
@@ -1209,6 +1211,23 @@ def test_build_single_generation_request_includes_tts_speed_for_comfyui():
     assert request["tts_workflow"] == "selfhost/tts_index2.json"
 
 
+def test_build_single_generation_request_rejects_ref_audio_required_workflow_without_voice():
+    def _progress(_event):
+        return None
+
+    with pytest.raises(ValueError, match="requires a reference audio"):
+        output_preview.build_single_generation_request(
+            {
+                "text": "demo",
+                "mode": "generate",
+                "tts_inference_mode": "comfyui",
+                "tts_workflow": "selfhost/tts_omnivoice_longform_bf16.json",
+            },
+            progress_callback=_progress,
+            session_state={"template_media_width": 1080, "template_media_height": 1920},
+        )
+
+
 def test_build_batch_shared_config_includes_tts_speed_for_comfyui():
     shared_config = output_preview.build_batch_shared_config(
         {
@@ -1227,6 +1246,17 @@ def test_build_batch_shared_config_includes_tts_speed_for_comfyui():
 
     assert shared_config["tts_workflow"] == "selfhost/tts_index2.json"
     assert shared_config["tts_speed"] == 1.2
+
+
+def test_build_batch_shared_config_rejects_ref_audio_required_workflow_without_voice():
+    with pytest.raises(ValueError, match="requires a reference audio"):
+        output_preview.build_batch_shared_config(
+            {
+                "title_prefix": "Series",
+                "tts_inference_mode": "comfyui",
+                "tts_workflow": "selfhost/tts_omnivoice_longform_bf16.json",
+            }
+        )
 
 
 def test_render_single_output_passes_storyboard_controls_to_generate_video(monkeypatch, tmp_path):

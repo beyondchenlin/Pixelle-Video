@@ -25,7 +25,12 @@ from web.components.selfhost_workflow_notice import render_selfhost_workflow_not
 from web.components.tts_voice_profile_controls import render_tts_voice_profile_controls
 from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
-from web.utils.tts_ui import resolve_comfyui_tts_speed, resolve_configured_tts_mode
+from web.utils.tts_ui import (
+    resolve_comfyui_tts_speed,
+    resolve_configured_tts_mode,
+    tts_workflow_reference_audio_missing,
+)
+from web.utils.workflow_defaults import resolve_selectbox_default_index
 
 
 def render_style_config(pixelle_video):
@@ -54,6 +59,7 @@ def render_style_config(pixelle_video):
             index=0 if resolve_configured_tts_mode(tts_config) == "local" else 1,
             key="digital_tts_inference_mode"
         )
+        missing_required_ref_audio = False
         
         # Show hint based on mode
         if tts_mode == "local":
@@ -130,10 +136,12 @@ def render_style_config(pixelle_video):
             tts_workflow_options = [wf["display_name"] for wf in tts_workflows]
             tts_workflow_keys = [wf["key"] for wf in tts_workflows]
 
-            default_tts_index = 0
             saved_tts_workflow = tts_config.get("comfyui", {}).get("default_workflow")
-            if saved_tts_workflow and saved_tts_workflow in tts_workflow_keys:
-                default_tts_index = tts_workflow_keys.index(saved_tts_workflow)
+            default_tts_index = resolve_selectbox_default_index(
+                domain="tts",
+                workflow_keys=tts_workflow_keys,
+                configured_workflow=saved_tts_workflow,
+            )
 
             tts_workflow_display = st.selectbox(
                 "TTS Workflow",
@@ -154,6 +162,13 @@ def render_style_config(pixelle_video):
                 tts_workflow_key,
                 key_prefix="digital_tts",
             )
+            missing_required_ref_audio = tts_workflow_reference_audio_missing(
+                tts_mode=tts_mode,
+                tts_workflow_key=tts_workflow_key,
+                ref_audio_path=str(ref_audio_path) if ref_audio_path else None,
+            )
+            if missing_required_ref_audio:
+                st.warning(tr("tts.reference_audio_required"))
             
             # Variables for video generation
             selected_voice = None
@@ -172,7 +187,12 @@ def render_style_config(pixelle_video):
             )
             
             # Preview button
-            if st.button(tr("tts.preview_button"), key="gidital_preview_tts", width="stretch"):
+            if st.button(
+                tr("tts.preview_button"),
+                key="gidital_preview_tts",
+                width="stretch",
+                disabled=bool(missing_required_ref_audio),
+            ):
                 with st.spinner(tr("tts.previewing")):
                     try:
                         # Build TTS params based on mode

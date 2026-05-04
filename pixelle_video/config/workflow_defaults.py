@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Mapping, Optional, Sequence
 
-DEFAULT_TTS_WORKFLOW = "selfhost/tts_index2_8g.json"
+DEFAULT_TTS_WORKFLOW = "selfhost/tts_omnivoice_longform_bf16.json"
 
 BUILTIN_DEFAULT_WORKFLOWS = {
     "image": "selfhost/image_z_image_turbo_gguf.json",

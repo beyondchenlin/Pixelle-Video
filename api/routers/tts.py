@@ -36,7 +36,7 @@ async def tts_synthesize(
     
     - **text**: Text to synthesize
     - **workflow**: TTS workflow key (optional, uses default if not specified)
-    - **ref_audio**: Reference audio for voice cloning (optional)
+    - **ref_audio**: Reference audio for voice cloning (required by workflows that declare it)
     - **voice_id**: (Deprecated) Voice ID for legacy compatibility
     
     Returns path to generated audio file and duration.
@@ -71,6 +71,10 @@ async def tts_synthesize(
         # Add ref_audio if specified
         if request.ref_audio:
             tts_params["ref_audio"] = request.ref_audio
+        if request.duration is not None:
+            tts_params["duration"] = request.duration
+        if request.reference_audio_text:
+            tts_params["reference_audio_text"] = request.reference_audio_text
         
         # Legacy voice_id support (deprecated)
         if request.voice_id and not request.workflow:
@@ -88,6 +92,12 @@ async def tts_synthesize(
             duration=duration
         )
         
+    except ValueError as e:
+        logger.error(f"TTS synthesis validation error: {e}")
+        raise HTTPException(
+            status_code=422,
+            detail=str(e),
+        )
     except Exception as e:
         logger.error(f"TTS synthesis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
