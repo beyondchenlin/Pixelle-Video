@@ -102,6 +102,7 @@ class TemplateLayer:
     source: LayerSourceSpec | None
     style: Mapping[str, Any]
     role: str | None = None
+    enabled: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id:
@@ -125,11 +126,12 @@ class TemplateLayer:
         object.__setattr__(self, "opacity", opacity)
         object.__setattr__(self, "rotation", rotation)
         object.__setattr__(self, "locked", bool(self.locked))
+        object.__setattr__(self, "enabled", bool(self.enabled))
         object.__setattr__(self, "source", source)
         object.__setattr__(self, "style", _deep_freeze_mapping(self.style))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "id": self.id,
             "type": self.type,
             "name": self.name,
@@ -142,6 +144,9 @@ class TemplateLayer:
             "style": _json_safe_copy(self.style),
             "role": self.role,
         }
+        if not self.enabled:
+            payload["enabled"] = False
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> TemplateLayer:
@@ -154,6 +159,7 @@ class TemplateLayer:
             opacity=payload["opacity"],
             rotation=payload.get("rotation", 0.0),
             locked=bool(payload.get("locked", False)),
+            enabled=bool(payload.get("enabled", True)),
             source=LayerSourceSpec.from_dict(payload.get("source")),
             style=payload.get("style") or {},
             role=payload.get("role"),

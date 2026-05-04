@@ -906,6 +906,112 @@ def test_render_layer_design_config_collapses_non_selected_layer_cards(monkeypat
     assert result.layers == state.layers
 
 
+def test_render_layer_design_config_updates_enabled_and_deletes_layers(monkeypatch):
+    from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
+    from web.components import layer_design_config
+
+    state = (
+        LayeredTemplateEditorState.empty(
+            canvas_width=720,
+            canvas_height=1280,
+            media_width=768,
+            media_height=768,
+        )
+        .append_background_layer("Background layer 1")
+        .append_text_layer("Text layer 1")
+    )
+    background_layer_id = state.layers[0].id
+    text_layer_id = state.layers[1].id
+    fake_st = _FakeStreamlit()
+    fake_st.session_state.update(
+        {
+            f"layered_template_layer_{background_layer_id}_expanded": False,
+            f"layered_template_layer_{background_layer_id}_enabled": False,
+        }
+    )
+
+    checkbox_calls = []
+    button_calls = []
+
+    def fake_checkbox(label, value=False, **kwargs):
+        key = kwargs.get("key")
+        selected = fake_st.session_state.get(key, value)
+        checkbox_calls.append({"label": label, "value": selected, **kwargs})
+        return selected
+
+    def fake_button(label, **kwargs):
+        button_calls.append({"label": label, **kwargs})
+        return kwargs.get("key") == f"layered_template_layer_{text_layer_id}_delete"
+
+    fake_st.checkbox = fake_checkbox
+    fake_st.button = fake_button
+    monkeypatch.setattr(layer_design_config, "get_language", lambda: "en_US")
+
+    result = layer_design_config.render_layer_design_config(
+        state,
+        ui=fake_st,
+        translate=lambda key, fallback=None, **_kwargs: fallback or key,
+    )
+
+    assert {
+        call["key"]: call["label"]
+        for call in checkbox_calls
+        if call.get("key", "").endswith("_enabled")
+    } == {
+        f"layered_template_layer_{background_layer_id}_enabled": "Include in video",
+        f"layered_template_layer_{text_layer_id}_enabled": "Include in video",
+    }
+    assert {
+        call["key"]: call["label"]
+        for call in button_calls
+        if call.get("key", "").endswith("_delete")
+    } == {
+        f"layered_template_layer_{background_layer_id}_delete": "Delete",
+        f"layered_template_layer_{text_layer_id}_delete": "Delete",
+    }
+    assert [layer.id for layer in result.layers] == [background_layer_id]
+    assert result.layers[0].enabled is False
+
+
+def test_render_layer_design_config_saves_current_design(monkeypatch):
+    from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
+    from web.components import layer_design_config
+
+    state = LayeredTemplateEditorState.empty(
+        canvas_width=720,
+        canvas_height=1280,
+        media_width=768,
+        media_height=768,
+    ).append_background_layer("Background layer 1")
+    fake_st = _FakeStreamlit()
+    saved_states = []
+    button_calls = []
+    success_calls = []
+
+    def fake_button(label, **kwargs):
+        button_calls.append({"label": label, **kwargs})
+        return kwargs.get("key") == "layered_template_save_design"
+
+    fake_st.button = fake_button
+    fake_st.success = lambda message, **_kwargs: success_calls.append(message)
+    monkeypatch.setattr(layer_design_config, "get_language", lambda: "en_US")
+
+    result = layer_design_config.render_layer_design_config(
+        state,
+        on_save_design=lambda current_state: saved_states.append(current_state),
+        ui=fake_st,
+        translate=lambda key, fallback=None, **_kwargs: fallback or key,
+    )
+
+    assert {
+        call["key"]: call["label"]
+        for call in button_calls
+        if call.get("key") == "layered_template_save_design"
+    } == {"layered_template_save_design": "Save layer design"}
+    assert saved_states == [result]
+    assert success_calls == ["Saved to My Templates"]
+
+
 def test_render_style_config_surfaces_layer_add_tools_inside_layer_design_section(monkeypatch):
     from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
     from web.components import style_config

@@ -211,6 +211,7 @@ def _render_layer_content_controls(
 def render_layer_design_config(
     state: LayeredTemplateEditorState,
     *,
+    on_save_design=None,
     ui=st,
     translate=tr,
 ) -> LayeredTemplateEditorState:
@@ -285,6 +286,26 @@ def render_layer_design_config(
         else:
             ui.info(translate("layered_template.editor.empty"))
 
+        if on_save_design is not None and ui.button(
+            _layered_template_editor_text(
+                "layered_template.editor.save_design",
+                zh="保存图层设计",
+                en="Save layer design",
+                translate=translate,
+            ),
+            key="layered_template_save_design",
+            width="stretch",
+        ):
+            on_save_design(state)
+            ui.success(
+                _layered_template_editor_text(
+                    "layered_template.editor.save_success",
+                    zh="已保存到我的模板",
+                    en="Saved to My Templates",
+                    translate=translate,
+                )
+            )
+
     ui.session_state[LAYERED_TEMPLATE_EDITOR_STATE_KEY] = state
     return state
 
@@ -309,10 +330,23 @@ def _render_layered_template_layer_controls(
     expanded = bool(ui.session_state.get(expanded_key, layer.id == state.selected_layer_id))
     ui.session_state[expanded_key] = expanded
     with ui.container(border=True, key=f"layered_template_layer_card_{layer.id}"):
-        header_columns = ui.columns([4, 1])
+        header_columns = ui.columns([0.9, 3.1, 1, 1])
         with header_columns[0]:
-            ui.markdown(f"**{escape(label)}**")
+            enabled = ui.checkbox(
+                _layered_template_editor_text(
+                    "layered_template.editor.layer_enabled",
+                    zh="加入视频",
+                    en="Include in video",
+                    translate=translate,
+                ),
+                value=bool(layer.enabled),
+                key=f"{key_prefix}_enabled",
+            )
+            state = state.update_layer_enabled(layer.id, bool(enabled))
+            layer = next((item for item in state.layers if item.id == layer_id), layer)
         with header_columns[1]:
+            ui.markdown(f"**{escape(label)}**")
+        with header_columns[2]:
             toggle_label = _layered_template_editor_text(
                 "layered_template.editor.layer_collapse"
                 if expanded
@@ -328,6 +362,23 @@ def _render_layered_template_layer_controls(
             ):
                 expanded = not expanded
                 ui.session_state[expanded_key] = expanded
+                rerun = getattr(ui, "rerun", None)
+                if callable(rerun):
+                    rerun()
+        with header_columns[3]:
+            if ui.button(
+                _layered_template_editor_text(
+                    "layered_template.editor.layer_delete",
+                    zh="删除",
+                    en="Delete",
+                    translate=translate,
+                ),
+                key=f"{key_prefix}_delete",
+                width="stretch",
+            ):
+                ui.session_state.pop(expanded_key, None)
+                ui.session_state.pop(f"{key_prefix}_enabled", None)
+                return state.delete_layer(layer.id)
 
         if not expanded:
             return state

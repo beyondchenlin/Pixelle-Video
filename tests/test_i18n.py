@@ -159,6 +159,12 @@ def test_layer_design_editor_content_keys_exist_in_supported_locales():
         "layered_template.editor.layer_image_upload",
         "layered_template.editor.layer_background_upload",
         "layered_template.editor.layer_background_color",
+        "layered_template.editor.layer_enabled",
+        "layered_template.editor.layer_delete",
+        "layered_template.editor.layer_collapse",
+        "layered_template.editor.layer_expand",
+        "layered_template.editor.save_design",
+        "layered_template.editor.save_success",
         "layered_template.editor.layer_role.custom",
     ]
     original_language = get_language()

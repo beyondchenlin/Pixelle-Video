@@ -2539,6 +2539,51 @@ def test_render_layout_preview_workbench_section_saves_user_template_and_marks_r
     assert captured["mark_used"] == [saved[0].preset_id]
 
 
+def test_save_layout_preview_template_clones_system_spec_as_user_preset(
+    monkeypatch,
+    tmp_path,
+):
+    spec_payload = _layered_template_spec_payload(
+        template_id="system:1080x1920/image_default.html",
+        template_name="Image Default",
+        metadata={"source_kind": "legacy_html", "orientation": "portrait"},
+    )
+    preview_png = tmp_path / "preview.png"
+    preview_png.write_bytes(b"png")
+    repo_root = tmp_path / "template-presets"
+
+    monkeypatch.setattr(
+        output_preview,
+        "_refresh_layout_preview_frame",
+        lambda *_args, **_kwargs: {
+            "storage_key": "artifacts/workspace_demo/layout-preview.png",
+            "url": "/api/files/artifacts/workspace_demo/layout-preview.png",
+            "fingerprint": "preview-fingerprint",
+        },
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "_resolve_layout_preview_thumbnail_source_path",
+        lambda *_args, **_kwargs: preview_png,
+    )
+    monkeypatch.setattr(
+        output_preview,
+        "TemplateRegistry",
+        lambda: SimpleNamespace(mark_used=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(output_preview, "st", SimpleNamespace(session_state={}))
+
+    preset = output_preview.save_layered_template_design(
+        {"template_presets_root": str(repo_root)},
+        spec=output_preview._coerce_layered_template_spec(spec_payload),
+    )
+
+    assert preset.preset_id.startswith("user:image_default_")
+    assert preset.spec.template_id == preset.preset_id
+    assert preset.spec.metadata["source_kind"] == "user"
+    assert preset.spec.metadata["source_template_id"] == "system:1080x1920/image_default.html"
+
+
 def test_build_layout_preview_html_uses_layered_template_service():
     spec = {
         "version": "layered_template.v1",

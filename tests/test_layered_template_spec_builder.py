@@ -134,6 +134,25 @@ def test_editor_state_update_layer_properties_replaces_only_target_fields():
     assert base.layers[1].style == {}
 
 
+def test_editor_state_can_disable_and_delete_layers():
+    state = LayeredTemplateEditorState.empty(
+        canvas_width=1080,
+        canvas_height=1920,
+        media_width=1080,
+        media_height=1920,
+    ).append_background_layer("Background").append_text_layer("Title")
+    background_id = state.layers[0].id
+    title_id = state.layers[1].id
+
+    disabled = state.update_layer_enabled(background_id, False)
+    deleted = disabled.delete_layer(title_id)
+
+    assert disabled.layers[0].enabled is False
+    assert state.layers[0].enabled is True
+    assert [layer.id for layer in deleted.layers] == [background_id]
+    assert deleted.selected_layer_id == background_id
+
+
 def test_editor_state_update_layer_helpers_ignore_unknown_layer_id():
     state = LayeredTemplateEditorState.empty(
         canvas_width=1080,
@@ -148,10 +167,12 @@ def test_editor_state_update_layer_helpers_ignore_unknown_layer_id():
         .update_layer_z_index("missing", 7)
         .update_layer_opacity("missing", 0.2)
         .update_layer_rotation("missing", 8)
+        .update_layer_enabled("missing", False)
         .update_layer_locked("missing", True)
         .update_layer_role("missing", "caption")
         .update_layer_style("missing", {"font_size": 42})
         .update_layer_source("missing", LayerSourceSpec(kind="asset", ref="assets/demo.png"))
+        .delete_layer("missing")
     )
 
     assert unchanged == state

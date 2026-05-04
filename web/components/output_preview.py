@@ -590,6 +590,36 @@ def _validate_layout_preview_persistable_spec(spec: LayeredTemplateSpec) -> None
                 raise ValueError("generated media layers must use the primary generated-media ref")
 
 
+def _build_user_template_spec(spec: LayeredTemplateSpec) -> LayeredTemplateSpec:
+    metadata = dict(spec.metadata)
+    metadata["source_kind"] = "user"
+    metadata["source_template_id"] = spec.template_id
+    template_name = str(spec.template_name).strip() or "Layer Design"
+    slug = "".join(
+        char.lower() if char.isalnum() else "_"
+        for char in template_name
+    ).strip("_") or "layer_design"
+    if slug.startswith("system_"):
+        slug = slug.removeprefix("system_") or "layer_design"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    preset_id = spec.template_id
+    if not str(preset_id).startswith("user:"):
+        preset_id = f"user:{slug}_{timestamp}"
+    return LayeredTemplateSpec(
+        version=spec.version,
+        template_id=preset_id,
+        template_name=template_name,
+        template_type=spec.template_type,
+        canvas_width=spec.canvas_width,
+        canvas_height=spec.canvas_height,
+        media_width=spec.media_width,
+        media_height=spec.media_height,
+        safe_area=spec.safe_area,
+        layers=spec.layers,
+        metadata=metadata,
+    )
+
+
 def _build_user_template_preset(spec: LayeredTemplateSpec, *, thumbnail_ref: str) -> TemplatePreset:
     timestamp = datetime.now(timezone.utc).isoformat()
     orientation = str(spec.metadata.get("orientation") or "")
@@ -615,9 +645,10 @@ def _build_user_template_preset(spec: LayeredTemplateSpec, *, thumbnail_ref: str
     )
 
 
-def _save_layout_preview_template(video_params, *, spec: LayeredTemplateSpec) -> TemplatePreset:
-    _validate_layout_preview_persistable_spec(spec)
-    frame_payload = _refresh_layout_preview_frame(video_params, spec=spec)
+def save_layered_template_design(video_params, *, spec: LayeredTemplateSpec) -> TemplatePreset:
+    save_spec = _build_user_template_spec(spec)
+    _validate_layout_preview_persistable_spec(save_spec)
+    frame_payload = _refresh_layout_preview_frame(video_params, spec=save_spec)
     repository = TemplatePresetRepository(
         root=video_params.get("template_presets_root", "data/template_presets")
     )
@@ -627,13 +658,17 @@ def _save_layout_preview_template(video_params, *, spec: LayeredTemplateSpec) ->
     )
     thumbnail_ref = repository.persist_thumbnail(
         source_path=thumbnail_source,
-        preset_id=spec.template_id,
+        preset_id=save_spec.template_id,
     )
-    preset = _build_user_template_preset(spec, thumbnail_ref=thumbnail_ref)
+    preset = _build_user_template_preset(save_spec, thumbnail_ref=thumbnail_ref)
     repository.save(preset)
     TemplateRegistry().mark_used(preset.preset_id, preset.last_used_at)
     st.session_state["selected_template_preset_id"] = preset.preset_id
     return preset
+
+
+def _save_layout_preview_template(video_params, *, spec: LayeredTemplateSpec) -> TemplatePreset:
+    return save_layered_template_design(video_params, spec=spec)
 
 
 def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = "") -> None:

@@ -55,6 +55,43 @@ def test_layered_template_spec_round_trips_to_dict():
     assert LayeredTemplateSpec.from_dict(payload) == spec
 
 
+def test_template_layer_enabled_defaults_true_and_round_trips_false():
+    layer = TemplateLayer.from_dict(
+        {
+            "id": "hidden-logo",
+            "type": "image",
+            "name": "Hidden Logo",
+            "rect": {"x": 0, "y": 0, "width": 320, "height": 240, "unit": "px"},
+            "z_index": 10,
+            "opacity": 1.0,
+            "rotation": 0.0,
+            "locked": False,
+            "source": None,
+            "style": {},
+            "enabled": False,
+        }
+    )
+
+    assert layer.enabled is False
+    assert layer.to_dict()["enabled"] is False
+    legacy_layer = TemplateLayer.from_dict(
+        {
+            "id": "legacy-logo",
+            "type": "image",
+            "name": "Legacy Logo",
+            "rect": {"x": 0, "y": 0, "width": 320, "height": 240, "unit": "px"},
+            "z_index": 10,
+            "opacity": 1.0,
+            "rotation": 0.0,
+            "locked": False,
+            "source": None,
+            "style": {},
+        }
+    )
+    assert legacy_layer.enabled is True
+    assert "enabled" not in legacy_layer.to_dict()
+
+
 def test_layered_template_fingerprint_ignores_non_visual_metadata():
     base = _demo_spec(metadata={"updated_at": "2026-05-02T08:00:00Z"})
     changed = LayeredTemplateSpec.from_dict(

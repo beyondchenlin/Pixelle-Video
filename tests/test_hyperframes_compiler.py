@@ -2003,6 +2003,47 @@ def test_hyperframes_compiler_uses_layered_template_adapter_when_spec_present(
     assert "Layered caption" in captions_html
 
 
+def test_hyperframes_compiler_skips_disabled_layered_template_layers(
+    tmp_path: Path,
+):
+    compiler = HyperFramesCompiler()
+    spec = _layered_template_spec_payload()
+    spec["layers"][0]["id"] = "hidden-background"
+    spec["layers"][0]["enabled"] = False
+    spec["layers"][0]["style"] = {"background_color": "#FF0000"}
+    spec["layers"][1]["id"] = "visible-media"
+    context = TemplateRenderContext(
+        template_id="image_default",
+        canvas_width=720,
+        canvas_height=1280,
+        duration=3.0,
+        fps=30,
+        title="Layered title",
+        author=None,
+        footer=None,
+        theme=None,
+        style_profile="image_default",
+        layered_template_spec=spec,
+        visuals=[
+            VisualClip(
+                id="clip-1",
+                frame_index=0,
+                start=0.0,
+                end=3.0,
+                media_path="assets/images/layered-source.png",
+                media_type="image",
+            )
+        ],
+    )
+
+    compiler.compile(project_dir=tmp_path / "project", context=context)
+
+    index_html = (tmp_path / "project" / "index.html").read_text(encoding="utf-8")
+    assert "hidden-background" not in index_html
+    assert "#FF0000" not in index_html
+    assert "visible-media" in index_html
+
+
 def test_hyperframes_compiler_rejects_unsupported_generated_media_ref_for_layered_spec(
     tmp_path: Path,
 ):

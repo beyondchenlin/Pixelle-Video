@@ -27,6 +27,7 @@ def render_layered_template_preview_html(
             text_rendering=text_rendering,
         )
         for layer in sorted(spec.layers, key=lambda item: (item.z_index, item.id))
+        if layer.enabled
     )
     return f"""<!DOCTYPE html>
 <html>

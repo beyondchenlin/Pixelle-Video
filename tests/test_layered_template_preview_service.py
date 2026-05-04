@@ -110,6 +110,61 @@ def test_render_preview_html_orders_layers_and_escapes_text():
     assert "position:absolute" in html
 
 
+def test_render_preview_html_skips_disabled_layers():
+    base = _preview_spec()
+    spec = LayeredTemplateSpec(
+        version=base.version,
+        template_id=base.template_id,
+        template_name=base.template_name,
+        template_type=base.template_type,
+        canvas_width=base.canvas_width,
+        canvas_height=base.canvas_height,
+        media_width=base.media_width,
+        media_height=base.media_height,
+        safe_area=base.safe_area,
+        layers=(
+            TemplateLayer(
+                id="hidden-bg",
+                type="background",
+                name="Hidden background",
+                rect=RectSpec(x=0, y=0, width=1080, height=1920),
+                z_index=0,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                enabled=False,
+                source=LayerSourceSpec(kind="color", ref="#FF0000"),
+                style={"background_color": "#FF0000"},
+            ),
+            TemplateLayer(
+                id="visible-title",
+                type="text",
+                name="Visible title",
+                rect=RectSpec(x=96, y=120, width=888, height=220),
+                z_index=20,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=None,
+                style={"text_content": "Visible"},
+            ),
+        ),
+        metadata=base.metadata,
+    )
+
+    html = LayeredTemplateService().render_preview_html(
+        spec=spec,
+        title_text="Runtime Title",
+        caption_text="Runtime Caption",
+        text_rendering={},
+    )
+
+    assert 'data-layer-id="hidden-bg"' not in html
+    assert "#FF0000" not in html
+    assert 'data-layer-id="visible-title"' in html
+    assert "Visible" in html
+
+
 def test_render_preview_html_prefers_layer_text_content_over_runtime_title():
     base = _preview_spec()
     spec = LayeredTemplateSpec(

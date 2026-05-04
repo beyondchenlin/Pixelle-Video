@@ -173,6 +173,13 @@ class LayeredTemplateEditorState:
     ) -> LayeredTemplateEditorState:
         return self._update_layer(layer_id, locked=bool(locked))
 
+    def update_layer_enabled(
+        self,
+        layer_id: str,
+        enabled: bool,
+    ) -> LayeredTemplateEditorState:
+        return self._update_layer(layer_id, enabled=bool(enabled))
+
     def update_layer_role(
         self,
         layer_id: str,
@@ -200,6 +207,15 @@ class LayeredTemplateEditorState:
             for layer in self.layers
         )
         return replace(self, layers=layers)
+
+    def delete_layer(self, layer_id: str) -> LayeredTemplateEditorState:
+        if not any(layer.id == layer_id for layer in self.layers):
+            return self
+        layers = tuple(layer for layer in self.layers if layer.id != layer_id)
+        selected_layer_id = self.selected_layer_id
+        if selected_layer_id == layer_id:
+            selected_layer_id = layers[-1].id if layers else None
+        return replace(self, layers=layers, selected_layer_id=selected_layer_id)
 
     def build_spec(
         self,

@@ -52,7 +52,7 @@ class LayeredTemplateHyperFramesAdapter:
         layers_html = "\n".join(
             self._render_layer(layer=layer, context=context)
             for layer in sorted(spec.layers, key=lambda item: (item.z_index, item.id))
-            if layer.role != "caption"
+            if layer.enabled and layer.role != "caption"
         )
         audio_html = self._render_audio(context)
         duration = max(float(context.duration), 0.001)
@@ -149,7 +149,11 @@ class LayeredTemplateHyperFramesAdapter:
         context: TemplateRenderContext,
     ) -> str:
         caption_layer = next(
-            (layer for layer in spec.layers if layer.type == "text" and layer.role == "caption"),
+            (
+                layer
+                for layer in spec.layers
+                if layer.enabled and layer.type == "text" and layer.role == "caption"
+            ),
             None,
         )
         captions_html = "\n".join(

@@ -70,7 +70,9 @@ from pixelle_video.utils.text_splitting import (
 )
 from web.components import storyboard_planning_controls
 from web.components.layer_design_config import render_layer_design_config
+from web.components.output_preview import save_layered_template_design
 from web.components.layered_template_state import (
+    LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY,
     LayeredTemplateEditorState,
     apply_pending_layered_template_widget_state,
     clear_layered_template_spec_identity,
@@ -2904,8 +2906,14 @@ def render_style_config(
                             key=f"video_custom_{param_name}"
                         )
 
+    pending_layer_design_save: dict[str, LayeredTemplateEditorState | None] = {"state": None}
+
+    def save_layer_design(current_state: LayeredTemplateEditorState):
+        pending_layer_design_save["state"] = current_state
+
     layered_template_state = render_layer_design_config(
         layered_template_state,
+        on_save_design=save_layer_design,
         ui=st,
         translate=tr,
     )
@@ -2916,7 +2924,33 @@ def render_style_config(
         translate=tr,
         template_id=Path(frame_template).stem if frame_template else selected_identity["template_id"],
     )
-    
+    st.session_state["text_rendering"] = text_rendering
+    if pending_layer_design_save["state"] is not None:
+        spec = pending_layer_design_save["state"].build_spec(
+            template_id=selected_identity["template_id"],
+            template_name=selected_identity["template_name"],
+            template_type=selected_identity["template_type"],
+            metadata={
+                **selected_identity["metadata"],
+                "orientation": size_contract.video_orientation,
+            },
+        )
+        preset = save_layered_template_design(
+            {
+                "pixelle_video": pixelle_video,
+                "title": (content_context or {}).get("title", ""),
+                "layout_preview_caption_text": (content_context or {}).get("text", ""),
+                "text_rendering": text_rendering,
+            },
+            spec=spec,
+        )
+        st.session_state[LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY] = {
+            "template_id": preset.spec.template_id,
+            "template_name": preset.spec.template_name,
+            "template_type": preset.spec.template_type,
+            "metadata": dict(preset.spec.metadata),
+        }
+
     # ====================================================================
     # Media Generation Section (conditional based on template)
     # ====================================================================
