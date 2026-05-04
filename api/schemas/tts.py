@@ -42,6 +42,8 @@ class TTSSynthesizeRequest(BaseModel):
     )
     duration: Optional[float] = Field(
         None,
+        ge=0.5,
+        le=60.0,
         description="Target duration in seconds for workflows that expose a duration parameter.",
     )
     reference_audio_text: Optional[str] = Field(

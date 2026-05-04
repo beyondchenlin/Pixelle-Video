@@ -10,7 +10,7 @@
   },
   "4": {
     "inputs": {
-      "value": "This reference audio demonstrates the speaker's natural tone."
+      "value": ""
     },
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
