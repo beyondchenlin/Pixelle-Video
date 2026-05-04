@@ -23,6 +23,39 @@ def is_index_tts2_workflow_key(workflow_key: Any) -> bool:
     return infer_tts_workflow_family(workflow_key) == "indextts2"
 
 
+def get_required_tts_workflow_params(workflow_key: Any) -> frozenset[str]:
+    workflow = _load_workflow_from_key(workflow_key)
+    if workflow is None:
+        return frozenset()
+
+    try:
+        from comfykit.comfyui.workflow_parser import WorkflowParser
+    except Exception:
+        return frozenset()
+
+    key_path = Path(str(workflow_key or ""))
+    candidates = [key_path, Path("workflows") / key_path]
+    if len(key_path.parts) == 1:
+        candidates.append(Path("workflows") / "selfhost" / key_path)
+
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            metadata = WorkflowParser().parse_workflow_file(str(candidate))
+        except Exception:
+            continue
+        return frozenset(
+            param_name for param_name, param in metadata.params.items() if param.required
+        )
+
+    return frozenset()
+
+
+def tts_workflow_requires_ref_audio(workflow_key: Any) -> bool:
+    return "ref_audio" in get_required_tts_workflow_params(workflow_key)
+
+
 def is_index_tts2_workflow(workflow: Mapping[str, Any] | None) -> bool:
     if not isinstance(workflow, Mapping):
         return False
