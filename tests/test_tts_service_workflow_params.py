@@ -3,6 +3,11 @@ from types import SimpleNamespace
 import pytest
 
 from pixelle_video.services.tts_service import TTSService
+from pixelle_video.tts_workflow_family import (
+    infer_tts_workflow_family,
+    is_omnivoice_workflow_key,
+    is_tts_workflow_family,
+)
 from pixelle_video.tts_workflow_contract import (
     is_index_tts2_workflow_info,
     is_index_tts2_workflow_key,
@@ -104,6 +109,52 @@ def test_regular_cache_control_node_workflow_is_not_detected_as_index_tts2(tmp_p
     )
 
     assert not is_index_tts2_workflow_key(workflow_path)
+
+
+def test_tts_workflow_family_detects_omnivoice_from_node_class(tmp_path):
+    workflow_path = tmp_path / "custom_tts.json"
+    workflow_path.write_text(
+        """
+        {
+          "1": {
+            "inputs": {"text": "hello"},
+            "class_type": "OmniVoiceLongformTTS",
+            "_meta": {"title": "OmniVoice Longform TTS"}
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    assert infer_tts_workflow_family(workflow_path) == "omnivoice"
+    assert is_tts_workflow_family(workflow_path, "omnivoice") is True
+    assert is_omnivoice_workflow_key(workflow_path) is True
+
+
+def test_tts_workflow_family_detects_index_tts2_from_existing_workflow():
+    assert infer_tts_workflow_family("selfhost/tts_index2.json") == "indextts2"
+
+
+def test_tts_workflow_family_detects_edge_from_existing_workflow():
+    assert infer_tts_workflow_family("selfhost/tts_edge.json") == "edge"
+
+
+def test_tts_workflow_family_falls_back_to_generic_for_unknown_workflow(tmp_path):
+    workflow_path = tmp_path / "custom_tts.json"
+    workflow_path.write_text(
+        """
+        {
+          "1": {
+            "inputs": {"text": "hello"},
+            "class_type": "CustomTTSNode",
+            "_meta": {"title": "Custom TTS"}
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    assert infer_tts_workflow_family(workflow_path) == "generic"
 
 
 def test_selfhost_workflow_info_uses_path_content_for_index_tts2_detection(tmp_path):

@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from pixelle_video.tts_workflow_family import infer_tts_workflow_family
+
 INDEX_TTS2_WORKFLOW_STEMS = frozenset({"tts_index2", "indextts2", "index_tts2"})
 INDEX_TTS2_NODE_CLASS_TYPES = frozenset(
     {
@@ -18,14 +20,7 @@ SAVE_AUDIO_OUTPUT_EXTENSIONS = {
 
 
 def is_index_tts2_workflow_key(workflow_key: Any) -> bool:
-    if isinstance(workflow_key, Mapping):
-        return is_index_tts2_workflow(workflow_key)
-
-    workflow = _load_workflow_from_key(workflow_key)
-    if workflow is not None:
-        return is_index_tts2_workflow(workflow)
-
-    return _is_index_tts2_workflow_stem(workflow_key)
+    return infer_tts_workflow_family(workflow_key) == "indextts2"
 
 
 def is_index_tts2_workflow(workflow: Mapping[str, Any] | None) -> bool:
