@@ -1,0 +1,90 @@
+{
+  "asset_bible": {
+    "asset_bible_id": "zhengding_guide_bible",
+    "character_profiles": [],
+    "ip_profiles": [
+      {
+        "color_palette": {},
+        "forbidden_elements": [],
+        "identity_anchors": [
+          "蓝色领结",
+          "长耳朵",
+          "浅粉色耳朵内侧",
+          "圆润脸型",
+          "清爽亲和的卡通造型"
+        ],
+        "identity_lock": [
+          "白色卡通兔子",
+          "古城文旅向导",
+          "亲和好奇的表情",
+          "温和陪伴式讲解者"
+        ],
+        "identity_suppression_rules": [
+          "不能变成人类",
+          "不能变成其他动物",
+          "不能丢失长耳朵",
+          "不能丢失蓝色领结",
+          "不能变成写实恐怖动物",
+          "不能替代历史建筑或宗教主体"
+        ],
+        "image_text_palette": {},
+        "ip_profile_id": "ip_main",
+        "logline": "一只白色兔子古城向导，温和、好奇，擅长带游客理解正定历史。",
+        "metadata": {},
+        "name": "正定向导兔",
+        "negative_constraints": [
+          "不要替代古城主体",
+          "不要遮挡佛像寺庙城墙等核心内容",
+          "不要出现错误文字",
+          "不要出现乱码",
+          "不要变成蓝色兔子",
+          "不要变成真人玩偶"
+        ],
+        "project_id": "__builtin__",
+        "semantic_boundary": [
+          "它是陪伴式古城导游和文旅吉祥物",
+          "不是历史人物",
+          "不是宗教人物",
+          "不是佛像",
+          "不能替代正定古城城墙寺庙碑刻等真实主体"
+        ],
+        "style_hint": "清爽文旅插画风格，干净线条，柔和自然光，温暖色彩，适合短视频导览画面。",
+        "variable_slots": [
+          "表情",
+          "动作",
+          "站位",
+          "手持地图",
+          "手持导览旗",
+          "讲解姿势",
+          "与游客或古城场景的距离",
+          "出场强度"
+        ],
+        "visible_text_whitelist": [
+          "正定",
+          "古城",
+          "导览"
+        ],
+        "workspace_id": "__builtin__",
+        "world_hint": "正定古城、城墙、古寺、青砖、历史文化旅游。"
+      }
+    ],
+    "metadata": {},
+    "project_id": "__builtin__",
+    "prop_assets": [],
+    "scene_assets": [],
+    "style_profiles": [],
+    "workspace_id": "__builtin__"
+  },
+  "description": "面向正定古城文旅短视频的陪伴式导游 IP。",
+  "display_name": "正定向导兔",
+  "preset_id": "builtin_asset_bible_zhengding_guide",
+  "preview_asset_path": null,
+  "revision": "2026-05-04.1",
+  "source": "builtin",
+  "tags": [
+    "文旅",
+    "正定",
+    "导游IP",
+    "卡通角色"
+  ]
+}
