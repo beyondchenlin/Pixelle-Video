@@ -1,0 +1,83 @@
+{
+  "3": {
+    "inputs": {
+      "value": "This is an OmniVoice longform narration sample for Pixelle."
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "$text.value!"
+    }
+  },
+  "4": {
+    "inputs": {
+      "value": "This reference audio demonstrates the speaker's natural tone."
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "$reference_audio_text.value"
+    }
+  },
+  "5": {
+    "inputs": {
+      "audio": "ref_audio.wav",
+      "start_time": 0,
+      "duration": 0
+    },
+    "class_type": "VHS_LoadAudioUpload",
+    "_meta": {
+      "title": "$ref_audio.~audio!"
+    }
+  },
+  "6": {
+    "inputs": {
+      "model": "OmniVoice-bf16",
+      "text": [
+        "3",
+        0
+      ],
+      "ref_text": [
+        "4",
+        0
+      ],
+      "steps": 48,
+      "guidance_scale": 2,
+      "t_shift": 0.1,
+      "speed": 1,
+      "duration": 0,
+      "device": "auto",
+      "dtype": "auto",
+      "attention": "auto",
+      "seed": 0,
+      "words_per_chunk": 100,
+      "position_temperature": 3,
+      "class_temperature": 0,
+      "layer_penalty_factor": 5,
+      "denoise": true,
+      "preprocess_prompt": true,
+      "postprocess_output": true,
+      "keep_model_loaded": true,
+      "instruct": "",
+      "ref_audio": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "OmniVoiceLongformTTS",
+    "_meta": {
+      "title": "OmniVoice Longform TTS"
+    }
+  },
+  "7": {
+    "inputs": {
+      "filename_prefix": "audio/ComfyUI_omnivoice_longform",
+      "audio": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "SaveAudio",
+    "_meta": {
+      "title": "Save Audio (FLAC)"
+    }
+  }
+}
