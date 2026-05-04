@@ -3,11 +3,19 @@ from pathlib import Path
 
 from comfykit.comfyui.workflow_parser import WorkflowParser
 
-
 OMNIVOICE_UI_WORKFLOW_PATHS = (
     Path("workflows/selfhost/OmniVoice_all.json"),
     Path("workflows/selfhost/OmniVoice_bf16.json"),
 )
+
+OMNIVOICE_DEPENDENCY_DOCS = {
+    "OmniVoice_all": Path(
+        "workflows/down/OmniVoice_all_\u4f9d\u8d56\u4e0e\u4e0b\u8f7d\u8bf4\u660e.md"
+    ),
+    "OmniVoice_bf16": Path(
+        "workflows/down/OmniVoice_bf16_\u4f9d\u8d56\u4e0e\u4e0b\u8f7d\u8bf4\u660e.md"
+    ),
+}
 
 OMNIVOICE_WIDGET_COUNTS = {
     "OmniVoiceWhisperLoader": 3,
@@ -54,6 +62,21 @@ def _load_ui_workflow(path: Path):
     assert isinstance(workflow.get("links"), list)
 
     return workflow
+
+
+def _node_by_id(workflow: dict, node_id: int):
+    return next(node for node in workflow["nodes"] if node["id"] == node_id)
+
+
+def _iter_strings(value, path="root"):
+    if isinstance(value, str):
+        yield path, value
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _iter_strings(item, f"{path}[{index}]")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _iter_strings(item, f"{path}.{key}")
 
 
 def test_omnivoice_ui_workflows_are_valid_json_graphs():
@@ -103,13 +126,108 @@ def test_omnivoice_ui_workflows_keep_only_linked_node_inputs():
     assert checked_node_count > 0
 
 
-def test_omnivoice_dependency_docs_record_modelscope_priority():
-    docs = {
-        "OmniVoice_all": Path("workflows/down/OmniVoice_all_依赖与下载说明.md"),
-        "OmniVoice_bf16": Path("workflows/down/OmniVoice_bf16_依赖与下载说明.md"),
-    }
+def test_omnivoice_ui_workflows_do_not_contain_mojibake_or_private_use_text():
+    forbidden_fragments = ("锟", "鐠", "鈥", "�")
 
-    for workflow_name, doc_path in docs.items():
+    for workflow_path in OMNIVOICE_UI_WORKFLOW_PATHS:
+        workflow = _load_ui_workflow(workflow_path)
+
+        for string_path, value in _iter_strings(workflow):
+            assert not any(fragment in value for fragment in forbidden_fragments), (
+                workflow_path,
+                string_path,
+                value,
+            )
+            assert not any("\ue000" <= char <= "\uf8ff" for char in value), (
+                workflow_path,
+                string_path,
+                value,
+            )
+
+
+def test_omnivoice_all_workflow_uses_intentional_readable_defaults():
+    workflow = _load_ui_workflow(Path("workflows/selfhost/OmniVoice_all.json"))
+
+    assert [group["title"] for group in workflow["groups"]] == [
+        "Voice Clone",
+        "Longform TTS",
+        "Voice Design",
+        "Multi-Speaker TTS",
+    ]
+
+    expected_titles = {
+        14: "OmniVoice Whisper Loader",
+        4: "OmniVoice Voice Design",
+        28: "OmniVoice Voice Clone",
+        24: "OmniVoice Multi-Speaker TTS",
+        12: "OmniVoice Longform TTS",
+        11: "OmniVoice Whisper Loader",
+    }
+    for node_id, expected_title in expected_titles.items():
+        assert _node_by_id(workflow, node_id)["title"] == expected_title
+
+    assert _node_by_id(workflow, 4)["widgets_values"][1:3] == [
+        "Hello! This is a clean OmniVoice voice design test for local ComfyUI.",
+        "female, young, medium pitch, british accent",
+    ]
+    assert _node_by_id(workflow, 28)["widgets_values"][1:3] == [
+        "This is a clean OmniVoice voice clone test for local ComfyUI.",
+        "This reference audio demonstrates the speaker's natural tone.",
+    ]
+    assert _node_by_id(workflow, 12)["widgets_values"][1:3] == [
+        (
+            "This is a longer OmniVoice local test paragraph. "
+            "It checks voice continuity across multiple sentences in ComfyUI."
+        ),
+        "This reference audio demonstrates a calm and natural speaking style.",
+    ]
+    assert _node_by_id(workflow, 24)["widgets_values"][1] == (
+        "[Speaker_1]: Hello, this is speaker one.\n"
+        "[Speaker_2]: Hello, this is speaker two.\n"
+        "[Speaker_1]: The OmniVoice local workflow is ready."
+    )
+    assert _node_by_id(workflow, 24)["widgets_values"][20:22] == [
+        "Speaker one has a clear and warm voice.",
+        "Speaker two has a calm and steady voice.",
+    ]
+
+    note = _node_by_id(workflow, 22)["widgets_values"][0]
+    assert "ModelScope first" in note
+    assert "E:\\ComfyUIData\\models\\omnivoice" in note
+    assert "Auto-Download" not in note
+
+
+def test_omnivoice_bf16_workflow_uses_intentional_readable_defaults():
+    workflow = _load_ui_workflow(Path("workflows/selfhost/OmniVoice_bf16.json"))
+
+    assert [group["title"] for group in workflow["groups"]] == [
+        "OmniVoice BF16 Voice Clone"
+    ]
+
+    clean_prompt = (
+        "Generate a short, natural voice clone sample for the local OmniVoice workflow."
+    )
+    assert _node_by_id(workflow, 6)["widgets_values"][1:3] == [clean_prompt, ""]
+    assert _node_by_id(workflow, 11)["widgets_values"] == [clean_prompt]
+
+
+def test_omnivoice_load_audio_nodes_default_to_none_for_portability():
+    for workflow_path in OMNIVOICE_UI_WORKFLOW_PATHS:
+        workflow = _load_ui_workflow(workflow_path)
+
+        for node in workflow["nodes"]:
+            if node["type"] != "LoadAudio":
+                continue
+
+            assert node["widgets_values"] == ["None", None, None], (
+                workflow_path,
+                node["id"],
+                node["widgets_values"],
+            )
+
+
+def test_omnivoice_dependency_docs_record_modelscope_priority():
+    for workflow_name, doc_path in OMNIVOICE_DEPENDENCY_DOCS.items():
         text = doc_path.read_text(encoding="utf-8")
 
         assert f"workflows/selfhost/{workflow_name}.json" in text
@@ -117,6 +235,22 @@ def test_omnivoice_dependency_docs_record_modelscope_priority():
         assert "E:\\ComfyUIData\\models\\omnivoice" in text
         assert "E:\\ComfyUIData\\custom_nodes" in text
         assert "python -m pytest tests/test_selfhost_workflows.py -k omnivoice -q" in text
+
+
+def test_omnivoice_dependency_docs_record_current_model_install_state():
+    all_doc = OMNIVOICE_DEPENDENCY_DOCS["OmniVoice_all"].read_text(encoding="utf-8")
+    assert "当前默认工作流所需模型已存在" in all_doc
+    assert "OmniVoice-bf16" in all_doc
+    assert "whisper-large-v3" in all_doc
+    assert "可选模型尚未下载" in all_doc
+    assert "OmniVoice（完整精度）" in all_doc
+
+    bf16_doc = OMNIVOICE_DEPENDENCY_DOCS["OmniVoice_bf16"].read_text(encoding="utf-8")
+    assert "当前默认工作流所需模型已存在" in bf16_doc
+    assert "OmniVoice-bf16" in bf16_doc
+    assert "Qwen3-ASR-1.7B" in bf16_doc
+    assert "可选模型尚未下载" in bf16_doc
+    assert "Qwen3-ASR-0.6B" in bf16_doc
 
 
 def test_image_z_image_workflow_is_parseable():

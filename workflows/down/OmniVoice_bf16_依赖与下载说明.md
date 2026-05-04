@@ -19,9 +19,14 @@
 
 ### 3.1 模型文件
 
-- `OmniVoice-bf16`
-- `Qwen3-ASR-1.7B`
-- `whisper-large-v3` 或 `whisper-large-v3-turbo`
+- 当前默认工作流所需模型：
+  - `OmniVoice-bf16`
+  - `Qwen3-ASR-1.7B`
+  - `whisper-large-v3`
+- 可选模型：
+  - `Qwen3-ASR-0.6B`
+  - `whisper-large-v3-turbo`
+  - `OmniVoice（完整精度）`
 
 ### 3.2 自定义节点
 
@@ -133,29 +138,42 @@ E:\ComfyUIData\.venv\Scripts\python.exe -m pip install -r E:\ComfyUIData\custom_
 
 ### 8.4 下载模型
 
-优先用 `ModelScope` 下载能直接获取的资源：
+当前默认工作流所需模型里，`Qwen3-ASR-1.7B` 已验证可直接通过 `ModelScope` 下载：
 
 ```powershell
-modelscope download --model k2-fsa/OmniVoice --local_dir E:\ComfyUIData\models\omnivoice\OmniVoice
 modelscope download --model Qwen/Qwen3-ASR-1.7B --local_dir E:\ComfyUIData\models\Qwen3-ASR\Qwen3-ASR-1.7B
 ```
 
-以下资源因 `ModelScope` 文件接口本次返回 `404`，建议回退：
+以下默认所需资源已先检查 `ModelScope`，但文件接口本次返回 `404`，因此按仓库规则使用回退来源：
 
 ```powershell
 huggingface-cli download drbaph/OmniVoice-bf16 --local-dir E:\ComfyUIData\models\omnivoice\OmniVoice-bf16
 huggingface-cli download openai/whisper-large-v3 --local-dir E:\ComfyUIData\models\audio_encoders\whisper-large-v3
 ```
 
+可选模型尚未下载，只有在你切换工作流默认值或需要额外轻量/完整精度模型时再补充：
+
+```powershell
+modelscope download --model k2-fsa/OmniVoice --local_dir E:\ComfyUIData\models\omnivoice\OmniVoice
+modelscope download --model Qwen/Qwen3-ASR-0.6B --local_dir E:\ComfyUIData\models\Qwen3-ASR\Qwen3-ASR-0.6B
+huggingface-cli download openai/whisper-large-v3-turbo --local-dir E:\ComfyUIData\models\audio_encoders\whisper-large-v3-turbo
+```
+
 ## 9. 当前机器已验证的文件状态
 
-截至 `2026-05-04`，当前机器已存在并验证：
+截至 `2026-05-04`，当前默认工作流所需模型已存在并验证：
 
 - `E:\ComfyUIData\models\omnivoice\OmniVoice-bf16\model.safetensors`：`1225189520`
 - `E:\ComfyUIData\models\omnivoice\OmniVoice-bf16\audio_tokenizer\model.safetensors`：`805665628`
 - `E:\ComfyUIData\models\Qwen3-ASR\Qwen3-ASR-1.7B\model-00001-of-00002.safetensors`：`4220320824`
 - `E:\ComfyUIData\models\Qwen3-ASR\Qwen3-ASR-1.7B\model-00002-of-00002.safetensors`：`478200688`
 - `E:\ComfyUIData\models\audio_encoders\whisper-large-v3\model.safetensors`：`3087130976`
+
+可选模型尚未下载：
+
+- `E:\ComfyUIData\models\Qwen3-ASR\Qwen3-ASR-0.6B`：不存在
+- `E:\ComfyUIData\models\audio_encoders\whisper-large-v3-turbo`：不存在
+- `E:\ComfyUIData\models\omnivoice\OmniVoice`：不存在
 
 ## 10. 验证命令
 
