@@ -374,6 +374,14 @@ class VideoGenerateRequest(BaseModel):
     
     # === Storyboard Planning ===
     world_preset_id: Optional[str] = Field(None, description="Storyboard world preset id")
+    generation_world_hint: Optional[str] = Field(
+        None,
+        max_length=4000,
+        description=(
+            "Per-generation world hint for the current source text. "
+            "Display name remains 世界观提示."
+        ),
+    )
     shot_preset_id: Optional[str] = Field(None, description="Storyboard shot preset id")
     storyboard_prompt_language: StoryboardPromptLanguage = Field(
         "zh_CN",
@@ -422,6 +430,14 @@ class VideoGenerateRequest(BaseModel):
     @classmethod
     def validate_public_resource_ids(cls, value: str | None, info) -> str | None:
         return validate_public_resource_id(info.field_name, value)
+
+    @field_validator("generation_world_hint")
+    @classmethod
+    def normalize_generation_world_hint(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
     @model_validator(mode="after")
     def validate_storyboard_generation_contract(self) -> "VideoGenerateRequest":
