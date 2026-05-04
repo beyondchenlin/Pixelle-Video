@@ -153,7 +153,7 @@ def test_standard_pipeline_does_not_require_index_tts2_internal_split_control_pa
     assert "overflow_policy" not in params
 
 
-def test_standard_pipeline_passes_ref_audio_text_through_without_workflow_rewrite():
+def test_standard_pipeline_passes_reference_audio_text_through_without_workflow_rewrite():
     config = StoryboardConfig(
         media_width=1080,
         media_height=1920,
@@ -171,7 +171,8 @@ def test_standard_pipeline_passes_ref_audio_text_through_without_workflow_rewrit
     )
 
     assert params["ref_audio"] == "temp/ref.wav"
-    assert params["ref_audio_text"] == "hello from the reference clip"
+    assert params["reference_audio_text"] == "hello from the reference clip"
+    assert "ref_audio_text" not in params
     assert "prompt_text" not in params
 
 
@@ -282,3 +283,69 @@ async def test_standard_pipeline_master_concat_uses_boundary_fade(monkeypatch, t
 
     assert concat_calls[-1][1].endswith("master_audio.wav")
     assert concat_calls[-1][2]["fade_ms"] == 12
+
+
+@pytest.mark.asyncio
+async def test_standard_pipeline_master_track_omnivoice_uses_longform_blocks(monkeypatch, tmp_path):
+    class RecordingTts:
+        def __init__(self):
+            self.calls = []
+
+        async def __call__(self, **params):
+            self.calls.append(dict(params))
+            output_path = Path(params["output_path"])
+            output_path.write_bytes(b"audio")
+            return str(output_path)
+
+    core = _FakeCore()
+    core.tts = RecordingTts()
+    pipeline = StandardPipeline(core)
+    config = StoryboardConfig(
+        media_width=1080,
+        media_height=1920,
+        task_id="task-omnivoice-master",
+        tts_inference_mode="comfyui",
+        tts_workflow="selfhost/tts_omnivoice_longform_bf16.json",
+        tts_audio_strategy="master_track",
+        ref_audio="voice.wav",
+        ref_audio_text="大家好，这是参考音频文本。",
+    )
+    ctx = PipelineContext(input_text="demo", params={})
+    ctx.task_id = config.task_id
+    ctx.task_dir = str(tmp_path)
+    ctx.config = config
+    ctx.timing_plan = TimingPlan(
+        blocks=[
+            AudioBlock(
+                id="block-1",
+                text=(
+                    "第一段结束。第二段继续讲解系统设计。第三段补充架构决策。第四段收尾。"
+                )
+                * 330,
+                source_frame_indices=[0],
+            )
+        ]
+    )
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", lambda source, output: output)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", lambda path: 1.0)
+    monkeypatch.setattr(
+        pipeline,
+        "_concat_audio_files",
+        lambda paths, output, **kwargs: None,
+    )
+
+    await pipeline._synthesize_hyperframes_audio(ctx)
+
+    assert len(core.tts.calls) > 1
+    assert all(
+        call["workflow"] == "selfhost/tts_omnivoice_longform_bf16.json"
+        for call in core.tts.calls
+    )
+    assert all(
+        call["reference_audio_text"] == "大家好，这是参考音频文本。"
+        for call in core.tts.calls
+    )
+    assert ctx.observability["tts_segmentation"]["plans"][0]["mode"] == (
+        "omnivoice_master_track_longform"
+    )
