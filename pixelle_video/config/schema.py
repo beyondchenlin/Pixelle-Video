@@ -461,16 +461,16 @@ _BACKEND_PROFILE_NAME_PATTERN = re.compile(r"^[a-z0-9_-]+$")
 class ComfyUIBackendProfile(BaseModel):
     """Single ComfyUI backend profile."""
 
-    url: str = Field(default="", description="ComfyUI backend server URL")
+    url: Optional[str] = Field(default=None, description="ComfyUI backend server URL")
     python_exe: Optional[str] = Field(default=None, description="Python executable for managed ComfyUI")
     comfyui_root: Optional[str] = Field(default=None, description="ComfyUI application root directory")
     frontend_root: Optional[str] = Field(default=None, description="ComfyUI frontend root directory")
     extra_models_config: Optional[str] = Field(default=None, description="Extra model paths configuration file")
     managed: bool = Field(default=True, description="Whether Pixelle manages this backend process")
     restart_after_batch: bool = Field(default=False, description="Restart backend after each workflow batch")
-    data_root: str = Field(default="", description="ComfyUI data root for this profile")
-    runtime_dir: str = Field(default="", description="Runtime directory for this profile")
-    logs_dir: str = Field(default="", description="Log directory for this profile")
+    data_root: Optional[str] = Field(default=None, description="ComfyUI data root for this profile")
+    runtime_dir: Optional[str] = Field(default=None, description="Runtime directory for this profile")
+    logs_dir: Optional[str] = Field(default=None, description="Log directory for this profile")
     database_url: Optional[str] = Field(default=None, description="ComfyUI database URL for this profile")
 
 

@@ -227,8 +227,27 @@ class ConfigManager:
             updates["runninghub_instance_type"] = runninghub_instance_type if runninghub_instance_type else None
         if backends is not None:
             updates["backends"] = backends
+        elif comfyui_url is not None and "default" in self.config.comfyui.backends:
+            default_backend = self.config.comfyui.backends["default"].model_dump()
+            default_backend["url"] = comfyui_url
+            updates["backends"] = {
+                **{
+                    name: profile.model_dump()
+                    for name, profile in self.config.comfyui.backends.items()
+                    if name != "default"
+                },
+                "default": default_backend,
+            }
         if workflow_routing is not None:
             updates["workflow_routing"] = workflow_routing
         
         if updates:
-            self.update({"comfyui": updates})
+            if "backends" in updates:
+                current = self.config.to_dict()
+                comfyui_updates = dict(updates)
+                current_comfyui = dict(current.get("comfyui", {}))
+                current_comfyui.update(comfyui_updates)
+                current["comfyui"] = current_comfyui
+                self.config = PixelleVideoConfig(**current)
+            else:
+                self.update({"comfyui": updates})

@@ -259,3 +259,40 @@ def test_set_comfyui_config_accepts_backends_and_workflow_routing(monkeypatch):
     assert config_manager.config.comfyui.backends["tts"].url == "http://127.0.0.1:8002"
     assert config_manager.config.comfyui.workflow_routing.image == "image"
     assert config_manager.config.comfyui.workflow_routing.tts == "tts"
+
+
+def test_set_comfyui_config_replaces_backends_instead_of_merging(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {
+                        "image": {"url": "http://127.0.0.1:8001"},
+                        "tts": {"url": "http://127.0.0.1:8002"},
+                    },
+                    "workflow_routing": {"image": "image", "tts": "tts"},
+                }
+            }
+        ),
+    )
+
+    config_manager.set_comfyui_config(
+        backends={"image": {"url": "http://127.0.0.1:9001"}},
+        workflow_routing={"image": "image", "tts": "default"},
+    )
+
+    assert set(config_manager.config.comfyui.backends) == {"default", "image"}
+    assert "tts" not in config_manager.config.comfyui.backends
+    assert config_manager.config.comfyui.backends["image"].url == "http://127.0.0.1:9001"
+    assert config_manager.config.comfyui.workflow_routing.tts == "default"
+
+
+def test_set_comfyui_config_updates_default_backend_url_with_legacy_url(monkeypatch):
+    monkeypatch.setattr(config_manager, "config", PixelleVideoConfig())
+
+    config_manager.set_comfyui_config(comfyui_url="http://127.0.0.1:9000")
+
+    assert config_manager.config.comfyui.comfyui_url == "http://127.0.0.1:9000"
+    assert config_manager.config.comfyui.backends["default"].url == "http://127.0.0.1:9000"
