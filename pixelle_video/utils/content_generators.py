@@ -46,6 +46,9 @@ from pixelle_video.models.text_overlay import (
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
 from pixelle_video.services.ip_usage_planner import IPUsagePlanner
+from pixelle_video.services.ip_profile_readiness import (
+    ensure_ip_profile_ready_for_generation,
+)
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
 from pixelle_video.utils.prompt_batching import (
@@ -232,6 +235,28 @@ def _frame_contexts_for_final_prompts(
     if prompt_contexts is None:
         return tuple({} for _ in range(prompt_count))
     return prompt_contexts.frame_contexts
+
+
+def _ip_identity_prompt_terms_from_context(frame_context: Mapping[str, Any]) -> tuple[str, ...]:
+    adaptation = frame_context.get("ip_adaptation")
+    if not isinstance(adaptation, Mapping):
+        return ()
+    return tuple(
+        _normalize_prompt_fragments(
+            [
+                *_read_string_items(adaptation.get("identity_anchors_visible")),
+                *_read_string_items(adaptation.get("identity_color_terms")),
+            ]
+        )
+    )
+
+
+def _read_string_items(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, Sequence):
+        return tuple(item for item in value if isinstance(item, str))
+    return ()
 
 
 def _ip_adaptations_by_frame(
@@ -958,8 +983,8 @@ async def generate_styled_image_prompt_batch(
     ip_prompt_chain_enabled = ip_enabled and media_type == "image"
     if ip_prompt_chain_enabled and storyboard_plan is None:
         raise ValueError("storyboard_plan is required when ip_enabled=True")
-    if ip_prompt_chain_enabled and ip_profile is None:
-        raise ValueError("ip_profile is required when ip_enabled=True")
+    if ip_prompt_chain_enabled:
+        ensure_ip_profile_ready_for_generation(ip_profile)
     text_rendering_settings = build_text_rendering_settings(text_rendering)
     native_hints = dict(native_prompt_hints_by_frame or {})
     resolved_text_policy = build_text_rendering_policy(text_rendering_settings.overlay)
@@ -1318,6 +1343,25 @@ async def generate_styled_image_prompt_batch(
         if ip_prompt_chain_enabled
         else [() for _ in final_prompts]
     )
+    ip_identity_terms_by_frame = (
+        [
+            _ip_identity_prompt_terms_from_context(frame_context)
+            for frame_context in frame_contexts_for_final_prompts
+        ]
+        if ip_prompt_chain_enabled
+        else [() for _ in final_prompts]
+    )
+    final_prompts = [
+        ", ".join(
+            _normalize_prompt_fragments(
+                [
+                    prompt,
+                    *ip_identity_terms_by_frame[index],
+                ]
+            )
+        )
+        for index, prompt in enumerate(final_prompts)
+    ]
     final_prompts = [
         (
             prompt

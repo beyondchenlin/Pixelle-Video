@@ -89,6 +89,9 @@ from pixelle_video.services.ass_text_adapter import AssTextAdapter
 from pixelle_video.services.caption_cue_builder import build_caption_cues_from_sentences
 from pixelle_video.services.frame_timing_allocator import allocate_frame_timing_windows
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
+from pixelle_video.services.ip_profile_readiness import (
+    ensure_ip_profile_ready_for_generation,
+)
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
 from pixelle_video.services.render_capability_resolver import (
     RenderCapabilityInput,
@@ -1835,6 +1838,7 @@ class StandardPipeline(LinearVideoPipeline):
         )
         if ip_profile is None:
             raise ValueError(f"ip profile was not found in asset bible: {ip_profile_id}")
+        ensure_ip_profile_ready_for_generation(ip_profile)
 
         scene_cast_payloads = await repository.list_scene_casts(
             workspace_id,

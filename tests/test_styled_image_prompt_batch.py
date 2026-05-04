@@ -102,6 +102,15 @@ def _ip_profile() -> IPProfile:
     )
 
 
+def _empty_ip_profile() -> IPProfile:
+    return IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="Empty IP",
+    )
+
+
 @pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_accepts_task3_ip_passthrough_kwargs(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
@@ -346,6 +355,19 @@ async def test_generate_styled_image_prompt_batch_appends_no_text_policy_when_ne
 
 
 @pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_rejects_enabled_ip_without_identity_anchors():
+    with pytest.raises(ValueError, match="identity anchors|身份锚点"):
+        await generate_styled_image_prompt_batch(
+            llm_service=object(),
+            narrations=["从长乐门出发。"],
+            image_config={},
+            storyboard_plan=_storyboard_plan(),
+            ip_enabled=True,
+            ip_profile=_empty_ip_profile(),
+        )
+
+
+@pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints_for_z_image(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
         return ["Zhengding gate prompt"]
@@ -561,6 +583,47 @@ async def test_generate_styled_image_prompt_batch_merges_all_z_image_constraints
     assert "Changle Gate" in result.prompts[0]
     assert "only whitelisted text" in result.prompts[0].lower()
     assert result.prompts[0].lower().count("only whitelisted text") == 1
+
+
+@pytest.mark.asyncio
+async def test_z_image_final_prompt_contains_structured_ip_identity_anchors(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["Zhengding gate prompt"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
+        lambda *args, **kwargs: type("Caps", (), {"supports_negative_prompt": False})(),
+    )
+    plan = _storyboard_plan()
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["从长乐门出发，这里是正定古城的入口。"],
+        image_config={},
+        media_service=object(),
+        workflow="selfhost/image_z_image_turbo.json",
+        storyboard_plan=plan,
+        ip_enabled=True,
+        ip_profile=IPProfile(
+            ip_profile_id="ip_main",
+            workspace_id="workspace_1",
+            project_id="project_1",
+            name="正定向导兔",
+            identity_lock=("白色卡通兔子", "长耳朵"),
+            identity_anchors=("蓝色领带",),
+            semantic_boundary=("不能替代历史建筑",),
+            negative_constraints=("避免画成普通人类讲解者",),
+        ),
+    )
+
+    final_prompt = result.prompts[0]
+    assert "白色卡通兔子" in final_prompt
+    assert "蓝色领带" in final_prompt
+    assert "避免画成普通人类讲解者" in final_prompt
 
 
 @pytest.mark.asyncio
