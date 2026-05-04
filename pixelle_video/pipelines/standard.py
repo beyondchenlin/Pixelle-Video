@@ -90,6 +90,7 @@ from pixelle_video.services.caption_cue_builder import build_caption_cues_from_s
 from pixelle_video.services.frame_timing_allocator import allocate_frame_timing_windows
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
+from pixelle_video.services.omnivoice_longform_blocks import build_omnivoice_longform_block_plan
 from pixelle_video.services.render_capability_resolver import (
     RenderCapabilityInput,
     RenderCapabilityResolver,
@@ -107,7 +108,6 @@ from pixelle_video.services.text_rendering_contract_summary import (
 )
 from pixelle_video.services.text_rendering_orchestrator import TextRenderingOrchestrator
 from pixelle_video.services.timing_planner import TimingPlanner
-from pixelle_video.services.omnivoice_longform_blocks import build_omnivoice_longform_block_plan
 from pixelle_video.services.tts_segmentation import build_external_tts_segmentation_plan
 from pixelle_video.services.video import VideoService
 from pixelle_video.tts_audio_strategy import (

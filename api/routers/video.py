@@ -29,9 +29,9 @@ from api.schemas.video import (
     validate_raw_frame_template_orientation,
 )
 from api.tasks import TaskType, task_manager
+from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
 from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.size_contract import GenerationSizeContract
-from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
 from pixelle_video.services.generation_coordinator import build_generation_fingerprint
 from pixelle_video.services.resource_resolver import (
     ResourceIdInvalidError,
