@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 CONTENT_IP_STATE_PREFIX = "content_ip"
 CONTENT_WORLD_HINT_KEY = "content_generation_world_hint"
 CONTENT_WORLD_HINT_SOURCE_KEY = "content_generation_world_hint_source"
+CONTENT_WORLD_HINT_LAST_VALUE_KEY = "content_generation_world_hint_last_value"
 CONTENT_IP_PROFILE_WORLD_HINT_KEY = "content_ip_profile_world_hint"
 
 Translate = Callable[..., str]
@@ -90,6 +91,10 @@ def render_content_ip_world_controls(
             height=96,
             help=translate("content.ip_world.generation_world_hint_help"),
         )
+        _sync_world_hint_manual_source(
+            session_state=session_state,
+            generation_world_hint=generation_world_hint,
+        )
 
         use_default_col, generate_col = ui.columns((1, 1))
         with use_default_col:
@@ -159,6 +164,7 @@ def _use_ip_default_world_hint(
         return
     ui.session_state[CONTENT_WORLD_HINT_KEY] = ip_world_hint
     ui.session_state[CONTENT_WORLD_HINT_SOURCE_KEY] = "ip_default"
+    ui.session_state[CONTENT_WORLD_HINT_LAST_VALUE_KEY] = ip_world_hint
     safe_rerun()
 
 
@@ -177,18 +183,46 @@ def _generate_content_world_hint(
         ui.warning(translate("content.ip_world.missing_content"))
         return
     draft_generator = world_hint_draft_generator or generate_world_hint_draft
-    response = draft_generator(
-        source_text=source_text,
-        title=_first_text((content_context or {}).get("title")) or None,
-        world_preset_id=world_preset_id,
-        storyboard_prompt_language=storyboard_prompt_language,
-        ip_default_world_hint=_first_text(ip_profile_world_hint) or None,
-    )
-    ui.session_state[CONTENT_WORLD_HINT_KEY] = _first_text(
-        response.get("world_hint_draft")
-    )
+    try:
+        response = draft_generator(
+            source_text=source_text,
+            title=_first_text((content_context or {}).get("title")) or None,
+            world_preset_id=world_preset_id,
+            storyboard_prompt_language=storyboard_prompt_language,
+            ip_default_world_hint=_first_text(ip_profile_world_hint) or None,
+        )
+    except Exception:
+        logger.exception("failed to generate content world hint draft")
+        ui.warning(translate("content.ip_world.generate_failed"))
+        return
+    if not isinstance(response, Mapping):
+        ui.warning(translate("content.ip_world.generate_failed"))
+        return
+    world_hint_draft = _first_text(response.get("world_hint_draft"))
+    if not world_hint_draft:
+        ui.warning(translate("content.ip_world.generate_failed"))
+        return
+    ui.session_state[CONTENT_WORLD_HINT_KEY] = world_hint_draft
     ui.session_state[CONTENT_WORLD_HINT_SOURCE_KEY] = "generated_from_script"
+    ui.session_state[CONTENT_WORLD_HINT_LAST_VALUE_KEY] = world_hint_draft
     safe_rerun()
+
+
+def _sync_world_hint_manual_source(
+    *,
+    session_state,
+    generation_world_hint: Any,
+) -> None:
+    current_value = _first_text(generation_world_hint)
+    source = session_state.get(CONTENT_WORLD_HINT_SOURCE_KEY)
+    last_value = session_state.get(CONTENT_WORLD_HINT_LAST_VALUE_KEY)
+    if (
+        source in {"ip_default", "generated_from_script"}
+        and last_value is not None
+        and current_value != _first_text(last_value)
+    ):
+        session_state[CONTENT_WORLD_HINT_SOURCE_KEY] = "manual"
+    session_state[CONTENT_WORLD_HINT_LAST_VALUE_KEY] = current_value
 
 
 def _first_text(*values: Any) -> str:

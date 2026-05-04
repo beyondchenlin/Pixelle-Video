@@ -284,3 +284,96 @@ def test_render_content_ip_world_controls_warns_when_generating_without_script()
 
     assert generator_calls == []
     assert fake_ui.warning_calls == ["content.ip_world.missing_content"]
+
+
+def test_render_content_ip_world_controls_warns_and_preserves_state_when_generator_raises(
+    monkeypatch,
+):
+    fake_ui = _FakeContentIPWorldUI()
+    fake_ui.session_state.update(
+        {
+            "content_generation_world_hint": "Existing world hint.",
+            "content_generation_world_hint_source": "generated_from_script",
+            "_button_returns": {"content_world_hint_generate_from_content": True},
+        }
+    )
+    reruns = []
+    monkeypatch.setattr(content_ip_world_controls, "safe_rerun", lambda: reruns.append("rerun"))
+
+    def _draft_generator(**_payload):
+        raise RuntimeError("boom")
+
+    content_ip_world_controls.render_content_ip_world_controls(
+        ui=fake_ui,
+        translate=_tr,
+        pixelle_video=None,
+        content_context={"title": "Demo title", "text": "Script text"},
+        world_hint_draft_generator=_draft_generator,
+    )
+
+    assert fake_ui.warning_calls == ["content.ip_world.generate_failed"]
+    assert fake_ui.session_state["content_generation_world_hint"] == "Existing world hint."
+    assert fake_ui.session_state["content_generation_world_hint_source"] == "generated_from_script"
+    assert reruns == []
+
+
+def test_render_content_ip_world_controls_warns_without_rerun_for_invalid_generated_world_hint(
+    monkeypatch,
+):
+    scenarios = [
+        "not-a-mapping",
+        {"world_hint_draft": "   "},
+    ]
+
+    for response in scenarios:
+        fake_ui = _FakeContentIPWorldUI()
+        fake_ui.session_state.update(
+            {
+                "content_generation_world_hint": "Existing world hint.",
+                "content_generation_world_hint_source": "ip_default",
+                "_button_returns": {"content_world_hint_generate_from_content": True},
+            }
+        )
+        reruns = []
+        monkeypatch.setattr(
+            content_ip_world_controls, "safe_rerun", lambda: reruns.append("rerun")
+        )
+
+        content_ip_world_controls.render_content_ip_world_controls(
+            ui=fake_ui,
+            translate=_tr,
+            pixelle_video=None,
+            content_context={"title": "Demo title", "text": "Script text"},
+            world_hint_draft_generator=lambda **_payload: response,
+        )
+
+        assert fake_ui.warning_calls == ["content.ip_world.generate_failed"]
+        assert fake_ui.session_state["content_generation_world_hint"] == "Existing world hint."
+        assert fake_ui.session_state["content_generation_world_hint_source"] == "ip_default"
+        assert reruns == []
+
+
+def test_render_content_ip_world_controls_marks_auto_world_hint_as_manual_after_user_edit():
+    fake_ui = _FakeContentIPWorldUI()
+    fake_ui.session_state.update(
+        {
+            "content_generation_world_hint": "Edited world hint.",
+            "content_generation_world_hint_source": "generated_from_script",
+            "content_generation_world_hint_last_value": "Original generated world hint.",
+        }
+    )
+
+    payload = content_ip_world_controls.render_content_ip_world_controls(
+        ui=fake_ui,
+        translate=_tr,
+        pixelle_video=None,
+        content_context={"title": "Demo title", "text": "Script text"},
+        asset_bible_loader=_asset_bibles,
+    )
+
+    assert payload == {
+        "ip_enabled": False,
+        "generation_world_hint": "Edited world hint.",
+    }
+    assert fake_ui.session_state["content_generation_world_hint_source"] == "manual"
+    assert fake_ui.session_state["content_generation_world_hint_last_value"] == "Edited world hint."
