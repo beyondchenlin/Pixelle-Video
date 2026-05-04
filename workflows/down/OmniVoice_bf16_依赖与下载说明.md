@@ -136,7 +136,52 @@ E:\ComfyUIData\.venv\Scripts\python.exe -m pip install -r E:\ComfyUIData\custom_
 E:\ComfyUIData\.venv\Scripts\python.exe -m pip install -r E:\ComfyUIData\custom_nodes\ComfyUI-Qwen3-ASR\requirements.txt
 ```
 
-### 8.4 下载模型
+### 8.4 同步 OmniVoice 与 Qwen3-ASR 的兼容依赖栈
+
+`OmniVoice_bf16.json` 的真实运行链路同时依赖：
+
+- `omnivoice 0.1.5`
+- `qwen-asr 0.0.6`
+- `transformers`
+- `accelerate`
+
+本机在 `2026-05-04` 实际触发过以下报错：
+
+```text
+AttributeError: 'Qwen3ASRConfig' object has no attribute 'thinker_config'
+```
+
+根因不是模型文件损坏。`E:\ComfyUIData\models\Qwen3-ASR\Qwen3-ASR-1.7B\config.json` 中本身就包含 `thinker_config`。真正的问题是：
+
+- 官方 `qwen-asr 0.0.6` 在 PyPI 上声明依赖 `transformers==4.57.6`
+- `omnivoice 0.1.5` 运行时要求 `transformers>=5.3.0`
+- 当环境保持 `transformers 5.x` 以满足 OmniVoice 时，官方 `qwen-asr 0.0.6` 的 `Qwen3ASRConfig` 初始化顺序会在 `super().__init__()` 阶段过早触发 `get_text_config()`，从而访问尚未赋值的 `thinker_config`
+- 当环境回退到 `transformers==4.57.6` 以迎合官方 `qwen-asr 0.0.6` 时，又会破坏 OmniVoice 的依赖契约
+
+因此这里不能用“降级一个包”的方式处理，必须锁定一套已验证兼容的 HF 版本栈和 `qwen-asr` 修复提交。
+
+仓库已提供幂等同步脚本：
+
+```powershell
+.\scripts\comfyui\sync_omnivoice_qwen_asr_compat.ps1
+```
+
+该脚本会执行以下动作：
+
+- 固定 `transformers==5.6.2`
+- 固定 `accelerate==1.13.0`
+- 固定 `huggingface-hub==1.12.0`
+- 从固定提交强制重装兼容 Transformers 5 的 `qwen-asr`，并避免重装过程改动 ComfyUI 的 PyTorch 栈
+- 运行导入验证与 `pip check`
+
+当前锁定的 `qwen-asr` 源为：
+
+- 仓库：`https://github.com/One-sixth/Qwen3-ASR.git`
+- 提交：`94155b4f1b3c76c7f6a492f0378c1c31c93ab93d`
+
+该提交已经把依赖声明调整为 `transformers>=5.3.0`、`accelerate>=1.12.0`，并修复了 `Qwen3ASRConfig` 在 Transformers 5 下的 `thinker_config` 初始化时序问题。
+
+### 8.5 下载模型
 
 当前默认工作流所需模型里，`Qwen3-ASR-1.7B` 已验证可直接通过 `ModelScope` 下载：
 
@@ -175,6 +220,20 @@ huggingface-cli download openai/whisper-large-v3-turbo --local-dir E:\ComfyUIDat
 - `E:\ComfyUIData\models\audio_encoders\whisper-large-v3-turbo`：不存在
 - `E:\ComfyUIData\models\omnivoice\OmniVoice`：不存在
 
+截至 `2026-05-04`，当前机器同时验证了以下运行时状态：
+
+- `transformers==5.6.2`
+- `accelerate==1.13.0`
+- `huggingface-hub==1.12.0`
+- `omnivoice==0.1.5`
+- `torch==2.11.0+cu130`
+- `torchvision==0.26.0+cu130`
+- `torchaudio==2.11.0+cu130`
+- `pip check` 无破损依赖
+- `Qwen3ASRConfig()` 可成功初始化并返回 `Qwen3ASRThinkerConfig`
+
+注意：曾经存在把 `qwen-asr` 装成 editable 并指向仓库临时目录 `_tmp` 的调试状态。该状态不适合作为长期部署方案，因为临时目录一旦删除，运行环境就会失效。正式部署应始终以 `.\scripts\comfyui\sync_omnivoice_qwen_asr_compat.ps1` 的非 editable 安装结果为准。
+
 ## 10. 验证命令
 
 ### 10.1 验证文件存在与大小
@@ -198,13 +257,30 @@ Invoke-RestMethod http://127.0.0.1:8000/object_info |
   Where-Object Name -match 'OmniVoice|Qwen3ASR'
 ```
 
-### 10.3 验证 workflow 结构
+### 10.3 验证兼容依赖栈
+
+```powershell
+.\scripts\comfyui\sync_omnivoice_qwen_asr_compat.ps1
+```
+
+### 10.4 验证 Qwen3-ASR 配置初始化
+
+```powershell
+@'
+from qwen_asr.core.transformers_backend.configuration_qwen3_asr import Qwen3ASRConfig
+cfg = Qwen3ASRConfig()
+print(hasattr(cfg, "thinker_config"))
+print(type(cfg.get_text_config()).__name__)
+'@ | E:\ComfyUIData\.venv\Scripts\python.exe -
+```
+
+### 10.5 验证 workflow 结构
 
 ```powershell
 python -m pytest tests/test_selfhost_workflows.py -k omnivoice -q
 ```
 
-### 10.4 验证后端启动
+### 10.6 验证后端启动
 
 ```powershell
 python -m pytest tests/test_comfyui_backend_scripts.py -q
@@ -224,6 +300,16 @@ python -m pytest tests/test_comfyui_backend_scripts.py -q
 
 因为这个工作流默认允许参考音频文本为空，由 `Qwen3ASRTranscribe` 先生成 `ref_text`，再传给 `OmniVoiceVoiceCloneTTS`。
 
-### 11.3 为什么文档里同时写 `OmniVoice` 和 `OmniVoice-bf16`？
+### 11.3 为什么不能直接把 `transformers` 降回 `4.57.6`？
+
+不能。`transformers==4.57.6` 只满足官方 `qwen-asr 0.0.6` 的声明依赖，不满足 `omnivoice 0.1.5` 的实际运行要求。这样做会把 `Qwen3-ASR` 的问题转移成 OmniVoice 的兼容问题，不是源头修复。
+
+本工作流的正确做法是：
+
+- 保持 `omnivoice 0.1.5` 所需的 `transformers>=5.3.0`
+- 使用已经验证兼容 Transformers 5 的 `qwen-asr` 固定提交
+- 用固定脚本复现安装，不依赖一次性的手工 editable 调试
+
+### 11.4 为什么文档里同时写 `OmniVoice` 和 `OmniVoice-bf16`？
 
 `OmniVoice_bf16.json` 默认用的是 `OmniVoice-bf16`，但插件同时支持完整精度 `OmniVoice`。如果后续切换 widget 默认值，目录结构不需要重做。

@@ -115,6 +115,14 @@ E:\ComfyUIData\.venv\Scripts\python.exe -m pip install -U modelscope
 E:\ComfyUIData\.venv\Scripts\python.exe -m pip install -r E:\ComfyUIData\custom_nodes\ComfyUI-OmniVoice-TTS\requirements.txt
 ```
 
+如果同一套 ComfyUI 运行时还要同时跑 `workflows/selfhost/OmniVoice_bf16.json`，则必须继续执行：
+
+```powershell
+.\scripts\comfyui\sync_omnivoice_qwen_asr_compat.ps1
+```
+
+原因是 `OmniVoice_bf16.json` 额外依赖 `Qwen3-ASR`，而官方 `qwen-asr 0.0.6` 与 `omnivoice 0.1.5` 对 `transformers` 的版本要求存在冲突。该脚本会把共享的 ComfyUI Python 环境锁定到已验证兼容的 HF 版本栈，避免一个工作流能跑、另一个工作流因 `thinker_config` 报错而失效。
+
 ### 8.4 下载模型
 
 当前默认工作流使用 `OmniVoice-bf16` 和 `whisper-large-v3`。这两个资源本次已先检查 `ModelScope`，但文件接口未通过，因此按仓库规则记录为回退来源：

@@ -253,6 +253,18 @@ def test_omnivoice_dependency_docs_record_current_model_install_state():
     assert "Qwen3-ASR-0.6B" in bf16_doc
 
 
+def test_omnivoice_bf16_doc_records_qwen_asr_transformers5_compatibility():
+    bf16_doc = OMNIVOICE_DEPENDENCY_DOCS["OmniVoice_bf16"].read_text(encoding="utf-8")
+
+    assert "AttributeError: 'Qwen3ASRConfig' object has no attribute 'thinker_config'" in bf16_doc
+    assert "qwen-asr 0.0.6" in bf16_doc
+    assert "transformers==4.57.6" in bf16_doc
+    assert "omnivoice 0.1.5" in bf16_doc
+    assert "transformers>=5.3.0" in bf16_doc
+    assert "sync_omnivoice_qwen_asr_compat.ps1" in bf16_doc
+    assert "94155b4f1b3c76c7f6a492f0378c1c31c93ab93d" in bf16_doc
+
+
 def test_image_z_image_workflow_is_parseable():
     metadata = WorkflowParser().parse_workflow_file(
         str(Path("workflows/selfhost/image_z_image.json"))
