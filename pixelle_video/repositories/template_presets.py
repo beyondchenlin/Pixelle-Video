@@ -46,6 +46,14 @@ class TemplatePresetRepository:
                 return preset
         return None
 
+    def delete(self, preset_id: str) -> bool:
+        records = self.list_all()
+        remaining = [preset for preset in records if preset.preset_id != preset_id]
+        if len(remaining) == len(records):
+            return False
+        self._write_all(remaining)
+        return True
+
     def list_all(self, *, source: str | None = None) -> list[TemplatePreset]:
         if not self.index_path.exists():
             return []

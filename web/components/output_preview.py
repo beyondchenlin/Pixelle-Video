@@ -46,6 +46,7 @@ from pixelle_video.services.layered_template_service import (
 )
 from pixelle_video.services.frame_html import HTMLFrameGenerator
 from pixelle_video.services.template_registry import TemplateRegistry
+from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
 from pixelle_video.utils.template_util import get_template_preview_path, resolve_template_path
@@ -551,10 +552,16 @@ def _refresh_layout_preview_frame(video_params, *, spec: LayeredTemplateSpec) ->
 
 
 def _resolve_layout_preview_object_store(video_params):
-    return video_params.get("artifact_object_store") or getattr(
+    configured_store = video_params.get("artifact_object_store") or getattr(
         video_params.get("pixelle_video"),
         "artifact_object_store",
         None,
+    )
+    if configured_store is not None:
+        return configured_store
+    return FilesystemDevArtifactObjectStore(
+        root=video_params.get("artifact_base_path", "output"),
+        base_url=video_params.get("artifact_base_url", "/api/files"),
     )
 
 
@@ -707,6 +714,22 @@ def _render_layout_preview_workbench_section(video_params, *, key_suffix: str = 
         try:
             _save_layout_preview_template(video_params, spec=spec)
             st.success("已保存到我的模板")
+        except Exception as exc:
+            st.error(str(exc))
+        return
+    if action == "delete_recent_preset":
+        preset_id = selected.get("preset_id") if selected else None
+        if not preset_id:
+            return
+        try:
+            deleted = TemplateRegistry().delete_recent(str(preset_id))
+            if deleted:
+                st.success("已删除最近模板")
+            else:
+                st.success("最近模板已不存在")
+            rerun = getattr(st, "rerun", None)
+            if callable(rerun):
+                rerun()
         except Exception as exc:
             st.error(str(exc))
         return

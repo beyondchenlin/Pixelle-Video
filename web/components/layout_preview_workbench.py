@@ -79,6 +79,8 @@ _NO_PREVIEW_HTML = (
 )
 _REFRESH_PREVIEW_FRAME = "\u5237\u65b0\u771f\u5b9e\u9884\u89c8\u5e27"
 _SAVE_MY_TEMPLATE = "\u4fdd\u5b58\u4e3a\u6211\u7684\u6a21\u677f"
+_DELETE_RECENT_PRESET = "\u5220\u9664"
+_DELETE_RECENT_HELP = "\u4ece\u6700\u8fd1\u6a21\u677f\u5feb\u6377\u4e2d\u79fb\u9664\u8fd9\u4e2a\u6a21\u677f\u3002"
 
 
 def render_layout_preview_workbench(
@@ -140,11 +142,13 @@ def render_layout_preview_workbench(
                 ),
                 unsafe_allow_html=True,
             )
-        _render_recent_presets(
+        recent_action = _render_recent_presets(
             ui=ui,
             presets=presets,
             key_suffix=key_suffix,
         )
+        if selected_action is None:
+            selected_action = recent_action
         if selected_preset is None:
             selected_preset = _consume_pending_selection(ui=ui, presets=presets)
             if selected_preset is not None and on_preset_selected is not None:
@@ -257,11 +261,12 @@ def _render_recent_presets(
     ui,
     presets: list[dict[str, Any]],
     key_suffix: str,
-) -> None:
+) -> PresetSelection | None:
     if not presets:
         _caption(ui, _NO_RECENT)
-        return
+        return None
 
+    selected_action: PresetSelection | None = None
     with ui.container(key=_workbench_row_key("recent_presets", key_suffix=key_suffix)):
         ui.markdown(
             f"""
@@ -283,6 +288,16 @@ def _render_recent_presets(
                     width="content",
                 ):
                     ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
+                if ui.button(
+                    _DELETE_RECENT_PRESET,
+                    key=_recent_preset_delete_button_key(preset_id, key_suffix=key_suffix),
+                    help=_DELETE_RECENT_HELP,
+                    width="content",
+                ):
+                    selected_action = {
+                        "action": "delete_recent_preset",
+                        "preset_id": preset_id,
+                    }
             else:
                 with columns[index]:
                     if ui.button(
@@ -292,6 +307,17 @@ def _render_recent_presets(
                         width="content",
                     ):
                         ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
+                    if ui.button(
+                        _DELETE_RECENT_PRESET,
+                        key=_recent_preset_delete_button_key(preset_id, key_suffix=key_suffix),
+                        help=_DELETE_RECENT_HELP,
+                        width="content",
+                    ):
+                        selected_action = {
+                            "action": "delete_recent_preset",
+                            "preset_id": preset_id,
+                        }
+    return selected_action
 
 
 def _build_workbench_css() -> str:
@@ -1057,6 +1083,11 @@ def _normalize_recent_timestamp(value: Any) -> datetime | None:
 def _recent_preset_button_key(preset_id: str, *, key_suffix: str) -> str:
     digest = hashlib.sha1(str(preset_id).encode("utf-8")).hexdigest()[:12]
     return f"layout_preview_recent_preset_{digest}{key_suffix}"
+
+
+def _recent_preset_delete_button_key(preset_id: str, *, key_suffix: str) -> str:
+    digest = hashlib.sha1(str(preset_id).encode("utf-8")).hexdigest()[:12]
+    return f"layout_preview_delete_recent_preset_{digest}{key_suffix}"
 
 
 def _action_button_key(action: str, *, key_suffix: str) -> str:

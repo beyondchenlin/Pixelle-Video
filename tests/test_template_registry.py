@@ -127,3 +127,31 @@ def test_registry_mark_used_persists_system_preset_for_recent(tmp_path: Path, mo
     assert [preset.preset_id for preset in recent] == [system_preset.preset_id]
     assert recent[0].source == "system"
     assert recent[0].last_used_at == "2026-05-02T09:30:00Z"
+
+
+def test_registry_delete_recent_removes_persisted_recent_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+):
+    system_preset = TemplatePreset(
+        preset_id="system:1080x1920/image_default.html",
+        name="image_default.html",
+        source="system",
+        orientation="portrait",
+        template_type="image",
+        spec=_demo_spec(),
+        editable=False,
+    )
+    repo = TemplatePresetRepository(root=tmp_path)
+    registry = TemplateRegistry(repository=repo)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.template_registry.build_system_template_presets",
+        lambda: [system_preset],
+    )
+
+    registry.mark_used(system_preset.preset_id, "2026-05-02T09:30:00Z")
+
+    assert registry.delete_recent(system_preset.preset_id) is True
+    assert registry.list_recent() == []
+    assert registry.delete_recent(system_preset.preset_id) is False

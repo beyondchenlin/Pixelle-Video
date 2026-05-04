@@ -53,6 +53,14 @@ def _recent_buttons(fake_ui: _FakeUI) -> list[dict[str, Any]]:
     ]
 
 
+def _recent_delete_buttons(fake_ui: _FakeUI) -> list[dict[str, Any]]:
+    return [
+        button
+        for button in fake_ui.buttons
+        if button["key"].startswith("layout_preview_delete_recent_preset_")
+    ]
+
+
 def _spec_payload() -> dict[str, Any]:
     return {
         "version": "layered_template.v1",
@@ -175,6 +183,83 @@ def test_render_layout_preview_workbench_uses_compact_generic_recent_preset_butt
     assert "user:long_recent_template" not in rendered
     assert [button["label"] for button in recent_buttons] == ["\u6a21\u677f\u4e00"]
     assert "Template With A Very Long Name" in recent_buttons[0]["help"]
+
+
+def test_render_layout_preview_workbench_renders_delete_button_for_each_recent_preset(
+    monkeypatch,
+):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {
+                "preset_id": "preset_a",
+                "template_name": "Template A",
+                "last_used_at": "2026-05-02T10:00:00",
+                "spec": _spec_payload(),
+            },
+            {
+                "preset_id": "preset_b",
+                "template_name": "Template B",
+                "last_used_at": "2026-05-02T11:00:00",
+                "spec": _spec_payload(),
+            },
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        ui=fake_ui,
+    )
+
+    assert [button["label"] for button in _recent_buttons(fake_ui)] == [
+        "\u6a21\u677f\u4e00",
+        "\u6a21\u677f\u4e8c",
+    ]
+    assert [button["label"] for button in _recent_delete_buttons(fake_ui)] == [
+        "\u5220\u9664",
+        "\u5220\u9664",
+    ]
+
+
+def test_render_layout_preview_workbench_returns_delete_recent_preset_action(
+    monkeypatch,
+):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state[
+        layout_preview_workbench._recent_preset_delete_button_key("preset_b", key_suffix="")
+    ] = True
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    selected = layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {
+                "preset_id": "preset_a",
+                "template_name": "Template A",
+                "last_used_at": "2026-05-02T10:00:00",
+                "spec": _spec_payload(),
+            },
+            {
+                "preset_id": "preset_b",
+                "template_name": "Template B",
+                "last_used_at": "2026-05-02T11:00:00",
+                "spec": _spec_payload(),
+            },
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        ui=fake_ui,
+    )
+
+    assert selected == {
+        "action": "delete_recent_preset",
+        "preset_id": "preset_b",
+    }
 
 
 def test_render_layout_preview_workbench_sorts_recent_presets_by_datetime(monkeypatch):

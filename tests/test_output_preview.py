@@ -2275,6 +2275,73 @@ def test_render_layout_preview_workbench_section_refreshes_real_preview_frame(mo
     }
 
 
+def test_render_layout_preview_workbench_section_refresh_uses_local_object_store_by_default(
+    monkeypatch,
+    tmp_path,
+):
+    spec_payload = _layered_template_spec_payload(
+        template_id="user:portrait_news",
+        metadata={"source_kind": "user"},
+    )
+    captured = {"store": None, "request": None}
+
+    class _FakeLocalObjectStore:
+        def __init__(self, *, root, base_url):
+            self.root = Path(root)
+            self.base_url = base_url
+
+    class _FakeLayeredTemplateService:
+        def __init__(self, *, object_store=None):
+            captured["store"] = object_store
+
+        async def render_preview_frame(self, request):
+            captured["request"] = request
+            return SimpleNamespace(
+                storage_key="artifacts/workspace_demo/preview.png",
+                url="/api/files/artifacts/workspace_demo/preview.png",
+                fingerprint="preview-fingerprint",
+            )
+
+    monkeypatch.setattr(output_preview, "FilesystemDevArtifactObjectStore", _FakeLocalObjectStore)
+    monkeypatch.setattr(output_preview, "LayeredTemplateService", _FakeLayeredTemplateService)
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        lambda **_kwargs: {"action": "refresh_preview_frame"},
+    )
+    monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
+    monkeypatch.setattr(output_preview, "run_async", lambda awaitable: asyncio.run(awaitable))
+    monkeypatch.setattr(
+        output_preview,
+        "st",
+        SimpleNamespace(
+            session_state={},
+            rerun=lambda: None,
+            success=lambda *_args, **_kwargs: None,
+            error=lambda message: (_ for _ in ()).throw(AssertionError(message)),
+        ),
+    )
+
+    output_preview._render_layout_preview_workbench_section(
+        {
+            "layered_template_spec": spec_payload,
+            "workspace_id": "workspace_demo",
+            "artifact_base_path": str(tmp_path / "output"),
+            "artifact_base_url": "/api/files",
+        }
+    )
+
+    assert isinstance(captured["store"], _FakeLocalObjectStore)
+    assert captured["store"].root == tmp_path / "output"
+    assert captured["store"].base_url == "/api/files"
+    assert captured["request"].workspace_id == "workspace_demo"
+    assert output_preview.st.session_state["layout_preview_real_preview_frame"] == {
+        "storage_key": "artifacts/workspace_demo/preview.png",
+        "url": "/api/files/artifacts/workspace_demo/preview.png",
+        "fingerprint": "preview-fingerprint",
+    }
+
+
 def test_render_layout_preview_workbench_section_passes_real_preview_frame_to_workbench(
     monkeypatch,
 ):
@@ -2323,6 +2390,51 @@ def test_render_layout_preview_workbench_section_passes_real_preview_frame_to_wo
         "url": "/api/files/artifacts/workspace_demo/layout-preview.png",
         "fingerprint": "preview-fingerprint",
     }
+
+
+def test_render_layout_preview_workbench_section_deletes_recent_preset(monkeypatch):
+    spec_payload = _layered_template_spec_payload()
+    captured = {"deleted": [], "rerun": 0, "success": []}
+
+    class _FakeRegistry:
+        def list_recent(self, *, limit=5):
+            return []
+
+        def delete_recent(self, preset_id):
+            captured["deleted"].append(preset_id)
+            return True
+
+    monkeypatch.setattr(output_preview, "TemplateRegistry", _FakeRegistry, raising=False)
+    monkeypatch.setattr(
+        output_preview,
+        "render_layout_preview_workbench",
+        lambda **_kwargs: {
+            "action": "delete_recent_preset",
+            "preset_id": "user:template_one",
+        },
+    )
+    monkeypatch.setattr(output_preview, "_build_layout_preview_html", lambda _params: None)
+    monkeypatch.setattr(
+        output_preview,
+        "st",
+        SimpleNamespace(
+            session_state={},
+            rerun=lambda: captured.__setitem__("rerun", captured["rerun"] + 1),
+            success=lambda message, **_kwargs: captured["success"].append(message),
+            error=lambda message: (_ for _ in ()).throw(AssertionError(message)),
+        ),
+    )
+
+    output_preview._render_layout_preview_workbench_section(
+        {
+            "layered_template_spec": spec_payload,
+            "workspace_id": "workspace_demo",
+        }
+    )
+
+    assert captured["deleted"] == ["user:template_one"]
+    assert captured["success"] == ["已删除最近模板"]
+    assert captured["rerun"] == 1
 
 
 def test_render_layout_preview_workbench_section_does_not_save_template_when_thumbnail_generation_fails(

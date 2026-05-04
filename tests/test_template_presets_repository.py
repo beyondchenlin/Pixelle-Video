@@ -85,6 +85,39 @@ def test_repository_saves_loads_and_touches_last_used(tmp_path: Path):
     assert (tmp_path / "presets.json").exists()
 
 
+def test_repository_delete_removes_preset_without_affecting_others(tmp_path: Path):
+    repo = TemplatePresetRepository(root=tmp_path)
+    first = TemplatePreset(
+        preset_id="user-first",
+        name="First",
+        source="user",
+        orientation="portrait",
+        template_type="image",
+        spec=_demo_spec(),
+        thumbnail_ref=_thumbnail_key(repo, tmp_path, "user-first"),
+    )
+    second = TemplatePreset(
+        preset_id="user-second",
+        name="Second",
+        source="user",
+        orientation="portrait",
+        template_type="image",
+        spec=LayeredTemplateSpec.from_dict(
+            {**_demo_spec().to_dict(), "template_id": "preset-second", "template_name": "Second"}
+        ),
+        thumbnail_ref=_thumbnail_key(repo, tmp_path, "user-second"),
+    )
+
+    repo.save(first)
+    repo.save(second)
+
+    assert repo.delete("user-first") is True
+    assert repo.delete("user-missing") is False
+    assert repo.get("user-first") is None
+    assert repo.get("user-second") is not None
+    assert [preset.preset_id for preset in repo.list_all()] == ["user-second"]
+
+
 def test_repository_rejects_asset_layers_without_repository_keys(tmp_path: Path):
     repo = TemplatePresetRepository(root=tmp_path)
     preset = TemplatePreset(

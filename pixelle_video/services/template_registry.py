@@ -94,3 +94,6 @@ class TemplateRegistry:
             replace(system_preset, last_used_at=timestamp),
             timestamp,
         )
+
+    def delete_recent(self, preset_id: str) -> bool:
+        return self.repository.delete(preset_id)
