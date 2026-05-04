@@ -318,6 +318,110 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
     assert fake_ui.successes == ["ip_design.asset_bible.saved"]
 
 
+def test_ip_design_workbench_preserves_sibling_ip_profiles_when_saving():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state.update(
+        {
+            "ip_design_asset_bible_id": "bible_demo",
+            "ip_design_ip_profile_id": "ip_main",
+            "ip_design_ip_name": "Updated Main",
+            "ip_design_identity_lock": "updated main rabbit",
+            "ip_design_identity_anchors": "updated main bow",
+            "ip_design_save_asset_bible": True,
+        }
+    )
+    client = _FakeIPDesignClient(
+        asset_bibles=[
+            _asset_bible(
+                ip_profiles=[
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "Main IP",
+                        "identity_lock": ["main rabbit"],
+                        "identity_anchors": ["main bow"],
+                    },
+                    {
+                        "ip_profile_id": "ip_side",
+                        "name": "Side IP",
+                        "identity_lock": ["side rabbit"],
+                        "identity_anchors": ["side badge"],
+                    },
+                ]
+            )
+        ]
+    )
+
+    render_ip_design_workbench(
+        ip_design_client=client,
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert client.calls[-1]["payload"]["ip_profiles"] == [
+        {
+            "ip_profile_id": "ip_main",
+            "name": "Updated Main",
+            "identity_lock": ["updated main rabbit"],
+            "identity_anchors": ["updated main bow"],
+        },
+        {
+            "ip_profile_id": "ip_side",
+            "name": "Side IP",
+            "identity_lock": ["side rabbit"],
+            "identity_anchors": ["side badge"],
+        },
+    ]
+
+
+def test_ip_design_workbench_reads_profile_matching_session_ip_profile_id():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state.update(
+        {
+            "ip_design_asset_bible_select": "bible_demo",
+            "ip_design_ip_profile_id": "ip_side",
+        }
+    )
+    client = _FakeIPDesignClient(
+        asset_bibles=[
+            _asset_bible(
+                ip_profiles=[
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "Main IP",
+                        "logline": "Main logline",
+                        "identity_lock": ["main rabbit"],
+                        "identity_anchors": ["main bow"],
+                    },
+                    {
+                        "ip_profile_id": "ip_side",
+                        "name": "Side IP",
+                        "logline": "Side logline",
+                        "identity_lock": ["side rabbit"],
+                        "identity_anchors": ["side badge"],
+                    },
+                ]
+            )
+        ]
+    )
+
+    render_ip_design_workbench(
+        ip_design_client=client,
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    by_key = {item["key"]: item for item in fake_ui.text_inputs}
+    by_area_key = {item["key"]: item for item in fake_ui.text_areas}
+    assert by_key["ip_design_ip_name"]["value"] == "Side IP"
+    assert by_area_key["ip_design_logline"]["value"] == "Side logline"
+    assert by_key["ip_design_identity_lock"]["value"] == "side rabbit"
+    assert by_key["ip_design_identity_anchors"]["value"] == "side badge"
+
+
 def test_ip_design_workbench_marks_ip_without_identity_anchors_unavailable():
     from web.components.ip_design_workbench import render_ip_design_workbench
 

@@ -11,6 +11,10 @@ from pixelle_video.platform_context import (
     first_explicit_text,
 )
 from web.i18n import tr
+from web.utils.asset_bible_api import (
+    build_asset_bible_draft_payload_from_response,
+    upsert_ip_profile_draft,
+)
 
 Translate = Callable[..., str]
 
@@ -95,7 +99,6 @@ def _render_asset_bible_section(
             selected_asset_bible = {}
             ui.caption(translate("ip_design.asset_bible.empty"))
 
-        ip_profile = _first_dict(selected_asset_bible.get("ip_profiles"))
         asset_bible_id = _text_input(
             ui,
             translate("ip_design.asset_bible.id"),
@@ -106,8 +109,9 @@ def _render_asset_bible_section(
             ui,
             translate("ip_design.asset_bible.ip_profile_id"),
             key="ip_design_ip_profile_id",
-            value=_first_text(ip_profile.get("ip_profile_id"), "ip_main"),
+            value=_first_ip_profile_id(selected_asset_bible) or "ip_main",
         )
+        ip_profile = _find_ip_profile(selected_asset_bible, ip_profile_id)
         ip_name = _text_input(
             ui,
             translate("ip_design.asset_bible.ip_name"),
@@ -187,35 +191,27 @@ def _render_asset_bible_section(
             key="ip_design_save_asset_bible",
         ):
             is_existing_asset = asset_bible_id == selected_id
-            source_asset_bible = selected_asset_bible if is_existing_asset else {}
-            payload = {
-                "ip_profiles": [
-                    {
-                        "ip_profile_id": ip_profile_id,
-                        "name": ip_name,
-                        "logline": logline,
-                        "world_hint": world_hint,
-                        "style_hint": style_hint,
-                        "identity_lock": _split_csv(identity_lock),
-                        "identity_anchors": _split_csv(identity_anchors),
-                        "identity_suppression_rules": _split_csv(identity_suppression_rules),
-                        "variable_slots": _split_csv(variable_slots),
-                        "semantic_boundary": _split_csv(semantic_boundary),
-                        "negative_constraints": _split_csv(negative_constraints),
-                        "visible_text_whitelist": _split_csv(visible_text_whitelist),
-                    }
-                ],
-                "character_profiles": _list_of_dicts(
-                    source_asset_bible.get("character_profiles")
-                ),
-                "scene_assets": _list_of_dicts(source_asset_bible.get("scene_assets")),
-                "prop_assets": _list_of_dicts(source_asset_bible.get("prop_assets")),
-                "style_profiles": _list_of_dicts(source_asset_bible.get("style_profiles")),
-            }
             if not _has_text(asset_bible_id, ip_profile_id, ip_name):
                 ui.error(translate("ip_design.asset_bible.missing_required"))
             else:
                 try:
+                    payload = _build_asset_bible_save_payload(
+                        source_asset_bible=selected_asset_bible if is_existing_asset else {},
+                        ip_profile={
+                            "ip_profile_id": ip_profile_id,
+                            "name": ip_name,
+                            "logline": logline,
+                            "world_hint": world_hint,
+                            "style_hint": style_hint,
+                            "identity_lock": _split_csv(identity_lock),
+                            "identity_anchors": _split_csv(identity_anchors),
+                            "identity_suppression_rules": _split_csv(identity_suppression_rules),
+                            "variable_slots": _split_csv(variable_slots),
+                            "semantic_boundary": _split_csv(semantic_boundary),
+                            "negative_constraints": _split_csv(negative_constraints),
+                            "visible_text_whitelist": _split_csv(visible_text_whitelist),
+                        },
+                    )
                     ip_design_client.save_asset_bible(
                         workspace_id=workspace_id,
                         project_id=project_id,
@@ -418,6 +414,42 @@ def _format_scene_cast_option(scene_cast: Mapping[str, Any]) -> str:
 
 def _first_ip_name(asset_bible: Mapping[str, Any]) -> str:
     return _first_text(_first_dict(asset_bible.get("ip_profiles")).get("name"))
+
+
+def _first_ip_profile_id(asset_bible: Mapping[str, Any]) -> str:
+    return _first_text(_first_dict(asset_bible.get("ip_profiles")).get("ip_profile_id"))
+
+
+def _find_ip_profile(asset_bible: Mapping[str, Any], ip_profile_id: str) -> dict[str, Any]:
+    profiles = _list_of_dicts(asset_bible.get("ip_profiles"))
+    for profile in profiles:
+        if _first_text(profile.get("ip_profile_id")) == _first_text(ip_profile_id):
+            return profile
+    return profiles[0] if profiles else {}
+
+
+def _build_asset_bible_save_payload(
+    *,
+    source_asset_bible: Mapping[str, Any],
+    ip_profile: dict[str, Any],
+) -> dict[str, Any]:
+    if source_asset_bible:
+        payload = build_asset_bible_draft_payload_from_response(dict(source_asset_bible))
+        return upsert_ip_profile_draft(payload, ip_profile)
+    normalized = build_asset_bible_draft_payload_from_response(
+        {
+            "ip_profiles": [ip_profile],
+            "character_profiles": [],
+            "scene_assets": [],
+            "prop_assets": [],
+            "style_profiles": [],
+        }
+    )
+    normalized.setdefault("character_profiles", [])
+    normalized.setdefault("scene_assets", [])
+    normalized.setdefault("prop_assets", [])
+    normalized.setdefault("style_profiles", [])
+    return normalized
 
 
 def _ip_profile_ready_for_generation(ip_profile: Mapping[str, Any]) -> bool:
