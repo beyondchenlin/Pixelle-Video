@@ -226,10 +226,13 @@ class TTSService(ComfyBaseService):
         
         # 1. Build workflow parameters (ComfyKit config is now managed by core)
         workflow_params = {"text": text}
-        ref_audio_text = params.pop("ref_audio_text", None)
+        ref_audio_text = params.pop("reference_audio_text", None)
+        if ref_audio_text is None:
+            ref_audio_text = params.pop("ref_audio_text", None)
         if ref_audio_text is None:
             ref_audio_text = params.pop("prompt_text", None)
         else:
+            params.pop("ref_audio_text", None)
             params.pop("prompt_text", None)
         
         # Add optional TTS parameters (only if explicitly provided and not None)

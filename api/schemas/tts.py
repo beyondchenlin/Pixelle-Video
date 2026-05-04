@@ -40,6 +40,14 @@ class TTSSynthesizeRequest(BaseModel):
         None, 
         description="Reference audio path for voice cloning (optional). Can be a local file path or URL."
     )
+    duration: Optional[float] = Field(
+        None,
+        description="Target duration in seconds for workflows that expose a duration parameter.",
+    )
+    reference_audio_text: Optional[str] = Field(
+        None,
+        description="Transcript of the reference audio for voice-clone workflows.",
+    )
     voice_id: Optional[str] = Field(
         None, 
         description="Voice ID (deprecated, use workflow instead)"

@@ -2,6 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from api.routers import tts as tts_router
+from api.schemas.tts import TTSSynthesizeRequest
 from pixelle_video.services.tts_service import TTSService
 from pixelle_video.tts_workflow_family import (
     infer_tts_workflow_family,
@@ -43,6 +45,15 @@ class _FailingCore:
 
     async def _get_or_create_comfykit(self):
         return self.kit
+
+
+class _RecordingTtsCore:
+    def __init__(self):
+        self.calls = []
+
+    async def tts(self, **params):
+        self.calls.append(dict(params))
+        return "generated.wav"
 
 
 def test_resolve_workflow_output_audio_extension_from_save_audio_nodes():
@@ -261,6 +272,98 @@ async def test_tts_service_accepts_opus_audio_from_outputs(tmp_path):
     )
 
     assert returned_path == str(source_path)
+
+
+@pytest.mark.asyncio
+async def test_tts_router_forwards_omnivoice_duration_and_reference_text(monkeypatch):
+    core = _RecordingTtsCore()
+    monkeypatch.setattr(tts_router, "get_audio_duration", lambda _path: 8.0)
+
+    response = await tts_router.tts_synthesize(
+        TTSSynthesizeRequest(
+            text="short line",
+            workflow="selfhost/tts_omnivoice_clone_duration_bf16.json",
+            ref_audio="ref.wav",
+            reference_audio_text="reference transcript",
+            duration=8.0,
+        ),
+        core,
+    )
+
+    assert response.audio_path == "generated.wav"
+    assert core.calls == [
+        {
+            "text": "short line",
+            "workflow": "selfhost/tts_omnivoice_clone_duration_bf16.json",
+            "ref_audio": "ref.wav",
+            "reference_audio_text": "reference transcript",
+            "duration": 8.0,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tts_service_passes_omnivoice_duration_to_workflow(monkeypatch):
+    captured = {}
+
+    async def fake_execute(workflow_input, workflow_params, workflow_info):
+        captured["workflow_input"] = workflow_input
+        captured["workflow_params"] = dict(workflow_params)
+        return SimpleNamespace(status="completed", audios=["output.flac"], files=[], outputs={})
+
+    service = TTSService({"comfyui": {"tts": {}}})
+    monkeypatch.setattr(service, "_execute_workflow", fake_execute)
+    monkeypatch.setattr(
+        service,
+        "_resolve_workflow",
+        lambda workflow=None: {
+            "key": "selfhost/tts_omnivoice_clone_duration_bf16.json",
+            "path": "workflows/selfhost/tts_omnivoice_clone_duration_bf16.json",
+            "source": "selfhost",
+        },
+    )
+
+    await service(
+        text="short line",
+        workflow="selfhost/tts_omnivoice_clone_duration_bf16.json",
+        ref_audio="ref.wav",
+        ref_audio_text="legacy transcript",
+        prompt_text="prompt transcript",
+        reference_audio_text="reference transcript",
+        duration=8.0,
+    )
+
+    assert captured["workflow_params"]["duration"] == 8.0
+    assert captured["workflow_params"]["reference_audio_text"] == "reference transcript"
+    assert "ref_audio_text" not in captured["workflow_params"]
+    assert "prompt_text" not in captured["workflow_params"]
+
+
+@pytest.mark.asyncio
+async def test_tts_service_maps_reference_audio_text_to_prompt_text_workflows(monkeypatch):
+    captured = {}
+
+    async def fake_execute(workflow_input, workflow_params, workflow_info):
+        captured["workflow_params"] = dict(workflow_params)
+        return SimpleNamespace(status="completed", audios=["output.flac"], files=[], outputs={})
+
+    service = TTSService({"comfyui": {"tts": {}}})
+    monkeypatch.setattr(service, "_execute_workflow", fake_execute)
+    monkeypatch.setattr(service, "_get_workflow_param_names", lambda _workflow_info: {"text", "prompt_text"})
+    monkeypatch.setattr(service, "_validate_required_workflow_params", lambda *_args: None)
+
+    await service._call_comfyui_workflow(
+        {
+            "key": "selfhost/custom_prompt_text.json",
+            "path": "workflows/selfhost/custom_prompt_text.json",
+            "source": "selfhost",
+        },
+        text="short line",
+        reference_audio_text="reference transcript",
+    )
+
+    assert captured["workflow_params"]["prompt_text"] == "reference transcript"
+    assert "reference_audio_text" not in captured["workflow_params"]
 
 
 @pytest.mark.asyncio
