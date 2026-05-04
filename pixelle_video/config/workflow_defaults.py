@@ -3,6 +3,14 @@ from __future__ import annotations
 from typing import Mapping, Optional, Sequence
 
 DEFAULT_TTS_WORKFLOW = "selfhost/tts_omnivoice_longform_bf16.json"
+LEGACY_DEFAULT_TTS_WORKFLOWS = frozenset(
+    {
+        "selfhost/tts_index2.json",
+        "selfhost/tts_index2_8g.json",
+        "tts_index2.json",
+        "tts_index2_8g.json",
+    }
+)
 
 BUILTIN_DEFAULT_WORKFLOWS = {
     "image": "selfhost/image_z_image_turbo_gguf.json",
@@ -22,6 +30,17 @@ def normalize_workflow_key(value: Optional[str]) -> Optional[str]:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def is_legacy_default_tts_workflow(value: object) -> bool:
+    normalized = normalize_workflow_key(value if isinstance(value, str) else None)
+    return normalized in LEGACY_DEFAULT_TTS_WORKFLOWS
+
+
+def upgrade_legacy_default_tts_workflow(value: object) -> object:
+    if is_legacy_default_tts_workflow(value):
+        return DEFAULT_TTS_WORKFLOW
+    return value
 
 
 def get_configured_default_workflow(

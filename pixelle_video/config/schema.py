@@ -30,7 +30,10 @@ from pixelle_video.config.storyboard_preset_library import (
     build_builtin_world_preset_library_dict,
 )
 from pixelle_video.config.tts_defaults import DEFAULT_TTS_INFERENCE_MODE
-from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
+from pixelle_video.config.workflow_defaults import (
+    DEFAULT_TTS_WORKFLOW,
+    upgrade_legacy_default_tts_workflow,
+)
 from pixelle_video.models.storyboard_limits import (
     DEFAULT_STORYBOARD_GENERATION_LIMITS,
     DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MAX,
@@ -637,6 +640,7 @@ class LoggingConfig(BaseModel):
 
 class PixelleVideoConfig(BaseModel):
     """Pixelle-Video main configuration"""
+    config_version: int = Field(default=2, ge=1, description="Runtime configuration schema version")
     project_name: str = Field(default="Pixelle-Video", description="Project name")
     llm: LLMConfig = Field(default_factory=LLMConfig)
     comfyui: ComfyUIConfig = Field(default_factory=ComfyUIConfig)
@@ -644,6 +648,56 @@ class PixelleVideoConfig(BaseModel):
     render: RenderConfig = Field(default_factory=RenderConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     storyboard: StoryboardSubConfig = Field(default_factory=StoryboardSubConfig, description="Storyboard planning configuration")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_omnivoice_defaults(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+
+        config_version = int(data.get("config_version") or 1)
+        migrated = dict(data)
+
+        if config_version >= 2:
+            migrated["config_version"] = config_version
+            return migrated
+
+        comfyui_config = migrated.get("comfyui")
+        if isinstance(comfyui_config, dict):
+            migrated_comfyui = dict(comfyui_config)
+            tts_config = migrated_comfyui.get("tts")
+            if isinstance(tts_config, dict):
+                migrated_tts = dict(tts_config)
+                comfyui_tts = migrated_tts.get("comfyui")
+                if isinstance(comfyui_tts, dict):
+                    migrated_nested_tts = dict(comfyui_tts)
+                    default_workflow = migrated_nested_tts.get("default_workflow")
+                    upgraded_workflow = upgrade_legacy_default_tts_workflow(default_workflow)
+                    if upgraded_workflow != default_workflow:
+                        migrated_nested_tts["default_workflow"] = upgraded_workflow
+                    migrated_tts["comfyui"] = migrated_nested_tts
+                migrated_comfyui["tts"] = migrated_tts
+            migrated["comfyui"] = migrated_comfyui
+
+        render_config = migrated.get("render")
+        if isinstance(render_config, dict):
+            migrated_render = dict(render_config)
+            timing_config = migrated_render.get("timing")
+            if isinstance(timing_config, dict):
+                migrated_timing = dict(timing_config)
+                if (
+                    migrated_timing.get("tts_split_mode") == "external_only"
+                    and migrated_timing.get("tts_audio_strategy") in (None, "master_track")
+                    and migrated_timing.get("max_chars_per_tts_segment", 90) == 90
+                    and migrated_timing.get("tts_boundary_search_radius", 20) == 20
+                    and migrated_timing.get("tts_soft_overflow_chars", 0) == 0
+                ):
+                    migrated_timing["tts_split_mode"] = DEFAULT_TTS_SPLIT_MODE
+                migrated_render["timing"] = migrated_timing
+            migrated["render"] = migrated_render
+
+        migrated["config_version"] = 2
+        return migrated
 
     @model_validator(mode="after")
     def validate_storyboard_referential_integrity(self):

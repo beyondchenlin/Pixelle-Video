@@ -929,7 +929,7 @@
     "tts_split_mode.option.internal_only": "Internal Smart Split",
     "tts_split_mode.option.external_only": "External Split",
     "tts_split_mode.caption.internal_only": "Pass complete text to the selected TTS workflow and let the model handle segmentation internally.",
-    "tts_split_mode.caption.external_only": "Recommended default: Pixelle splits by budget and punctuation, useful for long narration and boundary control.",
+    "tts_split_mode.caption.external_only": "Pixelle splits by budget and punctuation before TTS, useful for compatibility paths that need explicit audio boundary control.",
     "tts_split_mode.max_chars": "Max characters",
     "tts_split_mode.boundary_fade_ms": "Boundary fade ms",
     "tts_text_policy.preserve_natural_punctuation": "Preserve natural punctuation",

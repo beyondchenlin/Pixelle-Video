@@ -46,10 +46,18 @@ def _single_frame_plan() -> StoryboardPlan:
 def test_tts_defaults_to_comfyui_omnivoice_workflow():
     config = PixelleVideoConfig()
 
+    assert config.config_version == 2
     assert config.comfyui.tts.inference_mode == "comfyui"
     assert config.comfyui.tts.comfyui.default_workflow == DEFAULT_TTS_WORKFLOW
     assert config.comfyui.tts.default_workflow == DEFAULT_TTS_WORKFLOW
     assert BUILTIN_DEFAULT_WORKFLOWS["tts"] == DEFAULT_TTS_WORKFLOW
+
+
+def test_render_timing_defaults_match_omnivoice_master_track_semantics():
+    config = PixelleVideoConfig()
+
+    assert config.render.timing.tts_audio_strategy == "master_track"
+    assert config.render.timing.tts_split_mode == "internal_only"
 
 
 def test_builtin_default_tts_workflow_is_omnivoice_longform():
@@ -92,17 +100,131 @@ def test_nested_tts_default_workflow_takes_priority_over_legacy_field():
         {
             "comfyui": {
                 "tts": {
-                    "default_workflow": "selfhost/tts_edge.json",
+                    "default_workflow": "selfhost/tts_index2.json",
                     "comfyui": {
-                        "default_workflow": "selfhost/tts_index2.json",
+                        "default_workflow": "selfhost/tts_edge.json",
                     },
                 }
             }
         }
     )
 
-    assert config.comfyui.tts.comfyui.default_workflow == "selfhost/tts_index2.json"
-    assert config.comfyui.tts.default_workflow == "selfhost/tts_index2.json"
+    assert config.comfyui.tts.comfyui.default_workflow == "selfhost/tts_edge.json"
+    assert config.comfyui.tts.default_workflow == "selfhost/tts_edge.json"
+
+
+@pytest.mark.parametrize(
+    "legacy_workflow",
+    [
+        "selfhost/tts_index2.json",
+        "selfhost/tts_index2_8g.json",
+    ],
+)
+def test_legacy_indextts2_default_workflow_is_upgraded_to_omnivoice(legacy_workflow):
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "tts": {
+                    "comfyui": {
+                        "default_workflow": legacy_workflow,
+                    },
+                }
+            }
+        }
+    )
+
+    assert config.comfyui.tts.comfyui.default_workflow == DEFAULT_TTS_WORKFLOW
+    assert config.comfyui.tts.default_workflow == DEFAULT_TTS_WORKFLOW
+    assert config.config_version == 2
+
+
+def test_explicit_non_legacy_tts_workflow_is_preserved():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "tts": {
+                    "comfyui": {
+                        "default_workflow": "selfhost/tts_edge.json",
+                    },
+                }
+            }
+        }
+    )
+
+    assert config.comfyui.tts.comfyui.default_workflow == "selfhost/tts_edge.json"
+    assert config.comfyui.tts.default_workflow == "selfhost/tts_edge.json"
+
+
+def test_current_config_version_preserves_explicit_indextts2_workflow():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "config_version": 2,
+            "comfyui": {
+                "tts": {
+                    "comfyui": {
+                        "default_workflow": "selfhost/tts_index2_8g.json",
+                    },
+                }
+            },
+        }
+    )
+
+    assert config.comfyui.tts.comfyui.default_workflow == "selfhost/tts_index2_8g.json"
+    assert config.comfyui.tts.default_workflow == "selfhost/tts_index2_8g.json"
+
+
+def test_legacy_external_split_default_is_upgraded_to_internal_only():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "render": {
+                "timing": {
+                    "tts_audio_strategy": "master_track",
+                    "tts_split_mode": "external_only",
+                    "max_chars_per_tts_segment": 90,
+                    "tts_boundary_search_radius": 20,
+                    "tts_soft_overflow_chars": 0,
+                }
+            }
+        }
+    )
+
+    assert config.render.timing.tts_split_mode == "internal_only"
+    assert config.config_version == 2
+
+
+def test_explicit_tuned_external_split_config_is_preserved():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "render": {
+                "timing": {
+                    "tts_audio_strategy": "master_track",
+                    "tts_split_mode": "external_only",
+                    "max_chars_per_tts_segment": 180,
+                }
+            }
+        }
+    )
+
+    assert config.render.timing.tts_split_mode == "external_only"
+
+
+def test_current_config_version_preserves_explicit_external_split_defaults():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "config_version": 2,
+            "render": {
+                "timing": {
+                    "tts_audio_strategy": "master_track",
+                    "tts_split_mode": "external_only",
+                    "max_chars_per_tts_segment": 90,
+                    "tts_boundary_search_radius": 20,
+                    "tts_soft_overflow_chars": 0,
+                }
+            },
+        }
+    )
+
+    assert config.render.timing.tts_split_mode == "external_only"
 
 
 def test_resolve_default_workflow_prefers_omnivoice_longform_when_config_is_empty():

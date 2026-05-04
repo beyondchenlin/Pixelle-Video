@@ -929,7 +929,7 @@
     "tts_split_mode.option.internal_only": "内部智能分段",
     "tts_split_mode.option.external_only": "外部分段",
     "tts_split_mode.caption.internal_only": "整段交给所选 TTS 工作流，由模型内部按自身能力处理。",
-    "tts_split_mode.caption.external_only": "默认推荐：由 Pixelle 按预算和标点切分，适合长旁白和声音边界控制。",
+    "tts_split_mode.caption.external_only": "由 Pixelle 在进入 TTS 前按预算和标点切分，适合需要显式控制音频边界的兼容链路。",
     "tts_split_mode.max_chars": "最大字符数",
     "tts_split_mode.boundary_fade_ms": "边界淡入淡出 ms",
     "tts_text_policy.preserve_natural_punctuation": "生成文稿时保留自然标点",

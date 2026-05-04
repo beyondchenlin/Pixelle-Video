@@ -13,8 +13,8 @@ from pixelle_video.tts_split_strategy import (
 )
 
 
-def test_default_tts_split_mode_is_external_only():
-    assert DEFAULT_TTS_SPLIT_MODE == "external_only"
+def test_default_tts_split_mode_is_internal_only_for_omnivoice_default():
+    assert DEFAULT_TTS_SPLIT_MODE == "internal_only"
     assert validate_tts_split_mode("external_only") == "external_only"
 
 

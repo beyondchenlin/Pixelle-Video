@@ -2,6 +2,7 @@
 # Copy this file to config.yaml and fill in your settings
 # ⚠️ Never commit config.yaml to Git!
 
+config_version: 2
 project_name: Pixelle-Video
 
 # ==================== Logging Configuration ====================
@@ -116,7 +117,7 @@ render:
   timing:
     tts_batching_mode: paragraph
     tts_audio_strategy: master_track
-    tts_split_mode: external_only
+    tts_split_mode: internal_only
     tts_batch_max_sentences: 8
     tts_batch_max_chars: 220
     subtitle_alignment_engine: qwen_forced_aligner
