@@ -174,6 +174,53 @@ def test_storyboard_generation_controls_include_prompt_language_in_base_payload(
     assert any(call["label"] == "storyboard.advanced_enabled" for call in fake_st.checkbox_calls)
 
 
+def test_storyboard_generation_controls_pass_content_and_selected_ip_context(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state.update(
+        {
+            "style_ip_enabled": True,
+            "style_ip_asset_bible_id": "bible_demo",
+            "style_ip_profile_id": "ip_main",
+            "style_ip_asset_bibles": [
+                {
+                    "asset_bible_id": "bible_demo",
+                    "ip_profiles": [
+                        {
+                            "ip_profile_id": "ip_main",
+                            "name": "White Rabbit Guide",
+                            "world_hint": "Friendly guide world.",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    captured = {}
+    monkeypatch.setattr(content_input, "st", fake_st)
+    monkeypatch.setattr(content_input, "tr", _fake_tr)
+
+    def _advanced_controls(**kwargs):
+        captured.update(kwargs)
+        return {"world_preset_id": "neutral_knowledge_storyboard"}
+
+    monkeypatch.setattr(
+        content_input,
+        "render_storyboard_advanced_controls",
+        _advanced_controls,
+    )
+
+    payload = content_input.render_storyboard_generation_controls(
+        mode="generate",
+        key_prefix="single_video",
+        content_context={"title": "Zhengding walk", "text": "Start from Changle Gate."},
+    )
+
+    assert captured["content_context"]["text"] == "Start from Changle Gate."
+    assert captured["content_context"]["title"] == "Zhengding walk"
+    assert captured["ip_profile_world_hint"] == "Friendly guide world."
+    assert payload["world_preset_id"] == "neutral_knowledge_storyboard"
+
+
 def test_punctuation_storyboard_generation_controls_show_max_scene_slider(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.radio_values["single_video_storyboard_mode"] = "punctuation"

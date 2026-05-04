@@ -30,6 +30,9 @@ from pixelle_video.prompt_language import (
 from web.components.prompt_generation_performance import (
     render_prompt_generation_performance_controls,
 )
+from web.components.ip_prompt_chain_controls import (
+    resolve_selected_ip_prompt_chain_profile_summary,
+)
 from web.components.storyboard_planning_controls import (
     render_storyboard_advanced_controls,
 )
@@ -143,7 +146,12 @@ def render_storyboard_generation_explanation() -> None:
         )
 
 
-def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict:
+def render_storyboard_generation_controls(
+    *,
+    mode: str,
+    key_prefix: str,
+    content_context: dict | None = None,
+) -> dict:
     """Render controls for source-text storyboard generation."""
     with st.expander(
         tr("section.storyboard_planning", fallback="🧭 分镜规划"),
@@ -215,6 +223,16 @@ def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict
         )
 
         render_storyboard_generation_explanation()
+        selected_ip_prompt_chain_profile_summary = (
+            resolve_selected_ip_prompt_chain_profile_summary(
+                session_state=st.session_state,
+                asset_bibles=st.session_state.get("style_ip_asset_bibles", []),
+            )
+        )
+        ip_profile_world_hint = (
+            selected_ip_prompt_chain_profile_summary.get("ip_profile_world_hint")
+            or st.session_state.get("style_ip_profile_world_hint")
+        )
         advanced_storyboard_payload = render_storyboard_advanced_controls(
             ui=st,
             translate=tr,
@@ -222,6 +240,8 @@ def render_storyboard_generation_controls(*, mode: str, key_prefix: str) -> dict
             storyboard_default_enabled=False,
             selected_template_type=selected_template_type_for_storyboard,
             preview_snapshot=get_storyboard_preview_snapshot(st.session_state),
+            content_context=content_context,
+            ip_profile_world_hint=ip_profile_world_hint,
         )
 
         return {
@@ -338,6 +358,7 @@ def render_content_input():
             storyboard_generation = render_storyboard_generation_controls(
                 mode=mode,
                 key_prefix="single_video",
+                content_context={"title": title, "text": text},
             )
 
             prompt_generation_performance = render_prompt_generation_performance_controls(
@@ -419,6 +440,7 @@ def render_content_input():
             storyboard_generation = render_storyboard_generation_controls(
                 mode="generate",
                 key_prefix="batch_video",
+                content_context={"title": title_prefix, "text": text_input},
             )
 
             prompt_generation_performance = render_prompt_generation_performance_controls(

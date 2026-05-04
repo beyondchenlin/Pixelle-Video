@@ -2683,6 +2683,253 @@ def test_render_style_config_includes_ip_prompt_chain_controls(monkeypatch):
     assert result["ip_profile_id"] == "ip_main"
 
 
+def test_render_style_config_caches_ip_asset_bibles_and_selected_summary(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["template_type_selector"] = "image"
+    fake_st.session_state["style_ip_enabled"] = True
+    fake_st.session_state["style_ip_asset_bible_id"] = "bible_demo"
+    fake_st.session_state["style_ip_profile_id"] = "ip_main"
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_comfyui_config",
+        lambda: {
+            "tts": {
+                "inference_mode": "local",
+                "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2},
+                "comfyui": {},
+            },
+            "image": {},
+            "video": {},
+        },
+    )
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "render_backend")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
+    monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(
+        style_config,
+        "load_ip_prompt_chain_asset_bibles",
+        lambda **_kwargs: [
+            {
+                "asset_bible_id": "bible_demo",
+                "ip_profiles": [
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "White Rabbit Guide",
+                        "world_hint": "Friendly guide world.",
+                    }
+                ],
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_template_type",
+        lambda _template_name: "image",
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
+        lambda _template_type: {
+            "1080x1920": [
+                type(
+                    "TemplateInfo",
+                    (),
+                    {
+                        "template_path": "1080x1920/image_default.html",
+                        "display_info": type(
+                            "DisplayInfo",
+                            (),
+                            {
+                                "name": "image_default",
+                                "orientation": "portrait",
+                                "width": 1080,
+                                "height": 1920,
+                            },
+                        )(),
+                    },
+                )()
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.parse_template_size",
+        lambda _path: (1080, 1920),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda path: path,
+    )
+
+    class _FakeFrameGenerator:
+        def __init__(self, _template_path):
+            self._template_path = _template_path
+
+        def parse_template_parameters(self):
+            return {}
+
+        def get_media_size(self):
+            return (1080, 1920)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+
+    original_radio = fake_st.radio
+
+    def _radio(label, options, index=0, key=None, **kwargs):
+        if key == "template_type_selector":
+            return "image"
+        return original_radio(label, options, index=index, key=key, **kwargs)
+
+    fake_st.radio = _radio
+
+    class _FakeMedia:
+        @staticmethod
+        def list_workflows():
+            return [
+                {
+                    "display_name": "Image Default",
+                    "key": "selfhost/image_z_image_turbo_gguf.json",
+                }
+            ]
+
+    class _FakeVideo:
+        config = {"template": {}}
+        media = _FakeMedia()
+
+    style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
+
+    assert fake_st.session_state["style_ip_asset_bibles"][0]["asset_bible_id"] == "bible_demo"
+    assert fake_st.session_state["style_ip_profile_world_hint"] == "Friendly guide world."
+
+
+def test_render_style_config_caches_default_selected_ip_world_hint(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["template_type_selector"] = "image"
+    fake_st.session_state["style_ip_enabled"] = True
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(
+        style_config.config_manager,
+        "get_comfyui_config",
+        lambda: {
+            "tts": {
+                "inference_mode": "local",
+                "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2},
+                "comfyui": {},
+            },
+            "image": {},
+            "video": {},
+        },
+    )
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "render_backend")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
+    monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(
+        style_config,
+        "load_ip_prompt_chain_asset_bibles",
+        lambda **_kwargs: [
+            {
+                "asset_bible_id": "bible_demo",
+                "ip_profiles": [
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "White Rabbit Guide",
+                        "world_hint": "Friendly guide world.",
+                    }
+                ],
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_template_type",
+        lambda _template_name: "image",
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
+        lambda _template_type: {
+            "1080x1920": [
+                type(
+                    "TemplateInfo",
+                    (),
+                    {
+                        "template_path": "1080x1920/image_default.html",
+                        "display_info": type(
+                            "DisplayInfo",
+                            (),
+                            {
+                                "name": "image_default",
+                                "orientation": "portrait",
+                                "width": 1080,
+                                "height": 1920,
+                            },
+                        )(),
+                    },
+                )()
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.parse_template_size",
+        lambda _path: (1080, 1920),
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.template_util.resolve_template_path",
+        lambda path: path,
+    )
+
+    class _FakeFrameGenerator:
+        def __init__(self, _template_path):
+            self._template_path = _template_path
+
+        def parse_template_parameters(self):
+            return {}
+
+        def get_media_size(self):
+            return (1080, 1920)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.frame_html.HTMLFrameGenerator",
+        _FakeFrameGenerator,
+    )
+
+    original_radio = fake_st.radio
+
+    def _radio(label, options, index=0, key=None, **kwargs):
+        if key == "template_type_selector":
+            return "image"
+        return original_radio(label, options, index=index, key=key, **kwargs)
+
+    fake_st.radio = _radio
+
+    class _FakeMedia:
+        @staticmethod
+        def list_workflows():
+            return [
+                {
+                    "display_name": "Image Default",
+                    "key": "selfhost/image_z_image_turbo_gguf.json",
+                }
+            ]
+
+    class _FakeVideo:
+        config = {"template": {}}
+        media = _FakeMedia()
+
+    style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
+
+    assert fake_st.session_state["style_ip_asset_bible_id"] == "bible_demo"
+    assert fake_st.session_state["style_ip_profile_id"] == "ip_main"
+    assert fake_st.session_state["style_ip_profile_world_hint"] == "Friendly guide world."
+
+
 def test_render_image_prompt_prefix_library_renders_filter_panel_without_nested_expander(monkeypatch):
     fake_st = _FakeStreamlit()
     monkeypatch.setattr(style_config, "st", fake_st)
