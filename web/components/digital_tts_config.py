@@ -26,6 +26,7 @@ from web.components.tts_voice_profile_controls import render_tts_voice_profile_c
 from web.i18n import get_language, tr
 from web.utils.async_helpers import run_async
 from web.utils.tts_ui import resolve_comfyui_tts_speed, resolve_configured_tts_mode
+from web.utils.workflow_defaults import resolve_selectbox_default_index
 
 
 def render_style_config(pixelle_video):
@@ -130,10 +131,12 @@ def render_style_config(pixelle_video):
             tts_workflow_options = [wf["display_name"] for wf in tts_workflows]
             tts_workflow_keys = [wf["key"] for wf in tts_workflows]
 
-            default_tts_index = 0
             saved_tts_workflow = tts_config.get("comfyui", {}).get("default_workflow")
-            if saved_tts_workflow and saved_tts_workflow in tts_workflow_keys:
-                default_tts_index = tts_workflow_keys.index(saved_tts_workflow)
+            default_tts_index = resolve_selectbox_default_index(
+                domain="tts",
+                workflow_keys=tts_workflow_keys,
+                configured_workflow=saved_tts_workflow,
+            )
 
             tts_workflow_display = st.selectbox(
                 "TTS Workflow",

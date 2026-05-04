@@ -2431,11 +2431,12 @@ def render_style_config(
             tts_workflow_options = [wf["display_name"] for wf in tts_workflows]
             tts_workflow_keys = [wf["key"] for wf in tts_workflows]
             
-            # Default to saved workflow if exists
-            default_tts_index = 0
             saved_tts_workflow = tts_config.get("comfyui", {}).get("default_workflow")
-            if saved_tts_workflow and saved_tts_workflow in tts_workflow_keys:
-                default_tts_index = tts_workflow_keys.index(saved_tts_workflow)
+            default_tts_index = resolve_selectbox_default_index(
+                domain="tts",
+                workflow_keys=tts_workflow_keys,
+                configured_workflow=saved_tts_workflow,
+            )
             
             tts_workflow_display = st.selectbox(
                 "TTS Workflow",

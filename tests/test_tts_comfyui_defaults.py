@@ -105,6 +105,24 @@ def test_nested_tts_default_workflow_takes_priority_over_legacy_field():
     assert config.comfyui.tts.default_workflow == "selfhost/tts_index2.json"
 
 
+def test_resolve_default_workflow_prefers_omnivoice_longform_when_config_is_empty():
+    from pixelle_video.config.workflow_defaults import resolve_default_workflow
+
+    assert (
+        resolve_default_workflow(
+            "tts",
+            [
+                "selfhost/tts_edge.json",
+                "selfhost/tts_index2.json",
+                "selfhost/tts_omnivoice_clone_duration_bf16.json",
+                "selfhost/tts_omnivoice_longform_bf16.json",
+            ],
+            None,
+        )
+        == "selfhost/tts_omnivoice_longform_bf16.json"
+    )
+
+
 def test_storyboard_tts_default_matches_config_default():
     assert StoryboardConfig(media_width=1080, media_height=1920).tts_inference_mode == "comfyui"
 
