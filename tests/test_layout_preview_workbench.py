@@ -176,8 +176,8 @@ def test_render_layout_preview_workbench_uses_compact_generic_recent_preset_butt
     recent_buttons = _recent_buttons(fake_ui)
     assert '<ol class="layout-workbench-recent">' not in rendered
     assert 'div[class*="st-key-layout_preview_recent_presets"] button' in rendered
-    assert "min-height: 40px;" in rendered
-    assert "font-size: 14px;" in rendered
+    assert "min-height: 28px;" in rendered
+    assert "font-size: 12px;" in rendered
     assert "border-radius: 6px;" in rendered
     assert "Template With A Very Long Name" not in rendered
     assert "user:long_recent_template" not in rendered
@@ -261,12 +261,12 @@ def test_render_layout_preview_workbench_recent_presets_no_longer_render_delete_
     )
     assert "最近模板快捷" in rendered
     assert "删除一排" not in rendered
-    assert "layout-workbench-recent-item" in rendered
+    assert "st-key-layout_preview_recent_item_" in rendered
     assert "layout-workbench-recent-meta" not in rendered_without_css
     assert "1 层 · 1280x720" not in rendered_without_css
 
 
-def test_render_layout_preview_workbench_recent_presets_use_single_line_hover_delete(
+def test_render_layout_preview_workbench_recent_presets_preserve_compact_layout_with_hover_delete(
     monkeypatch,
 ):
     from web.components import layout_preview_workbench
@@ -295,11 +295,12 @@ def test_render_layout_preview_workbench_recent_presets_use_single_line_hover_de
         for item in fake_ui.markdowns
         if "<style>" not in item["body"]
     )
-    assert "st-key-layout_preview_recent_action_row_" in rendered
-    assert "st-key-layout_preview_recent_delete_slot_" in rendered
-    assert "grid-template-columns: minmax(0, 1fr);" in rendered
+    assert "display: flex;" in rendered
+    assert "flex-wrap: wrap;" in rendered
+    assert "min-width: 58px !important;" in rendered
+    assert "min-height: 28px;" in rendered
     assert "opacity: 0;" in rendered
-    assert ':hover div[class*="st-key-layout_preview_recent_delete_slot_"]' in rendered
+    assert ':hover div[class*="st-key-layout_preview_delete_recent_preset_"]' in rendered
     recent_buttons = _recent_buttons(fake_ui)
     delete_buttons = _recent_delete_buttons(fake_ui)
     assert [button["label"] for button in recent_buttons] == ["模板一"]
@@ -345,7 +346,7 @@ def test_render_layout_preview_workbench_returns_delete_recent_preset_action(
     }
 
 
-def test_render_layout_preview_workbench_default_summary_uses_stable_metric_rows(
+def test_render_layout_preview_workbench_default_summary_uses_compact_chip_strip(
     monkeypatch,
 ):
     from web.components import layout_preview_workbench
@@ -375,15 +376,16 @@ def test_render_layout_preview_workbench_default_summary_uses_stable_metric_rows
     )
 
     rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
-    assert "layout-workbench-metric-row" in rendered
-    assert "layout-workbench-meta-row" in rendered
     rendered_without_css = "\n".join(
         item["body"]
         for item in fake_ui.markdowns
         if "<style>" not in item["body"]
     )
-    assert "layout-workbench-default-strip" not in rendered_without_css
-    assert "layout-workbench-default-chip" not in rendered_without_css
+    assert "当前模板规则" in rendered
+    assert "layout-workbench-default-strip" in rendered
+    assert "layout-workbench-default-chip" in rendered
+    assert "layout-workbench-metric-row" not in rendered_without_css
+    assert "layout-workbench-meta-row" not in rendered_without_css
 
 
 def test_render_layout_preview_workbench_sorts_recent_presets_by_datetime(monkeypatch):
@@ -947,17 +949,11 @@ def test_render_layout_preview_workbench_uses_compact_default_summary_without_me
     )
 
     rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
-    assert "layout-workbench-metric-row" in rendered
-    assert "layout-workbench-meta-row" in rendered
-    rendered_without_css = "\n".join(
-        item["body"]
-        for item in fake_ui.markdowns
-        if "<style>" not in item["body"]
-    )
-    assert "layout-workbench-default-strip" not in rendered_without_css
-    assert "layout-workbench-default-chip" not in rendered_without_css
-    assert '<div class="layout-workbench-summary-grid">' in rendered
-    assert "font-size: 18px;" in rendered
+    assert "layout-workbench-default-strip" in rendered
+    assert "layout-workbench-default-chip" in rendered
+    assert '<div class="layout-workbench-metric">' not in rendered
+    assert '<div class="layout-workbench-summary-grid">' not in rendered
+    assert "font-size: 12px;" in rendered
 
 
 def test_render_layout_preview_workbench_scales_trusted_preview_html_with_dimensions(

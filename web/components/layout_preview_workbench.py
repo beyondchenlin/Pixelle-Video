@@ -64,6 +64,7 @@ _APPLY_HELP = (
     "\u636e\u6b64\u56de\u586b\u5b8c\u6574\u89c4\u683c\u3002"
 )
 _CURRENT_SPEC = "\u5f53\u524d\u89c4\u683c"
+_CURRENT_TEMPLATE_RULES = "\u5f53\u524d\u6a21\u677f\u89c4\u5219"
 _NO_SPEC = "\u6682\u65e0\u53ef\u9884\u89c8\u7684\u6392\u7248\u89c4\u683c\u3002"
 _CANVAS_SIZE = "\u753b\u5e03\u5c3a\u5bf8"
 _MEDIA_SIZE = "\u5a92\u4f53\u5c3a\u5bf8"
@@ -127,10 +128,9 @@ def render_layout_preview_workbench(
             if selected_action is None:
                 selected_action = rendered_action
         elif default_summary is not None:
-            _render_default_workbench_rows(
-                ui=ui,
-                summary=default_summary,
-                key_suffix=key_suffix,
+            ui.markdown(
+                _build_default_summary_html(default_summary),
+                unsafe_allow_html=True,
             )
         else:
             ui.markdown(
@@ -210,40 +210,6 @@ def _render_workbench_rows(
     return selected_action
 
 
-def _render_default_workbench_rows(
-    *,
-    ui,
-    summary: DefaultLayoutSummary,
-    key_suffix: str,
-) -> None:
-    render_summary = summary.render_summary or _UNKNOWN_RENDER
-    template_summary = summary.template_summary or _UNKNOWN_RENDER
-    if not hasattr(ui, "columns"):
-        ui.markdown(
-            _build_default_workbench_rows_html(
-                summary=summary,
-                render_summary=render_summary,
-                template_summary=template_summary,
-            ),
-            unsafe_allow_html=True,
-        )
-        return
-
-    with ui.container(key=_workbench_row_key("metric_row", key_suffix=key_suffix)):
-        ui.markdown(
-            _build_default_summary_grid_html(summary),
-            unsafe_allow_html=True,
-        )
-    with ui.container(key=_workbench_row_key("meta_row", key_suffix=key_suffix)):
-        ui.markdown(
-            _build_meta_html(
-                render_summary=render_summary,
-                template_summary=template_summary,
-            ),
-            unsafe_allow_html=True,
-        )
-
-
 def _render_workbench_actions(*, ui, key_suffix: str) -> PresetSelection | None:
     action_columns = _columns(ui, 2, gap="small")
     if action_columns is None:
@@ -310,97 +276,13 @@ def _render_recent_presets(
             """,
             unsafe_allow_html=True,
         )
-        for index, preset in enumerate(presets):
-            preset_id = str(preset["preset_id"])
-            label = _recent_preset_display_label(index)
-            with ui.container(key=_recent_preset_item_key(preset_id, key_suffix=key_suffix)):
-                ui.markdown(
-                    f"""
-                    <div class="layout-workbench-recent-item">
-                      <span class="layout-workbench-recent-check" aria-hidden="true"></span>
-                      <div class="layout-workbench-recent-copy">
-                        <div class="layout-workbench-recent-name">{escape(label)}</div>
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                with ui.container(
-                    key=_recent_preset_action_row_key(
-                        preset_id,
-                        key_suffix=key_suffix,
-                    )
-                ):
-                    if ui.button(
-                        label,
-                        key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
-                        help=_recent_preset_help(preset),
-                        width="stretch",
-                    ):
-                        ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
-                with ui.container(
-                    key=_recent_preset_delete_slot_key(
-                        preset_id,
-                        key_suffix=key_suffix,
-                    )
-                ):
-                    if ui.button(
-                        _DELETE_RECENT_PRESET,
-                        key=_recent_preset_delete_button_key(preset_id, key_suffix=key_suffix),
-                        help=_DELETE_RECENT_HELP,
-                        width="stretch",
-                    ):
-                        selected_action = {
-                            "action": "delete_recent_preset",
-                            "preset_id": preset_id,
-                        }
-    return selected_action
-
-
-def _render_recent_presets_legacy(
-    *,
-    ui,
-    presets: list[dict[str, Any]],
-    key_suffix: str,
-) -> PresetSelection | None:
-    if not presets:
-        _caption(ui, _NO_RECENT)
-        return None
-
-    selected_action: PresetSelection | None = None
-    with ui.container(key=_workbench_row_key("recent_presets", key_suffix=key_suffix)):
-        ui.markdown(
-            f"""
-            <section class="layout-workbench-card layout-workbench-recent-card">
-              <div class="layout-workbench-section-title">{_RECENT_TITLE}</div>
-            </section>
-            """,
-            unsafe_allow_html=True,
-        )
         columns = _columns(ui, len(presets), gap="small")
         for index, preset in enumerate(presets):
             preset_id = str(preset["preset_id"])
             label = _recent_preset_display_label(index)
+            item_key = _recent_preset_item_key(preset_id, key_suffix=key_suffix)
             if columns is None:
-                if ui.button(
-                    label,
-                    key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
-                    help=_recent_preset_help(preset),
-                    width="content",
-                ):
-                    ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
-                if ui.button(
-                    _DELETE_RECENT_PRESET,
-                    key=_recent_preset_delete_button_key(preset_id, key_suffix=key_suffix),
-                    help=_DELETE_RECENT_HELP,
-                    width="content",
-                ):
-                    selected_action = {
-                        "action": "delete_recent_preset",
-                        "preset_id": preset_id,
-                    }
-            else:
-                with columns[index]:
+                with ui.container(key=item_key):
                     if ui.button(
                         label,
                         key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
@@ -410,7 +292,10 @@ def _render_recent_presets_legacy(
                         ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
                     if ui.button(
                         _DELETE_RECENT_PRESET,
-                        key=_recent_preset_delete_button_key(preset_id, key_suffix=key_suffix),
+                        key=_recent_preset_delete_button_key(
+                            preset_id,
+                            key_suffix=key_suffix,
+                        ),
                         help=_DELETE_RECENT_HELP,
                         width="content",
                     ):
@@ -418,6 +303,29 @@ def _render_recent_presets_legacy(
                             "action": "delete_recent_preset",
                             "preset_id": preset_id,
                         }
+            else:
+                with columns[index]:
+                    with ui.container(key=item_key):
+                        if ui.button(
+                            label,
+                            key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
+                            help=_recent_preset_help(preset),
+                            width="content",
+                        ):
+                            ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
+                        if ui.button(
+                            _DELETE_RECENT_PRESET,
+                            key=_recent_preset_delete_button_key(
+                                preset_id,
+                                key_suffix=key_suffix,
+                            ),
+                            help=_DELETE_RECENT_HELP,
+                            width="content",
+                        ):
+                            selected_action = {
+                                "action": "delete_recent_preset",
+                                "preset_id": preset_id,
+                            }
     return selected_action
 
 
@@ -541,18 +449,19 @@ def _build_workbench_css() -> str:
         background: rgba(255, 255, 255, .62);
       }}
       div[class*="st-key-layout_preview_recent_presets"] > div[data-testid="stVerticalBlock"] {{
-        gap: 8px;
+        gap: 4px;
       }}
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stHorizontalBlock"] {{
-        display: grid;
-        grid-template-columns: minmax(0, 1fr);
-        align-items: stretch;
-        gap: 0 !important;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px !important;
+        justify-content: flex-start;
       }}
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stColumn"] {{
-        width: 100% !important;
-        min-width: 0 !important;
-        flex: 1 1 auto !important;
+        width: auto !important;
+        min-width: 58px !important;
+        flex: 0 0 auto !important;
       }}
       div[class*="st-key-layout_preview_recent_presets"] .layout-workbench-card {{
         border: 0;
@@ -566,65 +475,38 @@ def _build_workbench_css() -> str:
       }}
       div[class*="st-key-layout_preview_recent_item_"] {{
         position: relative;
-        border: 1px solid rgba(80, 67, 44, .12);
-        border-radius: 8px;
-        padding: 7px 8px 8px;
-        background: #fffdf8;
-        transition: border-color .12s ease, background .12s ease;
-      }}
-      div[class*="st-key-layout_preview_recent_item_"]:hover {{
-        border-color: rgba(255, 75, 75, .38);
-        background: #fffdfa;
       }}
       div[class*="st-key-layout_preview_recent_item_"] > div[data-testid="stVerticalBlock"] {{
         gap: 0;
       }}
-      .layout-workbench-recent-item {{
-        display: grid;
-        grid-template-columns: 22px minmax(0, 1fr);
-        align-items: center;
-        gap: 8px;
-        min-width: 0;
-      }}
-      .layout-workbench-recent-check {{
-        display: block;
+      div[class*="st-key-layout_preview_recent_item_"] div[class*="st-key-layout_preview_delete_recent_preset_"] {{
+        position: absolute;
+        top: -7px;
+        right: -7px;
         width: 18px;
         height: 18px;
-        border: 1px solid rgba(255, 75, 75, .78);
-        border-radius: 5px;
-        background: #ff4b4b;
-        box-shadow: inset 0 0 0 3px #ff4b4b;
-      }}
-      .layout-workbench-recent-copy {{
-        min-width: 0;
-      }}
-      .layout-workbench-recent-name {{
-        color: #352a1f;
-        font-size: 14px;
-        font-weight: 900;
-        line-height: 1.2;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }}
-      div[class*="st-key-layout_preview_recent_action_row_"] {{
-        position: relative;
-        min-width: 0;
-      }}
-      div[class*="st-key-layout_preview_recent_delete_slot_"] {{
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        width: 24px;
-        height: 24px;
+        min-height: 18px !important;
         opacity: 0;
         pointer-events: none;
         transition: opacity .12s ease;
         z-index: 3;
       }}
-      div[class*="st-key-layout_preview_recent_item_"]:hover div[class*="st-key-layout_preview_recent_delete_slot_"] {{
+      div[class*="st-key-layout_preview_recent_item_"]:hover div[class*="st-key-layout_preview_delete_recent_preset_"] {{
         opacity: 1;
         pointer-events: auto;
+      }}
+      div[class*="st-key-layout_preview_delete_recent_preset_"] button {{
+        min-height: 18px !important;
+        height: 18px !important;
+        width: 18px !important;
+        padding: 0 !important;
+        border-radius: 999px !important;
+        border-color: rgba(255, 75, 75, .28) !important;
+        background: #fff8f7 !important;
+        color: #b23b3b !important;
+        font-size: 13px !important;
+        font-weight: 800 !important;
+        line-height: 1 !important;
       }}
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stMarkdown"],
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stMarkdownContainer"],
@@ -633,31 +515,17 @@ def _build_workbench_css() -> str:
         max-width: 100% !important;
       }}
       div[class*="st-key-layout_preview_recent_presets"] button {{
-        min-height: 40px;
-        width: 100% !important;
-        padding: 8px 12px;
+        min-height: 28px;
+        padding: 4px 8px;
         border: 1px solid rgba(80, 67, 44, .12);
         border-radius: 6px;
         background: #fffdf8;
         color: #352a1f;
-        font-size: 14px;
+        font-size: 12px;
         font-weight: 800;
-        line-height: 1.2;
+        line-height: 1.25;
         white-space: nowrap;
         box-shadow: none;
-      }}
-      div[class*="st-key-layout_preview_recent_delete_slot_"] button {{
-        min-height: 24px !important;
-        height: 24px !important;
-        width: 24px !important;
-        padding: 0 !important;
-        border-radius: 999px !important;
-        border-color: rgba(255, 75, 75, .28) !important;
-        background: #fff8f7 !important;
-        color: #b23b3b !important;
-        font-size: 16px !important;
-        font-weight: 800 !important;
-        line-height: 1 !important;
       }}
       .layout-workbench-grid {{
         display: grid;
@@ -697,6 +565,30 @@ def _build_workbench_css() -> str:
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }}
+      .layout-workbench-default-strip {{
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+      }}
+      .layout-workbench-default-chip {{
+        min-width: 0;
+        border: 1px solid rgba(80, 67, 44, .12);
+        border-radius: 6px;
+        padding: 4px 7px;
+        background: #fffdf8;
+        color: #5f5547;
+        font-size: 12px;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }}
+      .layout-workbench-default-chip strong {{
+        color: #352a1f;
+        font-weight: 800;
       }}
       .layout-workbench-meta {{
         display: grid;
@@ -805,18 +697,19 @@ def _build_summary_html(
     """
 
 
-def _build_default_workbench_rows_html(
-    *,
-    summary: DefaultLayoutSummary,
-    render_summary: str,
-    template_summary: str,
-) -> str:
+def _build_default_summary_html(summary: DefaultLayoutSummary) -> str:
+    render_summary = summary.render_summary or _UNKNOWN_RENDER
+    template_summary = summary.template_summary or _UNKNOWN_RENDER
     return f"""
-    <section class="layout-workbench-metric-row">
-      {_build_default_summary_grid_html(summary)}
-    </section>
-    <section class="layout-workbench-meta-row">
-      {_build_meta_html(render_summary=render_summary, template_summary=template_summary)}
+    <section class="layout-workbench-card">
+      <div class="layout-workbench-section-title">{_CURRENT_TEMPLATE_RULES}</div>
+      <div class="layout-workbench-default-strip">
+        {_default_chip_html(_CANVAS_SIZE, f"{summary.canvas_width} x {summary.canvas_height}")}
+        {_default_chip_html(_MEDIA_SIZE, f"{summary.media_width} x {summary.media_height}")}
+        {_default_chip_html(_MEDIA_PLACEMENT, _media_placement_summary(summary.media_placement))}
+        {_default_chip_html(_RENDER_SUMMARY, render_summary)}
+        {_default_chip_html(_TEMPLATE_SUMMARY, template_summary)}
+      </div>
     </section>
     """
 
@@ -851,6 +744,15 @@ def _build_default_summary_grid_html(summary: DefaultLayoutSummary) -> str:
       {_metric_html(_MEDIA_SIZE, f"{summary.media_width} x {summary.media_height}")}
       {_metric_html(_MEDIA_PLACEMENT, _media_placement_summary(summary.media_placement))}
     </div>
+    """
+
+
+def _default_chip_html(label: str, value: str) -> str:
+    escaped_value = escape(value)
+    return f"""
+    <span class="layout-workbench-default-chip" title="{escape(value, quote=True)}">
+      <strong>{escape(label)}: </strong>{escaped_value}
+    </span>
     """
 
 
