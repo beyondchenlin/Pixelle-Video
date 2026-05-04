@@ -1,4 +1,5 @@
 param(
+    [string]$ProfileName = '',
     [string]$PythonExe = '',
     [string]$ComfyUIRoot = '',
     [string]$DataRoot = '',
@@ -17,6 +18,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'backend_common.ps1')
 
 $config = Resolve-PixelleComfyUIBackendConfig `
+    -ProfileName $ProfileName `
     -PythonExe $PythonExe `
     -ComfyUIRoot $ComfyUIRoot `
     -DataRoot $DataRoot `

@@ -321,6 +321,8 @@ def test_start_backend_dry_run_initializes_missing_profile_dirs(
         SCRIPT_DIR / "start_backend.ps1",
         "-DryRun",
         "-Json",
+        "-ProfileName",
+        "image",
         "-PythonExe",
         sys.executable,
         "-ComfyUIRoot",
@@ -341,10 +343,17 @@ def test_start_backend_dry_run_initializes_missing_profile_dirs(
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
+    assert payload["profile"] == "image"
+    assert payload["host"] == "127.0.0.1"
+    assert payload["port"] == 65500
     assert payload["data_root"] == str(data_root)
     assert payload["runtime_dir"] == str(runtime_dir)
     assert payload["logs_dir"] == str(logs_dir)
     assert payload["database_url"].endswith("/profiles/image-data/user/comfyui.db")
+    assert payload["pid_file"] == str(runtime_dir / "comfyui-backend.pid")
+    assert payload["launcher_pid_file"] == str(runtime_dir / "comfyui-backend.launcher.pid")
+    assert payload["stdout_log"] == str(logs_dir / "comfyui-backend.stdout.log")
+    assert payload["stderr_log"] == str(logs_dir / "comfyui-backend.stderr.log")
     for directory in (
         data_root / "input",
         data_root / "output",
@@ -589,11 +598,20 @@ def test_start_backend_refuses_wildcard_address_port_conflict(tmp_path: Path) ->
 
 def test_stop_backend_without_pid_file_is_safe_noop(tmp_path: Path) -> None:
     port = reserve_free_port()
+    runtime_dir = tmp_path / "runtime" / "image"
+    logs_dir = tmp_path / "logs" / "image"
+    data_root = tmp_path / "data" / "image"
     result = run_powershell(
         SCRIPT_DIR / "stop_backend.ps1",
         "-Json",
+        "-ProfileName",
+        "image",
+        "-DataRoot",
+        data_root,
         "-RuntimeDir",
-        tmp_path / "runtime",
+        runtime_dir,
+        "-LogsDir",
+        logs_dir,
         "-HostAddress",
         "127.0.0.1",
         "-Port",
@@ -604,6 +622,16 @@ def test_stop_backend_without_pid_file_is_safe_noop(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert payload["stopped"] is False
     assert payload["reason"] == "pid_file_missing"
+    assert payload["profile"] == "image"
+    assert payload["host"] == "127.0.0.1"
+    assert payload["port"] == port
+    assert payload["data_root"] == str(data_root)
+    assert payload["runtime_dir"] == str(runtime_dir)
+    assert payload["logs_dir"] == str(logs_dir)
+    assert payload["pid_file"] == str(runtime_dir / "comfyui-backend.pid")
+    assert payload["launcher_pid_file"] == str(runtime_dir / "comfyui-backend.launcher.pid")
+    assert payload["stdout_log"] == str(logs_dir / "comfyui-backend.stdout.log")
+    assert payload["stderr_log"] == str(logs_dir / "comfyui-backend.stderr.log")
 
 
 def test_stop_backend_stops_matching_listener_without_pid_file(tmp_path: Path) -> None:
@@ -791,11 +819,20 @@ def test_stop_backend_stops_matching_listener_when_pid_file_points_elsewhere(
 
 
 def test_check_backend_reports_clear_port_without_side_effects(tmp_path: Path) -> None:
+    runtime_dir = tmp_path / "runtime" / "image"
+    logs_dir = tmp_path / "logs" / "image"
+    data_root = tmp_path / "data" / "image"
     result = run_powershell(
         SCRIPT_DIR / "check_backend.ps1",
         "-Json",
+        "-ProfileName",
+        "image",
+        "-DataRoot",
+        data_root,
         "-RuntimeDir",
-        tmp_path / "runtime",
+        runtime_dir,
+        "-LogsDir",
+        logs_dir,
         "-HostAddress",
         "127.0.0.1",
         "-Port",
@@ -806,6 +843,16 @@ def test_check_backend_reports_clear_port_without_side_effects(tmp_path: Path) -
     payload = json.loads(result.stdout)
     assert payload["listener_present"] is False
     assert payload["pid_file_present"] is False
+    assert payload["profile"] == "image"
+    assert payload["host"] == "127.0.0.1"
+    assert payload["port"] == 65500
+    assert payload["data_root"] == str(data_root)
+    assert payload["runtime_dir"] == str(runtime_dir)
+    assert payload["logs_dir"] == str(logs_dir)
+    assert payload["pid_file"] == str(runtime_dir / "comfyui-backend.pid")
+    assert payload["launcher_pid_file"] == str(runtime_dir / "comfyui-backend.launcher.pid")
+    assert payload["stdout_log"] == str(logs_dir / "comfyui-backend.stdout.log")
+    assert payload["stderr_log"] == str(logs_dir / "comfyui-backend.stderr.log")
 
 
 def test_check_backend_marks_matching_process_as_managed_without_pid_file(

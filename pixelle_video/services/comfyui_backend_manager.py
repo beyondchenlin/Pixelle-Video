@@ -47,6 +47,8 @@ class ManagedComfyUIBackend:
         return self.repo_root / "scripts" / "comfyui"
 
     def can_manage(self) -> bool:
+        if not self.profile.managed:
+            return False
         if self.management_mode == "disabled":
             return False
         if self.management_mode == "required":
@@ -153,7 +155,7 @@ class ManagedComfyUIBackend:
 
     def _script_args(self) -> list[str]:
         parsed = urlparse(self.comfyui_url)
-        args: list[str] = []
+        args: list[str] = ["-ProfileName", self.profile_name]
         if parsed.hostname:
             args.extend(["-HostAddress", parsed.hostname])
         port = self._resolved_port()

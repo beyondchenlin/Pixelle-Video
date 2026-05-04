@@ -44,6 +44,44 @@ def test_managed_backend_disabled_mode_never_manages():
     assert backend.can_manage() is False
 
 
+def test_managed_backend_profile_managed_false_disables_management(tmp_path):
+    profile = ComfyUIBackendProfile(
+        url="http://127.0.0.1:8001",
+        managed=False,
+        data_root=str(tmp_path / "image-data"),
+        runtime_dir=str(tmp_path / "runtime" / "image"),
+        logs_dir=str(tmp_path / "logs" / "image"),
+        database_url=f"sqlite:///{(tmp_path / 'image-data' / 'user' / 'comfyui.db').as_posix()}",
+    )
+    backend = ManagedComfyUIBackend(
+        repo_root=Path.cwd(),
+        profile_name="image",
+        profile=profile,
+        management_mode="required",
+    )
+
+    assert backend.can_manage() is False
+
+
+def test_managed_backend_auto_mode_manages_local_profile_ports(tmp_path):
+    for profile_name, port in (("image", 8001), ("tts", 8002)):
+        profile = ComfyUIBackendProfile(
+            url=f"http://127.0.0.1:{port}",
+            data_root=str(tmp_path / f"{profile_name}-data"),
+            runtime_dir=str(tmp_path / "runtime" / profile_name),
+            logs_dir=str(tmp_path / "logs" / profile_name),
+            database_url=f"sqlite:///{(tmp_path / f'{profile_name}-data' / 'user' / 'comfyui.db').as_posix()}",
+        )
+        backend = ManagedComfyUIBackend(
+            repo_root=Path.cwd(),
+            profile_name=profile_name,
+            profile=profile,
+            management_mode="auto",
+        )
+
+        assert backend.can_manage() is True
+
+
 def test_managed_backend_uses_profile_runtime_arguments(tmp_path):
     profile = ComfyUIBackendProfile(
         url="http://127.0.0.1:8001",
@@ -61,6 +99,8 @@ def test_managed_backend_uses_profile_runtime_arguments(tmp_path):
 
     args = backend._script_args()
 
+    assert "-ProfileName" in args
+    assert "image" in args
     assert "-DataRoot" in args
     assert str(tmp_path / "image-data") in args
     assert "-RuntimeDir" in args

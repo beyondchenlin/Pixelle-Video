@@ -50,6 +50,7 @@ function ConvertTo-SqliteUrl {
 
 function Resolve-PixelleComfyUIBackendConfig {
     param(
+        [string]$ProfileName,
         [string]$PythonExe,
         [string]$ComfyUIRoot,
         [string]$DataRoot,
@@ -67,8 +68,10 @@ function Resolve-PixelleComfyUIBackendConfig {
     $resolvedComfyUIRoot = Resolve-BackendValue $ComfyUIRoot 'PIXELLE_COMFYUI_ROOT' 'E:\comfyui\resources\ComfyUI'
     $defaultFrontEndRoot = Join-Path $resolvedComfyUIRoot 'web_custom_versions\desktop_app'
     $defaultDatabaseUrl = ConvertTo-SqliteUrl (Join-Path $resolvedDataRoot 'user\comfyui.db')
+    $resolvedProfileName = Resolve-BackendValue $ProfileName 'PIXELLE_COMFYUI_PROFILE' 'default'
 
     return [ordered]@{
+        ProfileName = $resolvedProfileName
         RepoRoot = $repoRoot
         PythonExe = Resolve-BackendValue $PythonExe 'PIXELLE_COMFYUI_PYTHON' (Join-Path $resolvedDataRoot '.venv\Scripts\python.exe')
         ComfyUIRoot = $resolvedComfyUIRoot
@@ -116,10 +119,17 @@ function Add-BackendProfilePayloadFields {
         [hashtable]$Config
     )
 
+    $Payload['profile'] = $Config.ProfileName
+    $Payload['host'] = $Config.HostAddress
+    $Payload['port'] = $Config.Port
     $Payload['data_root'] = $Config.DataRoot
     $Payload['runtime_dir'] = $Config.RuntimeDir
     $Payload['logs_dir'] = $Config.LogsDir
     $Payload['database_url'] = $Config.DatabaseUrl
+    $Payload['pid_file'] = Get-BackendPidFile $Config
+    $Payload['launcher_pid_file'] = Get-BackendLauncherPidFile $Config
+    $Payload['stdout_log'] = Get-BackendStdoutLog $Config
+    $Payload['stderr_log'] = Get-BackendStderrLog $Config
     return $Payload
 }
 
