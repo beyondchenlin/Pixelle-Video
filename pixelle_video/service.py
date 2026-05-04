@@ -37,13 +37,13 @@ from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.alignment_service import AlignmentService
 from pixelle_video.services.audio_edit_service import AudioEditService
 from pixelle_video.services.comfyui_backend_manager import ManagedComfyUIBackend
+from pixelle_video.services.comfyui_backend_registry import ComfyUIBackendRegistry
 from pixelle_video.services.comfyui_errors import (
     looks_like_backend_connection_loss,
     looks_like_memory_exhaustion,
 )
 from pixelle_video.services.comfyui_maintenance import (
     ComfyUIExtensionName,
-    ComfyUIMaintenanceClient,
 )
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.generation_coordinator import (
@@ -189,30 +189,14 @@ class PixelleVideoCore:
         """
         # Reload config from global config_manager (to support hot reload)
         self.config = config_manager.config.to_dict()
-        
-        comfyui_config = self.config.get("comfyui", {})
-        kit_config = {}
-        
-        if comfyui_config.get("comfyui_url"):
-            kit_config["comfyui_url"] = comfyui_config["comfyui_url"]
-        executor_type = comfyui_config.get("executor_type")
-        if executor_type:
-            kit_config["executor_type"] = executor_type
-        else:
-            # Prefer HTTP for selfhost auto mode. It is compatible with token-auth
-            # setups and avoids the repeated-workflow instability we observed with
-            # the current WebSocket execution path.
-            kit_config["executor_type"] = "http"
-        if comfyui_config.get("comfyui_api_key"):
-            kit_config["api_key"] = comfyui_config["comfyui_api_key"]
-        if comfyui_config.get("runninghub_api_key"):
-            kit_config["runninghub_api_key"] = comfyui_config["runninghub_api_key"]
-        # Only pass instance_type if it has a non-empty value
-        instance_type = comfyui_config.get("runninghub_instance_type")
-        if instance_type and instance_type.strip():
-            kit_config["runninghub_instance_type"] = instance_type
-        
-        return kit_config
+        return self._get_comfyui_backend_registry().get_comfykit_config("default")
+
+    def _get_comfyui_backend_registry(self) -> ComfyUIBackendRegistry:
+        self.config = config_manager.config.to_dict()
+        return ComfyUIBackendRegistry(
+            config_manager.config.comfyui,
+            repo_root=Path(__file__).resolve().parents[1],
+        )
     
     def _compute_comfykit_config_hash(self, config: dict) -> str:
         """
@@ -341,7 +325,8 @@ class PixelleVideoCore:
         """Prepare self-hosted ComfyUI before a local workflow execution."""
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
-        base_url = comfyui_config.get("comfyui_url")
+        registry = self._get_comfyui_backend_registry()
+        base_url = registry.profile("default").url
         if not base_url:
             return
 
@@ -350,12 +335,7 @@ class PixelleVideoCore:
             logger.warning(f"Unsupported ComfyUI pre-generation cleanup mode: {mode}")
             return
 
-        cleanup_timeout_seconds = comfyui_config.get("pre_generation_cleanup_timeout_seconds") or 20.0
-        client = ComfyUIMaintenanceClient(
-            base_url,
-            api_key=comfyui_config.get("comfyui_api_key"),
-            idle_wait_timeout=cleanup_timeout_seconds,
-        )
+        client = registry.maintenance_client("default")
         try:
             await client.cleanup_before_generation(mode)
         except Exception as e:
@@ -384,14 +364,10 @@ class PixelleVideoCore:
     def _get_managed_comfyui_backend(self) -> ManagedComfyUIBackend | None:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
-        base_url = comfyui_config.get("comfyui_url")
-        if not base_url:
+        registry = self._get_comfyui_backend_registry()
+        if not registry.profile("default").url:
             return None
-        return ManagedComfyUIBackend(
-            repo_root=Path(__file__).resolve().parents[1],
-            comfyui_url=base_url,
-            management_mode=self._get_comfyui_backend_management_mode(comfyui_config),
-        )
+        return registry.managed_backend("default")
 
     async def restart_managed_comfyui_backend(self, reason: str) -> bool:
         backend = self._get_managed_comfyui_backend()
@@ -460,15 +436,13 @@ class PixelleVideoCore:
     ) -> bool:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
-        base_url = comfyui_config.get("comfyui_url")
+        registry = self._get_comfyui_backend_registry()
+        base_url = registry.profile("default").url
         if not base_url:
             return False
 
         model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
-        client = ComfyUIMaintenanceClient(
-            base_url,
-            api_key=comfyui_config.get("comfyui_api_key"),
-        )
+        client = registry.maintenance_client("default")
         try:
             if include_extensions:
                 result = await client.free_memory_with_extensions_when_idle(
@@ -496,14 +470,12 @@ class PixelleVideoCore:
     ) -> bool:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
-        base_url = comfyui_config.get("comfyui_url")
+        registry = self._get_comfyui_backend_registry()
+        base_url = registry.profile("default").url
         if not base_url:
             return False
 
-        client = ComfyUIMaintenanceClient(
-            base_url,
-            api_key=comfyui_config.get("comfyui_api_key"),
-        )
+        client = registry.maintenance_client("default")
         try:
             model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
             if include_extensions or model_cleanup_mode == "comfyui_and_extensions":
@@ -533,14 +505,12 @@ class PixelleVideoCore:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
         model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
-        base_url = comfyui_config.get("comfyui_url")
+        registry = self._get_comfyui_backend_registry()
+        base_url = registry.profile("default").url
         if not base_url:
             return False
 
-        client = ComfyUIMaintenanceClient(
-            base_url,
-            api_key=comfyui_config.get("comfyui_api_key"),
-        )
+        client = registry.maintenance_client("default")
         try:
             results = await client.preflight_extension_release_endpoints(
                 extensions=extensions,
