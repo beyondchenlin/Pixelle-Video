@@ -15,6 +15,7 @@ API Routers
 """
 
 from api.routers.asset_bible import router as asset_bible_router
+from api.routers.asset_bible_presets import router as asset_bible_presets_router
 from api.routers.content import router as content_router
 from api.routers.files import router as files_router
 from api.routers.frame import router as frame_router
@@ -39,6 +40,7 @@ __all__ = [
     "image_router",
     "layered_template_preview_router",
     "content_router",
+    "asset_bible_presets_router",
     "asset_bible_router",
     "video_router",
     "tasks_router",

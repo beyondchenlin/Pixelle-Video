@@ -47,6 +47,7 @@ def test_dev_platform_dependencies_mount_workbench_services_and_repositories(tmp
     assert app.state.trace_repository is dependencies.trace_repository
     assert app.state.prompt_plan_repository is dependencies.prompt_plan_repository
     assert app.state.asset_bible_repository is dependencies.asset_bible_repository
+    assert app.state.asset_bible_preset_registry is dependencies.asset_bible_preset_registry
     assert app.state.dependency_edge_repository is dependencies.dependency_edge_repository
     assert app.state.stale_mark_repository is dependencies.stale_mark_repository
     assert isinstance(app.state.storyboard_workbench_state_store, FilesystemDevStoryboardWorkbenchStateStore)

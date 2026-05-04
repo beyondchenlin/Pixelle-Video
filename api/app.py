@@ -51,11 +51,16 @@ import api.routers.tasks as tasks_router_module
 import api.routers.video as video_router_module
 import api.tasks.manager as task_manager_module
 from api.config import api_config
-from api.dependencies import get_pixelle_video, set_platform_dependencies, shutdown_pixelle_video
+from api.dependencies import (
+    get_pixelle_video,
+    set_platform_dependencies,
+    shutdown_pixelle_video,
+)
 from api.platform_dependencies import configure_platform_dependencies
 
 # Import routers
 from api.routers import (
+    asset_bible_presets_router,
     asset_bible_router,
     content_router,
     files_router,
@@ -178,6 +183,7 @@ app.include_router(tts_router, prefix=api_config.api_prefix)
 app.include_router(image_router, prefix=api_config.api_prefix)
 app.include_router(layered_template_preview_router, prefix=api_config.api_prefix)
 app.include_router(content_router, prefix=api_config.api_prefix)
+app.include_router(asset_bible_presets_router, prefix=api_config.api_prefix)
 app.include_router(asset_bible_router, prefix=api_config.api_prefix)
 app.include_router(video_router, prefix=api_config.api_prefix)
 app.include_router(tasks_router, prefix=api_config.api_prefix)
@@ -204,6 +210,7 @@ async def root():
             "image": f"{api_config.api_prefix}/image",
             "layered_templates": f"{api_config.api_prefix}/layered-templates",
             "content": f"{api_config.api_prefix}/content",
+            "asset_bible_presets": f"{api_config.api_prefix}/presets/asset-bibles",
             "asset_bible": f"{api_config.api_prefix}/projects/{{project_id}}/asset-bible",
             "video": f"{api_config.api_prefix}/video",
             "tasks": f"{api_config.api_prefix}/tasks",

@@ -15,6 +15,7 @@ from api.workbench.task_submitter import (
 from pixelle_video.services.artifact_dependency_integration import (
     ArtifactDependencyWriteService,
 )
+from pixelle_video.services.asset_bible_preset_registry import AssetBiblePresetRegistry
 from pixelle_video.services.asset_prompt_plan_apply import AssetPromptPlanApplyService
 from pixelle_video.services.stale_write_integration import StaleAwarePromptPlanWriteService
 from pixelle_video.services.storyboard_workbench import StoryboardWorkbenchService
@@ -37,6 +38,7 @@ class PlatformDependencies:
     trace_repository: FilesystemDevTraceRepository
     prompt_plan_repository: FilesystemDevPromptPlanRepository
     asset_bible_repository: FilesystemDevAssetBibleRepository
+    asset_bible_preset_registry: AssetBiblePresetRegistry
     dependency_edge_repository: FilesystemDevDependencyEdgeRepository
     stale_mark_repository: FilesystemDevStaleMarkRepository
     asset_prompt_plan_apply_service: AssetPromptPlanApplyService
@@ -90,6 +92,7 @@ def build_platform_dependencies(
     trace_repository = FilesystemDevTraceRepository(f"{platform_root}/traces")
     prompt_plan_repository = FilesystemDevPromptPlanRepository(f"{platform_root}/prompt_plans")
     asset_bible_repository = FilesystemDevAssetBibleRepository(f"{platform_root}/assets")
+    asset_bible_preset_registry = AssetBiblePresetRegistry()
     dependency_edge_repository = FilesystemDevDependencyEdgeRepository(f"{platform_root}/dependencies")
     stale_mark_repository = FilesystemDevStaleMarkRepository(f"{platform_root}/stale_marks")
     storyboard_workbench_state_store = FilesystemDevStoryboardWorkbenchStateStore(
@@ -126,6 +129,7 @@ def build_platform_dependencies(
         trace_repository=trace_repository,
         prompt_plan_repository=prompt_plan_repository,
         asset_bible_repository=asset_bible_repository,
+        asset_bible_preset_registry=asset_bible_preset_registry,
         dependency_edge_repository=dependency_edge_repository,
         stale_mark_repository=stale_mark_repository,
         asset_prompt_plan_apply_service=asset_prompt_plan_apply_service,
