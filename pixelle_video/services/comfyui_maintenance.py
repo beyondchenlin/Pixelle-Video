@@ -9,7 +9,7 @@ from loguru import logger
 
 ComfyUICleanupMode = Literal["force", "conservative"]
 ComfyUIReleaseIntensity = Literal["high", "low"]
-ComfyUIExtensionName = Literal["indextts2"]
+ComfyUIExtensionName = Literal["indextts2", "gguf"]
 ComfyUIExtensionMissingEndpointMode = Literal["optional", "required"]
 _IDLE_POLL_INTERVAL_SECONDS = 0.2
 _RELEASE_SETTLE_POLL_INTERVAL_SECONDS = 0.5
@@ -23,9 +23,15 @@ _FREE_MEMORY_PAYLOADS: dict[ComfyUIReleaseIntensity, dict[str, bool]] = {
 
 _EXTENSION_RELEASE_ENDPOINTS: dict[ComfyUIExtensionName, str] = {
     "indextts2": "/pixelle/indextts2/free",
+    "gguf": "/pixelle/gguf/free",
 }
 _EXTENSION_HEALTH_ENDPOINTS: dict[ComfyUIExtensionName, str] = {
     "indextts2": "/pixelle/indextts2/health",
+    "gguf": "/pixelle/gguf/health",
+}
+_EXTENSION_PATCH_INSTRUCTIONS: dict[ComfyUIExtensionName, str] = {
+    "indextts2": "Run tools/patch_indextts2_plugin.py against ComfyUI-Index-TTS, then restart ComfyUI.",
+    "gguf": "Run tools/patch_gguf_plugin.py against ComfyUI-GGUF, then restart ComfyUI.",
 }
 
 _VRAM_RESPONSE_KEYS = (
@@ -132,6 +138,7 @@ class ComfyUIMaintenanceClient:
         idle_wait_timeout: float = 20.0,
         release_settle_timeout: float = 30.0,
         release_poll_interval: float = _RELEASE_SETTLE_POLL_INTERVAL_SECONDS,
+        release_request_timeout: float = 60.0,
     ) -> None:
         if idle_wait_timeout <= 0:
             raise ValueError("idle_wait_timeout must be positive")
@@ -141,6 +148,8 @@ class ComfyUIMaintenanceClient:
             raise ValueError("release_settle_timeout must be positive")
         if release_poll_interval <= 0:
             raise ValueError("release_poll_interval must be positive")
+        if release_request_timeout <= 0:
+            raise ValueError("release_request_timeout must be positive")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
@@ -149,6 +158,7 @@ class ComfyUIMaintenanceClient:
         self.idle_wait_timeout = idle_wait_timeout
         self.release_settle_timeout = release_settle_timeout
         self.release_poll_interval = release_poll_interval
+        self.release_request_timeout = release_request_timeout
 
     async def cleanup_before_generation(self, mode: ComfyUICleanupMode) -> None:
         if mode == "force":
@@ -300,8 +310,7 @@ class ComfyUIMaintenanceClient:
                 if exc.response.status_code == 404:
                     message = (
                         f"ComfyUI extension health endpoint {endpoint} is missing. "
-                        "Run tools/patch_indextts2_plugin.py against ComfyUI-Index-TTS, "
-                        "then restart ComfyUI."
+                        f"{_EXTENSION_PATCH_INSTRUCTIONS[extension]}"
                     )
                     raise RuntimeError(message) from exc
                 raise
@@ -311,8 +320,7 @@ class ComfyUIMaintenanceClient:
             if self._parse_protocol_version(data) != 2:
                 message = (
                     f"ComfyUI extension health endpoint {endpoint} does not expose "
-                    "Pixelle release protocol v2. Run tools/patch_indextts2_plugin.py "
-                    "against ComfyUI-Index-TTS, then restart ComfyUI."
+                    f"Pixelle release protocol v2. {_EXTENSION_PATCH_INSTRUCTIONS[extension]}"
                 )
                 raise RuntimeError(message)
             results.append(
@@ -337,13 +345,17 @@ class ComfyUIMaintenanceClient:
         for extension in extensions:
             endpoint = _EXTENSION_RELEASE_ENDPOINTS[extension]
             try:
-                response = await self._request("POST", endpoint, json={})
+                response = await self._request(
+                    "POST",
+                    endpoint,
+                    json={},
+                    timeout=self.release_request_timeout,
+                )
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 404:
                     message = (
                         f"ComfyUI extension cleanup endpoint {endpoint} is missing. "
-                        "Run tools/patch_indextts2_plugin.py against ComfyUI-Index-TTS, "
-                        "then restart ComfyUI."
+                        f"{_EXTENSION_PATCH_INSTRUCTIONS[extension]}"
                     )
                     if missing_endpoint == "optional":
                         logger.warning(message)
@@ -459,15 +471,7 @@ class ComfyUIMaintenanceClient:
     def _is_extension_safe_to_continue(self, data: dict[str, Any]) -> bool:
         if self._parse_protocol_version(data) != 2:
             return False
-        if not bool(data.get("safe_to_continue")):
-            return False
-        residual_objects = data.get("residual_objects")
-        if isinstance(residual_objects, list) and residual_objects:
-            return False
-        errors = data.get("errors")
-        if isinstance(errors, list) and errors:
-            return False
-        return True
+        return bool(data.get("safe_to_continue"))
 
     async def free_memory_when_idle(
         self,

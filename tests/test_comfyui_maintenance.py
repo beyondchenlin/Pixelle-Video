@@ -454,6 +454,204 @@ async def test_free_memory_with_extensions_accepts_extension_safe_to_continue_wh
 
 
 @pytest.mark.asyncio
+async def test_free_memory_with_gguf_extension_accepts_safe_to_continue_when_vram_does_not_drop(monkeypatch):
+    unchanged_snapshot = {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_total": 8192,
+                "vram_free": 1024,
+                "torch_vram_total": 8192,
+                "torch_vram_free": 64,
+            }
+        ]
+    }
+
+    class _SafeGGUFExtensionTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/system_stats" and request.method == "GET":
+                if self.system_stats_payloads:
+                    payload = self.system_stats_payloads.pop(0)
+                    self.last_system_stats_payload = payload
+                else:
+                    payload = self.last_system_stats_payload or {}
+                return httpx.Response(200, json=payload, request=request)
+            if request.url.path == "/pixelle/gguf/free":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "safe_to_continue": True,
+                        "released": True,
+                        "objects_seen": ["gguf_model", "gguf_clip"],
+                        "objects_released": ["gguf_model", "gguf_clip"],
+                        "residual_objects": [],
+                        "errors": [],
+                        "cuda_allocated_before": 2048,
+                        "cuda_allocated_after": 2048,
+                        "cuda_reserved_before": 4096,
+                        "cuda_reserved_after": 4096,
+                    },
+                    request=request,
+                )
+            return await super().handle_async_request(request)
+
+    transport = _SafeGGUFExtensionTransport(system_stats_payloads=[unchanged_snapshot] * 10)
+    client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=transport,
+        release_settle_timeout=0.01,
+    )
+
+    async def _immediate_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
+
+    result = await client.free_memory_with_extensions(
+        "high",
+        extensions=("gguf",),
+    )
+
+    assert result.comfyui_released is False
+    assert result.extensions[0].extension == "gguf"
+    assert result.extensions[0].safe_to_continue is True
+    assert result.released is True
+    assert result.safe_to_continue is True
+    assert result.release_confirmation_reason == "extension_safe_to_continue"
+    assert transport.calls[:3] == [
+        ("GET", "/system_stats", None),
+        ("POST", "/pixelle/gguf/free", {}),
+        ("POST", "/free", {"unload_models": True, "free_memory": True}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_free_memory_with_gguf_extension_treats_residual_objects_as_diagnostics_when_safe(monkeypatch):
+    unchanged_snapshot = {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_total": 8192,
+                "vram_free": 1024,
+                "torch_vram_total": 8192,
+                "torch_vram_free": 64,
+            }
+        ]
+    }
+
+    class _SafeGGUFResidualTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/system_stats" and request.method == "GET":
+                if self.system_stats_payloads:
+                    payload = self.system_stats_payloads.pop(0)
+                    self.last_system_stats_payload = payload
+                else:
+                    payload = self.last_system_stats_payload or {}
+                return httpx.Response(200, json=payload, request=request)
+            if request.url.path == "/pixelle/gguf/free":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "extension": "gguf",
+                        "released": True,
+                        "safe_to_continue": True,
+                        "objects_seen": ["GGUFModelPatcher"],
+                        "objects_released": [],
+                        "residual_objects": ["GGUFModelPatcher"],
+                        "errors": [],
+                        "cuda_allocated_before": 7_977_325_732,
+                        "cuda_allocated_after": 9_568_256,
+                        "cuda_reserved_before": 7_985_954_816,
+                        "cuda_reserved_after": 100_663_296,
+                    },
+                    request=request,
+                )
+            return await super().handle_async_request(request)
+
+    transport = _SafeGGUFResidualTransport(system_stats_payloads=[unchanged_snapshot] * 10)
+    client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=transport,
+        release_settle_timeout=0.01,
+    )
+
+    async def _immediate_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
+
+    result = await client.free_memory_with_extensions("high", extensions=("gguf",))
+
+    assert result.comfyui_released is False
+    assert result.extensions[0].safe_to_continue is True
+    assert result.released is True
+    assert result.safe_to_continue is True
+    assert result.release_confirmation_reason == "extension_safe_to_continue"
+    assert result.extensions[0].response["residual_objects"] == ["GGUFModelPatcher"]
+
+
+@pytest.mark.asyncio
+async def test_free_memory_with_extension_keeps_success_when_system_stats_disappear_after_free():
+    class _StatsDisappearAfterFreeTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/system_stats" and request.method == "GET":
+                if not any(call[:2] == ("POST", "/free") for call in self.calls):
+                    return httpx.Response(
+                        200,
+                        json={
+                            "devices": [
+                                {
+                                    "name": "NVIDIA",
+                                    "type": "cuda",
+                                    "vram_total": 8192,
+                                    "vram_free": 1024,
+                                    "torch_vram_total": 8192,
+                                    "torch_vram_free": 64,
+                                }
+                            ]
+                        },
+                        request=request,
+                    )
+                return httpx.Response(503, request=request)
+            if request.url.path == "/pixelle/gguf/free":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "safe_to_continue": True,
+                        "released": True,
+                        "residual_objects": [],
+                        "errors": [],
+                    },
+                    request=request,
+                )
+            return await super().handle_async_request(request)
+
+    transport = _StatsDisappearAfterFreeTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    result = await client.free_memory_with_extensions("high", extensions=("gguf",))
+
+    assert result.comfyui_released is False
+    assert result.released is True
+    assert result.safe_to_continue is True
+    assert result.release_confirmation_reason == "extension_safe_to_continue"
+
+
+@pytest.mark.asyncio
 async def test_free_memory_with_extensions_stops_when_extension_reports_residual_objects(monkeypatch):
     unchanged_snapshot = {
         "devices": [
@@ -819,6 +1017,29 @@ async def test_free_extension_models_raises_when_required_endpoint_is_missing():
 
 
 @pytest.mark.asyncio
+async def test_free_gguf_extension_models_missing_endpoint_points_to_gguf_patch_script():
+    class _MissingEndpointTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/pixelle/gguf/free":
+                return httpx.Response(404, request=request)
+            return httpx.Response(200, request=request)
+
+    transport = _MissingEndpointTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    with pytest.raises(RuntimeError, match="tools/patch_gguf_plugin.py"):
+        await client.free_extension_models(
+            extensions=("gguf",),
+            missing_endpoint="required",
+        )
+
+    assert transport.calls == [("POST", "/pixelle/gguf/free", {})]
+
+
+@pytest.mark.asyncio
 async def test_preflight_extension_release_endpoints_fails_fast_when_required_endpoint_is_missing():
     class _MissingEndpointTransport(_RecordingTransport):
         async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
@@ -836,6 +1057,26 @@ async def test_preflight_extension_release_endpoints_fails_fast_when_required_en
         await client.preflight_extension_release_endpoints(extensions=("indextts2",))
 
     assert transport.calls == [("GET", "/pixelle/indextts2/health", None)]
+
+
+@pytest.mark.asyncio
+async def test_preflight_gguf_extension_release_endpoints_points_to_gguf_patch_script():
+    class _MissingEndpointTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/pixelle/gguf/health":
+                return httpx.Response(404, request=request)
+            return httpx.Response(200, request=request)
+
+    transport = _MissingEndpointTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    with pytest.raises(RuntimeError, match="tools/patch_gguf_plugin.py"):
+        await client.preflight_extension_release_endpoints(extensions=("gguf",))
+
+    assert transport.calls == [("GET", "/pixelle/gguf/health", None)]
 
 
 @pytest.mark.asyncio
@@ -924,6 +1165,42 @@ async def test_system_vram_snapshot_uses_short_timeout():
         ]
     }
     assert calls == [("GET", "/system_stats", 0.25)]
+
+
+@pytest.mark.asyncio
+async def test_free_extension_models_uses_release_request_timeout():
+    calls = []
+
+    class _Client(ComfyUIMaintenanceClient):
+        async def _request(self, method, path, **kwargs):
+            calls.append((method, path, kwargs.get("timeout")))
+            if path == "/pixelle/gguf/free":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "safe_to_continue": True,
+                        "released": True,
+                        "residual_objects": [],
+                        "errors": [],
+                    },
+                    request=httpx.Request(method, f"http://127.0.0.1:8000{path}"),
+                )
+            return httpx.Response(
+                200,
+                json={},
+                request=httpx.Request(method, f"http://127.0.0.1:8000{path}"),
+            )
+
+    client = _Client(
+        "http://127.0.0.1:8000",
+        release_request_timeout=45.0,
+    )
+
+    result = await client.free_extension_models(extensions=("gguf",))
+
+    assert result[0].safe_to_continue is True
+    assert calls == [("POST", "/pixelle/gguf/free", 45.0)]
 
 
 @pytest.mark.asyncio

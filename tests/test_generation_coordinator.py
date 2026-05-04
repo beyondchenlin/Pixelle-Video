@@ -311,6 +311,73 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_models_after
 
 
 @pytest.mark.asyncio
+async def test_core_execute_gguf_workflow_releases_gguf_extension_after_execute(tmp_path):
+    workflow_path = tmp_path / "image_gguf.json"
+    workflow_path.write_text(
+        json.dumps(
+            {
+                "37": {
+                    "inputs": {"unet_name": "z-image-turbo-Q4_K_M.gguf"},
+                    "class_type": "UnetLoaderGGUF",
+                },
+                "38": {
+                    "inputs": {"clip_name": "Qwen3-4B-Q4_K_M.gguf"},
+                    "class_type": "CLIPLoaderGGUF",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls = []
+
+    class _Kit:
+        async def execute(self, workflow_input, workflow_params):
+            calls.append(("execute", workflow_input, workflow_params))
+            return SimpleNamespace(status="completed")
+
+    core = PixelleVideoCore()
+
+    async def _prepare():
+        calls.append(("prepare",))
+
+    async def _release_workflow():
+        raise AssertionError("GGUF workflow should use the extension release path")
+
+    async def _release_extensions(*, context, extensions=("indextts2",), missing_endpoint="optional"):
+        calls.append(("extension_release", context, extensions, missing_endpoint))
+        return True
+
+    async def _preflight(*, context, extensions=("indextts2",)):
+        calls.append(("preflight", context, extensions))
+        return True
+
+    async def _get_kit():
+        calls.append(("get_kit",))
+        return _Kit()
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core.release_comfyui_after_local_workflow = _release_workflow
+    core.release_comfyui_after_local_workflow_extensions = _release_extensions
+    core.preflight_comfyui_extension_release_endpoints = _preflight
+    core._get_or_create_comfykit = _get_kit
+
+    result = await core.execute_comfykit_workflow(
+        str(workflow_path),
+        {"prompt": "demo"},
+        workflow_source="selfhost",
+    )
+
+    assert result.status == "completed"
+    assert calls == [
+        ("prepare",),
+        ("preflight", "pre-gguf-workflow", ("gguf",)),
+        ("get_kit",),
+        ("execute", str(workflow_path), {"prompt": "demo"}),
+        ("extension_release", "post-gguf-workflow", ("gguf",), "required"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_core_execute_local_comfy_workflow_releases_after_failure():
     calls = []
 

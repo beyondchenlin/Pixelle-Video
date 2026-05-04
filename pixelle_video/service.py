@@ -22,7 +22,7 @@ import json
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from comfykit import ComfyKit
 from loguru import logger
@@ -37,7 +37,10 @@ from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.services.alignment_service import AlignmentService
 from pixelle_video.services.audio_edit_service import AudioEditService
 from pixelle_video.services.comfyui_errors import looks_like_memory_exhaustion
-from pixelle_video.services.comfyui_maintenance import ComfyUIMaintenanceClient
+from pixelle_video.services.comfyui_maintenance import (
+    ComfyUIExtensionName,
+    ComfyUIMaintenanceClient,
+)
 from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.generation_coordinator import (
     GenerationCoordinator,
@@ -56,6 +59,21 @@ from pixelle_video.services.video_analysis import VideoAnalysisService
 from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
 from pixelle_video.utils.os_util import get_output_path
 
+_GGUF_WORKFLOW_NODE_CLASS_TYPES = frozenset(
+    {
+        "UnetLoaderGGUF",
+        "UnetLoaderGGUFAdvanced",
+        "CLIPLoaderGGUF",
+        "DualCLIPLoaderGGUF",
+        "TripleCLIPLoaderGGUF",
+        "QuadrupleCLIPLoaderGGUF",
+    }
+)
+_EXTENSION_RELEASE_CONTEXTS: dict[ComfyUIExtensionName, str] = {
+    "indextts2": "index-tts2",
+    "gguf": "gguf",
+}
+
 
 class _LocalComfyUIWorkflowSession:
     def __init__(self, *, release_after_session: bool = False) -> None:
@@ -63,8 +81,8 @@ class _LocalComfyUIWorkflowSession:
         self.execute_lock = asyncio.Lock()
         self.lock_acquired = False
         self.prepared = False
-        self.used_index_tts2 = False
-        self.index_tts2_release_preflight_done = False
+        self.used_extensions: set[ComfyUIExtensionName] = set()
+        self.preflighted_extensions: set[ComfyUIExtensionName] = set()
         self.release_after_session = release_after_session
 
 
@@ -72,9 +90,13 @@ class _LocalComfyUITaskScope:
     def __init__(self) -> None:
         self.used_local_comfyui = False
         self.pending_memory_release = False
-        self.pending_extension_memory_release = False
+        self.pending_extensions: set[ComfyUIExtensionName] = set()
         self.registered_active_task = False
         self.release_failed = False
+
+    @property
+    def pending_extension_memory_release(self) -> bool:
+        return bool(self.pending_extensions)
 
 
 class PixelleVideoCore:
@@ -399,6 +421,7 @@ class PixelleVideoCore:
         context: str,
         *,
         include_extensions: bool = False,
+        extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
         missing_endpoint: str = "optional",
     ) -> bool:
         self.config = config_manager.config.to_dict()
@@ -416,7 +439,7 @@ class PixelleVideoCore:
             if include_extensions:
                 result = await client.free_memory_with_extensions_when_idle(
                     intensity="high",
-                    extensions=("indextts2",),
+                    extensions=extensions,
                     missing_endpoint=missing_endpoint,
                 )
             else:
@@ -435,6 +458,7 @@ class PixelleVideoCore:
         *,
         context: str,
         include_extensions: bool = False,
+        extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
     ) -> bool:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
@@ -451,7 +475,7 @@ class PixelleVideoCore:
             if include_extensions or model_cleanup_mode == "comfyui_and_extensions":
                 result = await client.free_memory_with_extensions(
                     "high",
-                    extensions=("indextts2",),
+                    extensions=extensions,
                     missing_endpoint="required",
                 )
             else:
@@ -470,7 +494,7 @@ class PixelleVideoCore:
         self,
         *,
         context: str,
-        extensions=("indextts2",),
+        extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
     ) -> bool:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
@@ -497,6 +521,32 @@ class PixelleVideoCore:
             results=results,
         )
         return True
+
+    async def release_comfyui_after_local_workflow_extensions(
+        self,
+        *,
+        context: str,
+        extensions: tuple[ComfyUIExtensionName, ...],
+        missing_endpoint: str = "required",
+    ) -> bool:
+        """Release standard ComfyUI memory plus Pixelle-managed extension caches."""
+        if not extensions:
+            return await self.release_comfyui_after_local_workflow()
+
+        released = await self._release_comfyui_memory_when_idle(
+            context,
+            include_extensions=True,
+            extensions=extensions,
+            missing_endpoint=missing_endpoint,
+        )
+        if not released:
+            raise RuntimeError(
+                f"ComfyUI {context} memory release was not confirmed; "
+                "stopping before the next Pixelle stage to avoid mixed model residency."
+            )
+        if released:
+            self._mark_local_comfyui_released()
+        return released
 
     async def release_comfyui_after_local_workflow(self) -> bool:
         """Release standard ComfyUI model/cache state after an image or video workflow batch."""
@@ -528,24 +578,134 @@ class PixelleVideoCore:
         missing_endpoint: str = "optional",
     ) -> bool:
         """Release standard ComfyUI memory plus IndexTTS2 plugin-private model cache."""
-        released = await self._release_comfyui_memory_when_idle(
-            context,
-            include_extensions=True,
+        return await self.release_comfyui_after_local_workflow_extensions(
+            context=context,
+            extensions=("indextts2",),
             missing_endpoint=missing_endpoint,
         )
-        if not released:
-            raise RuntimeError(
-                f"ComfyUI {context} memory release was not confirmed; "
-                "stopping before the next Pixelle stage to avoid mixed model residency."
-            )
-        if released:
-            self._mark_local_comfyui_released()
-        return released
 
     def _mark_local_comfyui_released(self) -> None:
         scope = self._local_comfyui_task_scope.get()
         if scope is not None:
             scope.pending_memory_release = False
+
+    def _workflow_extensions(self, workflow_input: Any) -> tuple[ComfyUIExtensionName, ...]:
+        extensions: list[ComfyUIExtensionName] = []
+        if is_index_tts2_workflow_key(workflow_input):
+            extensions.append("indextts2")
+        if self._is_gguf_workflow_key(workflow_input):
+            extensions.append("gguf")
+        return tuple(dict.fromkeys(extensions))
+
+    def _is_gguf_workflow_key(self, workflow_input: Any) -> bool:
+        workflow = self._load_workflow_mapping(workflow_input)
+        if workflow is None:
+            return False
+        return self._workflow_uses_gguf(workflow)
+
+    def _load_workflow_mapping(self, workflow_input: Any) -> dict[str, Any] | None:
+        if isinstance(workflow_input, dict):
+            return workflow_input
+
+        path = Path(str(workflow_input or ""))
+        candidates = [path, Path("workflows") / path]
+        if len(path.parts) == 1:
+            candidates.append(Path("workflows") / "selfhost" / path)
+
+        for candidate in candidates:
+            if not candidate.exists():
+                continue
+            try:
+                with candidate.open("r", encoding="utf-8") as handle:
+                    workflow = json.load(handle)
+            except Exception:
+                continue
+            if isinstance(workflow, dict):
+                return workflow
+        return None
+
+    def _workflow_uses_gguf(self, workflow: dict[str, Any]) -> bool:
+        for value in workflow.values():
+            if not isinstance(value, dict):
+                continue
+            class_type = value.get("class_type")
+            if class_type in _GGUF_WORKFLOW_NODE_CLASS_TYPES:
+                return True
+            if self._workflow_uses_gguf(value):
+                return True
+        return False
+
+    def _register_workflow_extensions(
+        self,
+        workflow_input: Any,
+    ) -> tuple[ComfyUIExtensionName, ...]:
+        extensions = self._workflow_extensions(workflow_input)
+        if not extensions:
+            return ()
+
+        session = self._local_comfyui_workflow_session.get()
+        if session is not None:
+            session.used_extensions.update(extensions)
+
+        scope = self._local_comfyui_task_scope.get()
+        if scope is not None:
+            scope.pending_extensions.update(extensions)
+        return extensions
+
+    async def _preflight_extension_release_endpoint_once(
+        self,
+        extension: ComfyUIExtensionName,
+        session: _LocalComfyUIWorkflowSession | None,
+    ) -> None:
+        context_suffix = _EXTENSION_RELEASE_CONTEXTS[extension]
+        if session is not None:
+            if extension in session.preflighted_extensions:
+                return
+            await self.preflight_comfyui_extension_release_endpoints(
+                context=f"pre-{context_suffix}-workflow",
+                extensions=(extension,),
+            )
+            session.preflighted_extensions.add(extension)
+            return
+
+        await self.preflight_comfyui_extension_release_endpoints(
+            context=f"pre-{context_suffix}-workflow",
+            extensions=(extension,),
+        )
+
+    async def _preflight_workflow_extensions_once(
+        self,
+        extensions: tuple[ComfyUIExtensionName, ...],
+        session: _LocalComfyUIWorkflowSession | None,
+    ) -> None:
+        for extension in extensions:
+            await self._preflight_extension_release_endpoint_once(extension, session)
+
+    async def _release_workflow_extensions(
+        self,
+        extensions: tuple[ComfyUIExtensionName, ...],
+        *,
+        context_prefix: str,
+        missing_endpoint: str = "required",
+    ) -> bool:
+        if not extensions:
+            return await self.release_comfyui_after_local_workflow()
+        if extensions == ("indextts2",):
+            return await self.release_comfyui_after_index_tts2_workflow(
+                context=f"{context_prefix}-index-tts2-workflow",
+                missing_endpoint=missing_endpoint,
+            )
+        if len(extensions) == 1:
+            suffix = _EXTENSION_RELEASE_CONTEXTS[extensions[0]]
+            context = f"{context_prefix}-{suffix}-workflow"
+        else:
+            suffix = "-".join(_EXTENSION_RELEASE_CONTEXTS[extension] for extension in extensions)
+            context = f"{context_prefix}-{suffix}-workflow"
+        return await self.release_comfyui_after_local_workflow_extensions(
+            context=context,
+            extensions=extensions,
+            missing_endpoint=missing_endpoint,
+        )
 
     async def _release_local_comfyui_after_workflow_session(
         self,
@@ -554,10 +714,12 @@ class PixelleVideoCore:
         if not session.prepared:
             return
 
-        if session.used_index_tts2:
+        extensions = tuple(sorted(session.used_extensions))
+        if extensions:
             try:
-                released = await self.release_comfyui_after_index_tts2_workflow(
-                    context="post-index-tts2-workflow",
+                released = await self._release_workflow_extensions(
+                    extensions,
+                    context_prefix="post",
                     missing_endpoint="required",
                 )
             except Exception:
@@ -569,7 +731,7 @@ class PixelleVideoCore:
                 self._mark_local_comfyui_released()
                 scope = self._local_comfyui_task_scope.get()
                 if scope is not None:
-                    scope.pending_extension_memory_release = False
+                    scope.pending_extensions.difference_update(extensions)
             return
 
         if (
@@ -599,38 +761,6 @@ class PixelleVideoCore:
                 self._local_comfyui_active_task_count += 1
                 scope.registered_active_task = True
 
-    def _mark_index_tts2_workflow_use(self, workflow_input) -> bool:
-        if not is_index_tts2_workflow_key(workflow_input):
-            return False
-
-        session = self._local_comfyui_workflow_session.get()
-        if session is not None:
-            session.used_index_tts2 = True
-
-        scope = self._local_comfyui_task_scope.get()
-        if scope is not None:
-            scope.pending_extension_memory_release = True
-        return True
-
-    async def _preflight_index_tts2_release_endpoint_once(
-        self,
-        session: _LocalComfyUIWorkflowSession | None,
-    ) -> None:
-        if session is not None:
-            if session.index_tts2_release_preflight_done:
-                return
-            await self.preflight_comfyui_extension_release_endpoints(
-                context="pre-index-tts2-workflow",
-                extensions=("indextts2",),
-            )
-            session.index_tts2_release_preflight_done = True
-            return
-
-        await self.preflight_comfyui_extension_release_endpoints(
-            context="pre-index-tts2-workflow",
-            extensions=("indextts2",),
-        )
-
     async def _execute_local_comfykit_workflow_once(self, workflow_input, workflow_params: dict):
         kit = await self._get_or_create_comfykit()
         return await kit.execute(workflow_input, workflow_params)
@@ -649,10 +779,12 @@ class PixelleVideoCore:
                 "Local ComfyUI workflow ran out of memory; releasing memory and "
                 "retrying once after a fresh pre-workflow cleanup."
             )
-            if is_index_tts2_workflow_key(workflow_input):
+            extensions = self._workflow_extensions(workflow_input)
+            if extensions:
                 released = await self.force_release_comfyui_memory(
                     context="oom-recovery",
                     include_extensions=True,
+                    extensions=extensions,
                 )
             else:
                 released = await self.force_release_comfyui_memory(
@@ -689,9 +821,9 @@ class PixelleVideoCore:
                     raise
 
         async with session.execute_lock:
-            used_index_tts2 = self._mark_index_tts2_workflow_use(workflow_input)
-            if used_index_tts2:
-                await self._preflight_index_tts2_release_endpoint_once(session)
+            extensions = self._register_workflow_extensions(workflow_input)
+            if extensions:
+                await self._preflight_workflow_extensions_once(extensions, session)
             return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
 
     @asynccontextmanager
@@ -767,18 +899,20 @@ class PixelleVideoCore:
                     and not scope.release_failed
                 ):
                     try:
-                        released = await self.release_comfyui_after_index_tts2_workflow(
-                            context="post-task-index-tts2-fallback",
+                        extensions = tuple(sorted(scope.pending_extensions))
+                        released = await self._release_workflow_extensions(
+                            extensions,
+                            context_prefix="post-task",
                             missing_endpoint="required",
                         )
                         if released:
                             self._mark_local_comfyui_released()
-                            scope.pending_extension_memory_release = False
+                            scope.pending_extensions.difference_update(extensions)
                     except Exception as exc:
                         if not body_failed:
                             raise
                         logger.warning(
-                            "ComfyUI post-task IndexTTS2 fallback release failed while "
+                            "ComfyUI post-task extension fallback release failed while "
                             f"unwinding a failed task; preserving original error: {exc}"
                         )
 
@@ -828,9 +962,9 @@ class PixelleVideoCore:
         async with self._local_comfyui_execution_lock:
             await self.prepare_comfyui_for_local_workflow()
             await self._register_local_comfyui_task_use()
-            used_index_tts2 = self._mark_index_tts2_workflow_use(workflow_input)
-            if used_index_tts2:
-                await self._preflight_index_tts2_release_endpoint_once(session)
+            extensions = self._register_workflow_extensions(workflow_input)
+            if extensions:
+                await self._preflight_workflow_extensions_once(extensions, session)
             workflow_failed = False
             try:
                 return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
@@ -840,13 +974,11 @@ class PixelleVideoCore:
             finally:
                 if self._should_release_local_comfyui_after_workflow():
                     try:
-                        if used_index_tts2:
-                            await self.release_comfyui_after_index_tts2_workflow(
-                                context="post-index-tts2-workflow",
-                                missing_endpoint="required",
-                            )
-                        else:
-                            await self.release_comfyui_after_local_workflow()
+                        await self._release_workflow_extensions(
+                            extensions,
+                            context_prefix="post",
+                            missing_endpoint="required",
+                        )
                     except Exception as exc:
                         if not workflow_failed:
                             raise
