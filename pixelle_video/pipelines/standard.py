@@ -1020,9 +1020,9 @@ class StandardPipeline(LinearVideoPipeline):
 
         cjk_chars = sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
         latin_words = len(re.findall(r"[A-Za-z0-9']+", text))
-        estimated_duration = max(
-            cjk_chars / HYPERFRAMES_CJK_CHARS_PER_SECOND_ESTIMATE,
-            latin_words / HYPERFRAMES_LATIN_WORDS_PER_SECOND_ESTIMATE,
+        estimated_duration = (
+            cjk_chars / HYPERFRAMES_CJK_CHARS_PER_SECOND_ESTIMATE
+            + latin_words / HYPERFRAMES_LATIN_WORDS_PER_SECOND_ESTIMATE
         )
         return estimated_duration
 
@@ -2074,6 +2074,24 @@ class StandardPipeline(LinearVideoPipeline):
 
         logger.info("HyperFrames raw media assets prepared; skipping legacy HTML prerender")
 
+    async def _ensure_manifest_template_frames(self, ctx: PipelineContext) -> None:
+        effective_tts_audio_strategy = self._resolve_effective_tts_audio_strategy(ctx)
+        template_body_text = (
+            self._legacy_template_body_text_for_captions(ctx)
+            if effective_tts_audio_strategy == MASTER_TRACK_TTS_AUDIO_STRATEGY
+            else None
+        )
+
+        for frame in ctx.storyboard.frames:
+            if getattr(frame, "composed_image_path", None):
+                continue
+            await self.core.frame_processor._step_compose_frame(
+                frame,
+                ctx.storyboard,
+                ctx.config,
+                template_body_text=template_body_text,
+            )
+
     async def _register_storyboard_workbench_parallel_results(
         self,
         ctx: PipelineContext,
@@ -2736,9 +2754,23 @@ class StandardPipeline(LinearVideoPipeline):
                 trim_result.timeline,
             )
 
+        setattr(ctx, "master_audio_path", master_audio_path)
+        setattr(ctx, "master_audio_duration", master_audio_duration)
         if timing_plan.blocks:
             timing_plan.blocks[-1].end = master_audio_duration
         storyboard.total_duration = master_audio_duration
+
+        effective_backend = self._resolve_effective_render_backend(ctx)
+        if effective_backend == FFMPEG_MANIFEST_RENDER_BACKEND:
+            logger.warning(
+                "Switching HyperFrames post-production to ffmpeg_manifest after "
+                "master audio synthesis: "
+                f"{self._get_render_backend_fallback_reason(ctx)}"
+            )
+            await self._ensure_manifest_template_frames(ctx)
+            await self._post_production_ffmpeg_manifest(ctx)
+            return
+
         canvas_width, canvas_height = self._resolve_hyperframes_canvas_size(config)
         self._get_text_rendering_result(ctx)
         compiled_text_tracks, compiled_text_cues = self._compile_text_layer_for_render(ctx)
