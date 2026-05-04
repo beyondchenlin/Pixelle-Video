@@ -5,11 +5,15 @@ from html import escape
 from typing import Any, Mapping
 
 from pixelle_video.models.layered_template import LayeredTemplateSpec, TemplateLayer
+from pixelle_video.services.text_style_css_contract import (
+    TextStyleRegion,
+    render_text_style_css,
+    text_style_lines,
+)
 
 _HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 _ARTIFACT_KEY_PATTERN = re.compile(r"^artifacts/[A-Za-z0-9_-]+/[0-9A-Za-z][0-9A-Za-z_.-]*$")
 _SAFE_URL_PREFIXES = ("http://", "https://", "data:image/", "file://", "/api/files/")
-_UNSAFE_FONT_CHARS = {'"', "'", ";", ":", "{", "}", "(", ")", "\\", "/"}
 
 
 def render_layered_template_preview_html(
@@ -22,6 +26,7 @@ def render_layered_template_preview_html(
 ) -> str:
     layers_html = "\n".join(
         _render_layer(
+            spec=spec,
             layer=layer,
             title_text=title_text,
             caption_text=caption_text,
@@ -92,12 +97,13 @@ def render_layered_template_preview_html(
 
 def _render_layer(
     *,
+    spec: LayeredTemplateSpec,
     layer: TemplateLayer,
     title_text: str,
     caption_text: str,
     text_rendering: Mapping[str, Any],
 ) -> str:
-    css = _layer_css(layer)
+    css = _layer_css(layer, include_rect=layer.type != "text")
     attributes = (
         f'data-layer-id="{escape(layer.id, quote=True)}" '
         f'data-layer-type="{escape(layer.type, quote=True)}"'
@@ -108,9 +114,10 @@ def _render_layer(
             title_text=title_text,
             caption_text=caption_text,
         )
+        text = "\n".join(text_style_lines(text, style=layer.style))
         return (
             f'    <div class="pixelle-layer pixelle-text-layer" {attributes} '
-            f'style="{css}{_text_style_css(layer=layer, text_rendering=text_rendering)}">'
+            f'style="{css}{_text_style_css(spec=spec, layer=layer, text_rendering=text_rendering)}">'
             f"{escape(text)}</div>"
         )
     if layer.type in {"image", "generated_media"}:
@@ -176,17 +183,27 @@ def _safe_media_url(layer: TemplateLayer) -> str | None:
     return None
 
 
-def _layer_css(layer: TemplateLayer) -> str:
+def _layer_css(layer: TemplateLayer, *, include_rect: bool = True) -> str:
     rect = layer.rect
-    return (
-        f"left:{_px(rect.x)};"
-        f"top:{_px(rect.y)};"
-        f"width:{_px(rect.width)};"
-        f"height:{_px(rect.height)};"
-        f"z-index:{int(layer.z_index)};"
-        f"opacity:{layer.opacity:.6g};"
-        f"transform:rotate({layer.rotation:.6g}deg);"
+    css = []
+    if include_rect:
+        css.extend(
+            [
+                f"left:{_px(rect.x)};",
+                f"top:{_px(rect.y)};",
+                f"width:{_px(rect.width)};",
+                f"height:{_px(rect.height)};",
+            ]
+        )
+    css.extend(
+        [
+            f"z-index:{int(layer.z_index)};",
+            f"opacity:{layer.opacity:.6g};",
+        ]
     )
+    if include_rect:
+        css.append(f"transform:rotate({layer.rotation:.6g}deg);")
+    return "".join(css)
 
 
 def _background_style_css(layer: TemplateLayer) -> str:
@@ -200,6 +217,7 @@ def _background_style_css(layer: TemplateLayer) -> str:
 
 def _text_style_css(
     *,
+    spec: LayeredTemplateSpec,
     layer: TemplateLayer,
     text_rendering: Mapping[str, Any],
 ) -> str:
@@ -210,23 +228,20 @@ def _text_style_css(
         style.update(configured_style)
     style.update(layer.style)
 
-    css = []
-    font_family = _safe_font_family(style.get("font_family"))
-    if font_family is not None:
-        css.append(f"font-family:{font_family};")
-    font_size = _safe_int(style.get("font_size"), minimum=1, maximum=512)
-    if font_size is not None:
-        css.append(f"font-size:{font_size}px;")
-    color = style.get("primary_color") or style.get("color")
-    if _is_hex_color(color):
-        css.append(f"color:{color};")
-    alignment = style.get("alignment")
-    if alignment in {"left", "center", "right"}:
-        css.append(f"text-align:{alignment};justify-content:{_justify_content(str(alignment))};")
-    background_color = style.get("background_color")
-    if _is_hex_color(background_color):
-        css.append(f"background:{background_color};")
-    return "".join(css)
+    return render_text_style_css(
+        style,
+        canvas_width=spec.canvas_width,
+        canvas_height=spec.canvas_height,
+        region=TextStyleRegion(
+            x=float(layer.rect.x),
+            y=float(layer.rect.y),
+            width=float(layer.rect.width),
+            height=float(layer.rect.height),
+        ),
+        units="px",
+        default_font_size=42,
+        rotation_degrees=float(layer.rotation),
+    )
 
 
 def _safe_object_fit(value: Any) -> str:
@@ -237,39 +252,6 @@ def _safe_object_fit(value: Any) -> str:
 
 def _is_hex_color(value: Any) -> bool:
     return isinstance(value, str) and bool(_HEX_COLOR_PATTERN.fullmatch(value))
-
-
-def _safe_int(value: Any, *, minimum: int, maximum: int) -> int | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if not minimum <= parsed <= maximum:
-        return None
-    return parsed
-
-
-def _safe_font_family(value: Any) -> str | None:
-    raw_value = str(value or "").replace("\r", " ").replace("\n", " ")
-    if not raw_value.strip() or any(char in raw_value for char in _UNSAFE_FONT_CHARS):
-        return None
-    cleaned_chars = []
-    for char in raw_value:
-        if char.isalnum() or char.isspace() or char in {"-", "_", ",", "."}:
-            cleaned_chars.append(char)
-    cleaned = " ".join("".join(cleaned_chars).split())
-    families = [family.strip() for family in cleaned.split(",") if family.strip()]
-    return ", ".join(families) or None
-
-
-def _justify_content(alignment: str) -> str:
-    if alignment == "left":
-        return "flex-start"
-    if alignment == "right":
-        return "flex-end"
-    return "center"
 
 
 def _px(value: float) -> str:

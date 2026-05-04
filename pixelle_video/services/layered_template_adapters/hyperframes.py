@@ -8,6 +8,11 @@ from typing import Any, Mapping
 from pixelle_video.models.layered_template import LayeredTemplateSpec, TemplateLayer
 from pixelle_video.models.render_package import CaptionCue, VisualClip
 from pixelle_video.models.template_render_context import TemplateRenderContext
+from pixelle_video.services.text_style_css_contract import (
+    TextStyleRegion,
+    render_text_style_css,
+    text_style_lines,
+)
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
 
 _HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -161,7 +166,12 @@ class LayeredTemplateHyperFramesAdapter:
             None,
         )
         captions_html = "\n".join(
-            self._render_caption_cue(cue=cue, layer=caption_layer)
+            self._render_caption_cue(
+                cue=cue,
+                layer=caption_layer,
+                canvas_width=spec.canvas_width,
+                canvas_height=spec.canvas_height,
+            )
             for cue in context.captions
         )
         duration = max(float(context.duration), 0.001)
@@ -270,12 +280,13 @@ class LayeredTemplateHyperFramesAdapter:
         context: TemplateRenderContext,
     ) -> str:
         text = self._resolve_text_layer_content(layer=layer, context=context)
-        display_text = self.text_sanitizer.sanitize(text).display_text
+        normalized = "\n".join(text_style_lines(text, style=layer.style))
+        display_text = self.text_sanitizer.sanitize(normalized).display_text
         return (
             f'      <div class="pixelle-layer pixelle-layered-text" '
             f'data-layer-id="{escape(layer.id, quote=True)}" '
             f'data-layer-type="{escape(layer.type, quote=True)}" '
-            f'style="{self._layer_css(layer)}{self._text_css(layer)}">'
+            f'style="{self._layer_css(layer, include_rect=False)}{self._text_css(layer, canvas_width=context.canvas_width, canvas_height=context.canvas_height)}">'
             f"{escape(display_text)}</div>"
         )
 
@@ -364,9 +375,15 @@ class LayeredTemplateHyperFramesAdapter:
         *,
         cue: CaptionCue,
         layer: TemplateLayer | None,
+        canvas_width: int,
+        canvas_height: int,
     ) -> str:
         duration = max(float(cue.end) - float(cue.start), 0.001)
-        css = self._layer_css(layer) + self._text_css(layer) if layer is not None else (
+        css = self._layer_css(layer, include_rect=False) + self._text_css(
+            layer,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+        ) if layer is not None else (
             "left:0;top:0;width:100%;height:100%;z-index:0;opacity:1;"
             "transform:rotate(0deg);font-size:32px;color:#ffffff;"
             "justify-content:center;text-align:center;"
@@ -405,19 +422,29 @@ class LayeredTemplateHyperFramesAdapter:
         return str(layer.source.ref)
 
     @staticmethod
-    def _layer_css(layer: TemplateLayer | None) -> str:
+    def _layer_css(layer: TemplateLayer | None, *, include_rect: bool = True) -> str:
         if layer is None:
             return ""
         rect = layer.rect
-        return (
-            f"left:{rect.x:.6g}px;"
-            f"top:{rect.y:.6g}px;"
-            f"width:{rect.width:.6g}px;"
-            f"height:{rect.height:.6g}px;"
-            f"z-index:{int(layer.z_index)};"
-            f"opacity:{float(layer.opacity):.6g};"
-            f"transform:rotate({float(layer.rotation):.6g}deg);"
+        css = []
+        if include_rect:
+            css.extend(
+                [
+                    f"left:{rect.x:.6g}px;",
+                    f"top:{rect.y:.6g}px;",
+                    f"width:{rect.width:.6g}px;",
+                    f"height:{rect.height:.6g}px;",
+                ]
+            )
+        css.extend(
+            [
+                f"z-index:{int(layer.z_index)};",
+                f"opacity:{float(layer.opacity):.6g};",
+            ]
         )
+        if include_rect:
+            css.append(f"transform:rotate({float(layer.rotation):.6g}deg);")
+        return "".join(css)
 
     @staticmethod
     def _background_css(layer: TemplateLayer) -> str:
@@ -429,35 +456,29 @@ class LayeredTemplateHyperFramesAdapter:
         return ""
 
     @staticmethod
-    def _text_css(layer: TemplateLayer | None) -> str:
+    def _text_css(
+        layer: TemplateLayer | None,
+        *,
+        canvas_width: int,
+        canvas_height: int,
+    ) -> str:
         if layer is None:
             return ""
         style: Mapping[str, Any] = layer.style
-        css = []
-        font_family = _safe_font_family(style.get("font_family"))
-        if font_family is not None:
-            css.append(f"font-family:{font_family};")
-        font_size = style.get("font_size")
-        if font_size is not None:
-            try:
-                css.append(f"font-size:{min(max(1, int(font_size)), 512)}px;")
-            except (TypeError, ValueError):
-                pass
-        color = style.get("primary_color") or style.get("color")
-        if _is_hex_color(color):
-            css.append(f"color:{escape(color, quote=True)};")
-        background_color = style.get("background_color")
-        if _is_hex_color(background_color):
-            css.append(f"background:{escape(background_color, quote=True)};")
-        alignment = style.get("alignment")
-        if alignment in {"left", "center", "right"}:
-            justify = {
-                "left": "flex-start",
-                "center": "center",
-                "right": "flex-end",
-            }[str(alignment)]
-            css.append(f"text-align:{alignment};justify-content:{justify};")
-        return "".join(css)
+        return render_text_style_css(
+            style,
+            canvas_width=canvas_width,
+            canvas_height=canvas_height,
+            region=TextStyleRegion(
+                x=float(layer.rect.x),
+                y=float(layer.rect.y),
+                width=float(layer.rect.width),
+                height=float(layer.rect.height),
+            ),
+            units="px",
+            default_font_size=42,
+            rotation_degrees=float(layer.rotation),
+        )
 
     @staticmethod
     def _object_fit(layer: TemplateLayer) -> str:

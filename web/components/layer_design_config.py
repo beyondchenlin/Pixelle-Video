@@ -13,12 +13,33 @@ from web.components.layered_template_state import (
     LAYERED_TEMPLATE_EDITOR_STATE_KEY,
     LayeredTemplateEditorState,
 )
+from web.components.text_rendering_config import (
+    CAPTION_STYLE_DEFAULTS,
+    _clean_text_style_payload,
+    _render_text_style_controls,
+)
 from web.i18n import get_language, tr
 
 
 _HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 _SAFE_UPLOAD_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 _TEXT_ALIGNMENT_OPTIONS = ("left", "center", "right")
+_TEXT_STYLE_FIELDS = {
+    "font_family",
+    "font_file",
+    "font_size",
+    "primary_color",
+    "stroke_color",
+    "stroke_width",
+    "background_color",
+    "background_opacity",
+    "position",
+    "alignment",
+    "margin_x",
+    "margin_y",
+    "max_width_ratio",
+    "max_chars_per_line",
+}
 
 
 def _layered_template_editor_text(
@@ -333,7 +354,7 @@ def render_layer_design_config(
     return state
 
 
-def _render_text_layer_style_controls(
+def _render_text_layer_style_controls_legacy(
     state: LayeredTemplateEditorState,
     layer,
     key_prefix: str,
@@ -425,6 +446,59 @@ def _render_text_layer_style_controls(
         )
     if style.get("alignment") is not None or alignment_key in session_state:
         updates["alignment"] = _style_alignment(alignment, default="center")
+    if not updates:
+        return state
+    return state.update_layer_style(layer.id, _merge_layer_style(layer, **updates))
+
+
+def _text_layer_style_defaults(style: dict[str, object]) -> dict[str, object]:
+    defaults = dict(CAPTION_STYLE_DEFAULTS)
+    defaults.update(
+        {
+            key: value
+            for key, value in style.items()
+            if key in _TEXT_STYLE_FIELDS and value is not None
+        }
+    )
+    return defaults
+
+
+def _render_text_layer_style_controls(
+    state: LayeredTemplateEditorState,
+    layer,
+    key_prefix: str,
+    *,
+    ui=st,
+    translate=tr,
+) -> LayeredTemplateEditorState:
+    style = dict(layer.style)
+    session_state = getattr(ui, "session_state", {})
+    original_session_keys = set(session_state) if hasattr(session_state, "__iter__") else set()
+    text_style = _render_text_style_controls(
+        key_prefix,
+        _text_layer_style_defaults(style),
+        ui=ui,
+        translate=translate,
+        label_prefix="caption_style",
+    )
+    touched_fields = {
+        field
+        for field in _TEXT_STYLE_FIELDS
+        if field in style
+        or f"{key_prefix}_{field}" in original_session_keys
+        or f"{key_prefix}_font_option" in original_session_keys
+    }
+    if (
+        f"{key_prefix}_font_family" in original_session_keys
+        or f"{key_prefix}_font_file" in original_session_keys
+        or f"{key_prefix}_font_option" in original_session_keys
+    ):
+        touched_fields.update({"font_family", "font_file"})
+    updates = {
+        key: value
+        for key, value in (_clean_text_style_payload(text_style) or {}).items()
+        if key in touched_fields
+    }
     if not updates:
         return state
     return state.update_layer_style(layer.id, _merge_layer_style(layer, **updates))

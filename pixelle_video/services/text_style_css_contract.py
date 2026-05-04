@@ -103,6 +103,7 @@ def render_text_style_css(
         f"line-height:{fields['line_height']}",
         f"background:{fields['background']}",
         f"-webkit-text-stroke:{fields['stroke_width']}px {fields['stroke_color']}",
+        f"text-shadow:{_stroke_shadow(fields['stroke_width'], fields['stroke_color'])}",
         *layout,
     ]
     return ";".join(declarations) + ";"
@@ -356,6 +357,20 @@ def _rgba_background(color: str | None, opacity: float) -> str:
     green = int(normalized[3:5], 16)
     blue = int(normalized[5:7], 16)
     return f"rgba({red}, {green}, {blue}, {opacity:g})"
+
+
+def _stroke_shadow(stroke_width: int, stroke_color: str) -> str:
+    if stroke_width <= 0:
+        return "none"
+    width = min(int(stroke_width), 16)
+    return ", ".join(
+        (
+            f"{-width}px 0 {stroke_color}",
+            f"{width}px 0 {stroke_color}",
+            f"0 {-width}px {stroke_color}",
+            f"0 {width}px {stroke_color}",
+        )
+    )
 
 
 def _safe_int(value: Any, default: int, *, minimum: int, maximum: int) -> int:

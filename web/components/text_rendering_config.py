@@ -299,6 +299,7 @@ def _render_text_style_controls(
     *,
     ui: Any,
     translate,
+    label_prefix: str | None = None,
 ) -> dict:
     if prefix == "caption_style":
         _migrate_legacy_caption_style_defaults(ui)
@@ -344,10 +345,15 @@ def _render_text_style_controls(
             ui,
             "selectbox",
             selected_font_label,
-            translate(f"{prefix}.font_family"),
+            _text_style_label(prefix, "font_family", translate, label_prefix=label_prefix),
             font_option_labels,
             key=font_option_key,
-            help=translate(f"{prefix}.font_family_help"),
+            help=_text_style_label(
+                prefix,
+                "font_family_help",
+                translate,
+                label_prefix=label_prefix,
+            ),
             **_widget_default_kwargs(
                 ui,
                 font_option_key,
@@ -368,9 +374,14 @@ def _render_text_style_controls(
             ui,
             "text_input",
             configured_font_family,
-            translate(f"{prefix}.font_family"),
+            _text_style_label(prefix, "font_family", translate, label_prefix=label_prefix),
             key=font_family_key,
-            help=translate(f"{prefix}.font_family_help"),
+            help=_text_style_label(
+                prefix,
+                "font_family_help",
+                translate,
+                label_prefix=label_prefix,
+            ),
             **_widget_default_kwargs(
                 ui,
                 font_family_key,
@@ -383,7 +394,7 @@ def _render_text_style_controls(
         ui,
         "number_input",
         _session_value(ui, f"{prefix}_font_size", defaults["font_size"]),
-        translate(f"{prefix}.font_size"),
+        _text_style_label(prefix, "font_size", translate, label_prefix=label_prefix),
         min_value=8,
         max_value=240,
         step=1,
@@ -399,7 +410,7 @@ def _render_text_style_controls(
         ui,
         "color_picker",
         _session_value(ui, f"{prefix}_primary_color", defaults["primary_color"]),
-        translate(f"{prefix}.primary_color"),
+        _text_style_label(prefix, "primary_color", translate, label_prefix=label_prefix),
         key=primary_color_key,
         **_widget_default_kwargs(
             ui,
@@ -412,7 +423,7 @@ def _render_text_style_controls(
         ui,
         "color_picker",
         _session_value(ui, f"{prefix}_stroke_color", defaults["stroke_color"]),
-        translate(f"{prefix}.stroke_color"),
+        _text_style_label(prefix, "stroke_color", translate, label_prefix=label_prefix),
         key=stroke_color_key,
         **_widget_default_kwargs(
             ui,
@@ -425,7 +436,7 @@ def _render_text_style_controls(
         ui,
         "number_input",
         _session_value(ui, f"{prefix}_stroke_width", defaults["stroke_width"]),
-        translate(f"{prefix}.stroke_width"),
+        _text_style_label(prefix, "stroke_width", translate, label_prefix=label_prefix),
         min_value=0,
         max_value=16,
         step=1,
@@ -441,7 +452,7 @@ def _render_text_style_controls(
         ui,
         "color_picker",
         _session_value(ui, f"{prefix}_background_color", defaults["background_color"]),
-        translate(f"{prefix}.background_color"),
+        _text_style_label(prefix, "background_color", translate, label_prefix=label_prefix),
         key=background_color_key,
         **_widget_default_kwargs(
             ui,
@@ -454,7 +465,7 @@ def _render_text_style_controls(
         ui,
         "number_input",
         _session_value(ui, f"{prefix}_background_opacity", defaults["background_opacity"]),
-        translate(f"{prefix}.background_opacity"),
+        _text_style_label(prefix, "background_opacity", translate, label_prefix=label_prefix),
         min_value=0.0,
         max_value=1.0,
         step=0.05,
@@ -483,7 +494,7 @@ def _render_text_style_controls(
         ui,
         "selectbox",
         configured_position,
-        translate(f"{prefix}.position"),
+        _text_style_label(prefix, "position", translate, label_prefix=label_prefix),
         TEXT_POSITION_OPTIONS,
         format_func=lambda value: translate(f"text_style.position.{value}"),
         key=position_key,
@@ -503,7 +514,7 @@ def _render_text_style_controls(
         ui,
         "selectbox",
         configured_alignment,
-        translate(f"{prefix}.alignment"),
+        _text_style_label(prefix, "alignment", translate, label_prefix=label_prefix),
         TEXT_ALIGNMENT_OPTIONS,
         format_func=lambda value: translate(f"text_style.alignment.{value}"),
         key=alignment_key,
@@ -518,7 +529,7 @@ def _render_text_style_controls(
         ui,
         "number_input",
         _session_value(ui, f"{prefix}_margin_x", defaults["margin_x"]),
-        translate(f"{prefix}.margin_x"),
+        _text_style_label(prefix, "margin_x", translate, label_prefix=label_prefix),
         min_value=0,
         max_value=1000,
         step=1,
@@ -534,7 +545,7 @@ def _render_text_style_controls(
         ui,
         "number_input",
         _session_value(ui, f"{prefix}_margin_y", defaults["margin_y"]),
-        translate(f"{prefix}.margin_y"),
+        _text_style_label(prefix, "margin_y", translate, label_prefix=label_prefix),
         min_value=0,
         max_value=1000,
         step=1,
@@ -550,7 +561,7 @@ def _render_text_style_controls(
         ui,
         "number_input",
         _session_value(ui, f"{prefix}_max_width_ratio", defaults["max_width_ratio"]),
-        translate(f"{prefix}.max_width_ratio"),
+        _text_style_label(prefix, "max_width_ratio", translate, label_prefix=label_prefix),
         min_value=0.05,
         max_value=1.0,
         step=0.01,
@@ -574,7 +585,7 @@ def _render_text_style_controls(
         ui,
         "number_input",
         _session_value(ui, f"{prefix}_max_chars_per_line", default_max_chars),
-        translate(f"{prefix}.max_chars_per_line"),
+        _text_style_label(prefix, "max_chars_per_line", translate, label_prefix=label_prefix),
         min_value=0,
         max_value=200,
         step=1,
@@ -602,6 +613,18 @@ def _render_text_style_controls(
         "max_width_ratio": max_width_ratio,
         "max_chars_per_line": max_chars_per_line,
     }
+
+
+def _text_style_label(
+    prefix: str,
+    field: str,
+    translate,
+    *,
+    label_prefix: str | None = None,
+) -> str:
+    if label_prefix:
+        return translate(f"{label_prefix}.{field}")
+    return translate(f"{prefix}.{field}")
 
 
 def render_text_rendering_controls(

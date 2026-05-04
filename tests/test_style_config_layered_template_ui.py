@@ -297,8 +297,16 @@ def test_render_style_config_updates_text_layer_style_from_editor_controls(monke
             f"layered_template_layer_{layer_id}_font_family": "SimHei",
             f"layered_template_layer_{layer_id}_font_size": 54,
             f"layered_template_layer_{layer_id}_primary_color": "#112233",
+            f"layered_template_layer_{layer_id}_stroke_color": "#445566",
+            f"layered_template_layer_{layer_id}_stroke_width": 3,
             f"layered_template_layer_{layer_id}_background_color": "#F8FAFC",
+            f"layered_template_layer_{layer_id}_background_opacity": 0.35,
+            f"layered_template_layer_{layer_id}_position": "bottom",
             f"layered_template_layer_{layer_id}_alignment": "right",
+            f"layered_template_layer_{layer_id}_margin_x": 24,
+            f"layered_template_layer_{layer_id}_margin_y": 36,
+            f"layered_template_layer_{layer_id}_max_width_ratio": 0.72,
+            f"layered_template_layer_{layer_id}_max_chars_per_line": 18,
             f"layered_template_layer_{layer_id}_role": "custom",
         }
     )
@@ -332,10 +340,19 @@ def test_render_style_config_updates_text_layer_style_from_editor_controls(monke
     assert layer["style"] == {
         "text_content": "Independent text",
         "font_family": "SimHei",
+        "font_file": "fonts/simhei.ttf",
         "font_size": 54,
         "primary_color": "#112233",
+        "stroke_color": "#445566",
+        "stroke_width": 3,
         "background_color": "#F8FAFC",
+        "background_opacity": 0.35,
+        "position": "bottom",
         "alignment": "right",
+        "margin_x": 24,
+        "margin_y": 36,
+        "max_width_ratio": 0.72,
+        "max_chars_per_line": 18,
     }
     assert "text_rendering" not in result
 

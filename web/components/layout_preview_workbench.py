@@ -276,6 +276,84 @@ def _render_recent_presets(
             """,
             unsafe_allow_html=True,
         )
+        for index, preset in enumerate(presets):
+            preset_id = str(preset["preset_id"])
+            label = _recent_preset_display_label(index)
+            with ui.container(key=_recent_preset_item_key(preset_id, key_suffix=key_suffix)):
+                ui.markdown(
+                    f"""
+                    <div class="layout-workbench-recent-item">
+                      <span class="layout-workbench-recent-check" aria-hidden="true"></span>
+                      <div class="layout-workbench-recent-copy">
+                        <div class="layout-workbench-recent-name">{escape(label)}</div>
+                        <div class="layout-workbench-recent-meta">{escape(_recent_preset_summary(preset))}</div>
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                action_columns = _columns(ui, [0.75, 0.25], gap="small")
+                if action_columns is None:
+                    if ui.button(
+                        label,
+                        key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
+                        help=_recent_preset_help(preset),
+                        width="stretch",
+                    ):
+                        ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
+                    if ui.button(
+                        _DELETE_RECENT_PRESET,
+                        key=_recent_preset_delete_button_key(preset_id, key_suffix=key_suffix),
+                        help=_DELETE_RECENT_HELP,
+                        width="stretch",
+                    ):
+                        selected_action = {
+                            "action": "delete_recent_preset",
+                            "preset_id": preset_id,
+                        }
+                    continue
+                with action_columns[0]:
+                    if ui.button(
+                        label,
+                        key=_recent_preset_button_key(preset_id, key_suffix=key_suffix),
+                        help=_recent_preset_help(preset),
+                        width="stretch",
+                    ):
+                        ui.session_state[_PENDING_SELECTION_SESSION_KEY] = preset_id
+                with action_columns[1]:
+                    if ui.button(
+                        _DELETE_RECENT_PRESET,
+                        key=_recent_preset_delete_button_key(preset_id, key_suffix=key_suffix),
+                        help=_DELETE_RECENT_HELP,
+                        width="stretch",
+                    ):
+                        selected_action = {
+                            "action": "delete_recent_preset",
+                            "preset_id": preset_id,
+                        }
+    return selected_action
+
+
+def _render_recent_presets_legacy(
+    *,
+    ui,
+    presets: list[dict[str, Any]],
+    key_suffix: str,
+) -> PresetSelection | None:
+    if not presets:
+        _caption(ui, _NO_RECENT)
+        return None
+
+    selected_action: PresetSelection | None = None
+    with ui.container(key=_workbench_row_key("recent_presets", key_suffix=key_suffix)):
+        ui.markdown(
+            f"""
+            <section class="layout-workbench-card layout-workbench-recent-card">
+              <div class="layout-workbench-section-title">{_RECENT_TITLE}</div>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
         columns = _columns(ui, len(presets), gap="small")
         for index, preset in enumerate(presets):
             preset_id = str(preset["preset_id"])
@@ -440,19 +518,18 @@ def _build_workbench_css() -> str:
         background: rgba(255, 255, 255, .62);
       }}
       div[class*="st-key-layout_preview_recent_presets"] > div[data-testid="stVerticalBlock"] {{
-        gap: 4px;
+        gap: 8px;
       }}
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stHorizontalBlock"] {{
-        display: flex;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 74px;
         align-items: center;
-        gap: 6px !important;
-        justify-content: flex-start;
+        gap: 8px !important;
       }}
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stColumn"] {{
-        width: auto !important;
-        min-width: 58px !important;
-        flex: 0 0 auto !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        flex: 1 1 auto !important;
       }}
       div[class*="st-key-layout_preview_recent_presets"] .layout-workbench-card {{
         border: 0;
@@ -464,6 +541,53 @@ def _build_workbench_css() -> str:
       div[class*="st-key-layout_preview_recent_presets"] .layout-workbench-section-title {{
         margin-bottom: 2px;
       }}
+      div[class*="st-key-layout_preview_recent_item_"] {{
+        border: 1px solid rgba(80, 67, 44, .12);
+        border-radius: 8px;
+        padding: 7px 8px;
+        background: #fffdf8;
+      }}
+      div[class*="st-key-layout_preview_recent_item_"] > div[data-testid="stVerticalBlock"] {{
+        gap: 6px;
+      }}
+      .layout-workbench-recent-item {{
+        display: grid;
+        grid-template-columns: 22px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }}
+      .layout-workbench-recent-check {{
+        display: block;
+        width: 18px;
+        height: 18px;
+        border: 1px solid rgba(255, 75, 75, .78);
+        border-radius: 5px;
+        background: #ff4b4b;
+        box-shadow: inset 0 0 0 3px #ff4b4b;
+      }}
+      .layout-workbench-recent-copy {{
+        min-width: 0;
+      }}
+      .layout-workbench-recent-name {{
+        color: #352a1f;
+        font-size: 12px;
+        font-weight: 900;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }}
+      .layout-workbench-recent-meta {{
+        color: #756854;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.25;
+        margin-top: 1px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }}
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stMarkdown"],
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stMarkdownContainer"],
       div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stElementContainer"] {{
@@ -472,6 +596,7 @@ def _build_workbench_css() -> str:
       }}
       div[class*="st-key-layout_preview_recent_presets"] button {{
         min-height: 28px;
+        width: 100% !important;
         padding: 4px 8px;
         border: 1px solid rgba(80, 67, 44, .12);
         border-radius: 6px;
@@ -482,6 +607,11 @@ def _build_workbench_css() -> str:
         line-height: 1.25;
         white-space: nowrap;
         box-shadow: none;
+      }}
+      div[class*="st-key-layout_preview_recent_presets"] div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"]:last-child button {{
+        border-color: rgba(255, 75, 75, .18);
+        color: #b23b3b;
+        background: #fff8f7;
       }}
       .layout-workbench-grid {{
         display: grid;
@@ -716,6 +846,13 @@ def _recent_preset_help(preset: Mapping[str, Any]) -> str:
     label = str(preset["label"])
     preset_id = str(preset["preset_id"])
     return f"{_APPLY_PREFIX} {label} ({preset_id})。{_APPLY_HELP}"
+
+
+def _recent_preset_summary(preset: Mapping[str, Any]) -> str:
+    spec = _coerce_spec(preset.get("spec_payload"))
+    if spec is None:
+        return str(preset["preset_id"])
+    return f"{len(spec.layers)} 层 · {spec.canvas_width}x{spec.canvas_height}"
 
 
 def _recent_preset_display_label(index: int) -> str:
@@ -1083,6 +1220,11 @@ def _normalize_recent_timestamp(value: Any) -> datetime | None:
 def _recent_preset_button_key(preset_id: str, *, key_suffix: str) -> str:
     digest = hashlib.sha1(str(preset_id).encode("utf-8")).hexdigest()[:12]
     return f"layout_preview_recent_preset_{digest}{key_suffix}"
+
+
+def _recent_preset_item_key(preset_id: str, *, key_suffix: str) -> str:
+    digest = hashlib.sha1(str(preset_id).encode("utf-8")).hexdigest()[:12]
+    return f"layout_preview_recent_item_{digest}{key_suffix}"
 
 
 def _recent_preset_delete_button_key(preset_id: str, *, key_suffix: str) -> str:

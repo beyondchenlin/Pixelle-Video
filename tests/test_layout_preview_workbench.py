@@ -224,6 +224,41 @@ def test_render_layout_preview_workbench_renders_delete_button_for_each_recent_p
     ]
 
 
+def test_render_layout_preview_workbench_recent_presets_no_longer_render_delete_row_copy(
+    monkeypatch,
+):
+    from web.components import layout_preview_workbench
+
+    fake_ui = _FakeUI()
+    fake_components = _FakeComponents()
+    monkeypatch.setattr(layout_preview_workbench, "components", fake_components)
+
+    layout_preview_workbench.render_layout_preview_workbench(
+        spec_payload=_spec_payload(),
+        recent_presets=[
+            {
+                "preset_id": "preset_a",
+                "template_name": "Template A",
+                "last_used_at": "2026-05-02T10:00:00",
+                "spec": _spec_payload(),
+            },
+            {
+                "preset_id": "preset_b",
+                "template_name": "Template B",
+                "last_used_at": "2026-05-02T11:00:00",
+                "spec": _spec_payload(),
+            },
+        ],
+        preview_html=layout_preview_workbench.trust_preview_html("<main>preview</main>"),
+        ui=fake_ui,
+    )
+
+    rendered = "\n".join(item["body"] for item in fake_ui.markdowns)
+    assert "最近模板快捷" in rendered
+    assert "删除一排" not in rendered
+    assert "layout-workbench-recent-item" in rendered
+
+
 def test_render_layout_preview_workbench_returns_delete_recent_preset_action(
     monkeypatch,
 ):

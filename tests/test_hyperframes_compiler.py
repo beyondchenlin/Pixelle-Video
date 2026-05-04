@@ -2024,7 +2024,10 @@ def test_hyperframes_compiler_uses_layer_text_style_without_global_text_renderin
                 "font_family": "SimHei",
                 "font_size": 54,
                 "primary_color": "#112233",
+                "stroke_color": "#445566",
+                "stroke_width": 3,
                 "background_color": "#F8FAFC",
+                "background_opacity": 1.0,
                 "alignment": "right",
             },
             "role": None,
@@ -2051,7 +2054,8 @@ def test_hyperframes_compiler_uses_layer_text_style_without_global_text_renderin
     assert "font-family:SimHei;" in index_html
     assert "font-size:54px;" in index_html
     assert "color:#112233;" in index_html
-    assert "background:#F8FAFC;" in index_html
+    assert "-webkit-text-stroke:3px #445566;" in index_html
+    assert "background:rgba(248, 250, 252, 1);" in index_html
     assert "text-align:right;justify-content:flex-end;" in index_html
     assert "Runtime Title" not in index_html
 

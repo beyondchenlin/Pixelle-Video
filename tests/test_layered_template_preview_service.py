@@ -234,8 +234,16 @@ def test_render_preview_html_uses_text_layer_style_without_global_text_rendering
                     "font_family": "SimHei",
                     "font_size": 54,
                     "primary_color": "#112233",
+                    "stroke_color": "#445566",
+                    "stroke_width": 3,
                     "background_color": "#F8FAFC",
+                    "background_opacity": 0.35,
+                    "position": "bottom",
                     "alignment": "right",
+                    "margin_x": 24,
+                    "margin_y": 36,
+                    "max_width_ratio": 0.72,
+                    "max_chars_per_line": 18,
                 },
                 role=None,
             ),
@@ -254,8 +262,13 @@ def test_render_preview_html_uses_text_layer_style_without_global_text_rendering
     assert "font-family:SimHei;" in html
     assert "font-size:54px;" in html
     assert "color:#112233;" in html
-    assert "background:#F8FAFC;" in html
+    assert "-webkit-text-stroke:3px #445566;" in html
+    assert "text-shadow:" in html
+    assert "background:rgba(248, 250, 252, 0.35);" in html
     assert "text-align:right;justify-content:flex-end;" in html
+    assert "bottom:36px;" in html
+    assert "width:778px;" in html
+    assert "max-width:min(778px, calc(100% - 24px - 24px));" in html
     assert "Runtime Title" not in html
     assert "Runtime Caption" not in html
 
