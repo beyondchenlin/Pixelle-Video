@@ -320,7 +320,6 @@ def _render_recent_presets(
                       <span class="layout-workbench-recent-check" aria-hidden="true"></span>
                       <div class="layout-workbench-recent-copy">
                         <div class="layout-workbench-recent-name">{escape(label)}</div>
-                        <div class="layout-workbench-recent-meta">{escape(_recent_preset_summary(preset))}</div>
                       </div>
                     </div>
                     """,
@@ -578,7 +577,7 @@ def _build_workbench_css() -> str:
         background: #fffdfa;
       }}
       div[class*="st-key-layout_preview_recent_item_"] > div[data-testid="stVerticalBlock"] {{
-        gap: 6px;
+        gap: 0;
       }}
       .layout-workbench-recent-item {{
         display: grid;
@@ -601,19 +600,9 @@ def _build_workbench_css() -> str:
       }}
       .layout-workbench-recent-name {{
         color: #352a1f;
-        font-size: 12px;
+        font-size: 14px;
         font-weight: 900;
-        line-height: 1.25;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }}
-      .layout-workbench-recent-meta {{
-        color: #756854;
-        font-size: 11px;
-        font-weight: 700;
-        line-height: 1.25;
-        margin-top: 1px;
+        line-height: 1.2;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -644,16 +633,16 @@ def _build_workbench_css() -> str:
         max-width: 100% !important;
       }}
       div[class*="st-key-layout_preview_recent_presets"] button {{
-        min-height: 28px;
+        min-height: 40px;
         width: 100% !important;
-        padding: 4px 8px;
+        padding: 8px 12px;
         border: 1px solid rgba(80, 67, 44, .12);
         border-radius: 6px;
         background: #fffdf8;
         color: #352a1f;
-        font-size: 12px;
+        font-size: 14px;
         font-weight: 800;
-        line-height: 1.25;
+        line-height: 1.2;
         white-space: nowrap;
         box-shadow: none;
       }}
