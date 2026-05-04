@@ -4,7 +4,7 @@
 
 **Goal:** 修复 IP 设计、AssetBible API、标准生成链路之间的数据合同断层，让启用 IP 的 Z-Image 文生图必须消费结构化身份锚点，且空锚点直接阻断生成。
 
-**Architecture:** `IPProfile` 是唯一正式 IP 事实源。AssetBible 保存合同改为模型对齐的 `ip_profiles` 嵌套结构，IP 设计工作台直接编辑结构化字段，标准生成在解析 IP Profile 后进行完整性校验，最终 prompt 测试验证身份锚点进入 Z-Image 单段 prompt。本计划不做旧数据迁移，不做 `style_hint / forbidden_elements` 运行时兼容猜测。
+**Architecture:** `IPProfile` 是唯一正式 IP 事实源。AssetBible 的创建与保存入口统一改为模型对齐的 `ip_profiles` 嵌套结构，IP 设计工作台与 Stage2 草稿创建入口都直接写入结构化字段；标准生成在解析 IP Profile 后进行完整性校验，最终 prompt 测试验证身份锚点进入 Z-Image 单段 prompt。本计划不做旧数据迁移，不做 `style_hint / forbidden_elements` 运行时兼容猜测，也不保留平铺轻量创建合同。
 
 **Tech Stack:** Python dataclasses, Pydantic v2, FastAPI, Streamlit component helpers, pytest, local JSON repositories, Z-Image prompt assembly.
 
@@ -17,7 +17,9 @@
 包含：
 
 - AssetBible API / schema 完整保存结构化 `IPProfile`
+- AssetBible 正式创建/保存入口统一使用 `ip_profiles` 嵌套合同
 - IP 设计工作台编辑和保存结构化 IP 字段
+- Stage2 草稿创建入口改为直接创建结构化 `IPProfile`
 - 启用 IP 时身份锚点缺失直接阻断生成
 - 最终 Z-Image prompt 验证身份锚点进入输出
 
@@ -33,7 +35,7 @@
 - Modify `api/schemas/asset_bible.py`
   - 新增 `IPProfileDraft` 请求模型，与 `pixelle_video.models.asset_bible.IPProfile` 字段对齐。
   - 扩展 `IPProfileResponse`，返回完整结构化字段。
-  - 将 `AssetBibleDraftRequest` 改为优先接收 `ip_profiles` 嵌套结构。
+  - 将 `AssetBibleDraftRequest` 改为正式只接收 `ip_profiles` 嵌套结构，并要求至少一个 `IPProfile`。
 
 - Modify `api/routers/asset_bible.py`
   - `_request_to_model(...)` 通过新的嵌套合同构建完整 `AssetBible`。
@@ -41,10 +43,14 @@
 
 - Modify `web/utils/asset_bible_api.py`
   - `save_asset_bible(...)` 透传嵌套 `ip_profiles` payload。
-  - `create_asset_bible(...)` 只保留轻量创建用途，正式编辑走 `save_asset_bible(...)`。
+  - `create_asset_bible(...)` 改为和正式合同一致的 payload 入口，不再保留平铺 `ip_name / world_hint / style_hint` helper 合同。
 
 - Modify `web/ip_design/inprocess_client.py`
   - 使用新的 `AssetBibleDraftRequest` 保存完整结构化 IPProfile。
+
+- Modify `web/components/asset_bible_draft_setup.py`
+  - Stage2 草稿创建表单增加最小结构化 IP 字段输入。
+  - 创建 payload 改为 `ip_profiles: [...]`，不再发送平铺 IP 字段。
 
 - Modify `web/components/ip_design_workbench.py`
   - 增加结构化字段输入区。
@@ -65,10 +71,16 @@
 
 - Tests:
   - Modify `tests/test_asset_bible_api.py`
+  - Modify `tests/test_ip_design_client.py`
   - Modify `tests/test_ip_design_workbench_ui.py`
+  - Modify `tests/test_asset_prompt_plan_projection_ui.py`
   - Modify `tests/test_standard_pipeline_storyboard_generation.py`
   - Modify `tests/test_styled_image_prompt_batch.py`
   - Modify `tests/test_video_api.py` only if error propagation needs API-level assertion.
+
+## Atomicity Rule
+
+Task 1, Task 2, and Task 3 are one source-level contract batch. Do not commit after Task 1 or Task 2, because changing the API schema without updating every formal sender leaves a known broken intermediate state. Commit and push only after Task 3 passes the API, IP design, and Stage2 structured-entry tests.
 
 ---
 
@@ -128,28 +140,23 @@ def test_update_asset_bible_preserves_structured_ip_profile_fields():
     assert profile["visible_text_whitelist"] == ["长乐门", "正定古城"]
 ```
 
-Update `_asset_bible_payload(...)` so it accepts an optional `ip_profiles` override and omits legacy flat IP fields when `ip_profiles` is present:
+Update `_asset_bible_payload(...)` so nested `ip_profiles` is the only formal request shape used by tests:
 
 ```python
 def _asset_bible_payload(**overrides) -> dict[str, Any]:
-    ip_profiles = overrides.pop("ip_profiles", None)
     payload = {
         "workspace_id": "workspace_1",
         "asset_bible_id": "bible_demo",
-        "ip_profile_id": "ip_main",
-        "ip_name": "Pixelle Demo",
-        "world_hint": "Soft futuristic city.",
-        "style_hint": "clean comic panels",
-        "forbidden_elements": ["brand logos"],
+        "ip_profiles": [
+            {
+                "ip_profile_id": "ip_main",
+                "name": "Pixelle Demo",
+                "world_hint": "Soft futuristic city.",
+                "style_hint": "clean comic panels",
+            }
+        ],
         ...
     }
-    if ip_profiles is not None:
-        payload.pop("ip_profile_id", None)
-        payload.pop("ip_name", None)
-        payload.pop("world_hint", None)
-        payload.pop("style_hint", None)
-        payload.pop("forbidden_elements", None)
-        payload["ip_profiles"] = ip_profiles
     payload.update(overrides)
     return payload
 ```
@@ -162,7 +169,7 @@ Run:
 pytest tests/test_asset_bible_api.py::test_update_asset_bible_preserves_structured_ip_profile_fields -v
 ```
 
-Expected: FAIL because `AssetBibleDraftRequest` forbids or drops `ip_profiles`.
+Expected: FAIL because `AssetBibleDraftRequest` still expects flat top-level IP fields.
 
 - [ ] **Step 3: Implement `IPProfileDraft` and response fields**
 
@@ -256,7 +263,30 @@ visible_text_whitelist: list[str] = Field(default_factory=list)
 Update `AssetBibleDraftRequest`:
 
 ```python
-ip_profiles: list[IPProfileDraft] = Field(default_factory=list)
+ip_profiles: list[IPProfileDraft] = Field(min_length=1)
+```
+
+Delete the old flat request fields from `AssetBibleDraftRequest`:
+
+```python
+ip_profile_id
+ip_name
+logline
+world_hint
+style_hint
+forbidden_elements
+```
+
+Add a validator so duplicated `ip_profile_id` values are rejected:
+
+```python
+@field_validator("ip_profiles")
+@classmethod
+def validate_ip_profiles(cls, value: list[IPProfileDraft]) -> list[IPProfileDraft]:
+    ids = [item.ip_profile_id for item in value]
+    if len(set(ids)) != len(ids):
+        raise ValueError("ip_profiles must not include duplicate ip_profile_id")
+    return value
 ```
 
 In `to_model(...)`, build `ip_profiles` like this:
@@ -266,22 +296,17 @@ ip_profiles = tuple(
     profile.to_model(workspace_id=self.workspace_id, project_id=project_id)
     for profile in self.ip_profiles
 )
-if not ip_profiles:
-    ip_profiles = (
-        IPProfile(
-            ip_profile_id=self.ip_profile_id,
-            workspace_id=self.workspace_id,
-            project_id=project_id,
-            name=self.ip_name,
-            logline=self.logline,
-            world_hint=self.world_hint,
-            style_hint=self.style_hint,
-            forbidden_elements=tuple(self.forbidden_elements),
-        ),
-    )
+
+return AssetBible(
+    asset_bible_id=self.asset_bible_id,
+    workspace_id=self.workspace_id,
+    project_id=project_id,
+    ip_profiles=ip_profiles,
+    ...
+)
 ```
 
-Keep legacy flat fields temporarily accepted for existing tests and light create flows, but do not use them for generation compatibility. The formal IP design workbench will send `ip_profiles`.
+Any caller or test still sending flat top-level IP fields must be updated in this plan. Do not keep a compatibility branch in the request schema.
 
 - [ ] **Step 4: Run focused API test**
 
@@ -303,13 +328,9 @@ pytest tests/test_asset_bible_api.py tests/test_asset_bible_models.py -v
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit and push**
+- [ ] **Step 6: Contract checkpoint, do not commit yet**
 
-```powershell
-git add api/schemas/asset_bible.py api/routers/asset_bible.py tests/test_asset_bible_api.py
-git commit -m "feat: 完善AssetBible结构化IP合同"
-git push
-```
+Do not commit this task by itself. Continue to Task 2 and Task 3, then commit the whole contract batch once all formal senders have been moved to nested `ip_profiles`.
 
 ---
 
@@ -419,7 +440,7 @@ Expected: FAIL because fields and status do not exist.
 
 - [ ] **Step 4: Implement structured field UI helpers**
 
-In `web/components/ip_design_workbench.py`, after `forbidden_elements`, add text inputs or compact text areas:
+In `web/components/ip_design_workbench.py`, remove the editable `forbidden_elements` field from the formal editing surface, then add structured text inputs or compact text areas after `style_hint`:
 
 ```python
 identity_lock = _text_input(
@@ -511,7 +532,7 @@ payload = {
 }
 ```
 
-Do not include `forbidden_elements` in the formal save payload. Leave the old UI field only if needed for display, but it must not be the source for generation.
+Do not include `forbidden_elements` in the formal save payload, and do not keep it as an editable formal field in this workbench.
 
 - [ ] **Step 6: Add i18n keys**
 
@@ -553,17 +574,226 @@ pytest tests/test_ip_design_workbench_ui.py tests/test_ip_design_workbench_page.
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit and push**
+- [ ] **Step 8: Contract checkpoint, do not commit yet**
+
+Do not commit this task by itself. Continue to Task 3 so Stage2 and helper entry points are updated before the first contract commit.
+
+---
+
+## Task 3: Structured AssetBible Create Entry
+
+**Files:**
+
+- Modify: `web/utils/asset_bible_api.py`
+- Modify: `web/components/asset_bible_draft_setup.py`
+- Modify: `web/ip_design/inprocess_client.py`
+- Modify: `tests/test_asset_prompt_plan_projection_ui.py`
+- Modify: `tests/test_ip_design_client.py`
+
+- [ ] **Step 1: Write failing helper payload test**
+
+Update `tests/test_asset_prompt_plan_projection_ui.py::test_create_asset_bible_posts_minimal_draft_payload`.
+
+Change the call site to pass a formal nested payload:
+
+```python
+result = asset_bible_api.create_asset_bible(
+    api_base_url="http://localhost:8000/api/",
+    project_id=" project_1 ",
+    payload={
+        "workspace_id": " ws_1 ",
+        "asset_bible_id": " bible_1 ",
+        "ip_profiles": [
+            {
+                "ip_profile_id": " ip_main ",
+                "name": " Demo IP ",
+                "world_hint": " sky city ",
+                "style_hint": " clean comic ",
+                "identity_lock": ["白色卡通兔子"],
+                "identity_anchors": ["蓝色领结"],
+            }
+        ],
+    },
+)
+```
+
+Change the expected posted JSON to:
+
+```python
+{
+    "workspace_id": "ws_1",
+    "asset_bible_id": "bible_1",
+    "ip_profiles": [
+        {
+            "ip_profile_id": "ip_main",
+            "name": "Demo IP",
+            "world_hint": "sky city",
+            "style_hint": "clean comic",
+            "identity_lock": ["白色卡通兔子"],
+            "identity_anchors": ["蓝色领结"],
+        }
+    ],
+}
+```
+
+- [ ] **Step 2: Write failing Stage2 create-form test**
+
+Update `tests/test_asset_prompt_plan_projection_ui.py::test_render_asset_bible_draft_setup_creates_asset_bible`.
+
+Add session state values:
+
+```python
+"stage2_ip_profile_id": "ip_main",
+"stage2_identity_lock": "白色卡通兔子, 长耳朵",
+"stage2_identity_anchors": "蓝色领结",
+```
+
+Change the expected `create_asset_bible(...)` call to:
+
+```python
+{
+    "api_base_url": "http://localhost:8000/api",
+    "project_id": "project_1",
+    "payload": {
+        "workspace_id": "ws_1",
+        "asset_bible_id": "bible_1",
+        "ip_profiles": [
+            {
+                "ip_profile_id": "ip_main",
+                "name": "Demo IP",
+                "world_hint": "sky city",
+                "style_hint": "clean comic",
+                "identity_lock": ["白色卡通兔子", "长耳朵"],
+                "identity_anchors": ["蓝色领结"],
+            }
+        ],
+    },
+}
+```
+
+- [ ] **Step 3: Write failing client payload tests**
+
+Update the AssetBible payloads in `tests/test_ip_design_client.py` to use nested `ip_profiles` instead of flat `ip_name`.
+
+For `HttpIPDesignClient.save_asset_bible(...)`:
+
+```python
+payload={
+    "ip_profiles": [
+        {
+            "ip_profile_id": "ip_main",
+            "name": "Demo IP",
+        }
+    ]
+}
+```
+
+For `InProcessIPDesignClient.save_asset_bible(...)`:
+
+```python
+payload={
+    "ip_profiles": [
+        {
+            "ip_profile_id": "ip_main",
+            "name": "Demo IP",
+        }
+    ],
+    "character_profiles": [
+        {
+            "character_id": "char_luna",
+            "display_name": "Luna",
+        }
+    ],
+    ...
+}
+```
+
+- [ ] **Step 4: Run tests to verify RED**
+
+Run:
 
 ```powershell
-git add web/components/ip_design_workbench.py web/i18n/locales/zh_CN.json web/i18n/locales/en_US.json tests/test_ip_design_workbench_ui.py
-git commit -m "feat: 支持IP设计结构化身份字段"
+pytest tests/test_asset_prompt_plan_projection_ui.py::test_create_asset_bible_posts_minimal_draft_payload tests/test_asset_prompt_plan_projection_ui.py::test_render_asset_bible_draft_setup_creates_asset_bible tests/test_ip_design_client.py -v
+```
+
+Expected: FAIL because helper, form, or client tests still rely on the flat create contract.
+
+- [ ] **Step 5: Implement unified nested create payload**
+
+In `web/utils/asset_bible_api.py`, change `create_asset_bible(...)` to accept a single formal `payload` argument and forward it without inventing a second contract:
+
+```python
+def create_asset_bible(
+    *,
+    api_base_url: str,
+    project_id: str,
+    payload: dict[str, Any],
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    endpoint = build_asset_bible_list_endpoint(
+        api_base_url=api_base_url,
+        project_id=project_id,
+    )
+
+    response = httpx.post(
+        endpoint,
+        json=build_asset_bible_payload(payload),
+        timeout=timeout,
+    )
+    ...
+```
+
+If no `build_asset_bible_payload(...)` helper exists yet, add one in this module that:
+
+- validates `workspace_id` / `asset_bible_id`
+- trims nested `ip_profiles[*].ip_profile_id / name / world_hint / style_hint`
+- preserves structured lists such as `identity_lock` and `identity_anchors`
+- does not accept or synthesize top-level `ip_name / world_hint / style_hint`
+
+In `web/components/asset_bible_draft_setup.py`, build and submit:
+
+```python
+payload = {
+    "workspace_id": workspace_id,
+    "asset_bible_id": asset_bible_id,
+    "ip_profiles": [
+        {
+            "ip_profile_id": ip_profile_id,
+            "name": ip_name,
+            "world_hint": world_hint,
+            "style_hint": style_hint,
+            "identity_lock": _split_csv(identity_lock),
+            "identity_anchors": _split_csv(identity_anchors),
+        }
+    ],
+}
+```
+
+Add the corresponding `stage2_ip_profile_id`, `stage2_identity_lock`, and `stage2_identity_anchors` inputs to the form.
+
+In `web/ip_design/inprocess_client.py`, rely on the new nested request schema and do not preserve any flat AssetBible payload examples in tests.
+
+- [ ] **Step 6: Run create-entry tests**
+
+Run:
+
+```powershell
+pytest tests/test_asset_prompt_plan_projection_ui.py::test_create_asset_bible_posts_minimal_draft_payload tests/test_asset_prompt_plan_projection_ui.py::test_render_asset_bible_draft_setup_creates_asset_bible tests/test_ip_design_client.py -v
+```
+
+Expected: PASS.
+
+- [ ] **Step 7: Commit and push the complete contract batch**
+
+```powershell
+git add api/schemas/asset_bible.py api/routers/asset_bible.py web/utils/asset_bible_api.py web/ip_design/inprocess_client.py web/components/ip_design_workbench.py web/components/asset_bible_draft_setup.py web/i18n/locales/zh_CN.json web/i18n/locales/en_US.json tests/test_asset_bible_api.py tests/test_ip_design_client.py tests/test_ip_design_workbench_ui.py tests/test_asset_prompt_plan_projection_ui.py
+git commit -m "refactor: 统一IPProfile结构化事实源合同"
 git push
 ```
 
 ---
 
-## Task 3: IP Generation Readiness Guard
+## Task 4: IP Generation Readiness Guard
 
 **Files:**
 
@@ -704,7 +934,7 @@ git push
 
 ---
 
-## Task 4: Final Z-Image Prompt Identity Acceptance
+## Task 5: Final Z-Image Prompt Identity Acceptance
 
 **Files:**
 
@@ -812,7 +1042,7 @@ If no implementation files changed, only add the test file.
 
 ---
 
-## Task 5: Full Verification and Review
+## Task 6: Full Verification and Review
 
 **Files:**
 
@@ -838,7 +1068,17 @@ pytest tests/test_ip_design_workbench_ui.py tests/test_ip_design_workbench_page.
 
 Expected: PASS.
 
-- [ ] **Step 3: Run contract/API smoke tests**
+- [ ] **Step 3: Run structured create-entry suite**
+
+Run:
+
+```powershell
+pytest tests/test_asset_prompt_plan_projection_ui.py tests/test_ip_design_client.py -v
+```
+
+Expected: PASS.
+
+- [ ] **Step 4: Run contract/API smoke tests**
 
 Run:
 
@@ -848,7 +1088,7 @@ pytest tests/test_video_api.py tests/test_output_preview.py -v
 
 Expected: PASS.
 
-- [ ] **Step 4: Search for forbidden compatibility patterns**
+- [ ] **Step 5: Search for forbidden compatibility patterns**
 
 Run:
 
@@ -861,23 +1101,25 @@ Expected:
 - No code that maps `style_hint` into identity anchors.
 - No code that maps `forbidden_elements` into negative constraints for generation.
 - No runtime fallback for missing identity anchors.
+- No formal create/save helper that still requires top-level `ip_name`.
 
-- [ ] **Step 5: Inspect generated AssetBible payload path**
+- [ ] **Step 6: Inspect generated AssetBible payload path**
 
 Run:
 
 ```powershell
-rg -n "ip_profiles|identity_lock|identity_anchors|semantic_boundary|negative_constraints|visible_text_whitelist" web/components/ip_design_workbench.py api/schemas/asset_bible.py api/routers/asset_bible.py pixelle_video/pipelines/standard.py pixelle_video/utils/content_generators.py -S
+rg -n "ip_profiles|identity_lock|identity_anchors|semantic_boundary|negative_constraints|visible_text_whitelist" web/components/ip_design_workbench.py web/components/asset_bible_draft_setup.py web/utils/asset_bible_api.py api/schemas/asset_bible.py api/routers/asset_bible.py pixelle_video/pipelines/standard.py pixelle_video/utils/content_generators.py -S
 ```
 
 Expected:
 
 - UI saves nested `ip_profiles`.
+- Stage2 create flow saves nested `ip_profiles`.
 - API schema accepts and returns structured IP fields.
 - Generation guard checks `identity_lock + identity_anchors`.
 - Prompt tests assert final prompt content.
 
-- [ ] **Step 6: Commit and push verification fixes if needed**
+- [ ] **Step 7: Commit and push verification fixes if needed**
 
 Only if Steps 1-5 required fixes:
 
@@ -892,6 +1134,7 @@ git push
 ## Acceptance Criteria
 
 - IP 设计工作台能编辑并保存 `identity_lock / identity_anchors / semantic_boundary / negative_constraints / visible_text_whitelist`。
+- Stage2 / 草稿创建入口与 `create_asset_bible(...)` helper 只发送嵌套 `ip_profiles`，不再发送平铺 IP 字段。
 - AssetBible API 返回的 `ip_profiles` 不丢结构化字段。
 - 标准生成启用 IP 且身份锚点为空时直接失败，错误指向 IP 设计工作台补全锚点。
 - 启用 IP 且身份锚点完整时，最终 Z-Image prompt 包含结构化身份锚点。
