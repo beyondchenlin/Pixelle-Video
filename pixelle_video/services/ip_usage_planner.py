@@ -10,6 +10,9 @@ from pixelle_video.models.ip_prompt_planning import (
     IPPresenceType,
 )
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
+from pixelle_video.models.style_resolution import ResolvedStyleSpec
+
+ResolvedStyleInput = Mapping[str, Any] | ResolvedStyleSpec | None
 
 
 class IPUsagePlanner:
@@ -20,7 +23,7 @@ class IPUsagePlanner:
         *,
         storyboard_plan: StoryboardPlan,
         ip_profile: IPProfile,
-        resolved_style: Mapping[str, Any] | None = None,
+        resolved_style: ResolvedStyleInput = None,
         scene_casts_by_frame: Mapping[str, Any] | None = None,
     ) -> list[IPFrameAdaptationPackage]:
         scene_casts = scene_casts_by_frame or {}
@@ -39,7 +42,7 @@ class IPUsagePlanner:
         *,
         frame: StoryboardPlanFrame,
         ip_profile: IPProfile,
-        resolved_style: Mapping[str, Any] | None = None,
+        resolved_style: ResolvedStyleInput = None,
         scene_cast: Any | None = None,
     ) -> IPFrameAdaptationPackage:
         frame_text = _frame_text(frame)
@@ -98,7 +101,7 @@ def _presence_type_for_frame(
     frame: StoryboardPlanFrame,
     frame_text: str,
     ip_profile: IPProfile,
-    resolved_style: Mapping[str, Any] | None,
+    resolved_style: ResolvedStyleInput,
     scene_cast: Any | None,
 ) -> IPPresenceType:
     scene_cast_presence = _presence_type_from_scene_cast(scene_cast)
@@ -135,14 +138,14 @@ def _presence_type_from_scene_cast(scene_cast: Any | None) -> IPPresenceType | N
         return None
 
 
-def _style_is_serious_documentary(resolved_style: Mapping[str, Any] | None) -> bool:
+def _style_is_serious_documentary(resolved_style: ResolvedStyleInput) -> bool:
     positive_style_text = _positive_style_signal_text(resolved_style)
     if not positive_style_text:
         return False
     return _contains_any(positive_style_text.lower(), _SERIOUS_STYLE_KEYWORDS)
 
 
-def _positive_style_signal_text(resolved_style: Any) -> str:
+def _positive_style_signal_text(resolved_style: ResolvedStyleInput) -> str:
     if isinstance(resolved_style, Mapping):
         return _mapping_positive_style_signal_text(resolved_style)
     values = [
@@ -157,12 +160,23 @@ def _positive_style_signal_text(resolved_style: Any) -> str:
 
 
 def _mapping_positive_style_signal_text(style_mapping: Mapping[str, Any]) -> str:
-    values = [
-        item
-        for key, item in style_mapping.items()
-        if str(key) not in _NEGATIVE_STYLE_SIGNAL_KEYS
-    ]
-    return " ".join(_flatten_mapping_text(value) for value in values if value)
+    return " ".join(
+        _flatten_mapping_text(value)
+        for value in _iter_positive_style_values(style_mapping)
+        if value
+    )
+
+
+def _iter_positive_style_values(style_mapping: Mapping[str, Any]) -> list[Any]:
+    values: list[Any] = []
+    for key, item in style_mapping.items():
+        if str(key) in _NEGATIVE_STYLE_SIGNAL_KEYS:
+            continue
+        if isinstance(item, Mapping):
+            values.extend(_iter_positive_style_values(item))
+            continue
+        values.append(item)
+    return values
 
 
 def _flatten_mapping_text(value: Any) -> str:
