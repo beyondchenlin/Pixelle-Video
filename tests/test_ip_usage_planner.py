@@ -1,4 +1,5 @@
 from pixelle_video.models.asset_bible import IPProfile
+from pixelle_video.models.content_world import ContentWorldProfile
 from pixelle_video.models.ip_prompt_planning import IPPresenceType
 from pixelle_video.models.scene_cast import SceneCast
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
@@ -150,6 +151,61 @@ def test_usage_planner_allows_scene_cast_to_request_strong_identity():
     package = IPUsagePlanner().plan_batch(
         storyboard_plan=plan,
         ip_profile=_profile(),
+        scene_casts_by_frame={
+            plan.frames[0].frame_id: {"presence_type": "strong_identity"},
+        },
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.STRONG_IDENTITY
+
+
+def test_usage_planner_uses_world_constraints_for_protected_subjects():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="导览员讲述古寺壁画中的宗教故事。",
+        visual_goal="表现宗教人物与古寺壁画的庄重感",
+        prompt_intent="尊重宗教主体",
+        shot_type="全景",
+        shot_purpose="历史说明",
+        primary_subject="佛像与古寺壁画",
+        world_elements=("古寺", "壁画"),
+    )
+    frame = _plan(frame).frames[0]
+
+    package = IPUsagePlanner().plan_frame(
+        frame=frame,
+        ip_profile=_profile(),
+        generation_world_profile=ContentWorldProfile(
+            story_constraints="不能让 IP 替代佛像、宗教人物或历史建筑。",
+            ip_integration_guidance="只允许低侵入或不出现。",
+        ),
+    )
+
+    assert package.ip_presence_type in {
+        IPPresenceType.LOW_INTRUSION,
+        IPPresenceType.SYMBOLIC_ONLY,
+        IPPresenceType.ABSENT,
+    }
+    assert "佛像" in package.must_not_replace
+
+
+def test_usage_planner_world_guidance_does_not_override_scene_cast():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="品牌向导角色出现在古城路线图旁。",
+        visual_goal="表现路线图与角色陪伴说明",
+        prompt_intent="路线说明",
+        primary_subject="正定古城路线图",
+    )
+    plan = _plan(frame)
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_profile(),
+        generation_world_profile={
+            "story_constraints": "避免强露出。",
+            "ip_integration_guidance": "低侵入陪伴式融入。",
+        },
         scene_casts_by_frame={
             plan.frames[0].frame_id: {"presence_type": "strong_identity"},
         },

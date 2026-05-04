@@ -706,6 +706,7 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
             planner_calls["resolved_style"] = kwargs["resolved_style"]
             planner_calls["storyboard_plan"] = kwargs["storyboard_plan"]
             planner_calls["scene_casts_by_frame"] = kwargs["scene_casts_by_frame"]
+            planner_calls["generation_world_profile"] = kwargs["generation_world_profile"]
             return [
                 type(
                     "Pkg",
@@ -772,12 +773,26 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
         fake_plan_storyboard_batch,
     )
 
+    class _WorldPlanner:
+        async def plan(self, **kwargs):
+            return ContentWorldProfile(
+                summary="正定古城清晨漫游",
+                story_constraints="不能替代长乐门",
+                ip_integration_guidance="IP 作为低侵入陪伴式向导",
+            )
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.ContentWorldPlanner",
+        lambda: _WorldPlanner(),
+    )
+
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
         narrations=["从长乐门出发。"],
         image_config={"prompt_prefix": "古城旅行纪录片风格"},
         storyboard_plan=plan,
         world_preset_id="neutral_knowledge_storyboard",
+        generation_world_hint="古城清晨漫游，低侵入陪伴。",
         ip_enabled=True,
         ip_profile=_ip_profile(),
         scene_casts_by_frame={"frame_1": {"ip_presence_type": "scene_integrated"}},
@@ -786,6 +801,7 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
     assert planner_calls["resolved_style"] is not None
     assert planner_calls["storyboard_plan"] is plan
     assert planner_calls["scene_casts_by_frame"] == {"frame_1": {"ip_presence_type": "scene_integrated"}}
+    assert planner_calls["generation_world_profile"].summary == "正定古城清晨漫游"
     assert isinstance(planner_calls["prompt_contexts"], PromptContextEnvelope)
     assert (
         planner_calls["prompt_contexts"].frame_contexts[0]["ip_adaptation"]["ip_presence_type"]

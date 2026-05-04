@@ -1264,6 +1264,7 @@ async def generate_styled_image_prompt_batch(
             ip_profile=ip_profile,
             resolved_style=resolved_style if normalized_style is None else normalized_style,
             scene_casts_by_frame=scene_casts_by_frame,
+            generation_world_profile=generation_world_profile,
         )
         prompt_contexts_for_generation = _enrich_prompt_contexts_with_ip(
             normalized_prompt_contexts,
