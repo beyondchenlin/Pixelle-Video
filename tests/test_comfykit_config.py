@@ -296,3 +296,20 @@ def test_set_comfyui_config_updates_default_backend_url_with_legacy_url(monkeypa
 
     assert config_manager.config.comfyui.comfyui_url == "http://127.0.0.1:9000"
     assert config_manager.config.comfyui.backends["default"].url == "http://127.0.0.1:9000"
+
+
+def test_set_comfyui_config_syncs_legacy_url_from_default_backend(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig.model_validate(
+            {"comfyui": {"comfyui_url": "http://127.0.0.1:8000"}}
+        ),
+    )
+
+    config_manager.set_comfyui_config(
+        backends={"default": {"url": "http://127.0.0.1:9000"}}
+    )
+
+    assert config_manager.config.comfyui.comfyui_url == "http://127.0.0.1:9000"
+    assert config_manager.config.comfyui.backends["default"].url == "http://127.0.0.1:9000"

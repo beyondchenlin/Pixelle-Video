@@ -227,6 +227,11 @@ class ConfigManager:
             updates["runninghub_instance_type"] = runninghub_instance_type if runninghub_instance_type else None
         if backends is not None:
             updates["backends"] = backends
+            default_backend = backends.get("default") if isinstance(backends, dict) else None
+            if comfyui_url is None and isinstance(default_backend, dict):
+                default_backend_url = default_backend.get("url")
+                if default_backend_url:
+                    updates["comfyui_url"] = default_backend_url
         elif comfyui_url is not None and "default" in self.config.comfyui.backends:
             default_backend = self.config.comfyui.backends["default"].model_dump()
             default_backend["url"] = comfyui_url

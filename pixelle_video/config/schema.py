@@ -580,6 +580,16 @@ class ComfyUIConfig(BaseModel):
             return data
 
         normalized = dict(data)
+        if normalized.get("backends") is None:
+            normalized["backends"] = {}
+        elif isinstance(normalized.get("backends"), dict):
+            normalized["backends"] = {
+                profile_name: ({} if profile_data is None else profile_data)
+                for profile_name, profile_data in normalized["backends"].items()
+            }
+        if normalized.get("workflow_routing") is None:
+            normalized["workflow_routing"] = {}
+
         legacy_fields = []
         for field_name in (
             "post_generation_cleanup_mode",

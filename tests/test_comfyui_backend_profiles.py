@@ -156,6 +156,44 @@ def test_backend_profile_accepts_null_core_paths_and_generates_defaults():
     assert profile.database_url == "sqlite:///E:/ComfyUIData/pixelle-image/user/comfyui.db"
 
 
+def test_null_backend_containers_create_default_profile_and_routing():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "comfyui_url": "http://127.0.0.1:8000",
+                "backends": None,
+                "workflow_routing": None,
+            }
+        }
+    )
+
+    assert set(config.comfyui.backends) == {"default"}
+    assert config.comfyui.backends["default"].url == "http://127.0.0.1:8000"
+    assert config.comfyui.workflow_routing.image == "default"
+    assert config.comfyui.workflow_routing.tts == "default"
+    assert config.comfyui.workflow_routing.default == "default"
+
+
+def test_null_backend_entry_defaults_by_profile_name():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "comfyui_url": "http://127.0.0.1:8000",
+                "backends": {
+                    "image": None,
+                },
+            }
+        }
+    )
+
+    profile = config.comfyui.backends["image"]
+
+    assert profile.url == "http://127.0.0.1:8000"
+    assert profile.data_root == "E:/ComfyUIData/pixelle-image"
+    assert profile.runtime_dir == "_runtime/comfyui/image"
+    assert profile.logs_dir == "logs/comfyui/image"
+
+
 @pytest.mark.parametrize("bad_name", ["Image", "../image", "image role", "tts.role"])
 def test_backend_profile_names_are_restricted(bad_name):
     with pytest.raises(ValueError, match="backend profile name"):
