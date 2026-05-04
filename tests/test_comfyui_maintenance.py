@@ -485,6 +485,7 @@ async def test_free_memory_with_gguf_extension_accepts_safe_to_continue_when_vra
                     200,
                     json={
                         "protocol_version": 2,
+                        "contract_revision": 2,
                         "safe_to_continue": True,
                         "released": True,
                         "objects_seen": ["gguf_model", "gguf_clip"],
@@ -520,6 +521,7 @@ async def test_free_memory_with_gguf_extension_accepts_safe_to_continue_when_vra
     assert result.comfyui_released is False
     assert result.extensions[0].extension == "gguf"
     assert result.extensions[0].safe_to_continue is True
+    assert result.extensions[0].contract_revision == 2
     assert result.released is True
     assert result.safe_to_continue is True
     assert result.release_confirmation_reason == "extension_safe_to_continue"
@@ -562,6 +564,7 @@ async def test_free_memory_with_gguf_extension_treats_residual_objects_as_diagno
                     200,
                     json={
                         "protocol_version": 2,
+                        "contract_revision": 2,
                         "extension": "gguf",
                         "released": True,
                         "safe_to_continue": True,
@@ -594,10 +597,74 @@ async def test_free_memory_with_gguf_extension_treats_residual_objects_as_diagno
 
     assert result.comfyui_released is False
     assert result.extensions[0].safe_to_continue is True
+    assert result.extensions[0].contract_revision == 2
     assert result.released is True
     assert result.safe_to_continue is True
     assert result.release_confirmation_reason == "extension_safe_to_continue"
     assert result.extensions[0].response["residual_objects"] == ["GGUFModelPatcher"]
+
+
+@pytest.mark.asyncio
+async def test_free_memory_with_gguf_extension_rejects_stale_contract_revision(monkeypatch):
+    unchanged_snapshot = {
+        "devices": [
+            {
+                "name": "NVIDIA",
+                "type": "cuda",
+                "vram_total": 8192,
+                "vram_free": 1024,
+                "torch_vram_total": 8192,
+                "torch_vram_free": 64,
+            }
+        ]
+    }
+
+    class _StaleGGUFContractTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/system_stats" and request.method == "GET":
+                if self.system_stats_payloads:
+                    payload = self.system_stats_payloads.pop(0)
+                    self.last_system_stats_payload = payload
+                else:
+                    payload = self.last_system_stats_payload or {}
+                return httpx.Response(200, json=payload, request=request)
+            if request.url.path == "/pixelle/gguf/free":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "safe_to_continue": True,
+                        "released": True,
+                        "residual_objects": [],
+                        "errors": [],
+                    },
+                    request=request,
+                )
+            return await super().handle_async_request(request)
+
+    transport = _StaleGGUFContractTransport(system_stats_payloads=[unchanged_snapshot] * 10)
+    client = ComfyUIMaintenanceClient(
+        "http://127.0.0.1:8000",
+        transport=transport,
+        release_settle_timeout=0.01,
+    )
+
+    async def _immediate_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
+
+    result = await client.free_memory_with_extensions("high", extensions=("gguf",))
+
+    assert result.comfyui_released is False
+    assert result.extensions[0].safe_to_continue is False
+    assert result.extensions[0].contract_revision is None
+    assert result.released is False
+    assert result.safe_to_continue is False
+    assert result.release_confirmation_reason == "extension_contract_revision_unconfirmed"
 
 
 @pytest.mark.asyncio
@@ -631,6 +698,7 @@ async def test_free_memory_with_extension_keeps_success_when_system_stats_disapp
                     200,
                     json={
                         "protocol_version": 2,
+                        "contract_revision": 2,
                         "safe_to_continue": True,
                         "released": True,
                         "residual_objects": [],
@@ -901,6 +969,7 @@ async def test_free_memory_with_extensions_preserves_extension_vram_snapshots():
             "released": True,
             "safe_to_continue": True,
             "protocol_version": 2,
+            "contract_revision": None,
             "missing_endpoint": False,
             "message": "",
             "vram": {
@@ -1109,6 +1178,37 @@ async def test_preflight_extension_release_endpoints_requires_protocol_v2():
 
 
 @pytest.mark.asyncio
+async def test_preflight_gguf_extension_release_endpoints_requires_current_contract_revision():
+    class _LegacyGGUFHealthTransport(_RecordingTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = await request.aread()
+            payload = json.loads(body.decode("utf-8")) if body else None
+            self.calls.append((request.method, request.url.path, payload))
+            if request.url.path == "/pixelle/gguf/health":
+                return httpx.Response(
+                    200,
+                    json={
+                        "protocol_version": 2,
+                        "ok": True,
+                        "extension": "gguf",
+                        "release_endpoint": "/pixelle/gguf/free",
+                        "safe_to_continue": True,
+                        "residual_objects": [],
+                    },
+                    request=request,
+                )
+            return httpx.Response(200, request=request)
+
+    transport = _LegacyGGUFHealthTransport()
+    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
+
+    with pytest.raises(RuntimeError, match="contract revision"):
+        await client.preflight_extension_release_endpoints(extensions=("gguf",))
+
+    assert transport.calls == [("GET", "/pixelle/gguf/health", None)]
+
+
+@pytest.mark.asyncio
 async def test_preflight_extension_release_endpoints_uses_side_effect_free_health_endpoint():
     transport = _RecordingTransport()
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
@@ -1179,6 +1279,7 @@ async def test_free_extension_models_uses_release_request_timeout():
                     200,
                     json={
                         "protocol_version": 2,
+                        "contract_revision": 2,
                         "safe_to_continue": True,
                         "released": True,
                         "residual_objects": [],
@@ -1200,6 +1301,7 @@ async def test_free_extension_models_uses_release_request_timeout():
     result = await client.free_extension_models(extensions=("gguf",))
 
     assert result[0].safe_to_continue is True
+    assert result[0].contract_revision == 2
     assert calls == [("POST", "/pixelle/gguf/free", 45.0)]
 
 

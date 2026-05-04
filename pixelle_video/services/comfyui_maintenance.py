@@ -33,6 +33,9 @@ _EXTENSION_PATCH_INSTRUCTIONS: dict[ComfyUIExtensionName, str] = {
     "indextts2": "Run tools/patch_indextts2_plugin.py against ComfyUI-Index-TTS, then restart ComfyUI.",
     "gguf": "Run tools/patch_gguf_plugin.py against ComfyUI-GGUF, then restart ComfyUI.",
 }
+_EXTENSION_MIN_CONTRACT_REVISIONS: dict[ComfyUIExtensionName, int] = {
+    "gguf": 2,
+}
 
 _VRAM_RESPONSE_KEYS = (
     "cuda_allocated_before",
@@ -57,6 +60,7 @@ class ComfyUIExtensionReleaseResult:
     released: bool
     safe_to_continue: bool = False
     protocol_version: int | None = None
+    contract_revision: int | None = None
     missing_endpoint: bool = False
     message: str = ""
     response: dict[str, Any] | None = None
@@ -75,6 +79,7 @@ class ComfyUIExtensionReleaseResult:
             "released": self.released,
             "safe_to_continue": self.safe_to_continue,
             "protocol_version": self.protocol_version,
+            "contract_revision": self.contract_revision,
             "missing_endpoint": self.missing_endpoint,
             "message": self.message,
             "vram": vram,
@@ -323,13 +328,15 @@ class ComfyUIMaintenanceClient:
                     f"Pixelle release protocol v2. {_EXTENSION_PATCH_INSTRUCTIONS[extension]}"
                 )
                 raise RuntimeError(message)
+            self._ensure_extension_contract_revision(extension, endpoint, data)
             results.append(
                 ComfyUIExtensionReleaseResult(
                     extension=extension,
                     endpoint=endpoint,
                     released=False,
-                    safe_to_continue=bool(data.get("safe_to_continue")),
+                    safe_to_continue=self._is_extension_safe_to_continue(extension, data),
                     protocol_version=self._parse_protocol_version(data),
+                    contract_revision=self._parse_contract_revision(data),
                     response=data,
                 )
             )
@@ -376,7 +383,8 @@ class ComfyUIMaintenanceClient:
             data = payload if isinstance(payload, dict) else {}
             protocol_version = self._parse_protocol_version(data)
             released = bool(data.get("released"))
-            safe_to_continue = self._is_extension_safe_to_continue(data)
+            contract_revision = self._parse_contract_revision(data)
+            safe_to_continue = self._is_extension_safe_to_continue(extension, data)
             results.append(
                 ComfyUIExtensionReleaseResult(
                     extension=extension,
@@ -384,6 +392,7 @@ class ComfyUIMaintenanceClient:
                     released=released,
                     safe_to_continue=safe_to_continue,
                     protocol_version=protocol_version,
+                    contract_revision=contract_revision,
                     response=data,
                 )
             )
@@ -443,6 +452,12 @@ class ComfyUIMaintenanceClient:
             if result.protocol_version != 2:
                 unconfirmed_reasons.append("extension_legacy_contract_unconfirmed")
                 continue
+            minimum_revision = _EXTENSION_MIN_CONTRACT_REVISIONS.get(result.extension)
+            if minimum_revision is not None:
+                revision = result.contract_revision
+                if revision is None or revision < minimum_revision:
+                    unconfirmed_reasons.append("extension_contract_revision_unconfirmed")
+                    continue
             if result.safe_to_continue:
                 continue
             residual_objects = response.get("residual_objects")
@@ -468,9 +483,45 @@ class ComfyUIMaintenanceClient:
         except (TypeError, ValueError):
             return None
 
-    def _is_extension_safe_to_continue(self, data: dict[str, Any]) -> bool:
+    def _parse_contract_revision(self, data: dict[str, Any]) -> int | None:
+        value = data.get("contract_revision")
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _ensure_extension_contract_revision(
+        self,
+        extension: ComfyUIExtensionName,
+        endpoint: str,
+        data: dict[str, Any],
+    ) -> None:
+        minimum_revision = _EXTENSION_MIN_CONTRACT_REVISIONS.get(extension)
+        if minimum_revision is None:
+            return
+        revision = self._parse_contract_revision(data)
+        if revision is not None and revision >= minimum_revision:
+            return
+        raise RuntimeError(
+            f"ComfyUI extension health endpoint {endpoint} exposes protocol v2 but "
+            f"not the required contract revision >= {minimum_revision}. "
+            f"{_EXTENSION_PATCH_INSTRUCTIONS[extension]}"
+        )
+
+    def _is_extension_safe_to_continue(
+        self,
+        extension: ComfyUIExtensionName,
+        data: dict[str, Any],
+    ) -> bool:
         if self._parse_protocol_version(data) != 2:
             return False
+        minimum_revision = _EXTENSION_MIN_CONTRACT_REVISIONS.get(extension)
+        if minimum_revision is not None:
+            revision = self._parse_contract_revision(data)
+            if revision is None or revision < minimum_revision:
+                return False
         return bool(data.get("safe_to_continue"))
 
     async def free_memory_when_idle(

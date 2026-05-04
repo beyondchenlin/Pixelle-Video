@@ -101,6 +101,9 @@ from aiohttp import web
 from server import PromptServer
 
 
+_PIXELLE_GGUF_RELEASE_CONTRACT_REVISION = 2
+
+
 def _cuda_snapshot() -> dict:
     if not torch.cuda.is_available():
         return {}
@@ -131,7 +134,17 @@ def _find_gguf_objects() -> list[str]:
     return sorted(set(labels))
 
 
-_SAFE_CUDA_ALLOCATED_BYTES = 256 * 1024 * 1024
+_MIN_CUDA_ALLOCATED_RELEASE_BYTES = 64 * 1024 * 1024
+_MIN_CUDA_ALLOCATED_RELEASE_RATIO = 0.05
+
+
+def _cuda_allocated_release_is_material(before_bytes: int, after_bytes: int) -> bool:
+    if before_bytes <= 0 or after_bytes >= before_bytes:
+        return False
+    release_bytes = before_bytes - after_bytes
+    relative_threshold = max(1, int(before_bytes * _MIN_CUDA_ALLOCATED_RELEASE_RATIO))
+    threshold = min(_MIN_CUDA_ALLOCATED_RELEASE_BYTES, relative_threshold)
+    return release_bytes >= threshold
 
 
 def gguf_release_health() -> dict:
@@ -139,6 +152,7 @@ def gguf_release_health() -> dict:
     snapshot = _cuda_snapshot()
     return {
         "protocol_version": 2,
+        "contract_revision": _PIXELLE_GGUF_RELEASE_CONTRACT_REVISION,
         "ok": True,
         "extension": "gguf",
         "release_endpoint": "/pixelle/gguf/free",
@@ -173,19 +187,35 @@ def unload_gguf_models() -> dict:
 
     diagnostic_objects = _find_gguf_objects()
     after = _cuda_snapshot()
+    cuda_allocated_before = before.get("cuda_allocated", 0)
     cuda_allocated_after = after.get("cuda_allocated", 0)
-    safe_to_continue = not errors and cuda_allocated_after <= _SAFE_CUDA_ALLOCATED_BYTES
+    cuda_allocated_decreased = _cuda_allocated_release_is_material(
+        cuda_allocated_before,
+        cuda_allocated_after,
+    )
+    residual_objects = []
+    release_confirmation_reason = "gguf_objects_released"
+    if diagnostic_objects and not cuda_allocated_decreased:
+        residual_objects = diagnostic_objects
+        release_confirmation_reason = "gguf_objects_residual"
+    elif errors:
+        release_confirmation_reason = "gguf_release_errors"
+    elif cuda_allocated_decreased:
+        release_confirmation_reason = "gguf_cuda_allocated_decreased"
+    safe_to_continue = not errors and not residual_objects
     return {
         "protocol_version": 2,
+        "contract_revision": _PIXELLE_GGUF_RELEASE_CONTRACT_REVISION,
         "extension": "gguf",
-        "released": bool(objects_seen) or before.get("cuda_allocated", 0) > cuda_allocated_after,
+        "released": bool(objects_seen) or cuda_allocated_decreased,
         "safe_to_continue": safe_to_continue,
+        "release_confirmation_reason": release_confirmation_reason,
         "objects_seen": objects_seen,
         "objects_released": [item for item in objects_seen if item not in diagnostic_objects],
         "diagnostic_objects": diagnostic_objects,
-        "residual_objects": [] if safe_to_continue else diagnostic_objects,
+        "residual_objects": residual_objects,
         "errors": errors,
-        "cuda_allocated_before": before.get("cuda_allocated", 0),
+        "cuda_allocated_before": cuda_allocated_before,
         "cuda_allocated_after": cuda_allocated_after,
         "cuda_reserved_before": before.get("cuda_reserved", 0),
         "cuda_reserved_after": after.get("cuda_reserved", 0),
