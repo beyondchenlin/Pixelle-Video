@@ -89,3 +89,26 @@ def test_image_prompt_template_can_request_chinese_output():
 
     assert "必须使用中文" in prompt
     assert "Image prompts must use English" not in prompt
+
+
+def test_prompt_context_payload_can_carry_ip_adaptation_package():
+    envelope = PromptContextEnvelope(
+        plan_context={"plan_source_text": "从长乐门出发。"},
+        frame_contexts=[
+            {
+                "frame_source_text": "从长乐门出发。",
+                "ip_adaptation": {
+                    "ip_presence_type": "scene_integrated",
+                    "presence_mode": "support",
+                },
+                "ip_presence_options": ["scene_integrated", "low_intrusion", "absent"],
+                "style_context": {"style_kind": "visual_only"},
+            }
+        ],
+    )
+
+    payload = envelope.to_prompt_payload()
+
+    assert payload["prompt_contexts"][0]["ip_adaptation"]["ip_presence_type"] == "scene_integrated"
+    assert "low_intrusion" in payload["prompt_contexts"][0]["ip_presence_options"]
+    assert payload["prompt_contexts"][0]["style_context"]["style_kind"] == "visual_only"
