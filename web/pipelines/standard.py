@@ -32,6 +32,18 @@ from web.i18n import tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
 
 
+def _style_params_without_ip_controls(style_params: dict) -> dict:
+    sanitized = dict(style_params)
+    for key in (
+        "ip_enabled",
+        "ip_asset_bible_id",
+        "ip_profile_id",
+        "ip_profile_world_hint",
+    ):
+        sanitized.pop(key, None)
+    return sanitized
+
+
 class StandardPipelineUI(PipelineUI):
     """
     UI for the Standard Video Generation Pipeline.
@@ -57,7 +69,7 @@ class StandardPipelineUI(PipelineUI):
         # ====================================================================
         with left_col:
             # Content input (mode, text, title, n_scenes)
-            content_params = render_content_input()
+            content_params = render_content_input(pixelle_video=pixelle_video)
 
             # Version info & GitHub link
             render_version_info()
@@ -90,7 +102,7 @@ class StandardPipelineUI(PipelineUI):
                 "pipeline": self.name,
                 **content_params,
                 **bgm_params,
-                **style_params
+                **_style_params_without_ip_controls(style_params),
             }
             
             # Render output preview (generate button, progress, video preview)
