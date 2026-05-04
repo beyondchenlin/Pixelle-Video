@@ -131,11 +131,18 @@ class TTSService(ComfyBaseService):
         else:  # comfyui
             # 1. Resolve workflow (returns structured info)
             workflow_info = self._resolve_workflow(workflow=workflow)
+            backend_role = "default"
+            registry = self._get_backend_registry()
+            if workflow_info["source"] == "selfhost" and registry is not None:
+                backend_role = registry.resolve_role_for_tts(
+                    workflow_info["key"],
+                )
             
             # 2. Execute ComfyUI workflow
             return await self._call_comfyui_workflow(
                 workflow_info=workflow_info,
                 text=text,
+                backend_role=backend_role,
                 comfyui_url=comfyui_url,
                 runninghub_api_key=runninghub_api_key,
                 voice=voice,
@@ -207,6 +214,7 @@ class TTSService(ComfyBaseService):
         voice: Optional[str] = None,
         speed: float = 1.0,
         output_path: Optional[str] = None,
+        backend_role: str = "default",
         **params
     ) -> str:
         """
@@ -268,7 +276,12 @@ class TTSService(ComfyBaseService):
                 workflow_input = workflow_info["path"]
                 logger.info(f"Executing selfhost TTS workflow: {workflow_input}")
             
-            result = await self._execute_workflow(workflow_input, workflow_params, workflow_info)
+            result = await self._execute_workflow(
+                workflow_input,
+                workflow_params,
+                workflow_info,
+                backend_role=backend_role,
+            )
             
             # 4. Handle result
             if result.status != "completed":

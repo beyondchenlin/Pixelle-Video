@@ -238,7 +238,7 @@ async def test_core_execute_local_comfy_workflow_runs_cleanup_around_execute():
     async def _release():
         calls.append(("release",))
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         calls.append(("get_kit",))
         return _Kit()
 
@@ -286,7 +286,7 @@ async def test_core_execute_standalone_index_tts2_workflow_releases_models_after
         calls.append(("preflight", context, extensions))
         return True
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         calls.append(("get_kit",))
         return _Kit()
 
@@ -353,7 +353,7 @@ async def test_core_execute_gguf_workflow_releases_gguf_extension_after_execute(
         calls.append(("preflight", context, extensions))
         return True
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         calls.append(("get_kit",))
         return _Kit()
 
@@ -396,7 +396,7 @@ async def test_core_execute_local_comfy_workflow_releases_after_failure():
     async def _release():
         calls.append("release")
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         calls.append("get_kit")
         return _Kit()
 
@@ -440,7 +440,7 @@ async def test_core_execute_local_comfy_workflow_recovers_once_after_oom():
         calls.append(("release",))
         return True
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         calls.append(("get_kit",))
         return _Kit()
 
@@ -527,7 +527,7 @@ async def test_core_execute_index_tts2_oom_recovery_releases_plugin_cache_in_com
         calls.append(("index_tts2_release", context, missing_endpoint))
         return True
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         calls.append(("get_kit",))
         return _Kit()
 
@@ -578,7 +578,7 @@ async def test_core_execute_local_comfy_workflow_stops_when_oom_release_fails():
     async def _release():
         calls.append(("release",))
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         calls.append(("get_kit",))
         return _Kit()
 
@@ -625,7 +625,7 @@ async def test_core_execute_local_comfy_workflow_stops_when_cleanup_fails():
     async def _release():
         calls.append("release")
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         calls.append("get_kit")
         return _Kit()
 
@@ -660,7 +660,7 @@ async def test_core_execute_runninghub_workflow_bypasses_local_comfy_cleanup():
     async def _release():
         raise AssertionError("RunningHub workflow should not release local ComfyUI")
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
@@ -702,7 +702,7 @@ async def test_core_execute_local_comfy_workflows_serialize_cleanup_boundary():
     async def _release():
         events.append("release")
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
@@ -753,7 +753,7 @@ async def test_local_comfyui_workflow_session_keeps_lifecycle_open_across_batch(
     async def _release():
         events.append(("release",))
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         events.append(("get_kit",))
         return _Kit()
 
@@ -803,7 +803,7 @@ async def test_index_tts2_workflow_session_releases_models_once_at_session_exit(
         events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         events.append(("get_kit",))
         return _Kit()
 
@@ -870,7 +870,7 @@ async def test_local_comfyui_workflow_session_releases_models_for_renamed_index_
         events.append(("preflight", context, extensions))
         return True
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         events.append(("get_kit",))
         return _Kit()
 
@@ -914,7 +914,7 @@ async def test_index_tts2_workflow_session_releases_models_at_session_exit():
         events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
@@ -959,7 +959,7 @@ async def test_index_tts2_workflow_preflights_required_extension_endpoint_before
         events.append(("index_tts2_release", context, missing_endpoint))
         return True
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
@@ -1004,7 +1004,7 @@ async def test_index_tts2_workflow_session_does_not_force_release_on_normal_comp
         events.append(("force_release", context))
         raise AssertionError("IndexTTS2 should not force-release ComfyUI memory after a successful run")
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
@@ -1057,7 +1057,7 @@ async def test_local_comfyui_task_scope_releases_at_task_exit_after_workflow_ses
         events.append(("task_release",))
         return True
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
@@ -1108,7 +1108,7 @@ async def test_local_comfyui_workflow_session_can_release_at_batch_exit_inside_t
         events.append(("task_release",))
         return True
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
@@ -1153,7 +1153,7 @@ async def test_local_comfyui_workflow_session_fails_when_stage_release_is_not_co
     async def _prepare():
         events.append(("prepare",))
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         return _Kit()
 
     monkeypatch.setattr(
@@ -1707,7 +1707,7 @@ async def test_local_comfyui_workflow_session_serializes_concurrent_workflows():
     async def _release():
         events.append("release")
 
-    async def _get_kit():
+    async def _get_kit(backend_role="default"):
         return _Kit()
 
     core.prepare_comfyui_for_local_workflow = _prepare
@@ -1765,7 +1765,7 @@ async def test_local_comfyui_workflow_session_is_scoped_to_core_instance():
         async def _release():
             events.append((name, "release"))
 
-        async def _get_kit():
+        async def _get_kit(backend_role="default"):
             return _Kit()
 
         core.prepare_comfyui_for_local_workflow = _prepare
@@ -1829,7 +1829,7 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
 
     call_count = 0
 
-    async def _execute_once(workflow_input, workflow_params):
+    async def _execute_once(workflow_input, workflow_params, *, backend_role="default"):
         nonlocal call_count
         call_count += 1
         events.append(("execute_once", call_count, workflow_input))
@@ -1901,7 +1901,7 @@ async def test_local_comfyui_workflow_session_ignores_legacy_gguf_restart_config
         events.append(("release_memory", context, include_extensions, extensions, missing_endpoint))
         return True
 
-    async def _execute_once(workflow_input, workflow_params):
+    async def _execute_once(workflow_input, workflow_params, *, backend_role="default"):
         events.append(("execute_once", workflow_input))
         return SimpleNamespace(status="completed")
 
@@ -1948,7 +1948,7 @@ async def test_local_comfyui_workflow_session_releases_gguf_batch(monkeypatch):
         core._mark_local_comfyui_released()
         return True
 
-    async def _execute_once(workflow_input, workflow_params):
+    async def _execute_once(workflow_input, workflow_params, *, backend_role="default"):
         events.append(("execute_once", workflow_input))
         return SimpleNamespace(status="completed")
 
@@ -1996,16 +1996,16 @@ async def test_restart_managed_comfyui_backend_closes_old_comfykit(monkeypatch):
             assert reason == "post_gguf_workflow"
             return True
 
-    core._comfykit = _ComfyKit()
-    core._comfykit_config_hash = "configured"
+    core._comfykit_by_backend["default"] = _ComfyKit()
+    core._comfykit_config_hash_by_backend["default"] = "configured"
     monkeypatch.setattr(core, "_get_managed_comfyui_backend", lambda: _Backend())
 
     restarted = await core.restart_managed_comfyui_backend("post_gguf_workflow")
 
     assert restarted is True
     assert closed == ["http"]
-    assert core._comfykit is None
-    assert core._comfykit_config_hash is None
+    assert core._comfykit_by_backend == {}
+    assert core._comfykit_config_hash_by_backend == {}
 
 
 @pytest.mark.asyncio
@@ -2013,8 +2013,14 @@ async def test_core_execute_workflow_file_resolves_runninghub_and_selfhost_input
     calls = []
     core = PixelleVideoCore()
 
-    async def _execute(workflow_input, workflow_params, *, workflow_source):
-        calls.append((workflow_input, workflow_params, workflow_source))
+    async def _execute(
+        workflow_input,
+        workflow_params,
+        *,
+        workflow_source,
+        backend_role="default",
+    ):
+        calls.append((workflow_input, workflow_params, workflow_source, backend_role))
         return SimpleNamespace(status="completed")
 
     core.execute_comfykit_workflow = _execute
@@ -2031,8 +2037,8 @@ async def test_core_execute_workflow_file_resolves_runninghub_and_selfhost_input
     await core.execute_comfykit_workflow_file(runninghub_workflow, {"prompt": "cloud"})
 
     assert calls == [
-        (str(selfhost_workflow), {"prompt": "local"}, "selfhost"),
-        ("rh-123", {"prompt": "cloud"}, "runninghub"),
+        (str(selfhost_workflow), {"prompt": "local"}, "selfhost", "default"),
+        ("rh-123", {"prompt": "cloud"}, "runninghub", "default"),
     ]
 
 
@@ -2060,14 +2066,14 @@ async def test_core_cleanup_skips_comfykit_executors_without_close():
         _websocket_executor = object()
 
     core = PixelleVideoCore()
-    core._comfykit = _ComfyKit()
-    core._comfykit_config_hash = "configured"
+    core._comfykit_by_backend["default"] = _ComfyKit()
+    core._comfykit_config_hash_by_backend["default"] = "configured"
 
     await core.cleanup()
 
     assert closed == ["runninghub"]
-    assert core._comfykit is None
-    assert core._comfykit_config_hash is None
+    assert core._comfykit_by_backend == {}
+    assert core._comfykit_config_hash_by_backend == {}
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,199 @@
+from types import SimpleNamespace
+
+import pytest
+
+from pixelle_video.config import config_manager
+from pixelle_video.config.schema import PixelleVideoConfig
+from pixelle_video.service import PixelleVideoCore
+from pixelle_video.services.media import MediaService
+from pixelle_video.services.tts_service import TTSService
+
+
+def _dual_backend_config() -> PixelleVideoConfig:
+    return PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "backends": {
+                    "image": {"url": "http://127.0.0.1:8001"},
+                    "tts": {"url": "http://127.0.0.1:8002"},
+                },
+                "workflow_routing": {"image": "image", "tts": "tts"},
+            }
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_core_caches_comfykit_per_backend(monkeypatch):
+    monkeypatch.setattr(config_manager, "config", _dual_backend_config())
+    created = []
+
+    class FakeComfyKit:
+        def __init__(self, **config):
+            self.config = config
+            created.append(config)
+
+    monkeypatch.setattr("pixelle_video.service.ComfyKit", FakeComfyKit)
+
+    core = PixelleVideoCore()
+    image_kit = await core._get_or_create_comfykit("image")
+    tts_kit = await core._get_or_create_comfykit("tts")
+    image_kit_again = await core._get_or_create_comfykit("image")
+
+    assert image_kit is image_kit_again
+    assert image_kit is not tts_kit
+    assert created[0]["comfyui_url"] == "http://127.0.0.1:8001"
+    assert created[1]["comfyui_url"] == "http://127.0.0.1:8002"
+
+
+@pytest.mark.asyncio
+async def test_media_service_passes_selfhost_image_backend_role(monkeypatch):
+    monkeypatch.setattr(config_manager, "config", _dual_backend_config())
+    calls = []
+
+    class RecordingCore:
+        def _get_comfyui_backend_registry(self):
+            return PixelleVideoCore()._get_comfyui_backend_registry()
+
+        async def execute_comfykit_workflow(
+            self,
+            workflow_input,
+            workflow_params,
+            *,
+            workflow_source,
+            backend_role,
+        ):
+            calls.append(
+                {
+                    "workflow_input": workflow_input,
+                    "workflow_source": workflow_source,
+                    "backend_role": backend_role,
+                }
+            )
+            return SimpleNamespace(status="completed", images=["generated.png"])
+
+    service = MediaService(
+        {"comfyui": {"image": {"default_workflow": None}}},
+        core=RecordingCore(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_resolve_workflow",
+        lambda workflow=None, workflow_domain=None: {
+            "source": "selfhost",
+            "key": "selfhost/image_z_image_turbo_gguf.json",
+            "path": "workflows/selfhost/image_z_image_turbo_gguf.json",
+        },
+    )
+
+    await service(prompt="a cat", media_type="image")
+
+    assert calls == [
+        {
+            "workflow_input": "workflows/selfhost/image_z_image_turbo_gguf.json",
+            "workflow_source": "selfhost",
+            "backend_role": "image",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tts_service_passes_selfhost_tts_backend_role(monkeypatch):
+    monkeypatch.setattr(config_manager, "config", _dual_backend_config())
+    calls = []
+
+    class RecordingCore:
+        def _get_comfyui_backend_registry(self):
+            return PixelleVideoCore()._get_comfyui_backend_registry()
+
+        async def execute_comfykit_workflow(
+            self,
+            workflow_input,
+            workflow_params,
+            *,
+            workflow_source,
+            backend_role,
+        ):
+            calls.append(
+                {
+                    "workflow_input": workflow_input,
+                    "workflow_source": workflow_source,
+                    "backend_role": backend_role,
+                }
+            )
+            return SimpleNamespace(status="completed", audios=["generated.wav"])
+
+    service = TTSService(
+        {"comfyui": {"tts": {"default_workflow": None, "inference_mode": "comfyui"}}},
+        core=RecordingCore(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_resolve_workflow",
+        lambda workflow=None: {
+            "source": "selfhost",
+            "key": "selfhost/tts_edge.json",
+            "path": "workflows/selfhost/tts_edge.json",
+        },
+    )
+    monkeypatch.setattr(service, "_get_workflow_metadata", lambda workflow_info: None)
+
+    await service(text="hello")
+
+    assert calls == [
+        {
+            "workflow_input": "workflows/selfhost/tts_edge.json",
+            "workflow_source": "selfhost",
+            "backend_role": "tts",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_services_without_backend_registry_fall_back_to_default_role(monkeypatch):
+    calls = []
+
+    class LegacyCore:
+        async def execute_comfykit_workflow(
+            self,
+            workflow_input,
+            workflow_params,
+            *,
+            workflow_source,
+            backend_role,
+        ):
+            calls.append((workflow_input, workflow_source, backend_role))
+            return SimpleNamespace(status="completed", images=["generated.png"])
+
+    service = MediaService(
+        {"comfyui": {"image": {"default_workflow": None}}},
+        core=LegacyCore(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_resolve_workflow",
+        lambda workflow=None, workflow_domain=None: {
+            "source": "selfhost",
+            "key": "selfhost/image_z_image_turbo_gguf.json",
+            "path": "workflows/selfhost/image_z_image_turbo_gguf.json",
+        },
+    )
+
+    await service(prompt="a cat", media_type="image")
+
+    assert calls == [
+        (
+            "workflows/selfhost/image_z_image_turbo_gguf.json",
+            "selfhost",
+            "default",
+        )
+    ]
+
+
+def test_media_and_tts_registry_choose_dedicated_roles(monkeypatch):
+    monkeypatch.setattr(config_manager, "config", _dual_backend_config())
+    core = PixelleVideoCore()
+    registry = core._get_comfyui_backend_registry()
+
+    assert registry.resolve_role_for_media("selfhost/image_z.json", "image") == "image"
+    assert registry.resolve_role_for_tts("selfhost/tts_index2.json") == "tts"

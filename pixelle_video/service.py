@@ -148,9 +148,10 @@ class PixelleVideoCore:
         self.config = config_manager.config.to_dict()
         self._initialized = False
         
-        # ComfyKit lazy initialization (created on first use, recreated on config change)
-        self._comfykit: Optional[ComfyKit] = None
-        self._comfykit_config_hash: Optional[str] = None
+        # ComfyKit lazy initialization per backend role (created on first use,
+        # recreated on config change)
+        self._comfykit_by_backend: dict[str, ComfyKit] = {}
+        self._comfykit_config_hash_by_backend: dict[str, str] = {}
         
         # Core services (initialized in initialize())
         self.llm: Optional[LLMService] = None
@@ -181,7 +182,10 @@ class PixelleVideoCore:
         # Default pipeline callable (for backward compatibility)
         self.generate_video = None
     
-    def _get_comfykit_config(self) -> dict:
+    def _normalize_comfyui_backend_role(self, backend_role: str | None = "default") -> str:
+        return str(backend_role or "default").strip() or "default"
+
+    def _get_comfykit_config(self, backend_role: str = "default") -> dict:
         """
         Get current ComfyKit configuration from config_manager
         
@@ -190,7 +194,8 @@ class PixelleVideoCore:
         """
         # Reload config from global config_manager (to support hot reload)
         self.config = config_manager.config.to_dict()
-        return self._get_comfyui_backend_registry().get_comfykit_config("default")
+        role = self._normalize_comfyui_backend_role(backend_role)
+        return self._get_comfyui_backend_registry().get_comfykit_config(role)
 
     def _get_comfyui_backend_registry(self) -> ComfyUIBackendRegistry:
         self.config = config_manager.config.to_dict()
@@ -213,7 +218,7 @@ class PixelleVideoCore:
         config_str = json.dumps(config, sort_keys=True)
         return hashlib.md5(config_str.encode()).hexdigest()
     
-    async def _get_or_create_comfykit(self) -> ComfyKit:
+    async def _get_or_create_comfykit(self, backend_role: str = "default") -> ComfyKit:
         """
         Get or create ComfyKit instance (lazy initialization with config change detection)
         
@@ -225,28 +230,32 @@ class PixelleVideoCore:
         Returns:
             ComfyKit instance
         """
-        current_config = self._get_comfykit_config()
+        role = self._normalize_comfyui_backend_role(backend_role)
+        current_config = self._get_comfykit_config(role)
         current_hash = self._compute_comfykit_config_hash(current_config)
+        existing_kit = self._comfykit_by_backend.get(role)
+        existing_hash = self._comfykit_config_hash_by_backend.get(role)
         
         # Check if we need to create or recreate ComfyKit
-        if self._comfykit is None or self._comfykit_config_hash != current_hash:
+        if existing_kit is None or existing_hash != current_hash:
             # Close old instance if exists
-            if self._comfykit is not None:
+            if existing_kit is not None:
                 logger.info("🔄 ComfyUI configuration changed, recreating ComfyKit instance...")
                 try:
-                    await self._comfykit.close()
+                    await existing_kit.close()
                 except Exception as e:
                     logger.warning(f"Failed to close old ComfyKit instance: {e}")
-                self._comfykit = None
+                self._comfykit_by_backend.pop(role, None)
+                self._comfykit_config_hash_by_backend.pop(role, None)
             
             # Create new instance with current config
             logger.info("✨ Creating ComfyKit instance...")
             logger.debug(f"ComfyKit config: {current_config}")
-            self._comfykit = ComfyKit(**current_config)
-            self._comfykit_config_hash = current_hash
+            self._comfykit_by_backend[role] = ComfyKit(**current_config)
+            self._comfykit_config_hash_by_backend[role] = current_hash
             logger.info("✅ ComfyKit instance created")
         
-        return self._comfykit
+        return self._comfykit_by_backend[role]
     
     async def initialize(self):
         """
@@ -301,7 +310,7 @@ class PixelleVideoCore:
         Example:
             await pixelle_video.cleanup()
         """
-        if self._comfykit:
+        if self._comfykit_by_backend:
             logger.info("🧹 Closing ComfyKit session...")
             try:
                 await self._close_comfykit_instance()
@@ -309,18 +318,27 @@ class PixelleVideoCore:
             except Exception as e:
                 logger.error(f"Failed to close ComfyKit: {e}")
             finally:
-                self._comfykit = None
-                self._comfykit_config_hash = None
+                self._comfykit_by_backend.clear()
+                self._comfykit_config_hash_by_backend.clear()
 
-    async def _close_comfykit_instance(self) -> None:
-        if self._comfykit is None:
-            return
+    async def _close_comfykit_instance(self, backend_role: str | None = None) -> None:
+        if backend_role is None:
+            roles = list(self._comfykit_by_backend.keys())
+        else:
+            role = self._normalize_comfyui_backend_role(backend_role)
+            roles = [role] if role in self._comfykit_by_backend else []
 
-        for attr_name in ("_runninghub_executor", "_http_executor", "_websocket_executor"):
-            executor = getattr(self._comfykit, attr_name, None)
-            close = getattr(executor, "close", None)
-            if callable(close):
-                await close()
+        for role in roles:
+            kit = self._comfykit_by_backend.get(role)
+            if kit is None:
+                continue
+            for attr_name in ("_runninghub_executor", "_http_executor", "_websocket_executor"):
+                executor = getattr(kit, attr_name, None)
+                close = getattr(executor, "close", None)
+                if callable(close):
+                    await close()
+            self._comfykit_by_backend.pop(role, None)
+            self._comfykit_config_hash_by_backend.pop(role, None)
 
     async def prepare_comfyui_for_local_workflow(self) -> None:
         """Prepare self-hosted ComfyUI before a local workflow execution."""
@@ -385,8 +403,6 @@ class PixelleVideoCore:
         restarted = await backend.restart(reason=reason)
         if restarted:
             await self._close_comfykit_instance()
-            self._comfykit = None
-            self._comfykit_config_hash = None
         return restarted
 
     def _log_comfyui_memory_release(
@@ -780,15 +796,28 @@ class PixelleVideoCore:
                 self._local_comfyui_active_task_count += 1
                 scope.registered_active_task = True
 
-    async def _execute_local_comfykit_workflow_once(self, workflow_input, workflow_params: dict):
-        kit = await self._get_or_create_comfykit()
+    async def _execute_local_comfykit_workflow_once(
+        self,
+        workflow_input,
+        workflow_params: dict,
+        *,
+        backend_role: str = "default",
+    ):
+        kit = await self._get_or_create_comfykit(backend_role)
         return await kit.execute(workflow_input, workflow_params)
 
-    async def _execute_local_comfykit_workflow(self, workflow_input, workflow_params: dict):
+    async def _execute_local_comfykit_workflow(
+        self,
+        workflow_input,
+        workflow_params: dict,
+        *,
+        backend_role: str = "default",
+    ):
         try:
             return await self._execute_local_comfykit_workflow_once(
                 workflow_input,
                 workflow_params,
+                backend_role=backend_role,
             )
         except Exception as exc:
             if looks_like_backend_connection_loss(str(exc)):
@@ -805,6 +834,7 @@ class PixelleVideoCore:
                     return await self._execute_local_comfykit_workflow_once(
                         workflow_input,
                         workflow_params,
+                        backend_role=backend_role,
                     )
             if not looks_like_memory_exhaustion(str(exc)):
                 raise
@@ -834,12 +864,23 @@ class PixelleVideoCore:
             return await self._execute_local_comfykit_workflow_once(
                 workflow_input,
                 workflow_params,
+                backend_role=backend_role,
             )
 
-    async def _execute_scoped_local_comfykit_workflow(self, workflow_input, workflow_params: dict):
+    async def _execute_scoped_local_comfykit_workflow(
+        self,
+        workflow_input,
+        workflow_params: dict,
+        *,
+        backend_role: str = "default",
+    ):
         session = self._local_comfyui_workflow_session.get()
         if session is None:
-            return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
+            return await self._execute_local_comfykit_workflow(
+                workflow_input,
+                workflow_params,
+                backend_role=backend_role,
+            )
 
         async with session.init_lock:
             if not session.lock_acquired:
@@ -858,7 +899,11 @@ class PixelleVideoCore:
             extensions = self._register_workflow_extensions(workflow_input)
             if extensions:
                 await self._preflight_workflow_extensions_once(extensions, session)
-            return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
+            return await self._execute_local_comfykit_workflow(
+                workflow_input,
+                workflow_params,
+                backend_role=backend_role,
+            )
 
     @asynccontextmanager
     async def local_comfyui_workflow_session(
@@ -980,10 +1025,11 @@ class PixelleVideoCore:
         workflow_params: dict,
         *,
         workflow_source: str,
+        backend_role: str = "default",
     ):
         normalized_source = str(workflow_source or "selfhost").lower()
         if normalized_source == "runninghub":
-            kit = await self._get_or_create_comfykit()
+            kit = await self._get_or_create_comfykit("default")
             return await kit.execute(workflow_input, workflow_params)
 
         session = self._local_comfyui_workflow_session.get()
@@ -991,6 +1037,7 @@ class PixelleVideoCore:
             return await self._execute_scoped_local_comfykit_workflow(
                 workflow_input,
                 workflow_params,
+                backend_role=backend_role,
             )
 
         async with self._local_comfyui_execution_lock:
@@ -1001,7 +1048,11 @@ class PixelleVideoCore:
                 await self._preflight_workflow_extensions_once(extensions, session)
             workflow_failed = False
             try:
-                return await self._execute_local_comfykit_workflow(workflow_input, workflow_params)
+                return await self._execute_local_comfykit_workflow(
+                    workflow_input,
+                    workflow_params,
+                    backend_role=backend_role,
+                )
             except BaseException:
                 workflow_failed = True
                 raise
@@ -1042,13 +1093,18 @@ class PixelleVideoCore:
             if not workflow_id:
                 raise ValueError(f"RunningHub workflow missing workflow_id: {path}")
             workflow_input = workflow_id
+            backend_role = "default"
         else:
             workflow_input = str(path)
+            backend_role = self._get_comfyui_backend_registry().resolve_role_for_workflow(
+                str(path)
+            )
 
         return await self.execute_comfykit_workflow(
             workflow_input,
             workflow_params,
             workflow_source=workflow_source,
+            backend_role=backend_role,
         )
     
     async def __aenter__(self):
