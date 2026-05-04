@@ -153,6 +153,24 @@ def test_layer_design_section_label_is_grouped_after_template():
         assert locale_data["t"]["section.layer_design"].startswith("\U0001f39b\ufe0f ")
 
 
+def test_layer_design_editor_content_keys_exist_in_supported_locales():
+    required_keys = [
+        "layered_template.editor.layer_text_content",
+        "layered_template.editor.layer_image_upload",
+        "layered_template.editor.layer_background_upload",
+        "layered_template.editor.layer_background_color",
+        "layered_template.editor.layer_role.custom",
+    ]
+    original_language = get_language()
+    try:
+        for language in ("zh_CN", "en_US"):
+            set_language(language)
+            for key in required_keys:
+                assert tr(key) != key
+    finally:
+        set_language(original_language)
+
+
 def test_ip_design_and_apply_translations_exist_in_supported_locales():
     required_keys = [
         "ip_design.page.title",

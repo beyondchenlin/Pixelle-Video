@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+import hashlib
 from html import escape
+from pathlib import Path
+import re
 
 import streamlit as st
 
+from pixelle_video.models.layered_template import LayerSourceSpec
+from pixelle_video.utils.os_util import get_data_path, get_temp_path
 from web.components.layered_template_state import (
     LAYERED_TEMPLATE_EDITOR_STATE_KEY,
     LayeredTemplateEditorState,
 )
 from web.i18n import get_language, tr
+
+
+_HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
+_SAFE_UPLOAD_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 
 def _layered_template_editor_text(
@@ -65,6 +74,138 @@ def _build_layered_template_editor_css() -> str:
     }
     </style>
     """
+
+
+def _merge_layer_style(layer, **updates) -> dict:
+    style = dict(layer.style)
+    for key, value in updates.items():
+        if value is None:
+            style.pop(key, None)
+        else:
+            style[key] = value
+    return style
+
+
+def _safe_upload_suffix(uploaded_file) -> str:
+    suffix = Path(str(getattr(uploaded_file, "name", "") or "")).suffix.lower()
+    if suffix in _SAFE_UPLOAD_SUFFIXES:
+        return suffix
+    return ".png"
+
+
+def _safe_original_filename(uploaded_file) -> str:
+    filename = Path(str(getattr(uploaded_file, "name", "") or "uploaded_asset")).name
+    sanitized = re.sub(r"[^0-9A-Za-z._-]+", "_", filename).strip("._")
+    return sanitized or "uploaded_asset"
+
+
+def _uploaded_file_bytes(uploaded_file) -> bytes:
+    if hasattr(uploaded_file, "getbuffer"):
+        return bytes(uploaded_file.getbuffer())
+    if hasattr(uploaded_file, "getvalue"):
+        return bytes(uploaded_file.getvalue())
+    if isinstance(uploaded_file, bytes):
+        return uploaded_file
+    raise TypeError("uploaded file must provide getbuffer(), getvalue(), or bytes")
+
+
+def _persist_layer_asset(uploaded_file, *, layer_id: str) -> LayerSourceSpec:
+    data = _uploaded_file_bytes(uploaded_file)
+    digest = hashlib.sha256(data).hexdigest()[:16]
+    suffix = _safe_upload_suffix(uploaded_file)
+    original_filename = _safe_original_filename(uploaded_file)
+    temp_dir = Path(get_temp_path("layer_assets"))
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = temp_dir / f"{layer_id}_{digest}{suffix}"
+    if not temp_path.exists():
+        temp_path.write_bytes(data)
+
+    asset_dir = Path(get_data_path("template_presets", "assets", "layer_draft"))
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    asset_path = asset_dir / f"{layer_id}_{digest}{suffix}"
+    if not asset_path.exists():
+        asset_path.write_bytes(data)
+    return LayerSourceSpec(
+        kind="asset",
+        ref=f"assets/layer_draft/{asset_path.name}",
+        metadata={"original_filename": original_filename},
+    )
+
+
+def _render_layer_content_controls(
+    state: LayeredTemplateEditorState,
+    layer,
+    key_prefix: str,
+    *,
+    ui=st,
+    translate=tr,
+) -> LayeredTemplateEditorState:
+    if layer.type == "text":
+        text_content = ui.text_area(
+            _layered_template_editor_text(
+                "layered_template.editor.layer_text_content",
+                zh="文本内容",
+                en="Text content",
+                translate=translate,
+            ),
+            value=str(layer.style.get("text_content") or ""),
+            key=f"{key_prefix}_text",
+        )
+        state = state.update_layer_style(
+            layer.id,
+            _merge_layer_style(layer, text_content=str(text_content).strip() or None),
+        )
+        return state
+
+    if layer.type in {"image", "background"}:
+        upload_label = _layered_template_editor_text(
+            "layered_template.editor.layer_background_upload"
+            if layer.type == "background"
+            else "layered_template.editor.layer_image_upload",
+            zh="上传背景图片" if layer.type == "background" else "上传图片",
+            en="Upload background image" if layer.type == "background" else "Upload image",
+            translate=translate,
+        )
+        uploaded_file = ui.file_uploader(
+            upload_label,
+            type=sorted(suffix.removeprefix(".") for suffix in _SAFE_UPLOAD_SUFFIXES),
+            key=f"{key_prefix}_asset_upload",
+        )
+        has_uploaded_asset = uploaded_file is not None
+        if uploaded_file is not None:
+            state = state.update_layer_source(
+                layer.id,
+                _persist_layer_asset(uploaded_file, layer_id=layer.id),
+            )
+    else:
+        has_uploaded_asset = False
+
+    if layer.type == "background":
+        existing_color = layer.style.get("background_color")
+        if not _HEX_COLOR_PATTERN.fullmatch(str(existing_color or "")):
+            existing_color = "#FFFFFF"
+        background_color = ui.color_picker(
+            _layered_template_editor_text(
+                "layered_template.editor.layer_background_color",
+                zh="背景颜色",
+                en="Background color",
+                translate=translate,
+            ),
+            value=str(existing_color),
+            key=f"{key_prefix}_background_color",
+        )
+        if _HEX_COLOR_PATTERN.fullmatch(str(background_color)):
+            state = state.update_layer_style(
+                layer.id,
+                _merge_layer_style(layer, background_color=str(background_color)),
+            )
+            layer_source = layer.source
+            if not has_uploaded_asset and (layer_source is None or layer_source.kind == "color"):
+                state = state.update_layer_source(
+                    layer.id,
+                    LayerSourceSpec(kind="color", ref=str(background_color)),
+                )
+    return state
 
 
 def render_layer_design_config(
@@ -196,6 +337,13 @@ def _render_layered_template_layer_controls(
             value=layer.name,
             key=f"{key_prefix}_name",
         )
+        state = _render_layer_content_controls(
+            state,
+            layer,
+            key_prefix,
+            ui=ui,
+            translate=translate,
+        )
 
         geometry_columns = ui.columns(4)
         with geometry_columns[0]:
@@ -258,18 +406,24 @@ def _render_layered_template_layer_controls(
 
         role = layer.role
         if layer.type == "text":
-            role_options = ["", "title", "caption"]
-            current_role = role if role in role_options else ""
+            role_options = ["custom", "title", "caption"]
+            role_value = role or "custom"
+            current_role = role_value if role_value in role_options else "custom"
             role = ui.selectbox(
-                translate("layered_template.editor.layer_role"),
+                _layered_template_editor_text(
+                    "layered_template.editor.layer_role",
+                    zh="文本来源",
+                    en="Text source",
+                    translate=translate,
+                ),
                 role_options,
                 index=role_options.index(current_role),
                 key=f"{key_prefix}_role",
                 format_func=lambda value: translate(
-                    f"layered_template.editor.layer_role.{value or 'none'}"
+                    f"layered_template.editor.layer_role.{value}"
                 ),
             )
-            role = role or None
+            role = None if role == "custom" else role
         elif role:
             ui.caption(
                 translate("layered_template.editor.layer_role_summary").format(

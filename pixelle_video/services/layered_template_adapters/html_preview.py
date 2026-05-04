@@ -101,7 +101,11 @@ def _render_layer(
         f'data-layer-type="{escape(layer.type, quote=True)}"'
     )
     if layer.type == "text":
-        text = title_text if layer.role == "title" else caption_text
+        text = _resolve_text_layer_content(
+            layer=layer,
+            title_text=title_text,
+            caption_text=caption_text,
+        )
         return (
             f'    <div class="pixelle-layer pixelle-text-layer" {attributes} '
             f'style="{css}{_text_style_css(layer=layer, text_rendering=text_rendering)}">'
@@ -109,7 +113,29 @@ def _render_layer(
         )
     if layer.type in {"image", "generated_media"}:
         return _render_media_layer(layer=layer, attributes=attributes, css=css)
+    if layer.source and layer.source.kind == "asset":
+        return _render_media_layer(
+            layer=layer,
+            attributes=attributes,
+            css=f"{css}{_background_style_css(layer)}",
+        )
     return f'    <div class="pixelle-layer" {attributes} style="{css}{_background_style_css(layer)}"></div>'
+
+
+def _resolve_text_layer_content(
+    *,
+    layer: TemplateLayer,
+    title_text: str,
+    caption_text: str,
+) -> str:
+    text_content = layer.style.get("text_content")
+    if isinstance(text_content, str) and text_content:
+        return text_content
+    if layer.role == "title":
+        return title_text
+    if layer.role == "caption":
+        return caption_text
+    return caption_text
 
 
 def _render_media_layer(*, layer: TemplateLayer, attributes: str, css: str) -> str:
@@ -139,6 +165,8 @@ def _safe_media_url(layer: TemplateLayer) -> str | None:
     if layer.source is None or layer.source.kind not in {"asset"}:
         return None
     ref = layer.source.ref.strip()
+    if ref.startswith("assets/"):
+        return f"/api/files/data/template_presets/{ref}"
     if _ARTIFACT_KEY_PATTERN.fullmatch(ref):
         return f"/api/files/{ref}"
     if ref.startswith(_SAFE_URL_PREFIXES):

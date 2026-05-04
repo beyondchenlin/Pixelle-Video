@@ -239,6 +239,16 @@ class LayeredTemplateHyperFramesAdapter:
         raise ValueError(f"unsupported layered template layer type: {layer.type} ({layer.id})")
 
     def _render_background_layer(self, layer: TemplateLayer) -> str:
+        source_url = self._asset_source_url(layer)
+        if source_url:
+            object_fit = self._object_fit(layer)
+            return (
+                f'      <div class="pixelle-layer" data-layer-id="{escape(layer.id, quote=True)}" '
+                f'data-layer-type="{escape(layer.type, quote=True)}" '
+                f'style="{self._layer_css(layer)}{self._background_css(layer)}">'
+                f'<img class="pixelle-layer-media" src="{escape(source_url, quote=True)}" '
+                f'alt="" style="object-fit:{object_fit};" /></div>'
+            )
         return (
             f'      <div class="pixelle-layer" data-layer-id="{escape(layer.id, quote=True)}" '
             f'data-layer-type="{escape(layer.type, quote=True)}" '
@@ -251,7 +261,7 @@ class LayeredTemplateHyperFramesAdapter:
         layer: TemplateLayer,
         context: TemplateRenderContext,
     ) -> str:
-        text = context.title if layer.role == "title" else ""
+        text = self._resolve_text_layer_content(layer=layer, context=context)
         display_text = self.text_sanitizer.sanitize(text).display_text
         return (
             f'      <div class="pixelle-layer pixelle-layered-text" '
@@ -260,6 +270,21 @@ class LayeredTemplateHyperFramesAdapter:
             f'style="{self._layer_css(layer)}{self._text_css(layer)}">'
             f"{escape(display_text)}</div>"
         )
+
+    @staticmethod
+    def _resolve_text_layer_content(
+        *,
+        layer: TemplateLayer,
+        context: TemplateRenderContext,
+    ) -> str:
+        text_content = layer.style.get("text_content")
+        if isinstance(text_content, str) and text_content:
+            return text_content
+        if layer.role == "title":
+            return context.title
+        if layer.role == "caption":
+            return ""
+        return ""
 
     def _render_media_layer(
         self,

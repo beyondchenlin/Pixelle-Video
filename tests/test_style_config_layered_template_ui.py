@@ -276,6 +276,120 @@ def test_render_style_config_updates_layer_properties_from_editor_controls(monke
     assert '"anchor"' not in json.dumps(result["layered_template_spec"])
 
 
+class _FakeUpload:
+    def __init__(self, name: str, data: bytes):
+        self.name = name
+        self._data = data
+
+    def getbuffer(self):
+        return memoryview(self._data)
+
+
+def test_render_style_config_updates_layer_content_and_sources_from_editor_controls(
+    monkeypatch,
+    tmp_path,
+):
+    from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
+    from web.components import layer_design_config, style_config
+
+    initial_state = (
+        LayeredTemplateEditorState.empty(
+            canvas_width=720,
+            canvas_height=1280,
+            media_width=768,
+            media_height=768,
+        )
+        .append_text_layer("Headline")
+        .append_image_layer("Logo")
+        .append_background_layer("Backdrop")
+    )
+    text_layer_id = initial_state.layers[0].id
+    image_layer_id = initial_state.layers[1].id
+    background_layer_id = initial_state.layers[2].id
+    fake_st = _FakeStreamlit()
+    fake_st.session_state.update(
+        {
+            "template_type_selector": "image",
+            "layered_template_editor_state": initial_state,
+            f"layered_template_layer_{text_layer_id}_expanded": True,
+            f"layered_template_layer_{text_layer_id}_text": "自定义标题",
+            f"layered_template_layer_{text_layer_id}_role": "custom",
+            f"layered_template_layer_{image_layer_id}_expanded": True,
+            f"layered_template_layer_{background_layer_id}_expanded": True,
+            f"layered_template_layer_{background_layer_id}_background_color": "#112233",
+        }
+    )
+    upload_calls = []
+
+    def fake_file_uploader(label, **kwargs):
+        upload_calls.append({"label": label, **kwargs})
+        if kwargs.get("key") == f"layered_template_layer_{image_layer_id}_asset_upload":
+            return _FakeUpload("logo.png", b"image-bytes")
+        if kwargs.get("key") == f"layered_template_layer_{background_layer_id}_asset_upload":
+            return _FakeUpload("texture.jpg", b"background-bytes")
+        return None
+
+    fake_st.file_uploader = fake_file_uploader
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "tr", lambda key, fallback=None, **_kwargs: fallback or key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "zh_CN")
+    monkeypatch.setattr(layer_design_config, "get_language", lambda: "zh_CN")
+    monkeypatch.setattr(
+        layer_design_config,
+        "get_temp_path",
+        lambda *parts: str(tmp_path.joinpath(*parts)),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        layer_design_config,
+        "get_data_path",
+        lambda *parts: str(tmp_path.joinpath("data", *parts)),
+        raising=False,
+    )
+    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "hyperframes")
+    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
+    monkeypatch.setattr(style_config, "render_tts_split_settings", lambda: {})
+    monkeypatch.setattr(style_config, "render_element_animation_controls", lambda: {})
+    monkeypatch.setattr(style_config, "render_text_rendering_controls", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
+    monkeypatch.setattr(style_config.config_manager, "get_comfyui_config", _fake_comfyui_config)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_supported_template_orientations", lambda _template_type: ["portrait"])
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_default_template_for_type_and_orientation", lambda *_args: "1080x1920/image_default.html")
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_compatible_template_for_orientation", lambda current_template, **_kwargs: current_template)
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_template_type", lambda _template_name: "image")
+    monkeypatch.setattr("pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type", lambda _template_type: _template_groups())
+    monkeypatch.setattr("pixelle_video.utils.template_util.parse_template_size", lambda _path: (1080, 1920))
+    monkeypatch.setattr("pixelle_video.utils.template_util.resolve_template_path", lambda path: path)
+    monkeypatch.setattr("pixelle_video.services.frame_html.HTMLFrameGenerator", _FakeFrameGenerator)
+
+    result = style_config.render_style_config(
+        _FakeVideo(),
+        content_context={"title": "Runtime Title", "text": "Runtime Caption"},
+    )
+
+    calls_by_key = {call["key"]: call for call in upload_calls}
+    assert calls_by_key[f"layered_template_layer_{image_layer_id}_asset_upload"]["label"] == "上传图片"
+    assert calls_by_key[f"layered_template_layer_{background_layer_id}_asset_upload"]["label"] == "上传背景图片"
+
+    layers = {layer["id"]: layer for layer in result["layered_template_spec"]["layers"]}
+    text_layer = layers[text_layer_id]
+    assert text_layer["role"] is None
+    assert text_layer["style"]["text_content"] == "自定义标题"
+
+    image_layer = layers[image_layer_id]
+    assert image_layer["source"]["kind"] == "asset"
+    assert image_layer["source"]["ref"].startswith("assets/layer_draft/")
+    assert image_layer["source"]["metadata"]["original_filename"] == "logo.png"
+
+    background_layer = layers[background_layer_id]
+    assert background_layer["source"]["kind"] == "asset"
+    assert background_layer["source"]["ref"].startswith("assets/layer_draft/")
+    assert background_layer["source"]["metadata"]["original_filename"] == "texture.jpg"
+    assert background_layer["style"]["background_color"] == "#112233"
+    assert (tmp_path / "layer_assets").exists()
+    assert (tmp_path / "data" / "template_presets" / "assets" / "layer_draft").exists()
+
+
 def test_render_style_config_uses_selected_layered_template_identity(monkeypatch):
     from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
     from web.components import style_config

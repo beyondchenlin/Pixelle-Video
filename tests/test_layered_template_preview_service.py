@@ -110,6 +110,47 @@ def test_render_preview_html_orders_layers_and_escapes_text():
     assert "position:absolute" in html
 
 
+def test_render_preview_html_prefers_layer_text_content_over_runtime_title():
+    base = _preview_spec()
+    spec = LayeredTemplateSpec(
+        version=base.version,
+        template_id=base.template_id,
+        template_name=base.template_name,
+        template_type=base.template_type,
+        canvas_width=base.canvas_width,
+        canvas_height=base.canvas_height,
+        media_width=base.media_width,
+        media_height=base.media_height,
+        safe_area=base.safe_area,
+        layers=(
+            TemplateLayer(
+                id="custom-title",
+                type="text",
+                name="Custom Title",
+                rect=RectSpec(x=96, y=120, width=888, height=220),
+                z_index=20,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=None,
+                style={"text_content": "图层内文案"},
+                role=None,
+            ),
+        ),
+        metadata=base.metadata,
+    )
+
+    html = LayeredTemplateService().render_preview_html(
+        spec=spec,
+        title_text="Runtime Title",
+        caption_text="Runtime Caption",
+        text_rendering={},
+    )
+
+    assert "图层内文案" in html
+    assert "Runtime Title" not in html
+
+
 def test_render_preview_html_renders_media_layers_with_safe_sources():
     base = _preview_spec()
     spec = LayeredTemplateSpec(
@@ -166,6 +207,87 @@ def test_render_preview_html_renders_media_layers_with_safe_sources():
     assert 'data-layer-id="generated"' in html
     assert 'data-source-ref="generated://primary"' in html
     assert "pixelle-generated-media-placeholder" in html
+
+
+def test_render_preview_html_renders_template_asset_keys_from_repository():
+    base = _preview_spec()
+    spec = LayeredTemplateSpec(
+        version=base.version,
+        template_id=base.template_id,
+        template_name=base.template_name,
+        template_type=base.template_type,
+        canvas_width=base.canvas_width,
+        canvas_height=base.canvas_height,
+        media_width=base.media_width,
+        media_height=base.media_height,
+        safe_area=base.safe_area,
+        layers=(
+            TemplateLayer(
+                id="repository-asset",
+                type="image",
+                name="Repository asset",
+                rect=RectSpec(x=0, y=0, width=320, height=240),
+                z_index=10,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=LayerSourceSpec(kind="asset", ref="assets/layer_draft/logo.png"),
+                style={},
+            ),
+        ),
+        metadata=base.metadata,
+    )
+
+    html = LayeredTemplateService().render_preview_html(
+        spec=spec,
+        title_text="Title",
+        caption_text="Caption",
+        text_rendering={},
+    )
+
+    assert 'src="/api/files/data/template_presets/assets/layer_draft/logo.png"' in html
+    assert '<div class="pixelle-missing-media-placeholder">' not in html
+
+
+def test_render_preview_html_renders_background_asset_layer():
+    base = _preview_spec()
+    spec = LayeredTemplateSpec(
+        version=base.version,
+        template_id=base.template_id,
+        template_name=base.template_name,
+        template_type=base.template_type,
+        canvas_width=base.canvas_width,
+        canvas_height=base.canvas_height,
+        media_width=base.media_width,
+        media_height=base.media_height,
+        safe_area=base.safe_area,
+        layers=(
+            TemplateLayer(
+                id="background-asset",
+                type="background",
+                name="Background asset",
+                rect=RectSpec(x=0, y=0, width=1080, height=1920),
+                z_index=0,
+                opacity=1.0,
+                rotation=0.0,
+                locked=False,
+                source=LayerSourceSpec(kind="asset", ref="assets/layer_draft/texture.jpg"),
+                style={"background_color": "#112233"},
+            ),
+        ),
+        metadata=base.metadata,
+    )
+
+    html = LayeredTemplateService().render_preview_html(
+        spec=spec,
+        title_text="Title",
+        caption_text="Caption",
+        text_rendering={},
+    )
+
+    assert 'data-layer-id="background-asset"' in html
+    assert 'src="/api/files/data/template_presets/assets/layer_draft/texture.jpg"' in html
+    assert "background:#112233" in html
 
 
 def test_render_preview_html_ignores_unsafe_style_values_and_source_urls():
