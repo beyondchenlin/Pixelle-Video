@@ -30,6 +30,16 @@ def test_build_voice_profile_name_appends_model_suffix():
     )
 
 
+def test_build_voice_profile_name_appends_omnivoice_suffix():
+    assert (
+        tts_voice_profiles.build_voice_profile_name(
+            "班哥",
+            "selfhost/tts_omnivoice_longform_bf16.json",
+        )
+        == "班哥-omnivoice"
+    )
+
+
 def test_save_voice_profile_writes_audio_and_manifest(tmp_path):
     profile = tts_voice_profiles.save_voice_profile(
         upload=_FakeUpload(),
@@ -91,6 +101,60 @@ def test_list_voice_profiles_filters_by_tts_model(tmp_path):
     )
 
     assert [profile["name"] for profile in profiles] == ["班哥-indextts2"]
+
+
+def test_list_voice_profiles_filters_omnivoice_profiles(tmp_path):
+    manifest_path = tmp_path / "reference_audio" / "voice_profiles.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "profiles": [
+                    {
+                        "id": "omnivoice",
+                        "name": "班哥-omnivoice",
+                        "model_slug": "omnivoice",
+                        "workflow_key": "selfhost/tts_omnivoice_longform_bf16.json",
+                        "audio_path": "reference_audio/omnivoice/bange.wav",
+                        "ref_audio_text": "大家好，这是参考音频文本。",
+                    },
+                    {
+                        "id": "indextts2",
+                        "name": "班哥-indextts2",
+                        "model_slug": "indextts2",
+                        "workflow_key": "selfhost/tts_index2.json",
+                        "audio_path": "reference_audio/indextts2/bange.wav",
+                        "ref_audio_text": "大家好，这是参考音频文本。",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    profiles = tts_voice_profiles.list_voice_profiles(
+        "selfhost/tts_omnivoice_longform_bf16.json",
+        manifest_path=manifest_path,
+    )
+
+    assert [profile["id"] for profile in profiles] == ["omnivoice"]
+
+
+def test_omnivoice_longform_and_duration_workflows_share_voice_profile_namespace():
+    assert (
+        tts_voice_profiles.infer_tts_model_slug(
+            "selfhost/tts_omnivoice_longform_bf16.json"
+        )
+        == "omnivoice"
+    )
+    assert (
+        tts_voice_profiles.infer_tts_model_slug(
+            "selfhost/tts_omnivoice_clone_duration_bf16.json"
+        )
+        == "omnivoice"
+    )
 
 
 def test_save_voice_profile_replaces_same_name_for_same_model(tmp_path):
