@@ -43,6 +43,20 @@ SCRIPT_TARGET_WORDS_DEFAULT = 200
 SCRIPT_TARGET_WORDS_STEP = 50
 
 
+def _storyboard_prompt_language_state(key_prefix: str) -> str:
+    value = st.session_state.get(f"{key_prefix}_storyboard_prompt_language")
+    if value in {CHINESE_PROMPT_LANGUAGE, ENGLISH_PROMPT_LANGUAGE}:
+        return value
+    return CHINESE_PROMPT_LANGUAGE
+
+
+def _active_storyboard_world_preset_id() -> str | None:
+    if not st.session_state.get("storyboard_planning_enabled", False):
+        return None
+    value = st.session_state.get("storyboard_world_preset_id")
+    return value if isinstance(value, str) and value else None
+
+
 def get_storyboard_generation_limits() -> StoryboardGenerationLimits:
     return current_storyboard_generation_limits()
 
@@ -341,11 +355,8 @@ def render_content_input(*, pixelle_video=None):
             content_ip_world = render_content_ip_world_controls(
                 pixelle_video=pixelle_video,
                 content_context=content_context,
-                storyboard_prompt_language=st.session_state.get(
-                    "single_video_storyboard_prompt_language",
-                    CHINESE_PROMPT_LANGUAGE,
-                ),
-                world_preset_id=st.session_state.get("storyboard_world_preset_id"),
+                storyboard_prompt_language=_storyboard_prompt_language_state("single_video"),
+                world_preset_id=_active_storyboard_world_preset_id(),
             )
 
             script_generation = render_script_generation_controls(
@@ -362,15 +373,17 @@ def render_content_input(*, pixelle_video=None):
             prompt_generation_performance = render_prompt_generation_performance_controls(
                 key_prefix="single_video"
             )
+            storyboard_generation = dict(storyboard_generation)
+            storyboard_generation.pop("generation_world_hint", None)
             
             return {
                 "batch_mode": False,
                 "mode": mode,
                 "text": text,
                 "title": title,
-                **content_ip_world,
                 **script_generation,
                 **storyboard_generation,
+                **content_ip_world,
                 **prompt_generation_performance,
             }
         
@@ -435,11 +448,8 @@ def render_content_input(*, pixelle_video=None):
             content_ip_world = render_content_ip_world_controls(
                 pixelle_video=pixelle_video,
                 content_context=content_context,
-                storyboard_prompt_language=st.session_state.get(
-                    "batch_video_storyboard_prompt_language",
-                    CHINESE_PROMPT_LANGUAGE,
-                ),
-                world_preset_id=st.session_state.get("storyboard_world_preset_id"),
+                storyboard_prompt_language=_storyboard_prompt_language_state("batch_video"),
+                world_preset_id=_active_storyboard_world_preset_id(),
             )
 
             script_generation = render_script_generation_controls(
@@ -456,6 +466,8 @@ def render_content_input(*, pixelle_video=None):
             prompt_generation_performance = render_prompt_generation_performance_controls(
                 key_prefix="batch_video"
             )
+            storyboard_generation = dict(storyboard_generation)
+            storyboard_generation.pop("generation_world_hint", None)
             
             # Config info
             st.info(f"📌 {tr('batch.config_info')}")
@@ -465,9 +477,9 @@ def render_content_input(*, pixelle_video=None):
                 "topics": topics,
                 "mode": "generate",  # Fixed to AI generate content
                 "title_prefix": title_prefix,
-                **content_ip_world,
                 **script_generation,
                 **storyboard_generation,
+                **content_ip_world,
                 **prompt_generation_performance,
             }
 

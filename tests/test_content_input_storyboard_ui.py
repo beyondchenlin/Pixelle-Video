@@ -245,7 +245,10 @@ def test_left_content_ip_payload_render_content_input(monkeypatch):
     monkeypatch.setattr(
         content_input,
         "render_storyboard_generation_controls",
-        lambda **_kwargs: {"storyboard_prompt_language": "en_US"},
+        lambda **_kwargs: {
+            "storyboard_prompt_language": "en_US",
+            "generation_world_hint": "Overridden by storyboard",
+        },
     )
     monkeypatch.setattr(
         content_input,
