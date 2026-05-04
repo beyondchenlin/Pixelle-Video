@@ -76,6 +76,9 @@ Based on the existing video script, create corresponding **{output_language_labe
 - Treat `ip_adaptation` as the truth source for this frame's IP planning. Do not invent a conflicting IP plan from the frame source text or style text.
 - `ip_presence_type` decides how visible the IP should be: strong identity foreground presence, balanced narrative presence, scene-integrated support, low-intrusion background presence, symbolic-only presence, or absent/no IP presence.
 - `summary_text`, `scene_text`, and `visible_text_whitelist` inside `ip_adaptation.image_text_plan` decide which Chinese visual text is allowed to appear in the image. Do not add other visible words.
+- When `plan_context.generation_world_profile` is present, use generation_world_profile as the script world profile for this image prompt batch; it refines world_preset but must not override the protected original source subject.
+- Use `generation_world_profile.story_constraints` to protect original source subjects, landmarks, historical buildings, religious subjects, real people, and explicit narrative objects.
+- Use `generation_world_profile.ip_integration_guidance` to decide how the IP should merge with `ip_adaptation` in the image composition.
 
 # Output Requirements
 
@@ -87,7 +90,7 @@ Based on the existing video script, create corresponding **{output_language_labe
 - When `style_kind` is `ip_world`, redesign the subject into the target universe without replacing the subject semantics
 - Final output must remain a JSON object with an `"image_prompts"` array of strings.
 - Each `image_prompts` item must be a pure visual description for the final image.
-- Do not output field names, JSON field names, parameter names, hex color codes, or English control-word explanations inside any final image prompt string.
+- Do not output field names, JSON field names, parameter names, hex color codes, or English control-word explanations inside any final image prompt string; the final prompt strings must not copy internal keys or JSON labels such as generation_world_profile, story_constraints, ip_integration_guidance, or ip_adaptation.
 - If negative constraints are needed, write them as natural-language visual requirements instead of separate negative prompt syntax or parameter labels.
 
 ## Visual Creative Requirements
