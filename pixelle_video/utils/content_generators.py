@@ -828,6 +828,10 @@ async def generate_styled_image_prompt_batch(
     native_prompt_hints_by_frame: Optional[
         Mapping[int, Sequence[NativePromptHint | str]]
     ] = None,
+    storyboard_plan=None,
+    ip_enabled: bool = False,
+    ip_profile=None,
+    scene_casts_by_frame=None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()

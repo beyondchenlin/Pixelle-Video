@@ -137,7 +137,7 @@ def test_prompt_plan_round_trips_ip_summary_metadata():
     }
 
 
-def test_prompt_projection_does_not_leak_structured_ip_or_text_plan_metadata():
+def test_prompt_projection_rejects_structured_ip_or_text_plan_metadata():
     plan = PromptPlan(
         prompt_plan_id="prompt_plan_001",
         storyboard_plan_id="storyboard_plan_001",
@@ -152,10 +152,8 @@ def test_prompt_projection_does_not_leak_structured_ip_or_text_plan_metadata():
         },
     )
 
-    payload = PromptProjection.from_prompt_plan(plan).to_dict()
-
-    assert "image_text_plan" not in str(payload)
-    assert "ip_adaptation" not in str(payload)
+    with pytest.raises(ValueError, match="image_text_plan|ip_adaptation"):
+        PromptProjection.from_prompt_plan(plan, metadata=plan.metadata)
 
 
 @pytest.mark.parametrize(

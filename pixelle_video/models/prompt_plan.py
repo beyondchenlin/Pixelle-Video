@@ -7,6 +7,9 @@ from types import MappingProxyType
 from typing import Any
 
 _RESERVED_PROMPT_PROJECTION_METADATA_KEYS = frozenset({
+    "image_text_plan",
+    "ip_adaptation",
+    "ip_profile",
     "provider_params",
     "provider",
     "provider_routing",
@@ -344,7 +347,7 @@ def _validate_projection_metadata(value: Mapping[str, Any], *, path: str = "meta
     for key, item in value.items():
         key_text = str(key)
         if key_text.lower() in _RESERVED_PROMPT_PROJECTION_METADATA_KEYS:
-            raise ValueError(f"metadata must not include raw provider or workflow field: {key_text}")
+            raise ValueError(f"metadata must not include raw or structured field: {key_text}")
         item_path = f"{path}.{key_text}"
         if isinstance(item, Mapping):
             _validate_projection_metadata(item, path=item_path)

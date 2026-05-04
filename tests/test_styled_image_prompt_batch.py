@@ -42,6 +42,35 @@ def _resolved_ip_world() -> ResolvedStyleSpec:
 
 
 @pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_accepts_task3_ip_passthrough_kwargs(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["base scene prompt"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: None,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["scene one"],
+        image_config={},
+        storyboard_plan=None,
+        ip_enabled=False,
+        ip_profile=None,
+        scene_casts_by_frame=None,
+        text_rendering=_suppress_image_text(),
+    )
+
+    assert result.prompts == [apply_no_text_policy("base scene prompt")]
+    assert result.planning_snapshot is None
+
+
+@pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_blocks_raw_fallback_for_ip_world(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
         assert kwargs["style_profile"]["style_kind"] == "ip_world"
