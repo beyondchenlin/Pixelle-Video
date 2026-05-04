@@ -702,13 +702,13 @@ async def test_post_production_switches_to_ffmpeg_manifest_after_real_audio_exce
 
     calls = {}
 
-    async def fake_post_production_ffmpeg_manifest(context):
-        calls["effective_backend"] = pipeline._resolve_effective_render_backend(context)
-        calls["master_audio_duration"] = getattr(context, "master_audio_duration", None)
-        calls["total_duration"] = context.storyboard.total_duration
-        calls["composed_frames"] = [
-            frame.composed_image_path for frame in context.storyboard.frames
-        ]
+    class FakeFfmpegManifestRenderer:
+        def render(self, **kwargs):
+            calls.update(kwargs)
+            output_path = Path(kwargs["output_path"])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"video")
+            return str(output_path)
 
     def fail_hyperframes_render(*args, **kwargs):
         raise AssertionError("hyperframes renderer should not run after late ffmpeg switch")
@@ -716,17 +716,26 @@ async def test_post_production_switches_to_ffmpeg_manifest_after_real_audio_exce
     monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
     monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
     monkeypatch.setattr(pipeline, "_get_audio_duration", fake_get_audio_duration)
-    monkeypatch.setattr(pipeline, "_post_production_ffmpeg_manifest", fake_post_production_ffmpeg_manifest)
+    monkeypatch.setattr(
+        "pixelle_video.services.ffmpeg_manifest_renderer.FfmpegManifestRenderer",
+        FakeFfmpegManifestRenderer,
+    )
     monkeypatch.setattr(core.hyperframes_renderer, "render", fail_hyperframes_render)
 
     assert pipeline._resolve_effective_render_backend(ctx) == "hyperframes_compiled"
 
     await pipeline.post_production(ctx)
 
-    assert calls["effective_backend"] == "ffmpeg_manifest"
-    assert calls["master_audio_duration"] == pytest.approx(121.0)
-    assert calls["total_duration"] == pytest.approx(121.0)
-    assert all(calls["composed_frames"])
+    manifest = calls["manifest"]
+    execution_plan = calls["execution_plan"]
+    assert execution_plan.effective_backend == "ffmpeg_manifest"
+    assert manifest.master_audio_duration == pytest.approx(121.0)
+    assert ctx.observability["render_execution_plan"]["effective_backend"] == "ffmpeg_manifest"
+    assert [clip.source_kind for clip in manifest.visual_clips] == [
+        "template_frame",
+        "template_frame",
+    ]
+    assert all(clip.media_path for clip in manifest.visual_clips)
     assert ctx.master_audio_duration == pytest.approx(121.0)
     assert ctx.storyboard.total_duration == pytest.approx(121.0)
     assert core.hyperframes_renderer.calls == []
