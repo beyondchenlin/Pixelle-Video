@@ -122,6 +122,7 @@ from pixelle_video.tts_workflow_contract import (
     resolve_workflow_output_audio_extension_from_info,
     resolve_workflow_output_audio_extension_from_key,
 )
+from pixelle_video.tts_workflow_family import is_omnivoice_longform_workflow_key
 from pixelle_video.utils.content_generators import (
     generate_title,
 )
@@ -1244,8 +1245,7 @@ class StandardPipeline(LinearVideoPipeline):
         return is_index_tts2_workflow_key(workflow_key)
 
     def _uses_omnivoice_longform_workflow(self, workflow_key: str | None) -> bool:
-        normalized_key = str(workflow_key or "").replace("\\", "/").rsplit("/", 1)[-1]
-        return normalized_key == "tts_omnivoice_longform_bf16.json"
+        return is_omnivoice_longform_workflow_key(workflow_key)
 
     def _should_use_omnivoice_longform_blocks(
         self,

@@ -9,6 +9,7 @@ from pixelle_video.services.tts_service import TTSService
 from pixelle_video.tts_workflow_family import (
     infer_tts_workflow_family,
     is_omnivoice_workflow_key,
+    is_omnivoice_longform_workflow_key,
     is_tts_workflow_family,
 )
 from pixelle_video.tts_workflow_contract import (
@@ -145,6 +146,33 @@ def test_tts_workflow_family_detects_omnivoice_from_node_class(tmp_path):
     assert infer_tts_workflow_family(workflow_path) == "omnivoice"
     assert is_tts_workflow_family(workflow_path, "omnivoice") is True
     assert is_omnivoice_workflow_key(workflow_path) is True
+
+
+def test_tts_workflow_family_detects_omnivoice_longform_capability_from_node_class(tmp_path):
+    workflow_path = tmp_path / "custom_omnivoice_fp32.json"
+    workflow_path.write_text(
+        """
+        {
+          "1": {
+            "inputs": {"text": "hello"},
+            "class_type": "OmniVoiceLongformTTS",
+            "_meta": {"title": "OmniVoice Longform TTS"}
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    assert is_omnivoice_longform_workflow_key(workflow_path) is True
+
+
+def test_tts_workflow_family_does_not_treat_duration_clone_as_longform():
+    assert (
+        is_omnivoice_longform_workflow_key(
+            "selfhost/tts_omnivoice_clone_duration_bf16.json"
+        )
+        is False
+    )
 
 
 def test_tts_workflow_family_detects_index_tts2_from_existing_workflow():

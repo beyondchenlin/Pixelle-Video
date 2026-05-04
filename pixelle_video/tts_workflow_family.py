@@ -16,6 +16,7 @@ OMNIVOICE_NODE_TYPES = frozenset(
         "OmniVoiceMultiSpeakerTTS",
     }
 )
+OMNIVOICE_LONGFORM_NODE_TYPES = frozenset({"OmniVoiceLongformTTS"})
 
 
 def infer_tts_workflow_family(workflow_key: Any) -> TtsWorkflowFamily:
@@ -32,6 +33,15 @@ def is_tts_workflow_family(workflow_key: Any, family: TtsWorkflowFamily) -> bool
 
 def is_omnivoice_workflow_key(workflow_key: Any) -> bool:
     return is_tts_workflow_family(workflow_key, "omnivoice")
+
+
+def is_omnivoice_longform_workflow_key(workflow_key: Any) -> bool:
+    workflow = _load_workflow_from_key(workflow_key)
+    if workflow is not None:
+        return _contains_node_class_type(workflow, OMNIVOICE_LONGFORM_NODE_TYPES)
+
+    stem = Path(str(workflow_key or "")).stem.lower().replace("-", "_")
+    return "omnivoice" in stem and "longform" in stem
 
 
 def _infer_family_from_workflow(workflow: Mapping[str, Any] | None) -> TtsWorkflowFamily | None:
@@ -63,6 +73,33 @@ def _infer_family_from_workflow(workflow: Mapping[str, Any] | None) -> TtsWorkfl
             return nested_family
 
     return None
+
+
+def _contains_node_class_type(
+    workflow: Mapping[str, Any] | None,
+    class_types: frozenset[str],
+) -> bool:
+    if not isinstance(workflow, Mapping):
+        return False
+
+    nodes = workflow
+    for wrapper_key in ("workflow", "prompt"):
+        wrapped = workflow.get(wrapper_key)
+        if isinstance(wrapped, Mapping):
+            nodes = wrapped
+            break
+
+    for node in nodes.values():
+        if not isinstance(node, Mapping):
+            continue
+
+        class_type = node.get("class_type")
+        if isinstance(class_type, str) and class_type in class_types:
+            return True
+        if _contains_node_class_type(node, class_types):
+            return True
+
+    return False
 
 
 def _infer_family_from_stem(workflow_key: Any) -> TtsWorkflowFamily:
