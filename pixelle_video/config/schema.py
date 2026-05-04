@@ -471,7 +471,7 @@ class ComfyUIBackendProfile(BaseModel):
     data_root: str = Field(default="", description="ComfyUI data root for this profile")
     runtime_dir: str = Field(default="", description="Runtime directory for this profile")
     logs_dir: str = Field(default="", description="Log directory for this profile")
-    database_url: str = Field(default="", description="ComfyUI database URL for this profile")
+    database_url: Optional[str] = Field(default=None, description="ComfyUI database URL for this profile")
 
 
 class ComfyUIWorkflowRouting(BaseModel):

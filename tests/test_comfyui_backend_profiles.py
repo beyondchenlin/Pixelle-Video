@@ -110,6 +110,26 @@ def test_backend_profile_database_url_uses_normalized_data_root():
     )
 
 
+def test_backend_profile_accepts_null_database_url_and_generates_default():
+    config = PixelleVideoConfig.model_validate(
+        {
+            "comfyui": {
+                "backends": {
+                    "image": {
+                        "url": "http://127.0.0.1:8001",
+                        "data_root": "D:/PixelleComfy/image/",
+                        "database_url": None,
+                    }
+                }
+            }
+        }
+    )
+
+    assert config.comfyui.backends["image"].database_url == (
+        "sqlite:///D:/PixelleComfy/image/user/comfyui.db"
+    )
+
+
 @pytest.mark.parametrize("bad_name", ["Image", "../image", "image role", "tts.role"])
 def test_backend_profile_names_are_restricted(bad_name):
     with pytest.raises(ValueError, match="backend profile name"):
