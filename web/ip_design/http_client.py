@@ -4,6 +4,8 @@ from collections.abc import Callable
 from typing import Any
 
 from web.utils.asset_bible_api import (
+    import_asset_bible_preset,
+    list_asset_bible_presets,
     list_asset_bibles,
     list_scene_casts,
     load_asset_bible,
@@ -21,6 +23,12 @@ class HttpIPDesignClient:
         asset_bible_loader: Callable[..., list[dict[str, Any]]] = list_asset_bibles,
         asset_bible_getter: Callable[..., dict[str, Any]] = load_asset_bible,
         asset_bible_saver: Callable[..., dict[str, Any]] = save_asset_bible,
+        asset_bible_preset_loader: Callable[..., list[dict[str, Any]]] = (
+            list_asset_bible_presets
+        ),
+        asset_bible_preset_importer: Callable[..., dict[str, Any]] = (
+            import_asset_bible_preset
+        ),
         scene_cast_loader: Callable[..., list[dict[str, Any]]] = list_scene_casts,
         scene_cast_getter: Callable[..., dict[str, Any]] = load_scene_cast,
         scene_cast_saver: Callable[..., dict[str, Any]] = save_scene_cast,
@@ -29,9 +37,30 @@ class HttpIPDesignClient:
         self._asset_bible_loader = asset_bible_loader
         self._asset_bible_getter = asset_bible_getter
         self._asset_bible_saver = asset_bible_saver
+        self._asset_bible_preset_loader = asset_bible_preset_loader
+        self._asset_bible_preset_importer = asset_bible_preset_importer
         self._scene_cast_loader = scene_cast_loader
         self._scene_cast_getter = scene_cast_getter
         self._scene_cast_saver = scene_cast_saver
+
+    def list_asset_bible_presets(self) -> list[dict[str, Any]]:
+        return self._asset_bible_preset_loader(api_base_url=self.api_base_url)
+
+    def import_asset_bible_preset(
+        self,
+        *,
+        workspace_id: str,
+        project_id: str,
+        preset_id: str,
+        asset_bible_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._asset_bible_preset_importer(
+            api_base_url=self.api_base_url,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            preset_id=preset_id,
+            asset_bible_id=asset_bible_id,
+        )
 
     def list_asset_bibles(
         self,

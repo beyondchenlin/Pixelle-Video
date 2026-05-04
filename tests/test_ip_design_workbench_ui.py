@@ -90,10 +90,13 @@ class _FakeIPDesignClient:
         *,
         asset_bibles: list[dict[str, Any]] | None = None,
         scene_casts: list[dict[str, Any]] | None = None,
+        presets: list[dict[str, Any]] | None = None,
     ) -> None:
         self.asset_bibles = asset_bibles or [_asset_bible()]
         self.scene_casts = scene_casts or [_scene_cast()]
+        self.presets = presets or []
         self.calls: list[dict[str, Any]] = []
+        self.import_calls: list[dict[str, Any]] = []
 
     def list_asset_bibles(self, **kwargs):
         self.calls.append({"method": "list_asset_bibles", **kwargs})
@@ -125,6 +128,20 @@ class _FakeIPDesignClient:
         payload["asset_bible_id"] = kwargs["asset_bible_id"]
         self.scene_casts = [payload]
         return {"success": True, "scene_cast": payload}
+
+    def list_asset_bible_presets(self):
+        self.calls.append({"method": "list_asset_bible_presets"})
+        return list(self.presets)
+
+    def import_asset_bible_preset(self, **kwargs):
+        self.import_calls.append(kwargs)
+        self.calls.append({"method": "import_asset_bible_preset", **kwargs})
+        payload = _asset_bible(
+            asset_bible_id=kwargs.get("asset_bible_id") or "demo_bible",
+            metadata={"origin_preset_id": kwargs["preset_id"]},
+        )
+        self.asset_bibles = [payload]
+        return {"success": True, "asset_bible": payload}
 
 
 def _asset_bible(**overrides: Any) -> dict[str, Any]:
@@ -215,11 +232,14 @@ def test_ip_design_workbench_lists_assets_and_scene_casts():
     assert "Pixelle Demo" in rendered
     assert "cast_frame_1" in rendered
     assert "char_luna" in rendered
-    assert client.calls[:2] == [
+    assert client.calls[:3] == [
         {
             "method": "list_asset_bibles",
             "workspace_id": "workspace_1",
             "project_id": "project_1",
+        },
+        {
+            "method": "list_asset_bible_presets",
         },
         {
             "method": "list_scene_casts",
@@ -499,3 +519,42 @@ def test_ip_design_workbench_saves_scene_cast_through_client():
         },
     }
     assert fake_ui.successes == ["ip_design.scene_cast.saved"]
+
+
+def test_ip_design_workbench_imports_builtin_asset_bible_preset():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state.update(
+        {
+            "ip_design_builtin_asset_bible_preset_select": "builtin_asset_bible_demo",
+            "ip_design_import_asset_bible_id": "demo_bible",
+            "ip_design_import_builtin_asset_bible": True,
+        }
+    )
+    client = _FakeIPDesignClient(
+        asset_bibles=[],
+        scene_casts=[],
+        presets=[
+            {
+                "preset_id": "builtin_asset_bible_demo",
+                "display_name": "Demo IP",
+            }
+        ],
+    )
+
+    render_ip_design_workbench(
+        ip_design_client=client,
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    assert client.import_calls == [
+        {
+            "workspace_id": "workspace_1",
+            "project_id": "project_1",
+            "preset_id": "builtin_asset_bible_demo",
+            "asset_bible_id": "demo_bible",
+        }
+    ]
+    assert fake_ui.successes == ["ip_design.asset_bible.imported"]

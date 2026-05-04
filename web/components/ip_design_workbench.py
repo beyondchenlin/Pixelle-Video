@@ -99,6 +99,16 @@ def _render_asset_bible_section(
             selected_asset_bible = {}
             ui.caption(translate("ip_design.asset_bible.empty"))
 
+        preset_result = _render_asset_bible_preset_import(
+            ip_design_client=ip_design_client,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            ui=ui,
+            translate=translate,
+        )
+        if preset_result.get("saved"):
+            return {"asset_bible_id": "", "saved": True}
+
         asset_bible_id = _text_input(
             ui,
             translate("ip_design.asset_bible.id"),
@@ -225,6 +235,66 @@ def _render_asset_bible_section(
                     return {"asset_bible_id": "", "saved": True}
 
         return {"asset_bible_id": _first_text(asset_bible_id, selected_id), "saved": False}
+
+
+def _render_asset_bible_preset_import(
+    *,
+    ip_design_client,
+    workspace_id: str,
+    project_id: str,
+    ui,
+    translate: Translate,
+) -> dict[str, Any]:
+    if not hasattr(ip_design_client, "list_asset_bible_presets"):
+        return {"saved": False}
+    try:
+        presets = _list_of_dicts(ip_design_client.list_asset_bible_presets())
+    except Exception:
+        ui.caption(translate("ip_design.asset_bible.presets_load_failed"))
+        return {"saved": False}
+    if not presets:
+        return {"saved": False}
+
+    preset_ids = [
+        _first_text(item.get("preset_id"))
+        for item in presets
+        if _first_text(item.get("preset_id"))
+    ]
+    if not preset_ids:
+        return {"saved": False}
+    selected_preset_id = _first_text(
+        ui.selectbox(
+            translate("ip_design.asset_bible.builtin_presets"),
+            preset_ids,
+            key="ip_design_builtin_asset_bible_preset_select",
+            format_func=lambda preset_id: _format_asset_bible_preset_option(
+                _find_item(presets, "preset_id", preset_id) or {}
+            ),
+        )
+    )
+    import_asset_bible_id = _text_input(
+        ui,
+        translate("ip_design.asset_bible.import_id"),
+        key="ip_design_import_asset_bible_id",
+        value=_derive_asset_bible_id_from_preset(selected_preset_id),
+    )
+    if not ui.button(
+        translate("ip_design.asset_bible.import"),
+        key="ip_design_import_builtin_asset_bible",
+    ):
+        return {"saved": False}
+    try:
+        ip_design_client.import_asset_bible_preset(
+            workspace_id=workspace_id,
+            project_id=project_id,
+            preset_id=selected_preset_id,
+            asset_bible_id=import_asset_bible_id,
+        )
+    except Exception:
+        ui.error(translate("ip_design.asset_bible.import_failed"))
+        return {"saved": False}
+    ui.success(translate("ip_design.asset_bible.imported"))
+    return {"asset_bible_id": "", "saved": True}
 
 
 def _render_scene_cast_section(
@@ -399,6 +469,10 @@ def _format_asset_bible_option(asset_bible: Mapping[str, Any]) -> str:
     return " · ".join(item for item in (asset_bible_id, ip_name) if item)
 
 
+def _format_asset_bible_preset_option(preset: Mapping[str, Any]) -> str:
+    return _first_text(preset.get("display_name"), preset.get("preset_id"))
+
+
 def _format_scene_cast_option(scene_cast: Mapping[str, Any]) -> str:
     scene_cast_id = _first_text(scene_cast.get("scene_cast_id"))
     frame = "/".join(
@@ -410,6 +484,11 @@ def _format_scene_cast_option(scene_cast: Mapping[str, Any]) -> str:
         if item
     )
     return " · ".join(item for item in (scene_cast_id, frame) if item)
+
+
+def _derive_asset_bible_id_from_preset(preset_id: str) -> str:
+    base = preset_id.removeprefix("builtin_asset_bible_")
+    return f"{base}_bible" if base else ""
 
 
 def _first_ip_name(asset_bible: Mapping[str, Any]) -> str:

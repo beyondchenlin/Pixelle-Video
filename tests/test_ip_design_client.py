@@ -9,6 +9,14 @@ def test_http_ip_design_client_wraps_asset_bible_helpers():
 
     calls: list[tuple[str, dict[str, Any]]] = []
 
+    def list_asset_bible_presets(**kwargs):
+        calls.append(("list_asset_bible_presets", kwargs))
+        return [{"preset_id": "builtin_asset_bible_demo"}]
+
+    def import_asset_bible_preset(**kwargs):
+        calls.append(("import_asset_bible_preset", kwargs))
+        return {"asset_bible": {"asset_bible_id": kwargs["asset_bible_id"]}}
+
     def list_asset_bibles(**kwargs):
         calls.append(("list_asset_bibles", kwargs))
         return [{"asset_bible_id": "bible_demo"}]
@@ -38,11 +46,20 @@ def test_http_ip_design_client_wraps_asset_bible_helpers():
         asset_bible_loader=list_asset_bibles,
         asset_bible_getter=load_asset_bible,
         asset_bible_saver=save_asset_bible,
+        asset_bible_preset_loader=list_asset_bible_presets,
+        asset_bible_preset_importer=import_asset_bible_preset,
         scene_cast_loader=list_scene_casts,
         scene_cast_getter=load_scene_cast,
         scene_cast_saver=save_scene_cast,
     )
 
+    assert client.list_asset_bible_presets() == [{"preset_id": "builtin_asset_bible_demo"}]
+    assert client.import_asset_bible_preset(
+        workspace_id="workspace_1",
+        project_id="project_1",
+        preset_id="builtin_asset_bible_demo",
+        asset_bible_id="demo_bible",
+    )["asset_bible"]["asset_bible_id"] == "demo_bible"
     assert client.list_asset_bibles(workspace_id="workspace_1", project_id="project_1")[
         "asset_bibles"
     ] == [{"asset_bible_id": "bible_demo"}]
@@ -76,6 +93,8 @@ def test_http_ip_design_client_wraps_asset_bible_helpers():
         payload={"frame_id": "frame_0001"},
     )["scene_cast"]["scene_cast_id"] == "cast_frame_1"
     assert [name for name, _ in calls] == [
+        "list_asset_bible_presets",
+        "import_asset_bible_preset",
         "list_asset_bibles",
         "load_asset_bible",
         "save_asset_bible",
@@ -192,6 +211,138 @@ def test_inprocess_ip_design_client_uses_asset_repository_without_http():
         project_id="project_1",
         asset_bible_id="bible_demo",
     )["scene_casts"][0]["scene_cast_id"] == "cast_frame_1"
+
+
+def test_inprocess_ip_design_client_imports_builtin_asset_bible_without_leaking_private_fields():
+    from web.ip_design.inprocess_client import InProcessIPDesignClient
+
+    class AssetRepository:
+        def __init__(self):
+            self.asset_bibles: dict[tuple[str, str], dict[str, Any]] = {}
+            self.load_calls: list[tuple[str, str]] = []
+            self.saved: list[tuple[str, dict[str, Any]]] = []
+
+        async def load_asset_bible(self, workspace_id, asset_bible_id):
+            self.load_calls.append((workspace_id, asset_bible_id))
+            return self.asset_bibles.get((workspace_id, asset_bible_id))
+
+        async def save_asset_bible(self, workspace_id, asset_bible):
+            payload = dict(asset_bible)
+            self.saved.append((workspace_id, payload))
+            self.asset_bibles[(workspace_id, payload["asset_bible_id"])] = payload
+            return payload
+
+    class PresetRegistry:
+        def list_summaries(self):
+            return [{"preset_id": "builtin_asset_bible_demo", "display_name": "Demo IP"}]
+
+        def build_project_asset_bible(self, **kwargs):
+            assert kwargs == {
+                "preset_id": "builtin_asset_bible_demo",
+                "workspace_id": "workspace_1",
+                "project_id": "project_1",
+                "asset_bible_id": "demo_bible",
+            }
+
+            class AssetBible:
+                def to_dict(self):
+                    return {
+                        "asset_bible_id": "demo_bible",
+                        "workspace_id": "workspace_1",
+                        "project_id": "project_1",
+                        "ip_profiles": [
+                            {
+                                "ip_profile_id": "ip_main",
+                                "workspace_id": "workspace_1",
+                                "project_id": "project_1",
+                                "name": "Demo IP",
+                                "forbidden_elements": ["private"],
+                            }
+                        ],
+                        "character_profiles": [],
+                        "scene_assets": [],
+                        "prop_assets": [],
+                        "style_profiles": [],
+                        "metadata": {"origin_preset_id": "builtin_asset_bible_demo"},
+                    }
+
+            return AssetBible()
+
+    repository = AssetRepository()
+    core = type(
+        "Core",
+        (),
+        {
+            "asset_bible_repository": repository,
+            "asset_bible_preset_registry": PresetRegistry(),
+        },
+    )()
+    client = InProcessIPDesignClient(pixelle_video=core, async_runner=asyncio.run)
+
+    assert client.list_asset_bible_presets() == [
+        {"preset_id": "builtin_asset_bible_demo", "display_name": "Demo IP"}
+    ]
+
+    response = client.import_asset_bible_preset(
+        workspace_id="workspace_1",
+        project_id="project_1",
+        preset_id="builtin_asset_bible_demo",
+        asset_bible_id="demo_bible",
+    )
+
+    assert response["asset_bible"]["asset_bible_id"] == "demo_bible"
+    assert "forbidden_elements" not in response["asset_bible"]["ip_profiles"][0]
+    assert repository.load_calls == [("workspace_1", "demo_bible")]
+    assert repository.saved[0][0] == "workspace_1"
+
+    try:
+        client.import_asset_bible_preset(
+            workspace_id="workspace_1",
+            project_id="project_1",
+            preset_id="builtin_asset_bible_demo",
+            asset_bible_id="demo_bible",
+        )
+    except ValueError as exc:
+        assert "already exists" in str(exc)
+    else:
+        raise AssertionError("expected import conflict to fail")
+
+
+def test_inprocess_ip_design_client_import_rejects_invalid_public_ids():
+    from web.ip_design.inprocess_client import InProcessIPDesignClient
+
+    class AssetRepository:
+        async def load_asset_bible(self, *_args, **_kwargs):
+            raise AssertionError("repository should not be called for invalid IDs")
+
+        async def save_asset_bible(self, *_args, **_kwargs):
+            raise AssertionError("repository should not be called for invalid IDs")
+
+    class PresetRegistry:
+        def build_project_asset_bible(self, **_kwargs):
+            raise AssertionError("registry should not be called for invalid IDs")
+
+    core = type(
+        "Core",
+        (),
+        {
+            "asset_bible_repository": AssetRepository(),
+            "asset_bible_preset_registry": PresetRegistry(),
+        },
+    )()
+    client = InProcessIPDesignClient(pixelle_video=core, async_runner=asyncio.run)
+
+    try:
+        client.import_asset_bible_preset(
+            workspace_id="workspace_1",
+            project_id="C:\\projects\\1",
+            preset_id="builtin_asset_bible_demo",
+            asset_bible_id="demo_bible",
+        )
+    except ValueError as exc:
+        assert "project_id" in str(exc)
+    else:
+        raise AssertionError("expected invalid project_id to fail")
 
 
 def test_ip_design_client_factory_does_not_cache_unconfigured_inprocess_client(

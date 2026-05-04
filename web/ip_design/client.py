@@ -8,6 +8,17 @@ class IPDesignClientError(RuntimeError):
 
 
 class IPDesignClient(Protocol):
+    def list_asset_bible_presets(self) -> list[dict[str, Any]]: ...
+
+    def import_asset_bible_preset(
+        self,
+        *,
+        workspace_id: str,
+        project_id: str,
+        preset_id: str,
+        asset_bible_id: str | None = None,
+    ) -> dict[str, Any]: ...
+
     def list_asset_bibles(
         self,
         *,

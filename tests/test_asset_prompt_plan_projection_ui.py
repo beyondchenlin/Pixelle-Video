@@ -362,6 +362,167 @@ def test_list_helpers_reject_malformed_response_items(monkeypatch):
         )
 
 
+def test_list_asset_bible_presets_gets_presets_endpoint(monkeypatch):
+    from web.utils import asset_bible_api
+
+    captured = {}
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "items": [
+                    {
+                        "preset_id": "builtin_asset_bible_demo",
+                        "display_name": "Demo IP",
+                    }
+                ]
+            }
+
+    def fake_get(endpoint, timeout):
+        captured["endpoint"] = endpoint
+        captured["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(asset_bible_api.httpx, "get", fake_get)
+
+    result = asset_bible_api.list_asset_bible_presets(
+        api_base_url="http://localhost:8000/api/",
+    )
+
+    assert captured == {
+        "endpoint": "http://localhost:8000/api/presets/asset-bibles",
+        "timeout": 30.0,
+    }
+    assert result == [
+        {
+            "preset_id": "builtin_asset_bible_demo",
+            "display_name": "Demo IP",
+        }
+    ]
+
+
+def test_import_asset_bible_preset_posts_project_endpoint(monkeypatch):
+    from web.utils import asset_bible_api
+
+    captured = {}
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "success": True,
+                "asset_bible": {
+                    "asset_bible_id": "demo_bible",
+                    "workspace_id": "ws_1",
+                    "project_id": "project_1",
+                    "ip_profiles": [{"ip_profile_id": "ip_main", "name": "Demo IP"}],
+                },
+            }
+
+    def fake_post(endpoint, json, timeout):
+        captured["endpoint"] = endpoint
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(asset_bible_api.httpx, "post", fake_post)
+
+    result = asset_bible_api.import_asset_bible_preset(
+        api_base_url="http://localhost:8000/api/",
+        project_id=" project_1 ",
+        workspace_id=" ws_1 ",
+        preset_id=" builtin_asset_bible_demo ",
+        asset_bible_id=" demo_bible ",
+    )
+
+    assert captured == {
+        "endpoint": "http://localhost:8000/api/projects/project_1/asset-bible/import-from-preset",
+        "json": {
+            "workspace_id": "ws_1",
+            "preset_id": "builtin_asset_bible_demo",
+            "conflict_policy": "fail",
+            "asset_bible_id": "demo_bible",
+        },
+        "timeout": 30.0,
+    }
+    assert result["asset_bible"]["asset_bible_id"] == "demo_bible"
+
+
+def test_asset_bible_preset_helpers_reject_path_like_ids_before_http(monkeypatch):
+    from web.utils import asset_bible_api
+
+    def fail_get(*_args, **_kwargs):
+        raise AssertionError("httpx.get must not be called for invalid preset IDs")
+
+    def fail_post(*_args, **_kwargs):
+        raise AssertionError("httpx.post must not be called for invalid preset IDs")
+
+    monkeypatch.setattr(asset_bible_api.httpx, "get", fail_get)
+    monkeypatch.setattr(asset_bible_api.httpx, "post", fail_post)
+
+    with pytest.raises(ValueError, match="preset_id"):
+        asset_bible_api.build_asset_bible_preset_detail_endpoint(
+            api_base_url="http://localhost:8000/api",
+            preset_id="provider:builtin_asset_bible_demo",
+        )
+
+    with pytest.raises(ValueError, match="project_id"):
+        asset_bible_api.import_asset_bible_preset(
+            api_base_url="http://localhost:8000/api",
+            project_id="C:\\projects\\1",
+            workspace_id="ws_1",
+            preset_id="builtin_asset_bible_demo",
+        )
+
+
+def test_asset_bible_preset_helpers_reject_malformed_response_items(monkeypatch):
+    from web.utils import asset_bible_api
+
+    class _PresetListResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"items": ["not-a-dict"]}
+
+    monkeypatch.setattr(
+        asset_bible_api.httpx,
+        "get",
+        lambda *_args, **_kwargs: _PresetListResponse(),
+    )
+
+    with pytest.raises(ValueError, match="items\\[0\\]"):
+        asset_bible_api.list_asset_bible_presets(
+            api_base_url="http://localhost:8000/api",
+        )
+
+    class _ImportResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"success": True, "asset_bible": "not-a-dict"}
+
+    monkeypatch.setattr(
+        asset_bible_api.httpx,
+        "post",
+        lambda *_args, **_kwargs: _ImportResponse(),
+    )
+
+    with pytest.raises(ValueError, match="asset_bible"):
+        asset_bible_api.import_asset_bible_preset(
+            api_base_url="http://localhost:8000/api",
+            project_id="project_1",
+            workspace_id="ws_1",
+            preset_id="builtin_asset_bible_demo",
+        )
+
+
 def test_create_asset_bible_posts_minimal_draft_payload(monkeypatch):
     from web.utils import asset_bible_api
 

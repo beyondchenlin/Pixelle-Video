@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from api.asset_bible_responses import asset_bible_response_payload
 from api.schemas.asset_bible import AssetBibleDraftRequest, SceneCastDraftRequest
+from api.schemas.storyboard_workbench import validate_public_reference_id
 from pixelle_video.models.asset_bible import AssetBible
 from pixelle_video.services.scene_casting import validate_scene_cast
 from web.state.async_runtime import get_async_runtime
@@ -12,6 +14,53 @@ class InProcessIPDesignClient:
     def __init__(self, *, pixelle_video: Any, async_runner=None) -> None:
         self.pixelle_video = pixelle_video
         self._async_runner = async_runner
+
+    def list_asset_bible_presets(self) -> list[dict[str, Any]]:
+        registry = self._require_attr("asset_bible_preset_registry")
+        return list(registry.list_summaries())
+
+    def import_asset_bible_preset(
+        self,
+        *,
+        workspace_id: str,
+        project_id: str,
+        preset_id: str,
+        asset_bible_id: str | None = None,
+    ) -> dict[str, Any]:
+        workspace_id = validate_public_reference_id("workspace_id", workspace_id)
+        project_id = validate_public_reference_id("project_id", project_id)
+        preset_id = validate_public_reference_id("preset_id", preset_id)
+        if asset_bible_id is not None and asset_bible_id.strip():
+            asset_bible_id = validate_public_reference_id(
+                "asset_bible_id",
+                asset_bible_id,
+            )
+        else:
+            asset_bible_id = None
+        repository = self._require_attr("asset_bible_repository")
+        registry = self._require_attr("asset_bible_preset_registry")
+        asset_bible = registry.build_project_asset_bible(
+            preset_id=preset_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            asset_bible_id=asset_bible_id,
+        )
+        asset_bible_payload = asset_bible.to_dict()
+        imported_asset_bible_id = str(asset_bible_payload.get("asset_bible_id", "")).strip()
+        existing = self._run_async(
+            repository.load_asset_bible(workspace_id, imported_asset_bible_id)
+        )
+        if existing is not None:
+            raise ValueError("asset bible already exists; choose a different asset_bible_id")
+        saved = self._run_async(repository.save_asset_bible(workspace_id, asset_bible_payload))
+        return {
+            "success": True,
+            "asset_bible": asset_bible_response_payload(
+                saved,
+                project_id=project_id,
+                asset_bible_id=imported_asset_bible_id,
+            ),
+        }
 
     def list_asset_bibles(
         self,

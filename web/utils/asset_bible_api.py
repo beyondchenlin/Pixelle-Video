@@ -61,6 +61,28 @@ def build_asset_bible_detail_endpoint(
     return f"{api_base_url.rstrip('/')}/{project_id}/asset-bible/{asset_bible_id}"
 
 
+def build_asset_bible_preset_list_endpoint(*, api_base_url: str) -> str:
+    return f"{api_base_url.rstrip('/')}/presets/asset-bibles"
+
+
+def build_asset_bible_preset_detail_endpoint(
+    *,
+    api_base_url: str,
+    preset_id: str,
+) -> str:
+    preset_id = _validate_public_reference_id("preset_id", preset_id)
+    return f"{api_base_url.rstrip('/')}/presets/asset-bibles/{preset_id}"
+
+
+def build_asset_bible_preset_import_endpoint(
+    *,
+    api_base_url: str,
+    project_id: str,
+) -> str:
+    project_id = _validate_public_reference_id("project_id", project_id)
+    return f"{api_base_url.rstrip('/')}/projects/{project_id}/asset-bible/import-from-preset"
+
+
 def build_scene_cast_list_endpoint(
     *,
     api_base_url: str,
@@ -264,6 +286,58 @@ def save_asset_bible(
         raise ValueError("asset bible save response must be a JSON object")
     if not isinstance(data.get("asset_bible"), dict):
         raise ValueError("asset bible save response must include asset_bible")
+    return data
+
+
+def list_asset_bible_presets(
+    *,
+    api_base_url: str,
+    timeout: float = 30.0,
+) -> list[dict[str, Any]]:
+    endpoint = build_asset_bible_preset_list_endpoint(api_base_url=api_base_url)
+
+    response = httpx.get(endpoint, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("asset bible preset list response must be a JSON object")
+    items = data.get("items")
+    if not isinstance(items, list):
+        raise ValueError("asset bible preset list response must include items")
+    return _require_dict_items("items", items)
+
+
+def import_asset_bible_preset(
+    *,
+    api_base_url: str,
+    project_id: str,
+    workspace_id: str,
+    preset_id: str,
+    asset_bible_id: str | None = None,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    endpoint = build_asset_bible_preset_import_endpoint(
+        api_base_url=api_base_url,
+        project_id=project_id,
+    )
+    payload = {
+        "workspace_id": _validate_public_reference_id("workspace_id", workspace_id),
+        "preset_id": _validate_public_reference_id("preset_id", preset_id),
+        "conflict_policy": "fail",
+    }
+    if asset_bible_id is not None and asset_bible_id.strip():
+        payload["asset_bible_id"] = _validate_public_reference_id(
+            "asset_bible_id",
+            asset_bible_id,
+        )
+
+    response = httpx.post(endpoint, json=payload, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("asset bible preset import response must be a JSON object")
+    if not isinstance(data.get("asset_bible"), dict):
+        raise ValueError("asset bible preset import response must include asset_bible")
     return data
 
 
