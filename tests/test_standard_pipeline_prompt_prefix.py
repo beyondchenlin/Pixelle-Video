@@ -53,7 +53,6 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
         captured["role_strategy"] = kwargs["role_strategy"]
         captured["role_locking_strength"] = kwargs["role_locking_strength"]
         captured["shot_strategy"] = kwargs["shot_strategy"]
-        kwargs.pop("generation_world_hint", None)
         return await generate_styled_image_prompt_batch(**kwargs)
 
     async def fake_generate_image_prompts(*args, **kwargs):

@@ -3,6 +3,7 @@ import json
 import pytest
 
 import pixelle_video.services.storyboard_planner as storyboard_planner_module
+from pixelle_video.models.content_world import ContentWorldProfile
 from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_planning import (
     FramePlan,
@@ -1096,3 +1097,88 @@ async def test_plan_storyboard_batch_accepts_structured_response_instance(monkey
 
     assert captured_response_type == [StoryboardPlanningResponse]
     assert [frame.scene_id for frame in result.frames] == ["1"]
+
+
+@pytest.mark.asyncio
+async def test_plan_storyboard_batch_passes_generation_world_profile_to_prompt(monkeypatch):
+    captured = {}
+
+    async def fake_llm_service(**kwargs):
+        captured["prompt"] = kwargs["prompt"]
+        return StoryboardPlanningResponse(
+            frames=[
+                StoryboardPlanningFrameResponse(
+                    scene_id="1",
+                    narration_fragment="从长乐门出发。",
+                    knowledge_goal="建立正定古城入口认知",
+                    shot_type="medium_shot",
+                    shot_purpose="context",
+                    primary_subject="长乐门",
+                    secondary_subjects=[],
+                    world_elements=["青砖城墙"],
+                    continuity_anchors=["长乐门"],
+                    focus_detail="清晨古城入口",
+                    prompt_intent="建立古城漫游开篇",
+                    locked_fields=[],
+                    override_source=None,
+                    frame_source="planner_generated",
+                    replan_scope="local",
+                    planner_version="1.0",
+                )
+            ]
+        )
+
+    result = await plan_storyboard_batch(
+        llm_service=fake_llm_service,
+        narrations=["从长乐门出发。"],
+        generation_world_profile=ContentWorldProfile(
+            summary="正定古城清晨漫游",
+            story_constraints="不能替代长乐门",
+            ip_integration_guidance="IP 作为陪伴式向导",
+        ),
+        world_preset_id="neutral_knowledge_storyboard",
+    )
+
+    assert "generation_world_profile" in captured["prompt"]
+    assert "正定古城清晨漫游" in captured["prompt"]
+    assert result.planning_snapshot["generation_world_profile"]["summary"] == "正定古城清晨漫游"
+
+
+@pytest.mark.asyncio
+async def test_plan_storyboard_batch_omits_empty_generation_world_profile(monkeypatch):
+    captured = {}
+
+    async def fake_llm_service(**kwargs):
+        captured["prompt"] = kwargs["prompt"]
+        return StoryboardPlanningResponse(
+            frames=[
+                StoryboardPlanningFrameResponse(
+                    scene_id="1",
+                    narration_fragment="从长乐门出发。",
+                    knowledge_goal="建立正定古城入口认知",
+                    shot_type="medium_shot",
+                    shot_purpose="context",
+                    primary_subject="长乐门",
+                    secondary_subjects=[],
+                    world_elements=["青砖城墙"],
+                    continuity_anchors=["长乐门"],
+                    focus_detail="清晨古城入口",
+                    prompt_intent="建立古城漫游开篇",
+                    locked_fields=[],
+                    override_source=None,
+                    frame_source="planner_generated",
+                    replan_scope="local",
+                    planner_version="1.0",
+                )
+            ]
+        )
+
+    result = await plan_storyboard_batch(
+        llm_service=fake_llm_service,
+        narrations=["从长乐门出发。"],
+        generation_world_profile={},
+        world_preset_id="neutral_knowledge_storyboard",
+    )
+
+    assert "generation_world_profile" not in captured["prompt"]
+    assert "generation_world_profile" not in result.planning_snapshot

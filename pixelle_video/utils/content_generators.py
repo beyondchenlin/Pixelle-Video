@@ -31,6 +31,7 @@ from pixelle_video.models.content_generation import (
     NarrationBatchResponse,
     VideoPromptBatchResponse,
 )
+from pixelle_video.models.content_world import ContentWorldProfile
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.prompt_context import (
@@ -45,6 +46,7 @@ from pixelle_video.models.text_overlay import (
     build_text_rendering_settings,
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
+from pixelle_video.services.content_world_planner import ContentWorldPlanner
 from pixelle_video.services.ip_usage_planner import IPUsagePlanner
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
@@ -222,6 +224,65 @@ def _strip_ip_prompt_context_fields(
     return PromptContextEnvelope(
         plan_context=prompt_contexts.plan_context,
         frame_contexts=frame_contexts,
+    )
+
+
+def _with_generation_world_profile_context(
+    prompt_contexts: PromptContextEnvelope | None,
+    *,
+    generation_world_profile: ContentWorldProfile | None,
+    expected_count: int,
+) -> PromptContextEnvelope | None:
+    if generation_world_profile is None:
+        return prompt_contexts
+    plan_context = (
+        dict(prompt_contexts.plan_context)
+        if prompt_contexts is not None
+        else {}
+    )
+    plan_context["generation_world_profile"] = generation_world_profile.to_dict()
+    frame_contexts = (
+        tuple(dict(context) for context in prompt_contexts.frame_contexts)
+        if prompt_contexts is not None
+        else tuple({} for _ in range(expected_count))
+    )
+    return PromptContextEnvelope(
+        plan_context=plan_context,
+        frame_contexts=frame_contexts,
+    )
+
+
+def _add_generation_world_snapshot(
+    planning_snapshot: dict[str, Any] | None,
+    *,
+    generation_world_hint: str | None,
+    generation_world_profile: ContentWorldProfile | None,
+) -> dict[str, Any] | None:
+    if generation_world_profile is None:
+        return planning_snapshot
+    snapshot = dict(planning_snapshot or {})
+    snapshot["generation_world_hint"] = (
+        generation_world_hint.strip()
+        if generation_world_hint
+        else None
+    )
+    snapshot["generation_world_profile"] = generation_world_profile.to_dict()
+    snapshot["generation_world_hint_source"] = generation_world_profile.hint_source.value
+    return snapshot
+
+
+def _should_plan_generation_world_profile(
+    *,
+    generation_world_hint: str | None,
+    ip_profile: Any,
+    storyboard_enabled: bool,
+) -> bool:
+    return any(
+        (
+            bool(str(generation_world_hint).strip()) if generation_world_hint is not None else False,
+            bool(str(getattr(ip_profile, "world_hint", "") or "").strip()),
+            storyboard_enabled,
+        )
     )
 
 
@@ -935,6 +996,7 @@ async def generate_styled_image_prompt_batch(
     max_retries: int = 3,
     progress_callback: Optional[Callable[[int, int, ProgressI18nMessage], None]] = None,
     world_preset_id: Optional[str] = None,
+    generation_world_hint: Optional[str] = None,
     shot_preset_id: Optional[str] = None,
     consistency_strength: str = "standard",
     content_mode: Optional[str] = None,
@@ -978,12 +1040,41 @@ async def generate_styled_image_prompt_batch(
             ]
         )
 
+    storyboard_enabled = _storyboard_controls_enabled()
+    storyboard_world_preset = (
+        lookup_world_preset(
+            config_manager.get_storyboard_world_preset_library(),
+            world_preset_id,
+        )
+        if storyboard_enabled
+        else None
+    )
     style_resolution_failed = False
     source = resolve_style_source(image_config, prompt_prefix_override=prompt_prefix)
     raw_prefix = source.raw_content if source else ""
     resolved_style = None
     style_profile = None
     planning_snapshot = None
+    generation_world_profile = (
+        await ContentWorldPlanner().plan(
+            llm_service=llm_service,
+            source_text="\n".join(str(narration) for narration in narrations),
+            generation_world_hint=generation_world_hint,
+            ip_world_hint=getattr(ip_profile, "world_hint", None),
+            world_preset=storyboard_world_preset,
+        )
+        if _should_plan_generation_world_profile(
+            generation_world_hint=generation_world_hint,
+            ip_profile=ip_profile,
+            storyboard_enabled=storyboard_enabled,
+        )
+        else None
+    )
+    normalized_prompt_contexts = _with_generation_world_profile_context(
+        normalized_prompt_contexts,
+        generation_world_profile=generation_world_profile,
+        expected_count=len(narrations),
+    )
 
     if source is not None:
         try:
@@ -1051,7 +1142,6 @@ async def generate_styled_image_prompt_batch(
             reason="no style source",
         )
 
-    storyboard_enabled = _storyboard_controls_enabled()
     planning = None
     normalized_style = None
     frame_plans: list[Any] = []
@@ -1065,10 +1155,6 @@ async def generate_styled_image_prompt_batch(
                     fallback="planning storyboard",
                 ),
             )
-        storyboard_world_preset = lookup_world_preset(
-            config_manager.get_storyboard_world_preset_library(),
-            world_preset_id,
-        )
         normalized_style = normalize_storyboard_style(
             resolved_style=resolved_style,
             world_preset=storyboard_world_preset,
@@ -1103,6 +1189,7 @@ async def generate_styled_image_prompt_batch(
                 role_locking_strength=role_locking_strength,
                 shot_strategy=shot_strategy,
                 prompt_contexts=normalized_prompt_contexts,
+                generation_world_profile=generation_world_profile,
                 frame_overrides=frame_overrides,
             )
         except Exception:
@@ -1155,6 +1242,11 @@ async def generate_styled_image_prompt_batch(
             narration_count=len(narrations),
             reason="storyboard controls disabled",
         )
+    planning_snapshot = _add_generation_world_snapshot(
+        planning_snapshot,
+        generation_world_hint=generation_world_hint,
+        generation_world_profile=generation_world_profile,
+    )
 
     prompt_contexts_for_generation = (
         normalized_prompt_contexts
