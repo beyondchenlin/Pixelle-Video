@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum
-from types import MappingProxyType
 from typing import Any
 
 
@@ -120,7 +119,7 @@ class IPFrameAdaptationPackage:
         if self.image_text_plan is not None and not isinstance(self.image_text_plan, IPImageTextPlan):
             raise ValueError("image_text_plan must be an IPImageTextPlan")
         if self.prompt_weight is not None:
-            object.__setattr__(self, "prompt_weight", float(self.prompt_weight))
+            object.__setattr__(self, "prompt_weight", _normalize_prompt_weight(self.prompt_weight))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -217,23 +216,13 @@ def _reject_hex_color(field_name: str, value: str) -> str:
     return value
 
 
-def _deep_freeze(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return MappingProxyType({
-            str(key): _deep_freeze(item)
-            for key, item in value.items()
-        })
-    if isinstance(value, (list, tuple)):
-        return tuple(_deep_freeze(item) for item in value)
-    return deepcopy(value)
-
-
-def _json_safe_copy(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): _json_safe_copy(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe_copy(item) for item in value]
-    return deepcopy(value)
+def _normalize_prompt_weight(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("prompt_weight must be a finite int or float")
+    normalized = float(value)
+    if not math.isfinite(normalized):
+        raise ValueError("prompt_weight must be a finite int or float")
+    return normalized
 
 
 __all__ = [

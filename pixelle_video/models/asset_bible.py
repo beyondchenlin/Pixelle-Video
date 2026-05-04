@@ -40,8 +40,12 @@ class IPProfile:
         object.__setattr__(self, "logline", _optional_prompt_str("logline", self.logline))
         object.__setattr__(self, "world_hint", _optional_prompt_str("world_hint", self.world_hint))
         object.__setattr__(self, "style_hint", _optional_prompt_str("style_hint", self.style_hint))
-        for field_name in (
+        object.__setattr__(
+            self,
             "forbidden_elements",
+            _normalize_text_tuple("forbidden_elements", self.forbidden_elements),
+        )
+        for field_name in (
             "identity_lock",
             "identity_anchors",
             "identity_suppression_rules",
@@ -53,7 +57,7 @@ class IPProfile:
             object.__setattr__(
                 self,
                 field_name,
-                _normalize_text_tuple(field_name, getattr(self, field_name)),
+                _normalize_prompt_text_tuple(field_name, getattr(self, field_name)),
             )
         object.__setattr__(self, "color_palette", _deep_freeze_mapping(self.color_palette))
         object.__setattr__(self, "image_text_palette", _deep_freeze_mapping(self.image_text_palette))
@@ -459,6 +463,11 @@ def _normalize_text_tuple(field_name: str, value: Sequence[str] | None) -> tuple
     normalized = tuple(_require_non_empty(field_name, item) for item in value)
     if len(set(normalized)) != len(normalized):
         raise ValueError(f"{field_name} must not contain duplicates")
+    return normalized
+
+
+def _normalize_prompt_text_tuple(field_name: str, value: Sequence[str] | None) -> tuple[str, ...]:
+    normalized = _normalize_text_tuple(field_name, value)
     for item in normalized:
         _reject_hex_color(field_name, item)
     return normalized

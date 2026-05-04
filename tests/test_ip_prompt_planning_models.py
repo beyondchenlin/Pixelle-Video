@@ -1,3 +1,7 @@
+import math
+
+import pytest
+
 from pixelle_video.models.ip_prompt_planning import (
     IPFrameAdaptationPackage,
     IPImageTextPlan,
@@ -62,3 +66,41 @@ def test_ip_frame_adaptation_package_round_trips_nested_image_text_plan():
 
     assert restored == package
     assert restored.to_dict()["image_text_plan"]["scene_text"] == ["长乐门", "古城入口"]
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: IPImageTextPlan(summary_text="标题 #5A2A12"),
+        lambda: IPImageTextPlan(scene_text=("标题 #5A2A12",)),
+        lambda: IPFrameAdaptationPackage(
+            frame_id="frame_0003",
+            ip_presence_type=IPPresenceType.SCENE_INTEGRATED,
+            identity_color_terms=("#FFFFFF",),
+        ),
+    ],
+)
+def test_ip_prompt_text_fields_reject_hex_colors(factory):
+    with pytest.raises(ValueError):
+        factory()
+
+
+@pytest.mark.parametrize("prompt_weight", [True, False, math.nan, math.inf, -math.inf])
+def test_ip_frame_adaptation_package_rejects_invalid_prompt_weight(prompt_weight):
+    with pytest.raises(ValueError, match="prompt_weight"):
+        IPFrameAdaptationPackage(
+            frame_id="frame_0004",
+            ip_presence_type=IPPresenceType.SCENE_INTEGRATED,
+            prompt_weight=prompt_weight,
+        )
+
+
+def test_ip_frame_adaptation_package_serializes_numeric_prompt_weight_as_float():
+    package = IPFrameAdaptationPackage(
+        frame_id="frame_0005",
+        ip_presence_type=IPPresenceType.SCENE_INTEGRATED,
+        prompt_weight=1,
+    )
+
+    assert package.prompt_weight == 1.0
+    assert isinstance(package.to_dict()["prompt_weight"], float)

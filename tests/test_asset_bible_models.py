@@ -218,3 +218,31 @@ def test_ip_profile_rejects_hex_colors_in_prompt_text_fields(field_name):
 
     with pytest.raises(ValueError, match=field_name):
         IPProfile(**payload)
+
+
+def test_non_ip_asset_text_tuples_preserve_existing_hex_color_behavior():
+    character = CharacterProfile(
+        character_id="char_luna",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        display_name="Luna",
+        continuity_notes=("#FFFFFF badge stays visible",),
+    )
+    scene = SceneAsset(
+        scene_id="scene_lab",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        display_name="Sky Lab",
+        environment_notes=("#006BFF light strips",),
+    )
+    prop = PropAsset(
+        prop_id="prop_compass",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        display_name="Star Compass",
+        usage_notes=("#5A2A12 engraving",),
+    )
+
+    assert character.continuity_notes == ("#FFFFFF badge stays visible",)
+    assert scene.environment_notes == ("#006BFF light strips",)
+    assert prop.usage_notes == ("#5A2A12 engraving",)
