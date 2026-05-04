@@ -364,6 +364,11 @@ def test_tts_omnivoice_api_dependency_docs_record_modelscope_priority():
         assert "python -m pytest tests/test_selfhost_workflows.py -k tts_omnivoice -q" in text
 
 
+def test_omnivoice_api_workflows_exist_before_default_switch():
+    assert Path("workflows/selfhost/tts_omnivoice_longform_bf16.json").exists()
+    assert Path("workflows/selfhost/tts_omnivoice_clone_duration_bf16.json").exists()
+
+
 def test_omnivoice_dependency_docs_record_current_model_install_state():
     all_doc = OMNIVOICE_DEPENDENCY_DOCS["OmniVoice_all"].read_text(encoding="utf-8")
     assert "当前默认工作流所需模型已存在" in all_doc

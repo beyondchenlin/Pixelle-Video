@@ -11,7 +11,7 @@ from pixelle_video.services.persistence import PersistenceService
 from web.pipelines.digital_human import build_tts_generation_kwargs
 from web.utils.tts_ui import resolve_configured_tts_mode
 
-DEFAULT_TTS_WORKFLOW = "selfhost/tts_index2_8g.json"
+DEFAULT_TTS_WORKFLOW = "selfhost/tts_omnivoice_longform_bf16.json"
 
 
 class _FakeCore:
@@ -43,13 +43,23 @@ def _single_frame_plan() -> StoryboardPlan:
     )
 
 
-def test_tts_defaults_to_comfyui_indextts2_workflow():
+def test_tts_defaults_to_comfyui_omnivoice_workflow():
     config = PixelleVideoConfig()
 
     assert config.comfyui.tts.inference_mode == "comfyui"
     assert config.comfyui.tts.comfyui.default_workflow == DEFAULT_TTS_WORKFLOW
     assert config.comfyui.tts.default_workflow == DEFAULT_TTS_WORKFLOW
     assert BUILTIN_DEFAULT_WORKFLOWS["tts"] == DEFAULT_TTS_WORKFLOW
+
+
+def test_builtin_default_tts_workflow_is_omnivoice_longform():
+    from pixelle_video.config.workflow_defaults import (
+        BUILTIN_DEFAULT_WORKFLOWS,
+        DEFAULT_TTS_WORKFLOW,
+    )
+
+    assert DEFAULT_TTS_WORKFLOW == "selfhost/tts_omnivoice_longform_bf16.json"
+    assert BUILTIN_DEFAULT_WORKFLOWS["tts"] == "selfhost/tts_omnivoice_longform_bf16.json"
 
 
 def test_comfyui_config_exposes_nested_tts_settings_for_ui(monkeypatch):
