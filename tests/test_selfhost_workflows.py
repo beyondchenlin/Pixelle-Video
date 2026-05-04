@@ -23,8 +23,6 @@ OMNIVOICE_WIDGET_COUNTS = {
     "OmniVoiceVoiceCloneTTS": 21,
     "OmniVoiceLongformTTS": 22,
     "OmniVoiceMultiSpeakerTTS": 22,
-    "Qwen3ASRLoader": 6,
-    "Qwen3ASRTranscribe": 3,
 }
 
 
@@ -77,6 +75,14 @@ def _iter_strings(value, path="root"):
     elif isinstance(value, dict):
         for key, item in value.items():
             yield from _iter_strings(item, f"{path}.{key}")
+
+
+def _nodes_by_type(workflow: dict, node_type: str):
+    return [node for node in workflow["nodes"] if node["type"] == node_type]
+
+
+def _links_by_id(workflow: dict):
+    return {link[0]: link for link in workflow["links"]}
 
 
 def test_omnivoice_ui_workflows_are_valid_json_graphs():
@@ -208,7 +214,40 @@ def test_omnivoice_bf16_workflow_uses_intentional_readable_defaults():
         "Generate a short, natural voice clone sample for the local OmniVoice workflow."
     )
     assert _node_by_id(workflow, 6)["widgets_values"][1:3] == [clean_prompt, ""]
-    assert _node_by_id(workflow, 11)["widgets_values"] == [clean_prompt]
+    assert _nodes_by_type(workflow, "CR Prompt Text") == []
+    assert _nodes_by_type(workflow, "PreviewAny") == []
+
+
+def test_omnivoice_bf16_voice_clone_uses_whisper_like_all_workflow():
+    workflow = _load_ui_workflow(Path("workflows/selfhost/OmniVoice_bf16.json"))
+    links = _links_by_id(workflow)
+
+    assert _nodes_by_type(workflow, "Qwen3ASRLoader") == []
+    assert _nodes_by_type(workflow, "Qwen3ASRTranscribe") == []
+    assert "Qwen/Qwen3-ASR" not in json.dumps(workflow, ensure_ascii=False)
+
+    whisper_nodes = _nodes_by_type(workflow, "OmniVoiceWhisperLoader")
+    assert len(whisper_nodes) == 1
+    assert whisper_nodes[0]["widgets_values"] == ["whisper-large-v3", "auto", "fp32"]
+
+    clone_nodes = _nodes_by_type(workflow, "OmniVoiceVoiceCloneTTS")
+    assert len(clone_nodes) == 1
+    clone_inputs = {input_spec["name"]: input_spec for input_spec in clone_nodes[0]["inputs"]}
+
+    assert "ref_text" not in clone_inputs
+    assert "text" not in clone_inputs
+    assert clone_inputs["ref_audio"]["type"] == "AUDIO"
+    assert clone_inputs["whisper_model"]["type"] == "WHISPER_ASR"
+
+    whisper_link = links[clone_inputs["whisper_model"]["link"]]
+    assert whisper_link == [
+        clone_inputs["whisper_model"]["link"],
+        whisper_nodes[0]["id"],
+        0,
+        clone_nodes[0]["id"],
+        1,
+        "WHISPER_ASR",
+    ]
 
 
 def test_omnivoice_load_audio_nodes_default_to_none_for_portability():
@@ -248,21 +287,22 @@ def test_omnivoice_dependency_docs_record_current_model_install_state():
     bf16_doc = OMNIVOICE_DEPENDENCY_DOCS["OmniVoice_bf16"].read_text(encoding="utf-8")
     assert "当前默认工作流所需模型已存在" in bf16_doc
     assert "OmniVoice-bf16" in bf16_doc
-    assert "Qwen3-ASR-1.7B" in bf16_doc
+    assert "whisper-large-v3" in bf16_doc
     assert "可选模型尚未下载" in bf16_doc
-    assert "Qwen3-ASR-0.6B" in bf16_doc
+    assert "whisper-large-v3-turbo" in bf16_doc
 
 
-def test_omnivoice_bf16_doc_records_qwen_asr_transformers5_compatibility():
+def test_omnivoice_docs_remove_qwen_asr_compat_flow():
     bf16_doc = OMNIVOICE_DEPENDENCY_DOCS["OmniVoice_bf16"].read_text(encoding="utf-8")
+    all_doc = OMNIVOICE_DEPENDENCY_DOCS["OmniVoice_all"].read_text(encoding="utf-8")
 
-    assert "AttributeError: 'Qwen3ASRConfig' object has no attribute 'thinker_config'" in bf16_doc
-    assert "qwen-asr 0.0.6" in bf16_doc
-    assert "transformers==4.57.6" in bf16_doc
-    assert "omnivoice 0.1.5" in bf16_doc
-    assert "transformers>=5.3.0" in bf16_doc
-    assert "sync_omnivoice_qwen_asr_compat.ps1" in bf16_doc
-    assert "94155b4f1b3c76c7f6a492f0378c1c31c93ab93d" in bf16_doc
+    assert "OmniVoiceWhisperLoader" in bf16_doc
+    assert "whisper-large-v3" in bf16_doc
+    assert "Qwen3-ASR" not in bf16_doc
+    assert "qwen-asr" not in bf16_doc
+    assert "thinker_config" not in bf16_doc
+    assert "sync_omnivoice_qwen_asr_compat.ps1" not in bf16_doc
+    assert "sync_omnivoice_qwen_asr_compat.ps1" not in all_doc
 
 
 def test_image_z_image_workflow_is_parseable():

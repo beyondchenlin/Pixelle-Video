@@ -22,10 +22,10 @@
 
 ### 3.1 模型文件
 
-- 当前默认工作流所需模型：
+- 当前默认工作流所需模型已存在：
   - `OmniVoice-bf16`
   - `whisper-large-v3`
-- 可选模型：
+- 可选模型尚未下载：
   - `OmniVoice（完整精度）`
   - `whisper-large-v3-turbo`
 
@@ -53,7 +53,7 @@
 
 ## 5. 下载优先级
 
-模型默认优先 `ModelScope`。仅在 `ModelScope` 缺文件或接口不可用时回退到其他源。
+模型默认优先 `ModelScope`。仅在 `ModelScope` 缺少文件或接口不可用时回退到其他源。
 
 ## 6. ModelScope 检索与主地址
 
@@ -95,11 +95,11 @@
 
 ### 8.1 下载前检查磁盘空间
 
+当前 `E:` 盘在 `2026-05-04` 检查到剩余空间约 `19.89 GiB`。
+
 ```powershell
 Get-PSDrive -Name E | Select-Object Name, Used, Free, Root
 ```
-
-当前 `E:` 盘在 `2026-05-04` 检查到剩余空间约 `22.82 GB`。
 
 ### 8.2 安装自定义节点
 
@@ -108,20 +108,14 @@ git clone https://github.com/saganaki22/ComfyUI-OmniVoice-TTS.git E:\ComfyUIData
 git clone https://github.com/rgthree/rgthree-comfy.git E:\ComfyUIData\custom_nodes\rgthree-comfy
 ```
 
+当前机器已验证 `ComfyUI-OmniVoice-TTS` 和 `rgthree-comfy` 目录存在。
+
 ### 8.3 安装 Python 依赖
 
 ```powershell
 E:\ComfyUIData\.venv\Scripts\python.exe -m pip install -U modelscope
 E:\ComfyUIData\.venv\Scripts\python.exe -m pip install -r E:\ComfyUIData\custom_nodes\ComfyUI-OmniVoice-TTS\requirements.txt
 ```
-
-如果同一套 ComfyUI 运行时还要同时跑 `workflows/selfhost/OmniVoice_bf16.json`，则必须继续执行：
-
-```powershell
-.\scripts\comfyui\sync_omnivoice_qwen_asr_compat.ps1
-```
-
-原因是 `OmniVoice_bf16.json` 额外依赖 `Qwen3-ASR`，而官方 `qwen-asr 0.0.6` 与 `omnivoice 0.1.5` 对 `transformers` 的版本要求存在冲突。该脚本会把共享的 ComfyUI Python 环境锁定到已验证兼容的 HF 版本栈，避免一个工作流能跑、另一个工作流因 `thinker_config` 报错而失效。
 
 ### 8.4 下载模型
 
@@ -141,7 +135,7 @@ huggingface-cli download openai/whisper-large-v3-turbo --local-dir E:\ComfyUIDat
 
 ## 9. 当前机器已验证的文件状态
 
-截至 `2026-05-04`，当前默认工作流所需模型已存在并验证：
+截至 `2026-05-04`，当前默认工作流所需模型已存在并验证大小合理：
 
 - `E:\ComfyUIData\models\omnivoice\OmniVoice-bf16\model.safetensors`：`1225189520`
 - `E:\ComfyUIData\models\omnivoice\OmniVoice-bf16\audio_tokenizer\model.safetensors`：`805665628`
@@ -190,11 +184,11 @@ python -m pytest tests/test_comfyui_backend_scripts.py -q
 
 ### 11.1 `OmniVoice_all.json` 为什么比 `OmniVoice_bf16.json` 多依赖？
 
-因为它包含完整示例集合，不只是单一路径，还包括长文本、多说话人和说明面板节点。
+因为它是完整示例集合，不只是单一路径，还包括长文本、多说话人、说明面板和前端分组增强节点。
 
 ### 11.2 `Fast Groups Bypasser (rgthree)` 会阻断后端吗？
 
-不会。它主要是前端增强节点。后端日志里 `rgthree-comfy` 已成功加载；此前真正阻断启动的是 Windows `GBK` 日志编码和插件 emoji 输出冲突，不是该节点本身缺失。
+不会。它主要是前端增强节点；后端只要 `rgthree-comfy` 正常加载即可。
 
 ### 11.3 `MarkdownNote` 不在 `/object_info` 里是不是有问题？
 

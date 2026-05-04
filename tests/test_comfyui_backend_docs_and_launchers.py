@@ -41,18 +41,5 @@ def test_windows_batch_launchers_run_matching_powershell_scripts() -> None:
         assert "pause" in text.lower()
 
 
-def test_omnivoice_qwen_asr_compat_script_pins_known_good_stack() -> None:
-    script_path = SCRIPT_DIR / "sync_omnivoice_qwen_asr_compat.ps1"
-
-    assert script_path.exists()
-
-    text = script_path.read_text(encoding="utf-8")
-
-    assert "One-sixth/Qwen3-ASR.git" in text
-    assert "94155b4f1b3c76c7f6a492f0378c1c31c93ab93d" in text
-    assert "transformers==5.6.2" in text
-    assert "accelerate==1.13.0" in text
-    assert "huggingface-hub==1.12.0" in text
-    assert "'--force-reinstall'" in text
-    assert "'--no-deps'" in text
-    assert "pip check" in text
+def test_obsolete_omnivoice_qwen_asr_compat_script_is_removed() -> None:
+    assert not (SCRIPT_DIR / "sync_omnivoice_qwen_asr_compat.ps1").exists()

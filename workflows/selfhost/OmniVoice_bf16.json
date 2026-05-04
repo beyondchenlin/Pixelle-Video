@@ -1,130 +1,9 @@
 {
   "id": "c9c2640a-3e5e-49f0-9b39-18fd3dc432bd",
   "revision": 0,
-  "last_node_id": 11,
-  "last_link_id": 12,
+  "last_node_id": 10,
+  "last_link_id": 11,
   "nodes": [
-    {
-      "id": 1,
-      "type": "PreviewAny",
-      "pos": [
-        1457.0394287109375,
-        317.7225341796875
-      ],
-      "size": [
-        254.97756958007812,
-        93.90634155273438
-      ],
-      "flags": {},
-      "order": 5,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "source",
-          "name": "source",
-          "type": "*",
-          "link": 9
-        }
-      ],
-      "outputs": [
-        {
-          "label": "STRING",
-          "name": "STRING",
-          "type": "STRING",
-          "links": null
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "PreviewAny",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": []
-    },
-    {
-      "id": 10,
-      "type": "SaveAudio",
-      "pos": [
-        1469.13134765625,
-        81.9948501586914
-      ],
-      "size": [
-        270,
-        112
-      ],
-      "flags": {},
-      "order": 6,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "audio",
-          "name": "audio",
-          "type": "AUDIO",
-          "link": 11
-        },
-        {
-          "label": "filename_prefix",
-          "name": "filename_prefix",
-          "type": "STRING",
-          "widget": {
-            "name": "filename_prefix"
-          }
-        },
-        {
-          "label": "audioUI",
-          "name": "audioUI",
-          "type": "AUDIO_UI",
-          "widget": {
-            "name": "audioUI"
-          }
-        }
-      ],
-      "outputs": [],
-      "properties": {
-        "Node name for S&R": "SaveAudio",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        "audio/ComfyUI"
-      ]
-    },
-    {
-      "id": 7,
-      "type": "Qwen3ASRLoader",
-      "pos": [
-        201.39306640625,
-        281.9137878417969
-      ],
-      "size": [
-        315,
-        174
-      ],
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "label": "model",
-          "name": "model",
-          "type": "QWEN3_ASR_MODEL",
-          "links": [
-            6
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "Qwen3ASRLoader",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        "Qwen/Qwen3-ASR-1.7B",
-        "ModelScope",
-        "bf16",
-        "auto",
-        "None",
-        ""
-      ]
-    },
     {
       "id": 4,
       "type": "LoadAudio",
@@ -171,8 +50,7 @@
           "name": "AUDIO",
           "type": "AUDIO",
           "links": [
-            4,
-            7
+            4
           ]
         }
       ],
@@ -200,7 +78,7 @@
         507.3406982421875
       ],
       "flags": {},
-      "order": 4,
+      "order": 2,
       "mode": 0,
       "inputs": [
         {
@@ -210,22 +88,11 @@
           "link": 4
         },
         {
-          "label": "text",
-          "name": "text",
-          "type": "STRING",
-          "widget": {
-            "name": "text"
-          },
-          "link": 12
-        },
-        {
-          "label": "ref_text",
-          "name": "ref_text",
-          "type": "STRING",
-          "widget": {
-            "name": "ref_text"
-          },
-          "link": 8
+          "label": "whisper_model",
+          "name": "whisper_model",
+          "shape": 7,
+          "type": "WHISPER_ASR",
+          "link": 6
         }
       ],
       "outputs": [
@@ -267,109 +134,86 @@
       ]
     },
     {
-      "id": 11,
-      "type": "CR Prompt Text",
+      "id": 7,
+      "type": "OmniVoiceWhisperLoader",
       "pos": [
-        120.88452911376953,
-        610.627685546875
+        201.39306640625,
+        281.9137878417969
       ],
       "size": [
-        400,
-        200
+        325.3941955566406,
+        112.41754150390625
       ],
       "flags": {},
-      "order": 2,
+      "order": 0,
       "mode": 0,
-      "inputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "widget": {
-            "name": "prompt"
-          }
-        }
-      ],
+      "inputs": [],
       "outputs": [
         {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
+          "label": "whisper_model",
+          "name": "whisper_model",
+          "type": "WHISPER_ASR",
           "links": [
-            12
+            6
           ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
         }
       ],
+      "title": "OmniVoice Whisper Loader",
       "properties": {
-        "Node name for S&R": "CR Prompt Text",
+        "Node name for S&R": "OmniVoiceWhisperLoader",
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        "Generate a short, natural voice clone sample for the local OmniVoice workflow."
+        "whisper-large-v3",
+        "auto",
+        "fp32"
       ]
     },
     {
-      "id": 8,
-      "type": "Qwen3ASRTranscribe",
+      "id": 10,
+      "type": "SaveAudio",
       "pos": [
-        547.6699829101562,
-        294.86236572265625
+        1469.13134765625,
+        81.9948501586914
       ],
       "size": [
         270,
-        78
+        112
       ],
       "flags": {},
       "order": 3,
       "mode": 0,
       "inputs": [
         {
-          "label": "model",
-          "name": "model",
-          "type": "QWEN3_ASR_MODEL",
-          "link": 6
-        },
-        {
           "label": "audio",
           "name": "audio",
           "type": "AUDIO",
-          "link": 7
-        }
-      ],
-      "outputs": [
+          "link": 11
+        },
         {
-          "label": "text",
-          "name": "text",
+          "label": "filename_prefix",
+          "name": "filename_prefix",
           "type": "STRING",
-          "links": [
-            8,
-            9
-          ]
+          "widget": {
+            "name": "filename_prefix"
+          }
         },
         {
-          "label": "language",
-          "name": "language",
-          "type": "STRING"
-        },
-        {
-          "label": "timestamps",
-          "name": "timestamps",
-          "type": "STRING"
+          "label": "audioUI",
+          "name": "audioUI",
+          "type": "AUDIO_UI",
+          "widget": {
+            "name": "audioUI"
+          }
         }
       ],
+      "outputs": [],
       "properties": {
-        "Node name for S&R": "Qwen3ASRTranscribe",
+        "Node name for S&R": "SaveAudio",
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        "auto",
-        "",
-        false
+        "audio/ComfyUI"
       ]
     }
   ],
@@ -386,33 +230,9 @@
       6,
       7,
       0,
-      8,
-      0,
-      "QWEN3_ASR_MODEL"
-    ],
-    [
-      7,
-      4,
-      0,
-      8,
-      1,
-      "AUDIO"
-    ],
-    [
-      8,
-      8,
-      0,
       6,
-      4,
-      "STRING"
-    ],
-    [
-      9,
-      8,
-      0,
       1,
-      0,
-      "*"
+      "WHISPER_ASR"
     ],
     [
       11,
@@ -421,14 +241,6 @@
       10,
       0,
       "AUDIO"
-    ],
-    [
-      12,
-      11,
-      0,
-      6,
-      3,
-      "STRING"
     ]
   ],
   "groups": [
