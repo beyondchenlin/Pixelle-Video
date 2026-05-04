@@ -149,6 +149,29 @@ def test_image_prompt_template_preserves_json_contract_and_explains_ip_presence_
     assert "absent" in prompt.lower()
 
 
+def test_image_prompt_template_carries_ip_adaptation_and_style_context_as_single_truth_source():
+    prompt = build_image_prompt_prompt(
+        narrations=["从长乐门出发。"],
+        min_words=30,
+        max_words=60,
+        prompt_contexts=[
+            {
+                "frame_source_text": "从长乐门出发。",
+                "ip_adaptation": {
+                    "ip_presence_type": "scene_integrated",
+                    "presence_mode": "support",
+                },
+                "style_context": {"style_kind": "visual_only"},
+            }
+        ],
+        prompt_language="zh_CN",
+    )
+
+    assert "ip_adaptation" in prompt
+    assert "style_context" in prompt
+    assert "truth source" in prompt.lower()
+
+
 @pytest.mark.asyncio
 async def test_generate_image_prompts_can_request_chinese_output():
     captured_prompt: list[str] = []

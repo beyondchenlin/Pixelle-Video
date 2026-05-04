@@ -16,7 +16,8 @@ Prompt helper utilities
 Simple utilities for building prompts with optional prefixes.
 """
 
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 from typing import Any, Optional
 
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
@@ -49,6 +50,12 @@ PLANNED_TEXT_NEGATIVE_RULES: tuple[str, ...] = (
     "logo text",
     "extra captions",
     "extra subtitles",
+)
+_HEX_COLOR_RE = re.compile(r"(?<![0-9a-fA-F])#(?:[0-9a-fA-F]{6})(?![0-9a-fA-F])")
+_FIELD_LABEL_RE = re.compile(
+    r"\b(?:summary_text|scene_text|title_hex|ip_presence_type|presence_mode|"
+    r"visible_text_whitelist|negative_constraints|identity_color_terms)\s*[:：]\s*",
+    re.IGNORECASE,
 )
 
 
@@ -104,6 +111,15 @@ def _normalize_negative_rule_list(values: Any) -> list[str]:
             seen.add(lowered)
             normalized.append(cleaned)
     return normalized
+
+
+def _read_nested_value(container: Any, path: Sequence[str]) -> Any:
+    current = container
+    for key in path:
+        if current is None:
+            return None
+        current = _read_value(current, key, None)
+    return current
 
 
 def _apply_prompt_template(prompt: str, prompt_template: str = "") -> str:
@@ -183,6 +199,52 @@ def apply_text_rendering_policy(
         prompt,
         enabled=_read_value(policy, "suppress_unplanned_embedded_text", True),
     )
+
+
+def sanitize_visual_prompt_text(prompt: str) -> str:
+    cleaned = _HEX_COLOR_RE.sub("", str(prompt or ""))
+    cleaned = _FIELD_LABEL_RE.sub("", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = re.sub(r"\s+([,，。；;])", r"\1", cleaned)
+    cleaned = re.sub(r"([,，；;])\s*([,，；;])+", r"\1", cleaned)
+    return cleaned.strip(" ,，;；")
+
+
+def build_visible_text_whitelist_clause(whitelist: Any) -> str:
+    allowed_text = _normalize_prompt_list(whitelist)
+    if not allowed_text:
+        return ""
+    quoted = "、".join(f"“{item}”" for item in allowed_text)
+    return f"画面文字只允许白名单内容：{quoted}；only whitelisted text may appear, no extra words."
+
+
+def merge_z_image_constraints_into_prompt(
+    prompt: str,
+    *,
+    extra_constraints: Any = None,
+    visible_text_whitelist: Any = None,
+) -> str:
+    clauses = [sanitize_visual_prompt_text(prompt)]
+    whitelist_clause = build_visible_text_whitelist_clause(visible_text_whitelist)
+    if whitelist_clause:
+        clauses.append(whitelist_clause)
+    clauses.extend(_normalize_negative_rule_list(extra_constraints))
+    return sanitize_visual_prompt_text(", ".join(_normalize_prompt_list(clauses)))
+
+
+def ip_negative_constraints_from_context(frame_context: Any) -> tuple[str, ...]:
+    return tuple(
+        _normalize_negative_rule_list(
+            _read_nested_value(frame_context, ("ip_adaptation", "negative_constraints"))
+        )
+    )
+
+
+def ip_visible_text_whitelist_from_context(frame_context: Any) -> tuple[str, ...]:
+    image_text_plan = _read_nested_value(frame_context, ("ip_adaptation", "image_text_plan"))
+    if image_text_plan is None:
+        return ()
+    return tuple(_normalize_prompt_list(_read_value(image_text_plan, "visible_text_whitelist", ())))
 
 
 def select_image_text_negative_prompt(image_text_policy: Any) -> tuple[str, ...] | None:

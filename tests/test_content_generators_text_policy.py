@@ -2,6 +2,7 @@ import pytest
 
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.text_overlay import TextRenderingPolicy
+from pixelle_video.utils import prompt_helper
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 from pixelle_video.utils.prompt_helper import (
     NO_TEXT_POSITIVE_RULE,
@@ -42,6 +43,18 @@ def test_policy_uses_planned_only_guard_when_native_hints_exist():
     assert NO_TEXT_POSITIVE_RULE not in prompt
     assert "no extra captions" in prompt
     assert "text" not in select_negative_text_rules(policy=policy, has_native_hints=True)
+
+
+def test_visible_text_whitelist_clause_does_not_use_generic_no_text_rule():
+    helper = getattr(prompt_helper, "build_visible_text_whitelist_clause", None)
+    assert helper is not None
+
+    clause = helper(["从长乐门出发", "长乐门"])
+
+    assert "从长乐门出发" in clause
+    assert "长乐门" in clause
+    assert "白名单" in clause or "only whitelisted text" in clause.lower()
+    assert "no visible text" not in clause
 
 
 def test_image_text_policy_routes_custom_positive_and_negative_prompts():

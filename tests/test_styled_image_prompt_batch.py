@@ -1,6 +1,8 @@
 import pytest
 
+from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.prompt_context import PromptContextEnvelope
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec, StyleSourceSpec
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
@@ -38,6 +40,39 @@ def _resolved_ip_world() -> ResolvedStyleSpec:
         resolver_version="2026-04-21-v1",
         source_identity="request:hash-123",
         raw_content="Angry Birds style",
+    )
+
+
+def _storyboard_plan() -> StoryboardPlan:
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="从长乐门出发，走进正定古城。",
+        visual_goal="表现长乐门作为旅程入口的历史感。",
+        prompt_intent="建立古城空间和导览开篇。",
+        shot_type="中远景",
+        shot_purpose="建立场景",
+        primary_subject="长乐门",
+        world_elements=("青砖城墙", "晨光"),
+    )
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=frame.source_text,
+        frames=[frame],
+    )
+
+
+def _ip_profile() -> IPProfile:
+    return IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="正定向导兔",
+        identity_lock=("白色卡通兔子", "长耳朵"),
+        identity_anchors=("蓝色领带",),
+        negative_constraints=("避免多余文字", "避免角色贴纸感"),
+        visible_text_whitelist=("从长乐门出发", "长乐门"),
     )
 
 
@@ -281,6 +316,216 @@ async def test_generate_styled_image_prompt_batch_appends_no_text_policy_when_ne
     assert "no visible text" in result.prompts[0]
     assert "no Chinese characters" in result.prompts[0]
     assert "no English letters" in result.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints_for_z_image(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["正定长乐门晨光画面，白色兔子自然陪伴在城墙边。"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
+        lambda *args, **kwargs: type("Caps", (), {"supports_negative_prompt": False})(),
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["从长乐门出发。"],
+        image_config={},
+        media_service=object(),
+        workflow="selfhost/image_z_image_turbo.json",
+        prompt_contexts=[
+            {
+                "frame_source_text": "从长乐门出发。",
+                "ip_adaptation": {
+                    "ip_presence_type": "scene_integrated",
+                    "negative_constraints": ["避免多余文字", "避免角色贴纸感"],
+                },
+            }
+        ],
+    )
+
+    assert result.negative_prompt is None
+    assert "避免多余文字" in result.prompts[0]
+    assert "避免角色贴纸感" in result.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_style_resolution(monkeypatch):
+    planner_calls = {}
+
+    async def fake_generate_image_prompts(*args, **kwargs):
+        planner_calls["prompt_contexts"] = kwargs["prompt_contexts"]
+        return ["正定长乐门晨光画面，白色兔子自然陪伴在城墙边。"]
+
+    plan = _storyboard_plan()
+
+    class _Planner:
+        def plan_batch(self, **kwargs):
+            planner_calls["resolved_style"] = kwargs["resolved_style"]
+            planner_calls["storyboard_plan"] = kwargs["storyboard_plan"]
+            planner_calls["scene_casts_by_frame"] = kwargs["scene_casts_by_frame"]
+            return [
+                type(
+                    "Pkg",
+                    (),
+                    {
+                        "frame_id": plan.frames[0].frame_id,
+                        "to_dict": lambda self: {
+                            "frame_id": plan.frames[0].frame_id,
+                            "ip_presence_type": "scene_integrated",
+                            "presence_mode": "support",
+                            "image_text_plan": {
+                                "summary_text": "从长乐门出发",
+                                "visible_text_whitelist": ["从长乐门出发", "长乐门"],
+                            },
+                            "negative_constraints": ["避免角色贴纸感"],
+                        },
+                    },
+                )()
+            ]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        _Planner,
+    )
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        return _resolved_ip_world()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+
+    async def fake_plan_storyboard_batch(**kwargs):
+        return type(
+            "PlanResult",
+            (),
+            {
+                "frames": (
+                    FramePlan(
+                        scene_id="scene-1",
+                        shot_type="medium_shot",
+                        shot_purpose="context",
+                        world_elements=("长乐门",),
+                        prompt_intent="建立古城空间",
+                    ),
+                ),
+                "planning_snapshot": {
+                    "world_preset_id": "neutral_knowledge_storyboard",
+                    "world_preset": {
+                        "display_name": "Neutral Knowledge Storyboard",
+                        "style_core": "clean educational illustration",
+                    },
+                },
+            },
+        )()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.plan_storyboard_batch",
+        fake_plan_storyboard_batch,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["从长乐门出发。"],
+        image_config={"prompt_prefix": "古城旅行纪录片风格"},
+        storyboard_plan=plan,
+        world_preset_id="neutral_knowledge_storyboard",
+        ip_enabled=True,
+        ip_profile=_ip_profile(),
+        scene_casts_by_frame={"frame_1": {"ip_presence_type": "scene_integrated"}},
+    )
+
+    assert planner_calls["resolved_style"] is not None
+    assert planner_calls["storyboard_plan"] is plan
+    assert planner_calls["scene_casts_by_frame"] == {"frame_1": {"ip_presence_type": "scene_integrated"}}
+    assert isinstance(planner_calls["prompt_contexts"], PromptContextEnvelope)
+    assert (
+        planner_calls["prompt_contexts"].frame_contexts[0]["ip_adaptation"]["ip_presence_type"]
+        == "scene_integrated"
+    )
+    assert "ip_presence_options" in planner_calls["prompt_contexts"].frame_contexts[0]
+    assert "style_context" in planner_calls["prompt_contexts"].frame_contexts[0]
+    assert result.planning_snapshot["ip_adaptations_by_frame"][plan.frames[0].frame_id][
+        "ip_presence_type"
+    ] == "scene_integrated"
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_never_leaks_hex_codes_or_field_names(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["summary_text: 从长乐门出发，title_hex: #5A2A12，白色兔子。"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["从长乐门出发。"],
+        image_config={},
+        prompt_contexts=[
+            {
+                "frame_source_text": "从长乐门出发。",
+                "ip_adaptation": {
+                    "identity_color_terms": ["纯白色身体", "鲜明宝蓝色领带"],
+                    "image_text_plan": {
+                        "summary_text": "从长乐门出发",
+                        "visible_text_whitelist": ["从长乐门出发"],
+                    },
+                },
+            }
+        ],
+    )
+
+    assert "#5A2A12" not in result.prompts[0]
+    assert "summary_text" not in result.prompts[0]
+    assert "title_hex" not in result.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_uses_visible_text_whitelist_for_ip_text_plan(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["长乐门城墙，白色兔子手持旅行手册。"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["从长乐门出发。"],
+        image_config={},
+        prompt_contexts=[
+            {
+                "frame_source_text": "从长乐门出发。",
+                "ip_adaptation": {
+                    "image_text_plan": {
+                        "summary_text": "从长乐门出发",
+                        "scene_text": ["长乐门"],
+                        "visible_text_whitelist": ["从长乐门出发", "长乐门"],
+                    },
+                },
+            }
+        ],
+    )
+
+    assert "从长乐门出发" in result.prompts[0]
+    assert "长乐门" in result.prompts[0]
+    assert "白名单" in result.prompts[0] or "only whitelisted text" in result.prompts[0].lower()
+    assert "no visible text" not in result.prompts[0]
 
 
 @pytest.mark.asyncio
