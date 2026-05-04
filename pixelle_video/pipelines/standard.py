@@ -1020,9 +1020,9 @@ class StandardPipeline(LinearVideoPipeline):
 
         cjk_chars = sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
         latin_words = len(re.findall(r"[A-Za-z0-9']+", text))
-        estimated_duration = max(
-            cjk_chars / HYPERFRAMES_CJK_CHARS_PER_SECOND_ESTIMATE,
-            latin_words / HYPERFRAMES_LATIN_WORDS_PER_SECOND_ESTIMATE,
+        estimated_duration = (
+            cjk_chars / HYPERFRAMES_CJK_CHARS_PER_SECOND_ESTIMATE
+            + latin_words / HYPERFRAMES_LATIN_WORDS_PER_SECOND_ESTIMATE
         )
         return estimated_duration
 
@@ -2074,6 +2074,24 @@ class StandardPipeline(LinearVideoPipeline):
 
         logger.info("HyperFrames raw media assets prepared; skipping legacy HTML prerender")
 
+    async def _ensure_manifest_template_frames(self, ctx: PipelineContext) -> None:
+        effective_tts_audio_strategy = self._resolve_effective_tts_audio_strategy(ctx)
+        template_body_text = (
+            self._legacy_template_body_text_for_captions(ctx)
+            if effective_tts_audio_strategy == MASTER_TRACK_TTS_AUDIO_STRATEGY
+            else None
+        )
+
+        for frame in ctx.storyboard.frames:
+            if getattr(frame, "composed_image_path", None):
+                continue
+            await self.core.frame_processor._step_compose_frame(
+                frame,
+                ctx.storyboard,
+                ctx.config,
+                template_body_text=template_body_text,
+            )
+
     async def _register_storyboard_workbench_parallel_results(
         self,
         ctx: PipelineContext,
@@ -2085,6 +2103,28 @@ class StandardPipeline(LinearVideoPipeline):
     async def post_production(self, ctx: PipelineContext):
         """Step 7: Concatenate videos and add BGM."""
         effective_backend = self._resolve_effective_render_backend(ctx)
+        if effective_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND:
+            await self._prepare_hyperframes_master_audio_for_render(ctx)
+            effective_backend = self._resolve_effective_render_backend(ctx)
+            if effective_backend == FFMPEG_MANIFEST_RENDER_BACKEND:
+                logger.warning(
+                    "Switching HyperFrames post-production to ffmpeg_manifest after "
+                    "master audio synthesis: "
+                    f"{self._get_render_backend_fallback_reason(ctx)}"
+                )
+                await self._ensure_manifest_template_frames(ctx)
+                await self._post_production_ffmpeg_manifest(ctx)
+                return
+            if effective_backend != HYPERFRAMES_COMPILED_RENDER_BACKEND:
+                logger.warning(
+                    "HyperFrames backend resolved to "
+                    f"{effective_backend!r} after master audio synthesis: "
+                    f"{self._get_render_backend_fallback_reason(ctx)}"
+                )
+            else:
+                await self._post_production_hyperframes(ctx)
+                return
+
         if effective_backend == HYPERFRAMES_COMPILED_RENDER_BACKEND:
             await self._post_production_hyperframes(ctx)
             return
@@ -2259,6 +2299,63 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.storyboard.final_video_path = final_video_path
 
         logger.success(f"FFmpeg manifest video generation completed: {ctx.final_video_path}")
+
+    async def _prepare_hyperframes_master_audio_for_render(
+        self,
+        ctx: PipelineContext,
+    ) -> tuple[str, float]:
+        if (
+            getattr(ctx, "_hyperframes_master_audio_prepared", False)
+            and getattr(ctx, "master_audio_path", None)
+            and getattr(ctx, "master_audio_duration", None) is not None
+        ):
+            return str(ctx.master_audio_path), float(ctx.master_audio_duration)
+
+        storyboard = ctx.storyboard
+        config = ctx.config
+        timing_plan = ctx.timing_plan
+
+        if timing_plan is None:
+            raise RuntimeError("HyperFrames render path requires a timing plan.")
+        if getattr(self.core, "alignment_service", None) is None:
+            raise RuntimeError("Alignment service is not initialized.")
+        if (
+            config.silence_trim_tool == "auto_editor"
+            and getattr(self.core, "audio_edit_service", None) is None
+        ):
+            raise RuntimeError("Audio edit service is not initialized.")
+
+        progress_target = self._progress_target(ctx)
+        self._report_progress(
+            progress_target,
+            ProgressEventType.SYNTHESIZING_AUDIO,
+            0.82,
+        )
+        master_audio_path, master_audio_duration = await self._synthesize_hyperframes_audio(ctx)
+        self._align_hyperframes_timing_plan(ctx)
+        self._offset_sentence_timings_to_master_timeline(timing_plan)
+
+        if config.silence_trim_tool == "auto_editor":
+            trim_result = self.core.audio_edit_service.export_trimmed_audio_and_timeline(
+                master_audio_path,
+                str(Path(master_audio_path).with_name("trimmed_master_audio.wav")),
+                margin_ms=config.silence_trim_margin_ms,
+            )
+            master_audio_path = trim_result.trimmed_audio_path
+            master_audio_duration = self._get_audio_duration(master_audio_path)
+            self._remap_timing_plan_to_auto_editor_timeline(timing_plan, trim_result.timeline)
+            self.core.audio_edit_service.remap_sentence_units(
+                timing_plan.sentences,
+                trim_result.timeline,
+            )
+
+        setattr(ctx, "master_audio_path", master_audio_path)
+        setattr(ctx, "master_audio_duration", master_audio_duration)
+        setattr(ctx, "_hyperframes_master_audio_prepared", True)
+        if timing_plan.blocks:
+            timing_plan.blocks[-1].end = master_audio_duration
+        storyboard.total_duration = master_audio_duration
+        return master_audio_path, master_audio_duration
 
     def _build_render_manifest_for_current_timeline(
         self,
@@ -2703,42 +2800,13 @@ class StandardPipeline(LinearVideoPipeline):
         config = ctx.config
         timing_plan = ctx.timing_plan
 
-        if timing_plan is None:
-            raise RuntimeError("HyperFrames render path requires a timing plan.")
         if self.core.hyperframes_project_service is None or self.core.hyperframes_renderer is None:
             raise RuntimeError("HyperFrames services are not initialized.")
-        if getattr(self.core, "alignment_service", None) is None:
-            raise RuntimeError("Alignment service is not initialized.")
-        if config.silence_trim_tool == "auto_editor" and getattr(self.core, "audio_edit_service", None) is None:
-            raise RuntimeError("Audio edit service is not initialized.")
 
-        progress_target = self._progress_target(ctx)
-        self._report_progress(
-            progress_target,
-            ProgressEventType.SYNTHESIZING_AUDIO,
-            0.82,
+        master_audio_path, master_audio_duration = (
+            await self._prepare_hyperframes_master_audio_for_render(ctx)
         )
-        master_audio_path, master_audio_duration = await self._synthesize_hyperframes_audio(ctx)
-        self._align_hyperframes_timing_plan(ctx)
-        self._offset_sentence_timings_to_master_timeline(timing_plan)
-
-        if config.silence_trim_tool == "auto_editor":
-            trim_result = self.core.audio_edit_service.export_trimmed_audio_and_timeline(
-                master_audio_path,
-                str(Path(master_audio_path).with_name("trimmed_master_audio.wav")),
-                margin_ms=config.silence_trim_margin_ms,
-            )
-            master_audio_path = trim_result.trimmed_audio_path
-            master_audio_duration = self._get_audio_duration(master_audio_path)
-            self._remap_timing_plan_to_auto_editor_timeline(timing_plan, trim_result.timeline)
-            self.core.audio_edit_service.remap_sentence_units(
-                timing_plan.sentences,
-                trim_result.timeline,
-            )
-
-        if timing_plan.blocks:
-            timing_plan.blocks[-1].end = master_audio_duration
-        storyboard.total_duration = master_audio_duration
+        progress_target = self._progress_target(ctx)
         canvas_width, canvas_height = self._resolve_hyperframes_canvas_size(config)
         self._get_text_rendering_result(ctx)
         compiled_text_tracks, compiled_text_cues = self._compile_text_layer_for_render(ctx)

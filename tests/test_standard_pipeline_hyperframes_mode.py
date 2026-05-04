@@ -657,6 +657,90 @@ def test_resolve_effective_render_backend_estimates_long_hyperframes_before_audi
     assert pipeline._resolve_effective_render_backend(ctx) == "ffmpeg_manifest"
 
 
+def test_resolve_effective_render_backend_sums_mixed_language_duration_estimate(
+    tmp_path,
+):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes_compiled")
+    ctx.timing_plan.blocks[0].text = chr(0x4E2D) * 240
+    ctx.timing_plan.blocks[1].text = " ".join(["word"] * 180)
+    ctx.master_audio_duration = None
+    ctx.storyboard.total_duration = 0.0
+
+    assert pipeline._estimate_narration_duration_for_render_routing(ctx) == pytest.approx(
+        132.0
+    )
+    assert pipeline._resolve_effective_render_backend(ctx) == "ffmpeg_manifest"
+
+
+@pytest.mark.asyncio
+async def test_post_production_switches_to_ffmpeg_manifest_after_real_audio_exceeds_threshold(
+    monkeypatch,
+    tmp_path,
+):
+    core = _DummyCore(tmp_path)
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path, render_backend="hyperframes_compiled")
+    ctx.config.subtitle_alignment_engine = "direct_duration"
+    ctx.final_video_path = str(tmp_path / "task-1" / "final.mp4")
+
+    for frame in ctx.storyboard.frames:
+        frame.media_type = "image"
+        frame.image_path = str(tmp_path / f"{frame.index:02d}_raw.png")
+        Path(frame.image_path).write_bytes(b"raw")
+
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
+        Path(output_path).write_bytes(b"master-audio")
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return output_path
+
+    def fake_get_audio_duration(audio_path):
+        return 121.0 if str(audio_path).endswith("master_audio.wav") else 60.5
+
+    calls = {}
+
+    class FakeFfmpegManifestRenderer:
+        def render(self, **kwargs):
+            calls.update(kwargs)
+            output_path = Path(kwargs["output_path"])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"video")
+            return str(output_path)
+
+    def fail_hyperframes_render(*args, **kwargs):
+        raise AssertionError("hyperframes renderer should not run after late ffmpeg switch")
+
+    monkeypatch.setattr(pipeline, "_normalize_audio_for_hyperframes", fake_normalize_audio)
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", fake_get_audio_duration)
+    monkeypatch.setattr(
+        "pixelle_video.services.ffmpeg_manifest_renderer.FfmpegManifestRenderer",
+        FakeFfmpegManifestRenderer,
+    )
+    monkeypatch.setattr(core.hyperframes_renderer, "render", fail_hyperframes_render)
+
+    assert pipeline._resolve_effective_render_backend(ctx) == "hyperframes_compiled"
+
+    await pipeline.post_production(ctx)
+
+    manifest = calls["manifest"]
+    execution_plan = calls["execution_plan"]
+    assert execution_plan.effective_backend == "ffmpeg_manifest"
+    assert manifest.master_audio_duration == pytest.approx(121.0)
+    assert ctx.observability["render_execution_plan"]["effective_backend"] == "ffmpeg_manifest"
+    assert [clip.source_kind for clip in manifest.visual_clips] == [
+        "template_frame",
+        "template_frame",
+    ]
+    assert all(clip.media_path for clip in manifest.visual_clips)
+    assert ctx.master_audio_duration == pytest.approx(121.0)
+    assert ctx.storyboard.total_duration == pytest.approx(121.0)
+    assert core.hyperframes_renderer.calls == []
+
+
 @pytest.mark.asyncio
 async def test_hyperframes_element_motion_uses_raw_media_when_shell_artifact_exists(
     monkeypatch,
