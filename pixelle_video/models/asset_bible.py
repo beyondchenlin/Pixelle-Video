@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import Any
 
 
-_HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}\b")
+_HEX_COLOR_RE = re.compile(r"(?<![0-9a-fA-F])#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])")
 
 
 @dataclass(frozen=True)
@@ -59,8 +59,12 @@ class IPProfile:
                 field_name,
                 _normalize_prompt_text_tuple(field_name, getattr(self, field_name)),
             )
-        object.__setattr__(self, "color_palette", _deep_freeze_mapping(self.color_palette))
-        object.__setattr__(self, "image_text_palette", _deep_freeze_mapping(self.image_text_palette))
+        object.__setattr__(self, "color_palette", _deep_freeze_mapping(self.color_palette, field_name="color_palette"))
+        object.__setattr__(
+            self,
+            "image_text_palette",
+            _deep_freeze_mapping(self.image_text_palette, field_name="image_text_palette"),
+        )
         _reject_hex_colors_in_prompt_values(self.color_palette, path="color_palette")
         _reject_hex_colors_in_prompt_values(self.image_text_palette, path="image_text_palette")
         object.__setattr__(self, "metadata", _deep_freeze_mapping(self.metadata))
@@ -483,8 +487,8 @@ def _reject_hex_colors_in_prompt_values(value: Any, *, path: str) -> None:
         for key, item in value.items():
             key_name = str(key)
             child_path = f"{path}.{key_name}"
-            if _is_palette_prompt_key(key_name) and isinstance(item, str):
-                _reject_hex_color(child_path, item)
+            if _is_palette_prompt_key(key_name):
+                _reject_hex_colors_in_string_leaves(item, path=child_path)
                 continue
             _reject_hex_colors_in_prompt_values(item, path=child_path)
         return
@@ -498,6 +502,19 @@ def _reject_hex_colors_in_prompt_values(value: Any, *, path: str) -> None:
 
 def _is_palette_prompt_key(key: str) -> bool:
     return key == "prompt" or key == "color_prompt" or key.endswith("_prompt")
+
+
+def _reject_hex_colors_in_string_leaves(value: Any, *, path: str) -> None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _reject_hex_colors_in_string_leaves(item, path=f"{path}.{key}")
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _reject_hex_colors_in_string_leaves(item, path=f"{path}[{index}]")
+        return
+    if isinstance(value, str):
+        _reject_hex_color(path, value)
 
 
 def _normalize_asset_tuple(
@@ -555,9 +572,9 @@ def _find_text_style_keys(
     return sorted(present)
 
 
-def _deep_freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
+def _deep_freeze_mapping(value: Mapping[str, Any], *, field_name: str = "metadata") -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
-        raise ValueError("metadata must be a mapping")
+        raise ValueError(f"{field_name} must be a mapping")
     return MappingProxyType({
         str(key): _deep_freeze(item)
         for key, item in value.items()

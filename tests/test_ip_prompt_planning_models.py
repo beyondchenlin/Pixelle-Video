@@ -72,11 +72,23 @@ def test_ip_frame_adaptation_package_round_trips_nested_image_text_plan():
     "factory",
     [
         lambda: IPImageTextPlan(summary_text="标题 #5A2A12"),
+        lambda: IPImageTextPlan(summary_text="标题 #FFF"),
+        lambda: IPImageTextPlan(scene_text=("标题 #FFFFFFFF",)),
         lambda: IPImageTextPlan(scene_text=("标题 #5A2A12",)),
         lambda: IPFrameAdaptationPackage(
             frame_id="frame_0003",
             ip_presence_type=IPPresenceType.SCENE_INTEGRATED,
             identity_color_terms=("#FFFFFF",),
+        ),
+        lambda: IPFrameAdaptationPackage(
+            frame_id="frame_0003",
+            ip_presence_type=IPPresenceType.SCENE_INTEGRATED,
+            identity_color_terms=("#FFF",),
+        ),
+        lambda: IPFrameAdaptationPackage(
+            frame_id="frame_0003",
+            ip_presence_type=IPPresenceType.SCENE_INTEGRATED,
+            identity_color_terms=("#FFFFFFFF",),
         ),
     ],
 )

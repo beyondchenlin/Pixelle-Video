@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Any
 
 
-_HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}\b")
+_HEX_COLOR_RE = re.compile(r"(?<![0-9a-fA-F])#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])")
 
 
 class IPPresenceType(str, Enum):

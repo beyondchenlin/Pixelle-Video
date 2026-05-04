@@ -263,6 +263,14 @@ def test_non_ip_asset_text_tuples_preserve_existing_hex_color_behavior():
             "color_palette",
             {"tie": {"hex": "#006BFF", "accent_prompt": "tie #006BFF"}},
         ),
+        (
+            "color_palette",
+            {"tie": {"hex": "#006BFF", "prompt": ["tie #006BFF"]}},
+        ),
+        (
+            "image_text_palette",
+            {"title": {"hex": "#5A2A12", "prompt": {"primary": "ink #5A2A12"}}},
+        ),
     ],
 )
 def test_ip_profile_palette_prompt_fields_reject_hex_colors(palette_field, palette_payload):
@@ -304,3 +312,14 @@ def test_ip_profile_palette_non_prompt_annotations_allow_hex_text_and_round_trip
 
     assert restored.color_palette["tie"]["label"] == "brand #006BFF reference"
     assert restored.image_text_palette["title"]["note"] == "legacy #5A2A12 swatch"
+
+
+def test_ip_profile_palette_mapping_errors_name_palette_field():
+    with pytest.raises(ValueError, match="color_palette"):
+        IPProfile(
+            ip_profile_id="ip_main",
+            workspace_id="workspace_1",
+            project_id="project_1",
+            name="正定向导兔",
+            color_palette=("not", "a", "mapping"),
+        )
