@@ -129,6 +129,12 @@ def test_render_style_config_returns_layered_template_spec_payload(monkeypatch):
             )
             .append_background_layer("Background")
             .append_image_layer("Generated image"),
+            LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY: {
+                "template_id": "user:active_layer_design",
+                "template_name": "Active Layer Design",
+                "template_type": "image",
+                "metadata": {"source_kind": "user"},
+            },
             "text_rendering_real_preview_frame": {"url": "/legacy-preview.png"},
         }
     )
@@ -185,11 +191,11 @@ def test_render_style_config_returns_layered_template_spec_payload(monkeypatch):
         content_context={"title": "Runtime Title", "text": "Runtime Caption"},
     )
 
-    assert result["selected_template_preset_id"] == "system:1080x1920/image_default.html"
+    assert result["selected_template_preset_id"] == "user:active_layer_design"
     spec = result["layered_template_spec"]
     assert spec["version"] == "layered_template.v1"
-    assert spec["template_id"] == "system:1080x1920/image_default.html"
-    assert spec["template_name"] == "Image Default"
+    assert spec["template_id"] == "user:active_layer_design"
+    assert spec["template_name"] == "Active Layer Design"
     assert spec["template_type"] == "image"
     assert (spec["canvas_width"], spec["canvas_height"]) == (720, 1280)
     assert (spec["media_width"], spec["media_height"]) == (768, 768)
@@ -222,6 +228,12 @@ def test_render_style_config_updates_layer_properties_from_editor_controls(monke
         {
             "template_type_selector": "image",
             "layered_template_editor_state": initial_state,
+            LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY: {
+                "template_id": "user:active_layer_design",
+                "template_name": "Active Layer Design",
+                "template_type": "image",
+                "metadata": {"source_kind": "user"},
+            },
             f"layered_template_layer_{layer_id}_name": "Hero title",
             f"layered_template_layer_{layer_id}_x": 123,
             f"layered_template_layer_{layer_id}_y": 234,
@@ -292,6 +304,12 @@ def test_render_style_config_updates_text_layer_style_from_editor_controls(monke
         {
             "template_type_selector": "image",
             "layered_template_editor_state": initial_state,
+            LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY: {
+                "template_id": "user:active_layer_design",
+                "template_name": "Active Layer Design",
+                "template_type": "image",
+                "metadata": {"source_kind": "user"},
+            },
             f"layered_template_layer_{layer_id}_expanded": True,
             f"layered_template_layer_{layer_id}_text": "Independent text",
             f"layered_template_layer_{layer_id}_font_family": "SimHei",
@@ -392,6 +410,12 @@ def test_render_style_config_updates_layer_content_and_sources_from_editor_contr
         {
             "template_type_selector": "image",
             "layered_template_editor_state": initial_state,
+            LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY: {
+                "template_id": "user:active_layer_design",
+                "template_name": "Active Layer Design",
+                "template_type": "image",
+                "metadata": {"source_kind": "user"},
+            },
             f"layered_template_layer_{text_layer_id}_expanded": True,
             f"layered_template_layer_{text_layer_id}_text": "自定义标题",
             f"layered_template_layer_{text_layer_id}_role": "custom",
@@ -836,7 +860,9 @@ def test_render_style_config_no_longer_renders_middle_column_legacy_template_pre
     assert "btn_preview_template" not in {call.get("key") for call in button_calls}
 
 
-def test_render_style_config_adds_layers_from_layered_template_editor_buttons(monkeypatch):
+def test_render_style_config_adds_layers_from_layered_template_editor_buttons_without_activating_system_template(
+    monkeypatch,
+):
     from tests.test_style_config_storyboard_planning_ui import _FakeStreamlit
     from web.components import style_config
 
@@ -907,17 +933,21 @@ def test_render_style_config_adds_layers_from_layered_template_editor_buttons(mo
         content_context={"title": "Runtime Title", "text": "Runtime Caption"},
     )
 
-    spec = result["layered_template_spec"]
-    assert [layer["type"] for layer in spec["layers"]] == ["background", "image", "text"]
-    assert [layer["name"] for layer in spec["layers"]] == [
-        "Background layer 1",
-        "Image layer 1",
-        "Text layer 1",
-    ]
+    assert result["selected_template_preset_id"] == "system:1080x1920/image_default.html"
+    assert result["frame_template"] == "1080x1920/image_default.html"
+    assert "layered_template_spec" not in result
     assert [
         layer.type
         for layer in fake_st.session_state["layered_template_editor_state"].layers
     ] == ["background", "image", "text"]
+    assert [
+        layer.name
+        for layer in fake_st.session_state["layered_template_editor_state"].layers
+    ] == [
+        "Background layer 1",
+        "Image layer 1",
+        "Text layer 1",
+    ]
 
 
 def test_render_layer_design_config_collapses_non_selected_layer_cards(monkeypatch):

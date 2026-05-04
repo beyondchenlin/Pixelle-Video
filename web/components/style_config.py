@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 from textwrap import dedent
+from typing import Any
 from uuid import uuid4
 
 import streamlit as st
@@ -3133,14 +3134,16 @@ def render_style_config(
         fallback_metadata={},
     )
     selected_template_preset_id = selected_spec_identity["template_id"]
-    layered_template_spec = active_layered_template_spec(
-        layered_template_state.build_spec(
-            template_id=selected_template_preset_id,
-            template_name=selected_spec_identity["template_name"],
-            template_type=selected_spec_identity["template_type"],
-            metadata=selected_spec_identity["metadata"],
+    layered_template_spec = None
+    if _should_emit_layered_template_spec(st.session_state, selected_spec_identity):
+        layered_template_spec = active_layered_template_spec(
+            layered_template_state.build_spec(
+                template_id=selected_template_preset_id,
+                template_name=selected_spec_identity["template_name"],
+                template_type=selected_spec_identity["template_type"],
+                metadata=selected_spec_identity["metadata"],
+            )
         )
-    )
 
     result = {
         "tts_inference_mode": tts_mode,
@@ -3170,6 +3173,22 @@ def render_style_config(
     if layered_template_spec is not None:
         result["layered_template_spec"] = layered_template_spec
     return result
+
+
+def _should_emit_layered_template_spec(
+    session_state,
+    selected_spec_identity: dict[str, Any],
+) -> bool:
+    if not has_layered_template_spec_identity(session_state):
+        return False
+    template_id = str(selected_spec_identity.get("template_id") or "")
+    metadata = selected_spec_identity.get("metadata")
+    source_kind = (
+        str(metadata.get("source_kind") or "")
+        if isinstance(metadata, dict)
+        else ""
+    )
+    return template_id.startswith("user:") or source_kind == "user"
 
 
 def render_element_animation_controls() -> dict:
