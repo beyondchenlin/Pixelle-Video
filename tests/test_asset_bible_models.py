@@ -204,3 +204,17 @@ def test_ip_profile_supports_identity_locks_color_tokens_and_text_rules():
     assert restored.variable_slots == ("动作", "表情", "服装", "道具", "站位")
     assert restored.color_palette["tie"]["prompt"] == "鲜明宝蓝色领带"
     assert restored.visible_text_whitelist == ("长乐门", "正定古城")
+
+
+@pytest.mark.parametrize("field_name", ["logline", "world_hint", "style_hint"])
+def test_ip_profile_rejects_hex_colors_in_prompt_text_fields(field_name):
+    payload = {
+        "ip_profile_id": "ip_main",
+        "workspace_id": "workspace_1",
+        "project_id": "project_1",
+        "name": "正定向导兔",
+        field_name: "use #FFFFFF as a prompt color",
+    }
+
+    with pytest.raises(ValueError, match=field_name):
+        IPProfile(**payload)

@@ -37,9 +37,9 @@ class IPProfile:
         object.__setattr__(self, "workspace_id", _require_non_empty("workspace_id", self.workspace_id))
         object.__setattr__(self, "project_id", _require_non_empty("project_id", self.project_id))
         object.__setattr__(self, "name", _require_non_empty("name", self.name))
-        object.__setattr__(self, "logline", _optional_str(self.logline))
-        object.__setattr__(self, "world_hint", _optional_str(self.world_hint))
-        object.__setattr__(self, "style_hint", _optional_str(self.style_hint))
+        object.__setattr__(self, "logline", _optional_prompt_str("logline", self.logline))
+        object.__setattr__(self, "world_hint", _optional_prompt_str("world_hint", self.world_hint))
+        object.__setattr__(self, "style_hint", _optional_prompt_str("style_hint", self.style_hint))
         for field_name in (
             "forbidden_elements",
             "identity_lock",
@@ -442,6 +442,13 @@ def _optional_str(value: Any) -> str | None:
         raise ValueError("optional string fields must be strings")
     stripped = value.strip()
     return stripped or None
+
+
+def _optional_prompt_str(field_name: str, value: Any) -> str | None:
+    normalized = _optional_str(value)
+    if normalized is not None:
+        _reject_hex_color(field_name, normalized)
+    return normalized
 
 
 def _normalize_text_tuple(field_name: str, value: Sequence[str] | None) -> tuple[str, ...]:
