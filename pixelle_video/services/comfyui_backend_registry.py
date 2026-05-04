@@ -74,12 +74,14 @@ class ComfyUIBackendRegistry:
         )
 
     def managed_backend(self, role: str) -> ManagedComfyUIBackend | None:
+        normalized_role = self._normalize_role(role)
         profile = self.profile(role)
         if not profile.url:
             return None
         return ManagedComfyUIBackend(
             repo_root=self.repo_root,
-            comfyui_url=profile.url,
+            profile_name=normalized_role,
+            profile=profile,
             management_mode=self.config.backend_management_mode,
         )
 

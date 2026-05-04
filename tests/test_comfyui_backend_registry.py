@@ -55,6 +55,40 @@ def test_registry_reports_dedicated_backend():
     assert registry.is_dedicated_backend("default") is False
 
 
+def test_registry_managed_backend_passes_profile_runtime_arguments(tmp_path: Path):
+    config = ComfyUIConfig.model_validate(
+        {
+            "comfyui_url": "http://127.0.0.1:8000",
+            "backends": {
+                "image": {
+                    "url": "http://127.0.0.1:8001",
+                    "data_root": str(tmp_path / "image-data"),
+                    "runtime_dir": str(tmp_path / "runtime" / "image"),
+                    "logs_dir": str(tmp_path / "logs" / "image"),
+                    "database_url": f"sqlite:///{(tmp_path / 'image-data' / 'user' / 'comfyui.db').as_posix()}",
+                }
+            },
+            "workflow_routing": {"image": "image"},
+        }
+    )
+    registry = ComfyUIBackendRegistry(config, repo_root=Path.cwd())
+
+    backend = registry.managed_backend("image")
+
+    assert backend is not None
+    assert backend.profile_name == "image"
+    profile = registry.profile("image")
+    args = backend._script_args()
+    assert "-DataRoot" in args
+    assert profile.data_root in args
+    assert "-RuntimeDir" in args
+    assert profile.runtime_dir in args
+    assert "-LogsDir" in args
+    assert profile.logs_dir in args
+    assert "-DatabaseUrl" in args
+    assert profile.database_url in args
+
+
 def test_registry_unknown_profile_error_includes_role():
     registry = make_registry()
 
