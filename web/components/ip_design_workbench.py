@@ -11,7 +11,7 @@ from pixelle_video.platform_context import (
     first_explicit_text,
 )
 from web.i18n import tr
-from web.utils.asset_bible_api import (
+from web.utils.asset_bible_payloads import (
     build_asset_bible_draft_payload_from_response,
     upsert_ip_profile_draft,
 )

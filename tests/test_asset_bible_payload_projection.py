@@ -76,7 +76,7 @@ def _asset_bible_response() -> dict:
 
 
 def test_build_asset_bible_draft_payload_from_response_strips_response_only_fields():
-    from web.utils.asset_bible_api import build_asset_bible_draft_payload_from_response
+    from web.utils.asset_bible_payloads import build_asset_bible_draft_payload_from_response
 
     payload = build_asset_bible_draft_payload_from_response(_asset_bible_response())
 
@@ -116,7 +116,7 @@ def test_build_asset_bible_draft_payload_from_response_strips_response_only_fiel
 
 
 def test_upsert_ip_profile_draft_replaces_matching_profile_and_preserves_siblings():
-    from web.utils.asset_bible_api import (
+    from web.utils.asset_bible_payloads import (
         build_asset_bible_draft_payload_from_response,
         upsert_ip_profile_draft,
     )
@@ -147,7 +147,7 @@ def test_upsert_ip_profile_draft_replaces_matching_profile_and_preserves_sibling
 
 
 def test_upsert_ip_profile_draft_appends_new_profile_when_id_is_new():
-    from web.utils.asset_bible_api import (
+    from web.utils.asset_bible_payloads import (
         build_asset_bible_draft_payload_from_response,
         upsert_ip_profile_draft,
     )
@@ -175,7 +175,7 @@ def test_upsert_ip_profile_draft_appends_new_profile_when_id_is_new():
 
 
 def test_upsert_ip_profile_draft_adds_first_profile_to_empty_projected_asset_bible():
-    from web.utils.asset_bible_api import (
+    from web.utils.asset_bible_payloads import (
         build_asset_bible_draft_payload_from_response,
         upsert_ip_profile_draft,
     )
