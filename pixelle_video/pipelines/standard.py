@@ -3254,6 +3254,17 @@ class StandardPipeline(LinearVideoPipeline):
 
         if caption_payload:
             payload["caption"] = caption_payload
+
+        if "caption_style" not in payload:
+            caption_style = params.get("text_rendering", {}).get("caption_style")
+            if caption_style is not None:
+                payload["caption_style"] = caption_style
+
+        if "title_style" not in payload:
+            title_style = params.get("text_rendering", {}).get("title_style")
+            if title_style is not None:
+                payload["title_style"] = title_style
+
         return payload
 
     def _prompt_text_rendering_request(self, ctx: PipelineContext) -> dict | None:
