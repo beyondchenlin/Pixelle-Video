@@ -1,0 +1,15 @@
+[project]
+name = "comfyui-pixelle-release-protocol"
+version = "0.1.0"
+description = "Pixelle Release Protocol - Unified health and memory release endpoints for TTS/Image plugins"
+authors = [{name = "Pixelle Team"}]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = []
+
+[tool.comfy]
+PublisherId = "pixelle"
+DisplayName = "Pixelle Release Protocol"
+Icon = "https://raw.githubusercontent.com/beyondchenlin/Pixelle-Video/main/icon.png"
