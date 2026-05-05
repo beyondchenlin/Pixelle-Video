@@ -15,6 +15,7 @@ Output preview components for web UI (right column)
 """
 
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
@@ -415,6 +416,141 @@ def _build_layout_preview_media_placeholder() -> str:
     return f"data:image/svg+xml;charset=utf-8,{quote(svg)}"
 
 
+def _build_text_rendering_css(text_rendering: dict | None) -> str:
+    """Build CSS from text_rendering config to inject into frame template preview."""
+    if not text_rendering:
+        return ""
+
+    css_parts = ["<style data-pixelle-text-rendering>"]
+
+    # Build title style CSS
+    title_style = text_rendering.get("title_style") or {}
+    if title_style:
+        title_css = _build_single_text_style_css(title_style, ".pixelle-title, .title, h1, [class*='title']")
+        if title_css:
+            css_parts.append(title_css)
+
+    # Build caption/subtitle style CSS
+    caption_style = text_rendering.get("caption_style") or {}
+    if caption_style:
+        caption_css = _build_single_text_style_css(caption_style, ".pixelle-caption, .caption, .subtitle, [class*='caption'], [class*='subtitle']")
+        if caption_css:
+            css_parts.append(caption_css)
+
+    css_parts.append("</style>")
+    return "\n".join(css_parts)
+
+
+def _build_single_text_style_css(style: dict, selector: str) -> str:
+    """Build CSS rules for a single text style config."""
+    if not style:
+        return ""
+
+    rules = []
+    # Font size
+    font_size = style.get("font_size")
+    if font_size is not None:
+        rules.append(f"  font-size: {int(font_size)}px !important;")
+
+    # Primary color (text color)
+    primary_color = style.get("primary_color")
+    if primary_color:
+        rules.append(f"  color: {primary_color} !important;")
+
+    # Stroke / text shadow
+    stroke_color = style.get("stroke_color")
+    stroke_width = style.get("stroke_width")
+    if stroke_color and stroke_width is not None and int(stroke_width) > 0:
+        sw = int(stroke_width)
+        rules.append(
+            f"  -webkit-text-stroke: {sw}px {stroke_color} !important;"
+        )
+        rules.append(
+            f"  text-shadow: "
+            f"{sw}px {sw}px 0 {stroke_color}, "
+            f"{-sw}px {-sw}px 0 {stroke_color}, "
+            f"{sw}px {-sw}px 0 {stroke_color}, "
+            f"{-sw}px {sw}px 0 {stroke_color}, "
+            f"0px {sw}px 0 {stroke_color}, "
+            f"0px {-sw}px 0 {stroke_color}, "
+            f"{sw}px 0px 0 {stroke_color}, "
+            f"{-sw}px 0px 0 {stroke_color} !important;"
+        )
+
+    # Background color and opacity
+    background_color = style.get("background_color")
+    background_opacity = style.get("background_opacity")
+    if background_color is not None and background_opacity is not None:
+        try:
+            # Parse hex color
+            bg = str(background_color).strip()
+            if bg.startswith("#"):
+                bg = bg[1:]
+            if len(bg) == 3:
+                r, g, b = [int(c * 2, 16) for c in bg]
+            elif len(bg) == 6:
+                r, g, b = int(bg[0:2], 16), int(bg[2:4], 16), int(bg[4:6], 16)
+            else:
+                r, g, b = 0, 0, 0
+            opacity = float(background_opacity)
+            rules.append(
+                f"  background-color: rgba({r}, {g}, {b}, {opacity}) !important;"
+            )
+        except (ValueError, TypeError):
+            pass
+
+    # Font family
+    font_family = style.get("font_family")
+    if font_family:
+        rules.append(f'  font-family: "{font_family}", sans-serif !important;')
+
+    # Position and alignment
+    position = style.get("position")
+    margin_x = style.get("margin_x")
+    margin_y = style.get("margin_y")
+
+    if position:
+        # Map position to CSS positioning
+        position_css = {
+            "top": "top: 0;",
+            "bottom": "bottom: 0;",
+            "center": "top: 50%; transform: translateY(-50%);",
+            "lower_third": "bottom: 33%;",
+            "top_left": "top: 0; left: 0;",
+            "top_right": "top: 0; right: 0;",
+            "bottom_left": "bottom: 0; left: 0;",
+            "bottom_right": "bottom: 0; right: 0;",
+        }.get(position, "")
+        if position_css:
+            rules.append(f"  position: absolute !important;")
+            rules.append(f"  {position_css}")
+            if margin_x is not None:
+                rules.append(f"  left: {int(margin_x)}px !important;")
+                rules.append(f"  right: {int(margin_x)}px !important;")
+            if margin_y is not None:
+                if "bottom" in position:
+                    rules.append(f"  bottom: {int(margin_y)}px !important;")
+                elif "top" in position:
+                    rules.append(f"  top: {int(margin_y)}px !important;")
+                else:
+                    rules.append(f"  margin-top: {int(margin_y)}px !important;")
+
+    # Alignment
+    alignment = style.get("alignment")
+    if alignment:
+        rules.append(f"  text-align: {alignment} !important;")
+
+    # Max width
+    max_width_ratio = style.get("max_width_ratio")
+    if max_width_ratio is not None:
+        rules.append(f"  max-width: {float(max_width_ratio) * 100}% !important;")
+
+    if not rules:
+        return ""
+
+    return f"{selector} {{\n" + "\n".join(rules) + "\n}"
+
+
 def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | None:
     frame_template = video_params.get("frame_template")
     if not frame_template:
@@ -445,6 +581,26 @@ def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | Non
             media_width=size_contract.media_width,
             media_height=size_contract.media_height,
         )
+
+        # 最佳实践：优先从 session_state 获取最新的 text_rendering，
+        # 因为 session_state 是文字样式组件更新后立即保存的位置
+        text_rendering = (
+            st.session_state.get("text_rendering")
+            or video_params.get("text_rendering")
+            or {}
+        )
+        text_rendering_css = _build_text_rendering_css(text_rendering)
+        if text_rendering_css:
+            # Inject CSS before </head> or at the beginning of HTML
+            html_with_css = html
+            head_end_match = re.search(r"</head>", html, flags=re.IGNORECASE)
+            if head_end_match:
+                insert_pos = head_end_match.start()
+                html_with_css = f"{html[:insert_pos]}{text_rendering_css}\n{html[insert_pos:]}"
+            else:
+                html_with_css = f"{text_rendering_css}\n{html}"
+            html = html_with_css
+
         return trust_preview_html(
             generator._prepare_html_for_render(html),
             width=generator.template_width,
