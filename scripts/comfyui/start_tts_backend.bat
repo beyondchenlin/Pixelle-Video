@@ -1,7 +1,15 @@
 @echo off
 setlocal
-pushd "%~dp0..\.."
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_backend.ps1" -Port 8002 -DataRoot "E:\ComfyUIData\pixelle-tts" -RuntimeDir "_runtime\comfyui\tts" -LogsDir "logs\comfyui\tts"
+pushd "%~dp0\..\.."
+
+REM Create custom_nodes junction if not exists
+if not exist "E:\ComfyUIData\pixelle-tts\custom_nodes" (
+    if exist "E:\ComfyUIData\custom_nodes" (
+        mklink /J "E:\ComfyUIData\pixelle-tts\custom_nodes" "E:\ComfyUIData\custom_nodes"
+    )
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_backend.ps1" -Port 8002 -DataRoot "E:\ComfyUIData\pixelle-tts" -RuntimeDir "_runtime\comfyui\tts" -LogsDir "logs\comfyui\tts" -PythonExe "E:\ComfyUIData\.venv\Scripts\python.exe"
 set "EXIT_CODE=%ERRORLEVEL%"
 popd
 echo.
