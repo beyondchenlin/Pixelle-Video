@@ -6,6 +6,7 @@ from typing import Any
 
 import streamlit as st
 
+from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from web.components.ip_prompt_chain_controls import (
     load_ip_prompt_chain_asset_bibles,
     render_ip_prompt_chain_controls,
@@ -53,7 +54,7 @@ def render_content_ip_world_controls(
     translate: Translate = tr,
     pixelle_video=None,
     content_context: Mapping[str, Any] | None = None,
-    storyboard_prompt_language: str = "zh_CN",
+    storyboard_prompt_language: str = CHINESE_PROMPT_LANGUAGE,
     world_preset_id: str | None = None,
     asset_bible_loader: Callable[[], Sequence[Mapping[str, Any]]] | None = None,
     world_hint_draft_generator: Callable[..., Mapping[str, Any]] | None = None,

@@ -1,6 +1,8 @@
 from web.components import content_ip_world_controls
+import inspect
 import json
 from pathlib import Path
+from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 
 
 class _FakeContext:
@@ -407,3 +409,16 @@ def test_content_ip_world_translation_keys_exist_in_supported_locales():
             translations = json.load(file)["t"]
         missing = required_keys - set(translations)
         assert missing == set()
+
+
+def test_content_ip_world_controls_uses_shared_default_prompt_language_constant():
+    source = inspect.getsource(content_ip_world_controls.render_content_ip_world_controls)
+
+    assert "storyboard_prompt_language: str = CHINESE_PROMPT_LANGUAGE" in source
+    assert 'storyboard_prompt_language: str = "zh_CN"' not in source
+    assert (
+        content_ip_world_controls.render_content_ip_world_controls.__kwdefaults__[
+            "storyboard_prompt_language"
+        ]
+        == CHINESE_PROMPT_LANGUAGE
+    )
