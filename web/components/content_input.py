@@ -242,7 +242,6 @@ def render_storyboard_generation_controls(
             storyboard_default_enabled=False,
             selected_template_type=selected_template_type_for_storyboard,
             preview_snapshot=get_storyboard_preview_snapshot(st.session_state),
-            content_context=content_context,
         )
 
         return {

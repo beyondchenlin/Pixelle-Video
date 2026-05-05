@@ -963,11 +963,12 @@ def test_build_storyboard_control_payload_omits_blank_generation_world_hint():
     assert payload == {"world_preset_id": "neutral_knowledge_storyboard"}
 
 
-def test_render_storyboard_advanced_controls_renders_generation_world_hint(monkeypatch):
+def test_render_storyboard_advanced_controls_no_longer_renders_generation_world_hint(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["storyboard_planning_enabled"] = True
     fake_st.session_state["storyboard_generation_world_hint"] = "古城清晨漫游"
     text_area_calls = []
+    button_calls = []
 
     def _text_area(label, value="", **kwargs):
         text_area_calls.append({"label": label, "value": value, **kwargs})
@@ -976,7 +977,13 @@ def test_render_storyboard_advanced_controls_renders_generation_world_hint(monke
             return fake_st.session_state[key]
         return value
 
+    def _button(*args, **kwargs):
+        button_calls.append({"args": args, **kwargs})
+        key = kwargs.get("key")
+        return bool(fake_st.session_state.get("_button_returns", {}).get(key, False))
+
     fake_st.text_area = _text_area
+    fake_st.button = _button
     monkeypatch.setattr(
         storyboard_planning_controls,
         "render_storyboard_planning_guide",
@@ -997,79 +1004,16 @@ def test_render_storyboard_advanced_controls_renders_generation_world_hint(monke
         shot_library_loader=lambda: {"items": []},
     )
 
-    assert payload["generation_world_hint"] == "古城清晨漫游"
-    assert any(call["label"] == "storyboard.generation_world_hint" for call in text_area_calls)
-
-
-def test_render_storyboard_advanced_controls_can_fill_world_hint_from_ip_default(monkeypatch):
-    fake_st = _FakeStreamlit()
-    fake_st.session_state["storyboard_planning_enabled"] = True
-    fake_st.session_state["_button_returns"] = {
-        "storyboard_world_hint_use_ip_default": True,
-    }
-    monkeypatch.setattr(
-        storyboard_planning_controls,
-        "render_storyboard_planning_guide",
-        lambda **_kwargs: None,
+    assert "generation_world_hint" not in payload
+    assert not any(
+        call["label"] == "storyboard.generation_world_hint" for call in text_area_calls
     )
-    monkeypatch.setattr(storyboard_planning_controls, "safe_rerun", lambda: None)
-
-    storyboard_planning_controls.render_storyboard_advanced_controls(
-        ui=fake_st,
-        translate=lambda key, **kwargs: key,
-        session_state=fake_st.session_state,
-        storyboard_default_enabled=True,
-        world_library_loader=lambda: {"default_world_preset_id": None, "items": []},
-        shot_library_loader=lambda: {"items": []},
-        ip_profile_world_hint="Friendly guide world.",
-        content_context={"title": "demo", "text": "demo"},
-    )
-
-    assert fake_st.session_state["storyboard_generation_world_hint"] == "Friendly guide world."
-
-
-def test_render_storyboard_advanced_controls_can_fill_world_hint_from_generated_draft(monkeypatch):
-    fake_st = _FakeStreamlit()
-    fake_st.session_state["storyboard_planning_enabled"] = True
-    fake_st.session_state["_button_returns"] = {
-        "storyboard_world_hint_generate_from_content": True,
-    }
-    captured = {}
-    monkeypatch.setattr(
-        storyboard_planning_controls,
-        "render_storyboard_planning_guide",
-        lambda **_kwargs: None,
-    )
-    monkeypatch.setattr(storyboard_planning_controls, "safe_rerun", lambda: None)
-
-    def _draft_generator(**payload):
-        captured.update(payload)
-        return {"world_hint_draft": "Ancient city dawn walk. The IP is a companion guide."}
-
-    storyboard_planning_controls.render_storyboard_advanced_controls(
-        ui=fake_st,
-        translate=lambda key, **kwargs: key,
-        session_state=fake_st.session_state,
-        storyboard_default_enabled=True,
-        world_library_loader=lambda: {
-            "default_world_preset_id": "neutral_knowledge_storyboard",
-            "items": [
-                {"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}
-            ],
-        },
-        shot_library_loader=lambda: {"items": []},
-        ip_profile_world_hint="Friendly guide world.",
-        content_context={"title": "Zhengding walk", "text": "Start from Changle Gate."},
-        world_hint_draft_generator=_draft_generator,
-    )
-
-    assert captured["source_text"] == "Start from Changle Gate."
-    assert captured["title"] == "Zhengding walk"
-    assert captured["world_preset_id"] == "neutral_knowledge_storyboard"
-    assert captured["ip_default_world_hint"] == "Friendly guide world."
-    assert (
-        fake_st.session_state["storyboard_generation_world_hint"]
-        == "Ancient city dawn walk. The IP is a companion guide."
+    assert not any(
+        call.get("key") in {
+            "storyboard_world_hint_generate_from_content",
+            "storyboard_world_hint_use_ip_default",
+        }
+        for call in button_calls
     )
 
 
