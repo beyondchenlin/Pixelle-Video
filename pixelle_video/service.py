@@ -62,6 +62,7 @@ from pixelle_video.services.tts_service import TTSService
 from pixelle_video.services.video import VideoService
 from pixelle_video.services.video_analysis import VideoAnalysisService
 from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
+from pixelle_video.tts_workflow_family import is_omnivoice_workflow_key
 from pixelle_video.utils.os_util import get_output_path
 
 _GGUF_WORKFLOW_NODE_CLASS_TYPES = frozenset(
@@ -77,6 +78,7 @@ _GGUF_WORKFLOW_NODE_CLASS_TYPES = frozenset(
 _EXTENSION_RELEASE_CONTEXTS: dict[ComfyUIExtensionName, str] = {
     "indextts2": "index-tts2",
     "gguf": "gguf",
+    "omnivoice": "omnivoice",
 }
 
 
@@ -711,6 +713,21 @@ class PixelleVideoCore:
             missing_endpoint=missing_endpoint,
         )
 
+    async def release_comfyui_after_omnivoice_workflow(
+        self,
+        *,
+        context: str,
+        backend_role: str = "default",
+        missing_endpoint: str = "optional",
+    ) -> bool:
+        """Release standard ComfyUI memory plus OmniVoice plugin-private model cache."""
+        return await self.release_comfyui_after_local_workflow_extensions(
+            context=context,
+            backend_role=backend_role,
+            extensions=("omnivoice",),
+            missing_endpoint=missing_endpoint,
+        )
+
     def _mark_local_comfyui_released(self, *, backend_role: str = "default") -> None:
         scope = self._local_comfyui_task_scope.get()
         if scope is not None:
@@ -724,6 +741,8 @@ class PixelleVideoCore:
         extensions: list[ComfyUIExtensionName] = []
         if is_index_tts2_workflow_key(workflow_input):
             extensions.append("indextts2")
+        if is_omnivoice_workflow_key(workflow_input):
+            extensions.append("omnivoice")
         if self._is_gguf_workflow_key(workflow_input):
             extensions.append("gguf")
         return tuple(dict.fromkeys(extensions))
