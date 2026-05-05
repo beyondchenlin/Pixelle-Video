@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 ContentMode = Literal["theme_mapping", "concept_explainer"]
 ConsistencyStrength = Literal["standard", "strong"]
@@ -213,7 +216,7 @@ class FramePlan:
 
 
 class StoryboardPlanningFrameResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="forbid")
 
     scene_id: str = Field(
         description='Quoted string scene identifier matching narration order, for example "1", "2", "3". Never return it as a number.'
@@ -239,6 +242,32 @@ class StoryboardPlanningFrameResponse(BaseModel):
     def _validate_scene_id(cls, value: Any) -> str:
         return _normalize_scene_id_value(value)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _convert_comma_separated_fields(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+        list_fields = ["secondary_subjects", "world_elements", "continuity_anchors", "locked_fields"]
+        for field_name in list_fields:
+            if field_name in values:
+                value = values[field_name]
+                if value is None:
+                    values[field_name] = []
+                elif isinstance(value, str):
+                    if not value.strip():
+                        values[field_name] = []
+                    else:
+                        converted = [item.strip() for item in value.split(",") if item.strip()]
+                        logger.warning(
+                            f"LLM returned comma-separated string for field '{field_name}' instead of list. "
+                            f"Converted '{value}' -> {converted}. Consider updating the prompt to enforce list output."
+                        )
+                        values[field_name] = converted
+                elif isinstance(value, list):
+                    if not all(isinstance(item, str) for item in value):
+                        raise ValueError(f"list items must be strings, got {[type(i).__name__ for i in value if not isinstance(i, str)]}")
+        return values
+
     def to_frame_plan(self) -> "FramePlan":
         return FramePlan(
             scene_id=self.scene_id,
@@ -261,7 +290,7 @@ class StoryboardPlanningFrameResponse(BaseModel):
 
 
 class StoryboardPlanningResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="forbid")
 
     frames: list[StoryboardPlanningFrameResponse]
 

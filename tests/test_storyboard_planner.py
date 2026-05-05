@@ -420,8 +420,43 @@ def test_parse_storyboard_frames_raises_when_required_fields_are_missing():
         )
 
 
+def test_parse_storyboard_frames_converts_comma_separated_string_to_list():
+    plans = parse_storyboard_frames(
+        """
+        {
+          "frames": [
+            {
+              "scene_id": "1",
+              "narration_fragment": "intro",
+              "knowledge_goal": "goal",
+              "shot_type": "wide_shot",
+              "shot_purpose": "opening",
+              "primary_subject": "subject",
+              "secondary_subjects": "元素1, 元素2",
+              "world_elements": "世界元素1, 世界元素2",
+              "continuity_anchors": "锚点1, 锚点2",
+              "focus_detail": "detail",
+              "prompt_intent": "intent",
+              "locked_fields": "锁定字段1, 锁定字段2",
+              "override_source": "user_preview",
+              "frame_source": "planner_generated",
+              "replan_scope": "local",
+              "planner_version": "1.0"
+            }
+          ]
+        }
+        """
+    )
+    assert len(plans) == 1
+    frame = plans[0]
+    assert frame.secondary_subjects == ("元素1", "元素2")
+    assert frame.world_elements == ("世界元素1", "世界元素2")
+    assert frame.continuity_anchors == ("锚点1", "锚点2")
+    assert frame.locked_fields == ("锁定字段1", "锁定字段2")
+
+
 def test_parse_storyboard_frames_raises_when_field_types_are_invalid():
-    with pytest.raises(ValueError, match="secondary_subjects"):
+    with pytest.raises(ValueError, match="list items must be strings"):
         parse_storyboard_frames(
             """
             {
@@ -433,7 +468,7 @@ def test_parse_storyboard_frames_raises_when_field_types_are_invalid():
                   "shot_type": "wide_shot",
                   "shot_purpose": "opening",
                   "primary_subject": "subject",
-                  "secondary_subjects": "not-a-list",
+                  "secondary_subjects": ["valid", 123],
                   "world_elements": [],
                   "continuity_anchors": [],
                   "focus_detail": "detail",
