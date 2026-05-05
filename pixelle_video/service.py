@@ -638,65 +638,69 @@ class PixelleVideoCore:
         extensions: tuple[ComfyUIExtensionName, ...],
         missing_endpoint: str = "required",
     ) -> bool:
-        """Release standard ComfyUI memory plus Pixelle-managed extension caches."""
+        """Restart ComfyUI backend to fully release GPU memory including extension caches."""
         if not extensions:
             return await self.release_comfyui_after_local_workflow(
                 backend_role=backend_role
             )
 
-        released = await self._release_comfyui_memory_when_idle(
-            context,
-            backend_role=backend_role,
-            include_extensions=True,
-            extensions=extensions,
-            missing_endpoint=missing_endpoint,
-        )
-        if not released:
-            raise RuntimeError(
-                f"ComfyUI {context} memory release was not confirmed; "
-                "stopping before the next Pixelle stage to avoid mixed model residency."
-            )
-        if released:
+        logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' (extensions: {extensions}) to release GPU memory...")
+        try:
+            restarted = await self._restart_comfyui_backend_role(backend_role, f"{context} memory release")
+            if restarted:
+                logger.info(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restarted successfully (extensions: {extensions})")
+            else:
+                logger.warning(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restart returned False (extensions: {extensions})")
             self._mark_local_comfyui_released(backend_role=backend_role)
-        return released
+            return True
+        except Exception as e:
+            logger.error(f"[MEMORY_RELEASE] Failed to restart ComfyUI backend '{backend_role}': {e}")
+            raise RuntimeError(
+                f"ComfyUI {context} memory release (restart) failed for backend '{backend_role}': {e}"
+            ) from e
 
     async def release_comfyui_after_local_workflow(
         self,
         *,
         backend_role: str = "default",
     ) -> bool:
-        """Release standard ComfyUI model/cache state after an image or video workflow batch."""
-        released = await self._release_comfyui_memory_when_idle(
-            "post-workflow",
-            backend_role=backend_role,
-        )
-        if not released:
-            raise RuntimeError(
-                "ComfyUI post-workflow memory release was not confirmed; "
-                "stopping before the next Pixelle stage to avoid mixed model residency."
-            )
-        if released:
+        """Restart ComfyUI backend to fully release GPU memory after a workflow batch."""
+        logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' (post-workflow) to release GPU memory...")
+        try:
+            restarted = await self._restart_comfyui_backend_role(backend_role, "post-workflow memory release")
+            if restarted:
+                logger.info(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restarted successfully (post-workflow)")
+            else:
+                logger.warning(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restart returned False (post-workflow)")
             self._mark_local_comfyui_released(backend_role=backend_role)
-        return released
+            return True
+        except Exception as e:
+            logger.error(f"[MEMORY_RELEASE] Failed to restart ComfyUI backend '{backend_role}': {e}")
+            raise RuntimeError(
+                f"ComfyUI post-workflow memory release (restart) failed for backend '{backend_role}': {e}"
+            ) from e
 
     async def release_comfyui_after_local_task(
         self,
         *,
         backend_role: str = "default",
     ) -> bool:
-        """Fallback release once no local video task is active."""
+        """Restart ComfyUI backend once no local video task is active to fully release GPU memory."""
         async with self._get_backend_lock(backend_role):
-            released = await self._release_comfyui_memory_when_idle(
-                "post-task",
-                backend_role=backend_role,
-            )
-            if not released:
+            logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' to release GPU memory...")
+            try:
+                restarted = await self._restart_comfyui_backend_role(backend_role, "post-task memory release")
+                if restarted:
+                    logger.info(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restarted successfully")
+                else:
+                    logger.warning(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restart returned False")
+                self._mark_local_comfyui_released(backend_role=backend_role)
+                return True
+            except Exception as e:
+                logger.error(f"[MEMORY_RELEASE] Failed to restart ComfyUI backend '{backend_role}': {e}")
                 raise RuntimeError(
-                    "ComfyUI post-task memory release was not confirmed; "
-                    "stopping to avoid leaving Pixelle-owned models resident."
-                )
-            self._mark_local_comfyui_released(backend_role=backend_role)
-            return released
+                    f"ComfyUI post-task memory release (restart) failed for backend '{backend_role}': {e}"
+                ) from e
 
     async def release_comfyui_after_index_tts2_workflow(
         self,
@@ -739,12 +743,18 @@ class PixelleVideoCore:
 
     def _workflow_extensions(self, workflow_input: Any) -> tuple[ComfyUIExtensionName, ...]:
         extensions: list[ComfyUIExtensionName] = []
+        # MARKER_v2: Debug logging added
+        logger.warning(f"[MARKER_v2] _workflow_extensions called with: {workflow_input}")
         if is_index_tts2_workflow_key(workflow_input):
             extensions.append("indextts2")
+            logger.warning("[MARKER_v2] Detected indextts2 workflow")
         if is_omnivoice_workflow_key(workflow_input):
             extensions.append("omnivoice")
+            logger.warning("[MARKER_v2] Detected omnivoice workflow")
         if self._is_gguf_workflow_key(workflow_input):
             extensions.append("gguf")
+            logger.warning("[MARKER_v2] Detected gguf workflow")
+        logger.warning(f"[MARKER_v2] Final extensions: {extensions}")
         return tuple(dict.fromkeys(extensions))
 
     def _is_gguf_workflow_key(self, workflow_input: Any) -> bool:
@@ -792,6 +802,7 @@ class PixelleVideoCore:
         backend_role: str = "default",
     ) -> tuple[ComfyUIExtensionName, ...]:
         extensions = self._workflow_extensions(workflow_input)
+        logger.info(f"_register_workflow_extensions: input={workflow_input}, extensions={extensions}")
         if not extensions:
             return ()
 
@@ -804,10 +815,14 @@ class PixelleVideoCore:
                     f"'{session.backend_role}' and cannot register extensions for role '{role}'"
                 )
             session.used_extensions.update(extensions)
+            logger.info(f"Updated session.used_extensions: {session.used_extensions}")
 
         scope = self._local_comfyui_task_scope.get()
         if scope is not None:
             scope.state_for(role).pending_extensions.update(extensions)
+            logger.info(f"Updated scope.pending_extensions for role {role}: {scope.state_for(role).pending_extensions}")
+        else:
+            logger.warning(f"No task scope found, extensions not added to pending_extensions for role {role}")
         return extensions
 
     async def _preflight_extension_release_endpoint_once(
