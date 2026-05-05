@@ -268,6 +268,7 @@ class _DummyCore:
         self.config = {}
         self.local_comfyui_sessions = []
         self.local_comfyui_session_release_options = []
+        self.local_comfyui_session_backend_roles = []
         self.llm = object()
         self.video = object()
         self.tts = _FakeTTS()
@@ -281,9 +282,21 @@ class _DummyCore:
         self.hyperframes_renderer = _FakeHyperFramesRenderer()
         self.persistence = _RecordingPersistence()
 
+    def _get_comfyui_backend_registry(self):
+        return SimpleNamespace(
+            resolve_role_for_tts=lambda workflow_key: "tts",
+            resolve_role_for_media=lambda workflow_key, media_type: "image",
+        )
+
     @asynccontextmanager
-    async def local_comfyui_workflow_session(self, *, release_after_session=False):
+    async def local_comfyui_workflow_session(
+        self,
+        *,
+        release_after_session=False,
+        backend_role="default",
+    ):
         self.local_comfyui_session_release_options.append(release_after_session)
+        self.local_comfyui_session_backend_roles.append(backend_role)
         self.local_comfyui_sessions.append("enter")
         try:
             yield
@@ -363,6 +376,7 @@ async def test_produce_assets_hyperframes_path_bypasses_legacy_html_composition(
     ]
     assert core.local_comfyui_sessions == ["enter", "exit"]
     assert core.local_comfyui_session_release_options == [True]
+    assert core.local_comfyui_session_backend_roles == ["image"]
     assert [frame.image_path for frame in ctx.storyboard.frames] == [
         str(tmp_path / "00_raw.png"),
         str(tmp_path / "01_raw.png"),

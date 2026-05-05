@@ -24,6 +24,9 @@ from .loader import load_config_dict, save_config_dict
 from .schema import PixelleVideoConfig
 
 
+_UNSET = object()
+
+
 class ConfigManager:
     """
     Configuration Manager (Singleton)
@@ -143,6 +146,11 @@ class ConfigManager:
             "runninghub_api_key": self.config.comfyui.runninghub_api_key,
             "runninghub_concurrent_limit": self.config.comfyui.runninghub_concurrent_limit,
             "runninghub_instance_type": self.config.comfyui.runninghub_instance_type,
+            "backends": {
+                name: profile.model_dump()
+                for name, profile in self.config.comfyui.backends.items()
+            },
+            "workflow_routing": self.config.comfyui.workflow_routing.model_dump(),
             "tts": {
                 "default_workflow": self.config.comfyui.tts.default_workflow,
                 "inference_mode": self.config.comfyui.tts.inference_mode,
@@ -193,7 +201,9 @@ class ConfigManager:
         comfyui_api_key: Optional[str] = None,
         runninghub_api_key: Optional[str] = None,
         runninghub_concurrent_limit: Optional[int] = None,
-        runninghub_instance_type: Optional[str] = None
+        runninghub_instance_type: Optional[str] = None,
+        backends: Optional[dict[str, Any]] = None,
+        workflow_routing: Optional[dict[str, str]] | object = _UNSET,
     ):
         """Set ComfyUI global configuration"""
         updates = {}
@@ -218,6 +228,34 @@ class ConfigManager:
         if runninghub_instance_type is not None:
             # Empty string means disable (treat as None for storage)
             updates["runninghub_instance_type"] = runninghub_instance_type if runninghub_instance_type else None
+        if backends is not None:
+            updates["backends"] = backends
+            default_backend = backends.get("default") if isinstance(backends, dict) else None
+            if isinstance(default_backend, dict):
+                default_backend_url = default_backend.get("url")
+                if default_backend_url:
+                    updates["comfyui_url"] = default_backend_url
+        elif comfyui_url is not None and "default" in self.config.comfyui.backends:
+            default_backend = self.config.comfyui.backends["default"].model_dump()
+            default_backend["url"] = comfyui_url
+            updates["backends"] = {
+                **{
+                    name: profile.model_dump()
+                    for name, profile in self.config.comfyui.backends.items()
+                    if name != "default"
+                },
+                "default": default_backend,
+            }
+        if workflow_routing is not _UNSET:
+            updates["workflow_routing"] = workflow_routing
         
         if updates:
-            self.update({"comfyui": updates})
+            if "backends" in updates or "workflow_routing" in updates:
+                current = self.config.to_dict()
+                comfyui_updates = dict(updates)
+                current_comfyui = dict(current.get("comfyui", {}))
+                current_comfyui.update(comfyui_updates)
+                current["comfyui"] = current_comfyui
+                self.config = PixelleVideoConfig(**current)
+            else:
+                self.update({"comfyui": updates})

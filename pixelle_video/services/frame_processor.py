@@ -50,6 +50,7 @@ IMAGE_SEGMENT_MIN_FPS = 90
 async def _maybe_local_comfyui_workflow_session(
     core,
     *,
+    backend_role: str = "default",
     release_after_session: bool = False,
 ):
     session_factory = getattr(core, "local_comfyui_workflow_session", None)
@@ -58,6 +59,7 @@ async def _maybe_local_comfyui_workflow_session(
             signature = inspect.signature(session_factory)
         except (TypeError, ValueError):
             supports_release_after_session = True
+            supports_backend_role = True
         else:
             supports_release_after_session = (
                 "release_after_session" in signature.parameters
@@ -66,17 +68,33 @@ async def _maybe_local_comfyui_workflow_session(
                     for parameter in signature.parameters.values()
                 )
             )
+            supports_backend_role = (
+                "backend_role" in signature.parameters
+                or any(
+                    parameter.kind == inspect.Parameter.VAR_KEYWORD
+                    for parameter in signature.parameters.values()
+                )
+            )
 
-        session_context = (
-            session_factory(release_after_session=release_after_session)
-            if supports_release_after_session
-            else session_factory()
-        )
+        session_kwargs = {}
+        if supports_release_after_session:
+            session_kwargs["release_after_session"] = release_after_session
+        if supports_backend_role:
+            session_kwargs["backend_role"] = backend_role
+
+        session_context = session_factory(**session_kwargs) if session_kwargs else session_factory()
         async with session_context:
             yield
         return
 
     yield
+
+
+def _resolve_local_comfyui_tts_backend_role(core, workflow_key) -> str:
+    get_registry = getattr(core, "_get_comfyui_backend_registry", None)
+    if not callable(get_registry):
+        return "default"
+    return get_registry().resolve_role_for_tts(workflow_key)
 
 
 def _format_template_body_text(
@@ -242,6 +260,23 @@ class FrameProcessor:
         output_path = get_task_frame_path(config.task_id, frame.index, "audio")
         segment_texts = [frame.narration]
         uses_index_tts2 = self._uses_index_tts2_workflow(config)
+        tts_workflow_key = config.tts_workflow
+        tts_resolver = getattr(getattr(self.core, "tts", None), "_resolve_workflow", None)
+        if callable(tts_resolver):
+            try:
+                tts_workflow_info = tts_resolver(workflow=tts_workflow_key)
+            except TypeError:
+                tts_workflow_info = tts_resolver(tts_workflow_key)
+            if isinstance(tts_workflow_info, dict):
+                tts_workflow_key = (
+                    tts_workflow_info.get("key")
+                    or tts_workflow_info.get("path")
+                    or tts_workflow_key
+                )
+        tts_backend_role = _resolve_local_comfyui_tts_backend_role(
+            self.core,
+            tts_workflow_key,
+        )
 
         if (
             uses_index_tts2
@@ -265,6 +300,7 @@ class FrameProcessor:
             output_base = Path(final_output_path)
             async with _maybe_local_comfyui_workflow_session(
                 self.core,
+                backend_role=tts_backend_role,
                 release_after_session=True,
             ):
                 for index, segment_text in enumerate(segment_texts, start=1):
@@ -297,6 +333,7 @@ class FrameProcessor:
             )
             async with _maybe_local_comfyui_workflow_session(
                 self.core,
+                backend_role=tts_backend_role,
                 release_after_session=True,
             ):
                 await self.core.tts(
@@ -312,6 +349,7 @@ class FrameProcessor:
             if config.tts_inference_mode == "comfyui":
                 async with _maybe_local_comfyui_workflow_session(
                     self.core,
+                    backend_role=tts_backend_role,
                     release_after_session=True,
                 ):
                     audio_path = await self.core.tts(

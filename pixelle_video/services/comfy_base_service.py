@@ -308,11 +308,22 @@ class ComfyBaseService:
         logger.debug(f"ComfyKit config: {kit_config}")
         return kit_config
 
+    def _get_backend_registry(self):
+        core = self.core
+        if core is None:
+            return None
+        get_registry = getattr(core, "_get_comfyui_backend_registry", None)
+        if not callable(get_registry):
+            return None
+        return get_registry()
+
     async def _execute_workflow(
         self,
         workflow_input: Any,
         workflow_params: Dict[str, Any],
         workflow_info: Dict[str, Any],
+        *,
+        backend_role: str = "default",
     ):
         """Execute a workflow through the core so local ComfyUI lifecycle is centralized."""
         execute_workflow = getattr(self.core, "execute_comfykit_workflow", None)
@@ -321,6 +332,7 @@ class ComfyBaseService:
                 workflow_input,
                 workflow_params,
                 workflow_source=workflow_info.get("source", "selfhost"),
+                backend_role=backend_role,
             )
 
         kit = await self.core._get_or_create_comfykit()

@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -21,10 +22,20 @@ class _FakeCore:
         self.tts = _RecordingTts()
         self.session_events = []
         self.session_release_options = []
+        self.session_backend_roles = []
+
+    def _get_comfyui_backend_registry(self):
+        return SimpleNamespace(resolve_role_for_tts=lambda workflow_key: "tts")
 
     @asynccontextmanager
-    async def local_comfyui_workflow_session(self, *, release_after_session=False):
+    async def local_comfyui_workflow_session(
+        self,
+        *,
+        release_after_session=False,
+        backend_role="default",
+    ):
         self.session_release_options.append(release_after_session)
+        self.session_backend_roles.append(backend_role)
         self.session_events.append("enter")
         try:
             yield
@@ -72,6 +83,7 @@ async def test_frame_processor_external_only_splits_index_tts2_per_frame_audio(m
     assert all(Path(call["output_path"]).suffix == ".flac" for call in core.tts.calls)
     assert core.session_events == ["enter", "exit"]
     assert core.session_release_options == [True]
+    assert core.session_backend_roles == ["tts"]
     assert concat_calls
     assert concat_calls[0][2]["fade_ms"] == config.tts_audio_boundary_fade_ms
 
@@ -115,3 +127,4 @@ async def test_frame_processor_single_index_tts2_uses_flac_source_and_wav_frame_
     assert Path(frame.audio_path).suffix == ".wav"
     assert core.session_events == ["enter", "exit"]
     assert core.session_release_options == [True]
+    assert core.session_backend_roles == ["tts"]

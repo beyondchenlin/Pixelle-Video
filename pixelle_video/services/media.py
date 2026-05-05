@@ -270,6 +270,13 @@ class MediaService(ComfyBaseService):
             workflow=workflow,
             workflow_domain=media_type,
         )
+        backend_role = "default"
+        registry = self._get_backend_registry()
+        if workflow_info["source"] == "selfhost" and registry is not None:
+            backend_role = registry.resolve_role_for_media(
+                workflow_info["key"],
+                media_type,
+            )
         
         # 2. Build workflow parameters (ComfyKit config is now managed by core)
         workflow_params = {"prompt": prompt}
@@ -311,7 +318,12 @@ class MediaService(ComfyBaseService):
                 workflow_input = workflow_info["path"]
                 logger.info(f"Executing selfhost workflow: {workflow_input}")
             
-            result = await self._execute_workflow(workflow_input, workflow_params, workflow_info)
+            result = await self._execute_workflow(
+                workflow_input,
+                workflow_params,
+                workflow_info,
+                backend_role=backend_role,
+            )
             
             # 5. Handle result based on specified media_type
             if result.status != "completed":

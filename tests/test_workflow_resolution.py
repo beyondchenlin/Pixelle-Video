@@ -305,6 +305,13 @@ async def test_media_service_surfaces_actionable_oom_guidance(monkeypatch):
             return _FailedResult()
 
     class _FakeCore:
+        def _get_comfyui_backend_registry(self):
+            class _Registry:
+                def resolve_role_for_media(self, workflow_key, media_type):
+                    return "default"
+
+            return _Registry()
+
         async def _get_or_create_comfykit(self):
             return _FakeKit()
 
@@ -334,6 +341,13 @@ async def test_media_service_formats_direct_execute_oom_exceptions(monkeypatch):
             )
 
     class _FakeCore:
+        def _get_comfyui_backend_registry(self):
+            class _Registry:
+                def resolve_role_for_media(self, workflow_key, media_type):
+                    return "default"
+
+            return _Registry()
+
         async def _get_or_create_comfykit(self):
             return _ExplodingKit()
 
@@ -358,7 +372,21 @@ async def test_media_service_formats_selfhost_connection_errors_with_comfyui_gui
     monkeypatch,
 ):
     class _ExplodingCore:
-        async def execute_comfykit_workflow(self, workflow_input, workflow_params, *, workflow_source):
+        def _get_comfyui_backend_registry(self):
+            class _Registry:
+                def resolve_role_for_media(self, workflow_key, media_type):
+                    return "default"
+
+            return _Registry()
+
+        async def execute_comfykit_workflow(
+            self,
+            workflow_input,
+            workflow_params,
+            *,
+            workflow_source,
+            backend_role="default",
+        ):
             raise RuntimeError(
                 "Cannot connect to host 127.0.0.1:8000 ssl:default [Connection refused]"
             )

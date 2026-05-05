@@ -1,4 +1,5 @@
 param(
+    [string]$ProfileName = '',
     [string]$PythonExe = '',
     [string]$ComfyUIRoot = '',
     [string]$DataRoot = '',
@@ -17,6 +18,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'backend_common.ps1')
 
 $config = Resolve-PixelleComfyUIBackendConfig `
+    -ProfileName $ProfileName `
     -PythonExe $PythonExe `
     -ComfyUIRoot $ComfyUIRoot `
     -DataRoot $DataRoot `
@@ -70,9 +72,8 @@ $payload = [ordered]@{
     launcher_pid_file_present = [bool]$launcherPidFilePresent
     launcher_pid = $launcherPid
     launcher_pid_file = $launcherPidFile
-    runtime_dir = $config.RuntimeDir
-    logs_dir = $config.LogsDir
 }
+$payload = Add-BackendProfilePayloadFields -Payload $payload -Config $config
 
 if ($Json) {
     Write-BackendJson $payload

@@ -181,6 +181,7 @@ class AssetExecutionMode:
 async def _maybe_local_comfyui_workflow_session(
     core: Any,
     *,
+    backend_role: str = "default",
     release_after_session: bool = False,
 ):
     session_factory = getattr(core, "local_comfyui_workflow_session", None)
@@ -189,6 +190,7 @@ async def _maybe_local_comfyui_workflow_session(
             signature = inspect.signature(session_factory)
         except (TypeError, ValueError):
             supports_release_after_session = True
+            supports_backend_role = True
         else:
             supports_release_after_session = (
                 "release_after_session" in signature.parameters
@@ -197,17 +199,44 @@ async def _maybe_local_comfyui_workflow_session(
                     for parameter in signature.parameters.values()
                 )
             )
+            supports_backend_role = (
+                "backend_role" in signature.parameters
+                or any(
+                    parameter.kind == inspect.Parameter.VAR_KEYWORD
+                    for parameter in signature.parameters.values()
+                )
+            )
 
-        session_context = (
-            session_factory(release_after_session=release_after_session)
-            if supports_release_after_session
-            else session_factory()
-        )
+        session_kwargs = {}
+        if supports_release_after_session:
+            session_kwargs["release_after_session"] = release_after_session
+        if supports_backend_role:
+            session_kwargs["backend_role"] = backend_role
+
+        session_context = session_factory(**session_kwargs) if session_kwargs else session_factory()
         async with session_context:
             yield
         return
 
     yield
+
+
+def _resolve_local_comfyui_tts_backend_role(core: Any, workflow_key: Optional[str]) -> str:
+    get_registry = getattr(core, "_get_comfyui_backend_registry", None)
+    if not callable(get_registry):
+        return "default"
+    return get_registry().resolve_role_for_tts(workflow_key)
+
+
+def _resolve_local_comfyui_media_backend_role(
+    core: Any,
+    workflow_key: Optional[str],
+    media_type: str,
+) -> str:
+    get_registry = getattr(core, "_get_comfyui_backend_registry", None)
+    if not callable(get_registry):
+        return "default"
+    return get_registry().resolve_role_for_media(workflow_key, media_type)
 
 
 def _resolve_frame_template_for_size_contract(
@@ -1484,6 +1513,11 @@ class StandardPipeline(LinearVideoPipeline):
         storyboard = ctx.storyboard
         config = ctx.config
         total_frames = len(storyboard.frames)
+        execution_mode = self._resolve_asset_execution_mode(ctx)
+        tts_backend_role = _resolve_local_comfyui_tts_backend_role(
+            self.core,
+            execution_mode.tts_workflow_key,
+        )
         skip_segment_generation = (
             self._resolve_effective_render_backend(ctx)
             == FFMPEG_MANIFEST_RENDER_BACKEND
@@ -1493,6 +1527,7 @@ class StandardPipeline(LinearVideoPipeline):
 
         async with _maybe_local_comfyui_workflow_session(
             self.core,
+            backend_role=tts_backend_role,
             release_after_session=True,
         ):
             for frame in storyboard.frames:
@@ -1557,6 +1592,12 @@ class StandardPipeline(LinearVideoPipeline):
     ) -> None:
         storyboard = ctx.storyboard
         total_frames = len(storyboard.frames)
+        execution_mode = self._resolve_asset_execution_mode(ctx)
+        media_backend_role = _resolve_local_comfyui_media_backend_role(
+            self.core,
+            execution_mode.media_workflow_key,
+            execution_mode.media_domain,
+        )
 
         if media_session_policy == "per_frame":
             for frame in storyboard.frames:
@@ -1572,6 +1613,7 @@ class StandardPipeline(LinearVideoPipeline):
 
                 async with _maybe_local_comfyui_workflow_session(
                     self.core,
+                    backend_role=media_backend_role,
                     release_after_session=True,
                 ):
                     await self._produce_staged_media_frame(
@@ -1605,6 +1647,7 @@ class StandardPipeline(LinearVideoPipeline):
             try:
                 async with _maybe_local_comfyui_workflow_session(
                     self.core,
+                    backend_role=media_backend_role,
                     release_after_session=release_after_session,
                 ):
                     for frame in storyboard.frames:
@@ -3603,9 +3646,15 @@ class StandardPipeline(LinearVideoPipeline):
 
         block_paths: List[str] = []
         cursor = 0.0
+        execution_mode = self._resolve_asset_execution_mode(ctx)
+        tts_backend_role = _resolve_local_comfyui_tts_backend_role(
+            self.core,
+            execution_mode.tts_workflow_key,
+        )
 
         async with _maybe_local_comfyui_workflow_session(
             self.core,
+            backend_role=tts_backend_role,
             release_after_session=True,
         ):
             for block in ctx.timing_plan.blocks:

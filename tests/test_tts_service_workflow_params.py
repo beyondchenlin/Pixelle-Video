@@ -391,12 +391,27 @@ async def test_tts_router_returns_422_for_missing_required_workflow_params():
 async def test_tts_service_passes_omnivoice_duration_to_workflow(monkeypatch):
     captured = {}
 
-    async def fake_execute(workflow_input, workflow_params, workflow_info):
+    async def fake_execute(
+        workflow_input,
+        workflow_params,
+        workflow_info,
+        *,
+        backend_role="default",
+    ):
         captured["workflow_input"] = workflow_input
         captured["workflow_params"] = dict(workflow_params)
+        captured["backend_role"] = backend_role
         return SimpleNamespace(status="completed", audios=["output.flac"], files=[], outputs={})
 
-    service = TTSService({"comfyui": {"tts": {}}})
+    class _Core:
+        def _get_comfyui_backend_registry(self):
+            class _Registry:
+                def resolve_role_for_tts(self, workflow_key):
+                    return "default"
+
+            return _Registry()
+
+    service = TTSService({"comfyui": {"tts": {}}}, core=_Core())
     monkeypatch.setattr(service, "_execute_workflow", fake_execute)
     monkeypatch.setattr(
         service,
@@ -422,14 +437,22 @@ async def test_tts_service_passes_omnivoice_duration_to_workflow(monkeypatch):
     assert captured["workflow_params"]["reference_audio_text"] == "reference transcript"
     assert "ref_audio_text" not in captured["workflow_params"]
     assert "prompt_text" not in captured["workflow_params"]
+    assert captured["backend_role"] == "default"
 
 
 @pytest.mark.asyncio
 async def test_tts_service_maps_reference_audio_text_to_prompt_text_workflows(monkeypatch):
     captured = {}
 
-    async def fake_execute(workflow_input, workflow_params, workflow_info):
+    async def fake_execute(
+        workflow_input,
+        workflow_params,
+        workflow_info,
+        *,
+        backend_role="default",
+    ):
         captured["workflow_params"] = dict(workflow_params)
+        captured["backend_role"] = backend_role
         return SimpleNamespace(status="completed", audios=["output.flac"], files=[], outputs={})
 
     service = TTSService({"comfyui": {"tts": {}}})
@@ -449,6 +472,7 @@ async def test_tts_service_maps_reference_audio_text_to_prompt_text_workflows(mo
 
     assert captured["workflow_params"]["prompt_text"] == "reference transcript"
     assert "reference_audio_text" not in captured["workflow_params"]
+    assert captured["backend_role"] == "default"
 
 
 @pytest.mark.asyncio
