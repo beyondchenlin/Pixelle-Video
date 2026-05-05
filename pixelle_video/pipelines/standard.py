@@ -1524,6 +1524,7 @@ class StandardPipeline(LinearVideoPipeline):
         )
 
         logger.info("Using staged selfhost image processing")
+        synthesized_audio_count = 0
 
         async with _maybe_local_comfyui_workflow_session(
             self.core,
@@ -1542,6 +1543,13 @@ class StandardPipeline(LinearVideoPipeline):
                         action=ProgressFrameAction.AUDIO,
                     )
                     await self.core.frame_processor._step_generate_audio(frame, config)
+                    synthesized_audio_count += 1
+
+        if synthesized_audio_count:
+            await self._schedule_stage_backend_restart_if_needed(
+                backend_role=tts_backend_role,
+                reason="post-tts-batch",
+            )
 
         await self._produce_staged_media(
             ctx,
@@ -1598,6 +1606,11 @@ class StandardPipeline(LinearVideoPipeline):
             execution_mode.media_workflow_key,
             execution_mode.media_domain,
         )
+        generated_media_count = sum(
+            1
+            for frame in storyboard.frames
+            if frame.image_prompt is not None
+        )
 
         if media_session_policy == "per_frame":
             for frame in storyboard.frames:
@@ -1623,14 +1636,14 @@ class StandardPipeline(LinearVideoPipeline):
                         stage_end=stage_end,
                         total_frames=total_frames,
                     )
+            if generated_media_count:
+                await self._schedule_stage_backend_restart_if_needed(
+                    backend_role=media_backend_role,
+                    reason="post-image-batch",
+                )
             return
 
         if media_session_policy == "batch":
-            generatable_frame_count = sum(
-                1
-                for frame in storyboard.frames
-                if frame.image_prompt is not None
-            )
             release_after_session = True
             emit_stage_event(
                 channel="runtime",
@@ -1639,11 +1652,11 @@ class StandardPipeline(LinearVideoPipeline):
                 message="Local media batch generation started",
                 media_session_policy=media_session_policy,
                 frame_count=total_frames,
-                generatable_frame_count=generatable_frame_count,
+                generatable_frame_count=generated_media_count,
                 release_after_session=release_after_session,
             )
             started_at = time.perf_counter()
-            generated_frame_count = 0
+            completed_generated_frame_count = 0
             try:
                 async with _maybe_local_comfyui_workflow_session(
                     self.core,
@@ -1659,7 +1672,7 @@ class StandardPipeline(LinearVideoPipeline):
                             total_frames=total_frames,
                         )
                         if frame.image_prompt is not None:
-                            generated_frame_count += 1
+                            completed_generated_frame_count += 1
             except Exception:
                 elapsed_ms = int(round((time.perf_counter() - started_at) * 1000))
                 emit_stage_event(
@@ -1669,8 +1682,8 @@ class StandardPipeline(LinearVideoPipeline):
                     message="Local media batch generation failed",
                     media_session_policy=media_session_policy,
                     frame_count=total_frames,
-                    generatable_frame_count=generatable_frame_count,
-                    generated_frame_count=generated_frame_count,
+                    generatable_frame_count=generated_media_count,
+                    generated_frame_count=completed_generated_frame_count,
                     release_after_session=release_after_session,
                     elapsed_ms=elapsed_ms,
                 )
@@ -1683,11 +1696,16 @@ class StandardPipeline(LinearVideoPipeline):
                 message="Local media batch generation completed",
                 media_session_policy=media_session_policy,
                 frame_count=total_frames,
-                generatable_frame_count=generatable_frame_count,
-                generated_frame_count=generated_frame_count,
+                generatable_frame_count=generated_media_count,
+                generated_frame_count=completed_generated_frame_count,
                 release_after_session=release_after_session,
                 elapsed_ms=elapsed_ms,
             )
+            if completed_generated_frame_count:
+                await self._schedule_stage_backend_restart_if_needed(
+                    backend_role=media_backend_role,
+                    reason="post-image-batch",
+                )
             return
 
         for frame in storyboard.frames:
@@ -1697,6 +1715,11 @@ class StandardPipeline(LinearVideoPipeline):
                 stage_start=stage_start,
                 stage_end=stage_end,
                 total_frames=total_frames,
+            )
+        if generated_media_count:
+            await self._schedule_stage_backend_restart_if_needed(
+                backend_role=media_backend_role,
+                reason="post-image-batch",
             )
 
     async def _produce_staged_media_frame(
@@ -3673,6 +3696,12 @@ class StandardPipeline(LinearVideoPipeline):
                 cursor = block.end
                 block_paths.append(block.audio_path)
 
+        if block_paths:
+            await self._schedule_stage_backend_restart_if_needed(
+                backend_role=tts_backend_role,
+                reason="post-tts-batch",
+            )
+
         master_audio_path = task_audio_dir / "master_audio.wav"
         self._concat_audio_files(
             block_paths,
@@ -3682,6 +3711,29 @@ class StandardPipeline(LinearVideoPipeline):
         master_audio_duration = self._get_audio_duration(str(master_audio_path))
 
         return str(master_audio_path), master_audio_duration
+
+    async def _schedule_stage_backend_restart_if_needed(
+        self,
+        *,
+        backend_role: str,
+        reason: str,
+    ) -> None:
+        get_registry = getattr(self.core, "_get_comfyui_backend_registry", None)
+        schedule_restart = getattr(self.core, "schedule_comfyui_backend_restart", None)
+        if not callable(get_registry) or not callable(schedule_restart):
+            return
+
+        registry = get_registry()
+        if not registry.is_dedicated_backend(backend_role):
+            return
+
+        profile = registry.profile(backend_role)
+        if not profile.restart_after_batch:
+            return
+
+        maybe_awaitable = schedule_restart(backend_role, reason)
+        if inspect.isawaitable(maybe_awaitable):
+            await maybe_awaitable
 
     async def _synthesize_audio_block(
         self,

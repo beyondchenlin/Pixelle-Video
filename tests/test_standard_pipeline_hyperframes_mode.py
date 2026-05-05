@@ -892,6 +892,84 @@ async def test_hyperframes_asset_path_rejects_unsupported_tts_audio_strategy_bef
 
 
 @pytest.mark.asyncio
+async def test_synthesize_hyperframes_audio_schedules_tts_backend_restart_after_batch(
+    tmp_path,
+    monkeypatch,
+):
+    scheduled = []
+    core = _DummyCore(tmp_path)
+    core.schedule_comfyui_backend_restart = lambda role, reason: scheduled.append(
+        (role, reason)
+    )
+    core._get_comfyui_backend_registry = lambda: SimpleNamespace(
+        resolve_role_for_tts=lambda workflow_key: "tts",
+        resolve_role_for_media=lambda workflow_key, media_type: "image",
+        is_dedicated_backend=lambda role: role == "tts",
+        profile=lambda role: SimpleNamespace(restart_after_batch=True),
+    )
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return str(output_path)
+
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
+        Path(output_path).write_bytes(b"master-audio")
+
+    monkeypatch.setattr(
+        pipeline,
+        "_normalize_audio_for_hyperframes",
+        fake_normalize_audio,
+    )
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", lambda audio_path: 1.0)
+
+    await pipeline._synthesize_hyperframes_audio(ctx)
+
+    assert scheduled == [("tts", "post-tts-batch")]
+
+
+@pytest.mark.asyncio
+async def test_synthesize_hyperframes_audio_skips_restart_when_profile_disables_it(
+    tmp_path,
+    monkeypatch,
+):
+    scheduled = []
+    core = _DummyCore(tmp_path)
+    core.schedule_comfyui_backend_restart = lambda role, reason: scheduled.append(
+        (role, reason)
+    )
+    core._get_comfyui_backend_registry = lambda: SimpleNamespace(
+        resolve_role_for_tts=lambda workflow_key: "tts",
+        resolve_role_for_media=lambda workflow_key, media_type: "image",
+        is_dedicated_backend=lambda role: True,
+        profile=lambda role: SimpleNamespace(restart_after_batch=False),
+    )
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_context(tmp_path)
+
+    def fake_normalize_audio(input_path, output_path):
+        Path(output_path).write_bytes(b"wav")
+        return str(output_path)
+
+    def fake_concat_audio_files(audio_paths, output_path, **kwargs):
+        Path(output_path).write_bytes(b"master-audio")
+
+    monkeypatch.setattr(
+        pipeline,
+        "_normalize_audio_for_hyperframes",
+        fake_normalize_audio,
+    )
+    monkeypatch.setattr(pipeline, "_concat_audio_files", fake_concat_audio_files)
+    monkeypatch.setattr(pipeline, "_get_audio_duration", lambda audio_path: 1.0)
+
+    await pipeline._synthesize_hyperframes_audio(ctx)
+
+    assert scheduled == []
+
+
+@pytest.mark.asyncio
 async def test_post_production_renders_with_hyperframes_and_uses_raw_media_paths(monkeypatch, tmp_path):
     monkeypatch.setattr("pixelle_video.pipelines.standard.VideoService", _NoConcatVideoService)
 

@@ -1008,6 +1008,54 @@ async def test_produce_assets_rejects_partial_existing_frame_audio_before_asset_
 
 
 @pytest.mark.asyncio
+async def test_produce_assets_staged_schedules_image_backend_restart_after_media_batch(
+    monkeypatch,
+):
+    scheduled = []
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    core.schedule_comfyui_backend_restart = lambda role, reason: scheduled.append(
+        (role, reason)
+    )
+    core._get_comfyui_backend_registry = lambda: SimpleNamespace(
+        resolve_role_for_tts=lambda workflow_key: "tts",
+        resolve_role_for_media=lambda workflow_key, media_type: "image",
+        is_dedicated_backend=lambda role: role == "image",
+        profile=lambda role: SimpleNamespace(restart_after_batch=True),
+    )
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
+
+    await pipeline.produce_assets(ctx)
+
+    assert scheduled == [("image", "post-image-batch")]
+
+
+@pytest.mark.asyncio
+async def test_produce_assets_staged_does_not_restart_default_backend(monkeypatch):
+    scheduled = []
+    core = _DummyCore()
+    core.frame_processor = _RecordingFrameProcessor()
+    core.schedule_comfyui_backend_restart = lambda role, reason: scheduled.append(
+        (role, reason)
+    )
+    core._get_comfyui_backend_registry = lambda: SimpleNamespace(
+        resolve_role_for_tts=lambda workflow_key: "default",
+        resolve_role_for_media=lambda workflow_key, media_type: "default",
+        is_dedicated_backend=lambda role: False,
+        profile=lambda role: SimpleNamespace(restart_after_batch=True),
+    )
+    pipeline = StandardPipeline(core)
+    ctx = _build_storyboard_ctx()
+    _patch_master_track_audio_prepared(monkeypatch, pipeline)
+
+    await pipeline.produce_assets(ctx)
+
+    assert scheduled == []
+
+
+@pytest.mark.asyncio
 async def test_produce_assets_rejects_explicit_per_frame_audio_strategy(monkeypatch):
     core = _DummyCore()
     core.frame_processor = _RecordingFrameProcessor()
