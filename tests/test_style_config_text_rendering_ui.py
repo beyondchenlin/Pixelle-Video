@@ -875,13 +875,7 @@ def test_standard_pipeline_passes_content_context_to_style_config(monkeypatch):
     ):
         captured["content_context"] = content_context
         captured["storyboard_prompt_language"] = storyboard_prompt_language
-        return {
-            "style": "ok",
-            "ip_enabled": False,
-            "ip_asset_bible_id": "style_bible",
-            "ip_profile_id": "style_profile",
-            "ip_profile_world_hint": "style hint",
-        }
+        return {"style": "ok"}
 
     def fake_render_content_input(*, pixelle_video=None):
         captured["content_input_pixelle_video"] = pixelle_video

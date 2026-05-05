@@ -162,7 +162,6 @@ def render_storyboard_generation_controls(
     *,
     mode: str,
     key_prefix: str,
-    content_context: dict | None = None,
 ) -> dict:
     """Render controls for source-text storyboard generation."""
     with st.expander(
@@ -366,7 +365,6 @@ def render_content_input(*, pixelle_video=None):
             storyboard_generation = render_storyboard_generation_controls(
                 mode=mode,
                 key_prefix="single_video",
-                content_context=content_context,
             )
 
             prompt_generation_performance = render_prompt_generation_performance_controls(
@@ -459,7 +457,6 @@ def render_content_input(*, pixelle_video=None):
             storyboard_generation = render_storyboard_generation_controls(
                 mode="generate",
                 key_prefix="batch_video",
-                content_context=content_context,
             )
 
             prompt_generation_performance = render_prompt_generation_performance_controls(

@@ -70,11 +70,6 @@ from pixelle_video.utils.text_splitting import (
     SUPPORTED_TTS_SENTENCE_JOINER_MODES,
 )
 from web.components import storyboard_planning_controls
-from web.components.ip_prompt_chain_controls import (
-    load_ip_prompt_chain_asset_bibles,
-    render_ip_prompt_chain_controls,
-    resolve_selected_ip_prompt_chain_profile_summary,
-)
 from web.components.layer_design_config import render_layer_design_config
 from web.components.layered_template_state import (
     LAYERED_TEMPLATE_SELECTED_SPEC_IDENTITY_KEY,
@@ -2998,10 +2993,6 @@ def render_style_config(
     # Check if current template requires media generation
     template_media_type = st.session_state.get('template_media_type', 'image')
     template_requires_media = st.session_state.get('template_requires_media', True)
-    ip_prompt_chain_controls: dict[str, Any] = {"ip_enabled": False}
-    ip_asset_bibles: list[dict[str, Any]] = []
-    selected_ip_prompt_chain_profile_summary: dict[str, Any] = {}
-    
     if template_requires_media:
         # Template requires media - show Media Generation Section
         if template_media_type == "video":
@@ -3147,35 +3138,6 @@ def render_style_config(
                     workflow_display_map=workflow_display_map,
                 )
                 prompt_prefix = st.session_state.get("prompt_prefix_effective_value", "")
-
-                def _load_ip_asset_bibles_for_style_config() -> list[dict[str, Any]]:
-                    try:
-                        return load_ip_prompt_chain_asset_bibles(
-                            pixelle_video=pixelle_video,
-                            session_state=st.session_state,
-                        )
-                    except Exception:
-                        logger.exception("failed to load ip prompt chain asset bibles")
-                        st.warning(tr("style.ip_prompt_chain.load_failed"))
-                        return []
-
-                ip_asset_bibles = _load_ip_asset_bibles_for_style_config()
-                st.session_state["style_ip_asset_bibles"] = ip_asset_bibles
-                ip_prompt_chain_controls = render_ip_prompt_chain_controls(
-                    ui=st,
-                    asset_bibles=ip_asset_bibles,
-                    translate=tr,
-                )
-                selected_ip_prompt_chain_profile_summary = (
-                    resolve_selected_ip_prompt_chain_profile_summary(
-                        session_state=st.session_state,
-                        asset_bibles=ip_asset_bibles,
-                    )
-                )
-                st.session_state["style_ip_profile_world_hint"] = (
-                    ip_prompt_chain_controls.get("ip_profile_world_hint")
-                    or selected_ip_prompt_chain_profile_summary.get("ip_profile_world_hint")
-                )
         
     
     else:
@@ -3239,7 +3201,6 @@ def render_style_config(
         ),
         "selected_template_preset_id": selected_template_preset_id,
         **element_animation_settings,
-        **ip_prompt_chain_controls,
     }
     if text_rendering:
         result["text_rendering"] = text_rendering

@@ -202,7 +202,9 @@ def test_storyboard_generation_controls_include_prompt_language_in_base_payload(
     assert any(call["label"] == "storyboard.advanced_enabled" for call in fake_st.checkbox_calls)
 
 
-def test_style_ip_context_storyboard_generation_controls_only_pass_content_context(monkeypatch):
+def test_storyboard_generation_controls_do_not_pass_content_context_to_advanced_controls(
+    monkeypatch,
+):
     fake_st = _FakeStreamlit()
     fake_st.session_state.update(
         {
@@ -226,12 +228,9 @@ def test_style_ip_context_storyboard_generation_controls_only_pass_content_conte
     payload = content_input.render_storyboard_generation_controls(
         mode="generate",
         key_prefix="single_video",
-        content_context={"title": "Zhengding walk", "text": "Start from Changle Gate."},
     )
 
-    assert captured["content_context"]["text"] == "Start from Changle Gate."
-    assert captured["content_context"]["title"] == "Zhengding walk"
-    assert "ip_profile_world_hint" not in captured
+    assert "content_context" not in captured
     assert payload["world_preset_id"] == "neutral_knowledge_storyboard"
 
 
