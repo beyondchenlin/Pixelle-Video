@@ -192,7 +192,7 @@ def _dict_items(value: Any) -> list[dict[str, Any]]:
 
 
 def _without_blank_values(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if value != "" and value != []}
+    return {key: value for key, value in payload.items() if value != ""}
 
 
 def _require_text(field_name: str, value: str) -> str:

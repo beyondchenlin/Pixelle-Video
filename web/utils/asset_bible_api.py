@@ -527,7 +527,7 @@ def _require_dict_items(field_name: str, items: list[Any]) -> list[dict[str, Any
 
 
 def _without_blank_values(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if value != "" and value != []}
+    return {key: value for key, value in payload.items() if value != ""}
 
 
 def _validate_optional_id(field_name: str, value: str) -> str:
