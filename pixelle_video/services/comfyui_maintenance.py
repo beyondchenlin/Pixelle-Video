@@ -9,7 +9,7 @@ from loguru import logger
 
 ComfyUICleanupMode = Literal["force", "conservative"]
 ComfyUIReleaseIntensity = Literal["high", "low"]
-ComfyUIExtensionName = Literal["indextts2", "gguf"]
+ComfyUIExtensionName = Literal["indextts2", "gguf", "omnivoice"]
 ComfyUIExtensionMissingEndpointMode = Literal["optional", "required"]
 _IDLE_POLL_INTERVAL_SECONDS = 0.2
 _RELEASE_SETTLE_POLL_INTERVAL_SECONDS = 0.5
@@ -24,14 +24,17 @@ _FREE_MEMORY_PAYLOADS: dict[ComfyUIReleaseIntensity, dict[str, bool]] = {
 _EXTENSION_RELEASE_ENDPOINTS: dict[ComfyUIExtensionName, str] = {
     "indextts2": "/pixelle/indextts2/free",
     "gguf": "/pixelle/gguf/free",
+    "omnivoice": "/pixelle/omnivoice/free",
 }
 _EXTENSION_HEALTH_ENDPOINTS: dict[ComfyUIExtensionName, str] = {
     "indextts2": "/pixelle/indextts2/health",
     "gguf": "/pixelle/gguf/health",
+    "omnivoice": "/pixelle/omnivoice/health",
 }
 _EXTENSION_PATCH_INSTRUCTIONS: dict[ComfyUIExtensionName, str] = {
     "indextts2": "Run tools/patch_indextts2_plugin.py against ComfyUI-Index-TTS, then restart ComfyUI.",
     "gguf": "Run tools/patch_gguf_plugin.py against ComfyUI-GGUF, then restart ComfyUI.",
+    "omnivoice": "Run tools/patch_omnivoice_plugin.py against ComfyUI-OmniVoice, then restart ComfyUI.",
 }
 _EXTENSION_MIN_CONTRACT_REVISIONS: dict[ComfyUIExtensionName, int] = {
     "gguf": 2,
