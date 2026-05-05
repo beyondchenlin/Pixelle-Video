@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 CONTENT_IP_STATE_PREFIX = "content_ip"
 CONTENT_WORLD_HINT_KEY = "content_generation_world_hint"
+CONTENT_WORLD_HINT_WIDGET_KEY = "content_generation_world_hint_widget"
 CONTENT_WORLD_HINT_SOURCE_KEY = "content_generation_world_hint_source"
 CONTENT_WORLD_HINT_LAST_VALUE_KEY = "content_generation_world_hint_last_value"
 CONTENT_IP_PROFILE_WORLD_HINT_KEY = "content_ip_profile_world_hint"
@@ -61,6 +62,8 @@ def render_content_ip_world_controls(
 ) -> dict[str, Any]:
     """Render left-column content IP and request-scoped world hint controls."""
     session_state = ui.session_state
+    pending_world_hint = session_state.pop(CONTENT_WORLD_HINT_KEY, None)
+    widget_value = session_state.get(CONTENT_WORLD_HINT_WIDGET_KEY, "")
     with ui.expander(translate("content.ip_world.section_title"), expanded=True):
         resolved_asset_bible_loader = asset_bible_loader
         asset_bibles: Sequence[Mapping[str, Any]] = ()
@@ -86,12 +89,18 @@ def render_content_ip_world_controls(
         else:
             session_state.pop(CONTENT_IP_PROFILE_WORLD_HINT_KEY, None)
 
+        initial_value = pending_world_hint if pending_world_hint is not None else widget_value
         generation_world_hint = ui.text_area(
             translate("content.ip_world.generation_world_hint"),
-            key=CONTENT_WORLD_HINT_KEY,
+            key=CONTENT_WORLD_HINT_WIDGET_KEY,
+            value=initial_value,
             height=96,
             help=translate("content.ip_world.generation_world_hint_help"),
         )
+        if pending_world_hint is not None:
+            session_state[CONTENT_WORLD_HINT_KEY] = pending_world_hint
+        else:
+            session_state[CONTENT_WORLD_HINT_KEY] = generation_world_hint
         _sync_world_hint_manual_source(
             session_state=session_state,
             generation_world_hint=generation_world_hint,
@@ -99,33 +108,21 @@ def render_content_ip_world_controls(
 
         use_default_col, generate_col = ui.columns((1, 1))
         with use_default_col:
-            if ui.button(
+            ui.button(
                 translate("content.ip_world.use_ip_default"),
                 key="content_world_hint_use_ip_default",
                 width="stretch",
-            ):
-                _use_ip_default_world_hint(
-                    ui=ui,
-                    translate=translate,
-                    ip_profile_world_hint=ip_profile_world_hint
-                    or session_state.get(CONTENT_IP_PROFILE_WORLD_HINT_KEY),
-                )
+                on_click=_use_ip_default_world_hint,
+                args=(ui, translate, ip_profile_world_hint or session_state.get(CONTENT_IP_PROFILE_WORLD_HINT_KEY)),
+            )
         with generate_col:
-            if ui.button(
+            ui.button(
                 translate("content.ip_world.generate_from_content"),
                 key="content_world_hint_generate_from_content",
                 width="stretch",
-            ):
-                _generate_content_world_hint(
-                    ui=ui,
-                    translate=translate,
-                    content_context=content_context,
-                    storyboard_prompt_language=storyboard_prompt_language,
-                    world_preset_id=world_preset_id,
-                    ip_profile_world_hint=ip_profile_world_hint
-                    or session_state.get(CONTENT_IP_PROFILE_WORLD_HINT_KEY),
-                    world_hint_draft_generator=world_hint_draft_generator,
-                )
+                on_click=_generate_content_world_hint,
+                args=(ui, translate, content_context, storyboard_prompt_language, world_preset_id, ip_profile_world_hint or session_state.get(CONTENT_IP_PROFILE_WORLD_HINT_KEY), world_hint_draft_generator),
+            )
 
     return build_content_ip_world_payload(
         ip_payload=ip_payload,
@@ -154,30 +151,28 @@ def _load_content_ip_asset_bibles(
 
 
 def _use_ip_default_world_hint(
-    *,
     ui,
-    translate: Translate,
-    ip_profile_world_hint: Any,
+    translate,
+    ip_profile_world_hint,
 ) -> None:
     ip_world_hint = _first_text(ip_profile_world_hint)
     if not ip_world_hint:
         ui.warning(translate("content.ip_world.missing_ip_default"))
         return
-    ui.session_state[CONTENT_WORLD_HINT_KEY] = ip_world_hint
-    ui.session_state[CONTENT_WORLD_HINT_SOURCE_KEY] = "ip_default"
-    ui.session_state[CONTENT_WORLD_HINT_LAST_VALUE_KEY] = ip_world_hint
-    safe_rerun()
+    session_state = ui.session_state
+    session_state[CONTENT_WORLD_HINT_KEY] = ip_world_hint
+    session_state[CONTENT_WORLD_HINT_SOURCE_KEY] = "ip_default"
+    session_state[CONTENT_WORLD_HINT_LAST_VALUE_KEY] = ip_world_hint
 
 
 def _generate_content_world_hint(
-    *,
     ui,
-    translate: Translate,
-    content_context: Mapping[str, Any] | None,
-    storyboard_prompt_language: str,
-    world_preset_id: str | None,
-    ip_profile_world_hint: Any,
-    world_hint_draft_generator: Callable[..., Mapping[str, Any]] | None,
+    translate,
+    content_context,
+    storyboard_prompt_language,
+    world_preset_id,
+    ip_profile_world_hint,
+    world_hint_draft_generator,
 ) -> None:
     source_text = _first_text((content_context or {}).get("text"))
     if not source_text:
@@ -206,7 +201,6 @@ def _generate_content_world_hint(
     ui.session_state[CONTENT_WORLD_HINT_KEY] = world_hint_draft
     ui.session_state[CONTENT_WORLD_HINT_SOURCE_KEY] = "generated_from_script"
     ui.session_state[CONTENT_WORLD_HINT_LAST_VALUE_KEY] = world_hint_draft
-    safe_rerun()
 
 
 def _sync_world_hint_manual_source(
