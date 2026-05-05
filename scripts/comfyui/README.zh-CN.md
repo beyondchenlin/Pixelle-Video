@@ -21,6 +21,22 @@ start_backend.bat
 stop_backend.bat
 ```
 
+双 ComfyUI 后端可直接使用角色化入口，避免手写端口和目录参数：
+
+```text
+start_image_backend.bat
+start_tts_backend.bat
+stop_image_backend.bat
+stop_tts_backend.bat
+check_image_backend.bat
+check_tts_backend.bat
+```
+
+这些入口固定使用：
+
+- 图片 ComfyUI：`127.0.0.1:8001`，数据目录 `E:\ComfyUIData\pixelle-image`
+- TTS ComfyUI：`127.0.0.1:8002`，数据目录 `E:\ComfyUIData\pixelle-tts`
+
 双击 `.bat` 文件会真正执行对应命令，而不是打开脚本源码。
 
 `.bat` 文件会调用对应的 PowerShell 脚本，并使用：

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import httpx
 
+from pixelle_video.platform_context import DEFAULT_API_BASE_URL
+
 DEFAULT_TIMEOUT = 60.0
-DEFAULT_ENDPOINT = "http://127.0.0.1:8000/api/content/world-hint-draft"
+DEFAULT_ENDPOINT = f"{DEFAULT_API_BASE_URL}/content/world-hint-draft"
 
 
 def generate_world_hint_draft(

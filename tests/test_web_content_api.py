@@ -30,7 +30,7 @@ def test_generate_world_hint_draft_posts_expected_payload(monkeypatch):
         ip_default_world_hint="friendly guide world",
     )
 
-    assert captured["url"] == content_api.DEFAULT_ENDPOINT
+    assert captured["url"] == "http://localhost:8888/api/content/world-hint-draft"
     assert captured["timeout"] == content_api.DEFAULT_TIMEOUT
     assert captured["json"]["ip_default_world_hint"] == "friendly guide world"
     assert payload["world_hint_draft"] == "古城漫游草稿"

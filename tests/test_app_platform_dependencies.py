@@ -11,7 +11,7 @@ from api.config import APIConfig
 def test_api_config_defaults_use_non_comfyui_local_port():
     config = APIConfig()
 
-    assert config.port == 8001
+    assert config.port == 8888
 
 
 def test_platform_context_ignores_blank_api_base_url_env(monkeypatch):

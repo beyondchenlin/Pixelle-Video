@@ -4,7 +4,7 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
-DEFAULT_API_PORT = 8001
+DEFAULT_API_PORT = 8888
 DEFAULT_API_BASE_URL = (
     os.getenv("PIXELLE_API_BASE_URL")
     or f"http://localhost:{os.getenv('PIXELLE_API_PORT', str(DEFAULT_API_PORT))}/api"

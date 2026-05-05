@@ -21,6 +21,22 @@ start_backend.bat
 stop_backend.bat
 ```
 
+For dual ComfyUI backends, use the role-specific entries instead of typing ports and paths:
+
+```text
+start_image_backend.bat
+start_tts_backend.bat
+stop_image_backend.bat
+stop_tts_backend.bat
+check_image_backend.bat
+check_tts_backend.bat
+```
+
+These entries use:
+
+- Image ComfyUI: `127.0.0.1:8001`, data root `E:\ComfyUIData\pixelle-image`
+- TTS ComfyUI: `127.0.0.1:8002`, data root `E:\ComfyUIData\pixelle-tts`
+
 Double-click `.bat` files to run the matching command instead of opening script source code.
 
 Each `.bat` file calls the matching PowerShell script with:

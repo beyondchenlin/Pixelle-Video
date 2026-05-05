@@ -9,7 +9,7 @@ def test_http_workbench_client_reads_capabilities_from_backend():
 
     calls: list[dict[str, Any]] = []
     client = HttpStoryboardWorkbenchClient(
-        api_base_url="http://localhost:8001/api",
+        api_base_url="http://localhost:8888/api",
         capability_loader=lambda **kwargs: calls.append(kwargs)
         or {
             "success": True,
@@ -22,14 +22,14 @@ def test_http_workbench_client_reads_capabilities_from_backend():
         "can_regenerate_frame_image": False,
         "regenerate_unavailable_reason": "task submitter is not configured",
     }
-    assert calls == [{"api_base_url": "http://localhost:8001/api"}]
+    assert calls == [{"api_base_url": "http://localhost:8888/api"}]
 
 
 def test_http_workbench_client_normalizes_candidate_display_urls():
     from web.workbench.http_client import HttpStoryboardWorkbenchClient
 
     client = HttpStoryboardWorkbenchClient(
-        api_base_url="http://localhost:8001/api/",
+        api_base_url="http://localhost:8888/api/",
         capability_loader=lambda **_kwargs: {
             "can_regenerate_frame_image": True,
             "regenerate_unavailable_reason": None,
@@ -63,7 +63,7 @@ def test_http_workbench_client_normalizes_candidate_display_urls():
     candidate = response["candidates"][0]
     assert candidate["image_display"] == {
         "kind": "url",
-        "url": "http://localhost:8001/api/files/artifacts/workspace_1/file.png",
+        "url": "http://localhost:8888/api/files/artifacts/workspace_1/file.png",
     }
     assert "url" not in candidate
 
@@ -86,7 +86,7 @@ def test_workbench_client_factory_defaults_to_inprocess_without_reading_api_base
     from web.state.workbench_client import resolve_storyboard_workbench_client
 
     monkeypatch.delenv("PIXELLE_WORKBENCH_CLIENT_MODE", raising=False)
-    monkeypatch.setenv("PIXELLE_API_BASE_URL", "http://localhost:8001/api")
+    monkeypatch.setenv("PIXELLE_API_BASE_URL", "http://localhost:8888/api")
     session_state = {}
     core = object()
 
@@ -264,7 +264,7 @@ def test_storyboard_workbench_ui_does_not_import_transport_or_display_helpers():
         "web.utils.stale_api",
         "web.utils.artifact_display_urls",
         "httpx",
-        "localhost:8001",
+        "localhost:8888",
     )
 
     for path in ui_files:
