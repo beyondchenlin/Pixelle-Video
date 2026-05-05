@@ -41,9 +41,9 @@ T = TypeVar("T", bound=BaseModel)
 class LLMService:
     """
     LLM (Large Language Model) service
-    
+
     Direct implementation using OpenAI SDK. No capability layer needed.
-    
+
     Supports all OpenAI SDK compatible providers:
     - OpenAI (gpt-4o, gpt-4o-mini, gpt-3.5-turbo)
     - Alibaba Qwen (qwen-max, qwen-plus, qwen-turbo)
@@ -52,16 +52,22 @@ class LLMService:
     - Moonshot Kimi (moonshot-v1-8k, moonshot-v1-32k, moonshot-v1-128k)
     - Ollama (llama3.2, qwen2.5, mistral, codellama) - FREE & LOCAL!
     - Any custom provider with OpenAI-compatible API
-    
+
     Usage:
         # Direct call
         answer = await pixelle_video.llm("Explain atomic habits")
-        
+
         # With parameters
         answer = await pixelle_video.llm(
             prompt="Explain atomic habits in 3 sentences",
             temperature=0.7,
             max_tokens=2000
+        )
+
+        # Structured output as dict
+        data = await pixelle_video.llm(
+            prompt="Generate a JSON with 'name' and 'value'",
+            response_type=dict
         )
     """
     
@@ -133,11 +139,11 @@ class LLMService:
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 2000,
-        response_type: Optional[Type[T]] = None,
+        response_type: Optional[Type[T] | Type[dict]] = None,
         trace_context: Optional[LLMTraceContext] = None,
         trace_recorder: Optional[LLMInteractionRecorder] = None,
         **kwargs
-    ) -> Union[str, T]:
+    ) -> Union[str, T, dict[str, Any]]:
         """
         Generate text using LLM
         
@@ -148,28 +154,37 @@ class LLMService:
             model: Model name (optional, uses config if not provided)
             temperature: Sampling temperature (0.0-2.0). Lower is more deterministic.
             max_tokens: Maximum tokens to generate
-            response_type: Optional Pydantic model class for structured output.
-                          If provided, returns parsed model instance instead of string.
+            response_type: Optional type for structured output.
+                          - If a Pydantic model class is provided, returns parsed model instance
+                          - If dict is provided, returns parsed JSON as dictionary
+                          - If None, returns raw text string
             **kwargs: Additional provider-specific parameters
-        
+
         Returns:
-            Generated text (str) or parsed Pydantic model instance (if response_type provided)
-        
+            Generated text (str), parsed Pydantic model instance, or dict (depending on response_type)
+
         Examples:
             # Basic text generation
             answer = await pixelle_video.llm("Explain atomic habits")
-            
+
             # Structured output with Pydantic model
             class MovieReview(BaseModel):
                 title: str
                 rating: int
                 summary: str
-            
+
             review = await pixelle_video.llm(
                 prompt="Review the movie Inception",
                 response_type=MovieReview
             )
             print(review.title)  # Structured access
+
+            # Structured output as dict (no model definition needed)
+            data = await pixelle_video.llm(
+                prompt="Generate a JSON object with 'name' and 'age' fields",
+                response_type=dict
+            )
+            print(data["name"])  # Direct dict access
         """
         # Create client (new instance each time to support parameter overrides)
         client = self._create_client(api_key=api_key, base_url=base_url)
@@ -185,7 +200,19 @@ class LLMService:
         
         try:
             if response_type is not None:
-                # Structured output mode
+                # Check if response_type is dict (raw JSON dict mode)
+                if response_type is dict:
+                    return await self._call_with_dict_output(
+                        client=client,
+                        model=final_model,
+                        prompt=prompt,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        trace_context=trace_context,
+                        trace_recorder=trace_recorder,
+                        **kwargs
+                    )
+                # Structured output mode with Pydantic model
                 return await self._call_with_structured_output(
                     client=client,
                     model=final_model,
@@ -457,6 +484,118 @@ class LLMService:
             error_message=error_message,
         )
         raise ValueError(error_message)
+
+    async def _call_with_dict_output(
+        self,
+        client: AsyncOpenAI,
+        model: str,
+        prompt: str,
+        temperature: float,
+        max_tokens: int,
+        trace_context: Optional[LLMTraceContext] = None,
+        trace_recorder: Optional[LLMInteractionRecorder] = None,
+        **kwargs
+    ) -> dict[str, Any]:
+        """
+        Call LLM and return response as a parsed JSON dictionary.
+
+        This is useful when you need structured JSON output but don't want
+        to define a Pydantic model. The LLM response will be parsed as JSON
+        and returned as a Python dict.
+
+        Args:
+            client: OpenAI client
+            model: Model name
+            prompt: The prompt (should instruct model to return JSON)
+            temperature: Sampling temperature
+            max_tokens: Max tokens
+            trace_context: Optional trace context
+            trace_recorder: Optional trace recorder
+            **kwargs: Additional parameters
+
+        Returns:
+            Parsed JSON as dictionary
+        """
+        # Enhance prompt to ensure JSON output
+        enhanced_prompt = f"""{prompt}
+
+## IMPORTANT: JSON Output Format Required
+You MUST respond with ONLY a valid JSON object (no markdown, no extra text).
+Output ONLY the JSON object, nothing else."""
+
+        request_payload = self._build_request_payload(
+            model=model,
+            messages=[{"role": "user", "content": enhanced_prompt}],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            extra_parameters=kwargs,
+        )
+
+        started_at = perf_counter()
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": enhanced_prompt}],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+                **kwargs
+            )
+        except Exception as exc:
+            await self._record_llm_trace(
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                provider=str(client.base_url or ""),
+                model=model,
+                request_payload=request_payload,
+                response_payload=None,
+                status=LLMTraceStatus.ERROR,
+                elapsed_ms=_elapsed_ms(started_at),
+                error_message=str(exc),
+            )
+            raise
+
+        content = response.choices[0].message.content or "{}"
+        elapsed_ms = _elapsed_ms(started_at)
+        token_usage = _extract_token_usage(response)
+
+        try:
+            parsed = parse_llm_json_response(
+                content,
+                allow_code_fence=True,
+                allow_embedded_json=False,
+            )
+            if not isinstance(parsed, dict):
+                raise ValueError(f"Expected JSON object, got {type(parsed).__name__}")
+        except Exception as exc:
+            await self._record_llm_trace(
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+                provider=str(client.base_url or ""),
+                model=model,
+                request_payload=request_payload,
+                response_payload=self._build_response_payload(response=response, content=content),
+                status=LLMTraceStatus.ERROR,
+                elapsed_ms=elapsed_ms,
+                token_usage=token_usage,
+                parse_error=str(exc),
+            )
+            raise
+
+        response_payload = self._build_response_payload(response=response, content=content)
+        await self._record_llm_trace(
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
+            provider=str(client.base_url or ""),
+            model=model,
+            request_payload=request_payload,
+            response_payload=response_payload,
+            status=LLMTraceStatus.SUCCESS,
+            elapsed_ms=elapsed_ms,
+            token_usage=token_usage,
+        )
+
+        return parsed
 
     async def _call_with_prompt_schema_structured_output(
         self,
