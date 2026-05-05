@@ -881,26 +881,35 @@ class PixelleVideoCore:
         if not session.prepared:
             return
 
+        # Determine whether to release based on session flag or task scope.
+        # When inside a task scope, always defer release to task exit to avoid
+        # unload/reload thrash between frames (e.g., GGUF model batch generation).
+        in_task_scope = self._local_comfyui_task_scope.get() is not None
+        if in_task_scope:
+            should_release = False
+        else:
+            should_release = session.release_after_session
+
         extensions = tuple(sorted(session.used_extensions))
         if extensions:
-            try:
-                released = await self._release_workflow_extensions(
-                    extensions,
-                    context_prefix="post",
-                    backend_role=session.backend_role,
-                    missing_endpoint="required",
-                )
-            except Exception:
-                scope = self._local_comfyui_task_scope.get()
-                if scope is not None:
-                    scope.state_for(session.backend_role).release_failed = True
-                raise
+            if should_release:
+                try:
+                    released = await self._release_workflow_extensions(
+                        extensions,
+                        context_prefix="post",
+                        backend_role=session.backend_role,
+                        missing_endpoint="required",
+                    )
+                    if released:
+                        self._mark_local_comfyui_released(backend_role=session.backend_role)
+                except Exception:
+                    scope = self._local_comfyui_task_scope.get()
+                    if scope is not None:
+                        scope.state_for(session.backend_role).release_failed = True
+                    raise
             return
 
-        if (
-            session.release_after_session
-            or self._should_release_local_comfyui_after_workflow()
-        ):
+        if should_release:
             try:
                 await self.release_comfyui_after_local_workflow(
                     backend_role=session.backend_role
