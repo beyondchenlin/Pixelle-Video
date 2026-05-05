@@ -23,6 +23,7 @@ from pixelle_video.models.text_style import (
     TextStyleProfile,
     build_default_text_style_profiles,
 )
+from loguru import logger
 from pixelle_video.services.text_overlay_planner import TextOverlayPlanner
 
 _PROGRAMMATIC_TARGETS = {"hyperframes", "html", "ass", "python"}
@@ -103,6 +104,19 @@ class TextRenderingOrchestrator:
         )
         effective_task_id = str(task_id or "").strip() or _PREVIEW_TASK_ID
         text_style_profiles = (caption_style, title_style, overlay_style)
+        logger.info(
+            "[TEXT_STYLE_DIAG] Orchestrator.build: template_id={}, "
+            "caption_style font_size={} color={}, "
+            "title_style font_size={} color={}",
+            template_id,
+            caption_style.font_size, caption_style.primary_color,
+            title_style.font_size, title_style.primary_color,
+        )
+        logger.info(
+            "[TEXT_STYLE_DIAG] Raw user overrides: caption_style={}, title_style={}",
+            dict(request.get("caption_style") or {}).get("font_size"),
+            dict(request.get("title_style") or {}).get("font_size"),
+        )
         diagnostics = _diagnostics(
             task_id=effective_task_id,
             render_backend=render_backend,

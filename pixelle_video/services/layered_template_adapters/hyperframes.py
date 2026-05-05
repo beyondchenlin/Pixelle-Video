@@ -5,15 +5,19 @@ from html import escape
 from pathlib import Path
 from typing import Any, Mapping
 
+from loguru import logger
+
 from pixelle_video.models.layered_template import LayeredTemplateSpec, TemplateLayer
 from pixelle_video.models.render_package import CaptionCue, VisualClip
 from pixelle_video.models.template_render_context import TemplateRenderContext
+from pixelle_video.models.text_style import TextStyleProfile
 from pixelle_video.services.text_content_sanitizer import TextContentSanitizer
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
     render_text_style_css,
     text_style_lines,
 )
+from pixelle_video.services.text_style_resolver import TextStyleResolver
 
 _HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 _UNSAFE_FONT_CHARS = {'"', "'", ";", ":", "{", "}", "(", ")", "\\", "/"}
@@ -171,6 +175,7 @@ class LayeredTemplateHyperFramesAdapter:
                 layer=caption_layer,
                 canvas_width=spec.canvas_width,
                 canvas_height=spec.canvas_height,
+                context=context,
             )
             for cue in context.captions
         )
@@ -280,13 +285,17 @@ class LayeredTemplateHyperFramesAdapter:
         context: TemplateRenderContext,
     ) -> str:
         text = self._resolve_text_layer_content(layer=layer, context=context)
-        normalized = "\n".join(text_style_lines(text, style=layer.style))
+        effective_style = self._resolve_effective_title_style(
+            layer=layer,
+            context=context,
+        )
+        normalized = "\n".join(text_style_lines(text, style=effective_style))
         display_text = self.text_sanitizer.sanitize(normalized).display_text
         return (
             f'      <div class="pixelle-layer pixelle-layered-text" '
             f'data-layer-id="{escape(layer.id, quote=True)}" '
             f'data-layer-type="{escape(layer.type, quote=True)}" '
-            f'style="{self._layer_css(layer, include_rect=False)}{self._text_css(layer, canvas_width=context.canvas_width, canvas_height=context.canvas_height)}">'
+            f'style="{self._layer_css(layer, include_rect=False)}{self._text_css_from_style(style=effective_style, layer=layer, canvas_width=context.canvas_width, canvas_height=context.canvas_height)}">'
             f"{escape(display_text)}</div>"
         )
 
@@ -377,10 +386,17 @@ class LayeredTemplateHyperFramesAdapter:
         layer: TemplateLayer | None,
         canvas_width: int,
         canvas_height: int,
+        context: TemplateRenderContext,
     ) -> str:
         duration = max(float(cue.end) - float(cue.start), 0.001)
-        css = self._layer_css(layer, include_rect=False) + self._text_css(
-            layer,
+        effective_style = self._resolve_effective_caption_style(
+            cue=cue,
+            layer=layer,
+            context=context,
+        )
+        css = self._layer_css(layer, include_rect=False) + self._text_css_from_style(
+            style=effective_style,
+            layer=layer,
             canvas_width=canvas_width,
             canvas_height=canvas_height,
         ) if layer is not None else (
@@ -456,7 +472,8 @@ class LayeredTemplateHyperFramesAdapter:
         return ""
 
     @staticmethod
-    def _text_css(
+    def _text_css_from_style(
+        style: Mapping[str, Any],
         layer: TemplateLayer | None,
         *,
         canvas_width: int,
@@ -464,7 +481,6 @@ class LayeredTemplateHyperFramesAdapter:
     ) -> str:
         if layer is None:
             return ""
-        style: Mapping[str, Any] = layer.style
         return render_text_style_css(
             style,
             canvas_width=canvas_width,
@@ -486,6 +502,66 @@ class LayeredTemplateHyperFramesAdapter:
         if value in {"contain", "cover", "fill", "none", "scale-down"}:
             return str(value)
         return "cover"
+
+    def _resolve_effective_title_style(
+        self,
+        *,
+        layer: TemplateLayer,
+        context: TemplateRenderContext,
+    ) -> Mapping[str, Any]:
+        if context.title_style_profile is None:
+            logger.debug(
+                "[TEXT_STYLE_DIAG] LayeredAdapter: no title_style_profile in context, "
+                "using layer.style defaults for title layer '{}'",
+                layer.id,
+            )
+            return dict(layer.style)
+
+        base_style = dict(layer.style)
+        user_style = context.title_style_profile.to_dict()
+        user_style_clean = {k: v for k, v in user_style.items() if v is not None}
+
+        effective = {**base_style, **user_style_clean}
+        logger.info(
+            "[TEXT_STYLE_DIAG] LayeredAdapter: title layer '{}' using user style: "
+            "font_size={} primary_color={} (layer defaults overridden)",
+            layer.id,
+            effective.get("font_size"),
+            effective.get("primary_color"),
+        )
+        return effective
+
+    def _resolve_effective_caption_style(
+        self,
+        *,
+        cue: CaptionCue,
+        layer: TemplateLayer | None,
+        context: TemplateRenderContext,
+    ) -> Mapping[str, Any]:
+        base_style = dict(layer.style) if layer is not None else {}
+
+        if not context.text_style_profiles:
+            logger.debug(
+                "[TEXT_STYLE_DIAG] LayeredAdapter: no text_style_profiles in context, "
+                "using layer.style defaults for caption cue '{}'",
+                cue.id,
+            )
+            return base_style
+
+        resolver = TextStyleResolver(profiles=context.text_style_profiles)
+        caption_profile = resolver.resolve_for_cue(cue=cue)
+
+        user_style_clean = {k: v for k, v in caption_profile.to_dict().items() if v is not None}
+        effective = {**base_style, **user_style_clean}
+        logger.info(
+            "[TEXT_STYLE_DIAG] LayeredAdapter: caption cue '{}' resolved profile '{}': "
+            "font_size={} primary_color={} (layer defaults overridden by user style)",
+            cue.id,
+            caption_profile.id,
+            effective.get("font_size"),
+            effective.get("primary_color"),
+        )
+        return effective
 
 
 __all__ = ["LayeredTemplateHyperFramesAdapter"]

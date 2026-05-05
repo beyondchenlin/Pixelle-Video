@@ -7,6 +7,7 @@ from html import escape
 from pathlib import Path
 from shutil import copy2
 
+from loguru import logger
 from pixelle_video.models.layered_template import active_layered_template_spec
 from pixelle_video.models.media_placement import calculate_media_box
 from pixelle_video.models.render_package import CaptionCue, TextCue
@@ -332,6 +333,13 @@ class HyperFramesCompiler:
         context: TemplateRenderContext,
     ) -> TextStyleProfile:
         if context.title_style_profile is not None:
+            logger.info(
+                "[TEXT_STYLE_DIAG] Compiler: using context.title_style_profile "
+                "id={} font_size={} color={}",
+                context.title_style_profile.id,
+                context.title_style_profile.font_size,
+                context.title_style_profile.primary_color,
+            )
             return context.title_style_profile
 
         title_payload = resolve_template_text_style_preset(
