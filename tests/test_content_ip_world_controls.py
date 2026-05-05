@@ -1,4 +1,6 @@
 from web.components import content_ip_world_controls
+import json
+from pathlib import Path
 
 
 class _FakeContext:
@@ -377,3 +379,31 @@ def test_render_content_ip_world_controls_marks_auto_world_hint_as_manual_after_
     }
     assert fake_ui.session_state["content_generation_world_hint_source"] == "manual"
     assert fake_ui.session_state["content_generation_world_hint_last_value"] == "Edited world hint."
+
+
+def test_content_ip_world_translation_keys_exist_in_supported_locales():
+    locale_dir = Path(__file__).resolve().parents[1] / "web" / "i18n" / "locales"
+    required_keys = {
+        "content.ip_world.section_title",
+        "content.ip_world.enabled",
+        "content.ip_world.enabled_help",
+        "content.ip_world.asset_bible",
+        "content.ip_world.ip_profile",
+        "content.ip_world.selected_profile",
+        "content.ip_world.empty_asset_bibles",
+        "content.ip_world.empty_profiles",
+        "content.ip_world.load_failed",
+        "content.ip_world.generation_world_hint",
+        "content.ip_world.generation_world_hint_help",
+        "content.ip_world.generate_from_content",
+        "content.ip_world.use_ip_default",
+        "content.ip_world.missing_content",
+        "content.ip_world.missing_ip_default",
+        "content.ip_world.generate_failed",
+    }
+
+    for locale_name in ("zh_CN", "en_US"):
+        with (locale_dir / f"{locale_name}.json").open(encoding="utf-8") as file:
+            translations = json.load(file)["t"]
+        missing = required_keys - set(translations)
+        assert missing == set()
