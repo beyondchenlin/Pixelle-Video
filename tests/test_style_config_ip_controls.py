@@ -106,6 +106,74 @@ def test_resolve_selected_ip_prompt_chain_profile_summary_returns_world_hint():
     assert summary["ip_profile_name"] == "White Rabbit Guide"
 
 
+def test_render_ip_prompt_chain_controls_supports_content_state_prefix():
+    fake_ui = _FakeStyleConfigUI()
+    fake_ui.session_state["content_ip_enabled"] = True
+    fake_ui.session_state["content_ip_asset_bible_id"] = "bible_demo"
+    fake_ui.session_state["content_ip_profile_id"] = "ip_main"
+
+    payload = ip_prompt_chain_controls.render_ip_prompt_chain_controls(
+        ui=fake_ui,
+        asset_bibles=[
+            {
+                "asset_bible_id": "bible_demo",
+                "ip_profiles": [
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "White Rabbit Guide",
+                        "world_hint": "Friendly guide world.",
+                    }
+                ],
+            }
+        ],
+        translate=lambda key, **_kwargs: key,
+        state_key_prefix="content_ip",
+        label_key_prefix="content.ip_world",
+    )
+
+    assert payload == {
+        "ip_enabled": True,
+        "ip_asset_bible_id": "bible_demo",
+        "ip_profile_id": "ip_main",
+        "ip_profile_world_hint": "Friendly guide world.",
+    }
+    assert fake_ui.toggle_calls[0]["key"] == "content_ip_enabled"
+    assert [call["key"] for call in fake_ui.selectbox_calls] == [
+        "content_ip_asset_bible_id",
+        "content_ip_profile_id",
+    ]
+
+
+def test_resolve_selected_ip_prompt_chain_profile_summary_supports_content_state_prefix():
+    summary = ip_prompt_chain_controls.resolve_selected_ip_prompt_chain_profile_summary(
+        session_state={
+            "content_ip_enabled": True,
+            "content_ip_asset_bible_id": "bible_demo",
+            "content_ip_profile_id": "ip_main",
+        },
+        asset_bibles=[
+            {
+                "asset_bible_id": "bible_demo",
+                "ip_profiles": [
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "White Rabbit Guide",
+                        "world_hint": "Friendly guide world.",
+                    }
+                ],
+            }
+        ],
+        state_key_prefix="content_ip",
+    )
+
+    assert summary == {
+        "ip_asset_bible_id": "bible_demo",
+        "ip_profile_id": "ip_main",
+        "ip_profile_name": "White Rabbit Guide",
+        "ip_profile_world_hint": "Friendly guide world.",
+    }
+
+
 def test_style_config_hides_ip_selectors_when_disabled():
     fake_ui = _FakeStyleConfigUI()
 

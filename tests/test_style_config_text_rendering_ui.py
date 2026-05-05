@@ -877,6 +877,17 @@ def test_standard_pipeline_passes_content_context_to_style_config(monkeypatch):
         captured["storyboard_prompt_language"] = storyboard_prompt_language
         return {"style": "ok"}
 
+    def fake_render_content_input(*, pixelle_video=None):
+        captured["content_input_pixelle_video"] = pixelle_video
+        return {
+            "title": "上下文标题",
+            "text": "第一行字幕\n第二行",
+            "storyboard_prompt_language": "en_US",
+            "ip_enabled": True,
+            "ip_asset_bible_id": "content_bible",
+            "ip_profile_id": "content_profile",
+        }
+
     monkeypatch.setattr(
         standard_pipeline.st,
         "columns",
@@ -885,11 +896,7 @@ def test_standard_pipeline_passes_content_context_to_style_config(monkeypatch):
     monkeypatch.setattr(
         standard_pipeline,
         "render_content_input",
-        lambda: {
-            "title": "上下文标题",
-            "text": "第一行字幕\n第二行",
-            "storyboard_prompt_language": "en_US",
-        },
+        fake_render_content_input,
     )
     monkeypatch.setattr(standard_pipeline, "render_bgm_section", lambda **_kwargs: {})
     monkeypatch.setattr(standard_pipeline, "render_version_info", lambda: None)
@@ -898,17 +905,29 @@ def test_standard_pipeline_passes_content_context_to_style_config(monkeypatch):
     monkeypatch.setattr(
         standard_pipeline,
         "render_output_preview",
-        lambda _pixelle_video, _video_params: None,
+        lambda _pixelle_video, _video_params: captured.update(
+            {"preview_pixelle_video": _pixelle_video, "video_params": _video_params}
+        ),
     )
 
-    standard_pipeline.StandardPipelineUI().render(object())
+    pixelle_video = object()
+    standard_pipeline.StandardPipelineUI().render(pixelle_video)
 
+    assert captured["content_input_pixelle_video"] is pixelle_video
+    assert captured["preview_pixelle_video"] is pixelle_video
     assert captured["storyboard_prompt_language"] == "en_US"
     assert captured["content_context"] == {
         "title": "上下文标题",
         "text": "第一行字幕\n第二行",
         "storyboard_prompt_language": "en_US",
+        "ip_enabled": True,
+        "ip_asset_bible_id": "content_bible",
+        "ip_profile_id": "content_profile",
     }
+    assert captured["video_params"]["ip_enabled"] is True
+    assert captured["video_params"]["ip_asset_bible_id"] == "content_bible"
+    assert captured["video_params"]["ip_profile_id"] == "content_profile"
+    assert "ip_profile_world_hint" not in captured["video_params"]
 
 
 def test_text_rendering_font_help_translation_keys_exist_in_supported_locales():

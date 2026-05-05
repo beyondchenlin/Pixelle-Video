@@ -963,11 +963,12 @@ def test_build_storyboard_control_payload_omits_blank_generation_world_hint():
     assert payload == {"world_preset_id": "neutral_knowledge_storyboard"}
 
 
-def test_render_storyboard_advanced_controls_renders_generation_world_hint(monkeypatch):
+def test_render_storyboard_advanced_controls_no_longer_renders_generation_world_hint(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["storyboard_planning_enabled"] = True
     fake_st.session_state["storyboard_generation_world_hint"] = "古城清晨漫游"
     text_area_calls = []
+    button_calls = []
 
     def _text_area(label, value="", **kwargs):
         text_area_calls.append({"label": label, "value": value, **kwargs})
@@ -976,7 +977,13 @@ def test_render_storyboard_advanced_controls_renders_generation_world_hint(monke
             return fake_st.session_state[key]
         return value
 
+    def _button(*args, **kwargs):
+        button_calls.append({"args": args, **kwargs})
+        key = kwargs.get("key")
+        return bool(fake_st.session_state.get("_button_returns", {}).get(key, False))
+
     fake_st.text_area = _text_area
+    fake_st.button = _button
     monkeypatch.setattr(
         storyboard_planning_controls,
         "render_storyboard_planning_guide",
@@ -997,79 +1004,16 @@ def test_render_storyboard_advanced_controls_renders_generation_world_hint(monke
         shot_library_loader=lambda: {"items": []},
     )
 
-    assert payload["generation_world_hint"] == "古城清晨漫游"
-    assert any(call["label"] == "storyboard.generation_world_hint" for call in text_area_calls)
-
-
-def test_render_storyboard_advanced_controls_can_fill_world_hint_from_ip_default(monkeypatch):
-    fake_st = _FakeStreamlit()
-    fake_st.session_state["storyboard_planning_enabled"] = True
-    fake_st.session_state["_button_returns"] = {
-        "storyboard_world_hint_use_ip_default": True,
-    }
-    monkeypatch.setattr(
-        storyboard_planning_controls,
-        "render_storyboard_planning_guide",
-        lambda **_kwargs: None,
+    assert "generation_world_hint" not in payload
+    assert not any(
+        call["label"] == "storyboard.generation_world_hint" for call in text_area_calls
     )
-    monkeypatch.setattr(storyboard_planning_controls, "safe_rerun", lambda: None)
-
-    storyboard_planning_controls.render_storyboard_advanced_controls(
-        ui=fake_st,
-        translate=lambda key, **kwargs: key,
-        session_state=fake_st.session_state,
-        storyboard_default_enabled=True,
-        world_library_loader=lambda: {"default_world_preset_id": None, "items": []},
-        shot_library_loader=lambda: {"items": []},
-        ip_profile_world_hint="Friendly guide world.",
-        content_context={"title": "demo", "text": "demo"},
-    )
-
-    assert fake_st.session_state["storyboard_generation_world_hint"] == "Friendly guide world."
-
-
-def test_render_storyboard_advanced_controls_can_fill_world_hint_from_generated_draft(monkeypatch):
-    fake_st = _FakeStreamlit()
-    fake_st.session_state["storyboard_planning_enabled"] = True
-    fake_st.session_state["_button_returns"] = {
-        "storyboard_world_hint_generate_from_content": True,
-    }
-    captured = {}
-    monkeypatch.setattr(
-        storyboard_planning_controls,
-        "render_storyboard_planning_guide",
-        lambda **_kwargs: None,
-    )
-    monkeypatch.setattr(storyboard_planning_controls, "safe_rerun", lambda: None)
-
-    def _draft_generator(**payload):
-        captured.update(payload)
-        return {"world_hint_draft": "Ancient city dawn walk. The IP is a companion guide."}
-
-    storyboard_planning_controls.render_storyboard_advanced_controls(
-        ui=fake_st,
-        translate=lambda key, **kwargs: key,
-        session_state=fake_st.session_state,
-        storyboard_default_enabled=True,
-        world_library_loader=lambda: {
-            "default_world_preset_id": "neutral_knowledge_storyboard",
-            "items": [
-                {"preset_id": "neutral_knowledge_storyboard", "display_name": "Neutral"}
-            ],
-        },
-        shot_library_loader=lambda: {"items": []},
-        ip_profile_world_hint="Friendly guide world.",
-        content_context={"title": "Zhengding walk", "text": "Start from Changle Gate."},
-        world_hint_draft_generator=_draft_generator,
-    )
-
-    assert captured["source_text"] == "Start from Changle Gate."
-    assert captured["title"] == "Zhengding walk"
-    assert captured["world_preset_id"] == "neutral_knowledge_storyboard"
-    assert captured["ip_default_world_hint"] == "Friendly guide world."
-    assert (
-        fake_st.session_state["storyboard_generation_world_hint"]
-        == "Ancient city dawn walk. The IP is a companion guide."
+    assert not any(
+        call.get("key") in {
+            "storyboard_world_hint_generate_from_content",
+            "storyboard_world_hint_use_ip_default",
+        }
+        for call in button_calls
     )
 
 
@@ -1132,7 +1076,7 @@ def test_standard_pipeline_ui_passes_storyboard_default_enabled_to_render_style_
     monkeypatch.setattr(
         standard_pipeline,
         "render_content_input",
-        lambda: {
+        lambda *, pixelle_video=None: {
             "content": "ok",
             "title": "Preview title",
             "text": "Preview caption",
@@ -2562,12 +2506,21 @@ def test_render_style_config_defaults_other_middle_sections_to_collapsed_while_i
     assert fake_st.popovers == ["help.feature_description", "help.feature_description"]
 
 
-def test_render_style_config_includes_ip_prompt_chain_controls(monkeypatch):
+def test_style_config_no_longer_renders_standard_ip_selector_in_middle_column():
+    source = (
+        Path(__file__).resolve().parents[1] / "web" / "components" / "style_config.py"
+    ).read_text(encoding="utf-8")
+
+    assert "render_ip_prompt_chain_controls(" not in source
+    assert "style_ip_asset_bibles" not in source
+    assert "style_ip_profile_world_hint" not in source
+    assert "**ip_prompt_chain_controls" not in source
+
+
+def test_render_style_config_does_not_emit_ip_prompt_chain_payload(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["template_type_selector"] = "image"
     fake_st.session_state["style_ip_enabled"] = True
-    fake_st.session_state["style_ip_asset_bible_id"] = "bible_demo"
-    fake_st.session_state["style_ip_profile_id"] = "ip_main"
     monkeypatch.setattr(style_config, "st", fake_st)
     monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
     monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
@@ -2589,18 +2542,6 @@ def test_render_style_config_includes_ip_prompt_chain_controls(monkeypatch):
     monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
     monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
     monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(
-        style_config,
-        "load_ip_prompt_chain_asset_bibles",
-        lambda **_kwargs: [
-            {
-                "asset_bible_id": "bible_demo",
-                "ip_profiles": [
-                    {"ip_profile_id": "ip_main", "name": "Zhengding Guide"}
-                ],
-            }
-        ],
-    )
     monkeypatch.setattr(
         "pixelle_video.utils.template_util.get_template_type",
         lambda _template_name: "image",
@@ -2678,256 +2619,11 @@ def test_render_style_config_includes_ip_prompt_chain_controls(monkeypatch):
 
     result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
 
-    assert result["ip_enabled"] is True
-    assert result["ip_asset_bible_id"] == "bible_demo"
-    assert result["ip_profile_id"] == "ip_main"
-
-
-def test_render_style_config_caches_ip_asset_bibles_and_selected_summary(monkeypatch):
-    fake_st = _FakeStreamlit()
-    fake_st.session_state["template_type_selector"] = "image"
-    fake_st.session_state["style_ip_enabled"] = True
-    fake_st.session_state["style_ip_asset_bible_id"] = "bible_demo"
-    fake_st.session_state["style_ip_profile_id"] = "ip_main"
-    monkeypatch.setattr(style_config, "st", fake_st)
-    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
-    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
-    monkeypatch.setattr(
-        style_config.config_manager,
-        "get_comfyui_config",
-        lambda: {
-            "tts": {
-                "inference_mode": "local",
-                "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2},
-                "comfyui": {},
-            },
-            "image": {},
-            "video": {},
-        },
-    )
-    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "render_backend")
-    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
-    monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
-    monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
-    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(
-        style_config,
-        "load_ip_prompt_chain_asset_bibles",
-        lambda **_kwargs: [
-            {
-                "asset_bible_id": "bible_demo",
-                "ip_profiles": [
-                    {
-                        "ip_profile_id": "ip_main",
-                        "name": "White Rabbit Guide",
-                        "world_hint": "Friendly guide world.",
-                    }
-                ],
-            }
-        ],
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.template_util.get_template_type",
-        lambda _template_name: "image",
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
-        lambda _template_type: {
-            "1080x1920": [
-                type(
-                    "TemplateInfo",
-                    (),
-                    {
-                        "template_path": "1080x1920/image_default.html",
-                        "display_info": type(
-                            "DisplayInfo",
-                            (),
-                            {
-                                "name": "image_default",
-                                "orientation": "portrait",
-                                "width": 1080,
-                                "height": 1920,
-                            },
-                        )(),
-                    },
-                )()
-            ]
-        },
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.template_util.parse_template_size",
-        lambda _path: (1080, 1920),
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.template_util.resolve_template_path",
-        lambda path: path,
-    )
-
-    class _FakeFrameGenerator:
-        def __init__(self, _template_path):
-            self._template_path = _template_path
-
-        def parse_template_parameters(self):
-            return {}
-
-        def get_media_size(self):
-            return (1080, 1920)
-
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
-
-    original_radio = fake_st.radio
-
-    def _radio(label, options, index=0, key=None, **kwargs):
-        if key == "template_type_selector":
-            return "image"
-        return original_radio(label, options, index=index, key=key, **kwargs)
-
-    fake_st.radio = _radio
-
-    class _FakeMedia:
-        @staticmethod
-        def list_workflows():
-            return [
-                {
-                    "display_name": "Image Default",
-                    "key": "selfhost/image_z_image_turbo_gguf.json",
-                }
-            ]
-
-    class _FakeVideo:
-        config = {"template": {}}
-        media = _FakeMedia()
-
-    style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
-
-    assert fake_st.session_state["style_ip_asset_bibles"][0]["asset_bible_id"] == "bible_demo"
-    assert fake_st.session_state["style_ip_profile_world_hint"] == "Friendly guide world."
-
-
-def test_render_style_config_caches_default_selected_ip_world_hint(monkeypatch):
-    fake_st = _FakeStreamlit()
-    fake_st.session_state["template_type_selector"] = "image"
-    fake_st.session_state["style_ip_enabled"] = True
-    monkeypatch.setattr(style_config, "st", fake_st)
-    monkeypatch.setattr(style_config, "tr", lambda key, **kwargs: key)
-    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
-    monkeypatch.setattr(
-        style_config.config_manager,
-        "get_comfyui_config",
-        lambda: {
-            "tts": {
-                "inference_mode": "local",
-                "local": {"voice": "zh-CN-YunjianNeural", "speed": 1.2},
-                "comfyui": {},
-            },
-            "image": {},
-            "video": {},
-        },
-    )
-    monkeypatch.setattr(style_config, "render_render_backend_selector", lambda: "render_backend")
-    monkeypatch.setattr(style_config, "render_tts_audio_strategy_selector", lambda: "auto")
-    monkeypatch.setattr(style_config, "render_storyboard_planning_guide", lambda: None)
-    monkeypatch.setattr(style_config, "render_storyboard_preview", lambda _snapshot: [])
-    monkeypatch.setattr(style_config, "_render_image_prompt_prefix_library", lambda **_kwargs: "")
-    monkeypatch.setattr(
-        style_config,
-        "load_ip_prompt_chain_asset_bibles",
-        lambda **_kwargs: [
-            {
-                "asset_bible_id": "bible_demo",
-                "ip_profiles": [
-                    {
-                        "ip_profile_id": "ip_main",
-                        "name": "White Rabbit Guide",
-                        "world_hint": "Friendly guide world.",
-                    }
-                ],
-            }
-        ],
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.template_util.get_template_type",
-        lambda _template_name: "image",
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.template_util.get_templates_grouped_by_size_and_type",
-        lambda _template_type: {
-            "1080x1920": [
-                type(
-                    "TemplateInfo",
-                    (),
-                    {
-                        "template_path": "1080x1920/image_default.html",
-                        "display_info": type(
-                            "DisplayInfo",
-                            (),
-                            {
-                                "name": "image_default",
-                                "orientation": "portrait",
-                                "width": 1080,
-                                "height": 1920,
-                            },
-                        )(),
-                    },
-                )()
-            ]
-        },
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.template_util.parse_template_size",
-        lambda _path: (1080, 1920),
-    )
-    monkeypatch.setattr(
-        "pixelle_video.utils.template_util.resolve_template_path",
-        lambda path: path,
-    )
-
-    class _FakeFrameGenerator:
-        def __init__(self, _template_path):
-            self._template_path = _template_path
-
-        def parse_template_parameters(self):
-            return {}
-
-        def get_media_size(self):
-            return (1080, 1920)
-
-    monkeypatch.setattr(
-        "pixelle_video.services.frame_html.HTMLFrameGenerator",
-        _FakeFrameGenerator,
-    )
-
-    original_radio = fake_st.radio
-
-    def _radio(label, options, index=0, key=None, **kwargs):
-        if key == "template_type_selector":
-            return "image"
-        return original_radio(label, options, index=index, key=key, **kwargs)
-
-    fake_st.radio = _radio
-
-    class _FakeMedia:
-        @staticmethod
-        def list_workflows():
-            return [
-                {
-                    "display_name": "Image Default",
-                    "key": "selfhost/image_z_image_turbo_gguf.json",
-                }
-            ]
-
-    class _FakeVideo:
-        config = {"template": {}}
-        media = _FakeMedia()
-
-    style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
-
-    assert fake_st.session_state["style_ip_asset_bible_id"] == "bible_demo"
-    assert fake_st.session_state["style_ip_profile_id"] == "ip_main"
-    assert fake_st.session_state["style_ip_profile_world_hint"] == "Friendly guide world."
+    assert "ip_enabled" not in result
+    assert "ip_asset_bible_id" not in result
+    assert "ip_profile_id" not in result
+    assert "style_ip_asset_bibles" not in fake_st.session_state
+    assert "style_ip_profile_world_hint" not in fake_st.session_state
 
 
 def test_render_image_prompt_prefix_library_renders_filter_panel_without_nested_expander(monkeypatch):
@@ -3132,4 +2828,3 @@ def test_image_generation_translation_keys_exist_in_supported_locales():
         translations = json.loads((locale_dir / locale_name).read_text(encoding="utf-8"))["t"]
         missing_keys = [key for key in required_keys if key not in translations]
         assert missing_keys == []
-

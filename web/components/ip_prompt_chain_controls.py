@@ -18,14 +18,20 @@ def render_ip_prompt_chain_controls(
     asset_bibles: Sequence[Mapping[str, Any]] = (),
     asset_bible_loader: Callable[[], Sequence[Mapping[str, Any]]] | None = None,
     translate: Translate = tr,
+    state_key_prefix: str = "style_ip",
+    label_key_prefix: str = "style.ip_prompt_chain",
 ) -> dict[str, Any]:
     """Render standard-generation controls for applying a designed IP profile."""
+    enabled_key = _state_key(state_key_prefix, "enabled")
+    asset_bible_key = _state_key(state_key_prefix, "asset_bible_id")
+    profile_key = _state_key(state_key_prefix, "profile_id")
+    normalized_label_prefix = _first_text(label_key_prefix) or "style.ip_prompt_chain"
     enabled = bool(
         ui.toggle(
-            translate("style.ip_prompt_chain.enabled"),
-            value=bool(ui.session_state.get("style_ip_enabled", False)),
-            key="style_ip_enabled",
-            help=translate("style.ip_prompt_chain.enabled_help"),
+            translate(f"{normalized_label_prefix}.enabled"),
+            value=bool(ui.session_state.get(enabled_key, False)),
+            key=enabled_key,
+            help=translate(f"{normalized_label_prefix}.enabled_help"),
         )
     )
     if not enabled:
@@ -40,7 +46,7 @@ def render_ip_prompt_chain_controls(
         if _first_text(item.get("asset_bible_id"))
     ]
     if not normalized_asset_bibles:
-        ui.warning(translate("style.ip_prompt_chain.empty_asset_bibles"))
+        ui.warning(translate(f"{normalized_label_prefix}.empty_asset_bibles"))
         return {"ip_enabled": False}
 
     asset_bible_options = [
@@ -48,8 +54,8 @@ def render_ip_prompt_chain_controls(
     ]
     asset_bible_id = _select_valid_option(
         ui=ui,
-        label=translate("style.ip_prompt_chain.asset_bible"),
-        key="style_ip_asset_bible_id",
+        label=translate(f"{normalized_label_prefix}.asset_bible"),
+        key=asset_bible_key,
         options=asset_bible_options,
         format_func=lambda item_id: _format_ip_asset_bible_option(
             _find_mapping_item(normalized_asset_bibles, "asset_bible_id", item_id)
@@ -66,14 +72,14 @@ def render_ip_prompt_chain_controls(
         if _first_text(item.get("ip_profile_id"))
     ]
     if not ip_profiles:
-        ui.warning(translate("style.ip_prompt_chain.empty_profiles"))
+        ui.warning(translate(f"{normalized_label_prefix}.empty_profiles"))
         return {"ip_enabled": False}
 
     ip_profile_options = [_first_text(item.get("ip_profile_id")) for item in ip_profiles]
     ip_profile_id = _select_valid_option(
         ui=ui,
-        label=translate("style.ip_prompt_chain.ip_profile"),
-        key="style_ip_profile_id",
+        label=translate(f"{normalized_label_prefix}.ip_profile"),
+        key=profile_key,
         options=ip_profile_options,
         format_func=lambda item_id: _format_ip_profile_option(
             _find_mapping_item(ip_profiles, "ip_profile_id", item_id) or {}
@@ -86,7 +92,7 @@ def render_ip_prompt_chain_controls(
     if profile_name:
         ui.caption(
             translate(
-                "style.ip_prompt_chain.selected_profile",
+                f"{normalized_label_prefix}.selected_profile",
                 ip_profile_name=profile_name,
             )
         )
@@ -120,19 +126,23 @@ def resolve_selected_ip_prompt_chain_profile_summary(
     *,
     session_state,
     asset_bibles,
+    state_key_prefix: str = "style_ip",
 ) -> dict[str, Any]:
     """Resolve the currently selected IP profile without rendering Streamlit widgets."""
-    if not bool(session_state.get("style_ip_enabled", False)):
+    enabled_key = _state_key(state_key_prefix, "enabled")
+    asset_bible_key = _state_key(state_key_prefix, "asset_bible_id")
+    profile_key = _state_key(state_key_prefix, "profile_id")
+    if not bool(session_state.get(enabled_key, False)):
         return {}
     asset_bible = _find_mapping_item(
         [dict(item) for item in asset_bibles if isinstance(item, Mapping)],
         "asset_bible_id",
-        session_state.get("style_ip_asset_bible_id"),
+        session_state.get(asset_bible_key),
     ) or {}
     profile = _find_mapping_item(
         _list_of_dicts(asset_bible.get("ip_profiles")),
         "ip_profile_id",
-        session_state.get("style_ip_profile_id"),
+        session_state.get(profile_key),
     ) or {}
     summary = {
         "ip_asset_bible_id": _first_text(asset_bible.get("asset_bible_id")),
@@ -167,6 +177,11 @@ def _select_valid_option(
         format_func=format_func,
     )
     return _first_text(value)
+
+
+def _state_key(prefix: str, suffix: str) -> str:
+    normalized_prefix = _first_text(prefix) or "style_ip"
+    return f"{normalized_prefix}_{suffix}"
 
 
 def _format_ip_asset_bible_option(asset_bible: Mapping[str, Any]) -> str:

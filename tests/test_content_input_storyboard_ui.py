@@ -42,15 +42,20 @@ class _FakeStreamlit:
         self.markdowns: list[dict] = []
         self.sliders: list[dict] = []
         self.number_inputs: list[dict] = []
+        self.text_areas: list[dict] = []
+        self.text_inputs: list[dict] = []
         self.radio_values: dict[str, str] = {}
         self.checkbox_values: dict[str, bool] = {}
         self.checkbox_calls: list[dict] = []
-        self.session_state: dict[str, int] = {}
+        self.session_state: dict[str, object] = {}
         self._context_stack: list[str] = []
 
     def expander(self, label, expanded=False):
         self.expanders.append({"label": label, "expanded": expanded, "parent": self._current_parent()})
         return _FakeExpander(self, label)
+
+    def container(self, **_kwargs):
+        return _FakeExpander(self, "container")
 
     def markdown(self, body, **kwargs):
         self.markdowns.append({"body": body, "parent": self._current_parent(), **kwargs})
@@ -79,10 +84,33 @@ class _FakeStreamlit:
             return self.session_state[key]
         return value
 
+    def text_area(self, label, *, value="", **kwargs):
+        self.text_areas.append({"label": label, "value": value, **kwargs})
+        key = kwargs.get("key")
+        if key is not None and key in self.session_state:
+            return self.session_state[key]
+        return value
+
+    def text_input(self, label, *, value="", **kwargs):
+        self.text_inputs.append({"label": label, "value": value, **kwargs})
+        key = kwargs.get("key")
+        if key is not None and key in self.session_state:
+            return self.session_state[key]
+        return value
+
     def columns(self, spec):
         return [_FakeColumn(self) for _ in spec]
 
     def caption(self, *_args, **_kwargs):
+        return None
+
+    def info(self, *_args, **_kwargs):
+        return None
+
+    def success(self, *_args, **_kwargs):
+        return None
+
+    def error(self, *_args, **_kwargs):
         return None
 
     def _current_parent(self):
@@ -174,25 +202,13 @@ def test_storyboard_generation_controls_include_prompt_language_in_base_payload(
     assert any(call["label"] == "storyboard.advanced_enabled" for call in fake_st.checkbox_calls)
 
 
-def test_storyboard_generation_controls_pass_content_and_selected_ip_context(monkeypatch):
+def test_storyboard_generation_controls_do_not_pass_content_context_to_advanced_controls(
+    monkeypatch,
+):
     fake_st = _FakeStreamlit()
     fake_st.session_state.update(
         {
-            "style_ip_enabled": True,
-            "style_ip_asset_bible_id": "bible_demo",
-            "style_ip_profile_id": "ip_main",
-            "style_ip_asset_bibles": [
-                {
-                    "asset_bible_id": "bible_demo",
-                    "ip_profiles": [
-                        {
-                            "ip_profile_id": "ip_main",
-                            "name": "White Rabbit Guide",
-                            "world_hint": "Friendly guide world.",
-                        }
-                    ],
-                }
-            ],
+            "storyboard_world_preset_id": "neutral_knowledge_storyboard",
         }
     )
     captured = {}
@@ -212,13 +228,59 @@ def test_storyboard_generation_controls_pass_content_and_selected_ip_context(mon
     payload = content_input.render_storyboard_generation_controls(
         mode="generate",
         key_prefix="single_video",
-        content_context={"title": "Zhengding walk", "text": "Start from Changle Gate."},
     )
 
-    assert captured["content_context"]["text"] == "Start from Changle Gate."
-    assert captured["content_context"]["title"] == "Zhengding walk"
-    assert captured["ip_profile_world_hint"] == "Friendly guide world."
+    assert "content_context" not in captured
     assert payload["world_preset_id"] == "neutral_knowledge_storyboard"
+
+
+def test_left_content_ip_payload_render_content_input(monkeypatch):
+    fake_st = _FakeStreamlit()
+    fake_st.session_state["single_video_storyboard_prompt_language"] = "en_US"
+    captured = {}
+    monkeypatch.setattr(content_input, "st", fake_st)
+    monkeypatch.setattr(content_input, "tr", _fake_tr)
+    monkeypatch.setattr(content_input, "render_script_generation_controls", lambda **_kwargs: {})
+    monkeypatch.setattr(
+        content_input,
+        "render_storyboard_generation_controls",
+        lambda **_kwargs: {
+            "storyboard_prompt_language": "en_US",
+            "generation_world_hint": "Overridden by storyboard",
+        },
+    )
+    monkeypatch.setattr(
+        content_input,
+        "render_prompt_generation_performance_controls",
+        lambda **_kwargs: {},
+    )
+
+    def _render_content_ip_world_controls(**kwargs):
+        captured.update(kwargs)
+        return {
+            "ip_enabled": True,
+            "ip_asset_bible_id": "content_bible",
+            "ip_profile_id": "rabbit_guide",
+            "generation_world_hint": "Follow the old walls.",
+        }
+
+    monkeypatch.setattr(
+        content_input,
+        "render_content_ip_world_controls",
+        _render_content_ip_world_controls,
+    )
+
+    pixelle_video = object()
+    payload = content_input.render_content_input(pixelle_video=pixelle_video)
+
+    assert captured["pixelle_video"] is pixelle_video
+    assert captured["content_context"] == {"title": "", "text": ""}
+    assert captured["storyboard_prompt_language"] == "en_US"
+    assert captured["world_preset_id"] is None
+    assert payload["ip_enabled"] is True
+    assert payload["ip_asset_bible_id"] == "content_bible"
+    assert payload["ip_profile_id"] == "rabbit_guide"
+    assert payload["generation_world_hint"] == "Follow the old walls."
 
 
 def test_punctuation_storyboard_generation_controls_show_max_scene_slider(monkeypatch):

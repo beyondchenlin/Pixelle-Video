@@ -30,9 +30,7 @@ from pixelle_video.prompt_language import (
 from web.components.prompt_generation_performance import (
     render_prompt_generation_performance_controls,
 )
-from web.components.ip_prompt_chain_controls import (
-    resolve_selected_ip_prompt_chain_profile_summary,
-)
+from web.components.content_ip_world_controls import render_content_ip_world_controls
 from web.components.storyboard_planning_controls import (
     render_storyboard_advanced_controls,
 )
@@ -43,6 +41,20 @@ from web.utils.async_helpers import get_project_version
 SCRIPT_TARGET_WORDS_MIN = 50
 SCRIPT_TARGET_WORDS_DEFAULT = 200
 SCRIPT_TARGET_WORDS_STEP = 50
+
+
+def _storyboard_prompt_language_state(key_prefix: str) -> str:
+    value = st.session_state.get(f"{key_prefix}_storyboard_prompt_language")
+    if value in {CHINESE_PROMPT_LANGUAGE, ENGLISH_PROMPT_LANGUAGE}:
+        return value
+    return CHINESE_PROMPT_LANGUAGE
+
+
+def _active_storyboard_world_preset_id() -> str | None:
+    if not st.session_state.get("storyboard_planning_enabled", False):
+        return None
+    value = st.session_state.get("storyboard_world_preset_id")
+    return value if isinstance(value, str) and value else None
 
 
 def get_storyboard_generation_limits() -> StoryboardGenerationLimits:
@@ -150,7 +162,6 @@ def render_storyboard_generation_controls(
     *,
     mode: str,
     key_prefix: str,
-    content_context: dict | None = None,
 ) -> dict:
     """Render controls for source-text storyboard generation."""
     with st.expander(
@@ -223,16 +234,6 @@ def render_storyboard_generation_controls(
         )
 
         render_storyboard_generation_explanation()
-        selected_ip_prompt_chain_profile_summary = (
-            resolve_selected_ip_prompt_chain_profile_summary(
-                session_state=st.session_state,
-                asset_bibles=st.session_state.get("style_ip_asset_bibles", []),
-            )
-        )
-        ip_profile_world_hint = (
-            selected_ip_prompt_chain_profile_summary.get("ip_profile_world_hint")
-            or st.session_state.get("style_ip_profile_world_hint")
-        )
         advanced_storyboard_payload = render_storyboard_advanced_controls(
             ui=st,
             translate=tr,
@@ -240,8 +241,6 @@ def render_storyboard_generation_controls(
             storyboard_default_enabled=False,
             selected_template_type=selected_template_type_for_storyboard,
             preview_snapshot=get_storyboard_preview_snapshot(st.session_state),
-            content_context=content_context,
-            ip_profile_world_hint=ip_profile_world_hint,
         )
 
         return {
@@ -304,7 +303,7 @@ def render_script_generation_controls(*, mode: str, key_prefix: str) -> dict:
     )
 
 
-def render_content_input():
+def render_content_input(*, pixelle_video=None):
     """Render content input section (left column) with batch support"""
     with st.container(border=True):
         st.markdown(f"**{tr('section.content_input')}**")
@@ -350,6 +349,14 @@ def render_content_input():
                 help=tr("input.title_help")
             )
 
+            content_context = {"title": title, "text": text}
+            content_ip_world = render_content_ip_world_controls(
+                pixelle_video=pixelle_video,
+                content_context=content_context,
+                storyboard_prompt_language=_storyboard_prompt_language_state("single_video"),
+                world_preset_id=_active_storyboard_world_preset_id(),
+            )
+
             script_generation = render_script_generation_controls(
                 mode=mode,
                 key_prefix="single_video",
@@ -358,12 +365,13 @@ def render_content_input():
             storyboard_generation = render_storyboard_generation_controls(
                 mode=mode,
                 key_prefix="single_video",
-                content_context={"title": title, "text": text},
             )
 
             prompt_generation_performance = render_prompt_generation_performance_controls(
                 key_prefix="single_video"
             )
+            storyboard_generation = dict(storyboard_generation)
+            storyboard_generation.pop("generation_world_hint", None)
             
             return {
                 "batch_mode": False,
@@ -372,6 +380,7 @@ def render_content_input():
                 "title": title,
                 **script_generation,
                 **storyboard_generation,
+                **content_ip_world,
                 **prompt_generation_performance,
             }
         
@@ -432,6 +441,14 @@ def render_content_input():
                 help=tr("batch.title_prefix_help")
             )
 
+            content_context = {"title": title_prefix, "text": text_input}
+            content_ip_world = render_content_ip_world_controls(
+                pixelle_video=pixelle_video,
+                content_context=content_context,
+                storyboard_prompt_language=_storyboard_prompt_language_state("batch_video"),
+                world_preset_id=_active_storyboard_world_preset_id(),
+            )
+
             script_generation = render_script_generation_controls(
                 mode="generate",
                 key_prefix="batch_video",
@@ -440,12 +457,13 @@ def render_content_input():
             storyboard_generation = render_storyboard_generation_controls(
                 mode="generate",
                 key_prefix="batch_video",
-                content_context={"title": title_prefix, "text": text_input},
             )
 
             prompt_generation_performance = render_prompt_generation_performance_controls(
                 key_prefix="batch_video"
             )
+            storyboard_generation = dict(storyboard_generation)
+            storyboard_generation.pop("generation_world_hint", None)
             
             # Config info
             st.info(f"📌 {tr('batch.config_info')}")
@@ -457,6 +475,7 @@ def render_content_input():
                 "title_prefix": title_prefix,
                 **script_generation,
                 **storyboard_generation,
+                **content_ip_world,
                 **prompt_generation_performance,
             }
 

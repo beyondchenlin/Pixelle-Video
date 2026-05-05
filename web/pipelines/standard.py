@@ -57,7 +57,7 @@ class StandardPipelineUI(PipelineUI):
         # ====================================================================
         with left_col:
             # Content input (mode, text, title, n_scenes)
-            content_params = render_content_input()
+            content_params = render_content_input(pixelle_video=pixelle_video)
 
             # Version info & GitHub link
             render_version_info()
@@ -90,7 +90,7 @@ class StandardPipelineUI(PipelineUI):
                 "pipeline": self.name,
                 **content_params,
                 **bgm_params,
-                **style_params
+                **style_params,
             }
             
             # Render output preview (generate button, progress, video preview)
