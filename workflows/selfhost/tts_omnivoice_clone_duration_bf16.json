@@ -59,7 +59,7 @@
       "device": "auto",
       "dtype": "auto",
       "attention": "auto",
-      "seed": 0,
+      "seed": 19840904,
       "position_temperature": 3,
       "class_temperature": 0,
       "layer_penalty_factor": 5,
