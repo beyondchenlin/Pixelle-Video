@@ -262,11 +262,19 @@ def _build_layout_preview_html(video_params) -> TrustedPreviewHTML | None:
                 if isinstance(spec_payload, LayeredTemplateSpec)
                 else LayeredTemplateSpec.from_dict(spec_payload)
             )
+            # 最佳实践：优先从 session_state 获取最新的 text_rendering，
+            # 因为 session_state 是文字样式组件更新后立即保存的位置
+            # 作为备用，也从 video_params 获取（用于数据流一致性）
+            text_rendering = (
+                st.session_state.get("text_rendering")
+                or video_params.get("text_rendering")
+                or {}
+            )
             html = LayeredTemplateService().render_preview_html(
                 spec=spec,
                 title_text=video_params.get("title") or video_params.get("layout_preview_title_text") or "",
                 caption_text=video_params.get("layout_preview_caption_text") or "",
-                text_rendering=video_params.get("text_rendering") or {},
+                text_rendering=text_rendering,
             )
         except (KeyError, TypeError, ValueError) as exc:
             logger.warning(f"Failed to build layered template preview HTML: {exc}")
