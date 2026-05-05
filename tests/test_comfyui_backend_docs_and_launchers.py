@@ -64,5 +64,39 @@ def test_dual_backend_batch_launchers_wrap_profile_commands() -> None:
         assert f"logs\\comfyui\\{profile_name}" in text
 
 
+def test_root_readmes_document_fixed_local_backend_ports() -> None:
+    expected_tokens = (
+        "uv run uvicorn api.app:app --host 127.0.0.1 --port 8888",
+        "http://localhost:8888/health",
+        "http://localhost:8501",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:8001",
+        "http://127.0.0.1:8002",
+        r"scripts\comfyui\start_backend.bat",
+        r"scripts\comfyui\start_image_backend.bat",
+        r"scripts\comfyui\start_tts_backend.bat",
+        r"scripts\comfyui\stop_backend.bat",
+        r"scripts\comfyui\stop_image_backend.bat",
+        r"scripts\comfyui\stop_tts_backend.bat",
+        r"scripts\comfyui\check_backend.bat",
+        r"scripts\comfyui\check_image_backend.bat",
+        r"scripts\comfyui\check_tts_backend.bat",
+    )
+    forbidden_tokens = (
+        "uv run uvicorn api.app:app --host 127.0.0.1 --port 8001",
+        "http://localhost:8001/health",
+        "http://localhost:8001/docs",
+        "http://localhost:8001/api",
+    )
+
+    for readme_name in ("README.md", "README_EN.md"):
+        text = (REPO_ROOT / readme_name).read_text(encoding="utf-8")
+
+        for token in expected_tokens:
+            assert token in text
+        for token in forbidden_tokens:
+            assert token not in text
+
+
 def test_obsolete_omnivoice_qwen_asr_compat_script_is_removed() -> None:
     assert not (SCRIPT_DIR / "sync_omnivoice_qwen_asr_compat.ps1").exists()

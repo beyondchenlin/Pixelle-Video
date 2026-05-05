@@ -266,7 +266,7 @@ If you need to start them manually, open two terminals:
 
 ```bash
 # Terminal 1: start the Pixelle API (FastAPI, used by the Web UI)
-uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
+uv run uvicorn api.app:app --host 127.0.0.1 --port 8888
 ```
 
 ```bash
@@ -274,9 +274,33 @@ uv run uvicorn api.app:app --host 127.0.0.1 --port 8001
 uv run streamlit run web/app.py
 ```
 
-Browser will automatically open http://localhost:8501. The API health check is http://localhost:8001/health, and Swagger docs are available at http://localhost:8001/docs.
+Browser will automatically open http://localhost:8501. The API health check is http://localhost:8888/health, and Swagger docs are available at http://localhost:8888/docs.
 
-> Note: `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:8001/api`.
+> Note: `uv run streamlit run web/app.py` only starts the Web UI. It does not start the Pixelle API automatically. Stage1/Stage2 workbench, storyboard image candidates, status queries, and related features require `http://localhost:8888/api`.
+
+#### Local ComfyUI Backend Ports and Commands
+
+Pixelle uses fixed local port roles so the API, Web UI, and multiple ComfyUI backends do not compete for the same port:
+
+| Role | Address | Start | Stop | Check |
+| ---- | ---- | ---- | ---- | ---- |
+| Existing default ComfyUI (kept unchanged) | `http://127.0.0.1:8000` | `scripts\comfyui\start_backend.bat` | `scripts\comfyui\stop_backend.bat` | `scripts\comfyui\check_backend.bat` |
+| Image ComfyUI | `http://127.0.0.1:8001` | `scripts\comfyui\start_image_backend.bat` | `scripts\comfyui\stop_image_backend.bat` | `scripts\comfyui\check_image_backend.bat` |
+| TTS ComfyUI | `http://127.0.0.1:8002` | `scripts\comfyui\start_tts_backend.bat` | `scripts\comfyui\stop_tts_backend.bat` | `scripts\comfyui\check_tts_backend.bat` |
+| Pixelle API | `http://localhost:8888` | `start_web.bat` or `uv run uvicorn api.app:app --host 127.0.0.1 --port 8888` | Close the terminal window or press `Ctrl+C` | `http://localhost:8888/health` |
+| Web UI | `http://localhost:8501` | `start_web.bat` or `uv run streamlit run web/app.py` | Close the terminal window or press `Ctrl+C` | Open `http://localhost:8501` in a browser |
+
+Windows users should prefer the `.bat` entry points and do not need to type PowerShell parameters manually:
+
+```bat
+start_web.bat
+scripts\comfyui\start_backend.bat
+scripts\comfyui\start_image_backend.bat
+scripts\comfyui\start_tts_backend.bat
+scripts\comfyui\stop_backend.bat
+scripts\comfyui\stop_image_backend.bat
+scripts\comfyui\stop_tts_backend.bat
+```
 
 #### Step 3: Configure in Web Interface
 
