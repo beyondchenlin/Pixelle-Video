@@ -308,6 +308,7 @@ class ComfyUIMaintenanceClient:
         self,
         *,
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
+        missing_endpoint: ComfyUIExtensionMissingEndpointMode = "required",
     ) -> tuple[ComfyUIExtensionReleaseResult, ...]:
         results: list[ComfyUIExtensionReleaseResult] = []
         for extension in extensions:
@@ -320,6 +321,18 @@ class ComfyUIMaintenanceClient:
                         f"ComfyUI extension health endpoint {endpoint} is missing. "
                         f"{_EXTENSION_PATCH_INSTRUCTIONS[extension]}"
                     )
+                    if missing_endpoint == "optional":
+                        logger.warning(message)
+                        results.append(
+                            ComfyUIExtensionReleaseResult(
+                                extension=extension,
+                                endpoint=endpoint,
+                                released=False,
+                                missing_endpoint=True,
+                                message=message,
+                            )
+                        )
+                        continue
                     raise RuntimeError(message) from exc
                 raise
 

@@ -88,6 +88,7 @@ class _LocalComfyUIWorkflowSession:
         *,
         backend_role: str,
         release_after_session: bool = False,
+        missing_endpoint: str = "required",
     ) -> None:
         self.backend_role = backend_role
         self.init_lock = asyncio.Lock()
@@ -97,6 +98,7 @@ class _LocalComfyUIWorkflowSession:
         self.used_extensions: set[ComfyUIExtensionName] = set()
         self.preflighted_extensions: set[ComfyUIExtensionName] = set()
         self.release_after_session = release_after_session
+        self.missing_endpoint = missing_endpoint
 
 
 class _LocalComfyUIRoleTaskState:
@@ -607,6 +609,7 @@ class PixelleVideoCore:
         context: str,
         backend_role: str = "default",
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
+        missing_endpoint: str = "required",
     ) -> bool:
         self.config = config_manager.config.to_dict()
         comfyui_config = self.config.get("comfyui", {})
@@ -618,6 +621,7 @@ class PixelleVideoCore:
         try:
             results = await client.preflight_extension_release_endpoints(
                 extensions=extensions,
+                missing_endpoint=missing_endpoint,
             )
         except Exception as e:
             raise RuntimeError(
@@ -831,11 +835,13 @@ class PixelleVideoCore:
         session: _LocalComfyUIWorkflowSession | None,
         *,
         backend_role: str = "default",
+        missing_endpoint: str = "required",
     ) -> None:
         context_suffix = _EXTENSION_RELEASE_CONTEXTS[extension]
         role = session.backend_role if session is not None else self._normalize_comfyui_backend_role(
             backend_role
         )
+        effective_missing_endpoint = session.missing_endpoint if session is not None else missing_endpoint
         if session is not None:
             if extension in session.preflighted_extensions:
                 return
@@ -843,6 +849,7 @@ class PixelleVideoCore:
                 context=f"pre-{context_suffix}-workflow",
                 backend_role=role,
                 extensions=(extension,),
+                missing_endpoint=effective_missing_endpoint,
             )
             session.preflighted_extensions.add(extension)
             return
@@ -851,6 +858,7 @@ class PixelleVideoCore:
             context=f"pre-{context_suffix}-workflow",
             backend_role=role,
             extensions=(extension,),
+            missing_endpoint=missing_endpoint,
         )
 
     async def _preflight_workflow_extensions_once(
@@ -859,12 +867,14 @@ class PixelleVideoCore:
         session: _LocalComfyUIWorkflowSession | None,
         *,
         backend_role: str = "default",
+        missing_endpoint: str = "required",
     ) -> None:
         for extension in extensions:
             await self._preflight_extension_release_endpoint_once(
                 extension,
                 session,
                 backend_role=backend_role,
+                missing_endpoint=missing_endpoint,
             )
 
     async def _release_workflow_extensions(
@@ -932,7 +942,7 @@ class PixelleVideoCore:
                         extensions,
                         context_prefix="post",
                         backend_role=session.backend_role,
-                        missing_endpoint="required",
+                        missing_endpoint=session.missing_endpoint,
                     )
                     if released:
                         self._mark_local_comfyui_released(backend_role=session.backend_role)
@@ -1111,6 +1121,7 @@ class PixelleVideoCore:
         *,
         backend_role: str = "default",
         release_after_session: bool = False,
+        missing_endpoint: str = "required",
     ):
         """Keep local ComfyUI prepared across a deliberate batch of selfhost workflows."""
         role = self._normalize_comfyui_backend_role(backend_role)
@@ -1124,7 +1135,8 @@ class PixelleVideoCore:
 
         session = _LocalComfyUIWorkflowSession(
             backend_role=role,
-            release_after_session=release_after_session
+            release_after_session=release_after_session,
+            missing_endpoint=missing_endpoint,
         )
         token = self._local_comfyui_workflow_session.set(session)
         body_failed = False
