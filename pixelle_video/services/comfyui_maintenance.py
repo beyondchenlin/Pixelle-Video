@@ -7,7 +7,6 @@ from typing import Any, Literal
 import httpx
 from loguru import logger
 
-ComfyUICleanupMode = Literal["force", "conservative"]
 ComfyUIReleaseIntensity = Literal["high", "low"]
 ComfyUIExtensionName = Literal["indextts2", "gguf", "omnivoice"]
 ComfyUIExtensionMissingEndpointMode = Literal["optional", "required"]
@@ -168,14 +167,8 @@ class ComfyUIMaintenanceClient:
         self.release_poll_interval = release_poll_interval
         self.release_request_timeout = release_request_timeout
 
-    async def cleanup_before_generation(self, mode: ComfyUICleanupMode) -> None:
-        if mode == "force":
-            await self._force_cleanup()
-            return
-        if mode == "conservative":
-            await self._conservative_cleanup()
-            return
-        raise ValueError(f"Unsupported ComfyUI cleanup mode: {mode}")
+    async def cleanup_before_generation(self) -> None:
+        await self._force_cleanup()
 
     async def _force_cleanup(self) -> None:
         queue = await self._get_queue()
@@ -191,18 +184,6 @@ class ComfyUIMaintenanceClient:
         await self._post("/interrupt", {})
         await self._post("/queue", {"clear": True})
         await self._wait_until_idle()
-
-    async def _conservative_cleanup(self) -> None:
-        queue = await self._get_queue()
-        running, pending = self._queue_counts(queue)
-        if running or pending:
-            logger.info(
-                "Skipping conservative ComfyUI cleanup because queue is busy "
-                f"(running={running}, pending={pending})"
-            )
-            return
-
-        logger.info("Skipping conservative ComfyUI cleanup because queue is already idle")
 
     async def free_memory(
         self,

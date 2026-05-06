@@ -424,19 +424,12 @@ class PixelleVideoCore:
         """Prepare self-hosted ComfyUI before a local workflow execution."""
         role = self._normalize_comfyui_backend_role(backend_role)
         await self.await_comfyui_backend_ready(role)
-        self.config = config_manager.config.to_dict()
-        comfyui_config = self.config.get("comfyui", {})
         client = self._get_comfyui_maintenance_client(role)
         if client is None:
             return
 
-        mode = (comfyui_config.get("pre_generation_cleanup_mode") or "force").lower()
-        if mode not in {"force", "conservative"}:
-            logger.warning(f"Unsupported ComfyUI pre-generation cleanup mode: {mode}")
-            return
-
         try:
-            await client.cleanup_before_generation(mode)
+            await client.cleanup_before_generation()
         except Exception as e:
             raise RuntimeError(f"ComfyUI pre-workflow cleanup failed: {e}") from e
 

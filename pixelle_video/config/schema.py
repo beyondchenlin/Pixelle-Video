@@ -547,16 +547,6 @@ class ComfyUIConfig(BaseModel):
             "starts or stops ComfyUI."
         ),
     )
-    pre_generation_cleanup_mode: Literal["force", "conservative"] = Field(
-        default="force",
-        description="ComfyUI cleanup mode before video generation",
-    )
-    pre_generation_cleanup_timeout_seconds: float = Field(
-        default=20.0,
-        ge=1.0,
-        le=120.0,
-        description="How long to wait for a forced pre-generation cleanup to drain the ComfyUI queue",
-    )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")
     runninghub_concurrent_limit: int = Field(default=1, ge=1, le=10, description="RunningHub concurrent execution limit (1-10)")
@@ -594,6 +584,8 @@ class ComfyUIConfig(BaseModel):
         for field_name in (
             "post_generation_cleanup_mode",
             "post_generation_cleanup_intensity",
+            "pre_generation_cleanup_mode",
+            "pre_generation_cleanup_timeout_seconds",
         ):
             if field_name in normalized:
                 legacy_fields.append(field_name)

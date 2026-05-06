@@ -70,7 +70,7 @@ class ComfyUIBackendRegistry:
         return ComfyUIMaintenanceClient(
             profile.url or "",
             api_key=self.config.comfyui_api_key,
-            idle_wait_timeout=self.config.pre_generation_cleanup_timeout_seconds,
+            idle_wait_timeout=20.0,
         )
 
     def managed_backend(self, role: str) -> ManagedComfyUIBackend | None:

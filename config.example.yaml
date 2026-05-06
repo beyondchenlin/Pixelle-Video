@@ -35,8 +35,6 @@ comfyui:
   comfyui_url: http://127.0.0.1:8188  # ComfyUI server URL (required for selfhost workflows)
   executor_type: null  # Optional override: null=auto (recommended HTTP default), websocket only for explicit opt-in
   backend_management_mode: auto  # auto manages the Pixelle backend at 127.0.0.1:8000; required=fail if restart unavailable; disabled=never start/stop ComfyUI
-  pre_generation_cleanup_mode: force  # force=interrupt/clear busy queue before generation, conservative=leave an idle queue untouched
-  pre_generation_cleanup_timeout_seconds: 20  # Fail fast if a forced cleanup cannot drain the ComfyUI queue in time
   # Memory release is handled by managed backend restart. Set restart_after_batch: false
   # in each backend profile to keep models loaded in GPU for fast follow-up requests.
   # Pipeline stage-boundary restarts are handled separately and bypass this flag.

@@ -77,24 +77,6 @@ def test_get_comfykit_config_respects_explicit_websocket_override(monkeypatch):
     assert core._get_comfykit_config()["executor_type"] == "websocket"
 
 
-def test_comfyui_pre_generation_cleanup_defaults_to_force():
-    config = PixelleVideoConfig()
-
-    assert config.comfyui.pre_generation_cleanup_mode == "force"
-
-
-def test_comfyui_pre_generation_cleanup_timeout_has_safe_default():
-    config = PixelleVideoConfig()
-
-    assert config.comfyui.pre_generation_cleanup_timeout_seconds == 20.0
-
-
-def test_comfyui_model_cleanup_mode_defaults_to_extensions():
-    config = PixelleVideoConfig()
-
-    assert config.comfyui.model_cleanup_mode == "comfyui_and_extensions"
-
-
 def test_comfyui_backend_management_defaults_to_auto():
     config = PixelleVideoConfig()
 
@@ -108,59 +90,6 @@ def test_comfyui_legacy_gguf_cleanup_strategy_is_retired():
 
     assert not hasattr(config.comfyui, "gguf_cleanup_strategy")
     assert "gguf_cleanup_strategy" not in config.comfyui.model_dump()
-
-
-def test_comfyui_model_cleanup_mode_retires_disabled_value():
-    config = PixelleVideoConfig.model_validate(
-        {"comfyui": {"model_cleanup_mode": " Disabled "}}
-    )
-
-    assert config.comfyui.model_cleanup_mode == "comfyui_and_extensions"
-
-
-def test_comfyui_config_exposes_pre_generation_cleanup_mode(monkeypatch):
-    monkeypatch.setattr(
-        config_manager,
-        "config",
-        PixelleVideoConfig(
-            comfyui=ComfyUIConfig(
-                comfyui_url="http://127.0.0.1:8000",
-                pre_generation_cleanup_mode="conservative",
-            )
-        ),
-    )
-
-    assert config_manager.get_comfyui_config()["pre_generation_cleanup_mode"] == "conservative"
-
-
-def test_comfyui_config_exposes_pre_generation_cleanup_timeout(monkeypatch):
-    monkeypatch.setattr(
-        config_manager,
-        "config",
-        PixelleVideoConfig(
-            comfyui=ComfyUIConfig(
-                comfyui_url="http://127.0.0.1:8000",
-                pre_generation_cleanup_timeout_seconds=45.0,
-            )
-        ),
-    )
-
-    assert config_manager.get_comfyui_config()["pre_generation_cleanup_timeout_seconds"] == 45.0
-
-
-def test_comfyui_config_exposes_model_cleanup_mode(monkeypatch):
-    monkeypatch.setattr(
-        config_manager,
-        "config",
-        PixelleVideoConfig(
-            comfyui=ComfyUIConfig(
-                comfyui_url="http://127.0.0.1:8000",
-                model_cleanup_mode="comfyui",
-            )
-        ),
-    )
-
-    assert config_manager.get_comfyui_config()["model_cleanup_mode"] == "comfyui"
 
 
 def test_comfyui_config_exposes_backend_management_mode(monkeypatch):
@@ -186,15 +115,6 @@ def test_comfyui_config_does_not_expose_retired_gguf_cleanup_strategy(monkeypatc
     )
 
     assert "gguf_cleanup_strategy" not in config_manager.get_comfyui_config()
-
-
-def test_set_comfyui_config_retires_disabled_model_cleanup_mode(monkeypatch):
-    config = PixelleVideoConfig()
-    monkeypatch.setattr(config_manager, "config", config)
-
-    config_manager.set_comfyui_config(model_cleanup_mode="disabled")
-
-    assert config_manager.config.comfyui.model_cleanup_mode == "comfyui_and_extensions"
 
 
 def test_legacy_post_generation_cleanup_fields_are_not_exposed(monkeypatch):

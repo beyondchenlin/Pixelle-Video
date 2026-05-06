@@ -223,10 +223,6 @@ def render_advanced_settings():
                     "websocket": "WebSocket",
                     "http": "HTTP",
                 }
-                cleanup_mode_labels = {
-                    "force": tr("settings.comfyui.cleanup_force"),
-                    "conservative": tr("settings.comfyui.cleanup_conservative"),
-                }
                 backend_management_labels = {
                     "auto": tr("settings.comfyui.backend_management_auto"),
                     "required": tr("settings.comfyui.backend_management_required"),
@@ -237,21 +233,12 @@ def render_advanced_settings():
                     default_executor_type = current_executor_type
                 else:
                     default_executor_type = "auto"
-                current_cleanup_mode = comfyui_config.get("pre_generation_cleanup_mode", "force")
-                if current_cleanup_mode not in cleanup_mode_labels:
-                    current_cleanup_mode = "force"
                 current_backend_management_mode = comfyui_config.get(
                     "backend_management_mode",
                     "auto",
                 )
                 if current_backend_management_mode not in backend_management_labels:
                     current_backend_management_mode = "auto"
-                current_cleanup_timeout_seconds = comfyui_config.get(
-                    "pre_generation_cleanup_timeout_seconds",
-                    20.0,
-                )
-                if not isinstance(current_cleanup_timeout_seconds, (int, float)):
-                    current_cleanup_timeout_seconds = 20.0
 
                 url_col, key_col, executor_col = st.columns(3)
                 with url_col:
@@ -283,25 +270,6 @@ def render_advanced_settings():
                         ),
                         key="comfyui_executor_type_input"
                     )
-
-                cleanup_mode = st.selectbox(
-                    tr("settings.comfyui.pre_generation_cleanup_mode"),
-                    options=list(cleanup_mode_labels.keys()),
-                    index=list(cleanup_mode_labels.keys()).index(current_cleanup_mode),
-                    format_func=lambda key: cleanup_mode_labels[key],
-                    help=tr("settings.comfyui.pre_generation_cleanup_mode_help"),
-                    key="comfyui_cleanup_mode_input",
-                )
-
-                cleanup_timeout_seconds = st.number_input(
-                    tr("settings.comfyui.pre_generation_cleanup_timeout"),
-                    min_value=1.0,
-                    max_value=120.0,
-                    value=float(current_cleanup_timeout_seconds),
-                    step=1.0,
-                    help=tr("settings.comfyui.pre_generation_cleanup_timeout_help"),
-                    key="comfyui_cleanup_timeout_seconds_input",
-                )
 
                 backend_management_mode = st.selectbox(
                     tr("settings.comfyui.backend_management_mode"),
@@ -399,8 +367,6 @@ def render_advanced_settings():
                         comfyui_url=comfyui_url if comfyui_url else None,
                         executor_type="" if executor_type == "auto" else executor_type,
                         backend_management_mode=backend_management_mode,
-                        pre_generation_cleanup_mode=cleanup_mode,
-                        pre_generation_cleanup_timeout_seconds=float(cleanup_timeout_seconds),
                         comfyui_api_key=comfyui_api_key if comfyui_api_key else None,
                         runninghub_api_key=runninghub_api_key if runninghub_api_key else None,
                         runninghub_concurrent_limit=int(runninghub_concurrent_limit),

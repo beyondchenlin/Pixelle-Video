@@ -1572,8 +1572,8 @@ async def test_prepare_comfyui_for_local_workflow_only_cleans_queue(monkeypatch)
         ):
             events.append(("client", base_url, api_key, idle_wait_timeout))
 
-        async def cleanup_before_generation(self, mode):
-            events.append(("cleanup", mode))
+        async def cleanup_before_generation(self):
+            events.append(("cleanup",))
 
         async def free_memory_with_extensions(
             self,
@@ -1592,8 +1592,6 @@ async def test_prepare_comfyui_for_local_workflow_only_cleans_queue(monkeypatch)
             comfyui=ComfyUIConfig(
                 comfyui_url="http://127.0.0.1:8000",
                 comfyui_api_key="secret",
-                pre_generation_cleanup_mode="force",
-                model_cleanup_mode="comfyui_and_extensions",
             )
         ),
     )
@@ -1605,7 +1603,7 @@ async def test_prepare_comfyui_for_local_workflow_only_cleans_queue(monkeypatch)
 
     assert events == [
         ("client", "http://127.0.0.1:8000", "secret", 20.0),
-        ("cleanup", "force"),
+        ("cleanup",),
     ]
 
 
@@ -1683,49 +1681,6 @@ async def test_force_release_comfyui_memory_uses_required_extension_endpoint(mon
     assert events == [
         ("client", "http://127.0.0.1:8000", "secret"),
         ("free_with_extensions", "high", ("indextts2",), "required"),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_prepare_comfyui_for_local_workflow_uses_configured_cleanup_timeout(monkeypatch):
-    events = []
-
-    class _Client:
-        def __init__(
-            self,
-            base_url,
-            *,
-            api_key=None,
-            timeout=5.0,
-            transport=None,
-            idle_wait_timeout=15.0,
-        ):
-            events.append(("client", base_url, api_key, idle_wait_timeout))
-
-        async def cleanup_before_generation(self, mode):
-            events.append(("cleanup", mode))
-
-    monkeypatch.setattr(
-        service_module.config_manager,
-        "config",
-        PixelleVideoConfig(
-            comfyui=ComfyUIConfig(
-                comfyui_url="http://127.0.0.1:8000",
-                comfyui_api_key="secret",
-                pre_generation_cleanup_mode="conservative",
-                pre_generation_cleanup_timeout_seconds=45.0,
-            )
-        ),
-    )
-    _patch_maintenance_client(monkeypatch, _Client)
-
-    core = PixelleVideoCore()
-
-    await core.prepare_comfyui_for_local_workflow()
-
-    assert events == [
-        ("client", "http://127.0.0.1:8000", "secret", 45.0),
-        ("cleanup", "conservative"),
     ]
 
 

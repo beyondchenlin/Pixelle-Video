@@ -99,7 +99,7 @@ async def test_force_cleanup_is_noop_when_queue_is_idle():
     transport = _RecordingTransport()
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
 
-    await client.cleanup_before_generation("force")
+    await client.cleanup_before_generation()
 
     assert transport.calls == [
         ("GET", "/queue", None),
@@ -116,7 +116,7 @@ async def test_force_cleanup_interrupts_busy_queue_and_waits_for_idle():
     )
     client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
 
-    await client.cleanup_before_generation("force")
+    await client.cleanup_before_generation()
 
     assert transport.calls == [
         ("GET", "/queue", None),
@@ -143,7 +143,7 @@ async def test_force_cleanup_times_out_when_queue_never_goes_idle(monkeypatch):
     monkeypatch.setattr(maintenance_module.asyncio, "sleep", _immediate_sleep)
 
     with pytest.raises(TimeoutError, match="Timed out waiting for ComfyUI queue to become idle"):
-        await client.cleanup_before_generation("force")
+        await client.cleanup_before_generation()
 
     assert transport.calls[:3] == [
         ("GET", "/queue", None),
@@ -152,16 +152,6 @@ async def test_force_cleanup_times_out_when_queue_never_goes_idle(monkeypatch):
     ]
     assert len(transport.calls) > 3
     assert all(call[:2] == ("GET", "/queue") for call in transport.calls[3:])
-
-
-@pytest.mark.asyncio
-async def test_conservative_cleanup_noops_when_queue_is_idle():
-    transport = _RecordingTransport()
-    client = ComfyUIMaintenanceClient("http://127.0.0.1:8000", transport=transport)
-
-    await client.cleanup_before_generation("conservative")
-
-    assert transport.calls == [("GET", "/queue", None)]
 
 
 @pytest.mark.asyncio

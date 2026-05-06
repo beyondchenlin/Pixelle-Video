@@ -145,7 +145,6 @@ async def test_core_maintenance_path_uses_registry_client_factory(monkeypatch):
                 "comfyui": {
                     "comfyui_url": "http://127.0.0.1:8000",
                     "comfyui_api_key": "secret-token",
-                    "pre_generation_cleanup_timeout_seconds": 45.0,
                 }
             }
         ),
@@ -154,8 +153,8 @@ async def test_core_maintenance_path_uses_registry_client_factory(monkeypatch):
     core = PixelleVideoCore()
 
     class _Client:
-        async def cleanup_before_generation(self, mode):
-            calls.append(("cleanup", mode))
+        async def cleanup_before_generation(self):
+            calls.append(("cleanup",))
 
     class _Registry:
         def maintenance_client(self, role):
@@ -168,5 +167,5 @@ async def test_core_maintenance_path_uses_registry_client_factory(monkeypatch):
 
     assert calls == [
         ("registry", "default"),
-        ("cleanup", "force"),
+        ("cleanup",),
     ]
