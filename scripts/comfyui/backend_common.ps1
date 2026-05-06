@@ -190,8 +190,6 @@ function Get-BackendArguments {
     [void]$arguments.Add($Config.HostAddress)
     [void]$arguments.Add('--port')
     [void]$arguments.Add([string]$Config.Port)
-    [void]$arguments.Add('--disable-dynamic-vram')
-    [void]$arguments.Add('--gpu-only')
     [void]$arguments.Add('--enable-cors-header')
     [void]$arguments.Add('*')
 
