@@ -65,6 +65,7 @@ function Resolve-PixelleComfyUIBackendConfig {
 
     $repoRoot = Get-PixelleRepoRoot
     $resolvedDataRoot = Resolve-BackendValue $DataRoot 'PIXELLE_COMFYUI_DATA_ROOT' 'E:\ComfyUIData'
+    $sharedBasePath = Resolve-BackendValue '' 'PIXELLE_COMFYUI_DATA_ROOT' 'E:\ComfyUIData'
     $resolvedComfyUIRoot = Resolve-BackendValue $ComfyUIRoot 'PIXELLE_COMFYUI_ROOT' 'E:\comfyui\resources\ComfyUI'
     $defaultFrontEndRoot = Join-Path $resolvedComfyUIRoot 'web_custom_versions\desktop_app'
     $defaultDatabaseUrl = ConvertTo-SqliteUrl (Join-Path $resolvedDataRoot 'user\comfyui.db')
@@ -76,6 +77,7 @@ function Resolve-PixelleComfyUIBackendConfig {
         PythonExe = Resolve-BackendValue $PythonExe 'PIXELLE_COMFYUI_PYTHON' (Join-Path $resolvedDataRoot '.venv\Scripts\python.exe')
         ComfyUIRoot = $resolvedComfyUIRoot
         DataRoot = $resolvedDataRoot
+        SharedBasePath = $sharedBasePath
         ExtraModelsConfig = Resolve-BackendValue $ExtraModelsConfig 'PIXELLE_COMFYUI_EXTRA_MODELS_CONFIG' (Join-Path $env:APPDATA 'ComfyUI\extra_models_config.yaml')
         FrontEndRoot = Resolve-BackendValue $FrontEndRoot 'PIXELLE_COMFYUI_FRONTEND_ROOT' $defaultFrontEndRoot
         DatabaseUrl = Resolve-BackendValue $DatabaseUrl 'PIXELLE_COMFYUI_DATABASE_URL' $defaultDatabaseUrl
@@ -177,7 +179,7 @@ function Get-BackendArguments {
         [void]$arguments.Add($Config.FrontEndRoot)
     }
     [void]$arguments.Add('--base-directory')
-    [void]$arguments.Add($Config.DataRoot)
+    [void]$arguments.Add($Config.SharedBasePath)
     [void]$arguments.Add('--database-url')
     [void]$arguments.Add($Config.DatabaseUrl)
 
@@ -192,6 +194,7 @@ function Get-BackendArguments {
     [void]$arguments.Add([string]$Config.Port)
     [void]$arguments.Add('--enable-cors-header')
     [void]$arguments.Add('*')
+    [void]$arguments.Add('--disable-dynamic-vram')
 
     return [string[]]$arguments.ToArray()
 }
@@ -281,7 +284,7 @@ function Test-ManagedComfyUICommandLine {
     $mainPy = Join-Path $Config.ComfyUIRoot 'main.py'
     return (
         (Test-CommandLineContainsValue $CommandLine $mainPy) -and
-        (Test-CommandLineArgumentValue $CommandLine '--base-directory' $Config.DataRoot) -and
+        (Test-CommandLineArgumentValue $CommandLine '--base-directory' $Config.SharedBasePath) -and
         (Test-CommandLineArgumentValue $CommandLine '--port' ([string]$Config.Port))
     )
 }
