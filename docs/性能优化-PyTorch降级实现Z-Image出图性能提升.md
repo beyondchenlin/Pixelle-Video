@@ -143,14 +143,24 @@ Prompt executed in ~5.0 seconds
 - 采样从 3 it/s → 6.9 it/s 说明 GGUF 模型在 HIGH_VRAM 下避免了运行时 dequantize 的额外数据搬运
 - VAE 仍标记 `offload device: cpu`（安全兜底），但实际未被卸载
 
-#### 试验 3：关闭智能内存管理 + VAE 精度优化（+ --disable-smart-memory + --fp16-vae）
+#### 试验 3：关闭智能内存管理（+ --disable-smart-memory）❌ 回退
 
-| 参数 | 作用 |
-|------|------|
-| `--disable-smart-memory` | 关闭 ComfyUI 0.20 新增的智能内存管理，防止不必要的逐层卸载 |
-| `--fp16-vae` | VAE 解码使用 FP16 替代 bfloat16，RTX 4090 上 FP16 更快 |
+```
+采样速度: ~3.47 it/s | 暖机耗时: 7.14s
+日志: Disabling smart memory management
+问题: Lumina2 和 AutoencodingEngine 每次 prompt 都被重新加载
+```
 
-待重启测试。
+**严重倒退**。`--disable-smart-memory` 不仅没防住卸载，反而导致每次 prompt 后模型被完全卸载再重载，每张图都要重载 7GB 的 Lumina2。
+
+#### 试验 4：VAE 精度优化（+ --fp16-vae）❌ 回退
+
+```
+采样速度: ~5.5 it/s | 暖机耗时: 4.36-4.40s
+日志: VAE load device: cuda:0, offload device: cpu, dtype: torch.float16
+```
+
+**倒退 0.6s**。Z-Image 的 AutoencodingEngine 在 RTX 4090 上 bfloat16 比 float16 更快，与直觉相反。采样从 6.9 it/s 降至 5.5 it/s。
 
 ### 关键 GitHub Issue 引用
 
@@ -167,8 +177,6 @@ Prompt executed in ~5.0 seconds
 # scripts/comfyui/backend_common.ps1 Get-BackendArguments 函数
 --highvram                  # 所有模型锁死在 GPU
 --disable-async-offload     # 关闭异步权重卸载（减少 CUDA stream 开销）
---disable-smart-memory      # 关闭 ComfyUI 0.20 智能内存管理
---fp16-vae                  # VAE 使用 FP16（RTX 4090 更快）
 ```
 
 对应 Git 提交：
@@ -177,7 +185,15 @@ Prompt executed in ~5.0 seconds
 |------|------|
 | `789d939` | 新增 --disable-async-offload |
 | `0a8cb60` | --disable-dynamic-vram → --highvram |
-| （当前） | 新增 --disable-smart-memory + --fp16-vae |
+| `283c518` | 尝试 --disable-smart-memory + --fp16-vae（已回退） |
+
+### 已排除的参数
+
+| 参数 | 尝试结果 | 回退原因 |
+|------|---------|----------|
+| `--disable-smart-memory` | ❌ 严重倒退 | 每次 prompt 都重新加载模型 |
+| `--fp16-vae` | ❌ 倒退 0.6s | Z-Image AutoencodingEngine 在 RTX 4090 上 bfloat16 优于 float16 |
+| `--gpu-only` | ❌ 未改善 | PyTorch 2.11 下测试，不优于 --highvram |
 
 ### 日志验证要点
 
@@ -186,14 +202,15 @@ Prompt executed in ~5.0 seconds
 ```
 Set vram state to: HIGH_VRAM                    # --highvram 生效
 # 无 "Using async weight offloading" 行         # --disable-async-offload 生效
-VAE load device: cuda:0, offload device: cpu, dtype: torch.float16  # --fp16-vae 生效（bfloat16→float16）
+# 无 "Disabling smart memory management" 行     # 确认未使用 --disable-smart-memory
+VAE load device: cuda:0, offload device: cpu, dtype: torch.bfloat16  # 保持 bfloat16
 ```
 
 暖机跑期望：
 
 ```
 100%|██████████| 5/5 [00:00<00:00, 6.5+ it/s]   # 采样速度 > 6 it/s
-Prompt executed in 2-3 seconds                    # 目标耗时
+Prompt executed in 3.8 seconds                   # 当前最佳暖机耗时
 ```
 
 ---
