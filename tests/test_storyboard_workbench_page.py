@@ -146,7 +146,7 @@ def test_storyboard_workbench_page_renders_preview_overrides_in_main_area(monkey
     assert fake_ui.session_state["storyboard_override_draft"]["frame_overrides"] == frame_overrides
 
 
-def test_storyboard_workbench_page_shows_empty_state_without_snapshot(monkeypatch):
+def test_storyboard_workbench_page_shows_demo_state_without_snapshot(monkeypatch):
     page = _load_workbench_page()
     fake_ui = _FakeUI()
     fake_ui.session_state["storyboard_override_draft"] = {
@@ -154,17 +154,95 @@ def test_storyboard_workbench_page_shows_empty_state_without_snapshot(monkeypatc
         "frame_overrides": [{"frame_id": "frame_0001"}],
     }
 
-    def fail_preview(**_kwargs):
-        raise AssertionError("preview renderer must not run without a snapshot")
+    monkeypatch.setattr(
+        page, "load_latest_storyboard_snapshot_from_disk", lambda: None
+    )
+
+    calls: list[dict[str, Any]] = []
+
+    def preview_renderer(
+        snapshot,
+        *,
+        stale_context=None,
+        workbench_client=None,
+        ip_workbench_client=None,
+        stale_renderer=None,
+        **_kwargs,
+    ):
+        calls.append(
+            {
+                "snapshot": snapshot,
+                "stale_context": stale_context,
+                "workbench_client": workbench_client,
+                "ip_workbench_client": ip_workbench_client,
+                "stale_renderer": stale_renderer,
+            }
+        )
+        return []
 
     page.render_storyboard_workbench_page(
         ui=fake_ui,
         translate=lambda key, **_kwargs: key,
-        preview_renderer=fail_preview,
+        preview_renderer=preview_renderer,
     )
 
-    assert fake_ui.infos == ["storyboard.workbench.empty_state"]
+    assert fake_ui.infos == ["storyboard.workbench.demo_banner"]
     assert fake_ui.session_state["storyboard_override_draft"] is None
+    assert len(calls) == 1
+    assert calls[0]["snapshot"]["storyboard_generation"]["plan_id"].startswith(
+        "demo_plan_"
+    )
+    assert calls[0]["workbench_client"] is None
+    assert calls[0]["ip_workbench_client"] is None
+    assert calls[0]["stale_renderer"] is None
+
+
+def test_storyboard_workbench_page_loads_from_disk_when_memory_empty(monkeypatch):
+    page = _load_workbench_page()
+    fake_ui = _FakeUI()
+    fake_ui.session_state.update(
+        {
+            "api_base_url": "http://localhost:8000/api",
+            "project_id": "project_1",
+            "workspace_id": "workspace_1",
+        }
+    )
+
+    disk_snapshot = _planning_snapshot()
+    monkeypatch.setattr(
+        page, "load_latest_storyboard_snapshot_from_disk", lambda: disk_snapshot
+    )
+
+    client = object()
+    monkeypatch.setattr(
+        page, "resolve_workbench_client_mode", lambda _session_state: "http"
+    )
+    monkeypatch.setattr(
+        page,
+        "resolve_storyboard_workbench_client",
+        lambda _session_state, pixelle_video=None: client,
+    )
+
+    calls: list[dict[str, Any]] = []
+
+    def preview_renderer(snapshot, *, workbench_client=None, **_kwargs):
+        calls.append(
+            {"snapshot": snapshot, "workbench_client": workbench_client}
+        )
+        return []
+
+    page.render_storyboard_workbench_page(
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+        preview_renderer=preview_renderer,
+    )
+
+    assert "storyboard.workbench.demo_banner" not in fake_ui.infos
+    assert calls[0]["workbench_client"] is client
+    assert calls[0]["snapshot"] == disk_snapshot
+    assert (
+        fake_ui.session_state.get("storyboard_preview_snapshot") == disk_snapshot
+    )
 
 
 def test_storyboard_workbench_page_passes_client_to_preview(monkeypatch):

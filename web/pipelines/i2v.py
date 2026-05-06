@@ -12,6 +12,7 @@ from pixelle_video.utils.os_util import create_task_output_dir, get_temp_path
 from web.components.content_input import render_version_info
 from web.components.output_preview import render_scaled_video_preview
 from web.components.selfhost_workflow_notice import render_selfhost_workflow_notice
+from web.state.storyboard_capture import capture_snapshot_from_task_dir
 from web.i18n import get_language, tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
 from web.utils.async_helpers import run_async
@@ -252,6 +253,7 @@ class ImageToVideoPipelineUI(PipelineUI):
                     
                     # Execute async generation
                     final_video_path = run_async(generate_audio_visual_video())
+                    capture_snapshot_from_task_dir(os.path.dirname(final_video_path), st.session_state)
 
                     total_time = time.time() - start_time
                     progress_bar.progress(100)

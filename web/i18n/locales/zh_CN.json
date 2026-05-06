@@ -1083,6 +1083,7 @@
     "storyboard.workbench.page_title": "分镜工作台",
     "storyboard.workbench.page_caption": "检查生成后的分镜、锁定下一次要保留的字段，并查看依赖状态和候选图。",
     "storyboard.workbench.empty_state": "先在 Home 生成一次内容，分镜工作台会在这里显示最新分镜。",
+    "storyboard.workbench.demo_banner": "当前显示的是分镜工作台示例，生成真实内容后将自动替换。请在 Home 页面生成一次内容以查看实际分镜。",
     "storyboard.workbench.open_hint": "生成后的分镜预览、字段锁定和依赖状态已移到左侧 Workbench 页面。",
     "ip_workbench.panel.title": "IP 应用",
     "ip_workbench.panel.help": "从已设计好的 AssetBible 和 SceneCast 中选择，并把它应用到当前分镜帧。",

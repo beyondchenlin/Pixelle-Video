@@ -54,3 +54,28 @@ def test_get_storyboard_preview_snapshot_normalizes_non_mapping_values_to_none()
     session_state = {STORYBOARD_PREVIEW_SNAPSHOT_KEY: "invalid"}
 
     assert get_storyboard_preview_snapshot(session_state) is None
+
+
+def test_build_demo_planning_snapshot_satisfies_data_contract():
+    from web.components.storyboard_preview import build_storyboard_preview_rows
+    from web.state.storyboard_demo_snapshot import build_demo_planning_snapshot
+
+    demo = build_demo_planning_snapshot()
+    rows = build_storyboard_preview_rows(demo)
+    assert len(rows) == 3
+    first = rows[0]
+    assert first["plan_id"].startswith("demo_plan_")
+    assert first["plan_revision"] == 1
+    assert len(first["source_digest"]) == 64
+    assert first["frame_id"].startswith("demo_frame_")
+    assert first["values"]["shot_type"] != ""
+
+
+def test_build_demo_planning_snapshot_is_idempotent():
+    import json
+
+    from web.state.storyboard_demo_snapshot import build_demo_planning_snapshot
+
+    d1 = json.dumps(build_demo_planning_snapshot(), sort_keys=True)
+    d2 = json.dumps(build_demo_planning_snapshot(), sort_keys=True)
+    assert d1 == d2

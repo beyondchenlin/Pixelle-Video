@@ -1083,6 +1083,7 @@
     "storyboard.workbench.page_title": "Storyboard Workbench",
     "storyboard.workbench.page_caption": "Review generated storyboards, lock fields for the next run, and inspect dependency state and image candidates.",
     "storyboard.workbench.empty_state": "Generate once from Home, then the latest storyboard will appear here.",
+    "storyboard.workbench.demo_banner": "This is a preview of the storyboard workbench. Generate content from Home to see your actual storyboard frames here.",
     "storyboard.workbench.open_hint": "Storyboard preview, field locks, and dependency state now live in the Workbench page.",
     "ip_workbench.panel.title": "IP Apply",
     "ip_workbench.panel.help": "Select an existing AssetBible and SceneCast, then apply it to the current storyboard frame.",

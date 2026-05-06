@@ -57,7 +57,7 @@ def render_ip_workbench_panel(
         ui.caption(translate("ip_workbench.panel.empty_asset_bibles"))
         return
 
-    asset_bible_id = _select_asset_bible(asset_bibles, ui=ui, translate=translate)
+    asset_bible_id = _select_asset_bible(asset_bibles, frame_id=context["frame_id"], ui=ui, translate=translate)
     if not asset_bible_id:
         ui.caption(translate("ip_workbench.panel.empty_asset_bibles"))
         return
@@ -150,13 +150,19 @@ def _has_required_context(context: Mapping[str, str]) -> bool:
     )
 
 
-def _select_asset_bible(asset_bibles: list[dict[str, Any]], *, ui, translate: Translate) -> str:
+def _select_asset_bible(
+    asset_bibles: list[dict[str, Any]],
+    *,
+    frame_id: str,
+    ui,
+    translate: Translate,
+) -> str:
     options = [_first_text(item.get("asset_bible_id")) for item in asset_bibles]
     options = [option for option in options if option]
     selected = ui.selectbox(
         translate("ip_workbench.panel.asset_bible"),
         options,
-        key="ip_workbench_asset_bible_select",
+        key=f"ip_workbench_asset_bible_select_{frame_id}",
     )
     return _first_text(selected)
 

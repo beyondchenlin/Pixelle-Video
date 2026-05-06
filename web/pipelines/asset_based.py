@@ -28,6 +28,7 @@ from pixelle_video.config import config_manager
 from pixelle_video.models.progress import ProgressEvent, ProgressEventType
 from pixelle_video.utils.os_util import get_temp_path
 from web.components.bgm_config import render_bgm_section
+from web.state.storyboard_capture import capture_snapshot_from_result
 from web.components.content_input import render_version_info
 from web.components.output_preview import render_scaled_video_preview
 from web.components.selfhost_workflow_notice import render_selfhost_workflow_notice
@@ -383,11 +384,13 @@ class AssetBasedPipelineUI(PipelineUI):
                         progress_callback=update_progress
                     ))
                     
+                    capture_snapshot_from_result(ctx, st.session_state)
+
                     total_time = time.time() - start_time
-                    
+
                     progress_bar.progress(100)
                     status_text.text(tr("status.success"))
-                    
+
                     # Display result
                     st.success(tr("status.video_generated", path=ctx.final_video_path))
                     

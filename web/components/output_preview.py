@@ -74,6 +74,7 @@ from web.components.recent_video_gallery import (
     store_recent_generated_video,
 )
 from web.i18n import tr
+from web.state.storyboard_capture import capture_snapshot_from_result
 from web.state.storyboard_preview import set_storyboard_preview_snapshot
 from web.utils.async_helpers import run_async
 from web.utils.progress_i18n import format_progress_event_message, localize_progress_extra_info
@@ -1663,10 +1664,7 @@ def _render_generation_section(pixelle_video, video_params):
                         )
 
                         result = run_async(pixelle_video.generate_video(**generation_request))
-                        storyboard_snapshot_changed = set_storyboard_preview_snapshot(
-                            st.session_state,
-                            getattr(result.storyboard, "planning_snapshot", None),
-                        )
+                        storyboard_snapshot_changed = capture_snapshot_from_result(result, st.session_state)
 
                         # Calculate total generation time
                         total_generation_time = time.time() - start_time

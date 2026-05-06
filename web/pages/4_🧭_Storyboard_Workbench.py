@@ -30,7 +30,12 @@ from web.state.storyboard_overrides import (
     build_storyboard_override_snapshot_identity,
     set_storyboard_override_draft,
 )
-from web.state.storyboard_preview import get_storyboard_preview_snapshot
+from web.state.storyboard_demo_snapshot import build_demo_planning_snapshot
+from web.state.storyboard_disk_loader import load_latest_storyboard_snapshot_from_disk
+from web.state.storyboard_preview import (
+    get_storyboard_preview_snapshot,
+    set_storyboard_preview_snapshot,
+)
 from web.state.workbench_client import (
     resolve_storyboard_workbench_client,
     resolve_workbench_client_mode,
@@ -49,25 +54,44 @@ def render_storyboard_workbench_page(
     ui.markdown(f"## {translate('storyboard.workbench.page_title')}")
     ui.caption(translate("storyboard.workbench.page_caption"))
 
-    preview_snapshot = get_storyboard_preview_snapshot(getattr(ui, "session_state", {}))
+    session_state = getattr(ui, "session_state", {})
+    preview_snapshot = get_storyboard_preview_snapshot(session_state)
+    is_demo_snapshot = False
+
     if preview_snapshot is None:
-        set_storyboard_override_draft(getattr(ui, "session_state", {}), None)
-        ui.info(translate("storyboard.workbench.empty_state"))
+        preview_snapshot = load_latest_storyboard_snapshot_from_disk()
+        if preview_snapshot is not None:
+            set_storyboard_preview_snapshot(session_state, preview_snapshot)
+
+    if preview_snapshot is None:
+        preview_snapshot = build_demo_planning_snapshot()
+        is_demo_snapshot = True
+
+    if is_demo_snapshot:
+        set_storyboard_override_draft(session_state, None)
+        ui.info(translate("storyboard.workbench.demo_banner"))
+        preview_renderer(
+            preview_snapshot,
+            stale_context={},
+            workbench_client=None,
+            ip_workbench_client=None,
+            stale_renderer=None,
+        )
         return
 
-    stale_context = build_stale_panel_context(getattr(ui, "session_state", {}))
-    workbench_client_mode = resolve_workbench_client_mode(getattr(ui, "session_state", {}))
+    stale_context = build_stale_panel_context(session_state)
+    workbench_client_mode = resolve_workbench_client_mode(session_state)
     pixelle_video = (
         get_pixelle_video()
         if workbench_client_mode == "inprocess"
         else None
     )
     workbench_client = resolve_storyboard_workbench_client(
-        getattr(ui, "session_state", {}),
+        session_state,
         pixelle_video=pixelle_video,
     )
     ip_workbench_client = resolve_storyboard_ip_workbench_client(
-        getattr(ui, "session_state", {}),
+        session_state,
         pixelle_video=pixelle_video,
     )
     with ui.container():
@@ -78,7 +102,7 @@ def render_storyboard_workbench_page(
             ip_workbench_client=ip_workbench_client,
         )
     set_storyboard_override_draft(
-        getattr(ui, "session_state", {}),
+        session_state,
         {
             "snapshot_identity": build_storyboard_override_snapshot_identity(preview_snapshot),
             "frame_overrides": frame_overrides,
