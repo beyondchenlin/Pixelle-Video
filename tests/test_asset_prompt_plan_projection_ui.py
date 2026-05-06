@@ -445,7 +445,7 @@ def test_import_asset_bible_preset_posts_project_endpoint(monkeypatch):
         "json": {
             "workspace_id": "ws_1",
             "preset_id": "builtin_asset_bible_demo",
-            "conflict_policy": "fail",
+            "conflict_policy": "overwrite",
             "asset_bible_id": "demo_bible",
         },
         "timeout": 30.0,

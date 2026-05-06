@@ -191,7 +191,7 @@ def test_inprocess_ip_design_client_uses_asset_repository_without_http():
         },
     )
     assert saved_asset["asset_bible"]["asset_bible_id"] == "bible_demo"
-    assert "forbidden_elements" not in saved_asset["asset_bible"]["ip_profiles"][0]
+    assert saved_asset["asset_bible"]["ip_profiles"][0].get("forbidden_elements") == ["private"]
     assert client.list_asset_bibles(
         workspace_id="workspace_1",
         project_id="project_1",
@@ -205,8 +205,8 @@ def test_inprocess_ip_design_client_uses_asset_repository_without_http():
         project_id="project_1",
         asset_bible_id="bible_demo",
     )["asset_bible"]
-    assert "forbidden_elements" not in listed_asset["ip_profiles"][0]
-    assert "forbidden_elements" not in loaded_asset["ip_profiles"][0]
+    assert listed_asset["ip_profiles"][0].get("forbidden_elements") == ["private"]
+    assert loaded_asset["ip_profiles"][0].get("forbidden_elements") == ["private"]
 
     saved_cast = client.save_scene_cast(
         workspace_id="workspace_1",
@@ -297,7 +297,7 @@ def test_inprocess_ip_design_client_save_marks_imported_asset_bible_customized()
         "customized": True,
     }
     assert response["asset_bible"]["metadata"] == saved["metadata"]
-    assert "forbidden_elements" not in response["asset_bible"]["ip_profiles"][0]
+    assert response["asset_bible"]["ip_profiles"][0].get("forbidden_elements") == []
 
 
 def test_inprocess_ip_design_client_imports_builtin_asset_bible_without_leaking_private_fields():
@@ -378,7 +378,7 @@ def test_inprocess_ip_design_client_imports_builtin_asset_bible_without_leaking_
     )
 
     assert response["asset_bible"]["asset_bible_id"] == "demo_bible"
-    assert "forbidden_elements" not in response["asset_bible"]["ip_profiles"][0]
+    assert response["asset_bible"]["ip_profiles"][0].get("forbidden_elements") == ["private"]
     assert repository.load_calls == [("workspace_1", "demo_bible")]
     assert repository.saved[0][0] == "workspace_1"
 

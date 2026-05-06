@@ -26,6 +26,15 @@ class _FakeStyleConfigUI:
     def warning(self, *_args, **_kwargs):
         return None
 
+    def container(self, **kwargs):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _null_context():
+            yield None
+
+        return _null_context()
+
 
 def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
     fake_ui = _FakeStyleConfigUI()
