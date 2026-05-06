@@ -537,3 +537,224 @@ def test_usage_planner_reads_real_scene_cast_to_dict_metadata_presence_type():
     )[0]
 
     assert package.ip_presence_type is IPPresenceType.STRONG_IDENTITY
+
+
+# ── IPFrameAppearancePlanner tests ───────────────────────────────────────
+
+
+def _universal_ip_profile():
+    """An IPProfile with the new universal-actor fields populated."""
+    return IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="正定向导兔",
+        identity_lock=("白色卡通兔子", "蓝色领结", "长耳朵"),
+        visual_summary="白色卡通兔子，蓝色领结，长耳朵，圆润脸型。",
+        minimal_traits=("蓝色领结一角", "长耳朵轮廓"),
+        role_presets=(
+            "导游讲解者：温和的讲解者，面向场景做介绍手势",
+            "情感陪伴者：安静的陪伴角色，与画面主体自然互动",
+            "路人观察者：融入环境背景",
+            "画面主角：占据画面主体位置",
+            "画外不出镜：不出现在画面中",
+        ),
+        presence_spectrum=(
+            "全身出镜：完整呈现角色形象",
+            "半身出镜：展示上半身和表情",
+            "局部细节：只露出特征性局部",
+            "远景融入：作为场景中的小元素融入背景",
+            "完全不出镜：该帧不出现IP角色",
+        ),
+        adaptable_slots=("服装配饰", "手持道具", "动作姿势"),
+    )
+
+
+def _plan_two_frames():
+    frames = [
+        StoryboardPlanFrame(
+            index=1,
+            source_text="从长乐门出发，走进正定古城。",
+            visual_goal="表现长乐门作为旅程入口的历史感",
+            prompt_intent="建立古城空间和导览开篇",
+            shot_type="中远景",
+            primary_subject="长乐门",
+        ),
+        StoryboardPlanFrame(
+            index=2,
+            source_text="街巷里飘来美食的香气，市井生活热闹非凡。",
+            visual_goal="表现古城美食街巷的生活气息",
+            prompt_intent="美食文化展示",
+            shot_type="中景",
+            primary_subject="古城美食街巷",
+        ),
+    ]
+    return StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=frames[0].source_text + frames[1].source_text,
+        frames=frames,
+    )
+
+
+def test_appearance_planner_populates_appearance_description():
+    from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
+
+    plan = _plan_two_frames()
+    packages = IPFrameAppearancePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_universal_ip_profile(),
+    )
+
+    assert len(packages) == 2
+    for pkg in packages:
+        assert isinstance(pkg.appearance_description, str)
+        assert len(pkg.appearance_description) > 20
+        assert "白色卡通兔子" in pkg.appearance_description
+
+
+def test_appearance_planner_populates_previously_unused_fields():
+    from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
+
+    plan = _plan_two_frames()
+    packages = IPFrameAppearancePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_universal_ip_profile(),
+    )
+
+    for pkg in packages:
+        assert isinstance(pkg.outfit_theme, str)
+        assert len(pkg.outfit_theme) > 0
+        assert isinstance(pkg.accessories, tuple)
+        assert len(pkg.accessories) > 0
+        assert isinstance(pkg.action, str)
+        assert len(pkg.action) > 0
+        assert isinstance(pkg.expression, str)
+        assert len(pkg.expression) > 0
+        assert isinstance(pkg.pose, str)
+        assert len(pkg.pose) > 0
+        assert isinstance(pkg.interaction_target, str)
+        assert len(pkg.interaction_target) > 0
+
+
+def test_appearance_planner_produces_varied_descriptions_by_domain():
+    from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
+
+    plan = _plan_two_frames()
+    packages = IPFrameAppearancePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_universal_ip_profile(),
+    )
+
+    desc1 = packages[0].appearance_description
+    desc2 = packages[1].appearance_description
+    assert desc1 != desc2, "different frames should produce varied descriptions"
+
+
+def test_appearance_planner_uses_role_presets_from_ip_profile():
+    from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
+
+    plan = _plan_two_frames()
+    packages = IPFrameAppearancePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_universal_ip_profile(),
+    )
+
+    pkg0 = packages[0]
+    assert "导游讲解者" in pkg0.appearance_description
+    assert pkg0.outfit_theme is not None
+    assert len(pkg0.accessories) > 0
+
+
+def test_appearance_planner_tracks_continuity_between_frames():
+    from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
+
+    plan = _plan_two_frames()
+    packages = IPFrameAppearancePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_universal_ip_profile(),
+    )
+
+    assert packages[0].continuity_from_previous is None
+    assert isinstance(packages[1].continuity_from_previous, str)
+    assert "上一帧" in packages[1].continuity_from_previous
+
+
+def test_appearance_planner_different_domains_produce_different_roles():
+    from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
+
+    travel_frame = StoryboardPlanFrame(
+        index=1,
+        source_text="古城墙下游人如织，导游讲述历史。",
+        visual_goal="古城文旅",
+        prompt_intent="文旅展示",
+        primary_subject="古城墙",
+    )
+    food_frame = StoryboardPlanFrame(
+        index=1,
+        source_text="餐厅里火锅沸腾，美食的香气弥漫。",
+        visual_goal="美食展示",
+        prompt_intent="美食内容",
+        primary_subject="火锅",
+    )
+    tech_frame = StoryboardPlanFrame(
+        index=1,
+        source_text="数据中心的屏幕上，代码飞速滚动。",
+        visual_goal="科技展示",
+        prompt_intent="科技内容",
+        primary_subject="数据屏幕",
+    )
+
+    planner = IPFrameAppearancePlanner()
+    profile = _universal_ip_profile()
+
+    def _make_plan(frame):
+        return StoryboardPlan.build(
+            mode="sentence",
+            count_mode="auto",
+            requested_scene_count=None,
+            source_text=frame.source_text,
+            frames=[frame],
+        )
+
+    travel_pkg = planner.plan_batch(storyboard_plan=_make_plan(travel_frame), ip_profile=profile)[0]
+    food_pkg = planner.plan_batch(storyboard_plan=_make_plan(food_frame), ip_profile=profile)[0]
+    tech_pkg = planner.plan_batch(storyboard_plan=_make_plan(tech_frame), ip_profile=profile)[0]
+
+    assert travel_pkg.outfit_theme != food_pkg.outfit_theme
+    assert travel_pkg.outfit_theme != tech_pkg.outfit_theme
+
+
+def test_appearance_planner_handles_skeletal_ip_profile():
+    from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
+
+    skeletal = IPProfile(
+        ip_profile_id="ip_min",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="Minimal",
+        identity_lock=("白色卡通兔子",),
+    )
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="日常散步场景。",
+        visual_goal="日常",
+        prompt_intent="日常",
+        primary_subject="公园",
+    )
+    plan = StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=frame.source_text,
+        frames=[frame],
+    )
+
+    packages = IPFrameAppearancePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=skeletal,
+    )
+
+    assert len(packages) == 1
+    assert len(packages[0].appearance_description) > 10

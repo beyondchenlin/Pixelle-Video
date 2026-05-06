@@ -302,6 +302,9 @@ def _ip_identity_prompt_terms_from_context(frame_context: Mapping[str, Any]) -> 
     adaptation = frame_context.get("ip_adaptation")
     if not isinstance(adaptation, Mapping):
         return ()
+    appearance_desc = adaptation.get("appearance_description")
+    if isinstance(appearance_desc, str) and appearance_desc.strip():
+        return (_normalize_prompt_fragments([appearance_desc])[0],)
     return tuple(
         _normalize_prompt_fragments(
             [

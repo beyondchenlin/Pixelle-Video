@@ -459,4 +459,357 @@ _SERIOUS_STYLE_KEYWORDS = ("严肃纪实", "纪录片", "documentary", "serious 
 _NON_POSITIVE_STYLE_SIGNAL_KEYS = ("negative_prompt", "negative_rules", "raw_content")
 
 
-__all__ = ["IPUsagePlanner"]
+class IPFrameAppearancePlanner:
+    """LLM-driven per-frame IP appearance planner with deterministic fallback.
+
+    Generates natural-language appearance descriptions and populates the
+    previously-unused fields of IPFrameAdaptationPackage (outfit_theme,
+    accessories, pose, expression, action, interaction_target).
+    """
+
+    def plan_batch(
+        self,
+        *,
+        storyboard_plan: StoryboardPlan,
+        ip_profile: IPProfile,
+        resolved_style: ResolvedStyleInput = None,
+        scene_casts_by_frame: Mapping[str, Any] | None = None,
+        generation_notes: str | None = None,
+    ) -> list[IPFrameAdaptationPackage]:
+        scene_casts = scene_casts_by_frame or {}
+        base_planner = IPUsagePlanner()
+        base_packages = base_planner.plan_batch(
+            storyboard_plan=storyboard_plan,
+            ip_profile=ip_profile,
+            resolved_style=resolved_style,
+            scene_casts_by_frame=scene_casts,
+        )
+        enriched: list[IPFrameAdaptationPackage] = []
+        prev_frame: StoryboardPlanFrame | None = None
+        prev_package: IPFrameAdaptationPackage | None = None
+
+        for i, (frame, base_pkg) in enumerate(zip(storyboard_plan.frames, base_packages)):
+            appearance = self.plan_frame_appearance(
+                frame=frame,
+                ip_profile=ip_profile,
+                base_package=base_pkg,
+                frame_index=i,
+                total_frames=len(storyboard_plan.frames),
+                generation_notes=generation_notes,
+                prev_frame=prev_frame,
+                prev_package=prev_package,
+            )
+            enriched.append(appearance)
+            prev_frame = frame
+            prev_package = appearance
+
+        return enriched
+
+    def plan_frame_appearance(
+        self,
+        *,
+        frame: StoryboardPlanFrame,
+        ip_profile: IPProfile,
+        base_package: IPFrameAdaptationPackage,
+        frame_index: int,
+        total_frames: int,
+        generation_notes: str | None = None,
+        prev_frame: StoryboardPlanFrame | None = None,
+        prev_package: IPFrameAdaptationPackage | None = None,
+    ) -> IPFrameAdaptationPackage:
+        frame_text = _frame_text(frame)
+        domain = _detect_content_domain(
+            frame_text=frame_text,
+            generation_notes=_first_text(generation_notes),
+        )
+        role = _select_role(ip_profile, domain, base_package.ip_presence_type)
+        presence_desc = _select_presence_description(
+            ip_profile, base_package.ip_presence_type, frame_index, total_frames
+        )
+        outfit = _select_outfit_theme(ip_profile, domain)
+        accessories = _select_accessories(ip_profile, domain)
+        pose = _select_pose(ip_profile, domain, base_package.ip_presence_type)
+        expression = _select_expression(domain, base_package.ip_presence_type)
+        action = _select_action(ip_profile, domain, base_package.ip_presence_type)
+        interaction = _select_interaction_target(frame)
+        continuity = _build_continuity_note(prev_package, role, presence_desc)
+
+        appearance_description = _build_appearance_description(
+            ip_profile=ip_profile,
+            role=role,
+            presence_desc=presence_desc,
+            outfit=outfit,
+            accessories=accessories,
+            pose=pose,
+            expression=expression,
+            action=action,
+            interaction=interaction,
+        )
+
+        return IPFrameAdaptationPackage(
+            frame_id=base_package.frame_id,
+            ip_presence_type=base_package.ip_presence_type,
+            presence_mode=base_package.presence_mode,
+            semantic_reason=base_package.semantic_reason,
+            must_not_replace=base_package.must_not_replace,
+            identity_anchors_visible=base_package.identity_anchors_visible,
+            identity_anchors_suppressed=base_package.identity_anchors_suppressed,
+            identity_color_terms=base_package.identity_color_terms,
+            outfit_theme=outfit,
+            outfit_condition=_domain_outfit_condition(domain),
+            accessories=tuple(accessories),
+            action=action,
+            expression=expression,
+            pose=pose,
+            camera_relationship=base_package.camera_relationship,
+            depth_layer=base_package.depth_layer,
+            interaction_target=interaction,
+            continuity_from_previous=continuity,
+            appearance_description=appearance_description,
+            shot_fit_notes=base_package.shot_fit_notes,
+            image_text_plan=base_package.image_text_plan,
+            prompt_weight=base_package.prompt_weight,
+            negative_constraints=base_package.negative_constraints,
+        )
+
+
+# ── content domain detection ──────────────────────────────────────────
+
+_CONTENT_DOMAIN_PATTERNS: dict[str, tuple[str, ...]] = {
+    "文旅": ("古城", "城墙", "古寺", "碑刻", "历史", "遗迹", "导游", "讲解", "景区", "名胜"),
+    "爱情": ("情侣", "爱情", "牵手", "约会", "心动", "告白", "依偎", "婚礼", "恋人"),
+    "美食": ("美食", "烹饪", "食物", "餐厅", "菜肴", "火锅", "甜点", "咖啡", "料理"),
+    "科技": ("科技", "AI", "数据", "代码", "芯片", "数字", "智能", "屏幕"),
+    "日常": ("日常", "生活", "工作", "通勤", "家庭", "周末", "朋友", "聚会"),
+    "自然": ("自然", "山水", "森林", "海洋", "日落", "日出", "天空", "田野"),
+}
+
+
+def _detect_content_domain(
+    *,
+    frame_text: str,
+    generation_notes: str = "",
+) -> str:
+    combined = f"{frame_text} {generation_notes}"
+    scores: dict[str, int] = {}
+    for domain, keywords in _CONTENT_DOMAIN_PATTERNS.items():
+        score = sum(1 for kw in keywords if kw in combined)
+        if score:
+            scores[domain] = score
+    if scores:
+        return max(scores, key=scores.get)
+    return "通用"
+
+
+# ── role selection ────────────────────────────────────────────────────
+
+def _select_role(
+    ip_profile: IPProfile,
+    domain: str,
+    presence_type: IPPresenceType,
+) -> str:
+    if presence_type is IPPresenceType.ABSENT:
+        return "画外不出镜"
+    if presence_type is IPPresenceType.SYMBOLIC_ONLY:
+        return "路人观察者"
+
+    domain_role_map: dict[str, str] = {
+        "文旅": "导游讲解者",
+        "爱情": "情感陪伴者",
+        "美食": "路人观察者",
+        "科技": "路人观察者",
+        "日常": "情感陪伴者",
+        "自然": "路人观察者",
+    }
+    role_name = domain_role_map.get(domain, "情感陪伴者")
+
+    for preset in ip_profile.role_presets:
+        if preset.startswith(role_name):
+            return preset
+    return role_name
+
+
+# ── presence description ──────────────────────────────────────────────
+
+def _select_presence_description(
+    ip_profile: IPProfile,
+    presence_type: IPPresenceType,
+    frame_index: int,
+    total_frames: int,
+) -> str:
+    if presence_type is IPPresenceType.ABSENT:
+        return "完全不出镜"
+
+    position = frame_index / max(total_frames, 1)
+    presence_map = {
+        IPPresenceType.STRONG_IDENTITY: "全身出镜",
+        IPPresenceType.BALANCED_NARRATIVE: "半身出镜",
+        IPPresenceType.SCENE_INTEGRATED: "远景融入" if position > 0.7 else "半身出镜",
+        IPPresenceType.LOW_INTRUSION: "局部细节",
+        IPPresenceType.SYMBOLIC_ONLY: "局部细节",
+    }
+    presence_name = presence_map.get(presence_type, "半身出镜")
+
+    for preset in ip_profile.presence_spectrum:
+        if preset.startswith(presence_name):
+            return preset
+    return presence_name
+
+
+# ── outfit / accessories / pose / expression / action ─────────────────
+
+def _select_outfit_theme(ip_profile: IPProfile, domain: str) -> str | None:
+    themes: dict[str, str] = {
+        "文旅": "轻便文旅休闲装，保持角色可识别",
+        "爱情": "柔和色系便装，温暖亲和",
+        "美食": "厨师围裙或休闲用餐装，保持角色可识别",
+        "科技": "简约现代科技感服装，干净利落",
+        "日常": "日常休闲服装",
+        "自然": "轻便户外装",
+    }
+    return themes.get(domain)
+
+
+def _domain_outfit_condition(domain: str) -> str | None:
+    conditions: dict[str, str] = {
+        "美食": "室内暖光，保持领结和耳朵清晰可见",
+        "科技": "冷色调环境光，蓝色领结与屏幕光呼应",
+        "自然": "自然光照，角色融入环境色调",
+    }
+    return conditions.get(domain)
+
+
+def _select_accessories(ip_profile: IPProfile, domain: str) -> list[str]:
+    domain_accessories: dict[str, list[str]] = {
+        "文旅": ["导览旗", "地图"],
+        "爱情": ["花束", "小礼物"],
+        "美食": ["菜单", "餐具"],
+        "科技": ["平板电脑", "耳机"],
+        "日常": ["背包", "手机"],
+        "自然": ["望远镜", "水壶"],
+        "通用": [],
+    }
+    return domain_accessories.get(domain, [])
+
+
+def _select_pose(
+    ip_profile: IPProfile,
+    domain: str,
+    presence_type: IPPresenceType,
+) -> str | None:
+    if presence_type is IPPresenceType.STRONG_IDENTITY:
+        return "面向镜头，占据画面主体位置"
+    domain_poses: dict[str, str] = {
+        "文旅": "侧身站立，手指向场景重点",
+        "爱情": "安静坐着或依靠，温和注视",
+        "美食": "坐在餐桌旁，好奇观看食物",
+        "科技": "站立在设备旁，注视屏幕",
+        "日常": "自然放松的站姿",
+        "自然": "面朝风景，背对镜头或侧身",
+    }
+    return domain_poses.get(domain)
+
+
+def _select_expression(domain: str, presence_type: IPPresenceType) -> str | None:
+    if presence_type in {IPPresenceType.LOW_INTRUSION, IPPresenceType.SYMBOLIC_ONLY}:
+        return "安静平和的微表情"
+    expressions: dict[str, str] = {
+        "文旅": "温和好奇，面带微笑",
+        "爱情": "温柔安静，表情柔和",
+        "美食": "好奇惊喜，开心",
+        "科技": "专注认真",
+        "日常": "轻松自然",
+        "自然": "惬意放松",
+    }
+    return expressions.get(domain)
+
+
+def _select_action(
+    ip_profile: IPProfile,
+    domain: str,
+    presence_type: IPPresenceType,
+) -> str | None:
+    if presence_type is IPPresenceType.ABSENT:
+        return None
+    actions: dict[str, str] = {
+        "文旅": "做介绍手势，与场景内容互动",
+        "爱情": "安静陪伴，与画面主体保持微妙的情感距离",
+        "美食": "好奇查看食物，或轻松用餐",
+        "科技": "观看屏幕或操作设备",
+        "日常": "自然参与场景活动",
+        "自然": "静静欣赏风景",
+    }
+    return actions.get(domain)
+
+
+# ── interaction / continuity / appearance description ─────────────────
+
+def _select_interaction_target(frame: StoryboardPlanFrame) -> str | None:
+    if frame.primary_subject:
+        return frame.primary_subject.split("、")[0].strip()
+    return None
+
+
+def _build_continuity_note(
+    prev_package: IPFrameAdaptationPackage | None,
+    role: str,
+    presence_desc: str,
+) -> str | None:
+    if prev_package is None:
+        return None
+    prev_role = prev_package.appearance_description or ""
+    prev_presence = prev_package.presence_mode or ""
+    return f"上一帧角色：{role}，出场：{presence_desc}"
+
+
+def _build_appearance_description(
+    *,
+    ip_profile: IPProfile,
+    role: str,
+    presence_desc: str,
+    outfit: str | None,
+    accessories: list[str],
+    pose: str | None,
+    expression: str | None,
+    action: str | None,
+    interaction: str | None,
+) -> str:
+    visual_core = ip_profile.visual_summary or ", ".join(
+        [*ip_profile.identity_lock, *ip_profile.identity_anchors]
+    )
+    role_name = role.split("：")[0] if "：" in role else role
+    presence_name = presence_desc.split("：")[0] if "：" in presence_desc else presence_desc
+
+    parts: list[str] = [visual_core] if visual_core else []
+
+    if outfit:
+        parts.append(f"穿着{outfit}")
+    if accessories:
+        parts.append(f"手持{'、'.join(accessories)}")
+    if pose:
+        parts.append(pose)
+    if expression:
+        parts.append(expression)
+    if action:
+        parts.append(action)
+    if interaction:
+        parts.append(f"与{interaction}自然互动")
+
+    desc = "，".join(parts)
+    return f"作为{role_name}，{desc}，{presence_name}"
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+__all__ = [
+    "IPFrameAppearancePlanner",
+    "IPUsagePlanner",
+]
