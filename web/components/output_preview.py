@@ -50,6 +50,7 @@ from pixelle_video.services.layered_template_service import (
     LayeredTemplateService,
 )
 from pixelle_video.services.template_registry import TemplateRegistry
+from pixelle_video.services.font_discovery import font_family_from_file
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
     resolve_text_style_layout,
@@ -488,7 +489,7 @@ def _build_font_face_css(font_path_str: str) -> str | None:
         ".woff2": "woff2",
     }
     font_format = fmt_map.get(suffix, "truetype")
-    family = font_path.stem
+    family = font_family_from_file(font_path)
 
     return (
         "@font-face {\n"
