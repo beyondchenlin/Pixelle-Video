@@ -529,23 +529,31 @@ def render_storyboard_advanced_controls(
     storyboard_role_strategy = None
     storyboard_role_locking_strength = None
     storyboard_shot_strategy = None
+    world_preset_enabled = False
 
     storyboard_col1, storyboard_col2 = ui.columns(2)
     with storyboard_col1:
         if world_ids:
-            world_options = [STORYBOARD_WORLD_PRESET_AUTO_VALUE, *world_ids]
-            world_index = world_options.index(default_world_id) if default_world_id in world_options else 0
-            storyboard_world_preset_id = ui.selectbox(
-                translate("storyboard.world_preset"),
-                options=world_options,
-                index=world_index,
-                format_func=lambda value: (
-                    translate("storyboard.option.content_mode.auto")
-                    if value == STORYBOARD_WORLD_PRESET_AUTO_VALUE
-                    else world_label_map.get(value, value)
-                ),
-                key="storyboard_world_preset_id",
+            world_preset_enabled = ui.checkbox(
+                translate("storyboard.world_preset_enabled"),
+                value=False,
+                key="storyboard_world_preset_enabled",
+                help=translate("storyboard.world_preset_enabled_help"),
             )
+            if world_preset_enabled:
+                world_options = [STORYBOARD_WORLD_PRESET_AUTO_VALUE, *world_ids]
+                world_index = world_options.index(default_world_id) if default_world_id in world_options else 0
+                storyboard_world_preset_id = ui.selectbox(
+                    translate("storyboard.world_preset"),
+                    options=world_options,
+                    index=world_index,
+                    format_func=lambda value: (
+                        translate("storyboard.option.content_mode.auto")
+                        if value == STORYBOARD_WORLD_PRESET_AUTO_VALUE
+                        else world_label_map.get(value, value)
+                    ),
+                    key="storyboard_world_preset_id",
+                )
         storyboard_content_mode = ui.selectbox(
             translate("storyboard.content_mode"),
             options=["auto", "concept_explainer", "theme_mapping"],

@@ -971,6 +971,8 @@
     "storyboard.advanced_enabled_help": "Turn on preset-driven advanced planning controls and optional frame overrides.",
     "storyboard.advanced_not_enabled_hint": "Enable to stabilize visual style, shot language, and role consistency through presets. Generate once, then lock fields you want to keep in the Storyboard Workbench.",
     "storyboard.world_preset": "World preset",
+    "storyboard.world_preset_enabled": "Enable world preset",
+    "storyboard.world_preset_enabled_help": "When checked, a preset world scene is used to stabilize visual style, prop systems, and role identities. Leave unchecked to let the AI work without world constraints.",
     "storyboard.generation_world_hint": "World Hint",
     "storyboard.generation_world_hint_help": "Describe the current script world, narrative boundaries, and how the IP should fit this generation. This does not overwrite the IP design world hint.",
     "storyboard.generation_world_hint_generate": "Generate from script",

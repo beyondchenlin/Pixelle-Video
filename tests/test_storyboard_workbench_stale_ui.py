@@ -487,6 +487,7 @@ def test_storyboard_advanced_controls_keeps_generation_settings_separate_from_wo
     fake_ui.session_state.update(
         {
             "storyboard_planning_enabled": True,
+            "storyboard_world_preset_enabled": True,
             "api_base_url": "http://localhost:8000/api",
             "project_id": "project_1",
             "workspace_id": "workspace_1",

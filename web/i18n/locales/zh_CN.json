@@ -971,6 +971,8 @@
     "storyboard.advanced_enabled_help": "打开预设驱动的高级分镜控制，并可在预览里锁定部分字段。",
     "storyboard.advanced_not_enabled_hint": "开启后可通过预设稳定画面风格、镜头语言和角色一致性。先生成一次后，再到分镜工作台锁定想保留的字段。",
     "storyboard.world_preset": "世界预设",
+    "storyboard.world_preset_enabled": "启用世界预设",
+    "storyboard.world_preset_enabled_help": "勾选后将使用预设的世界场景来稳定画面风格、道具体系和角色身份。不勾选则不注入任何世界预设，由 AI 自由发挥。",
     "storyboard.generation_world_hint": "世界观提示",
     "storyboard.generation_world_hint_help": "描述本次文案发生的世界、叙事边界和 IP 融入方式；不会覆盖 IP 设计页的长期世界观提示。",
     "storyboard.generation_world_hint_generate": "根据文案生成",
