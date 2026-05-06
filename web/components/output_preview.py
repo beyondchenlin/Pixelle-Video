@@ -50,6 +50,10 @@ from pixelle_video.services.layered_template_service import (
     LayeredTemplateService,
 )
 from pixelle_video.services.template_registry import TemplateRegistry
+from pixelle_video.services.text_style_css_contract import (
+    TextStyleRegion,
+    resolve_text_style_layout,
+)
 from pixelle_video.storage.artifact_object_store import FilesystemDevArtifactObjectStore
 from pixelle_video.tts_workflow_contract import tts_workflow_missing_required_ref_audio
 from pixelle_video.utils.logging_util import build_content_observability, new_correlation_id
@@ -418,13 +422,20 @@ def _build_layout_preview_media_placeholder() -> str:
 
 
 def _build_text_rendering_css(text_rendering: dict | None) -> str:
+    """DEPRECATED: use ``_build_text_overlay_blocks()`` instead.
+
+    Kept for backward compatibility with layered template preview path.
+    """
+    return _build_text_rendering_css_legacy(text_rendering)
+
+
+def _build_text_rendering_css_legacy(text_rendering: dict | None) -> str:
     """Build CSS from text_rendering config to inject into frame template preview."""
     if not text_rendering:
         return ""
 
     css_parts = ["<style data-pixelle-text-rendering>"]
 
-    # @font-face rules for custom fonts used in title / caption styles
     font_file_paths: set[str] = set()
     for style_key in ("title_style", "caption_style"):
         style = text_rendering.get(style_key) or {}
@@ -436,17 +447,15 @@ def _build_text_rendering_css(text_rendering: dict | None) -> str:
         if font_face_css:
             css_parts.append(font_face_css)
 
-    # Build title style CSS
     title_style = text_rendering.get("title_style") or {}
     if title_style:
-        title_css = _build_single_text_style_css(title_style, ".pixelle-title, .title, .topic, h1, [class*='title']")
+        title_css = _build_single_text_style_css_legacy(title_style, ".pixelle-title, .title, .topic, h1, [class*='title']")
         if title_css:
             css_parts.append(title_css)
 
-    # Build caption/subtitle style CSS
     caption_style = text_rendering.get("caption_style") or {}
     if caption_style:
-        caption_css = _build_single_text_style_css(caption_style, ".pixelle-caption, .caption, .subtitle, .text, .excerpt, [class*='caption'], [class*='subtitle'], [class*='text']")
+        caption_css = _build_single_text_style_css_legacy(caption_style, ".pixelle-caption, .caption, .subtitle, .text, .excerpt, [class*='caption'], [class*='subtitle'], [class*='text']")
         if caption_css:
             css_parts.append(caption_css)
 
@@ -491,21 +500,12 @@ def _build_font_face_css(font_path_str: str) -> str | None:
     )
 
 
-def _build_single_text_style_css(style: dict, selector: str) -> str:
-    """Build CSS rules for a single text style config.
-
-    Uses ``position: relative`` so text elements stay in the template's
-    native flex/grid flow.  ``position: absolute`` was tried and rejected
-    because it removes the element from flow and causes it to be hidden
-    behind later DOM siblings that create stacking contexts (e.g.
-    ``.image-wrapper`` with ``position: relative`` in the same flex parent).
-    """
+def _build_single_text_style_css_legacy(style: dict, selector: str) -> str:
+    """Build CSS rules for a single text style config (legacy CSS-injection path)."""
     if not style:
         return ""
 
     rules: list[str] = []
-
-    # -- decorative properties (always safe to apply) -----------------------
 
     font_size = style.get("font_size")
     if font_size is not None:
@@ -554,14 +554,9 @@ def _build_single_text_style_css(style: dict, selector: str) -> str:
     if font_family:
         rules.append(f'  font-family: "{font_family}", sans-serif !important;')
 
-    # -- alignment ----------------------------------------------------------
-
     alignment = style.get("alignment")
     if alignment:
         rules.append(f"  text-align: {alignment} !important;")
-
-    # -- max-width ----------------------------------------------------------
-    # max_chars_per_line takes priority over max_width_ratio when explicitly set.
 
     max_chars_per_line = style.get("max_chars_per_line")
     max_width_ratio = style.get("max_width_ratio")
@@ -573,11 +568,6 @@ def _build_single_text_style_css(style: dict, selector: str) -> str:
         rules.append(f"  max-width: {int(font_size_val) * max_chars_per_line}px !important;")
     elif max_width_ratio is not None:
         rules.append(f"  max-width: {float(max_width_ratio) * 100}% !important;")
-
-    # -- position & margins -------------------------------------------------
-    # position: relative keeps text in the template's flex/grid flow.
-    # margin_x / margin_y offset from the element's natural position.
-    # z-index keeps text above siblings that create stacking contexts.
 
     position = style.get("position")
     margin_x = style.get("margin_x")
@@ -605,6 +595,264 @@ def _build_single_text_style_css(style: dict, selector: str) -> str:
     return f"{selector} {{\n{joined_rules}\n}}"
 
 
+# -- Overlay-based text rendering preview (matches renderer layout algorithm) --
+
+_TITLE_HIDE_SELECTOR = (
+    ".pixelle-title:not(.pixelle-overlay-title), "
+    ".title:not(.pixelle-overlay-title), "
+    ".topic:not(.pixelle-overlay-title), "
+    "h1:not(.pixelle-overlay-title), "
+    "[class*='title']:not(.pixelle-overlay-title):not(.pixelle-overlay-caption)"
+)
+_CAPTION_HIDE_SELECTOR = (
+    ".pixelle-caption:not(.pixelle-overlay-caption), "
+    ".caption:not(.pixelle-overlay-caption), "
+    ".subtitle:not(.pixelle-overlay-caption), "
+    ".text:not(.pixelle-overlay-caption), "
+    ".excerpt:not(.pixelle-overlay-caption), "
+    "[class*='caption']:not(.pixelle-overlay-title):not(.pixelle-overlay-caption), "
+    "[class*='subtitle']:not(.pixelle-overlay-title):not(.pixelle-overlay-caption), "
+    "[class*='text']:not(.pixelle-overlay-title):not(.pixelle-overlay-caption)"
+)
+
+
+def _build_text_overlay_blocks(
+    text_rendering: dict | None,
+    *,
+    template_width: int,
+    template_height: int,
+    canvas_width: int,
+    canvas_height: int,
+    title_text: str,
+    caption_text: str,
+) -> tuple[str, str]:
+    """Generate overlay CSS and HTML for frame template preview.
+
+    Uses the same ``resolve_text_style_layout()`` as the rendering backends,
+    so the preview positions match the final video.
+
+    Returns:
+        (css_block, overlay_divs) — css_block goes before ``</head>``,
+        overlay_divs go before ``</body>``.
+    """
+    if not text_rendering:
+        return "", ""
+
+    scale_w = max(template_width, 1) / max(canvas_width, 1)
+    scale_h = max(template_height, 1) / max(canvas_height, 1)
+    scale_factor = min(scale_w, scale_h)
+
+    css_parts: list[str] = []
+    div_parts: list[str] = []
+
+    # @font-face rules
+    font_file_paths: set[str] = set()
+    for style_key in ("title_style", "caption_style"):
+        style = text_rendering.get(style_key) or {}
+        font_file = style.get("font_file")
+        if font_file:
+            font_file_paths.add(str(font_file))
+    for font_path_str in sorted(font_file_paths):
+        font_face_css = _build_font_face_css(font_path_str)
+        if font_face_css:
+            css_parts.append(font_face_css)
+
+    # Hide original text elements; ensure body is a positioned container
+    css_parts.append("body { position: relative !important; }")
+    for sel in (_TITLE_HIDE_SELECTOR, _CAPTION_HIDE_SELECTOR):
+        css_parts.append(f"{sel} {{ display: none !important; }}")
+
+    # Full-canvas region
+    region = TextStyleRegion(
+        x=0.0,
+        y=0.0,
+        width=float(template_width),
+        height=float(template_height),
+    )
+
+    # Title overlay
+    title_style = text_rendering.get("title_style") or {}
+    if title_style and title_text:
+        overlay = _build_single_text_overlay(
+            style=title_style,
+            text=title_text,
+            region=region,
+            scale_factor=scale_factor,
+            prefix="title",
+        )
+        if overlay:
+            div_parts.append(overlay)
+
+    # Caption overlay
+    caption_style = text_rendering.get("caption_style") or {}
+    if caption_style and caption_text:
+        overlay = _build_single_text_overlay(
+            style=caption_style,
+            text=caption_text,
+            region=region,
+            scale_factor=scale_factor,
+            prefix="caption",
+        )
+        if overlay:
+            div_parts.append(overlay)
+
+    if not css_parts and not div_parts:
+        return "", ""
+
+    css_block = (
+        "<style data-pixelle-text-overlay>\n"
+        + "\n".join(css_parts)
+        + "\n</style>"
+    )
+    overlay_html = "\n".join(div_parts) if div_parts else ""
+    return css_block, overlay_html
+
+
+def _build_single_text_overlay(
+    style: dict,
+    text: str,
+    region: TextStyleRegion,
+    scale_factor: float,
+    prefix: str,
+) -> str:
+    """Build a single absolutely-positioned text overlay div."""
+    font_size = int(style.get("font_size", 42))
+    margin_x = int(style.get("margin_x", 80))
+    margin_y = int(style.get("margin_y", 140))
+    position = str(style.get("position", "bottom"))
+    alignment = str(style.get("alignment", "center"))
+    max_width_ratio_val = float(style.get("max_width_ratio", 0.86))
+    font_family = style.get("font_family", "")
+    primary_color = style.get("primary_color", "#FFFFFF")
+    stroke_color = style.get("stroke_color", "#000000")
+    stroke_width_val = int(style.get("stroke_width", 0))
+    bg_color = style.get("background_color")
+    bg_opacity = style.get("background_opacity")
+    max_chars_per_line = style.get("max_chars_per_line")
+
+    scaled_font_size = max(8, int(round(font_size * scale_factor)))
+    scaled_margin_x = max(0, int(round(margin_x * scale_factor)))
+    scaled_margin_y = max(0, int(round(margin_y * scale_factor)))
+    scaled_stroke_width = max(0, int(round(stroke_width_val * scale_factor)))
+
+    layout = resolve_text_style_layout(
+        position=position,
+        canvas_width=float(region.width),
+        canvas_height=float(region.height),
+        region=region,
+        margin_x=float(scaled_margin_x),
+        margin_y=float(scaled_margin_y),
+        max_width_ratio=float(max_width_ratio_val),
+    )
+
+    style_decls: list[str] = [
+        f"font-size: {scaled_font_size}px",
+        f"color: {primary_color}",
+        f"text-align: {alignment}",
+        f"position: absolute",
+        f"z-index: 10",
+        f"display: flex",
+        f"flex-direction: column",
+        f"justify-content: {_flex_justify(position, alignment)}",
+        f"align-items: {_flex_align_items(position, alignment)}",
+        f"left: {_px_or_auto(layout.left)}",
+        f"right: {_px_or_auto(layout.right)}",
+        f"top: {_px_or_auto(layout.top)}",
+        f"bottom: {_px_or_auto(layout.bottom)}",
+        f"transform: {layout.transform}",
+        f"width: {int(round(layout.width))}px",
+        f"overflow-wrap: break-word",
+        f"word-break: break-word",
+        f"line-height: {float(style.get('line_height', 1.18))}",
+    ]
+
+    # max_chars_per_line overrides the layout width, so it must come AFTER
+    chars_limit = _chars_limit_css(scaled_font_size, max_chars_per_line)
+    if chars_limit is not None:
+        style_decls.append(chars_limit)
+    else:
+        style_decls.append(f"max-width: {int(round(layout.width))}px")
+
+    if scaled_stroke_width > 0 and stroke_color:
+        style_decls.append(f"-webkit-text-stroke: {scaled_stroke_width}px {stroke_color}")
+        sw = scaled_stroke_width
+        style_decls.append(
+            f"text-shadow: "
+            f"{sw}px {sw}px 0 {stroke_color}, "
+            f"{-sw}px {-sw}px 0 {stroke_color}, "
+            f"{sw}px {-sw}px 0 {stroke_color}, "
+            f"{-sw}px {sw}px 0 {stroke_color}, "
+            f"0px {sw}px 0 {stroke_color}, "
+            f"0px {-sw}px 0 {stroke_color}, "
+            f"{sw}px 0px 0 {stroke_color}, "
+            f"{-sw}px 0px 0 {stroke_color}"
+        )
+
+    if bg_color and bg_opacity is not None:
+        try:
+            bg = str(bg_color).strip()
+            if bg.startswith("#"):
+                bg = bg[1:]
+            if len(bg) == 3:
+                r, g, b = [int(c * 2, 16) for c in bg]
+            elif len(bg) == 6:
+                r, g, b = int(bg[0:2], 16), int(bg[2:4], 16), int(bg[4:6], 16)
+            else:
+                r, g, b = 0, 0, 0
+            opacity = float(bg_opacity)
+            style_decls.append(f"background-color: rgba({r}, {g}, {b}, {opacity})")
+        except (ValueError, TypeError):
+            pass
+
+    if font_family:
+        style_decls.append(f'font-family: "{font_family}", sans-serif')
+
+    style_attr = "; ".join(style_decls)
+    escaped_lines = [
+        line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") or "&#8203;"
+        for line in str(text).split("\n")
+    ]
+    inner = "<br>".join(escaped_lines)
+    return (
+        f'<div class="pixelle-overlay-{prefix}"'
+        f' style="{style_attr}">'
+        f"{inner}"
+        f"</div>"
+    )
+
+
+def _chars_limit_css(scaled_font_size: int, max_chars_per_line: object) -> str | None:
+    if max_chars_per_line is None:
+        return None
+    limit = int(max_chars_per_line)
+    if limit == 0:
+        return "max-width: none"
+    if limit > 0:
+        char_width = max(1, int(round(scaled_font_size * limit)))
+        return f"max-width: {char_width}px"
+    return None
+
+
+def _flex_justify(position: str, alignment: str) -> str:
+    """Map to flex justify-content in column layout (vertical axis)."""
+    if position in {"top", "top_left", "top_right"}:
+        return "flex-start"
+    if position in {"bottom", "bottom_left", "bottom_right", "lower_third"}:
+        return "flex-end"
+    return "center"
+
+
+def _flex_align_items(position: str, alignment: str) -> str:
+    """Map alignment to flex align-items in column layout (horizontal axis)."""
+    return {"left": "flex-start", "right": "flex-end"}.get(alignment, "center")
+
+
+def _px_or_auto(value: float | None) -> str:
+    if value is None:
+        return "auto"
+    return f"{int(round(value))}px"
+
+
 def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | None:
     frame_template = video_params.get("frame_template")
     if not frame_template:
@@ -616,9 +864,11 @@ def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | Non
             canvas_width=size_contract.canvas_width,
             canvas_height=size_contract.canvas_height,
         )
+        title_text = _layout_preview_title(video_params)
+        caption_text = _layout_preview_caption(video_params)
         html = generator._build_render_html(
-            title=_layout_preview_title(video_params),
-            text=_layout_preview_caption(video_params),
+            title=title_text,
+            text=caption_text,
             image=_resolve_layout_preview_media_source(
                 video_params,
                 frame_template=str(frame_template),
@@ -636,24 +886,37 @@ def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | Non
             media_height=size_contract.media_height,
         )
 
-        # 最佳实践：优先从 session_state 获取最新的 text_rendering，
-        # 因为 session_state 是文字样式组件更新后立即保存的位置
         text_rendering = (
             st.session_state.get("text_rendering")
             or video_params.get("text_rendering")
             or {}
         )
-        text_rendering_css = _build_text_rendering_css(text_rendering)
-        if text_rendering_css:
-            # Inject CSS before </head> or at the beginning of HTML
-            html_with_css = html
+
+        css_block, overlay_divs = _build_text_overlay_blocks(
+            text_rendering,
+            template_width=generator.template_width,
+            template_height=generator.template_height,
+            canvas_width=size_contract.canvas_width,
+            canvas_height=size_contract.canvas_height,
+            title_text=str(title_text),
+            caption_text=str(caption_text),
+        )
+
+        if css_block:
             head_end_match = re.search(r"</head>", html, flags=re.IGNORECASE)
             if head_end_match:
                 insert_pos = head_end_match.start()
-                html_with_css = f"{html[:insert_pos]}{text_rendering_css}\n{html[insert_pos:]}"
+                html = f"{html[:insert_pos]}{css_block}\n{html[insert_pos:]}"
             else:
-                html_with_css = f"{text_rendering_css}\n{html}"
-            html = html_with_css
+                html = f"{css_block}\n{html}"
+
+        if overlay_divs:
+            body_end_match = re.search(r"</body>", html, flags=re.IGNORECASE)
+            if body_end_match:
+                insert_pos = body_end_match.start()
+                html = f"{html[:insert_pos]}{overlay_divs}\n{html[insert_pos:]}"
+            else:
+                html = f"{html}\n{overlay_divs}"
 
         return trust_preview_html(
             generator._prepare_html_for_render(html),
