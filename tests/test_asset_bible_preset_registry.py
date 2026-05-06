@@ -181,39 +181,47 @@ def test_packaged_zhengding_guide_preset_is_valid():
     duplicates = [item for item, count in Counter(combined).items() if count > 1]
 
     assert preset.display_name == "正定向导兔"
-    assert preset.description == "面向正定古城文旅短视频的陪伴式导游 IP。"
-    assert preset.tags == ("文旅", "正定", "导游IP", "卡通角色")
+    assert preset.description == "通用陪伴式卡通 IP 角色，可适配不同内容场景。"
+    assert preset.tags == ("卡通角色", "通用IP", "陪伴式")
     assert profile.name == "正定向导兔"
-    assert profile.world_hint == "正定古城、城墙、古寺、青砖、历史文化旅游。"
-    assert (
-        profile.style_hint
-        == "清爽文旅插画风格，干净线条，柔和自然光，温暖色彩，适合短视频导览画面。"
+    assert profile.ip_type == "cartoon_animal"
+    assert profile.visual_summary == (
+        "白色卡通兔子，蓝色领结，长耳朵，浅粉色耳朵内侧，圆润脸型，清爽亲和的卡通造型。"
     )
-    assert profile.variable_slots == (
-        "表情",
-        "动作",
-        "站位",
-        "手持地图",
-        "手持导览旗",
-        "讲解姿势",
-        "与游客或古城场景的距离",
-        "出场强度",
+    assert profile.identity_lock == (
+        "白色卡通兔子",
+        "蓝色领结",
+        "长耳朵",
+        "浅粉色耳朵内侧",
+        "圆润脸型",
+        "清爽亲和的卡通造型",
     )
-    assert profile.visible_text_whitelist == ("正定", "古城", "导览")
+    assert profile.minimal_traits == ("蓝色领结一角", "长耳朵轮廓")
+    assert profile.default_slot_preference == "prefer_supporting"
+    assert len(profile.role_presets) == 5
+    assert profile.role_presets[0].startswith("导游讲解者")
+    assert len(profile.presence_spectrum) == 5
+    assert profile.presence_spectrum[-1].startswith("完全不出镜")
+    assert len(profile.adaptable_slots) == 5
+    assert profile.world_hint == "通用场景，可适配文旅、日常、情感、美食等不同内容域。"
+    assert profile.style_hint is None
     assert profile.semantic_boundary == (
-        "它是陪伴式古城导游和文旅吉祥物",
+        "它是陪伴式角色和吉祥物",
         "不是历史人物",
         "不是宗教人物",
         "不是佛像",
-        "不能替代正定古城城墙寺庙碑刻等真实主体",
+        "不能替代画面中的真实主体",
     )
     assert profile.negative_constraints == (
-        "不要替代古城主体",
-        "不要遮挡佛像寺庙城墙等核心内容",
-        "不要出现错误文字",
-        "不要出现乱码",
-        "不要变成蓝色兔子",
-        "不要变成真人玩偶",
+        "不能变成人类",
+        "不能变成其他动物",
+        "不能变成写实恐怖动物",
+        "不能变成真人玩偶",
+        "不能变成蓝色兔子",
+        "不能替代画面中的历史建筑或宗教人物",
+        "不要出现错误文字和乱码",
     )
+    assert profile.visible_text_whitelist == ()
+    assert profile.variable_slots == ()
     assert preset.asset_bible.metadata == {}
     assert duplicates == []

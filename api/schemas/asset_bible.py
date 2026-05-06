@@ -107,6 +107,13 @@ class IPProfileDraft(PublicMetadataModel):
     color_palette: dict[str, Any] = Field(default_factory=dict)
     image_text_palette: dict[str, Any] = Field(default_factory=dict)
     visible_text_whitelist: list[str] = Field(default_factory=list)
+    ip_type: str | None = None
+    visual_summary: str | None = None
+    minimal_traits: list[str] = Field(default_factory=list)
+    default_slot_preference: str | None = None
+    role_presets: list[str] = Field(default_factory=list)
+    presence_spectrum: list[str] = Field(default_factory=list)
+    adaptable_slots: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("ip_profile_id")
@@ -122,6 +129,10 @@ class IPProfileDraft(PublicMetadataModel):
         "semantic_boundary",
         "negative_constraints",
         "visible_text_whitelist",
+        "minimal_traits",
+        "role_presets",
+        "presence_spectrum",
+        "adaptable_slots",
     )
     @classmethod
     def validate_text_list(cls, value: list[str], info) -> list[str]:
@@ -153,6 +164,13 @@ class IPProfileDraft(PublicMetadataModel):
             variable_slots=tuple(self.variable_slots),
             semantic_boundary=tuple(self.semantic_boundary),
             negative_constraints=tuple(self.negative_constraints),
+            ip_type=self.ip_type,
+            visual_summary=self.visual_summary,
+            minimal_traits=tuple(self.minimal_traits),
+            default_slot_preference=self.default_slot_preference,
+            role_presets=tuple(self.role_presets),
+            presence_spectrum=tuple(self.presence_spectrum),
+            adaptable_slots=tuple(self.adaptable_slots),
             color_palette=self.color_palette,
             image_text_palette=self.image_text_palette,
             visible_text_whitelist=tuple(self.visible_text_whitelist),
@@ -342,6 +360,13 @@ class IPProfileResponse(BaseModel):
     variable_slots: list[str] = Field(default_factory=list)
     semantic_boundary: list[str] = Field(default_factory=list)
     negative_constraints: list[str] = Field(default_factory=list)
+    ip_type: str | None = None
+    visual_summary: str | None = None
+    minimal_traits: list[str] = Field(default_factory=list)
+    default_slot_preference: str | None = None
+    role_presets: list[str] = Field(default_factory=list)
+    presence_spectrum: list[str] = Field(default_factory=list)
+    adaptable_slots: list[str] = Field(default_factory=list)
     color_palette: dict[str, Any] = Field(default_factory=dict)
     image_text_palette: dict[str, Any] = Field(default_factory=dict)
     visible_text_whitelist: list[str] = Field(default_factory=list)

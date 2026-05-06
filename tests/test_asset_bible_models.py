@@ -349,3 +349,73 @@ def test_ip_profile_from_dict_rejects_forbidden_elements_string_payloads():
                 "forbidden_elements": "abc",
             }
         )
+
+
+def test_ip_profile_supports_universal_actor_fields():
+    """New fields from the universal-actor redesign round-trip correctly."""
+    profile = IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="正定向导兔",
+        identity_lock=("白色卡通兔子", "蓝色领结", "长耳朵"),
+        ip_type="cartoon_animal",
+        visual_summary="白色卡通兔子，蓝色领结，长耳朵，圆润脸型。",
+        minimal_traits=("蓝色领结一角", "长耳朵轮廓"),
+        default_slot_preference="prefer_supporting",
+        role_presets=(
+            "导游讲解者：温和的讲解者，面向场景做介绍手势",
+            "情感陪伴者：安静的陪伴角色，与画面主体自然互动",
+            "路人观察者：融入环境背景",
+            "画面主角：占据画面主体位置",
+            "画外不出镜：不出现在画面中",
+        ),
+        presence_spectrum=(
+            "全身出镜：完整呈现角色形象",
+            "半身出镜：展示上半身和表情",
+            "局部细节：只露出特征性局部",
+            "远景融入：作为场景中的小元素融入背景",
+            "完全不出镜：该帧不出现IP角色",
+        ),
+        adaptable_slots=(
+            "服装配饰：可根据场景穿不同的服装配饰",
+            "手持道具：可根据场景持有不同道具",
+            "动作姿势：可根据场景做不同动作",
+            "表情神态：可根据场景产生不同表情",
+        ),
+    )
+
+    restored = IPProfile.from_dict(profile.to_dict())
+
+    assert restored.ip_type == "cartoon_animal"
+    assert restored.visual_summary == "白色卡通兔子，蓝色领结，长耳朵，圆润脸型。"
+    assert restored.minimal_traits == ("蓝色领结一角", "长耳朵轮廓")
+    assert restored.default_slot_preference == "prefer_supporting"
+    assert len(restored.role_presets) == 5
+    assert restored.role_presets[0].startswith("导游讲解者")
+    assert len(restored.presence_spectrum) == 5
+    assert restored.presence_spectrum[-1].startswith("完全不出镜")
+    assert len(restored.adaptable_slots) == 4
+
+
+def test_ip_profile_preserves_legacy_fields():
+    """Legacy fields (world_hint, style_hint, identity_anchors, variable_slots)
+    are preserved through serialization even though they are no longer shown in UI."""
+    profile = IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="正定向导兔",
+        world_hint="正定古城",
+        style_hint="清爽文旅插画风格",
+        identity_lock=("白色卡通兔子",),
+        identity_anchors=("蓝色领结", "长耳朵"),
+        variable_slots=("表情", "动作", "站位"),
+    )
+
+    restored = IPProfile.from_dict(profile.to_dict())
+
+    assert restored.world_hint == "正定古城"
+    assert restored.style_hint == "清爽文旅插画风格"
+    assert restored.identity_anchors == ("蓝色领结", "长耳朵")
+    assert restored.variable_slots == ("表情", "动作", "站位")

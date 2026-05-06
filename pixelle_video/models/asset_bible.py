@@ -26,6 +26,13 @@ class IPProfile:
     variable_slots: tuple[str, ...] = ()
     semantic_boundary: tuple[str, ...] = ()
     negative_constraints: tuple[str, ...] = ()
+    ip_type: str = ""
+    visual_summary: str | None = None
+    minimal_traits: tuple[str, ...] = ()
+    default_slot_preference: str = "prefer_supporting"
+    role_presets: tuple[str, ...] = ()
+    presence_spectrum: tuple[str, ...] = ()
+    adaptable_slots: tuple[str, ...] = ()
     color_palette: Mapping[str, Any] = field(default_factory=dict)
     image_text_palette: Mapping[str, Any] = field(default_factory=dict)
     visible_text_whitelist: tuple[str, ...] = ()
@@ -58,6 +65,33 @@ class IPProfile:
                 field_name,
                 _normalize_prompt_text_tuple(field_name, getattr(self, field_name)),
             )
+        object.__setattr__(self, "ip_type", _optional_prompt_str("ip_type", self.ip_type))
+        object.__setattr__(self, "visual_summary", _optional_prompt_str("visual_summary", self.visual_summary))
+        object.__setattr__(
+            self,
+            "minimal_traits",
+            _normalize_prompt_text_tuple("minimal_traits", self.minimal_traits),
+        )
+        object.__setattr__(
+            self,
+            "default_slot_preference",
+            _optional_prompt_str("default_slot_preference", self.default_slot_preference),
+        )
+        object.__setattr__(
+            self,
+            "role_presets",
+            _normalize_prompt_text_tuple("role_presets", self.role_presets),
+        )
+        object.__setattr__(
+            self,
+            "presence_spectrum",
+            _normalize_prompt_text_tuple("presence_spectrum", self.presence_spectrum),
+        )
+        object.__setattr__(
+            self,
+            "adaptable_slots",
+            _normalize_prompt_text_tuple("adaptable_slots", self.adaptable_slots),
+        )
         object.__setattr__(self, "color_palette", _deep_freeze_mapping(self.color_palette, field_name="color_palette"))
         object.__setattr__(
             self,
@@ -84,6 +118,13 @@ class IPProfile:
             "variable_slots": list(self.variable_slots),
             "semantic_boundary": list(self.semantic_boundary),
             "negative_constraints": list(self.negative_constraints),
+            "ip_type": self.ip_type,
+            "visual_summary": self.visual_summary,
+            "minimal_traits": list(self.minimal_traits),
+            "default_slot_preference": self.default_slot_preference,
+            "role_presets": list(self.role_presets),
+            "presence_spectrum": list(self.presence_spectrum),
+            "adaptable_slots": list(self.adaptable_slots),
             "color_palette": _json_safe_copy(self.color_palette),
             "image_text_palette": _json_safe_copy(self.image_text_palette),
             "visible_text_whitelist": list(self.visible_text_whitelist),
@@ -108,6 +149,13 @@ class IPProfile:
             variable_slots=_payload_sequence_or_default(payload.get("variable_slots")),
             semantic_boundary=_payload_sequence_or_default(payload.get("semantic_boundary")),
             negative_constraints=_payload_sequence_or_default(payload.get("negative_constraints")),
+            ip_type=payload.get("ip_type", ""),
+            visual_summary=payload.get("visual_summary"),
+            minimal_traits=_payload_sequence_or_default(payload.get("minimal_traits")),
+            default_slot_preference=payload.get("default_slot_preference", "prefer_supporting"),
+            role_presets=_payload_sequence_or_default(payload.get("role_presets")),
+            presence_spectrum=_payload_sequence_or_default(payload.get("presence_spectrum")),
+            adaptable_slots=_payload_sequence_or_default(payload.get("adaptable_slots")),
             color_palette=payload.get("color_palette") or {},
             image_text_palette=payload.get("image_text_palette") or {},
             visible_text_whitelist=_payload_sequence_or_default(payload.get("visible_text_whitelist")),

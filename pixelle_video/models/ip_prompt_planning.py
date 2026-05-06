@@ -79,6 +79,7 @@ class IPFrameAdaptationPackage:
     depth_layer: str | None = None
     interaction_target: str | None = None
     continuity_from_previous: str | None = None
+    appearance_description: str | None = None
     shot_fit_notes: str | None = None
     image_text_plan: IPImageTextPlan | None = None
     prompt_weight: float | None = None
@@ -99,6 +100,7 @@ class IPFrameAdaptationPackage:
             "depth_layer",
             "interaction_target",
             "continuity_from_previous",
+            "appearance_description",
             "shot_fit_notes",
         ):
             object.__setattr__(self, field_name, _optional_prompt_str(field_name, getattr(self, field_name)))
@@ -140,6 +142,7 @@ class IPFrameAdaptationPackage:
             "depth_layer": self.depth_layer,
             "interaction_target": self.interaction_target,
             "continuity_from_previous": self.continuity_from_previous,
+            "appearance_description": self.appearance_description,
             "shot_fit_notes": self.shot_fit_notes,
             "image_text_plan": self.image_text_plan.to_dict() if self.image_text_plan else None,
             "prompt_weight": self.prompt_weight,
@@ -169,6 +172,7 @@ class IPFrameAdaptationPackage:
             depth_layer=payload.get("depth_layer"),
             interaction_target=payload.get("interaction_target"),
             continuity_from_previous=payload.get("continuity_from_previous"),
+            appearance_description=payload.get("appearance_description"),
             shot_fit_notes=payload.get("shot_fit_notes"),
             image_text_plan=IPImageTextPlan.from_dict(image_text_plan) if image_text_plan else None,
             prompt_weight=payload.get("prompt_weight"),
