@@ -546,7 +546,7 @@ class IPFrameAppearancePlanner:
         expression = _select_expression(domain, base_package.ip_presence_type)
         action = _select_action(ip_profile, domain, base_package.ip_presence_type)
         interaction = _select_interaction_target(frame)
-        continuity = _build_continuity_note(prev_package, role, presence_desc)
+        continuity = _build_continuity_note(prev_package)
 
         appearance_description = _build_appearance_description(
             ip_profile=ip_profile,
@@ -673,6 +673,8 @@ def _select_presence_description(
 # ── outfit / accessories / pose / expression / action ─────────────────
 
 def _select_outfit_theme(ip_profile: IPProfile, domain: str) -> str | None:
+    if not _ip_supports_adaptable_slot(ip_profile, "服装"):
+        return None
     themes: dict[str, str] = {
         "文旅": "轻便文旅休闲装，保持角色可识别",
         "爱情": "柔和色系便装，温暖亲和",
@@ -694,6 +696,8 @@ def _domain_outfit_condition(domain: str) -> str | None:
 
 
 def _select_accessories(ip_profile: IPProfile, domain: str) -> list[str]:
+    if not _ip_supports_adaptable_slot(ip_profile, "道具"):
+        return []
     domain_accessories: dict[str, list[str]] = {
         "文旅": ["导览旗", "地图"],
         "爱情": ["花束", "小礼物"],
@@ -711,6 +715,8 @@ def _select_pose(
     domain: str,
     presence_type: IPPresenceType,
 ) -> str | None:
+    if not _ip_supports_adaptable_slot(ip_profile, "动作姿势"):
+        return None
     if presence_type is IPPresenceType.STRONG_IDENTITY:
         return "面向镜头，占据画面主体位置"
     domain_poses: dict[str, str] = {
@@ -745,6 +751,8 @@ def _select_action(
 ) -> str | None:
     if presence_type is IPPresenceType.ABSENT:
         return None
+    if not _ip_supports_adaptable_slot(ip_profile, "动作姿势"):
+        return None
     actions: dict[str, str] = {
         "文旅": "做介绍手势，与场景内容互动",
         "爱情": "安静陪伴，与画面主体保持微妙的情感距离",
@@ -766,8 +774,6 @@ def _select_interaction_target(frame: StoryboardPlanFrame) -> str | None:
 
 def _build_continuity_note(
     prev_package: IPFrameAdaptationPackage | None,
-    role: str,
-    presence_desc: str,
 ) -> str | None:
     if prev_package is None:
         return None
@@ -790,6 +796,7 @@ def _build_appearance_description(
     visual_core = ip_profile.visual_summary or ", ".join(
         [*ip_profile.identity_lock, *ip_profile.identity_anchors]
     )
+    visual_core = visual_core.rstrip("。，,;；!！?？\n\r ")
     role_name = role.split("：")[0] if "：" in role else role
     presence_name = presence_desc.split("：")[0] if "：" in presence_desc else presence_desc
 
@@ -809,7 +816,17 @@ def _build_appearance_description(
         parts.append(f"与{interaction}自然互动")
 
     desc = "，".join(parts)
-    return f"作为{role_name}，{desc}，{presence_name}"
+    if desc:
+        return f"作为{role_name}，{desc}，{presence_name}"
+    return f"作为{role_name}，{presence_name}"
+
+
+def _ip_supports_adaptable_slot(ip_profile: IPProfile, keyword: str) -> bool:
+    """Check whether the IP profile has an adaptable slot containing the given keyword."""
+    for slot in ip_profile.adaptable_slots:
+        if keyword in slot:
+            return True
+    return False
 
 
 def _first_text(*values: Any) -> str:
