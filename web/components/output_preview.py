@@ -426,14 +426,14 @@ def _build_text_rendering_css(text_rendering: dict | None) -> str:
     # Build title style CSS
     title_style = text_rendering.get("title_style") or {}
     if title_style:
-        title_css = _build_single_text_style_css(title_style, ".pixelle-title, .title, h1, [class*='title']")
+        title_css = _build_single_text_style_css(title_style, ".pixelle-title, .title, .topic, h1, [class*='title']")
         if title_css:
             css_parts.append(title_css)
 
     # Build caption/subtitle style CSS
     caption_style = text_rendering.get("caption_style") or {}
     if caption_style:
-        caption_css = _build_single_text_style_css(caption_style, ".pixelle-caption, .caption, .subtitle, [class*='caption'], [class*='subtitle']")
+        caption_css = _build_single_text_style_css(caption_style, ".pixelle-caption, .caption, .subtitle, .text, .excerpt, [class*='caption'], [class*='subtitle']")
         if caption_css:
             css_parts.append(caption_css)
 
@@ -442,29 +442,35 @@ def _build_text_rendering_css(text_rendering: dict | None) -> str:
 
 
 def _build_single_text_style_css(style: dict, selector: str) -> str:
-    """Build CSS rules for a single text style config."""
+    """Build CSS rules for a single text style config.
+
+    Design principle: frame template preview must not break the template's
+    native layout.  We use ``position: relative`` (not absolute) so text
+    elements stay in the flex/grid flow, and apply margins as CSS margin
+    properties rather than ``top`` / ``bottom`` / ``left`` / ``right``.
+    A ``z-index`` bump keeps text on top of sibling elements that may
+    create their own stacking contexts (e.g. ``position: relative`` wrappers).
+    """
     if not style:
         return ""
 
-    rules = []
-    # Font size
+    rules: list[str] = []
+
+    # -- decorative properties (always safe to apply) -----------------------
+
     font_size = style.get("font_size")
     if font_size is not None:
         rules.append(f"  font-size: {int(font_size)}px !important;")
 
-    # Primary color (text color)
     primary_color = style.get("primary_color")
     if primary_color:
         rules.append(f"  color: {primary_color} !important;")
 
-    # Stroke / text shadow
     stroke_color = style.get("stroke_color")
     stroke_width = style.get("stroke_width")
     if stroke_color and stroke_width is not None and int(stroke_width) > 0:
         sw = int(stroke_width)
-        rules.append(
-            f"  -webkit-text-stroke: {sw}px {stroke_color} !important;"
-        )
+        rules.append(f"  -webkit-text-stroke: {sw}px {stroke_color} !important;")
         rules.append(
             f"  text-shadow: "
             f"{sw}px {sw}px 0 {stroke_color}, "
@@ -477,12 +483,10 @@ def _build_single_text_style_css(style: dict, selector: str) -> str:
             f"{-sw}px 0px 0 {stroke_color} !important;"
         )
 
-    # Background color and opacity
     background_color = style.get("background_color")
     background_opacity = style.get("background_opacity")
     if background_color is not None and background_opacity is not None:
         try:
-            # Parse hex color
             bg = str(background_color).strip()
             if bg.startswith("#"):
                 bg = bg[1:]
@@ -493,57 +497,50 @@ def _build_single_text_style_css(style: dict, selector: str) -> str:
             else:
                 r, g, b = 0, 0, 0
             opacity = float(background_opacity)
-            rules.append(
-                f"  background-color: rgba({r}, {g}, {b}, {opacity}) !important;"
-            )
+            rules.append(f"  background-color: rgba({r}, {g}, {b}, {opacity}) !important;")
         except (ValueError, TypeError):
             pass
 
-    # Font family
     font_family = style.get("font_family")
     if font_family:
         rules.append(f'  font-family: "{font_family}", sans-serif !important;')
 
-    # Position and alignment
+    # -- alignment ----------------------------------------------------------
+
+    alignment = style.get("alignment")
+    if alignment:
+        rules.append(f"  text-align: {alignment} !important;")
+
+    # -- max-width ----------------------------------------------------------
+
+    max_width_ratio = style.get("max_width_ratio")
+    if max_width_ratio is not None:
+        rules.append(f"  max-width: {float(max_width_ratio) * 100}% !important;")
+
+    # -- position & margins -------------------------------------------------
+    # Use position:relative so the element stays in the template's natural
+    # flow (flex/grid), then offset with CSS margins.  z-index keeps text
+    # above siblings that create stacking contexts.
+
     position = style.get("position")
     margin_x = style.get("margin_x")
     margin_y = style.get("margin_y")
 
     if position:
-        # Map position to CSS positioning
-        position_css = {
-            "top": "top: 0;",
-            "bottom": "bottom: 0;",
-            "center": "top: 50%; transform: translateY(-50%);",
-            "lower_third": "bottom: 33%;",
-            "top_left": "top: 0; left: 0;",
-            "top_right": "top: 0; right: 0;",
-            "bottom_left": "bottom: 0; left: 0;",
-            "bottom_right": "bottom: 0; right: 0;",
-        }.get(position, "")
-        if position_css:
-            rules.append(f"  position: absolute !important;")
-            rules.append(f"  {position_css}")
-            if margin_x is not None:
-                rules.append(f"  left: {int(margin_x)}px !important;")
-                rules.append(f"  right: {int(margin_x)}px !important;")
-            if margin_y is not None:
-                if "bottom" in position:
-                    rules.append(f"  bottom: {int(margin_y)}px !important;")
-                elif "top" in position:
-                    rules.append(f"  top: {int(margin_y)}px !important;")
-                else:
-                    rules.append(f"  margin-top: {int(margin_y)}px !important;")
+        rules.append("  position: relative !important;")
+        rules.append("  z-index: 1 !important;")
 
-    # Alignment
-    alignment = style.get("alignment")
-    if alignment:
-        rules.append(f"  text-align: {alignment} !important;")
+    if margin_x is not None:
+        rules.append(f"  margin-left: {int(margin_x)}px !important;")
+        rules.append(f"  margin-right: {int(margin_x)}px !important;")
 
-    # Max width
-    max_width_ratio = style.get("max_width_ratio")
-    if max_width_ratio is not None:
-        rules.append(f"  max-width: {float(max_width_ratio) * 100}% !important;")
+    if margin_y is not None:
+        if position and "bottom" in position:
+            rules.append(f"  margin-bottom: {int(margin_y)}px !important;")
+        elif position and "top" in position:
+            rules.append(f"  margin-top: {int(margin_y)}px !important;")
+        else:
+            rules.append(f"  margin-top: {int(margin_y)}px !important;")
 
     if not rules:
         return ""
