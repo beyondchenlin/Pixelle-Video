@@ -59,7 +59,7 @@ CAPTION_STYLE_DEFAULTS: dict[str, Any] = {
     "position": "bottom",
     "alignment": "center",
     "margin_x": 80,
-    "margin_y": 140,
+    "margin_y": 20,
     "max_width_ratio": 0.86,
     "max_chars_per_line": None,
 }
