@@ -446,7 +446,7 @@ def _build_text_rendering_css(text_rendering: dict | None) -> str:
     # Build caption/subtitle style CSS
     caption_style = text_rendering.get("caption_style") or {}
     if caption_style:
-        caption_css = _build_single_text_style_css(caption_style, ".pixelle-caption, .caption, .subtitle, .text, .excerpt, [class*='caption'], [class*='subtitle']")
+        caption_css = _build_single_text_style_css(caption_style, ".pixelle-caption, .caption, .subtitle, .text, .excerpt, [class*='caption'], [class*='subtitle'], [class*='text']")
         if caption_css:
             css_parts.append(caption_css)
 
@@ -494,12 +494,11 @@ def _build_font_face_css(font_path_str: str) -> str | None:
 def _build_single_text_style_css(style: dict, selector: str) -> str:
     """Build CSS rules for a single text style config.
 
-    Design principle: frame template preview must not break the template's
-    native layout.  We use ``position: relative`` (not absolute) so text
-    elements stay in the flex/grid flow, and apply margins as CSS margin
-    properties rather than ``top`` / ``bottom`` / ``left`` / ``right``.
-    A ``z-index`` bump keeps text on top of sibling elements that may
-    create their own stacking contexts (e.g. ``position: relative`` wrappers).
+    Uses ``position: relative`` so text elements stay in the template's
+    native flex/grid flow.  ``position: absolute`` was tried and rejected
+    because it removes the element from flow and causes it to be hidden
+    behind later DOM siblings that create stacking contexts (e.g.
+    ``.image-wrapper`` with ``position: relative`` in the same flex parent).
     """
     if not style:
         return ""
@@ -576,63 +575,34 @@ def _build_single_text_style_css(style: dict, selector: str) -> str:
         rules.append(f"  max-width: {float(max_width_ratio) * 100}% !important;")
 
     # -- position & margins -------------------------------------------------
-    # Use position:absolute so margin_x / margin_y map to edge offsets.
-    # z-index keeps text above siblings that create stacking contexts
-    # (e.g. ``position: relative`` wrappers in the template).
+    # position: relative keeps text in the template's flex/grid flow.
+    # margin_x / margin_y offset from the element's natural position.
+    # z-index keeps text above siblings that create stacking contexts.
 
     position = style.get("position")
     margin_x = style.get("margin_x")
     margin_y = style.get("margin_y")
 
     if position:
-        position_css = {
-            "top": "top: 0;",
-            "bottom": "bottom: 0;",
-            "center": "top: 50%; transform: translateY(-50%);",
-            "lower_third": "bottom: 33%;",
-            "top_left": "top: 0; left: 0;",
-            "top_right": "top: 0; right: 0;",
-            "bottom_left": "bottom: 0; left: 0;",
-            "bottom_right": "bottom: 0; right: 0;",
-        }.get(position, "")
-        if position_css:
-            rules.append("  position: absolute !important;")
-            rules.append("  z-index: 1 !important;")
-            rules.append(f"  {position_css}")
-            if margin_x is not None:
-                rules.append(f"  left: {int(margin_x)}px !important;")
-                rules.append(f"  right: {int(margin_x)}px !important;")
-            if margin_y is not None:
-                if "bottom" in position:
-                    rules.append(f"  bottom: {int(margin_y)}px !important;")
-                elif "top" in position:
-                    rules.append(f"  top: {int(margin_y)}px !important;")
-                else:
-                    rules.append(f"  margin-top: {int(margin_y)}px !important;")
-        elif margin_x is not None or margin_y is not None:
-            # position is set but not a recognized preset — use relative
-            # so margins still work as offsets from natural position
-            rules.append("  position: relative !important;")
-            rules.append("  z-index: 1 !important;")
-            if margin_x is not None:
-                rules.append(f"  margin-left: {int(margin_x)}px !important;")
-                rules.append(f"  margin-right: {int(margin_x)}px !important;")
-            if margin_y is not None:
-                rules.append(f"  margin-bottom: {int(margin_y)}px !important;")
-    elif margin_x is not None or margin_y is not None:
-        # margins set but no explicit position — offset from natural position
         rules.append("  position: relative !important;")
         rules.append("  z-index: 1 !important;")
-        if margin_x is not None:
-            rules.append(f"  margin-left: {int(margin_x)}px !important;")
-            rules.append(f"  margin-right: {int(margin_x)}px !important;")
-        if margin_y is not None:
+
+    if margin_x is not None:
+        rules.append(f"  margin-left: {int(margin_x)}px !important;")
+        rules.append(f"  margin-right: {int(margin_x)}px !important;")
+
+    if margin_y is not None:
+        is_bottom = isinstance(position, str) and "bottom" in position
+        if is_bottom:
+            rules.append(f"  margin-bottom: {int(margin_y)}px !important;")
+        else:
             rules.append(f"  margin-top: {int(margin_y)}px !important;")
 
     if not rules:
         return ""
 
-    return f"{selector} {{\n" + "\n".join(rules) + "\n}"
+    joined_rules = "\n".join(rules)
+    return f"{selector} {{\n{joined_rules}\n}}"
 
 
 def _build_frame_template_preview_html(video_params) -> TrustedPreviewHTML | None:
