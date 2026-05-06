@@ -98,7 +98,7 @@ def render_text_style_css(
         f"text-align:{fields['alignment']}",
         f"justify-content:{_justify_content(fields['alignment'])}",
         f"align-items:{_align_items_for_position(style.get('position'))}",
-        f"font-family:{fields['font_family']}",
+        f'font-family:"{fields["font_family"]}"',
         f"font-weight:{fields['font_weight']}",
         f"line-height:{fields['line_height']}",
         f"background:{fields['background']}",

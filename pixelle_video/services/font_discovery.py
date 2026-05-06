@@ -89,8 +89,8 @@ def build_font_face_css(font_path_str: str) -> str | None:
 
     Returns ``None`` when the font file cannot be read (missing / empty).
     """
-    font_path = Path(font_path_str)
-    if not font_path.is_file():
+    font_path = resolve_font_file(font_path_str)
+    if font_path is None:
         return None
 
     try:
