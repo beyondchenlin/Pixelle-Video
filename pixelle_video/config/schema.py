@@ -470,10 +470,10 @@ class ComfyUIBackendProfile(BaseModel):
     restart_after_batch: bool = Field(
         default=False,
         description=(
-            "Restart this backend after every single-workflow completion. "
-            "Set to False to keep models loaded in GPU for fast follow-up "
-            "requests. Pipeline stage-boundary restarts are handled separately "
-            "and do not depend on this flag."
+            "Restart this backend after every workflow completion and at pipeline "
+            "stage boundaries. Set to False to keep models loaded in GPU for fast "
+            "follow-up requests — the default for single-backend-per-workflow-type "
+            "setups where the GPU has enough VRAM for all model sets."
         ),
     )
     data_root: Optional[str] = Field(default=None, description="ComfyUI data root for this profile")

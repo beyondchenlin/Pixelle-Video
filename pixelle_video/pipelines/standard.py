@@ -3731,6 +3731,7 @@ class StandardPipeline(LinearVideoPipeline):
     ) -> None:
         get_registry = getattr(self.core, "_get_comfyui_backend_registry", None)
         schedule_restart = getattr(self.core, "schedule_comfyui_backend_restart", None)
+        restart_after_batch = getattr(self.core, "_restart_after_batch_for_role", None)
         if not callable(get_registry) or not callable(schedule_restart):
             return
 
@@ -3738,9 +3739,13 @@ class StandardPipeline(LinearVideoPipeline):
         if not registry.is_dedicated_backend(backend_role):
             return
 
-        # Always restart dedicated backends at stage boundaries,
-        # regardless of restart_after_batch (which only gates
-        # per-workflow release to avoid thrashing on single-image requests).
+        if callable(restart_after_batch) and not restart_after_batch(backend_role):
+            logger.info(
+                f"Skipping stage-boundary restart for '{backend_role}' ({reason}) — "
+                "restart_after_batch=False, keeping backend alive"
+            )
+            return
+
         maybe_awaitable = schedule_restart(backend_role, reason)
         if inspect.isawaitable(maybe_awaitable):
             await maybe_awaitable
