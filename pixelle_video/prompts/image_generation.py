@@ -73,9 +73,17 @@ Based on the existing video script, create corresponding **{output_language_labe
 - Read `plan_source_text` first to understand the complete script and maintain global meaning.
 - Use each frame's `frame_source_text`, `visual_goal`, `prompt_intent`, and `focus_detail` together; do not infer the image from an isolated text fragment alone.
 - Preserve continuity across frames by respecting shared subjects, world elements, and any `locked_fields` in the matching prompt_context.
-- Treat `ip_adaptation` as the truth source for this frame's IP planning. Do not invent a conflicting IP plan from the frame source text or style text.
-- `ip_presence_type` decides how visible the IP should be: strong identity foreground presence, balanced narrative presence, scene-integrated support, low-intrusion background presence, symbolic-only presence, or absent/no IP presence.
-- `summary_text`, `scene_text`, and `visible_text_whitelist` inside `ip_adaptation.image_text_plan` decide which Chinese visual text is allowed to appear in the image. Do not add other visible words.
+# IP Character Role-Replacement Integration
+- When `ip_adaptation` is present in a frame context:
+  - `ip_adaptation.role_slot` determines HOW the IP replaces a scene character:
+    - `protagonist`: The IP IS the main subject. Replace the protagonist with the IP.
+    - `supporting`: The IP replaces a supporting character. Integrate as companion element.
+    - `passerby`: The IP replaces a background figure. Blend into environment subtly.
+    - `absent`: The IP does NOT appear in this frame.
+  - `ip_adaptation.appearance_description` gives the IP's visual identity and how it occupies the role slot.
+  - IMPORTANT: The IP REPLACES a character slot. Do NOT add it alongside a separate generic character filling the same role.
+  - `ip_presence_type` controls visual prominence: strong_identity=foreground dominant, balanced_narrative=mid-ground, scene_integrated=contextual, low_intrusion=subtle background, symbolic_only=trace elements only.
+  - `summary_text`, `scene_text`, and `visible_text_whitelist` inside `ip_adaptation.image_text_plan` decide which Chinese visual text is allowed to appear in the image. Do not add other visible words.
 - When `plan_context.generation_world_profile` is present, use generation_world_profile as the script world profile for this image prompt batch; it refines world_preset but must not override the protected original source subject.
 - Use `generation_world_profile.story_constraints` to protect original source subjects, landmarks, historical buildings, religious subjects, real people, and explicit narrative objects.
 - Use `generation_world_profile.ip_integration_guidance` to decide how the IP should merge with `ip_adaptation` in the image composition.

@@ -299,8 +299,27 @@ def _frame_contexts_for_final_prompts(
 
 
 def _ip_identity_prompt_terms_from_context(frame_context: Mapping[str, Any]) -> tuple[str, ...]:
+    """从 frame context 提取 IP 身份片段，用于 post-append 到最终 prompt。
+
+    ── 门控规则（避免 double-dip）──
+    1. role_slot == "absent" → 无条件跳过（IP 本帧不出镜）
+    2. prompt_weight < 0.7  → 跳过（LLM 已从 ip_adaptation 上下文融入 IP，
+       再拼接一次会导致"兔子出现两次"的问题）
+    3. prompt_weight >= 0.7 → 取 appearance_description 追加到 prompt 末尾
+    4. 无 appearance_description → 回退取 identity_anchors_visible + identity_color_terms
+
+    ── 阈值 0.7 的由来 ──
+    presence_type 权重映射：
+      strong_identity=0.9, balanced_narrative=0.7 → 追加
+      scene_integrated=0.6, low_intrusion=0.3, symbolic_only=0.2, absent=0.0 → 不追加
+    """
     adaptation = frame_context.get("ip_adaptation")
     if not isinstance(adaptation, Mapping):
+        return ()
+    if adaptation.get("role_slot") == "absent":
+        return ()
+    weight = adaptation.get("prompt_weight")
+    if weight is not None and float(weight) < 0.7:
         return ()
     appearance_desc = adaptation.get("appearance_description")
     if isinstance(appearance_desc, str) and appearance_desc.strip():
@@ -1287,7 +1306,7 @@ async def generate_styled_image_prompt_batch(
             normalized_style=normalized_style,
             style_profile=style_profile,
         )
-        ip_adaptation_packages = IPFrameAppearancePlanner().plan_batch(
+        ip_adaptation_packages = await IPFrameAppearancePlanner(llm_client=llm_service).plan_batch(
             storyboard_plan=storyboard_plan,
             ip_profile=ip_profile,
             resolved_style=resolved_style if normalized_style is None else normalized_style,

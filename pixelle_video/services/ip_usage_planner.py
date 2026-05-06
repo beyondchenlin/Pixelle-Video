@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import logging
+
 from collections.abc import Mapping
 from typing import Any
 
@@ -9,9 +12,12 @@ from pixelle_video.models.ip_prompt_planning import (
     IPFrameAdaptationPackage,
     IPImageTextPlan,
     IPPresenceType,
+    IPRoleSlot,
 )
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
+
+logger = logging.getLogger(__name__)
 
 ResolvedStyleInput = Mapping[str, Any] | ResolvedStyleSpec | None
 ContentWorldInput = ContentWorldProfile | Mapping[str, Any] | None
@@ -472,14 +478,39 @@ _NON_POSITIVE_STYLE_SIGNAL_KEYS = ("negative_prompt", "negative_rules", "raw_con
 
 
 class IPFrameAppearancePlanner:
-    """LLM-driven per-frame IP appearance planner with deterministic fallback.
+    """逐帧 IP 出场规划器（LLM 驱动 + 规则回退）。
 
-    Generates natural-language appearance descriptions and populates the
-    previously-unused fields of IPFrameAdaptationPackage (outfit_theme,
-    accessories, pose, expression, action, interaction_target).
+    核心职责：为每一帧决定 IP 的 role_slot（替代谁）、生成 appearance_description（替换式描述）。
+
+    ── 使用方式 ──
+    # 1. 无 LLM（规则回退，当前默认）
+    planner = IPFrameAppearancePlanner()
+    packages = await planner.plan_batch(storyboard_plan=plan, ip_profile=profile)
+
+    # 2. 有 LLM（LLM 批量决定角色分配）
+    planner = IPFrameAppearancePlanner(llm_client=llm_service)
+    packages = await planner.plan_batch(...)
+    # LLM 成功 → 每帧角色由 LLM 动态分配
+    # LLM 失败 → 自动回退到 _rule_based_role_selection()
+
+    ── 产出字段 ──
+    - role_slot:      IPRoleSlot（主角/配角/路人/不出镜），写入 ip_adaptation
+    - role_label:     中文角色标签（如"导游讲解者"），存于 planner 内部
+    - appearance_description: 替换式描述，如 "白色卡通兔子替换画面配角位置，中景融入场景"
+    - outfit_theme / accessories / pose / expression / action: 仍从规则填充
+
+    ── 下游消费 ──
+    - image_generation.py 系统提示读取 role_slot 决定 IP 如何融入画面
+    - content_generators.py 权重门控读取 role_slot + prompt_weight 决定是否 post-append
     """
 
-    def plan_batch(
+    def __init__(self, *, llm_client: Any = None) -> None:
+        """llm_client: 可选，传入 LLM service 启用 LLM 驱动角色分配。
+           不传则始终走规则回退（_rule_based_role_selection）。"""
+        self._deterministic = IPUsagePlanner()
+        self._llm = llm_client
+
+    async def plan_batch(
         self,
         *,
         storyboard_plan: StoryboardPlan,
@@ -489,8 +520,7 @@ class IPFrameAppearancePlanner:
         generation_world_profile: ContentWorldInput = None,
     ) -> list[IPFrameAdaptationPackage]:
         scene_casts = scene_casts_by_frame or {}
-        base_planner = IPUsagePlanner()
-        base_packages = base_planner.plan_batch(
+        base_packages = self._deterministic.plan_batch(
             storyboard_plan=storyboard_plan,
             ip_profile=ip_profile,
             resolved_style=resolved_style,
@@ -498,11 +528,31 @@ class IPFrameAppearancePlanner:
             generation_world_profile=generation_world_profile,
         )
         generation_notes = _generation_notes_from_profile(generation_world_profile)
+
+        # Try LLM-driven role selection for the entire batch
+        llm_roles = None
+        if self._llm is not None:
+            llm_roles = await self._llm_role_selection(
+                storyboard_plan=storyboard_plan,
+                ip_profile=ip_profile,
+                base_packages=base_packages,
+            )
+
         enriched: list[IPFrameAdaptationPackage] = []
         prev_frame: StoryboardPlanFrame | None = None
         prev_package: IPFrameAdaptationPackage | None = None
 
         for i, (frame, base_pkg) in enumerate(zip(storyboard_plan.frames, base_packages)):
+            if llm_roles is not None and i < len(llm_roles):
+                raw_slot = llm_roles[i]["role_slot"]
+                role_slot_override = IPRoleSlot(raw_slot) if isinstance(raw_slot, str) else raw_slot
+                role_label_override = llm_roles[i]["role_label"]
+                presence_desc_override = llm_roles[i]["presence_level"]
+            else:
+                role_slot_override = None
+                role_label_override = None
+                presence_desc_override = None
+
             appearance = self.plan_frame_appearance(
                 frame=frame,
                 ip_profile=ip_profile,
@@ -512,12 +562,77 @@ class IPFrameAppearancePlanner:
                 generation_notes=generation_notes,
                 prev_frame=prev_frame,
                 prev_package=prev_package,
+                role_slot_override=role_slot_override,
+                role_label_override=role_label_override,
+                presence_desc_override=presence_desc_override,
             )
             enriched.append(appearance)
             prev_frame = frame
             prev_package = appearance
 
         return enriched
+
+    async def _llm_role_selection(
+        self,
+        *,
+        storyboard_plan: StoryboardPlan,
+        ip_profile: IPProfile,
+        base_packages: list[IPFrameAdaptationPackage],
+    ) -> list[dict[str, Any]] | None:
+        """Call LLM to decide role_slot, role_label, presence_level per frame.
+
+        Returns None on failure so caller falls back to rule-based selection.
+        """
+        from pixelle_video.prompts.ip_role_selection import (
+            build_ip_role_selection_prompt,
+            parse_ip_role_selection_response,
+        )
+
+        ip_profile_json = json.dumps(
+            {
+                "name": ip_profile.name,
+                "identity_lock": list(ip_profile.identity_lock),
+                "identity_anchors": list(ip_profile.identity_anchors),
+                "visual_summary": ip_profile.visual_summary,
+                "role_presets": list(ip_profile.role_presets),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        frames_json = json.dumps(
+            [
+                {
+                    "frame_index": i,
+                    "source_text": frame.source_text,
+                    "visual_goal": frame.visual_goal,
+                    "shot_type": frame.shot_type,
+                    "primary_subject": frame.primary_subject,
+                    "presence_type": base.ip_presence_type.value,
+                    "must_not_replace": list(base.must_not_replace),
+                }
+                for i, (frame, base) in enumerate(
+                    zip(storyboard_plan.frames, base_packages)
+                )
+            ],
+            ensure_ascii=False,
+            indent=2,
+        )
+
+        prompt = build_ip_role_selection_prompt(
+            ip_profile_json=ip_profile_json,
+            frames_json=frames_json,
+        )
+
+        try:
+            raw_response = await self._llm(prompt)
+        except Exception:
+            logger.warning("LLM IP role selection failed, using rule-based fallback", exc_info=True)
+            return None
+
+        parsed = parse_ip_role_selection_response(raw_response)
+        if parsed is None:
+            logger.warning("LLM IP role selection parsing failed, using rule-based fallback")
+        return parsed
 
     def plan_frame_appearance(
         self,
@@ -530,16 +645,23 @@ class IPFrameAppearancePlanner:
         generation_notes: str | None = None,
         prev_frame: StoryboardPlanFrame | None = None,
         prev_package: IPFrameAdaptationPackage | None = None,
+        role_slot_override: IPRoleSlot | None = None,
+        role_label_override: str | None = None,
+        presence_desc_override: str | None = None,
     ) -> IPFrameAdaptationPackage:
         frame_text = _frame_text(frame)
         domain = _detect_content_domain(
             frame_text=frame_text,
             generation_notes=_first_text(generation_notes),
         )
-        role = _select_role(ip_profile, domain, base_package.ip_presence_type)
-        presence_desc = _select_presence_description(
-            ip_profile, base_package.ip_presence_type, frame_index, total_frames
-        )
+        if role_slot_override is not None and role_label_override is not None:
+            role_slot = role_slot_override
+            role_label = role_label_override
+            presence_desc = presence_desc_override or "半身出镜"
+        else:
+            role_slot, role_label, presence_desc = _rule_based_role_selection(
+                ip_profile, domain, base_package.ip_presence_type
+            )
         outfit = _select_outfit_theme(ip_profile, domain)
         accessories = _select_accessories(ip_profile, domain)
         pose = _select_pose(ip_profile, domain, base_package.ip_presence_type)
@@ -550,14 +672,11 @@ class IPFrameAppearancePlanner:
 
         appearance_description = _build_appearance_description(
             ip_profile=ip_profile,
-            role=role,
+            role_label=role_label,
+            role_slot=role_slot,
             presence_desc=presence_desc,
-            outfit=outfit,
-            accessories=accessories,
-            pose=pose,
-            expression=expression,
-            action=action,
-            interaction=interaction,
+            presence_type=base_package.ip_presence_type,
+            prompt_weight=base_package.prompt_weight,
         )
 
         return IPFrameAdaptationPackage(
@@ -580,6 +699,7 @@ class IPFrameAppearancePlanner:
             interaction_target=interaction,
             continuity_from_previous=continuity,
             appearance_description=appearance_description,
+            role_slot=role_slot,
             shot_fit_notes=base_package.shot_fit_notes,
             image_text_plan=base_package.image_text_plan,
             prompt_weight=base_package.prompt_weight,
@@ -617,30 +737,63 @@ def _detect_content_domain(
 
 # ── role selection ────────────────────────────────────────────────────
 
-def _select_role(
+def _rule_based_role_selection(
     ip_profile: IPProfile,
     domain: str,
     presence_type: IPPresenceType,
-) -> str:
-    if presence_type is IPPresenceType.ABSENT:
-        return "画外不出镜"
-    if presence_type is IPPresenceType.SYMBOLIC_ONLY:
-        return "路人观察者"
+) -> tuple[IPRoleSlot, str, str]:
+    """规则回退：按 presence_type → role_slot 映射决定角色槽位。
 
-    domain_role_map: dict[str, str] = {
+    返回 (role_slot, role_label, presence_desc)。
+
+    ── 映射规则 ──
+    STRONG_IDENTITY    → PROTAGONIST（主角）+ 全身出镜
+    BALANCED_NARRATIVE → SUPPORTING（配角）+ 半身出镜
+    SCENE_INTEGRATED   → SUPPORTING（配角）+ 远景融入
+    LOW_INTRUSION      → PASSERBY（路人）+ 远景融入
+    SYMBOLIC_ONLY      → PASSERBY（路人）+ 局部细节
+    ABSENT             → ABSENT（不出镜）+ 完全不出镜
+
+    ── role_label 按内容域分配 ──
+    文旅→导游讲解者, 爱情→情感陪伴者, 美食/科技/自然→路人观察者, 通用→场景参与者
+    """
+    if presence_type is IPPresenceType.ABSENT:
+        return (IPRoleSlot.ABSENT, "画外不出镜", "完全不出镜")
+    if presence_type is IPPresenceType.SYMBOLIC_ONLY:
+        return (IPRoleSlot.PASSERBY, "路人观察者", "局部细节")
+
+    slot_map: dict[IPPresenceType, IPRoleSlot] = {
+        IPPresenceType.STRONG_IDENTITY: IPRoleSlot.PROTAGONIST,
+        IPPresenceType.BALANCED_NARRATIVE: IPRoleSlot.SUPPORTING,
+        IPPresenceType.SCENE_INTEGRATED: IPRoleSlot.SUPPORTING,
+        IPPresenceType.LOW_INTRUSION: IPRoleSlot.PASSERBY,
+    }
+    role_slot = slot_map.get(presence_type, IPRoleSlot.SUPPORTING)
+
+    domain_labels: dict[str, str] = {
         "文旅": "导游讲解者",
         "爱情": "情感陪伴者",
         "美食": "路人观察者",
         "科技": "路人观察者",
         "日常": "情感陪伴者",
         "自然": "路人观察者",
+        "通用": "场景参与者",
     }
-    role_name = domain_role_map.get(domain, "情感陪伴者")
-
+    role_name = domain_labels.get(domain, "场景参与者")
     for preset in ip_profile.role_presets:
         if preset.startswith(role_name):
-            return preset
-    return role_name
+            role_name = preset
+            break
+
+    presence_map: dict[IPPresenceType, str] = {
+        IPPresenceType.STRONG_IDENTITY: "全身出镜",
+        IPPresenceType.BALANCED_NARRATIVE: "半身出镜",
+        IPPresenceType.SCENE_INTEGRATED: "远景融入",
+        IPPresenceType.LOW_INTRUSION: "远景融入",
+    }
+    presence_desc = presence_map.get(presence_type, "半身出镜")
+
+    return (role_slot, role_name, presence_desc)
 
 
 # ── presence description ──────────────────────────────────────────────
@@ -784,41 +937,63 @@ def _build_continuity_note(
 def _build_appearance_description(
     *,
     ip_profile: IPProfile,
-    role: str,
+    role_label: str,
+    role_slot: IPRoleSlot | None,
     presence_desc: str,
-    outfit: str | None,
-    accessories: list[str],
-    pose: str | None,
-    expression: str | None,
-    action: str | None,
-    interaction: str | None,
+    presence_type: IPPresenceType,
+    prompt_weight: float | None,
 ) -> str:
+    """生成 IP 替换式出场描述。
+
+    ── 参数说明 ──
+    - role_slot:    IP 替代谁（主角/配角/路人/不出镜）
+    - role_label:   中文角色标签（如"导游讲解者"），仅在高权重时拼接
+    - presence_desc: 出场程度描述（如"半身出镜"）
+    - presence_type: IPPresenceType，决定画面融入方式
+    - prompt_weight: 权重 0~1，控制描述长度：
+       ≤0.3 → ~20 字（仅视觉核心）
+       ≤0.6 → ~60 字（核心 + 替换指令）
+       >0.6 → ~100 字（核心 + 替换指令 + 角色标签 + 出场程度）
+
+    ── 输出示例 ──
+    role_slot=PROTAGONIST, weight=0.9:
+      "白色卡通兔子替换画面主角位置，作为画面主体占据前景，导游讲解者，全身出镜"
+    role_slot=PASSERBY, weight=0.3:
+      "白色卡通兔子，蓝色领结，长耳朵"
+    role_slot=ABSENT:
+      "本帧不出镜"
+    """
+    if role_slot is IPRoleSlot.ABSENT:
+        return "本帧不出镜"
+
     visual_core = ip_profile.visual_summary or ", ".join(
         [*ip_profile.identity_lock, *ip_profile.identity_anchors]
     )
     visual_core = visual_core.rstrip("。，,;；!！?？\n\r ")
-    role_name = role.split("：")[0] if "：" in role else role
-    presence_name = presence_desc.split("：")[0] if "：" in presence_desc else presence_desc
 
-    parts: list[str] = [visual_core] if visual_core else []
+    presence_level = {
+        IPPresenceType.STRONG_IDENTITY: "作为画面主体占据前景",
+        IPPresenceType.BALANCED_NARRATIVE: "中景融入场景",
+        IPPresenceType.SCENE_INTEGRATED: "中景融入场景",
+        IPPresenceType.LOW_INTRUSION: "远景边缘融入",
+        IPPresenceType.SYMBOLIC_ONLY: "只露出特征性局部（耳朵轮廓或领结一角）",
+    }
 
-    if outfit:
-        parts.append(f"穿着{outfit}")
-    if accessories:
-        parts.append(f"手持{'、'.join(accessories)}")
-    if pose:
-        parts.append(pose)
-    if expression:
-        parts.append(expression)
-    if action:
-        parts.append(action)
-    if interaction:
-        parts.append(f"与{interaction}自然互动")
+    slot_descriptions = {
+        IPRoleSlot.PROTAGONIST: f"{visual_core}替换画面主角位置，{presence_level.get(presence_type, '融入场景')}",
+        IPRoleSlot.SUPPORTING: f"{visual_core}替换画面配角位置，{presence_level.get(presence_type, '融入场景')}",
+        IPRoleSlot.PASSERBY: f"{visual_core}替换画面路人位置，{presence_level.get(presence_type, '融入场景')}",
+    }
+    base = slot_descriptions.get(
+        role_slot,
+        f"{visual_core}融入场景",
+    ) if role_slot is not None else f"{visual_core}融入场景"
 
-    desc = "，".join(parts)
-    if desc:
-        return f"作为{role_name}，{desc}，{presence_name}"
-    return f"作为{role_name}，{presence_name}"
+    if prompt_weight is not None and prompt_weight <= 0.3:
+        return visual_core
+    if prompt_weight is not None and prompt_weight <= 0.6:
+        return base
+    return f"{base}，{role_label}，{presence_desc}"
 
 
 def _ip_supports_adaptable_slot(ip_profile: IPProfile, keyword: str) -> bool:
@@ -842,4 +1017,5 @@ def _first_text(*values: Any) -> str:
 __all__ = [
     "IPFrameAppearancePlanner",
     "IPUsagePlanner",
+    "_rule_based_role_selection",
 ]

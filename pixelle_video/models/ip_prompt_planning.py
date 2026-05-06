@@ -19,6 +19,24 @@ class IPPresenceType(str, Enum):
     ABSENT = "absent"
 
 
+class IPRoleSlot(str, Enum):
+    """Which narrative role the IP fills in this frame.
+
+    决定 IP 在当前帧"替代谁"：
+    - PROTAGONIST: IP 替代画面主角，占据前景主体位置
+    - SUPPORTING:   IP 替代画面配角，中景融入场景
+    - PASSERBY:     IP 替代画面路人/背景人物，远景边缘融入
+    - ABSENT:       本帧 IP 不出镜
+
+    用法：由 IPFrameAppearancePlanner 逐帧设定，写入 ip_adaptation.role_slot。
+          image_generation.py 系统提示和 content_generators.py 权重门控都会读取此字段。
+    """
+    PROTAGONIST = "protagonist"
+    SUPPORTING = "supporting"
+    PASSERBY = "passerby"
+    ABSENT = "absent"
+
+
 @dataclass(frozen=True)
 class IPImageTextPlan:
     summary_text: str | None = None
@@ -80,6 +98,9 @@ class IPFrameAdaptationPackage:
     interaction_target: str | None = None
     continuity_from_previous: str | None = None
     appearance_description: str | None = None
+    # IP 在当前帧替代的角色槽位（主角/配角/路人/不出镜）。
+    # 由 IPFrameAppearancePlanner 逐帧设定，系统提示和权重门控都会读取此字段。
+    role_slot: IPRoleSlot | None = None
     shot_fit_notes: str | None = None
     image_text_plan: IPImageTextPlan | None = None
     prompt_weight: float | None = None
@@ -117,6 +138,8 @@ class IPFrameAdaptationPackage:
                 field_name,
                 _normalize_prompt_tuple(field_name, getattr(self, field_name)),
             )
+        if self.role_slot is not None and not isinstance(self.role_slot, IPRoleSlot):
+            object.__setattr__(self, "role_slot", IPRoleSlot(self.role_slot))
         if self.image_text_plan is not None and not isinstance(self.image_text_plan, IPImageTextPlan):
             raise ValueError("image_text_plan must be an IPImageTextPlan")
         if self.prompt_weight is not None:
@@ -143,6 +166,7 @@ class IPFrameAdaptationPackage:
             "interaction_target": self.interaction_target,
             "continuity_from_previous": self.continuity_from_previous,
             "appearance_description": self.appearance_description,
+            "role_slot": self.role_slot.value if self.role_slot else None,
             "shot_fit_notes": self.shot_fit_notes,
             "image_text_plan": self.image_text_plan.to_dict() if self.image_text_plan else None,
             "prompt_weight": self.prompt_weight,
@@ -173,11 +197,25 @@ class IPFrameAdaptationPackage:
             interaction_target=payload.get("interaction_target"),
             continuity_from_previous=payload.get("continuity_from_previous"),
             appearance_description=payload.get("appearance_description"),
+            role_slot=_parse_role_slot(payload.get("role_slot")),
             shot_fit_notes=payload.get("shot_fit_notes"),
             image_text_plan=IPImageTextPlan.from_dict(image_text_plan) if image_text_plan else None,
             prompt_weight=payload.get("prompt_weight"),
             negative_constraints=_payload_sequence_or_default(payload.get("negative_constraints")),
         )
+
+
+def _parse_role_slot(value: Any) -> IPRoleSlot | None:
+    if value is None:
+        return None
+    if isinstance(value, IPRoleSlot):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return IPRoleSlot(value.strip())
+        except ValueError:
+            return None
+    return None
 
 
 def _require_mapping(type_name: str, payload: Mapping[str, Any]) -> None:
@@ -238,4 +276,5 @@ __all__ = [
     "IPFrameAdaptationPackage",
     "IPImageTextPlan",
     "IPPresenceType",
+    "IPRoleSlot",
 ]
