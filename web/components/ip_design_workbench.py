@@ -167,7 +167,7 @@ def _render_asset_bible_section(
                 ui,
                 translate("ip_design.asset_bible.color_palette"),
                 key="ip_design_color_rules",
-                value=_first_text(_first_dict(ip_profile.get("color_palette")).get("prompt", "")),
+                value=_read_color_palette_prompt(ip_profile.get("color_palette")),
             )
             minimal_traits = _text_input(
                 ui,
@@ -691,6 +691,13 @@ def _first_text(*values: Any) -> str:
         if text:
             return text
     return ""
+
+
+def _read_color_palette_prompt(value: Any) -> str:
+    """Read the prompt text from a color_palette dict."""
+    if not isinstance(value, Mapping):
+        return ""
+    return _first_text(value.get("prompt", ""))
 
 
 __all__ = ["render_ip_design_workbench"]

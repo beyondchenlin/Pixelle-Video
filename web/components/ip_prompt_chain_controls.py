@@ -170,22 +170,22 @@ def _render_ip_capability_preview(
         ui.caption(translate("content.ip_world.ip_capability_preview"))
         anchors = _text_list(selected_profile.get("identity_lock"))
         if anchors:
-            ui.caption(f"视觉锚点：{', '.join(anchors[:6])}")
+            ui.caption(translate("content.ip_world.capability_visual_anchors", anchors=", ".join(anchors[:6])))
         visual = _first_text(selected_profile.get("visual_summary"))
         if visual:
-            ui.caption(f"视觉摘要：{visual}")
+            ui.caption(translate("content.ip_world.capability_visual_summary", summary=visual))
         roles = _text_list(selected_profile.get("role_presets"))
         if roles:
             role_names = [r.split("：")[0] for r in roles[:4] if "：" in r]
             if role_names:
-                ui.caption(f"可扮角色：{' / '.join(role_names)}")
+                ui.caption(translate("content.ip_world.capability_available_roles", roles=" / ".join(role_names)))
         presence = _text_list(selected_profile.get("presence_spectrum"))
         if presence:
             first = presence[0].split("：")[0] if "：" in presence[0] else presence[0]
             last = presence[-1].split("：")[0] if "：" in presence[-1] else presence[-1]
-            ui.caption(f"出场范围：{first} ~ {last}")
+            ui.caption(translate("content.ip_world.capability_presence_range", first=first, last=last))
         ready = bool(anchors)
-        ui.caption(f"生成状态：{'✅ 可用' if ready else '⚠️ 缺少锚点'}")
+        ui.caption(translate("content.ip_world.capability_status_ready") if ready else translate("content.ip_world.capability_status_missing"))
 
 
 def _text_list(value: Any) -> list[str]:
