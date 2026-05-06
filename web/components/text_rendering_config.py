@@ -247,8 +247,9 @@ def _clean_text_style_payload(style: Mapping[str, Any] | None) -> dict | None:
             value = float(value)
         if key == "max_chars_per_line":
             value = int(value)
-            if value <= 0:
+            if value < 0:
                 continue
+            # value == 0 means "no limit" — preserve it in the payload
         if key == "background_opacity":
             value = float(value)
         payload[key] = value

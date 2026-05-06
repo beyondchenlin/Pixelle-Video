@@ -14,6 +14,7 @@
 Output preview components for web UI (right column)
 """
 
+import base64
 import os
 import re
 from datetime import datetime, timezone
@@ -423,6 +424,18 @@ def _build_text_rendering_css(text_rendering: dict | None) -> str:
 
     css_parts = ["<style data-pixelle-text-rendering>"]
 
+    # @font-face rules for custom fonts used in title / caption styles
+    font_file_paths: set[str] = set()
+    for style_key in ("title_style", "caption_style"):
+        style = text_rendering.get(style_key) or {}
+        font_file = style.get("font_file")
+        if font_file:
+            font_file_paths.add(str(font_file))
+    for font_path_str in sorted(font_file_paths):
+        font_face_css = _build_font_face_css(font_path_str)
+        if font_face_css:
+            css_parts.append(font_face_css)
+
     # Build title style CSS
     title_style = text_rendering.get("title_style") or {}
     if title_style:
@@ -439,6 +452,43 @@ def _build_text_rendering_css(text_rendering: dict | None) -> str:
 
     css_parts.append("</style>")
     return "\n".join(css_parts)
+
+
+def _build_font_face_css(font_path_str: str) -> str | None:
+    """Build a ``@font-face`` rule with base64-embedded font data.
+
+    Returns ``None`` when the font file cannot be read (missing / empty).
+    """
+    font_path = Path(font_path_str)
+    if not font_path.is_file():
+        return None
+
+    try:
+        raw = font_path.read_bytes()
+        if not raw:
+            return None
+    except OSError:
+        return None
+
+    b64 = base64.b64encode(raw).decode("ascii")
+    suffix = font_path.suffix.lower()
+    fmt_map = {
+        ".ttf": "truetype",
+        ".otf": "opentype",
+        ".woff": "woff",
+        ".woff2": "woff2",
+    }
+    font_format = fmt_map.get(suffix, "truetype")
+    family = font_path.stem
+
+    return (
+        "@font-face {\n"
+        f'  font-family: "{family}";\n'
+        f'  src: url(data:font/{font_format};base64,{b64}) format("{font_format}");\n'
+        "  font-weight: normal;\n"
+        "  font-style: normal;\n"
+        "}"
+    )
 
 
 def _build_single_text_style_css(style: dict, selector: str) -> str:
@@ -512,34 +562,71 @@ def _build_single_text_style_css(style: dict, selector: str) -> str:
         rules.append(f"  text-align: {alignment} !important;")
 
     # -- max-width ----------------------------------------------------------
+    # max_chars_per_line takes priority over max_width_ratio when explicitly set.
 
+    max_chars_per_line = style.get("max_chars_per_line")
     max_width_ratio = style.get("max_width_ratio")
-    if max_width_ratio is not None:
+
+    if max_chars_per_line == 0:
+        rules.append("  max-width: none !important;")
+    elif max_chars_per_line is not None and max_chars_per_line > 0:
+        font_size_val = style.get("font_size", 42)
+        rules.append(f"  max-width: {int(font_size_val) * max_chars_per_line}px !important;")
+    elif max_width_ratio is not None:
         rules.append(f"  max-width: {float(max_width_ratio) * 100}% !important;")
 
     # -- position & margins -------------------------------------------------
-    # Use position:relative so the element stays in the template's natural
-    # flow (flex/grid), then offset with CSS margins.  z-index keeps text
-    # above siblings that create stacking contexts.
+    # Use position:absolute so margin_x / margin_y map to edge offsets.
+    # z-index keeps text above siblings that create stacking contexts
+    # (e.g. ``position: relative`` wrappers in the template).
 
     position = style.get("position")
     margin_x = style.get("margin_x")
     margin_y = style.get("margin_y")
 
     if position:
+        position_css = {
+            "top": "top: 0;",
+            "bottom": "bottom: 0;",
+            "center": "top: 50%; transform: translateY(-50%);",
+            "lower_third": "bottom: 33%;",
+            "top_left": "top: 0; left: 0;",
+            "top_right": "top: 0; right: 0;",
+            "bottom_left": "bottom: 0; left: 0;",
+            "bottom_right": "bottom: 0; right: 0;",
+        }.get(position, "")
+        if position_css:
+            rules.append("  position: absolute !important;")
+            rules.append("  z-index: 1 !important;")
+            rules.append(f"  {position_css}")
+            if margin_x is not None:
+                rules.append(f"  left: {int(margin_x)}px !important;")
+                rules.append(f"  right: {int(margin_x)}px !important;")
+            if margin_y is not None:
+                if "bottom" in position:
+                    rules.append(f"  bottom: {int(margin_y)}px !important;")
+                elif "top" in position:
+                    rules.append(f"  top: {int(margin_y)}px !important;")
+                else:
+                    rules.append(f"  margin-top: {int(margin_y)}px !important;")
+        elif margin_x is not None or margin_y is not None:
+            # position is set but not a recognized preset — use relative
+            # so margins still work as offsets from natural position
+            rules.append("  position: relative !important;")
+            rules.append("  z-index: 1 !important;")
+            if margin_x is not None:
+                rules.append(f"  margin-left: {int(margin_x)}px !important;")
+                rules.append(f"  margin-right: {int(margin_x)}px !important;")
+            if margin_y is not None:
+                rules.append(f"  margin-bottom: {int(margin_y)}px !important;")
+    elif margin_x is not None or margin_y is not None:
+        # margins set but no explicit position — offset from natural position
         rules.append("  position: relative !important;")
         rules.append("  z-index: 1 !important;")
-
-    if margin_x is not None:
-        rules.append(f"  margin-left: {int(margin_x)}px !important;")
-        rules.append(f"  margin-right: {int(margin_x)}px !important;")
-
-    if margin_y is not None:
-        if position and "bottom" in position:
-            rules.append(f"  margin-bottom: {int(margin_y)}px !important;")
-        elif position and "top" in position:
-            rules.append(f"  margin-top: {int(margin_y)}px !important;")
-        else:
+        if margin_x is not None:
+            rules.append(f"  margin-left: {int(margin_x)}px !important;")
+            rules.append(f"  margin-right: {int(margin_x)}px !important;")
+        if margin_y is not None:
             rules.append(f"  margin-top: {int(margin_y)}px !important;")
 
     if not rules:
