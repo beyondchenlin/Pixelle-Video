@@ -37,10 +37,9 @@ comfyui:
   backend_management_mode: auto  # auto manages the Pixelle backend at 127.0.0.1:8000; required=fail if restart unavailable; disabled=never start/stop ComfyUI
   pre_generation_cleanup_mode: force  # force=interrupt/clear busy queue before generation, conservative=leave an idle queue untouched
   pre_generation_cleanup_timeout_seconds: 20  # Fail fast if a forced cleanup cannot drain the ComfyUI queue in time
-  model_cleanup_mode: comfyui_and_extensions  # comfyui=/free after standard Pixelle-owned stages; comfyui_and_extensions also covers Pixelle-managed plugin caches such as IndexTTS2
-  # Pixelle assumes this ComfyUI instance is dedicated to Pixelle: it keeps models hot within a stage, then releases them at stage boundaries.
-  # For Pixelle-managed GGUF workflows on 127.0.0.1:8000, normal successful stages do not restart ComfyUI; connection loss still triggers one managed restart and retry.
-  # Local IndexTTS2 workflows preflight /pixelle/indextts2/health before execution; /free and plugin release responses are logged with VRAM snapshots when available.
+  # Memory release is handled by managed backend restart. Set restart_after_batch: false
+  # in each backend profile to keep models loaded in GPU for fast follow-up requests.
+  # Pipeline stage-boundary restarts are handled separately and bypass this flag.
   comfyui_api_key: ""  # ComfyUI API key (optional, get from https://platform.comfy.org/profile/api-keys)
   # Note for Docker users: Use host.docker.internal:8188 (Mac/Windows) or host IP address (Linux)
   runninghub_api_key: ""  # RunningHub API key (required for runninghub workflows)

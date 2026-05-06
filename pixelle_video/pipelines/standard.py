@@ -3738,10 +3738,9 @@ class StandardPipeline(LinearVideoPipeline):
         if not registry.is_dedicated_backend(backend_role):
             return
 
-        profile = registry.profile(backend_role)
-        if not profile.restart_after_batch:
-            return
-
+        # Always restart dedicated backends at stage boundaries,
+        # regardless of restart_after_batch (which only gates
+        # per-workflow release to avoid thrashing on single-image requests).
         maybe_awaitable = schedule_restart(backend_role, reason)
         if inspect.isawaitable(maybe_awaitable):
             await maybe_awaitable

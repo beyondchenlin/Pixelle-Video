@@ -467,7 +467,15 @@ class ComfyUIBackendProfile(BaseModel):
     frontend_root: Optional[str] = Field(default=None, description="ComfyUI frontend root directory")
     extra_models_config: Optional[str] = Field(default=None, description="Extra model paths configuration file")
     managed: bool = Field(default=True, description="Whether Pixelle manages this backend process")
-    restart_after_batch: bool = Field(default=False, description="Restart backend after each workflow batch")
+    restart_after_batch: bool = Field(
+        default=False,
+        description=(
+            "Restart this backend after every single-workflow completion. "
+            "Set to False to keep models loaded in GPU for fast follow-up "
+            "requests. Pipeline stage-boundary restarts are handled separately "
+            "and do not depend on this flag."
+        ),
+    )
     data_root: Optional[str] = Field(default=None, description="ComfyUI data root for this profile")
     runtime_dir: Optional[str] = Field(default=None, description="Runtime directory for this profile")
     logs_dir: Optional[str] = Field(default=None, description="Log directory for this profile")
@@ -549,14 +557,6 @@ class ComfyUIConfig(BaseModel):
         le=120.0,
         description="How long to wait for a forced pre-generation cleanup to drain the ComfyUI queue",
     )
-    model_cleanup_mode: Literal["comfyui", "comfyui_and_extensions"] = Field(
-        default="comfyui_and_extensions",
-        description=(
-            "Model memory cleanup scope used after Pixelle-owned local workflow "
-            "stages; IndexTTS2 TTS plugin cache cleanup is required for local "
-            "IndexTTS2 workflows"
-        ),
-    )
     comfyui_api_key: Optional[str] = Field(default=None, description="ComfyUI API Key (optional)")
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")
     runninghub_concurrent_limit: int = Field(default=1, ge=1, le=10, description="RunningHub concurrent execution limit (1-10)")
@@ -602,31 +602,19 @@ class ComfyUIConfig(BaseModel):
         if legacy_fields:
             logger.warning(
                 "Ignoring legacy ComfyUI config field(s): {}. "
-                "Use model_cleanup_mode to control model release after local workflow "
-                "batches and explicit recovery paths.",
+                "Memory release is now handled by managed backend restart "
+                "controlled via backends.<role>.restart_after_batch.",
                 ", ".join(legacy_fields),
             )
-
-        raw_model_cleanup_mode = normalized.get("model_cleanup_mode")
-        if isinstance(raw_model_cleanup_mode, str):
-            normalized["model_cleanup_mode"] = raw_model_cleanup_mode.strip().lower()
 
         if "gguf_cleanup_strategy" in normalized:
             normalized.pop("gguf_cleanup_strategy", None)
             logger.warning(
                 "Ignoring retired ComfyUI config field: gguf_cleanup_strategy. "
-                "Normal GGUF stages always release ComfyUI models and the "
-                "/pixelle/gguf/free extension cache; managed backend restart is "
-                "reserved for crash recovery."
+                "GGUF memory release is handled by managed backend restart."
             )
 
-        if normalized.get("model_cleanup_mode") == "disabled":
-            normalized["model_cleanup_mode"] = "comfyui_and_extensions"
-            logger.warning(
-                "Retired ComfyUI model_cleanup_mode 'disabled' was migrated to "
-                "'comfyui_and_extensions'. Pixelle-owned local stages must release "
-                "their models before the next stage."
-            )
+        normalized.pop("model_cleanup_mode", None)
 
         return normalized
 

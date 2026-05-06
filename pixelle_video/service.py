@@ -440,19 +440,6 @@ class PixelleVideoCore:
         except Exception as e:
             raise RuntimeError(f"ComfyUI pre-workflow cleanup failed: {e}") from e
 
-    def _get_comfyui_model_cleanup_mode(self, comfyui_config: dict) -> str:
-        mode = (comfyui_config.get("model_cleanup_mode") or "comfyui_and_extensions").lower()
-        if mode == "disabled":
-            logger.warning(
-                "Retired ComfyUI model cleanup mode 'disabled' was ignored; "
-                "using 'comfyui_and_extensions' so Pixelle-owned stages release models."
-            )
-            return "comfyui_and_extensions"
-        if mode not in {"comfyui", "comfyui_and_extensions"}:
-            logger.warning(f"Unsupported ComfyUI model cleanup mode: {mode}")
-            return "comfyui_and_extensions"
-        return mode
-
     def _get_comfyui_backend_management_mode(self, comfyui_config: dict) -> str:
         mode = (comfyui_config.get("backend_management_mode") or "auto").lower()
         if mode not in {"auto", "required", "disabled"}:
@@ -470,6 +457,14 @@ class PixelleVideoCore:
             return registry.managed_backend(role)
         except ValueError:
             return None
+
+    def _restart_after_batch_for_role(self, backend_role: str) -> bool:
+        role = self._normalize_comfyui_backend_role(backend_role)
+        try:
+            registry = self._get_comfyui_backend_registry()
+            return registry.profile(role).restart_after_batch
+        except ValueError:
+            return False
 
     async def _restart_comfyui_backend_role(self, backend_role: str, reason: str) -> bool:
         role = self._normalize_comfyui_backend_role(backend_role)
@@ -493,7 +488,6 @@ class PixelleVideoCore:
         self,
         *,
         context: str,
-        model_cleanup_mode: str,
         result,
     ) -> None:
         if hasattr(result, "to_log_fields"):
@@ -504,7 +498,6 @@ class PixelleVideoCore:
             channel="runtime",
             event="comfyui_memory_release",
             context=context,
-            model_cleanup_mode=model_cleanup_mode,
             **fields,
         )
         if self._is_comfyui_release_confirmed(result):
@@ -521,53 +514,17 @@ class PixelleVideoCore:
         self,
         *,
         context: str,
-        model_cleanup_mode: str,
         results,
     ) -> None:
         logger.bind(
             channel="runtime",
             event="comfyui_extension_release_preflight",
             context=context,
-            model_cleanup_mode=model_cleanup_mode,
             extension_results=[
                 result.to_log_dict() if hasattr(result, "to_log_dict") else result
                 for result in results
             ],
         ).info(f"ComfyUI {context} extension release preflight completed")
-
-    async def _release_comfyui_memory_when_idle(
-        self,
-        context: str,
-        *,
-        backend_role: str = "default",
-        include_extensions: bool = False,
-        extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
-        missing_endpoint: str = "optional",
-    ) -> bool:
-        self.config = config_manager.config.to_dict()
-        comfyui_config = self.config.get("comfyui", {})
-        client = self._get_comfyui_maintenance_client(backend_role)
-        if client is None:
-            return False
-
-        model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
-        try:
-            if include_extensions:
-                result = await client.free_memory_with_extensions_when_idle(
-                    intensity="high",
-                    extensions=extensions,
-                    missing_endpoint=missing_endpoint,
-                )
-            else:
-                result = await client.free_memory_when_idle(intensity="high")
-            self._log_comfyui_memory_release(
-                context=context,
-                model_cleanup_mode=model_cleanup_mode,
-                result=result,
-            )
-            return self._is_comfyui_release_confirmed(result)
-        except Exception as e:
-            raise RuntimeError(f"ComfyUI {context} memory release failed: {e}") from e
 
     async def force_release_comfyui_memory(
         self,
@@ -578,14 +535,12 @@ class PixelleVideoCore:
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
     ) -> bool:
         self.config = config_manager.config.to_dict()
-        comfyui_config = self.config.get("comfyui", {})
         client = self._get_comfyui_maintenance_client(backend_role)
         if client is None:
             return False
 
         try:
-            model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
-            if include_extensions or model_cleanup_mode == "comfyui_and_extensions":
+            if include_extensions:
                 result = await client.free_memory_with_extensions(
                     "high",
                     extensions=extensions,
@@ -595,7 +550,6 @@ class PixelleVideoCore:
                 result = await client.free_memory("high")
             self._log_comfyui_memory_release(
                 context=context,
-                model_cleanup_mode=model_cleanup_mode,
                 result=result,
             )
             return self._is_comfyui_release_confirmed(result)
@@ -611,9 +565,6 @@ class PixelleVideoCore:
         extensions: tuple[ComfyUIExtensionName, ...] = ("indextts2",),
         missing_endpoint: str = "required",
     ) -> bool:
-        self.config = config_manager.config.to_dict()
-        comfyui_config = self.config.get("comfyui", {})
-        model_cleanup_mode = self._get_comfyui_model_cleanup_mode(comfyui_config)
         client = self._get_comfyui_maintenance_client(backend_role)
         if client is None:
             return False
@@ -629,7 +580,6 @@ class PixelleVideoCore:
             ) from e
         self._log_comfyui_extension_release_preflight(
             context=context,
-            model_cleanup_mode=model_cleanup_mode,
             results=results,
         )
         return True
@@ -642,11 +592,25 @@ class PixelleVideoCore:
         extensions: tuple[ComfyUIExtensionName, ...],
         missing_endpoint: str = "required",
     ) -> bool:
-        """Restart ComfyUI backend to fully release GPU memory including extension caches."""
+        """Release GPU memory after a workflow batch.
+
+        When restart_after_batch is enabled for this backend role, performs a full
+        ComfyUI backend restart to reliably release both GPU VRAM and CPU memory.
+        Otherwise keeps the backend alive so that GGUF (and other) models stay
+        loaded in GPU memory for fast follow-up requests.
+        """
         if not extensions:
             return await self.release_comfyui_after_local_workflow(
                 backend_role=backend_role
             )
+
+        if not self._restart_after_batch_for_role(backend_role):
+            logger.info(
+                f"[MEMORY_RELEASE] Skipping ComfyUI backend restart for '{backend_role}' "
+                f"(extensions: {extensions}) — restart_after_batch=False, keeping backend alive"
+            )
+            self._mark_local_comfyui_released(backend_role=backend_role)
+            return True
 
         logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' (extensions: {extensions}) to release GPU memory...")
         try:
@@ -668,7 +632,20 @@ class PixelleVideoCore:
         *,
         backend_role: str = "default",
     ) -> bool:
-        """Restart ComfyUI backend to fully release GPU memory after a workflow batch."""
+        """Release GPU memory after a workflow batch.
+
+        When restart_after_batch is enabled for this backend role, performs a full
+        ComfyUI backend restart. Otherwise keeps the backend alive so models stay
+        loaded in GPU memory for fast follow-up requests.
+        """
+        if not self._restart_after_batch_for_role(backend_role):
+            logger.info(
+                f"[MEMORY_RELEASE] Skipping ComfyUI backend restart for '{backend_role}' "
+                "(post-workflow) — restart_after_batch=False, keeping backend alive"
+            )
+            self._mark_local_comfyui_released(backend_role=backend_role)
+            return True
+
         logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' (post-workflow) to release GPU memory...")
         try:
             restarted = await self._restart_comfyui_backend_role(backend_role, "post-workflow memory release")
@@ -689,7 +666,19 @@ class PixelleVideoCore:
         *,
         backend_role: str = "default",
     ) -> bool:
-        """Restart ComfyUI backend once no local video task is active to fully release GPU memory."""
+        """Release GPU memory at task exit.
+
+        When restart_after_batch is enabled for this backend role, performs a full
+        ComfyUI backend restart. Otherwise keeps the backend alive.
+        """
+        if not self._restart_after_batch_for_role(backend_role):
+            logger.info(
+                f"[MEMORY_RELEASE] Skipping ComfyUI backend restart for '{backend_role}' "
+                "(post-task) — restart_after_batch=False, keeping backend alive"
+            )
+            self._mark_local_comfyui_released(backend_role=backend_role)
+            return True
+
         async with self._get_backend_lock(backend_role):
             logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' to release GPU memory...")
             try:
