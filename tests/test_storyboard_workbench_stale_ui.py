@@ -687,7 +687,7 @@ def test_storyboard_advanced_controls_shows_workbench_hint_when_editing_disabled
     )
 
     rendered = "\n".join(fake_ui.captions)
-    assert "storyboard.workbench.open_hint" in rendered
+    assert "storyboard.advanced_not_enabled_hint" in rendered
     assert "storyboard.preview.title" not in rendered
     assert payload == {}
 

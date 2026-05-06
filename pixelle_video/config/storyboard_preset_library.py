@@ -18,7 +18,7 @@ def _read_value(container: Any, key: str, default: Any = None) -> Any:
 
 NEUTRAL_KNOWLEDGE_WORLD_PRESET = WorldPresetDefinition(
     preset_id="neutral_knowledge_storyboard",
-    display_name="Neutral Knowledge Storyboard",
+    display_name="Clean Classroom",
     display_name_key="storyboard.preset.world.neutral_knowledge_storyboard.name",
     description_key="storyboard.preset.world.neutral_knowledge_storyboard.description",
     supported_modes=("theme_mapping", "concept_explainer"),
@@ -86,7 +86,7 @@ NEUTRAL_KNOWLEDGE_WORLD_PRESET = WorldPresetDefinition(
 
 DUAL_MODE_WORLD_PRESET = WorldPresetDefinition(
     preset_id="dual_mode_storyboard",
-    display_name="Dual Mode Storyboard",
+    display_name="Flexible Narrative Space",
     display_name_key="storyboard.preset.world.dual_mode_storyboard.name",
     description_key="storyboard.preset.world.dual_mode_storyboard.description",
     supported_modes=("theme_mapping", "concept_explainer"),
@@ -135,7 +135,7 @@ DUAL_MODE_WORLD_PRESET = WorldPresetDefinition(
 
 ANGRY_BIRDS_THREE_KINGDOMS_WORLD_PRESET = WorldPresetDefinition(
     preset_id="angry_birds_three_kingdoms",
-    display_name="Angry Birds Three Kingdoms",
+    display_name="Three Kingdoms · Faction Theater",
     display_name_key="storyboard.preset.world.angry_birds_three_kingdoms.name",
     description_key="storyboard.preset.world.angry_birds_three_kingdoms.description",
     supported_modes=("theme_mapping",),
@@ -210,7 +210,7 @@ ANGRY_BIRDS_THREE_KINGDOMS_WORLD_PRESET = WorldPresetDefinition(
 
 ANGRY_BIRDS_KNOWLEDGE_CLASSROOM_WORLD_PRESET = WorldPresetDefinition(
     preset_id="angry_birds_knowledge_classroom",
-    display_name="Angry Birds Knowledge Classroom",
+    display_name="Playful Classroom",
     display_name_key="storyboard.preset.world.angry_birds_knowledge_classroom.name",
     description_key="storyboard.preset.world.angry_birds_knowledge_classroom.description",
     supported_modes=("concept_explainer",),
@@ -267,7 +267,7 @@ ANGRY_BIRDS_KNOWLEDGE_CLASSROOM_WORLD_PRESET = WorldPresetDefinition(
 
 ANGRY_BIRDS_HISTORY_CLASSROOM_WORLD_PRESET = WorldPresetDefinition(
     preset_id="angry_birds_history_classroom",
-    display_name="Angry Birds History Classroom",
+    display_name="History Gallery",
     display_name_key="storyboard.preset.world.angry_birds_history_classroom.name",
     description_key="storyboard.preset.world.angry_birds_history_classroom.description",
     supported_modes=("theme_mapping", "concept_explainer"),

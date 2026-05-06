@@ -942,27 +942,6 @@ def test_build_storyboard_control_payload_drops_auto_shot_preset_selection():
     assert payload == {"world_preset_id": "neutral_knowledge_storyboard"}
 
 
-def test_build_storyboard_control_payload_includes_generation_world_hint():
-    payload = build_storyboard_control_payload(
-        world_preset_id="neutral_knowledge_storyboard",
-        generation_world_hint="  古城清晨漫游，IP 是陪伴式向导。  ",
-    )
-
-    assert payload == {
-        "world_preset_id": "neutral_knowledge_storyboard",
-        "generation_world_hint": "古城清晨漫游，IP 是陪伴式向导。",
-    }
-
-
-def test_build_storyboard_control_payload_omits_blank_generation_world_hint():
-    payload = build_storyboard_control_payload(
-        world_preset_id="neutral_knowledge_storyboard",
-        generation_world_hint=" ",
-    )
-
-    assert payload == {"world_preset_id": "neutral_knowledge_storyboard"}
-
-
 def test_render_storyboard_advanced_controls_no_longer_renders_generation_world_hint(monkeypatch):
     fake_st = _FakeStreamlit()
     fake_st.session_state["storyboard_planning_enabled"] = True
@@ -1195,7 +1174,6 @@ def test_build_storyboard_control_payload_includes_storyboard_fields():
         "storyboard_prompt_language": "zh_CN",
         "consistency_strength": "strong",
         "content_mode": "concept_explainer",
-        "role_strategy": "auto",
         "role_locking_strength": "strong",
         "shot_strategy": "strict",
         "frame_overrides": [
@@ -1238,7 +1216,6 @@ def test_build_storyboard_control_payload_trims_string_fields_with_shared_contra
         "storyboard_prompt_language": "en_US",
         "consistency_strength": "strong",
         "content_mode": "concept_explainer",
-        "role_strategy": "auto",
         "role_locking_strength": "strong",
         "shot_strategy": "strict",
     }

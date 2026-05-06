@@ -239,7 +239,7 @@ def render_storyboard_generation_controls(
             translate=tr,
             session_state=st.session_state,
             storyboard_default_enabled=False,
-            selected_template_type=selected_template_type_for_storyboard,
+            disabled=selected_template_type_for_storyboard == "static",
             preview_snapshot=get_storyboard_preview_snapshot(st.session_state),
         )
 
