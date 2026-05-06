@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -81,3 +82,40 @@ def font_family_from_file(path: Path) -> str:
         pass
 
     return path.stem.strip()
+
+
+def build_font_face_css(font_path_str: str) -> str | None:
+    """Build a ``@font-face`` rule with base64-embedded font data.
+
+    Returns ``None`` when the font file cannot be read (missing / empty).
+    """
+    font_path = Path(font_path_str)
+    if not font_path.is_file():
+        return None
+
+    try:
+        raw = font_path.read_bytes()
+        if not raw:
+            return None
+    except OSError:
+        return None
+
+    b64 = base64.b64encode(raw).decode("ascii")
+    suffix = font_path.suffix.lower()
+    fmt_map = {
+        ".ttf": "truetype",
+        ".otf": "opentype",
+        ".woff": "woff",
+        ".woff2": "woff2",
+    }
+    font_format = fmt_map.get(suffix, "truetype")
+    family = font_family_from_file(font_path)
+
+    return (
+        "@font-face {\n"
+        f'  font-family: "{family}";\n'
+        f'  src: url(data:font/{font_format};base64,{b64}) format("{font_format}");\n'
+        "  font-weight: normal;\n"
+        "  font-style: normal;\n"
+        "}"
+    )

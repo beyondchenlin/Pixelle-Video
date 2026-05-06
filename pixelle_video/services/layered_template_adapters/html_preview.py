@@ -5,6 +5,7 @@ from html import escape
 from typing import Any, Mapping
 
 from pixelle_video.models.layered_template import LayeredTemplateSpec, TemplateLayer
+from pixelle_video.services.font_discovery import build_font_face_css
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
     render_text_style_css,
@@ -14,6 +15,21 @@ from pixelle_video.services.text_style_css_contract import (
 _HEX_COLOR_PATTERN = re.compile(r"^#[0-9a-fA-F]{6}$")
 _ARTIFACT_KEY_PATTERN = re.compile(r"^artifacts/[A-Za-z0-9_-]+/[0-9A-Za-z][0-9A-Za-z_.-]*$")
 _SAFE_URL_PREFIXES = ("http://", "https://", "data:image/", "file://", "/api/files/")
+
+
+def _build_font_face_rules(text_rendering: Mapping[str, Any]) -> str:
+    font_file_paths: set[str] = set()
+    for style_key in ("title_style", "caption_style"):
+        style = text_rendering.get(style_key) or {}
+        font_file = style.get("font_file")
+        if font_file:
+            font_file_paths.add(str(font_file))
+    rules: list[str] = []
+    for font_path_str in sorted(font_file_paths):
+        rule = build_font_face_css(font_path_str)
+        if rule:
+            rules.append(rule)
+    return "\n".join(rules)
 
 
 def render_layered_template_preview_html(
@@ -35,12 +51,16 @@ def render_layered_template_preview_html(
         for layer in sorted(spec.layers, key=lambda item: (item.z_index, item.id))
         if layer.enabled
     )
+
+    font_face_rules = _build_font_face_rules(text_rendering)
+
     return f"""<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="pixelle:layered-template-fingerprint" content="{escape(fingerprint, quote=True)}">
   <style>
+    {font_face_rules}
     html, body {{
       margin:0;
       width:{spec.canvas_width}px;

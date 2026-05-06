@@ -50,7 +50,7 @@ from pixelle_video.services.layered_template_service import (
     LayeredTemplateService,
 )
 from pixelle_video.services.template_registry import TemplateRegistry
-from pixelle_video.services.font_discovery import font_family_from_file
+from pixelle_video.services.font_discovery import build_font_face_css
 from pixelle_video.services.text_style_css_contract import (
     TextStyleRegion,
     resolve_text_style_layout,
@@ -464,41 +464,9 @@ def _build_text_rendering_css_legacy(text_rendering: dict | None) -> str:
     return "\n".join(css_parts)
 
 
-def _build_font_face_css(font_path_str: str) -> str | None:
-    """Build a ``@font-face`` rule with base64-embedded font data.
-
-    Returns ``None`` when the font file cannot be read (missing / empty).
-    """
-    font_path = Path(font_path_str)
-    if not font_path.is_file():
-        return None
-
-    try:
-        raw = font_path.read_bytes()
-        if not raw:
-            return None
-    except OSError:
-        return None
-
-    b64 = base64.b64encode(raw).decode("ascii")
-    suffix = font_path.suffix.lower()
-    fmt_map = {
-        ".ttf": "truetype",
-        ".otf": "opentype",
-        ".woff": "woff",
-        ".woff2": "woff2",
-    }
-    font_format = fmt_map.get(suffix, "truetype")
-    family = font_family_from_file(font_path)
-
-    return (
-        "@font-face {\n"
-        f'  font-family: "{family}";\n'
-        f'  src: url(data:font/{font_format};base64,{b64}) format("{font_format}");\n'
-        "  font-weight: normal;\n"
-        "  font-style: normal;\n"
-        "}"
-    )
+# NOTE: _build_font_face_css was moved to pixelle_video.services.font_discovery.build_font_face_css.
+# Use the imported ``build_font_face_css`` directly in new code.
+_build_font_face_css = build_font_face_css
 
 
 def _build_single_text_style_css_legacy(style: dict, selector: str) -> str:
