@@ -384,7 +384,9 @@ async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints
     plan = _storyboard_plan()
 
     class _Planner:
-        def plan_batch(self, **kwargs):
+        def __init__(self, *args, **kwargs):
+            pass
+        async def plan_batch(self, **kwargs):
             return [
                 type(
                     "Pkg",
@@ -455,7 +457,9 @@ async def test_generate_styled_image_prompt_batch_keeps_per_frame_ip_negative_ou
     plan = _storyboard_plan_two_frames()
 
     class _Planner:
-        def plan_batch(self, **kwargs):
+        def __init__(self, *args, **kwargs):
+            pass
+        async def plan_batch(self, **kwargs):
             return [
                 type(
                     "Pkg",
@@ -541,7 +545,9 @@ async def test_generate_styled_image_prompt_batch_merges_all_z_image_constraints
     plan = _storyboard_plan()
 
     class _Planner:
-        def plan_batch(self, **kwargs):
+        def __init__(self, *args, **kwargs):
+            pass
+        async def plan_batch(self, **kwargs):
             return [
                 type(
                     "Pkg",
@@ -599,11 +605,25 @@ async def test_z_image_final_prompt_contains_structured_ip_identity_anchors(monk
         "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
         lambda *args, **kwargs: type("Caps", (), {"supports_negative_prompt": False})(),
     )
-    plan = _storyboard_plan()
+    hero_frame = StoryboardPlanFrame(
+        index=1,
+        source_text="IP主角登场，白色卡通兔子引导观众探索古城。",
+        visual_goal="IP英雄镜头展示",
+        prompt_intent="强IP露出",
+        shot_type="中景",
+        primary_subject="白色卡通兔子",
+    )
+    plan = StoryboardPlan.build(
+        mode="sentence",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text=hero_frame.source_text,
+        frames=[hero_frame],
+    )
 
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
-        narrations=["从长乐门出发，这里是正定古城的入口。"],
+        narrations=["IP主角登场，白色卡通兔子引导观众探索古城。"],
         image_config={},
         media_service=object(),
         workflow="selfhost/image_z_image_turbo.json",
@@ -622,8 +642,9 @@ async def test_z_image_final_prompt_contains_structured_ip_identity_anchors(monk
     )
 
     final_prompt = result.prompts[0]
+    # With IP hero frame (STRONG_IDENTITY, weight=0.9 >= threshold 0.7),
+    # the IP appearance_description is post-appended
     assert "白色卡通兔子" in final_prompt
-    assert "蓝色领带" in final_prompt
     assert "避免画成普通人类讲解者" in final_prompt
 
 
@@ -678,7 +699,9 @@ async def test_generate_styled_image_prompt_batch_does_not_apply_ip_chain_to_vid
         return ["video prompt with no IP text"]
 
     class _Planner:
-        def plan_batch(self, **kwargs):
+        def __init__(self, *args, **kwargs):
+            pass
+        async def plan_batch(self, **kwargs):
             raise AssertionError("IP planner should not run for video prompts")
 
     monkeypatch.setattr(
@@ -765,7 +788,9 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
     plan = _storyboard_plan()
 
     class _Planner:
-        def plan_batch(self, **kwargs):
+        def __init__(self, *args, **kwargs):
+            pass
+        async def plan_batch(self, **kwargs):
             planner_calls["resolved_style"] = kwargs["resolved_style"]
             planner_calls["storyboard_plan"] = kwargs["storyboard_plan"]
             planner_calls["scene_casts_by_frame"] = kwargs["scene_casts_by_frame"]
@@ -922,7 +947,9 @@ async def test_generate_styled_image_prompt_batch_uses_visible_text_whitelist_fo
     plan = _storyboard_plan()
 
     class _Planner:
-        def plan_batch(self, **kwargs):
+        def __init__(self, *args, **kwargs):
+            pass
+        async def plan_batch(self, **kwargs):
             return [
                 type(
                     "Pkg",

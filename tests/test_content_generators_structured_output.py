@@ -169,7 +169,8 @@ def test_image_prompt_template_carries_ip_adaptation_and_style_context_as_single
 
     assert "ip_adaptation" in prompt
     assert "style_context" in prompt
-    assert "truth source" in prompt.lower()
+    assert "role_slot" in prompt.lower()
+    assert "replaces a scene character" in prompt.lower()
 
 
 @pytest.mark.asyncio
