@@ -196,6 +196,8 @@ function Get-BackendArguments {
     [void]$arguments.Add('*')
     [void]$arguments.Add('--highvram')
     [void]$arguments.Add('--disable-async-offload')
+    [void]$arguments.Add('--disable-smart-memory')
+    [void]$arguments.Add('--fp16-vae')
 
     return [string[]]$arguments.ToArray()
 }
