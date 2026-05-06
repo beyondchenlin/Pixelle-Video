@@ -147,15 +147,6 @@ def _repair_prompt(original_prompt: str, reason: str) -> str:
     )
 
 
-def _assert_no_meaningful_source_gap(source_text: str, start: int, end: int) -> None:
-    gap = source_text[start:end]
-    if any(not char.isspace() and not _is_unicode_punctuation(char) for char in gap):
-        raise ValueError("smart storyboard frames must cover source_text")
-
-
-def _has_punctuation_source_gap(source_text: str, start: int, end: int) -> bool:
-    return any(_is_unicode_punctuation(char) for char in source_text[start:end])
-
 
 def _extend_frame_source(
     frame: StoryboardPlanFrame,
@@ -602,23 +593,15 @@ class StoryboardGenerationService:
             if start < search_start:
                 raise ValueError("smart storyboard frame source ranges must be ordered")
 
-            _assert_no_meaningful_source_gap(source_text, search_start, start)
-            if not frames and start > search_start and _has_punctuation_source_gap(
-                source_text,
-                search_start,
-                start,
-            ):
-                start = search_start
-            if frames and start > search_start and _has_punctuation_source_gap(
-                source_text,
-                search_start,
-                start,
-            ):
-                frames[-1] = _extend_frame_source(
-                    frames[-1],
-                    source_text=source_text,
-                    end=start,
-                )
+            if start > search_start:
+                if not frames:
+                    start = search_start
+                else:
+                    frames[-1] = _extend_frame_source(
+                        frames[-1],
+                        source_text=source_text,
+                        end=start,
+                    )
             resolved_source_text = source_text[start:end]
             if has_explicit_range and not resolved_source_text.strip():
                 raise ValueError("smart storyboard frame source range must cover text")
@@ -636,12 +619,7 @@ class StoryboardGenerationService:
                     metadata={"strategy": "smart"},
                 )
             )
-        _assert_no_meaningful_source_gap(source_text, search_start, len(source_text))
-        if frames and search_start < len(source_text) and _has_punctuation_source_gap(
-            source_text,
-            search_start,
-            len(source_text),
-        ):
+        if frames and search_start < len(source_text):
             frames[-1] = _extend_frame_source(
                 frames[-1],
                 source_text=source_text,
