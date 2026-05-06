@@ -18,7 +18,7 @@ class AssetBiblePresetImportRequest(BaseModel):
     workspace_id: str
     preset_id: str
     asset_bible_id: str | None = None
-    conflict_policy: Literal["fail"] = "fail"
+    conflict_policy: Literal["fail", "overwrite"] = "overwrite"
 
     @field_validator("workspace_id", "preset_id")
     @classmethod

@@ -134,6 +134,7 @@ class IPProfileDraft(PublicMetadataModel):
         "role_presets",
         "presence_spectrum",
         "adaptable_slots",
+        "forbidden_elements",
     )
     @classmethod
     def validate_text_list(cls, value: list[str], info) -> list[str]:

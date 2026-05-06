@@ -326,7 +326,7 @@ def import_asset_bible_preset(
     payload = {
         "workspace_id": _validate_public_reference_id("workspace_id", workspace_id),
         "preset_id": _validate_public_reference_id("preset_id", preset_id),
-        "conflict_policy": "fail",
+        "conflict_policy": "overwrite",
     }
     if asset_bible_id is not None and asset_bible_id.strip():
         payload["asset_bible_id"] = _validate_public_reference_id(
