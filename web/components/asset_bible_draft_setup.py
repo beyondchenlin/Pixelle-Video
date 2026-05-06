@@ -73,25 +73,10 @@ def _render_asset_bible_create_form(
         translate("stage2.asset_bible.ip_name_label"),
         key="stage2_ip_name",
     )
-    world_hint = _text_input(
-        ui,
-        translate("stage2.asset_bible.world_hint_label"),
-        key="stage2_world_hint",
-    )
-    style_hint = _text_input(
-        ui,
-        translate("stage2.asset_bible.style_hint_label"),
-        key="stage2_style_hint",
-    )
     identity_lock = _text_input(
         ui,
         translate("stage2.asset_bible.identity_lock_label"),
         key="stage2_identity_lock",
-    )
-    identity_anchors = _text_input(
-        ui,
-        translate("stage2.asset_bible.identity_anchors_label"),
-        key="stage2_identity_anchors",
     )
 
     if not ui.button(
@@ -114,10 +99,7 @@ def _render_asset_bible_create_form(
                     {
                         "ip_profile_id": ip_profile_id,
                         "name": ip_name,
-                        "world_hint": world_hint,
-                        "style_hint": style_hint,
                         "identity_lock": _split_csv(identity_lock),
-                        "identity_anchors": _split_csv(identity_anchors),
                     }
                 ],
             },

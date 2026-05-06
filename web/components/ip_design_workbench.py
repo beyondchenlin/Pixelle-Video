@@ -128,69 +128,124 @@ def _render_asset_bible_section(
             key="ip_design_ip_name",
             value=_first_text(ip_profile.get("name")),
         )
-        logline = _text_area(
-            ui,
-            translate("ip_design.asset_bible.logline"),
-            key="ip_design_logline",
-            value=_first_text(ip_profile.get("logline")),
-            height=68,
-        )
-        world_hint = _text_area(
-            ui,
-            translate("ip_design.asset_bible.world_hint"),
-            key="ip_design_world_hint",
-            value=_first_text(ip_profile.get("world_hint")),
-            height=68,
-        )
-        style_hint = _text_area(
-            ui,
-            translate("ip_design.asset_bible.style_hint"),
-            key="ip_design_style_hint",
-            value=_first_text(ip_profile.get("style_hint")),
-            height=68,
-        )
-        identity_lock = _text_input(
-            ui,
-            translate("ip_design.asset_bible.identity_lock"),
-            key="ip_design_identity_lock",
-            value=", ".join(_text_list(ip_profile.get("identity_lock"))),
-        )
-        identity_anchors = _text_input(
-            ui,
-            translate("ip_design.asset_bible.identity_anchors"),
-            key="ip_design_identity_anchors",
-            value=", ".join(_text_list(ip_profile.get("identity_anchors"))),
-        )
-        identity_suppression_rules = _text_input(
-            ui,
-            translate("ip_design.asset_bible.identity_suppression_rules"),
-            key="ip_design_identity_suppression_rules",
-            value=", ".join(_text_list(ip_profile.get("identity_suppression_rules"))),
-        )
-        variable_slots = _text_input(
-            ui,
-            translate("ip_design.asset_bible.variable_slots"),
-            key="ip_design_variable_slots",
-            value=", ".join(_text_list(ip_profile.get("variable_slots"))),
-        )
-        semantic_boundary = _text_input(
-            ui,
-            translate("ip_design.asset_bible.semantic_boundary"),
-            key="ip_design_semantic_boundary",
-            value=", ".join(_text_list(ip_profile.get("semantic_boundary"))),
-        )
-        negative_constraints = _text_input(
-            ui,
-            translate("ip_design.asset_bible.negative_constraints"),
-            key="ip_design_negative_constraints",
-            value=", ".join(_text_list(ip_profile.get("negative_constraints"))),
-        )
-        visible_text_whitelist = _text_input(
-            ui,
-            translate("ip_design.asset_bible.visible_text_whitelist"),
-            key="ip_design_visible_text_whitelist",
-            value=", ".join(_text_list(ip_profile.get("visible_text_whitelist"))),
-        )
+
+        # Block 1: Basic Settings
+        with ui.container(border=True):
+            ui.caption(translate("ip_design.asset_bible.section_basic"))
+            ip_type = _render_select_or_custom(
+                ui,
+                translate("ip_design.asset_bible.ip_type"),
+                key="ip_design_ip_type",
+                value=_first_text(ip_profile.get("ip_type")),
+                options=["cartoon_animal", "anime_human", "hybrid_real_anime", "line_drawing", "3d_cartoon"],
+            )
+            logline = _text_area(
+                ui,
+                translate("ip_design.asset_bible.logline"),
+                key="ip_design_logline",
+                value=_first_text(ip_profile.get("logline")),
+                height=68,
+            )
+            visual_summary = _text_area(
+                ui,
+                translate("ip_design.asset_bible.visual_summary"),
+                key="ip_design_visual_summary",
+                value=_first_text(ip_profile.get("visual_summary")),
+                height=88,
+            )
+
+        # Block 2: Visual Anchors
+        with ui.container(border=True):
+            ui.caption(translate("ip_design.asset_bible.section_visual"))
+            identity_lock = _text_input(
+                ui,
+                translate("ip_design.asset_bible.identity_lock"),
+                key="ip_design_identity_lock",
+                value=", ".join(_text_list(ip_profile.get("identity_lock"))),
+            )
+            color_rules = _text_input(
+                ui,
+                translate("ip_design.asset_bible.color_palette"),
+                key="ip_design_color_rules",
+                value=_first_text(_first_dict(ip_profile.get("color_palette")).get("prompt", "")),
+            )
+            minimal_traits = _text_input(
+                ui,
+                translate("ip_design.asset_bible.minimal_traits"),
+                key="ip_design_minimal_traits",
+                value=", ".join(_text_list(ip_profile.get("minimal_traits"))),
+            )
+
+        # Block 3: Adaptable Items
+        with ui.container(border=True):
+            ui.caption(translate("ip_design.asset_bible.section_adaptable"))
+            adaptable_slots = _text_input(
+                ui,
+                translate("ip_design.asset_bible.adaptable_slots"),
+                key="ip_design_adaptable_slots",
+                value=", ".join(_text_list(ip_profile.get("adaptable_slots"))),
+            )
+
+        # Block 4: Replacement Strategy
+        with ui.container(border=True):
+            ui.caption(translate("ip_design.asset_bible.section_replacement"))
+            default_slot_preference = _render_select_or_custom(
+                ui,
+                translate("ip_design.asset_bible.default_slot_preference"),
+                key="ip_design_default_slot_preference",
+                value=_first_text(ip_profile.get("default_slot_preference"), "prefer_supporting"),
+                options=["prefer_supporting", "prefer_main", "auto", "minimal"],
+            )
+            presence_spectrum = _text_input(
+                ui,
+                translate("ip_design.asset_bible.presence_spectrum"),
+                key="ip_design_presence_spectrum",
+                value=", ".join(_text_list(ip_profile.get("presence_spectrum"))),
+            )
+
+        # Block 5: Role Capabilities
+        with ui.container(border=True):
+            ui.caption(translate("ip_design.asset_bible.section_roles"))
+            role_presets = _text_area(
+                ui,
+                translate("ip_design.asset_bible.role_presets"),
+                key="ip_design_role_presets",
+                value="\n".join(_text_list(ip_profile.get("role_presets"))),
+                height=136,
+            )
+
+        # Block 6: Constraints
+        with ui.container(border=True):
+            ui.caption(translate("ip_design.asset_bible.section_constraints"))
+            negative_constraints = _text_input(
+                ui,
+                translate("ip_design.asset_bible.negative_constraints"),
+                key="ip_design_negative_constraints",
+                value=", ".join(_text_list(ip_profile.get("negative_constraints"))),
+            )
+            semantic_boundary = _text_input(
+                ui,
+                translate("ip_design.asset_bible.semantic_boundary"),
+                key="ip_design_semantic_boundary",
+                value=", ".join(_text_list(ip_profile.get("semantic_boundary"))),
+            )
+            identity_suppression_rules = _text_input(
+                ui,
+                translate("ip_design.asset_bible.identity_suppression_rules"),
+                key="ip_design_identity_suppression_rules",
+                value=", ".join(_text_list(ip_profile.get("identity_suppression_rules"))),
+            )
+
+        # Block 7: Visible Text
+        with ui.container(border=True):
+            ui.caption(translate("ip_design.asset_bible.section_text"))
+            visible_text_whitelist = _text_input(
+                ui,
+                translate("ip_design.asset_bible.visible_text_whitelist"),
+                key="ip_design_visible_text_whitelist",
+                value=", ".join(_text_list(ip_profile.get("visible_text_whitelist"))),
+            )
+
         if _ip_profile_ready_for_generation(ip_profile):
             ui.caption(translate("ip_design.asset_bible.generation_available"))
         else:
@@ -211,15 +266,23 @@ def _render_asset_bible_section(
                             "ip_profile_id": ip_profile_id,
                             "name": ip_name,
                             "logline": logline,
-                            "world_hint": world_hint,
-                            "style_hint": style_hint,
+                            "ip_type": ip_type,
+                            "visual_summary": visual_summary,
                             "identity_lock": _split_csv(identity_lock),
-                            "identity_anchors": _split_csv(identity_anchors),
+                            "minimal_traits": _split_csv(minimal_traits),
+                            "adaptable_slots": _split_csv(adaptable_slots),
+                            "default_slot_preference": default_slot_preference,
+                            "presence_spectrum": _split_csv(presence_spectrum),
+                            "role_presets": _split_lines(role_presets),
+                            "color_palette": {"prompt": color_rules} if color_rules.strip() else {},
+                            "identity_anchors": _text_list(ip_profile.get("identity_anchors")),
                             "identity_suppression_rules": _split_csv(identity_suppression_rules),
-                            "variable_slots": _split_csv(variable_slots),
+                            "variable_slots": _text_list(ip_profile.get("variable_slots")),
                             "semantic_boundary": _split_csv(semantic_boundary),
                             "negative_constraints": _split_csv(negative_constraints),
                             "visible_text_whitelist": _split_csv(visible_text_whitelist),
+                            "world_hint": _first_text(ip_profile.get("world_hint")),
+                            "style_hint": _first_text(ip_profile.get("style_hint")),
                         },
                     )
                     ip_design_client.save_asset_bible(
@@ -532,10 +595,31 @@ def _build_asset_bible_save_payload(
 
 
 def _ip_profile_ready_for_generation(ip_profile: Mapping[str, Any]) -> bool:
-    return bool(
-        _text_list(ip_profile.get("identity_lock"))
-        or _text_list(ip_profile.get("identity_anchors"))
-    )
+    return bool(_text_list(ip_profile.get("identity_lock")))
+
+
+def _render_select_or_custom(
+    ui,
+    label: str,
+    *,
+    key: str,
+    value: str = "",
+    options: list[str],
+) -> str:
+    """Render a selectbox with a 'custom' fallback to text_input."""
+    custom_value = "__custom__"
+    all_options = [*options, custom_value]
+    current_value = _first_text(value)
+    select_index = all_options.index(current_value) if current_value in all_options else len(all_options) - 1
+
+    if key in ui.session_state:
+        selected = ui.selectbox(label, all_options, key=f"{key}_select", index=select_index)
+    else:
+        selected = ui.selectbox(label, all_options, key=f"{key}_select", index=select_index)
+
+    if selected == custom_value:
+        return _text_input(ui, "", key=key, value=current_value if current_value not in options else "")
+    return selected
 
 
 def _text_input(ui, label: str, *, key: str, value: str = "") -> str:

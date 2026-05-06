@@ -97,6 +97,8 @@ def render_ip_prompt_chain_controls(
             )
         )
 
+    _render_ip_capability_preview(selected_profile, ui=ui, translate=translate)
+
     payload = {
         "ip_enabled": True,
         "ip_asset_bible_id": asset_bible_id,
@@ -153,6 +155,44 @@ def resolve_selected_ip_prompt_chain_profile_summary(
     if world_hint:
         summary["ip_profile_world_hint"] = world_hint
     return {key: value for key, value in summary.items() if value}
+
+
+def _render_ip_capability_preview(
+    selected_profile: Mapping[str, Any],
+    *,
+    ui,
+    translate: Translate,
+) -> None:
+    """Render a read-only preview of the selected IP profile's capabilities."""
+    if not selected_profile:
+        return
+    anchors = _text_list(selected_profile.get("identity_lock"))
+    if not anchors:
+        return
+    with ui.container(border=True):
+        ui.caption(translate("content.ip_world.ip_capability_preview"))
+        ui.caption(f"视觉锚点：{', '.join(anchors[:6])}")
+        visual = _first_text(selected_profile.get("visual_summary"))
+        if visual:
+            ui.caption(f"视觉摘要：{visual}")
+        roles = _text_list(selected_profile.get("role_presets"))
+        if roles:
+            role_names = [r.split("：")[0] for r in roles[:4] if "：" in r]
+            if role_names:
+                ui.caption(f"可扮角色：{' / '.join(role_names)}")
+        presence = _text_list(selected_profile.get("presence_spectrum"))
+        if presence:
+            first = presence[0].split("：")[0] if "：" in presence[0] else presence[0]
+            last = presence[-1].split("：")[0] if "：" in presence[-1] else presence[-1]
+            ui.caption(f"出场范围：{first} ~ {last}")
+        ready = bool(anchors)
+        ui.caption(f"生成状态：{'✅ 可用' if ready else '⚠️ 缺少锚点'}")
+
+
+def _text_list(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [_first_text(item) for item in value if _first_text(item)]
 
 
 def _select_valid_option(

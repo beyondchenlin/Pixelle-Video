@@ -676,10 +676,7 @@ def test_render_asset_bible_draft_setup_creates_asset_bible(monkeypatch):
             "stage2_asset_bible_id": "bible_1",
             "stage2_ip_profile_id": "ip_main",
             "stage2_ip_name": "Demo IP",
-            "stage2_world_hint": "sky city",
-            "stage2_style_hint": "clean comic",
             "stage2_identity_lock": "白色卡通兔子, 长耳朵",
-            "stage2_identity_anchors": "蓝色领结",
             "stage2_create_asset_bible_submit": True,
         }
     )
@@ -721,10 +718,7 @@ def test_render_asset_bible_draft_setup_creates_asset_bible(monkeypatch):
                 {
                     "ip_profile_id": "ip_main",
                     "name": "Demo IP",
-                    "world_hint": "sky city",
-                    "style_hint": "clean comic",
                     "identity_lock": ["白色卡通兔子", "长耳朵"],
-                    "identity_anchors": ["蓝色领结"],
                 }
             ],
         },

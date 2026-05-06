@@ -287,12 +287,16 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
             "ip_design_ip_profile_id": "ip_main",
             "ip_design_ip_name": "New IP",
             "ip_design_logline": "New logline",
-            "ip_design_world_hint": "New world",
-            "ip_design_style_hint": "New style",
+            "ip_design_ip_type": "cartoon_animal",
+            "ip_design_visual_summary": "白色卡通兔子，蓝色领结，长耳朵。",
             "ip_design_identity_lock": "白色卡通兔子, 长耳朵, 圆润脸型",
-            "ip_design_identity_anchors": "蓝色领结, 浅粉色耳朵内侧",
+            "ip_design_color_rules": "#FFFFFF body, #006BFF tie",
+            "ip_design_minimal_traits": "蓝色领结一角, 长耳朵轮廓",
+            "ip_design_adaptable_slots": "服装配饰, 手持道具, 动作姿势",
+            "ip_design_default_slot_preference": "prefer_supporting",
+            "ip_design_presence_spectrum": "全身出镜, 半身出镜, 局部细节",
+            "ip_design_role_presets": "导游讲解者：温和的讲解者\n情感陪伴者：安静的陪伴角色",
             "ip_design_identity_suppression_rules": "远景弱化耳朵内侧",
-            "ip_design_variable_slots": "动作, 表情, 站位",
             "ip_design_semantic_boundary": "不能变成人类, 不能替代历史建筑",
             "ip_design_negative_constraints": "避免画成普通人类讲解者, 避免多余文字",
             "ip_design_visible_text_whitelist": "长乐门, 正定古城",
@@ -307,34 +311,26 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
         translate=lambda key, **_kwargs: key,
     )
 
-    assert client.calls[-1] == {
-        "method": "save_asset_bible",
-        "workspace_id": "workspace_1",
-        "project_id": "project_1",
-        "asset_bible_id": "bible_new",
-        "payload": {
-            "ip_profiles": [
-                {
-                    "ip_profile_id": "ip_main",
-                    "name": "New IP",
-                    "logline": "New logline",
-                    "world_hint": "New world",
-                    "style_hint": "New style",
-                    "identity_lock": ["白色卡通兔子", "长耳朵", "圆润脸型"],
-                    "identity_anchors": ["蓝色领结", "浅粉色耳朵内侧"],
-                    "identity_suppression_rules": ["远景弱化耳朵内侧"],
-                    "variable_slots": ["动作", "表情", "站位"],
-                    "semantic_boundary": ["不能变成人类", "不能替代历史建筑"],
-                    "negative_constraints": ["避免画成普通人类讲解者", "避免多余文字"],
-                    "visible_text_whitelist": ["长乐门", "正定古城"],
-                }
-            ],
-            "character_profiles": [],
-            "scene_assets": [],
-            "prop_assets": [],
-            "style_profiles": [],
-        },
-    }
+    saved_call = client.calls[-1]
+    assert saved_call["method"] == "save_asset_bible"
+    assert saved_call["asset_bible_id"] == "bible_new"
+    saved_profiles = saved_call["payload"]["ip_profiles"]
+    assert len(saved_profiles) == 1
+    profile = saved_profiles[0]
+    assert profile["ip_profile_id"] == "ip_main"
+    assert profile["name"] == "New IP"
+    assert profile["logline"] == "New logline"
+    assert profile["ip_type"] == "cartoon_animal"
+    assert profile["visual_summary"] == "白色卡通兔子，蓝色领结，长耳朵。"
+    assert profile["identity_lock"] == ["白色卡通兔子", "长耳朵", "圆润脸型"]
+    assert profile["minimal_traits"] == ["蓝色领结一角", "长耳朵轮廓"]
+    assert profile["adaptable_slots"] == ["服装配饰", "手持道具", "动作姿势"]
+    assert profile["default_slot_preference"] == "prefer_supporting"
+    assert profile["presence_spectrum"] == ["全身出镜", "半身出镜", "局部细节"]
+    assert profile["role_presets"] == ["导游讲解者：温和的讲解者", "情感陪伴者：安静的陪伴角色"]
+    assert profile["semantic_boundary"] == ["不能变成人类", "不能替代历史建筑"]
+    assert profile["negative_constraints"] == ["避免画成普通人类讲解者", "避免多余文字"]
+    assert profile["visible_text_whitelist"] == ["长乐门", "正定古城"]
     assert fake_ui.successes == ["ip_design.asset_bible.saved"]
 
 
@@ -348,7 +344,6 @@ def test_ip_design_workbench_preserves_sibling_ip_profiles_when_saving():
             "ip_design_ip_profile_id": "ip_main",
             "ip_design_ip_name": "Updated Main",
             "ip_design_identity_lock": "updated main rabbit",
-            "ip_design_identity_anchors": "updated main bow",
             "ip_design_save_asset_bible": True,
         }
     )
@@ -360,13 +355,11 @@ def test_ip_design_workbench_preserves_sibling_ip_profiles_when_saving():
                         "ip_profile_id": "ip_main",
                         "name": "Main IP",
                         "identity_lock": ["main rabbit"],
-                        "identity_anchors": ["main bow"],
                     },
                     {
                         "ip_profile_id": "ip_side",
                         "name": "Side IP",
                         "identity_lock": ["side rabbit"],
-                        "identity_anchors": ["side badge"],
                     },
                 ]
             )
@@ -379,20 +372,14 @@ def test_ip_design_workbench_preserves_sibling_ip_profiles_when_saving():
         translate=lambda key, **_kwargs: key,
     )
 
-    assert client.calls[-1]["payload"]["ip_profiles"] == [
-        {
-            "ip_profile_id": "ip_main",
-            "name": "Updated Main",
-            "identity_lock": ["updated main rabbit"],
-            "identity_anchors": ["updated main bow"],
-        },
-        {
-            "ip_profile_id": "ip_side",
-            "name": "Side IP",
-            "identity_lock": ["side rabbit"],
-            "identity_anchors": ["side badge"],
-        },
-    ]
+    saved_profiles = client.calls[-1]["payload"]["ip_profiles"]
+    assert len(saved_profiles) == 2
+    main_profile = next(p for p in saved_profiles if p["ip_profile_id"] == "ip_main")
+    side_profile = next(p for p in saved_profiles if p["ip_profile_id"] == "ip_side")
+    assert main_profile["name"] == "Updated Main"
+    assert main_profile["identity_lock"] == ["updated main rabbit"]
+    assert side_profile["name"] == "Side IP"
+    assert side_profile["identity_lock"] == ["side rabbit"]
 
 
 def test_ip_design_workbench_reads_profile_matching_session_ip_profile_id():
@@ -414,14 +401,14 @@ def test_ip_design_workbench_reads_profile_matching_session_ip_profile_id():
                         "name": "Main IP",
                         "logline": "Main logline",
                         "identity_lock": ["main rabbit"],
-                        "identity_anchors": ["main bow"],
+                        "visual_summary": "main visual summary",
                     },
                     {
                         "ip_profile_id": "ip_side",
                         "name": "Side IP",
                         "logline": "Side logline",
                         "identity_lock": ["side rabbit"],
-                        "identity_anchors": ["side badge"],
+                        "visual_summary": "side visual summary",
                     },
                 ]
             )
@@ -439,7 +426,7 @@ def test_ip_design_workbench_reads_profile_matching_session_ip_profile_id():
     assert by_key["ip_design_ip_name"]["value"] == "Side IP"
     assert by_area_key["ip_design_logline"]["value"] == "Side logline"
     assert by_key["ip_design_identity_lock"]["value"] == "side rabbit"
-    assert by_key["ip_design_identity_anchors"]["value"] == "side badge"
+    assert by_area_key["ip_design_visual_summary"]["value"] == "side visual summary"
 
 
 def test_ip_design_workbench_marks_ip_without_identity_anchors_unavailable():
