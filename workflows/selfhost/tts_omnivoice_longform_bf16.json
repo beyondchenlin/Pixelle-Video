@@ -39,10 +39,10 @@
         "4",
         0
       ],
-      "steps": 48,
+      "steps": 64,
       "guidance_scale": 2,
       "t_shift": 0.1,
-      "speed": 1,
+      "speed": 0.8,
       "duration": 0,
       "device": "auto",
       "dtype": "auto",
