@@ -572,22 +572,21 @@ class StoryboardGenerationService:
         response: SmartStoryboardPlanResponse,
         source_text: str,
     ) -> list[StoryboardPlanFrame]:
-        """Legacy method: build frames from char offsets (may have drift issues)."""
+        """Build frames by locating LLM's source_text in the original source locally.
+
+        LLM's source_start / source_end are ignored; positions are resolved via
+        source_text.find() so that character-offset errors in the LLM response
+        cannot cause gaps or misalignment.
+        """
         search_start = 0
         frames: list[StoryboardPlanFrame] = []
         for index, frame in enumerate(response.frames, start=1):
-            start = frame.source_start
-            end = frame.source_end
-            has_explicit_range = start is not None and end is not None
-            if not has_explicit_range:
-                start = source_text.find(frame.source_text, search_start)
-                if start < 0:
-                    if source_text.find(frame.source_text) >= 0:
-                        raise ValueError("smart storyboard frame source ranges must be ordered")
-                    raise ValueError("smart storyboard frame source_text must be traceable")
-                end = start + len(frame.source_text)
-            if type(start) is not int or type(end) is not int:
-                raise ValueError("smart storyboard frame source range must use integer offsets")
+            start = source_text.find(frame.source_text, search_start)
+            if start < 0:
+                if source_text.find(frame.source_text) >= 0:
+                    raise ValueError("smart storyboard frame source ranges must be ordered")
+                raise ValueError("smart storyboard frame source_text must be traceable")
+            end = start + len(frame.source_text)
             if not 0 <= start <= end <= len(source_text):
                 raise ValueError("smart storyboard frame source range must index source_text")
             if start < search_start:
@@ -602,16 +601,11 @@ class StoryboardGenerationService:
                         source_text=source_text,
                         end=start,
                     )
-            resolved_source_text = source_text[start:end]
-            if has_explicit_range and not resolved_source_text.strip():
-                raise ValueError("smart storyboard frame source range must cover text")
-            if not has_explicit_range and resolved_source_text != frame.source_text:
-                raise ValueError("smart storyboard frame source_text must be traceable")
             search_start = max(search_start, end)
             frames.append(
                 StoryboardPlanFrame(
                     index=index,
-                    source_text=resolved_source_text,
+                    source_text=source_text[start:end],
                     visual_goal=frame.visual_goal,
                     prompt_intent=frame.prompt_intent,
                     source_start=start,
