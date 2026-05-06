@@ -119,6 +119,18 @@ def _normalize_generation_world_profile(
     return profile if profile.has_content() else None
 
 
+def _generation_notes_from_profile(generation_world_profile: ContentWorldInput) -> str | None:
+    """Extract a concise generation notes string from a world profile for appearance planning."""
+    profile = _normalize_generation_world_profile(generation_world_profile)
+    if profile is None:
+        return None
+    return " ".join(
+        value
+        for value in (profile.summary, profile.ip_integration_guidance)
+        if value
+    ) or None
+
+
 def _world_profile_text(generation_world_profile: ContentWorldProfile | None) -> str:
     if generation_world_profile is None:
         return ""
@@ -474,7 +486,7 @@ class IPFrameAppearancePlanner:
         ip_profile: IPProfile,
         resolved_style: ResolvedStyleInput = None,
         scene_casts_by_frame: Mapping[str, Any] | None = None,
-        generation_notes: str | None = None,
+        generation_world_profile: ContentWorldInput = None,
     ) -> list[IPFrameAdaptationPackage]:
         scene_casts = scene_casts_by_frame or {}
         base_planner = IPUsagePlanner()
@@ -483,7 +495,9 @@ class IPFrameAppearancePlanner:
             ip_profile=ip_profile,
             resolved_style=resolved_style,
             scene_casts_by_frame=scene_casts,
+            generation_world_profile=generation_world_profile,
         )
+        generation_notes = _generation_notes_from_profile(generation_world_profile)
         enriched: list[IPFrameAdaptationPackage] = []
         prev_frame: StoryboardPlanFrame | None = None
         prev_package: IPFrameAdaptationPackage | None = None

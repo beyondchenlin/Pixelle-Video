@@ -47,7 +47,7 @@ from pixelle_video.models.text_overlay import (
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
 from pixelle_video.services.content_world_planner import ContentWorldPlanner
-from pixelle_video.services.ip_usage_planner import IPUsagePlanner
+from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner, IPUsagePlanner
 from pixelle_video.services.ip_profile_readiness import (
     ensure_ip_profile_ready_for_generation,
 )
@@ -1287,7 +1287,7 @@ async def generate_styled_image_prompt_batch(
             normalized_style=normalized_style,
             style_profile=style_profile,
         )
-        ip_adaptation_packages = IPUsagePlanner().plan_batch(
+        ip_adaptation_packages = IPFrameAppearancePlanner().plan_batch(
             storyboard_plan=storyboard_plan,
             ip_profile=ip_profile,
             resolved_style=resolved_style if normalized_style is None else normalized_style,

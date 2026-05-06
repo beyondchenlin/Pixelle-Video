@@ -401,7 +401,7 @@ async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints
             ]
 
     monkeypatch.setattr(
-        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        "pixelle_video.utils.content_generators.IPFrameAppearancePlanner",
         _Planner,
     )
 
@@ -484,7 +484,7 @@ async def test_generate_styled_image_prompt_batch_keeps_per_frame_ip_negative_ou
             ]
 
     monkeypatch.setattr(
-        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        "pixelle_video.utils.content_generators.IPFrameAppearancePlanner",
         _Planner,
     )
 
@@ -561,7 +561,7 @@ async def test_generate_styled_image_prompt_batch_merges_all_z_image_constraints
             ]
 
     monkeypatch.setattr(
-        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        "pixelle_video.utils.content_generators.IPFrameAppearancePlanner",
         _Planner,
     )
 
@@ -686,7 +686,7 @@ async def test_generate_styled_image_prompt_batch_does_not_apply_ip_chain_to_vid
         fake_generate_video_prompts,
     )
     monkeypatch.setattr(
-        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        "pixelle_video.utils.content_generators.IPFrameAppearancePlanner",
         _Planner,
     )
 
@@ -795,7 +795,7 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
         fake_generate_image_prompts,
     )
     monkeypatch.setattr(
-        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        "pixelle_video.utils.content_generators.IPFrameAppearancePlanner",
         _Planner,
     )
 
@@ -943,7 +943,7 @@ async def test_generate_styled_image_prompt_batch_uses_visible_text_whitelist_fo
             ]
 
     monkeypatch.setattr(
-        "pixelle_video.utils.content_generators.IPUsagePlanner",
+        "pixelle_video.utils.content_generators.IPFrameAppearancePlanner",
         _Planner,
     )
 
