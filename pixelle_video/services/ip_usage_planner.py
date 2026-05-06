@@ -757,9 +757,8 @@ def _build_continuity_note(
 ) -> str | None:
     if prev_package is None:
         return None
-    prev_role = prev_package.appearance_description or ""
-    prev_presence = prev_package.presence_mode or ""
-    return f"上一帧角色：{role}，出场：{presence_desc}"
+    prev_desc = prev_package.appearance_description or "无"
+    return f"上一帧：{prev_desc}"
 
 
 def _build_appearance_description(

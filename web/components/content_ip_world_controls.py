@@ -118,7 +118,6 @@ def render_content_ip_world_controls(
                 height=72,
                 help=translate("content.ip_world.generation_notes_help"),
             )
-            session_state[CONTENT_GENERATION_NOTES_KEY] = generation_notes
 
             _render_ip_capability_preview(selected_profile, ui=ui, translate=translate)
         else:
