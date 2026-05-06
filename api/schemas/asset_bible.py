@@ -104,6 +104,7 @@ class IPProfileDraft(PublicMetadataModel):
     variable_slots: list[str] = Field(default_factory=list)
     semantic_boundary: list[str] = Field(default_factory=list)
     negative_constraints: list[str] = Field(default_factory=list)
+    forbidden_elements: list[str] = Field(default_factory=list)
     color_palette: dict[str, Any] = Field(default_factory=dict)
     image_text_palette: dict[str, Any] = Field(default_factory=dict)
     visible_text_whitelist: list[str] = Field(default_factory=list)
@@ -164,6 +165,7 @@ class IPProfileDraft(PublicMetadataModel):
             variable_slots=tuple(self.variable_slots),
             semantic_boundary=tuple(self.semantic_boundary),
             negative_constraints=tuple(self.negative_constraints),
+            forbidden_elements=tuple(self.forbidden_elements),
             ip_type=self.ip_type,
             visual_summary=self.visual_summary,
             minimal_traits=tuple(self.minimal_traits),
@@ -360,6 +362,7 @@ class IPProfileResponse(BaseModel):
     variable_slots: list[str] = Field(default_factory=list)
     semantic_boundary: list[str] = Field(default_factory=list)
     negative_constraints: list[str] = Field(default_factory=list)
+    forbidden_elements: list[str] = Field(default_factory=list)
     ip_type: str | None = None
     visual_summary: str | None = None
     minimal_traits: list[str] = Field(default_factory=list)

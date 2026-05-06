@@ -95,7 +95,8 @@ def _build_ip_profile_payload(value: Any, *, index: int) -> dict[str, Any]:
     profile["name"] = _require_text("name", str(profile.get("name", "")))
     for field_name in ("logline", "world_hint", "style_hint"):
         if field_name in profile:
-            profile[field_name] = _optional_text(str(profile[field_name]))
+            value = profile[field_name]
+            profile[field_name] = _optional_text(str(value) if value else "")
     return _without_blank_values(profile)
 
 

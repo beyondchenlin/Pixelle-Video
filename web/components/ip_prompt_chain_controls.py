@@ -166,12 +166,11 @@ def _render_ip_capability_preview(
     """Render a read-only preview of the selected IP profile's capabilities."""
     if not selected_profile:
         return
-    anchors = _text_list(selected_profile.get("identity_lock"))
-    if not anchors:
-        return
     with ui.container(border=True):
         ui.caption(translate("content.ip_world.ip_capability_preview"))
-        ui.caption(f"视觉锚点：{', '.join(anchors[:6])}")
+        anchors = _text_list(selected_profile.get("identity_lock"))
+        if anchors:
+            ui.caption(f"视觉锚点：{', '.join(anchors[:6])}")
         visual = _first_text(selected_profile.get("visual_summary"))
         if visual:
             ui.caption(f"视觉摘要：{visual}")

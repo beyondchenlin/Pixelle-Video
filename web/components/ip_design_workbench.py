@@ -235,6 +235,12 @@ def _render_asset_bible_section(
                 key="ip_design_identity_suppression_rules",
                 value=", ".join(_text_list(ip_profile.get("identity_suppression_rules"))),
             )
+            forbidden_elements = _text_input(
+                ui,
+                translate("ip_design.asset_bible.forbidden_elements"),
+                key="ip_design_forbidden_elements",
+                value=", ".join(_text_list(ip_profile.get("forbidden_elements"))),
+            )
 
         # Block 7: Visible Text
         with ui.container(border=True):
@@ -274,15 +280,22 @@ def _render_asset_bible_section(
                             "default_slot_preference": default_slot_preference,
                             "presence_spectrum": _split_csv(presence_spectrum),
                             "role_presets": _split_lines(role_presets),
-                            "color_palette": {"prompt": color_rules} if color_rules.strip() else {},
+                            "color_palette": (
+                                {**ip_profile.get("color_palette", {}), "prompt": color_rules}
+                                if color_rules.strip()
+                                else ip_profile.get("color_palette", {})
+                            ),
                             "identity_anchors": _text_list(ip_profile.get("identity_anchors")),
                             "identity_suppression_rules": _split_csv(identity_suppression_rules),
                             "variable_slots": _text_list(ip_profile.get("variable_slots")),
                             "semantic_boundary": _split_csv(semantic_boundary),
                             "negative_constraints": _split_csv(negative_constraints),
+                            "forbidden_elements": _split_csv(forbidden_elements),
                             "visible_text_whitelist": _split_csv(visible_text_whitelist),
                             "world_hint": _first_text(ip_profile.get("world_hint")),
                             "style_hint": _first_text(ip_profile.get("style_hint")),
+                            "image_text_palette": ip_profile.get("image_text_palette") or {},
+                            "metadata": ip_profile.get("metadata") or {},
                         },
                     )
                     ip_design_client.save_asset_bible(

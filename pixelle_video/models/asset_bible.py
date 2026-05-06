@@ -65,7 +65,7 @@ class IPProfile:
                 field_name,
                 _normalize_prompt_text_tuple(field_name, getattr(self, field_name)),
             )
-        object.__setattr__(self, "ip_type", _optional_prompt_str("ip_type", self.ip_type))
+        object.__setattr__(self, "ip_type", self.ip_type.strip() if self.ip_type else "")
         object.__setattr__(self, "visual_summary", _optional_prompt_str("visual_summary", self.visual_summary))
         object.__setattr__(
             self,
@@ -75,7 +75,7 @@ class IPProfile:
         object.__setattr__(
             self,
             "default_slot_preference",
-            _optional_prompt_str("default_slot_preference", self.default_slot_preference),
+            self.default_slot_preference.strip() if self.default_slot_preference else "prefer_supporting",
         )
         object.__setattr__(
             self,

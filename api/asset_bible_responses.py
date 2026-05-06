@@ -48,9 +48,7 @@ def public_asset_bible_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def public_ip_profile_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
-    public_payload = dict(payload)
-    public_payload.pop("forbidden_elements", None)
-    return public_payload
+    return dict(payload)
 
 
 def safe_response_validation_detail(

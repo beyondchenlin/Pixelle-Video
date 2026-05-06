@@ -679,6 +679,7 @@
     "ip_design.asset_bible.identity_suppression_rules": "身份抑制规则（逗号分隔）",
     "ip_design.asset_bible.semantic_boundary": "语义边界（逗号分隔）",
     "ip_design.asset_bible.negative_constraints": "通用负向约束（逗号分隔）",
+    "ip_design.asset_bible.forbidden_elements": "禁用元素（逗号分隔）",
     "ip_design.asset_bible.visible_text_whitelist": "可见文本白名单（逗号分隔）",
     "ip_design.asset_bible.section_basic": "基础设定",
     "ip_design.asset_bible.section_visual": "视觉锚点",

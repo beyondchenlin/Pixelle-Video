@@ -678,6 +678,7 @@
     "ip_design.asset_bible.identity_suppression_rules": "Identity Suppression Rules (comma separated)",
     "ip_design.asset_bible.semantic_boundary": "Semantic Boundary (comma separated)",
     "ip_design.asset_bible.negative_constraints": "Negative Constraints (comma separated)",
+    "ip_design.asset_bible.forbidden_elements": "Forbidden Elements (comma separated)",
     "ip_design.asset_bible.visible_text_whitelist": "Visible Text Whitelist (comma separated)",
     "ip_design.asset_bible.section_basic": "Basic Settings",
     "ip_design.asset_bible.section_visual": "Visual Anchors",
