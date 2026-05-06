@@ -51,7 +51,7 @@
       "steps": 32,
       "guidance_scale": 2,
       "t_shift": 0.1,
-      "speed": 0.95,
+      "speed": 0.9,
       "duration": [
         "8",
         0
