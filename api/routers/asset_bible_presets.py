@@ -115,16 +115,6 @@ async def import_asset_bible_preset(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    existing = await repository.load_asset_bible(
-        payload.workspace_id,
-        asset_bible.asset_bible_id,
-    )
-    if existing is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="asset bible already exists; choose a different asset_bible_id",
-        )
-
     saved = await repository.save_asset_bible(payload.workspace_id, asset_bible.to_dict())
     return build_asset_bible_response(
         asset_bible=asset_bible_response_payload(

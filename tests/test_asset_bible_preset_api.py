@@ -122,7 +122,7 @@ def test_asset_bible_preset_api_loads_detail(tmp_path: Path):
     body = response.json()
     assert body["preset"]["preset_id"] == "builtin_asset_bible_demo"
     assert body["preset"]["asset_bible"]["asset_bible_id"] == "demo_bible"
-    assert "forbidden_elements" not in body["preset"]["asset_bible"]["ip_profiles"][0]
+    assert body["preset"]["asset_bible"]["ip_profiles"][0].get("forbidden_elements") == ["private internal note"]
 
 
 def test_asset_bible_preset_api_maps_unknown_detail_to_404(tmp_path: Path):
@@ -156,18 +156,25 @@ def test_asset_bible_preset_api_imports_preset_to_project(tmp_path: Path):
     assert body["asset_bible"]["metadata"]["origin_preset_id"] == (
         "builtin_asset_bible_demo"
     )
-    assert "forbidden_elements" not in body["asset_bible"]["ip_profiles"][0]
-    assert repository.load_calls == [("workspace_1", "demo_project_bible")]
+    assert body["asset_bible"]["ip_profiles"][0].get("forbidden_elements") == ["private internal note"]
     assert repository.saved[0][0] == "workspace_1"
 
 
-def test_asset_bible_preset_api_import_conflict_defaults_to_409(tmp_path: Path):
+def test_asset_bible_preset_api_import_overwrites_existing(tmp_path: Path):
     repository = FakeAssetBibleRepository()
     repository.asset_bibles[("workspace_1", "demo_project_bible")] = {
         **_preset_payload()["asset_bible"],
         "workspace_id": "workspace_1",
         "project_id": "project_1",
         "asset_bible_id": "demo_project_bible",
+        "ip_profiles": [
+            {
+                "ip_profile_id": "old_profile",
+                "workspace_id": "workspace_1",
+                "project_id": "project_1",
+                "name": "Old Profile",
+            }
+        ],
     }
     client = _client(registry=_registry(tmp_path), repository=repository)
 
@@ -180,9 +187,10 @@ def test_asset_bible_preset_api_import_conflict_defaults_to_409(tmp_path: Path):
         },
     )
 
-    assert response.status_code == 409
-    assert "already exists" in response.json()["detail"]
-    assert repository.saved == []
+    assert response.status_code == 201
+    body = response.json()
+    assert body["asset_bible"]["ip_profiles"][0]["name"] == "Demo IP"
+    assert repository.saved[0][0] == "workspace_1"
 
 
 def test_asset_bible_preset_api_list_fails_without_registry():
