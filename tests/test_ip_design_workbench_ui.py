@@ -229,7 +229,7 @@ def test_ip_design_workbench_lists_assets_and_scene_casts():
 
     rendered = "\n".join(fake_ui.markdowns + fake_ui.captions)
     assert "bible_demo" in rendered
-    assert "Pixelle Demo" in rendered
+    assert "IP" in rendered
     assert "cast_frame_1" in rendered
     assert "char_luna" in rendered
     assert client.calls[:3] == [
@@ -389,7 +389,7 @@ def test_ip_design_workbench_reads_profile_matching_session_ip_profile_id():
     fake_ui.session_state.update(
         {
             "ip_design_asset_bible_select": "bible_demo",
-            "ip_design_ip_profile_id": "ip_side",
+            "ip_design_ip_profile_select": "ip_side",
         }
     )
     client = _FakeIPDesignClient(

@@ -671,6 +671,8 @@
     "ip_design.asset_bible.empty": "当前项目还没有 AssetBible，可以直接填写下方字段创建。",
     "ip_design.asset_bible.id": "AssetBible ID",
     "ip_design.asset_bible.ip_profile_id": "IP Profile ID",
+    "ip_design.asset_bible.ip_profile": "选择 IP Profile",
+    "ip_design.asset_bible.new_ip_profile": "➕ 新建 IP Profile",
     "ip_design.asset_bible.ip_name": "IP 名称",
     "ip_design.asset_bible.logline": "一句话设定",
     "ip_design.asset_bible.ip_type": "IP 类型",

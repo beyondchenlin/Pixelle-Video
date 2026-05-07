@@ -115,13 +115,37 @@ def _render_asset_bible_section(
             key="ip_design_asset_bible_id",
             value=selected_id,
         )
+
+        ip_profiles = _list_of_dicts(selected_asset_bible.get("ip_profiles"))
+        ip_profile_options = [
+            _first_text(p.get("ip_profile_id")) for p in ip_profiles if _first_text(p.get("ip_profile_id"))
+        ]
+        ip_profile_options.append("__new_ip__")
+
+        def _on_ip_profile_change():
+            _clear_ip_form_session_state(ui)
+
+        selected_ip_id = ui.selectbox(
+            translate("ip_design.asset_bible.ip_profile"),
+            ip_profile_options,
+            key="ip_design_ip_profile_select",
+            format_func=lambda x: translate("ip_design.asset_bible.new_ip_profile") if x == "__new_ip__" else x,
+            on_change=_on_ip_profile_change,
+        )
+
+        if selected_ip_id == "__new_ip__":
+            ip_profile_id_value = ""
+            ip_profile = {}
+        else:
+            ip_profile_id_value = selected_ip_id
+            ip_profile = _find_ip_profile(selected_asset_bible, selected_ip_id)
+
         ip_profile_id = _text_input(
             ui,
             translate("ip_design.asset_bible.ip_profile_id"),
             key="ip_design_ip_profile_id",
-            value=_first_ip_profile_id(selected_asset_bible) or "ip_main",
+            value=ip_profile_id_value,
         )
-        ip_profile = _find_ip_profile(selected_asset_bible, ip_profile_id)
         ip_name = _text_input(
             ui,
             translate("ip_design.asset_bible.ip_name"),
@@ -512,11 +536,13 @@ def _render_asset_bible_summary(
     ui,
     translate: Translate,
 ) -> None:
+    ip_count = len(_list_of_dicts(asset_bible.get("ip_profiles")))
     summary = (
         f"{_first_text(asset_bible.get('asset_bible_id'))} · "
-        f"{_first_ip_name(asset_bible)} · "
         f"{translate('ip_design.asset_bible.counts', characters=len(_list_of_dicts(asset_bible.get('character_profiles'))), scenes=len(_list_of_dicts(asset_bible.get('scene_assets'))), props=len(_list_of_dicts(asset_bible.get('prop_assets'))), styles=len(_list_of_dicts(asset_bible.get('style_profiles'))))}"
     )
+    if ip_count:
+        summary += f" · IP×{ip_count}"
     ui.caption(summary)
 
 
@@ -541,8 +567,11 @@ def _render_scene_cast_summary(
 
 def _format_asset_bible_option(asset_bible: Mapping[str, Any]) -> str:
     asset_bible_id = _first_text(asset_bible.get("asset_bible_id"))
-    ip_name = _first_ip_name(asset_bible)
-    return " · ".join(item for item in (asset_bible_id, ip_name) if item)
+    ip_count = len(_list_of_dicts(asset_bible.get("ip_profiles")))
+    ip_part = _first_ip_name(asset_bible)
+    if ip_count > 1:
+        ip_part += f" +{ip_count - 1}"
+    return " · ".join(item for item in (asset_bible_id, ip_part) if item)
 
 
 def _format_asset_bible_preset_option(preset: Mapping[str, Any]) -> str:
@@ -580,7 +609,23 @@ def _find_ip_profile(asset_bible: Mapping[str, Any], ip_profile_id: str) -> dict
     for profile in profiles:
         if _first_text(profile.get("ip_profile_id")) == _first_text(ip_profile_id):
             return profile
-    return profiles[0] if profiles else {}
+    return {}
+
+
+def _clear_ip_form_session_state(ui) -> None:
+    """Clear IP form field session state when switching IP profiles."""
+    preserve = {
+        "ip_design_asset_bible_select",
+        "ip_design_asset_bible_id",
+        "ip_design_ip_profile_select",
+        "ip_design_save_asset_bible",
+        "ip_design_builtin_asset_bible_preset_select",
+        "ip_design_import_asset_bible_id",
+        "ip_design_import_builtin_asset_bible",
+    }
+    for key in list(getattr(ui, "session_state", {}).keys()):
+        if key.startswith("ip_design_") and key not in preserve:
+            del ui.session_state[key]
 
 
 def _build_asset_bible_save_payload(

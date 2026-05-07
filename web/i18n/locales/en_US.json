@@ -670,6 +670,8 @@
     "ip_design.asset_bible.empty": "No AssetBible exists for this project yet. Fill the fields below to create one.",
     "ip_design.asset_bible.id": "AssetBible ID",
     "ip_design.asset_bible.ip_profile_id": "IP Profile ID",
+    "ip_design.asset_bible.ip_profile": "Select IP Profile",
+    "ip_design.asset_bible.new_ip_profile": "➕ New IP Profile",
     "ip_design.asset_bible.ip_name": "IP Name",
     "ip_design.asset_bible.logline": "Logline",
     "ip_design.asset_bible.ip_type": "IP Type",
