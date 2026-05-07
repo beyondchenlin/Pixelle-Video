@@ -1008,7 +1008,7 @@ def _build_appearance_description(
     }
     level_text = presence_level.get(presence_type, "融入场景")
 
-    base = f"{visual_core}作为场景中的{role_noun}，{level_text}"
+    base = f"{visual_core}，作为场景中的{role_noun}，{level_text}"
 
     if prompt_weight is not None and prompt_weight <= 0.3:
         return visual_core
