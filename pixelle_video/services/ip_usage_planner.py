@@ -252,32 +252,15 @@ def _flatten_mapping_text(value: Any) -> str:
 def _is_opening_or_establishing_frame(frame: StoryboardPlanFrame, frame_text: str) -> bool:
     return frame.index == 1 and _contains_any(
         frame_text,
-        ("开篇", "出发", "建立场景", "建立空间", "入口", "第一站", "旅程", "南大门"),
+        ("开篇", "出发", "建立场景", "建立空间", "入口"),
     )
 
 
 def _is_ip_hero_frame(frame_text: str, ip_profile: IPProfile) -> bool:
-    return ip_profile.name in frame_text or _contains_any(
-        frame_text,
-        ("IP主角", "IP 主角", "品牌主角", "吉祥物主画面", "角色主画面", "强露出"),
-    )
+    return ip_profile.name in frame_text
 
 
 def _landmark_terms(frame: StoryboardPlanFrame, *, world_profile_text: str = "") -> list[str]:
-    candidates = [
-        "长乐门",
-        "古寺",
-        "佛像",
-        "佛祖",
-        "古寺壁画",
-        "壁画",
-        "历史建筑",
-        "宗教人物",
-    ]
-    text = _frame_text(frame)
-    terms = [term for term in candidates if term in text or term in world_profile_text]
-    if terms:
-        return _unique(terms)
     if frame.primary_subject:
         return [part.strip(" 、，。") for part in frame.primary_subject.split("、") if part.strip(" 、，。")][:2]
     return []
@@ -288,7 +271,7 @@ def _image_text_plan(
     ip_profile: IPProfile,
     landmark_terms: list[str],
 ) -> IPImageTextPlan:
-    summary = _summary_text(frame)
+    summary = frame.primary_subject.split("、")[0].strip() if frame.primary_subject else None
     whitelist = _unique(
         [
             *(item for item in (summary,) if item),
@@ -300,24 +283,14 @@ def _image_text_plan(
         summary_text=summary,
         scene_text=tuple(landmark_terms[:2]),
         visible_text_whitelist=tuple(whitelist),
-        text_safety_rules=("只允许生成白名单中的画面文字", "避免额外标语和乱码文字"),
+        text_safety_rules=(),
     )
-
-
-def _summary_text(frame: StoryboardPlanFrame) -> str | None:
-    if "从长乐门出发" in frame.source_text:
-        return "从长乐门出发"
-    if "正定古城" in frame.source_text or "正定古城" in frame.visual_goal:
-        return "正定古城"
-    if frame.primary_subject:
-        return frame.primary_subject.split("、")[0].strip()
-    return None
 
 
 def _presence_mode(presence_type: IPPresenceType) -> str | None:
     return {
         IPPresenceType.STRONG_IDENTITY: "hero",
-        IPPresenceType.BALANCED_NARRATIVE: "guide",
+        IPPresenceType.BALANCED_NARRATIVE: "narrative",
         IPPresenceType.SCENE_INTEGRATED: "support",
         IPPresenceType.LOW_INTRUSION: "ambient",
         IPPresenceType.SYMBOLIC_ONLY: "symbolic",
@@ -328,10 +301,10 @@ def _presence_mode(presence_type: IPPresenceType) -> str | None:
 def _semantic_reason(presence_type: IPPresenceType) -> str:
     return {
         IPPresenceType.STRONG_IDENTITY: "frame explicitly asks the IP to carry the main visual identity",
-        IPPresenceType.BALANCED_NARRATIVE: "narrative frame can use the IP as a guide without dominating the scene",
-        IPPresenceType.SCENE_INTEGRATED: "opening establishing frame should keep the place as the primary subject",
-        IPPresenceType.LOW_INTRUSION: "protected historical or religious subject should keep IP intrusion low",
-        IPPresenceType.SYMBOLIC_ONLY: "landscape or protected cutaway should use only symbolic IP traces",
+        IPPresenceType.BALANCED_NARRATIVE: "narrative frame can feature the IP as a character without dominating the scene",
+        IPPresenceType.SCENE_INTEGRATED: "opening establishing frame should keep the scene as the primary subject",
+        IPPresenceType.LOW_INTRUSION: "protected subject should keep IP intrusion low",
+        IPPresenceType.SYMBOLIC_ONLY: "landscape or cutaway should use only symbolic IP traces",
         IPPresenceType.ABSENT: "frame should omit the IP",
     }[presence_type]
 
@@ -369,38 +342,21 @@ def _negative_constraints(
     ip_profile: IPProfile,
     presence_type: IPPresenceType,
 ) -> tuple[str, ...]:
-    constraints = [
-        *ip_profile.semantic_boundary,
-        *ip_profile.negative_constraints,
-        "不能替代画面中的历史建筑或宗教人物",
-    ]
-    if presence_type in {IPPresenceType.LOW_INTRUSION, IPPresenceType.SYMBOLIC_ONLY, IPPresenceType.ABSENT}:
-        constraints.append("避免让IP角色成为严肃历史宗教叙事的主体")
-    return tuple(_unique(constraints))
+    return tuple(_unique([*ip_profile.semantic_boundary, *ip_profile.negative_constraints]))
 
 
 def _action_for_presence(presence_type: IPPresenceType) -> str | None:
-    if presence_type is IPPresenceType.STRONG_IDENTITY:
-        return "面向镜头介绍主题"
-    if presence_type in {IPPresenceType.BALANCED_NARRATIVE, IPPresenceType.SCENE_INTEGRATED}:
-        return "自然陪伴并指向场景重点"
     return None
 
 
 def _expression_for_presence(presence_type: IPPresenceType) -> str | None:
-    if presence_type in {
-        IPPresenceType.STRONG_IDENTITY,
-        IPPresenceType.BALANCED_NARRATIVE,
-        IPPresenceType.SCENE_INTEGRATED,
-    }:
-        return "温和克制"
     return None
 
 
 def _camera_relationship_for_presence(presence_type: IPPresenceType) -> str | None:
     return {
         IPPresenceType.STRONG_IDENTITY: "foreground primary subject",
-        IPPresenceType.BALANCED_NARRATIVE: "mid-ground guide subject",
+        IPPresenceType.BALANCED_NARRATIVE: "mid-ground narrative subject",
         IPPresenceType.SCENE_INTEGRATED: "mid-ground support subject",
         IPPresenceType.LOW_INTRUSION: "edge or background minor subject",
         IPPresenceType.SYMBOLIC_ONLY: "symbolic detail only",
@@ -423,8 +379,8 @@ def _shot_fit_notes(presence_type: IPPresenceType) -> str | None:
     if presence_type is IPPresenceType.STRONG_IDENTITY:
         return "IP can dominate the frame while preserving stated scene context"
     if presence_type in {IPPresenceType.LOW_INTRUSION, IPPresenceType.SYMBOLIC_ONLY, IPPresenceType.ABSENT}:
-        return "do not let IP replace the protected subject"
-    return "IP should support the scene without replacing the landmark"
+        return "keep IP presence minimal"
+    return "IP should support the scene naturally"
 
 
 def _prompt_weight(presence_type: IPPresenceType) -> float:
@@ -478,7 +434,7 @@ _LOW_INTRUSION_GUIDANCE_KEYWORDS = (
     "absent",
 )
 _PURE_LANDSCAPE_KEYWORDS = ("空镜", "纯风景", "风景切镜", "山水", "天空", "河流", "远山")
-_NARRATIVE_KEYWORDS = ("讲述", "说明", "叙事", "介绍", "导览", "科普", "铺开")
+_NARRATIVE_KEYWORDS = ("讲述", "说明", "叙事", "介绍", "科普", "铺开")
 _SERIOUS_STYLE_KEYWORDS = ("严肃纪实", "纪录片", "documentary", "serious documentary")
 _NON_POSITIVE_STYLE_SIGNAL_KEYS = ("negative_prompt", "negative_rules", "raw_content")
 
@@ -490,7 +446,7 @@ class IPFrameAppearancePlanner:
 
     描述生成优先级：
       1. LLM 路径：_llm_role_selection() 直接输出自然语言的场景化 appearance_description
-      2. 规则回退：_build_appearance_description() 模板填空（"作为场景中的X角色，Y融入"）
+      2. 规则回退：_build_appearance_description() 仅输出 IP 纯视觉身份
 
     ── 使用方式 ──
     # 1. 无 LLM（规则回退）
@@ -503,15 +459,9 @@ class IPFrameAppearancePlanner:
     # LLM 成功 → 每帧角色 + 场景化描述由 LLM 动态生成
     # LLM 失败 → 自动回退到 _rule_based_role_selection() + _build_appearance_description()
 
-    ── 产出字段 ──
-    - role_slot:      IPRoleSlot（主角/配角/路人/不出镜），写入 ip_adaptation
-    - role_label:     中文角色标签（如"导游讲解者"），存于 planner 内部
+    ── 产出 ──
+    - role_slot:      IPRoleSlot（主角/配角/路人/不出镜）
     - appearance_description: 场景化出场描述，由 LLM 生成或规则回退
-    - outfit_theme / accessories / pose / expression / action: 从规则填充
-
-    ── 下游消费 ──
-    - image_generation.py 系统提示读取 role_slot 决定 IP 如何融入画面
-    - content_generators.py 权重门控读取 role_slot + prompt_weight 决定是否 post-append
     """
 
     def __init__(self, *, llm_client: Any = None) -> None:
@@ -663,24 +613,12 @@ class IPFrameAppearancePlanner:
         presence_desc_override: str | None = None,
         appearance_desc_override: str | None = None,
     ) -> IPFrameAdaptationPackage:
-        frame_text = _frame_text(frame)
-        domain = _detect_content_domain(
-            frame_text=frame_text,
-            generation_notes=_first_text(generation_notes),
-        )
         if role_slot_override is not None and role_label_override is not None:
             role_slot = role_slot_override
-            role_label = role_label_override
-            presence_desc = presence_desc_override or "半身出镜"
         else:
-            role_slot, role_label, presence_desc = _rule_based_role_selection(
-                ip_profile, domain, base_package.ip_presence_type
+            role_slot, _, _ = _rule_based_role_selection(
+                ip_profile, base_package.ip_presence_type
             )
-        outfit = _select_outfit_theme(ip_profile, domain)
-        accessories = _select_accessories(ip_profile, domain)
-        pose = _select_pose(ip_profile, domain, base_package.ip_presence_type)
-        expression = _select_expression(domain, base_package.ip_presence_type)
-        action = _select_action(ip_profile, domain, base_package.ip_presence_type)
         interaction = _select_interaction_target(frame)
         continuity = _build_continuity_note(prev_package)
 
@@ -689,11 +627,7 @@ class IPFrameAppearancePlanner:
         else:
             appearance_description = _build_appearance_description(
                 ip_profile=ip_profile,
-                role_label=role_label,
                 role_slot=role_slot,
-                presence_desc=presence_desc,
-                presence_type=base_package.ip_presence_type,
-                prompt_weight=base_package.prompt_weight,
             )
 
         return IPFrameAdaptationPackage(
@@ -705,12 +639,12 @@ class IPFrameAppearancePlanner:
             identity_anchors_visible=base_package.identity_anchors_visible,
             identity_anchors_suppressed=base_package.identity_anchors_suppressed,
             identity_color_terms=base_package.identity_color_terms,
-            outfit_theme=outfit,
-            outfit_condition=_domain_outfit_condition(domain),
-            accessories=tuple(accessories),
-            action=action,
-            expression=expression,
-            pose=pose,
+            outfit_theme=None,
+            outfit_condition=None,
+            accessories=(),
+            action=None,
+            expression=None,
+            pose=None,
             camera_relationship=base_package.camera_relationship,
             depth_layer=base_package.depth_layer,
             interaction_target=interaction,
@@ -725,60 +659,20 @@ class IPFrameAppearancePlanner:
         )
 
 
-# ── content domain detection ──────────────────────────────────────────
-
-_CONTENT_DOMAIN_PATTERNS: dict[str, tuple[str, ...]] = {
-    "文旅": ("古城", "城墙", "古寺", "碑刻", "历史", "遗迹", "导游", "讲解", "景区", "名胜"),
-    "爱情": ("情侣", "爱情", "牵手", "约会", "心动", "告白", "依偎", "婚礼", "恋人"),
-    "美食": ("美食", "烹饪", "食物", "餐厅", "菜肴", "火锅", "甜点", "咖啡", "料理"),
-    "科技": ("科技", "AI", "数据", "代码", "芯片", "数字", "智能", "屏幕"),
-    "日常": ("日常", "生活", "工作", "通勤", "家庭", "周末", "朋友", "聚会"),
-    "自然": ("自然", "山水", "森林", "海洋", "日落", "日出", "天空", "田野"),
-}
-
-
-def _detect_content_domain(
-    *,
-    frame_text: str,
-    generation_notes: str = "",
-) -> str:
-    combined = f"{frame_text} {generation_notes}"
-    scores: dict[str, int] = {}
-    for domain, keywords in _CONTENT_DOMAIN_PATTERNS.items():
-        score = sum(1 for kw in keywords if kw in combined)
-        if score:
-            scores[domain] = score
-    if scores:
-        return max(scores, key=scores.get)
-    return "通用"
-
-
 # ── role selection ────────────────────────────────────────────────────
 
 def _rule_based_role_selection(
     ip_profile: IPProfile,
-    domain: str,
     presence_type: IPPresenceType,
 ) -> tuple[IPRoleSlot, str, str]:
     """规则回退：按 presence_type → role_slot 映射决定角色槽位。
 
     返回 (role_slot, role_label, presence_desc)。
-
-    ── 映射规则 ──
-    STRONG_IDENTITY    → PROTAGONIST（主角）+ 全身出镜
-    BALANCED_NARRATIVE → SUPPORTING（配角）+ 半身出镜
-    SCENE_INTEGRATED   → SUPPORTING（配角）+ 远景融入
-    LOW_INTRUSION      → PASSERBY（路人）+ 远景融入
-    SYMBOLIC_ONLY      → PASSERBY（路人）+ 局部细节
-    ABSENT             → ABSENT（不出镜）+ 完全不出镜
-
-    ── role_label 按内容域分配 ──
-    文旅→导游讲解者, 爱情→情感陪伴者, 美食/科技/自然→路人观察者, 通用→场景参与者
     """
     if presence_type is IPPresenceType.ABSENT:
         return (IPRoleSlot.ABSENT, "画外不出镜", "完全不出镜")
     if presence_type is IPPresenceType.SYMBOLIC_ONLY:
-        return (IPRoleSlot.PASSERBY, "路人观察者", "局部细节")
+        return (IPRoleSlot.PASSERBY, "场景参与者", "局部细节")
 
     slot_map: dict[IPPresenceType, IPRoleSlot] = {
         IPPresenceType.STRONG_IDENTITY: IPRoleSlot.PROTAGONIST,
@@ -788,20 +682,7 @@ def _rule_based_role_selection(
     }
     role_slot = slot_map.get(presence_type, IPRoleSlot.SUPPORTING)
 
-    domain_labels: dict[str, str] = {
-        "文旅": "导游讲解者",
-        "爱情": "情感陪伴者",
-        "美食": "路人观察者",
-        "科技": "路人观察者",
-        "日常": "情感陪伴者",
-        "自然": "路人观察者",
-        "通用": "场景参与者",
-    }
-    role_name = domain_labels.get(domain, "场景参与者")
-    for preset in ip_profile.role_presets:
-        if preset.startswith(role_name):
-            role_name = preset
-            break
+    role_name = ip_profile.role_presets[0] if ip_profile.role_presets else "场景参与者"
 
     presence_map: dict[IPPresenceType, str] = {
         IPPresenceType.STRONG_IDENTITY: "全身出镜",
@@ -812,127 +693,6 @@ def _rule_based_role_selection(
     presence_desc = presence_map.get(presence_type, "半身出镜")
 
     return (role_slot, role_name, presence_desc)
-
-
-# ── presence description ──────────────────────────────────────────────
-
-def _select_presence_description(
-    ip_profile: IPProfile,
-    presence_type: IPPresenceType,
-    frame_index: int,
-    total_frames: int,
-) -> str:
-    if presence_type is IPPresenceType.ABSENT:
-        return "完全不出镜"
-
-    position = frame_index / max(total_frames, 1)
-    presence_map = {
-        IPPresenceType.STRONG_IDENTITY: "全身出镜",
-        IPPresenceType.BALANCED_NARRATIVE: "半身出镜",
-        IPPresenceType.SCENE_INTEGRATED: "远景融入" if position > 0.7 else "半身出镜",
-        IPPresenceType.LOW_INTRUSION: "局部细节",
-        IPPresenceType.SYMBOLIC_ONLY: "局部细节",
-    }
-    presence_name = presence_map.get(presence_type, "半身出镜")
-
-    for preset in ip_profile.presence_spectrum:
-        if preset.startswith(presence_name):
-            return preset
-    return presence_name
-
-
-# ── outfit / accessories / pose / expression / action ─────────────────
-
-def _select_outfit_theme(ip_profile: IPProfile, domain: str) -> str | None:
-    if not _ip_supports_adaptable_slot(ip_profile, "服装"):
-        return None
-    themes: dict[str, str] = {
-        "文旅": "轻便文旅休闲装，保持角色可识别",
-        "爱情": "柔和色系便装，温暖亲和",
-        "美食": "厨师围裙或休闲用餐装，保持角色可识别",
-        "科技": "简约现代科技感服装，干净利落",
-        "日常": "日常休闲服装",
-        "自然": "轻便户外装",
-    }
-    return themes.get(domain)
-
-
-def _domain_outfit_condition(domain: str) -> str | None:
-    conditions: dict[str, str] = {
-        "美食": "室内暖光，保持领结和耳朵清晰可见",
-        "科技": "冷色调环境光，蓝色领结与屏幕光呼应",
-        "自然": "自然光照，角色融入环境色调",
-    }
-    return conditions.get(domain)
-
-
-def _select_accessories(ip_profile: IPProfile, domain: str) -> list[str]:
-    if not _ip_supports_adaptable_slot(ip_profile, "道具"):
-        return []
-    domain_accessories: dict[str, list[str]] = {
-        "文旅": ["导览旗", "地图"],
-        "爱情": ["花束", "小礼物"],
-        "美食": ["菜单", "餐具"],
-        "科技": ["平板电脑", "耳机"],
-        "日常": ["背包", "手机"],
-        "自然": ["望远镜", "水壶"],
-        "通用": [],
-    }
-    return domain_accessories.get(domain, [])
-
-
-def _select_pose(
-    ip_profile: IPProfile,
-    domain: str,
-    presence_type: IPPresenceType,
-) -> str | None:
-    if not _ip_supports_adaptable_slot(ip_profile, "动作姿势"):
-        return None
-    if presence_type is IPPresenceType.STRONG_IDENTITY:
-        return "面向镜头，占据画面主体位置"
-    domain_poses: dict[str, str] = {
-        "文旅": "侧身站立，手指向场景重点",
-        "爱情": "安静坐着或依靠，温和注视",
-        "美食": "坐在餐桌旁，好奇观看食物",
-        "科技": "站立在设备旁，注视屏幕",
-        "日常": "自然放松的站姿",
-        "自然": "面朝风景，背对镜头或侧身",
-    }
-    return domain_poses.get(domain)
-
-
-def _select_expression(domain: str, presence_type: IPPresenceType) -> str | None:
-    if presence_type in {IPPresenceType.LOW_INTRUSION, IPPresenceType.SYMBOLIC_ONLY}:
-        return "安静平和的微表情"
-    expressions: dict[str, str] = {
-        "文旅": "温和好奇，面带微笑",
-        "爱情": "温柔安静，表情柔和",
-        "美食": "好奇惊喜，开心",
-        "科技": "专注认真",
-        "日常": "轻松自然",
-        "自然": "惬意放松",
-    }
-    return expressions.get(domain)
-
-
-def _select_action(
-    ip_profile: IPProfile,
-    domain: str,
-    presence_type: IPPresenceType,
-) -> str | None:
-    if presence_type is IPPresenceType.ABSENT:
-        return None
-    if not _ip_supports_adaptable_slot(ip_profile, "动作姿势"):
-        return None
-    actions: dict[str, str] = {
-        "文旅": "做介绍手势，与场景内容互动",
-        "爱情": "安静陪伴，与画面主体保持微妙的情感距离",
-        "美食": "好奇查看食物，或轻松用餐",
-        "科技": "观看屏幕或操作设备",
-        "日常": "自然参与场景活动",
-        "自然": "静静欣赏风景",
-    }
-    return actions.get(domain)
 
 
 # ── interaction / continuity / appearance description ─────────────────
@@ -967,62 +727,16 @@ def _build_visual_identity(ip_profile: IPProfile) -> str:
 def _build_appearance_description(
     *,
     ip_profile: IPProfile,
-    role_label: str,
     role_slot: IPRoleSlot | None,
-    presence_desc: str,
-    presence_type: IPPresenceType,
-    prompt_weight: float | None,
 ) -> str:
-    """生成 IP 替换式出场描述（规则回退）。
+    """生成 IP 出场描述（规则回退）。
 
-    ── 参数说明 ──
-    - role_slot:    IP 替代谁（主角/配角/路人/不出镜）
-    - role_label:   中文角色标签（如"导游讲解者"），仅在高权重时拼接
-    - presence_desc: 出场程度描述（如"半身出镜"）
-    - presence_type: IPPresenceType，决定画面融入方式
-    - prompt_weight: 权重 0~1，控制描述长度：
-       ≤0.3 → ~20 字（仅视觉核心）
-       ≤0.6 → ~60 字（视觉核心 + 角色 + 融入方式）
-       >0.6 → ~100 字（视觉核心 + 角色 + 融入方式 + 标签 + 出场程度）
-
-    替换语义使用"作为"而非"替换"，避免让 IP 听起来像额外贴入的元素。
+    仅输出 IP 的纯视觉身份——不猜测角色、动作、表情。
+    具体融入方式由 image_generation.py 的 LLM 根据 ip_scene_description 自行编织。
     """
     if role_slot is IPRoleSlot.ABSENT:
-        return "本帧不出镜"
-
-    visual_core = _build_visual_identity(ip_profile)
-
-    role_nouns = {
-        IPRoleSlot.PROTAGONIST: "主角",
-        IPRoleSlot.SUPPORTING: "配角",
-        IPRoleSlot.PASSERBY: "路人",
-    }
-    role_noun = role_nouns.get(role_slot, "角色") if role_slot is not None else "角色"
-
-    presence_level = {
-        IPPresenceType.STRONG_IDENTITY: "作为画面主体占据前景",
-        IPPresenceType.BALANCED_NARRATIVE: "中景融入画面",
-        IPPresenceType.SCENE_INTEGRATED: "中景自然融入场景",
-        IPPresenceType.LOW_INTRUSION: "远景边缘融入画面",
-        IPPresenceType.SYMBOLIC_ONLY: "只露出特征性局部（耳朵轮廓或领结一角）",
-    }
-    level_text = presence_level.get(presence_type, "融入场景")
-
-    base = f"{visual_core}，作为场景中的{role_noun}，{level_text}"
-
-    if prompt_weight is not None and prompt_weight <= 0.3:
-        return visual_core
-    if prompt_weight is not None and prompt_weight <= 0.6:
-        return base
-    return f"{base}，{role_label}，{presence_desc}"
-
-
-def _ip_supports_adaptable_slot(ip_profile: IPProfile, keyword: str) -> bool:
-    """Check whether the IP profile has an adaptable slot containing the given keyword."""
-    for slot in ip_profile.adaptable_slots:
-        if keyword in slot:
-            return True
-    return False
+        return ""
+    return _build_visual_identity(ip_profile)
 
 
 def _first_text(*values: Any) -> str:

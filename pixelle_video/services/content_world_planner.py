@@ -70,8 +70,8 @@ def _fallback_profile(source_text: str) -> ContentWorldProfile:
     source_excerpt = _optional_text(source_text) or ""
     return ContentWorldProfile(
         summary=source_excerpt[:80],
-        story_constraints="尊重原文主体，不替代真实人物、历史建筑、宗教主体或明确叙事对象。",
-        ip_integration_guidance="根据每一帧语境决定是否出现 IP，优先低侵入、陪伴式或象征性融入。",
+        story_constraints="",
+        ip_integration_guidance="",
         hint_source=ContentWorldHintSource.FALLBACK,
         generation_failed=True,
     )

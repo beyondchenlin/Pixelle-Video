@@ -95,7 +95,7 @@ def test_protected_subject_historical_building_yields_low_intrusion():
     )
     pkg = _plan_frame(frame)
     assert pkg.ip_presence_type == IPPresenceType.LOW_INTRUSION
-    assert "不能替代画面中的历史建筑或宗教人物" in pkg.negative_constraints
+    assert "不能替代历史人物" in pkg.negative_constraints
 
 
 # ── pure landscape → SYMBOLIC_ONLY ─────────────────────────────────────
@@ -132,10 +132,11 @@ def test_ip_hero_frame_yields_strong_identity():
     assert len(pkg.identity_anchors_visible) >= 3
 
 
-def test_ip_hero_keyword_yields_strong_identity():
+def test_ip_name_in_text_yields_strong_identity():
     frame = _make_frame(
-        visual_goal="IP 主角强露出",
-        primary_subject="古城",
+        source_text="白兔导游站在古城门前面向观众介绍",
+        visual_goal="IP主角强露出",
+        primary_subject="白兔导游、古城南城门",
     )
     pkg = _plan_frame(frame)
     assert pkg.ip_presence_type == IPPresenceType.STRONG_IDENTITY
@@ -171,7 +172,7 @@ def test_narrative_frame_yields_balanced_narrative():
     pkg = _plan_frame(frame)
     assert pkg.ip_presence_type == IPPresenceType.BALANCED_NARRATIVE
     assert pkg.prompt_weight == 0.7
-    assert pkg.presence_mode == "guide"
+    assert pkg.presence_mode == "narrative"
 
 
 # ── default fallback → BALANCED_NARRATIVE ──────────────────────────────
@@ -247,7 +248,7 @@ def test_image_text_plan_present_for_non_absent_frames():
     frame = _make_frame()
     pkg = _plan_frame(frame)
     assert pkg.image_text_plan is not None
-    assert len(pkg.image_text_plan.text_safety_rules) >= 1
+    assert len(pkg.image_text_plan.text_safety_rules) == 0
 
 
 def test_image_text_plan_includes_whitelist():
@@ -258,7 +259,8 @@ def test_image_text_plan_includes_whitelist():
     )
     pkg = _plan_frame(frame, ip_profile=ip_profile)
     assert pkg.image_text_plan is not None
-    assert "从长乐门出发" in pkg.image_text_plan.visible_text_whitelist
+    assert "正定古城" in pkg.image_text_plan.visible_text_whitelist
+    assert "长乐门" in pkg.image_text_plan.visible_text_whitelist
 
 
 # ── world_profile_text → LOW_INTRUSION ──────────────────────────────────
@@ -297,8 +299,8 @@ def test_serious_documentary_style_yields_low_intrusion():
 # ── negative constraints ───────────────────────────────────────────────
 
 
-def test_negative_constraints_include_default_and_ip_constraints():
+def test_negative_constraints_include_ip_profile_constraints():
     frame = _make_frame()
     pkg = _plan_frame(frame)
     assert "避免悬浮" in pkg.negative_constraints
-    assert "不能替代画面中的历史建筑或宗教人物" in pkg.negative_constraints
+    assert "不能替代历史人物" in pkg.negative_constraints

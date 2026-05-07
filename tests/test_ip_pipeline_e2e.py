@@ -118,7 +118,7 @@ def test_appearance_planner_enriches_with_domain_fields():
         total_frames=5,
     )
 
-    assert enriched.outfit_theme is not None
+    assert enriched.outfit_theme is None
     assert enriched.appearance_description is not None
     assert "白" in enriched.appearance_description or "兔子" in enriched.appearance_description
     assert enriched.role_slot is not None

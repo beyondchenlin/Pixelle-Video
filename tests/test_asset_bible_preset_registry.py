@@ -206,10 +206,9 @@ def test_packaged_zhengding_guide_preset_is_valid():
     assert profile.world_hint == "通用场景，可适配文旅、日常、情感、美食等不同内容域。"
     assert profile.style_hint is None
     assert profile.semantic_boundary == (
-        "它是陪伴式角色和吉祥物",
+        "它是可融入场景的陪伴式角色",
         "不是历史人物",
         "不是宗教人物",
-        "不是佛像",
         "不能替代画面中的真实主体",
     )
     assert profile.negative_constraints == (
@@ -218,7 +217,6 @@ def test_packaged_zhengding_guide_preset_is_valid():
         "不能变成写实恐怖动物",
         "不能变成真人玩偶",
         "不能变成蓝色兔子",
-        "不能替代画面中的历史建筑或宗教人物",
         "不要出现错误文字和乱码",
     )
     assert profile.visible_text_whitelist == ()

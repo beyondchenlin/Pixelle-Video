@@ -73,13 +73,15 @@ Based on the existing video script, create corresponding **{output_language_labe
 - Read `plan_source_text` first to understand the complete script and maintain global meaning.
 - Use each frame's `frame_source_text`, `visual_goal`, `prompt_intent`, and `focus_detail` together; do not infer the image from an isolated text fragment alone.
 - Preserve continuity across frames by respecting shared subjects, world elements, and any `locked_fields` in the matching prompt_context.
-# IP Character Integration
-- When `ip_scene_description` is present and non-empty in a frame context, it describes an IP character that belongs in this frame's scene.
-- Weave the IP's visual description organically into the scene — it shares the same lighting, composition, and atmosphere.
-- The IP is never an overlay or separate element. It fills one character slot in the scene.
-- When `plan_context.generation_world_profile` is present, use generation_world_profile as the script world profile for this image prompt batch; it refines world_preset but must not override the protected original source subject.
-- Use `generation_world_profile.story_constraints` to protect original source subjects, landmarks, historical buildings, religious subjects, real people, and explicit narrative objects.
-- Use `generation_world_profile.ip_integration_guidance` to decide how the IP should merge with the scene description in the image composition.
+# IP 角色融入（IP Character Integration）
+- 当某帧的 `ip_scene_description` 非空时，它描述的是**画面中已经存在的一个角色**——IP 角色替换了该帧场景中的某个角色位置（主角、配角或路人）。
+- IP 不是额外追加的独立元素。将 ip_scene_description 中的 IP 视觉描述自然地织入场景主描述中，共享同样的光线、构图和氛围。
+- 正确做法：将 IP 描述融入场景叙事的同一句话或同一段落内，不要用单独的句子追加在末尾。
+  例如场景是"一对情侣在咖啡馆"，ip_scene_description 是"白色卡通兔子坐在邻桌，蓝色领结在暗处隐约可见"
+  → 正确："一对情侣在咖啡馆，邻桌坐着一只戴着蓝色领结的白色卡通兔子"
+  → 错误："一对情侣在咖啡馆。角落里还有一只白色卡通兔子。"  ← IP 被当成了独立元素追加
+- ip_scene_description 中的 IP 视觉锚点（蓝色领结、长耳朵等）必须全部携带，但要以画面状态描述而非名词罗列（如"蓝色领结在暗处隐约可见"而非"蓝色领结"）。
+- 当 `plan_context.generation_world_profile` 存在时，使用其中的 story_constraints 保护原始主体（地标、历史建筑、宗教人物等），使用 ip_integration_guidance 决定 IP 的融入方式。
 
 # Output Requirements
 

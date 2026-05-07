@@ -56,7 +56,7 @@ def test_usage_planner_marks_establishing_frame_as_scene_integrated_by_default()
 
     assert package.ip_presence_type is IPPresenceType.SCENE_INTEGRATED
     assert package.presence_mode in {"support", "ambient"}
-    assert "长乐门" in package.must_not_replace
+    assert "正定长乐门" in package.must_not_replace
 
 
 def test_usage_planner_marks_historical_subject_as_low_intrusion_or_absent():
@@ -99,7 +99,7 @@ def test_usage_planner_generates_summary_and_scene_text_plan():
         ip_profile=_profile(),
     )[0]
 
-    assert package.image_text_plan.summary_text in {"从长乐门出发", "正定古城"}
+    assert package.image_text_plan.summary_text == "长乐门"
     assert "长乐门" in package.image_text_plan.visible_text_whitelist
 
 
@@ -121,7 +121,7 @@ def test_usage_planner_marks_explanation_frame_as_balanced_narrative():
     )[0]
 
     assert package.ip_presence_type is IPPresenceType.BALANCED_NARRATIVE
-    assert package.presence_mode == "guide"
+    assert package.presence_mode == "narrative"
 
 
 def test_usage_planner_marks_explicit_ip_hero_frame_as_strong_identity():
@@ -192,7 +192,7 @@ def test_usage_planner_uses_world_constraints_for_protected_subjects():
         IPPresenceType.SYMBOLIC_ONLY,
         IPPresenceType.ABSENT,
     }
-    assert "佛像" in package.must_not_replace
+    assert "佛像与古寺壁画" in package.must_not_replace
 
 
 def test_usage_planner_world_guidance_does_not_override_scene_cast():
@@ -615,7 +615,7 @@ async def test_appearance_planner_populates_appearance_description():
     assert len(packages) == 2
     for pkg in packages:
         assert isinstance(pkg.appearance_description, str)
-        assert len(pkg.appearance_description) > 20
+        assert len(pkg.appearance_description) >= 20
         assert "白色卡通兔子" in pkg.appearance_description
         assert isinstance(pkg.visual_identity, str)
         assert len(pkg.visual_identity) > 0
@@ -623,7 +623,8 @@ async def test_appearance_planner_populates_appearance_description():
 
 
 @pytest.mark.asyncio
-async def test_appearance_planner_populates_previously_unused_fields():
+async def test_appearance_planner_fields_delegated_to_llm_are_none():
+    """outfit/accessories/action/expression/pose are delegated to the LLM image prompt layer."""
     plan = _plan_two_frames()
     packages = await IPFrameAppearancePlanner().plan_batch(
         storyboard_plan=plan,
@@ -631,31 +632,25 @@ async def test_appearance_planner_populates_previously_unused_fields():
     )
 
     for pkg in packages:
-        assert isinstance(pkg.outfit_theme, str)
-        assert len(pkg.outfit_theme) > 0
-        assert isinstance(pkg.accessories, tuple)
-        assert len(pkg.accessories) > 0
-        assert isinstance(pkg.action, str)
-        assert len(pkg.action) > 0
-        assert isinstance(pkg.expression, str)
-        assert len(pkg.expression) > 0
-        assert isinstance(pkg.pose, str)
-        assert len(pkg.pose) > 0
-        assert isinstance(pkg.interaction_target, str)
-        assert len(pkg.interaction_target) > 0
+        assert pkg.outfit_theme is None
+        assert pkg.accessories == ()
+        assert pkg.action is None
+        assert pkg.expression is None
+        assert pkg.pose is None
 
 
 @pytest.mark.asyncio
-async def test_appearance_planner_produces_varied_descriptions_by_domain():
+async def test_appearance_planner_produces_valid_descriptions_for_all_frames():
     plan = _plan_two_frames()
     packages = await IPFrameAppearancePlanner().plan_batch(
         storyboard_plan=plan,
         ip_profile=_universal_ip_profile(),
     )
 
-    desc1 = packages[0].appearance_description
-    desc2 = packages[1].appearance_description
-    assert desc1 != desc2, "different frames should produce varied descriptions"
+    for pkg in packages:
+        assert isinstance(pkg.appearance_description, str)
+        assert len(pkg.appearance_description) > 0
+        assert "白色卡通兔子" in pkg.appearance_description
 
 
 @pytest.mark.asyncio
@@ -667,11 +662,9 @@ async def test_appearance_planner_uses_role_presets_from_ip_profile():
     )
 
     pkg0 = packages[0]
-    # With role semantics, role_label is stored separately from description
     assert pkg0.role_slot is not None
-    assert "作为场景中的" in pkg0.appearance_description
-    assert pkg0.outfit_theme is not None
-    assert len(pkg0.accessories) > 0
+    assert "白色卡通兔子" in pkg0.appearance_description
+    assert "蓝色领结" in pkg0.appearance_description
 
 
 @pytest.mark.asyncio
@@ -688,7 +681,7 @@ async def test_appearance_planner_tracks_continuity_between_frames():
 
 
 @pytest.mark.asyncio
-async def test_appearance_planner_different_domains_produce_different_roles():
+async def test_appearance_planner_different_frames_preserve_role_and_visual_identity():
     travel_frame = StoryboardPlanFrame(
         index=1,
         source_text="古城墙下游人如织，导游讲述历史。",
@@ -727,8 +720,10 @@ async def test_appearance_planner_different_domains_produce_different_roles():
     food_pkg = (await planner.plan_batch(storyboard_plan=_make_plan(food_frame), ip_profile=profile))[0]
     tech_pkg = (await planner.plan_batch(storyboard_plan=_make_plan(tech_frame), ip_profile=profile))[0]
 
-    assert travel_pkg.outfit_theme != food_pkg.outfit_theme
-    assert travel_pkg.outfit_theme != tech_pkg.outfit_theme
+    for pkg in (travel_pkg, food_pkg, tech_pkg):
+        assert pkg.role_slot is not None
+        assert "白色卡通兔子" in pkg.appearance_description
+        assert pkg.outfit_theme is None
 
 
 @pytest.mark.asyncio
@@ -761,7 +756,7 @@ async def test_appearance_planner_handles_skeletal_ip_profile():
     )
 
     assert len(packages) == 1
-    assert len(packages[0].appearance_description) > 10
+    assert len(packages[0].appearance_description) > 0
 
 
 # ── IPRoleSlot and replacement semantics tests ──────────────────────────
@@ -779,94 +774,63 @@ def test_rule_based_role_selection_returns_role_slot_tuple():
     from pixelle_video.models.ip_prompt_planning import IPPresenceType as PT
 
     # STRONG_IDENTITY → protagonist
-    slot, label, desc = _rule_based_role_selection(profile, "文旅", PT.STRONG_IDENTITY)
+    slot, label, desc = _rule_based_role_selection(profile, PT.STRONG_IDENTITY)
     assert slot is IPRoleSlot.PROTAGONIST
     assert isinstance(label, str) and len(label) > 0
     assert isinstance(desc, str) and len(desc) > 0
 
     # BALANCED_NARRATIVE → supporting
-    slot, label, desc = _rule_based_role_selection(profile, "爱情", PT.BALANCED_NARRATIVE)
+    slot, label, desc = _rule_based_role_selection(profile, PT.BALANCED_NARRATIVE)
     assert slot is IPRoleSlot.SUPPORTING
 
     # LOW_INTRUSION → passerby
-    slot, label, desc = _rule_based_role_selection(profile, "文旅", PT.LOW_INTRUSION)
+    slot, label, desc = _rule_based_role_selection(profile, PT.LOW_INTRUSION)
     assert slot is IPRoleSlot.PASSERBY
 
     # ABSENT → absent
-    slot, label, desc = _rule_based_role_selection(profile, "文旅", PT.ABSENT)
+    slot, label, desc = _rule_based_role_selection(profile, PT.ABSENT)
     assert slot is IPRoleSlot.ABSENT
     assert label == "画外不出镜"
     assert desc == "完全不出镜"
 
     # SYMBOLIC_ONLY → passerby
-    slot, label, desc = _rule_based_role_selection(profile, "科技", PT.SYMBOLIC_ONLY)
+    slot, label, desc = _rule_based_role_selection(profile, PT.SYMBOLIC_ONLY)
     assert slot is IPRoleSlot.PASSERBY
 
 
-def test_build_appearance_description_uses_replacement_language():
-    """Replacement semantics: must NOT use the old '作为导游讲解者' prefix."""
+def test_build_appearance_description_returns_visual_identity():
+    """_build_appearance_description returns pure visual identity from IPProfile."""
     from pixelle_video.services.ip_usage_planner import _build_appearance_description
 
     profile = _universal_ip_profile()
     desc = _build_appearance_description(
         ip_profile=profile,
-        role_label="导游讲解者",
         role_slot=IPRoleSlot.SUPPORTING,
-        presence_desc="半身出镜",
-        presence_type=IPPresenceType.BALANCED_NARRATIVE,
-        prompt_weight=0.9,
     )
-    assert "作为场景中的配角" in desc
-    assert "替换画面" not in desc
+    assert "白色卡通兔子" in desc
+    assert "蓝色领结" in desc
 
 
-def test_build_appearance_description_absent_returns_no_show():
+def test_build_appearance_description_absent_returns_empty():
     from pixelle_video.services.ip_usage_planner import _build_appearance_description
 
     profile = _universal_ip_profile()
     desc = _build_appearance_description(
         ip_profile=profile,
-        role_label="画外不出镜",
         role_slot=IPRoleSlot.ABSENT,
-        presence_desc="完全不出镜",
-        presence_type=IPPresenceType.ABSENT,
-        prompt_weight=0.0,
     )
-    assert desc == "本帧不出镜"
+    assert desc == ""
 
 
-def test_build_appearance_description_length_by_prompt_weight():
+def test_build_appearance_description_uses_visual_summary_when_available():
     from pixelle_video.services.ip_usage_planner import _build_appearance_description
 
     profile = _universal_ip_profile()
-    desc_low = _build_appearance_description(
+    desc = _build_appearance_description(
         ip_profile=profile,
-        role_label="场景参与者",
-        role_slot=IPRoleSlot.PASSERBY,
-        presence_desc="远景融入",
-        presence_type=IPPresenceType.LOW_INTRUSION,
-        prompt_weight=0.2,
-    )
-    desc_mid = _build_appearance_description(
-        ip_profile=profile,
-        role_label="场景参与者",
-        role_slot=IPRoleSlot.SUPPORTING,
-        presence_desc="半身出镜",
-        presence_type=IPPresenceType.BALANCED_NARRATIVE,
-        prompt_weight=0.6,
-    )
-    desc_high = _build_appearance_description(
-        ip_profile=profile,
-        role_label="导游讲解者",
         role_slot=IPRoleSlot.PROTAGONIST,
-        presence_desc="全身出镜",
-        presence_type=IPPresenceType.STRONG_IDENTITY,
-        prompt_weight=0.9,
     )
-    # Low weight (~20 chars) should be shortest
-    assert len(desc_low) < len(desc_mid)
-    # Mid weight should be shorter than high weight
-    assert len(desc_mid) < len(desc_high)
+    assert "圆润脸型" in desc
 
 
 def test_ipframe_adaptation_package_serialization_preserves_role_slot():
@@ -917,10 +881,10 @@ async def test_appearance_planner_role_slot_matches_presence_type():
 
     hero_frame = StoryboardPlanFrame(
         index=1,
-        source_text="IP主角引导观众探索古城。",
+        source_text="正定向导兔引导观众探索古城。",
         visual_goal="IP英雄镜头",
         prompt_intent="强IP露出",
-        primary_subject="IP主角",
+        primary_subject="正定向导兔",
     )
     absent_frame = StoryboardPlanFrame(
         index=1,
@@ -943,13 +907,14 @@ async def test_appearance_planner_role_slot_matches_presence_type():
         storyboard_plan=_make_plan(hero_frame), ip_profile=profile
     ))[0]
     assert hero_pkg.role_slot is IPRoleSlot.PROTAGONIST
-    assert "作为场景中的主角" in hero_pkg.appearance_description
+    assert "白色卡通兔子" in hero_pkg.appearance_description
 
     absent_pkg = (await IPFrameAppearancePlanner().plan_batch(
         storyboard_plan=_make_plan(absent_frame), ip_profile=profile
     ))[0]
     # Pure landscape → SYMBOLIC_ONLY → PASSERBY
     assert absent_pkg.role_slot is IPRoleSlot.PASSERBY
+    assert absent_pkg.appearance_description != ""
 
 
 def test_visible_anchors_excludes_identity_anchors_role_labels():
