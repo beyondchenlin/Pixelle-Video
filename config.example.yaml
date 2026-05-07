@@ -34,10 +34,43 @@ comfyui:
   # Global ComfyUI settings
   comfyui_url: http://127.0.0.1:8188  # ComfyUI server URL (required for selfhost workflows)
   executor_type: null  # Optional override: null=auto (recommended HTTP default), websocket only for explicit opt-in
-  backend_management_mode: auto  # auto manages the Pixelle backend at 127.0.0.1:8000; required=fail if restart unavailable; disabled=never start/stop ComfyUI
+  backend_management_mode: auto  # auto manages Pixelle-managed backends; required=fail if restart unavailable; disabled=never start/stop ComfyUI
   # Memory release is handled by managed backend restart, controlled per-profile
   # by restart_after_batch. Set to false to keep models hot in GPU for fast
-  # follow-up requests. Set to true if your GPU cannot hold all model sets at once.
+  # follow-up requests. Set to true if your GPU/CPU memory cannot hold all model sets at once.
+  #
+  # Per-backend profiles (configure under backends.<role>):
+  #   managed: true               # Let Pixelle manage this ComfyUI backend process
+  #   restart_after_batch: true   # Restart after every workflow batch to release memory
+  #   python_exe: ""              # Path to Python interpreter for managed backends
+  #   comfyui_root: ""            # Path to ComfyUI installation for managed backends
+  #
+  # Example dual-backend setup:
+  # backends:
+  #   image_backend:
+  #     url: http://127.0.0.1:8001
+  #     python_exe: E:/ComfyUIData/.venv/Scripts/python.exe
+  #     comfyui_root: E:/comfyui/resources/ComfyUI
+  #     managed: true
+  #     restart_after_batch: true
+  #     data_root: E:/ComfyUIData/pixelle-image
+  #     runtime_dir: _runtime/comfyui/image
+  #     logs_dir: logs/comfyui/image
+  #     database_url: sqlite:///E:/ComfyUIData/pixelle-image/user/comfyui.db
+  #   tts_backend:
+  #     url: http://127.0.0.1:8002
+  #     python_exe: E:/ComfyUIData/.venv/Scripts/python.exe
+  #     comfyui_root: E:/comfyui/resources/ComfyUI
+  #     managed: true
+  #     restart_after_batch: true
+  #     data_root: E:/ComfyUIData/pixelle-tts
+  #     runtime_dir: _runtime/comfyui/tts
+  #     logs_dir: logs/comfyui/tts
+  #     database_url: sqlite:///E:/ComfyUIData/pixelle-tts/user/comfyui.db
+  # workflow_routing:
+  #   image: image_backend
+  #   tts: tts_backend
+  #   default: image_backend
   comfyui_api_key: ""  # ComfyUI API key (optional, get from https://platform.comfy.org/profile/api-keys)
   # Note for Docker users: Use host.docker.internal:8188 (Mac/Windows) or host IP address (Linux)
   runninghub_api_key: ""  # RunningHub API key (required for runninghub workflows)
