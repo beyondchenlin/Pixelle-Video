@@ -287,7 +287,7 @@ def assemble_image_prompt(
     templated = _apply_prompt_template(base_prompt, template)
 
     if resolved_style.style_kind == "ip_world":
-        if template:
+        if template and template != "{prompt}":
             return templated
 
         world_prefix = raw_prefix.strip() or (resolved_style.raw_content or "").strip()
@@ -301,7 +301,7 @@ def assemble_image_prompt(
             return f"{templated}, {raw_prefix}"
         return templated
 
-    if template:
+    if template and template != "{prompt}":
         return templated
     return build_image_prompt(base_prompt, raw_prefix)
 

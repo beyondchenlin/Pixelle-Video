@@ -306,7 +306,7 @@ def _ip_identity_prompt_terms_from_context(frame_context: Mapping[str, Any]) -> 
     2. prompt_weight < 0.7  → 跳过（LLM 已从 ip_adaptation 上下文融入 IP，
        再拼接一次会导致"兔子出现两次"的问题）
     3. prompt_weight >= 0.7 → 取 appearance_description 追加到 prompt 末尾
-    4. 无 appearance_description → 回退取 identity_anchors_visible + identity_color_terms
+    4. 无 appearance_description → 回退取 visual_identity（纯视觉特征，不含 role labels）
 
     ── 阈值 0.7 的由来 ──
     presence_type 权重映射：
@@ -324,14 +324,10 @@ def _ip_identity_prompt_terms_from_context(frame_context: Mapping[str, Any]) -> 
     appearance_desc = adaptation.get("appearance_description")
     if isinstance(appearance_desc, str) and appearance_desc.strip():
         return (_normalize_prompt_fragments([appearance_desc])[0],)
-    return tuple(
-        _normalize_prompt_fragments(
-            [
-                *_read_string_items(adaptation.get("identity_anchors_visible")),
-                *_read_string_items(adaptation.get("identity_color_terms")),
-            ]
-        )
-    )
+    visual_id = adaptation.get("visual_identity")
+    if isinstance(visual_id, str) and visual_id.strip():
+        return (_normalize_prompt_fragments([visual_id])[0],)
+    return ()
 
 
 def _read_string_items(value: Any) -> tuple[str, ...]:

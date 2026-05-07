@@ -397,6 +397,7 @@ async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints
                             "frame_id": plan.frames[0].frame_id,
                             "ip_presence_type": "scene_integrated",
                             "negative_constraints": ["avoid extra text", "avoid sticker-like IP"],
+                            "visual_identity": "白色卡通兔子, 长耳朵",
                         },
                     },
                 )()
@@ -470,6 +471,7 @@ async def test_generate_styled_image_prompt_batch_keeps_per_frame_ip_negative_ou
                             "frame_id": plan.frames[0].frame_id,
                             "ip_presence_type": "scene_integrated",
                             "negative_constraints": ["avoid frame one sticker"],
+                            "visual_identity": "白色卡通兔子, 长耳朵",
                         },
                     },
                 )(),
@@ -482,6 +484,7 @@ async def test_generate_styled_image_prompt_batch_keeps_per_frame_ip_negative_ou
                             "frame_id": plan.frames[1].frame_id,
                             "ip_presence_type": "scene_integrated",
                             "negative_constraints": ["avoid frame two mascot"],
+                            "visual_identity": "白色卡通兔子, 长耳朵",
                         },
                     },
                 )(),
@@ -558,6 +561,7 @@ async def test_generate_styled_image_prompt_batch_merges_all_z_image_constraints
                             "frame_id": plan.frames[0].frame_id,
                             "ip_presence_type": "scene_integrated",
                             "negative_constraints": ["avoid IP sticker"],
+                            "visual_identity": "白色卡通兔子, 长耳朵",
                             "image_text_plan": {
                                 "visible_text_whitelist": ["Changle Gate"],
                             },
@@ -805,6 +809,7 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
                             "frame_id": plan.frames[0].frame_id,
                             "ip_presence_type": "scene_integrated",
                             "presence_mode": "support",
+                            "visual_identity": "白色卡通兔子, 长耳朵",
                             "image_text_plan": {
                                 "summary_text": "从长乐门出发",
                                 "visible_text_whitelist": ["从长乐门出发", "长乐门"],
@@ -959,6 +964,7 @@ async def test_generate_styled_image_prompt_batch_uses_visible_text_whitelist_fo
                         "to_dict": lambda self: {
                             "frame_id": plan.frames[0].frame_id,
                             "ip_presence_type": "scene_integrated",
+                            "visual_identity": "白色卡通兔子, 长耳朵",
                             "image_text_plan": {
                                 "summary_text": "Start from Changle Gate",
                                 "scene_text": ["Changle Gate"],

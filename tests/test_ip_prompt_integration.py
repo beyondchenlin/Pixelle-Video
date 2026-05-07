@@ -179,8 +179,7 @@ def test_fallback_when_no_appearance_description():
         "ip_adaptation": _make_pkg(
             prompt_weight=0.9,
             appearance_description=None,
-            identity_anchors_visible=("白色卡通兔子", "长耳朵"),
-            identity_color_terms=("纯白色身体",),
+            visual_identity="白色卡通兔子, 长耳朵",
         ).to_dict(),
     }
     result = _ip_identity_prompt_terms_from_context(ctx)

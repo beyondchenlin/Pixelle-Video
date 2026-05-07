@@ -617,6 +617,9 @@ async def test_appearance_planner_populates_appearance_description():
         assert isinstance(pkg.appearance_description, str)
         assert len(pkg.appearance_description) > 20
         assert "白色卡通兔子" in pkg.appearance_description
+        assert isinstance(pkg.visual_identity, str)
+        assert len(pkg.visual_identity) > 0
+        assert "古城文旅向导" not in pkg.visual_identity
 
 
 @pytest.mark.asyncio
@@ -991,3 +994,76 @@ def test_ip_identity_prompt_terms_includes_above_weight_threshold():
     terms = _ip_identity_prompt_terms_from_context(ctx)
     assert len(terms) == 1
     assert "白色卡通兔子" in terms[0]
+
+
+def test_visible_anchors_excludes_identity_anchors_role_labels():
+    """identity_anchors_visible 只含 identity_lock 纯视觉特征，不含 identity_anchors 中的角色标签。"""
+    from pixelle_video.services.ip_usage_planner import _visible_anchors
+
+    profile = IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="TestIP",
+        identity_lock=("白色卡通兔子", "蓝色领结"),
+        identity_anchors=("古城文旅向导", "温和陪伴式讲解者"),
+    )
+    result = _visible_anchors(IPPresenceType.BALANCED_NARRATIVE, profile)
+    assert "白色卡通兔子" in result
+    assert "蓝色领结" in result
+    assert "古城文旅向导" not in result
+    assert "温和陪伴式讲解者" not in result
+
+
+def test_build_visual_identity_excludes_role_labels():
+    """_build_visual_identity 只返回纯视觉特征，不含角色标签。"""
+    from pixelle_video.services.ip_usage_planner import _build_visual_identity
+
+    profile = IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="TestIP",
+        identity_lock=("白色卡通兔子", "蓝色领结"),
+        identity_anchors=("古城文旅向导",),
+        visual_summary=None,
+    )
+    result = _build_visual_identity(profile)
+    assert "白色卡通兔子" in result
+    assert "蓝色领结" in result
+    assert "古城文旅向导" not in result
+
+
+def test_ip_identity_prompt_terms_uses_visual_identity_as_fallback():
+    """无 appearance_description 时，回退到 visual_identity（纯视觉特征）。"""
+    from pixelle_video.utils.content_generators import (
+        _ip_identity_prompt_terms_from_context,
+    )
+
+    ctx = {
+        "ip_adaptation": {
+            "role_slot": "protagonist",
+            "prompt_weight": 0.9,
+            "visual_identity": "白色卡通兔子，蓝色领结，长耳朵",
+        }
+    }
+    terms = _ip_identity_prompt_terms_from_context(ctx)
+    assert len(terms) == 1
+    assert "蓝色领结" in terms[0]
+    assert "白色卡通兔子" in terms[0]
+
+
+def test_ip_identity_prompt_terms_empty_fallback_when_no_visual_identity():
+    """既无 appearance_description 也无 visual_identity 时返回空。"""
+    from pixelle_video.utils.content_generators import (
+        _ip_identity_prompt_terms_from_context,
+    )
+
+    ctx = {
+        "ip_adaptation": {
+            "role_slot": "protagonist",
+            "prompt_weight": 0.9,
+        }
+    }
+    terms = _ip_identity_prompt_terms_from_context(ctx)
+    assert terms == ()

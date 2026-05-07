@@ -98,6 +98,9 @@ class IPFrameAdaptationPackage:
     interaction_target: str | None = None
     continuity_from_previous: str | None = None
     appearance_description: str | None = None
+    # 纯视觉特征（仅从 identity_lock 提取，不含角色标签如"古城文旅向导"）。
+    # 由 IPFrameAppearancePlanner 逐帧设定，用于 post-append 回退和 LLM prompt context。
+    visual_identity: str | None = None
     # IP 在当前帧替代的角色槽位（主角/配角/路人/不出镜）。
     # 由 IPFrameAppearancePlanner 逐帧设定，系统提示和权重门控都会读取此字段。
     role_slot: IPRoleSlot | None = None
@@ -122,6 +125,7 @@ class IPFrameAdaptationPackage:
             "interaction_target",
             "continuity_from_previous",
             "appearance_description",
+            "visual_identity",
             "shot_fit_notes",
         ):
             object.__setattr__(self, field_name, _optional_prompt_str(field_name, getattr(self, field_name)))
@@ -166,6 +170,7 @@ class IPFrameAdaptationPackage:
             "interaction_target": self.interaction_target,
             "continuity_from_previous": self.continuity_from_previous,
             "appearance_description": self.appearance_description,
+            "visual_identity": self.visual_identity,
             "role_slot": self.role_slot.value if self.role_slot else None,
             "shot_fit_notes": self.shot_fit_notes,
             "image_text_plan": self.image_text_plan.to_dict() if self.image_text_plan else None,
@@ -197,6 +202,7 @@ class IPFrameAdaptationPackage:
             interaction_target=payload.get("interaction_target"),
             continuity_from_previous=payload.get("continuity_from_previous"),
             appearance_description=payload.get("appearance_description"),
+            visual_identity=payload.get("visual_identity"),
             role_slot=_parse_role_slot(payload.get("role_slot")),
             shot_fit_notes=payload.get("shot_fit_notes"),
             image_text_plan=IPImageTextPlan.from_dict(image_text_plan) if image_text_plan else None,

@@ -336,11 +336,16 @@ def _semantic_reason(presence_type: IPPresenceType) -> str:
 
 
 def _visible_anchors(presence_type: IPPresenceType, ip_profile: IPProfile) -> tuple[str, ...]:
+    """只返回纯视觉特征（identity_lock），不含 identity_anchors 中的角色标签。
+
+    identity_anchors 可能包含"古城文旅向导"等角色职能描述，
+    这些角色信息由 appearance_description 统一携带，不应作为独立锚点注入。
+    """
     if presence_type is IPPresenceType.ABSENT:
         return ()
     if presence_type is IPPresenceType.SYMBOLIC_ONLY:
-        return tuple(ip_profile.identity_anchors[:1])
-    return tuple([*ip_profile.identity_lock, *ip_profile.identity_anchors])
+        return tuple(ip_profile.identity_lock[:1])
+    return tuple(ip_profile.identity_lock)
 
 
 def _suppressed_anchors(presence_type: IPPresenceType, ip_profile: IPProfile) -> tuple[str, ...]:
@@ -699,6 +704,7 @@ class IPFrameAppearancePlanner:
             interaction_target=interaction,
             continuity_from_previous=continuity,
             appearance_description=appearance_description,
+            visual_identity=_build_visual_identity(ip_profile),
             role_slot=role_slot,
             shot_fit_notes=base_package.shot_fit_notes,
             image_text_plan=base_package.image_text_plan,
@@ -934,6 +940,18 @@ def _build_continuity_note(
     return f"上一帧：{prev_desc}"
 
 
+def _build_visual_identity(ip_profile: IPProfile) -> str:
+    """构建纯视觉身份字符串，仅从 identity_lock 提取，不含角色标签。
+
+    identity_lock 应为纯视觉特征（如"白色卡通兔子，蓝色领结，长耳朵"），
+    角色标签（如"古城文旅向导"）属于 identity_anchors 不应混入。
+    visual_summary 是用户策划的视觉摘要，优先使用；回退到 identity_lock 逗号拼接。
+    """
+    return (ip_profile.visual_summary or ", ".join(ip_profile.identity_lock)).rstrip(
+        "。，,;；!！?？\n\r "
+    )
+
+
 def _build_appearance_description(
     *,
     ip_profile: IPProfile,
@@ -966,10 +984,7 @@ def _build_appearance_description(
     if role_slot is IPRoleSlot.ABSENT:
         return "本帧不出镜"
 
-    visual_core = ip_profile.visual_summary or ", ".join(
-        [*ip_profile.identity_lock, *ip_profile.identity_anchors]
-    )
-    visual_core = visual_core.rstrip("。，,;；!！?？\n\r ")
+    visual_core = _build_visual_identity(ip_profile)
 
     presence_level = {
         IPPresenceType.STRONG_IDENTITY: "作为画面主体占据前景",
