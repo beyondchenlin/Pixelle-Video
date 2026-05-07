@@ -29,6 +29,7 @@ class InProcessIPDesignClient:
         project_id: str,
         preset_id: str,
         asset_bible_id: str | None = None,
+        conflict_policy: str = "overwrite",
     ) -> dict[str, Any]:
         workspace_id = validate_public_reference_id("workspace_id", workspace_id)
         project_id = validate_public_reference_id("project_id", project_id)
@@ -53,7 +54,7 @@ class InProcessIPDesignClient:
         existing = self._run_async(
             repository.load_asset_bible(workspace_id, imported_asset_bible_id)
         )
-        if existing is not None:
+        if existing is not None and conflict_policy != "overwrite":
             raise ValueError("asset bible already exists; choose a different asset_bible_id")
         saved = self._run_async(repository.save_asset_bible(workspace_id, asset_bible_payload))
         return {

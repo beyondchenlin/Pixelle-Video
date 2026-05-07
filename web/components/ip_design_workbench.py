@@ -389,10 +389,11 @@ def _render_asset_bible_preset_import(
             project_id=project_id,
             preset_id=selected_preset_id,
             asset_bible_id=import_asset_bible_id,
+            conflict_policy="overwrite",
         )
     except Exception:
         ui.error(translate("ip_design.asset_bible.import_failed"))
-        return {"saved": False}
+        return {"asset_bible_id": import_asset_bible_id, "saved": False}
     ui.success(translate("ip_design.asset_bible.imported"))
     return {"asset_bible_id": "", "saved": True}
 
@@ -503,6 +504,11 @@ def _render_scene_cast_section(
 
 
 def _select_asset_bible(asset_bibles: list[dict[str, Any]], *, ui, translate: Translate) -> str:
+    def _on_asset_bible_change():
+        _clear_ip_form_session_state(ui)
+        ui.session_state.pop("ip_design_asset_bible_id", None)
+        ui.session_state.pop("ip_design_ip_profile_select", None)
+
     options = [_first_text(item.get("asset_bible_id")) for item in asset_bibles]
     options = [option for option in options if option]
     selected = ui.selectbox(
@@ -512,6 +518,7 @@ def _select_asset_bible(asset_bibles: list[dict[str, Any]], *, ui, translate: Tr
         format_func=lambda item_id: _format_asset_bible_option(
             _find_item(asset_bibles, "asset_bible_id", item_id) or {}
         ),
+        on_change=_on_asset_bible_change,
     )
     return _first_text(selected)
 

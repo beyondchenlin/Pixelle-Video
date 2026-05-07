@@ -388,6 +388,7 @@ def test_inprocess_ip_design_client_imports_builtin_asset_bible_without_leaking_
             project_id="project_1",
             preset_id="builtin_asset_bible_demo",
             asset_bible_id="demo_bible",
+            conflict_policy="fail",
         )
     except ValueError as exc:
         assert "already exists" in str(exc)

@@ -542,6 +542,7 @@ def test_ip_design_workbench_imports_builtin_asset_bible_preset():
             "project_id": "project_1",
             "preset_id": "builtin_asset_bible_demo",
             "asset_bible_id": "demo_bible",
+            "conflict_policy": "overwrite",
         }
     ]
     assert fake_ui.successes == ["ip_design.asset_bible.imported"]
