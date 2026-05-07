@@ -124,7 +124,7 @@ async def test_generate_image_prompts_uses_structured_output():
     assert prompts == ["prompt one", "prompt two"]
 
 
-def test_image_prompt_template_preserves_json_contract_and_explains_ip_presence_type():
+def test_image_prompt_template_preserves_json_contract_and_explains_ip_scene_description():
     prompt = build_image_prompt_prompt(
         narrations=["Start from Changle Gate."],
         min_words=30,
@@ -132,24 +132,19 @@ def test_image_prompt_template_preserves_json_contract_and_explains_ip_presence_
         prompt_contexts=[
             {
                 "frame_source_text": "Start from Changle Gate.",
-                "ip_adaptation": {
-                    "ip_presence_type": "scene_integrated",
-                    "presence_mode": "support",
-                },
+                "ip_scene_description": "white rabbit standing by the gate",
             }
         ],
     )
 
     assert '"image_prompts"' in prompt
     assert "Only output JSON" in prompt
-    assert "ip_presence_type" in prompt
+    assert "ip_scene_description" in prompt
     assert "list[str]" not in prompt
-    assert "strong" in prompt.lower()
-    assert "symbolic" in prompt.lower()
-    assert "absent" in prompt.lower()
+    assert "Weave" in prompt
 
 
-def test_image_prompt_template_carries_ip_adaptation_and_style_context_as_single_truth_source():
+def test_image_prompt_template_carries_ip_scene_description_and_style_context():
     prompt = build_image_prompt_prompt(
         narrations=["从长乐门出发。"],
         min_words=30,
@@ -157,20 +152,17 @@ def test_image_prompt_template_carries_ip_adaptation_and_style_context_as_single
         prompt_contexts=[
             {
                 "frame_source_text": "从长乐门出发。",
-                "ip_adaptation": {
-                    "ip_presence_type": "scene_integrated",
-                    "presence_mode": "support",
-                },
+                "ip_scene_description": "白色卡通兔子站在古城门前",
                 "style_context": {"style_kind": "visual_only"},
             }
         ],
         prompt_language="zh_CN",
     )
 
-    assert "ip_adaptation" in prompt
+    assert "ip_scene_description" in prompt
     assert "style_context" in prompt
-    assert "role_slot" in prompt.lower()
-    assert "replaces a scene character" in prompt.lower()
+    assert "Weave" in prompt
+    assert "overlay" in prompt.lower()
 
 
 @pytest.mark.asyncio

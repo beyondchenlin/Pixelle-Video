@@ -1,9 +1,8 @@
-"""Test IP prompt context enrichment and identity terms extraction.
+"""Test IP prompt context enrichment.
 
 Covers:
-- _enrich_prompt_contexts_with_ip()  injects ip_adaptation into frame contexts
-- _ip_identity_prompt_terms_from_context()  gate: role_slot, prompt_weight, fallback
-- _strip_ip_prompt_context_fields()  removes ip_adaptation / ip_presence_options
+- _enrich_prompt_contexts_with_ip()  injects ip_scene_description into frame contexts
+- _strip_ip_prompt_context_fields()  removes IP-related fields from contexts
 """
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ def _make_pkg(frame_id: str = "frame_0001", **overrides: Any) -> IPFrameAdaptati
 # ── _enrich_prompt_contexts_with_ip ──────────────────────────────────────
 
 
-def test_enrich_injects_ip_adaptation_into_frame_contexts():
+def test_enrich_injects_ip_scene_description():
     from pixelle_video.utils.content_generators import (
         PromptContextEnvelope,
         _enrich_prompt_contexts_with_ip,
@@ -51,30 +50,8 @@ def test_enrich_injects_ip_adaptation_into_frame_contexts():
         style_context={"style_kind": "文旅纪实"},
     )
     assert len(result.frame_contexts) == 1
-    assert "ip_adaptation" in result.frame_contexts[0]
-    assert result.frame_contexts[0]["ip_adaptation"]["frame_id"] == "frame_0001"
-
-
-def test_enrich_injects_ip_presence_options():
-    from pixelle_video.utils.content_generators import (
-        PromptContextEnvelope,
-        _enrich_prompt_contexts_with_ip,
-    )
-
-    pkg = _make_pkg()
-    result = _enrich_prompt_contexts_with_ip(
-        prompt_contexts=None,
-        expected_count=1,
-        packages=[pkg],
-        style_context={},
-    )
-    options = result.frame_contexts[0].get("ip_presence_options")
-    assert isinstance(options, list)
-    assert len(options) == 6
-    for opt in options:
-        assert isinstance(opt, str)
-    assert "strong_identity" in options
-    assert "absent" in options
+    assert "ip_scene_description" in result.frame_contexts[0]
+    assert "白色卡通兔子" in result.frame_contexts[0]["ip_scene_description"]
 
 
 def test_enrich_injects_style_context():
@@ -113,7 +90,7 @@ def test_enrich_with_existing_prompt_contexts():
     )
     assert result.frame_contexts[0]["frame_id"] == "frame_0001"
     assert result.frame_contexts[0]["visual_goal"] == "展示古城"
-    assert "ip_adaptation" in result.frame_contexts[0]
+    assert "ip_scene_description" in result.frame_contexts[0]
 
 
 def test_enrich_mismatched_count_raises():
@@ -126,65 +103,6 @@ def test_enrich_mismatched_count_raises():
             packages=[_make_pkg()],
             style_context={},
         )
-
-
-# ── _ip_identity_prompt_terms_from_context ───────────────────────────────
-
-
-def test_absent_role_slot_skips():
-    from pixelle_video.utils.content_generators import _ip_identity_prompt_terms_from_context
-
-    ctx = {
-        "ip_adaptation": _make_pkg(role_slot=IPRoleSlot.ABSENT).to_dict(),
-    }
-    assert _ip_identity_prompt_terms_from_context(ctx) == ()
-
-
-def test_low_weight_skips():
-    from pixelle_video.utils.content_generators import _ip_identity_prompt_terms_from_context
-
-    ctx = {
-        "ip_adaptation": _make_pkg(prompt_weight=0.3, role_slot=IPRoleSlot.PASSERBY).to_dict(),
-    }
-    assert _ip_identity_prompt_terms_from_context(ctx) == ()
-
-
-def test_high_weight_returns_appearance_description():
-    from pixelle_video.utils.content_generators import _ip_identity_prompt_terms_from_context
-
-    ctx = {
-        "ip_adaptation": _make_pkg(prompt_weight=0.9).to_dict(),
-    }
-    result = _ip_identity_prompt_terms_from_context(ctx)
-    assert len(result) == 1
-    assert "白色卡通兔子" in result[0]
-
-
-def test_no_adaptation_returns_empty():
-    from pixelle_video.utils.content_generators import _ip_identity_prompt_terms_from_context
-
-    assert _ip_identity_prompt_terms_from_context({}) == ()
-
-
-def test_non_mapping_adaptation_returns_empty():
-    from pixelle_video.utils.content_generators import _ip_identity_prompt_terms_from_context
-
-    assert _ip_identity_prompt_terms_from_context({"ip_adaptation": "not_a_mapping"}) == ()
-
-
-def test_fallback_when_no_appearance_description():
-    from pixelle_video.utils.content_generators import _ip_identity_prompt_terms_from_context
-
-    ctx = {
-        "ip_adaptation": _make_pkg(
-            prompt_weight=0.9,
-            appearance_description=None,
-            visual_identity="白色卡通兔子, 长耳朵",
-        ).to_dict(),
-    }
-    result = _ip_identity_prompt_terms_from_context(ctx)
-    assert len(result) >= 1
-    assert any("白色卡通兔子" in term for term in result)
 
 
 # ── _strip_ip_prompt_context_fields ──────────────────────────────────────
@@ -206,8 +124,9 @@ def test_strip_removes_ip_fields():
     )
     stripped = _strip_ip_prompt_context_fields(enriched)
     assert stripped is not None
-    assert "ip_adaptation" not in stripped.frame_contexts[0]
-    assert "ip_presence_options" not in stripped.frame_contexts[0]
+    assert "ip_scene_description" not in stripped.frame_contexts[0]
+    assert "ip_negative_constraints" not in stripped.frame_contexts[0]
+    assert "ip_image_text_plan" not in stripped.frame_contexts[0]
 
 
 def test_strip_none_returns_none():

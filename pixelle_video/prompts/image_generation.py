@@ -73,22 +73,13 @@ Based on the existing video script, create corresponding **{output_language_labe
 - Read `plan_source_text` first to understand the complete script and maintain global meaning.
 - Use each frame's `frame_source_text`, `visual_goal`, `prompt_intent`, and `focus_detail` together; do not infer the image from an isolated text fragment alone.
 - Preserve continuity across frames by respecting shared subjects, world elements, and any `locked_fields` in the matching prompt_context.
-# IP Character Role-Replacement Integration (CRITICAL)
-- When `ip_adaptation` is present in a frame context:
-  - `ip_adaptation.role_slot` determines HOW the IP replaces a scene character:
-    - `protagonist`: The IP IS the only main subject. There is NO other protagonist alongside it.
-    - `supporting`: The IP IS the supporting companion. Do NOT add another companion character.
-    - `passerby`: The IP IS the background figure. Do NOT add other passersby.
-    - `absent`: The IP does NOT appear in this frame. Do NOT mention it at all.
-  - `ip_adaptation.appearance_description` is the SINGLE source of truth for how the IP looks and fits into this frame. Read it and weave its visual description naturally into the scene. Do NOT override or supplement it with your own idea of what the IP should be.
-  - `ip_adaptation.visual_identity` contains the IP's pure visual traits (appearance only, NOT a role). Use this for visual anchoring — eyes, ears, bow tie, body shape.
-  - The IP is NEVER a "tour guide", "mascot", "added element", "overlay", or "decoration". It IS the character in its assigned role slot.
-  - CRITICAL: The IP REPLACES one character slot per frame. The frame should have exactly the same number of characters it would have without the IP. The IP does NOT increase the character count — it fills an existing role.
-  - `ip_presence_type` controls visual prominence: strong_identity=foreground dominant, balanced_narrative=mid-ground, scene_integrated=contextual, low_intrusion=subtle background, symbolic_only=trace elements only.
-  - `summary_text`, `scene_text`, and `visible_text_whitelist` inside `ip_adaptation.image_text_plan` decide which Chinese visual text is allowed to appear in the image. Do not add other visible words.
+# IP Character Integration
+- When `ip_scene_description` is present and non-empty in a frame context, it describes an IP character that belongs in this frame's scene.
+- Weave the IP's visual description organically into the scene — it shares the same lighting, composition, and atmosphere.
+- The IP is never an overlay or separate element. It fills one character slot in the scene.
 - When `plan_context.generation_world_profile` is present, use generation_world_profile as the script world profile for this image prompt batch; it refines world_preset but must not override the protected original source subject.
 - Use `generation_world_profile.story_constraints` to protect original source subjects, landmarks, historical buildings, religious subjects, real people, and explicit narrative objects.
-- Use `generation_world_profile.ip_integration_guidance` to decide how the IP should merge with `ip_adaptation` in the image composition.
+- Use `generation_world_profile.ip_integration_guidance` to decide how the IP should merge with the scene description in the image composition.
 
 # Output Requirements
 

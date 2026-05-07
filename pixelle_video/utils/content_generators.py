@@ -169,17 +169,6 @@ def _style_context_payload(
     return {"style_profile": style_profile}
 
 
-def _ip_presence_options() -> list[str]:
-    return [
-        "strong_identity",
-        "balanced_narrative",
-        "scene_integrated",
-        "low_intrusion",
-        "symbolic_only",
-        "absent",
-    ]
-
-
 def _enrich_prompt_contexts_with_ip(
     prompt_contexts: PromptContextEnvelope | None,
     *,
@@ -201,9 +190,18 @@ def _enrich_prompt_contexts_with_ip(
         raise ValueError("IP adaptation package count must match storyboard frame count")
 
     for index, package in enumerate(packages):
-        package_payload = package.to_dict() if hasattr(package, "to_dict") else dict(package)
-        frame_contexts[index]["ip_adaptation"] = package_payload
-        frame_contexts[index]["ip_presence_options"] = _ip_presence_options()
+        frame_contexts[index]["ip_scene_description"] = (
+            getattr(package, "appearance_description", "") or ""
+        )
+        frame_contexts[index]["ip_negative_constraints"] = list(
+            getattr(package, "negative_constraints", ())
+        )
+        image_text_plan = getattr(package, "image_text_plan", None)
+        frame_contexts[index]["ip_image_text_plan"] = (
+            image_text_plan.to_dict()
+            if image_text_plan is not None and hasattr(image_text_plan, "to_dict")
+            else {}
+        )
         frame_contexts[index]["style_context"] = style_context
 
     return PromptContextEnvelope(
@@ -218,11 +216,18 @@ def _strip_ip_prompt_context_fields(
     if prompt_contexts is None:
         return None
 
+    _IP_FIELD_NAMES = (
+        "ip_adaptation",
+        "ip_presence_options",
+        "ip_scene_description",
+        "ip_negative_constraints",
+        "ip_image_text_plan",
+    )
     frame_contexts: list[dict[str, Any]] = []
     for context in prompt_contexts.frame_contexts:
         cleaned = dict(context)
-        cleaned.pop("ip_adaptation", None)
-        cleaned.pop("ip_presence_options", None)
+        for field in _IP_FIELD_NAMES:
+            cleaned.pop(field, None)
         frame_contexts.append(cleaned)
     return PromptContextEnvelope(
         plan_context=prompt_contexts.plan_context,
@@ -298,36 +303,6 @@ def _frame_contexts_for_final_prompts(
     return prompt_contexts.frame_contexts
 
 
-def _ip_identity_prompt_terms_from_context(frame_context: Mapping[str, Any]) -> tuple[str, ...]:
-    """从 frame context 提取 IP 身份片段，用于 post-append 到最终 prompt。
-
-    ── 门控规则（避免 double-dip）──
-    1. role_slot == "absent" → 无条件跳过（IP 本帧不出镜）
-    2. prompt_weight < 0.7  → 跳过（LLM 已从 ip_adaptation 上下文融入 IP，
-       再拼接一次会导致"兔子出现两次"的问题）
-    3. prompt_weight >= 0.7 → 取 appearance_description 追加到 prompt 末尾
-    4. 无 appearance_description → 回退取 visual_identity（纯视觉特征，不含 role labels）
-
-    ── 阈值 0.7 的由来 ──
-    presence_type 权重映射：
-      strong_identity=0.9, balanced_narrative=0.7 → 追加
-      scene_integrated=0.6, low_intrusion=0.3, symbolic_only=0.2, absent=0.0 → 不追加
-    """
-    adaptation = frame_context.get("ip_adaptation")
-    if not isinstance(adaptation, Mapping):
-        return ()
-    if adaptation.get("role_slot") == "absent":
-        return ()
-    weight = adaptation.get("prompt_weight")
-    if weight is not None and float(weight) < 0.7:
-        return ()
-    appearance_desc = adaptation.get("appearance_description")
-    if isinstance(appearance_desc, str) and appearance_desc.strip():
-        return (_normalize_prompt_fragments([appearance_desc])[0],)
-    visual_id = adaptation.get("visual_identity")
-    if isinstance(visual_id, str) and visual_id.strip():
-        return (_normalize_prompt_fragments([visual_id])[0],)
-    return ()
 
 
 def _read_string_items(value: Any) -> tuple[str, ...]:
@@ -1454,25 +1429,6 @@ async def generate_styled_image_prompt_batch(
         if ip_prompt_chain_enabled
         else [() for _ in final_prompts]
     )
-    ip_identity_terms_by_frame = (
-        [
-            _ip_identity_prompt_terms_from_context(frame_context)
-            for frame_context in frame_contexts_for_final_prompts
-        ]
-        if ip_prompt_chain_enabled
-        else [() for _ in final_prompts]
-    )
-    final_prompts = [
-        ", ".join(
-            _normalize_prompt_fragments(
-                [
-                    prompt,
-                    *ip_identity_terms_by_frame[index],
-                ]
-            )
-        )
-        for index, prompt in enumerate(final_prompts)
-    ]
     final_prompts = [
         (
             prompt

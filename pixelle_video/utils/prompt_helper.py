@@ -57,8 +57,8 @@ _HEX_COLOR_RE = re.compile(
 _FIELD_LABEL_RE = re.compile(
     r"['\"]?\b(?:summary_text|scene_text|title_hex|ip_presence_type|presence_mode|"
     r"visible_text_whitelist|negative_constraints|identity_color_terms|"
-    r"generation_world_profile|story_constraints|ip_integration_guidance|"
-    r"ip_adaptation)\b['\"]?\s*[:：?]\s*",
+    r"generation_world_profile|story_constraints|ip_integration_guidance"
+    r")\b['\"]?\s*[:：?]\s*",
     re.IGNORECASE,
 )
 
@@ -237,18 +237,18 @@ def merge_z_image_constraints_into_prompt(
 
 
 def ip_negative_constraints_from_context(frame_context: Any) -> tuple[str, ...]:
-    return tuple(
-        _normalize_negative_rule_list(
-            _read_nested_value(frame_context, ("ip_adaptation", "negative_constraints"))
-        )
-    )
+    constraints = frame_context.get("ip_negative_constraints", ())
+    if isinstance(constraints, (list, tuple)):
+        return tuple(_normalize_negative_rule_list(constraints))
+    return ()
 
 
 def ip_visible_text_whitelist_from_context(frame_context: Any) -> tuple[str, ...]:
-    image_text_plan = _read_nested_value(frame_context, ("ip_adaptation", "image_text_plan"))
-    if image_text_plan is None:
+    image_text_plan = frame_context.get("ip_image_text_plan", {})
+    if not isinstance(image_text_plan, Mapping):
         return ()
-    return tuple(_normalize_prompt_list(_read_value(image_text_plan, "visible_text_whitelist", ())))
+    whitelist = image_text_plan.get("visible_text_whitelist", ())
+    return tuple(_normalize_prompt_list(whitelist))
 
 
 def select_image_text_negative_prompt(image_text_policy: Any) -> tuple[str, ...] | None:

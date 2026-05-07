@@ -129,10 +129,7 @@ def test_appearance_planner_enriches_with_domain_fields():
 
 def test_enrich_then_extract_roundtrip():
     from pixelle_video.services.ip_usage_planner import IPUsagePlanner
-    from pixelle_video.utils.content_generators import (
-        _enrich_prompt_contexts_with_ip,
-        _ip_identity_prompt_terms_from_context,
-    )
+    from pixelle_video.utils.content_generators import _enrich_prompt_contexts_with_ip
 
     ip_profile = _make_ip_profile()
     frame = _make_frame(source_text="白兔导游站在古城门前讲解", primary_subject="白兔导游")
@@ -147,20 +144,15 @@ def test_enrich_then_extract_roundtrip():
     )
 
     ctx = result.frame_contexts[0]
-    assert ctx["ip_adaptation"]["frame_id"] == frame.frame_id
-
-    terms = _ip_identity_prompt_terms_from_context(ctx)
-    assert len(terms) >= 1
-    for term in terms:
-        assert "#" not in term
+    assert "ip_scene_description" in ctx
+    assert isinstance(ctx["ip_scene_description"], str)
+    assert isinstance(ctx["ip_negative_constraints"], list)
+    assert isinstance(ctx["ip_image_text_plan"], dict)
 
 
 def test_batch_plan_to_enrich_flow():
     from pixelle_video.services.ip_usage_planner import IPUsagePlanner
-    from pixelle_video.utils.content_generators import (
-        _enrich_prompt_contexts_with_ip,
-        _ip_identity_prompt_terms_from_context,
-    )
+    from pixelle_video.utils.content_generators import _enrich_prompt_contexts_with_ip
 
     ip_profile = _make_ip_profile()
     frames = [
@@ -196,10 +188,9 @@ def test_batch_plan_to_enrich_flow():
     )
 
     for i, ctx in enumerate(result.frame_contexts):
-        assert ctx["ip_adaptation"]["frame_id"] == f"frame_{i+1:04d}"
-        terms = _ip_identity_prompt_terms_from_context(ctx)
-        for term in terms:
-            assert "#" not in term
+        assert "ip_scene_description" in ctx
+        assert "ip_negative_constraints" in ctx
+        assert isinstance(ctx["ip_negative_constraints"], list)
 
 
 # ── no hex in prompt path ─────────────────────────────────────────────────
@@ -221,25 +212,17 @@ def test_enrich_output_contains_no_hex():
         style_context={},
     )
 
-    adaptation = result.frame_contexts[0]["ip_adaptation"]
-    for key in ("appearance_description", "identity_anchors_visible", "identity_color_terms"):
-        value = adaptation.get(key)
-        if isinstance(value, str):
-            assert "#" not in value, f"Hex found in {key}"
-        elif isinstance(value, (list, tuple)):
-            for item in value:
-                assert "#" not in str(item), f"Hex found in {key} item"
+    scene_desc = result.frame_contexts[0].get("ip_scene_description", "")
+    if scene_desc:
+        assert "#" not in scene_desc, "Hex found in ip_scene_description"
 
 
 # ── absent type flow ──────────────────────────────────────────────────────
 
 
-def test_absent_type_produces_empty_terms():
+def test_absent_type_produces_empty_appearance_description():
     from pixelle_video.services.ip_usage_planner import IPUsagePlanner
-    from pixelle_video.utils.content_generators import (
-        _enrich_prompt_contexts_with_ip,
-        _ip_identity_prompt_terms_from_context,
-    )
+    from pixelle_video.utils.content_generators import _enrich_prompt_contexts_with_ip
 
     ip_profile = _make_ip_profile()
     frame = _make_frame(
@@ -259,5 +242,4 @@ def test_absent_type_produces_empty_terms():
         style_context={},
     )
 
-    terms = _ip_identity_prompt_terms_from_context(result.frame_contexts[0])
-    assert terms == ()
+    assert result.frame_contexts[0].get("ip_scene_description", "") == ""

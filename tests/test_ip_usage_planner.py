@@ -667,9 +667,9 @@ async def test_appearance_planner_uses_role_presets_from_ip_profile():
     )
 
     pkg0 = packages[0]
-    # With replacement semantics, role_label is stored separately from description
+    # With role semantics, role_label is stored separately from description
     assert pkg0.role_slot is not None
-    assert "替换" in pkg0.appearance_description
+    assert "作为场景中的" in pkg0.appearance_description
     assert pkg0.outfit_theme is not None
     assert len(pkg0.accessories) > 0
 
@@ -816,8 +816,8 @@ def test_build_appearance_description_uses_replacement_language():
         presence_type=IPPresenceType.BALANCED_NARRATIVE,
         prompt_weight=0.9,
     )
-    assert "替换画面配角位置" in desc
-    assert "作为" not in desc
+    assert "作为场景中的配角" in desc
+    assert "替换画面" not in desc
 
 
 def test_build_appearance_description_absent_returns_no_show():
@@ -943,57 +943,13 @@ async def test_appearance_planner_role_slot_matches_presence_type():
         storyboard_plan=_make_plan(hero_frame), ip_profile=profile
     ))[0]
     assert hero_pkg.role_slot is IPRoleSlot.PROTAGONIST
-    assert "替换画面主角位置" in hero_pkg.appearance_description
+    assert "作为场景中的主角" in hero_pkg.appearance_description
 
     absent_pkg = (await IPFrameAppearancePlanner().plan_batch(
         storyboard_plan=_make_plan(absent_frame), ip_profile=profile
     ))[0]
     # Pure landscape → SYMBOLIC_ONLY → PASSERBY
     assert absent_pkg.role_slot is IPRoleSlot.PASSERBY
-
-
-def test_ip_identity_prompt_terms_skips_absent_role_slot():
-    """role_slot=absent → _ip_identity_prompt_terms_from_context returns empty."""
-    from pixelle_video.utils.content_generators import (
-        _ip_identity_prompt_terms_from_context,
-    )
-
-    ctx = {"ip_adaptation": {"role_slot": "absent", "appearance_description": "本帧不出镜"}}
-    assert _ip_identity_prompt_terms_from_context(ctx) == ()
-
-
-def test_ip_identity_prompt_terms_skips_below_weight_threshold():
-    """prompt_weight < 0.7 → skip post-append."""
-    from pixelle_video.utils.content_generators import (
-        _ip_identity_prompt_terms_from_context,
-    )
-
-    ctx = {
-        "ip_adaptation": {
-            "role_slot": "supporting",
-            "appearance_description": "白色卡通兔子替换画面配角位置",
-            "prompt_weight": 0.5,
-        }
-    }
-    assert _ip_identity_prompt_terms_from_context(ctx) == ()
-
-
-def test_ip_identity_prompt_terms_includes_above_weight_threshold():
-    """prompt_weight >= 0.7 → post-append the appearance_description."""
-    from pixelle_video.utils.content_generators import (
-        _ip_identity_prompt_terms_from_context,
-    )
-
-    ctx = {
-        "ip_adaptation": {
-            "role_slot": "protagonist",
-            "appearance_description": "白色卡通兔子替换画面主角位置",
-            "prompt_weight": 0.9,
-        }
-    }
-    terms = _ip_identity_prompt_terms_from_context(ctx)
-    assert len(terms) == 1
-    assert "白色卡通兔子" in terms[0]
 
 
 def test_visible_anchors_excludes_identity_anchors_role_labels():
@@ -1034,36 +990,3 @@ def test_build_visual_identity_excludes_role_labels():
     assert "古城文旅向导" not in result
 
 
-def test_ip_identity_prompt_terms_uses_visual_identity_as_fallback():
-    """无 appearance_description 时，回退到 visual_identity（纯视觉特征）。"""
-    from pixelle_video.utils.content_generators import (
-        _ip_identity_prompt_terms_from_context,
-    )
-
-    ctx = {
-        "ip_adaptation": {
-            "role_slot": "protagonist",
-            "prompt_weight": 0.9,
-            "visual_identity": "白色卡通兔子，蓝色领结，长耳朵",
-        }
-    }
-    terms = _ip_identity_prompt_terms_from_context(ctx)
-    assert len(terms) == 1
-    assert "蓝色领结" in terms[0]
-    assert "白色卡通兔子" in terms[0]
-
-
-def test_ip_identity_prompt_terms_empty_fallback_when_no_visual_identity():
-    """既无 appearance_description 也无 visual_identity 时返回空。"""
-    from pixelle_video.utils.content_generators import (
-        _ip_identity_prompt_terms_from_context,
-    )
-
-    ctx = {
-        "ip_adaptation": {
-            "role_slot": "protagonist",
-            "prompt_weight": 0.9,
-        }
-    }
-    terms = _ip_identity_prompt_terms_from_context(ctx)
-    assert terms == ()

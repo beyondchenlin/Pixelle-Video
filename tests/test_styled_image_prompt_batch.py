@@ -393,6 +393,9 @@ async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints
                     (),
                     {
                         "frame_id": plan.frames[0].frame_id,
+                        "appearance_description": "",
+                        "negative_constraints": ("avoid extra text", "avoid sticker-like IP"),
+                        "image_text_plan": None,
                         "to_dict": lambda self: {
                             "frame_id": plan.frames[0].frame_id,
                             "ip_presence_type": "scene_integrated",
@@ -467,6 +470,9 @@ async def test_generate_styled_image_prompt_batch_keeps_per_frame_ip_negative_ou
                     (),
                     {
                         "frame_id": plan.frames[0].frame_id,
+                        "appearance_description": "",
+                        "negative_constraints": ("avoid frame one sticker",),
+                        "image_text_plan": None,
                         "to_dict": lambda self: {
                             "frame_id": plan.frames[0].frame_id,
                             "ip_presence_type": "scene_integrated",
@@ -480,6 +486,9 @@ async def test_generate_styled_image_prompt_batch_keeps_per_frame_ip_negative_ou
                     (),
                     {
                         "frame_id": plan.frames[1].frame_id,
+                        "appearance_description": "",
+                        "negative_constraints": ("avoid frame two mascot",),
+                        "image_text_plan": None,
                         "to_dict": lambda self: {
                             "frame_id": plan.frames[1].frame_id,
                             "ip_presence_type": "scene_integrated",
@@ -557,6 +566,19 @@ async def test_generate_styled_image_prompt_batch_merges_all_z_image_constraints
                     (),
                     {
                         "frame_id": plan.frames[0].frame_id,
+                        "appearance_description": "",
+                        "negative_constraints": ("avoid IP sticker",),
+                        "image_text_plan": type(
+                            "ITP", (),
+                            {
+                                "to_dict": lambda self: {
+                                    "summary_text": None,
+                                    "scene_text": [],
+                                    "visible_text_whitelist": ["Changle Gate"],
+                                    "text_safety_rules": [],
+                                },
+                            },
+                        )(),
                         "to_dict": lambda self: {
                             "frame_id": plan.frames[0].frame_id,
                             "ip_presence_type": "scene_integrated",
@@ -625,6 +647,17 @@ async def test_z_image_final_prompt_contains_structured_ip_identity_anchors(monk
         frames=[hero_frame],
     )
 
+    captured_contexts = {}
+
+    async def capturing_generate_image_prompts(*args, **kwargs):
+        captured_contexts["prompt_contexts"] = kwargs.get("prompt_contexts")
+        return ["Zhengding gate prompt"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        capturing_generate_image_prompts,
+    )
+
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
         narrations=["IP主角登场，白色卡通兔子引导观众探索古城。"],
@@ -645,10 +678,15 @@ async def test_z_image_final_prompt_contains_structured_ip_identity_anchors(monk
         ),
     )
 
+    # Verify ip_scene_description is set in prompt context (pre-integrated, not post-appended)
+    ctx_envelope = captured_contexts.get("prompt_contexts")
+    if ctx_envelope is not None and hasattr(ctx_envelope, "frame_contexts"):
+        fc = ctx_envelope.frame_contexts[0]
+        assert "ip_scene_description" in fc
+        assert "白色卡通兔子" in fc["ip_scene_description"]
+
+    # Negative constraints still flow through system-level post-processing
     final_prompt = result.prompts[0]
-    # With IP hero frame (STRONG_IDENTITY, weight=0.9 >= threshold 0.7),
-    # the IP appearance_description is post-appended
-    assert "白色卡通兔子" in final_prompt
     assert "避免画成普通人类讲解者" in final_prompt
 
 
@@ -770,13 +808,12 @@ def test_sanitize_visual_prompt_text_removes_full_width_colon_field_labels():
 def test_sanitize_visual_prompt_text_removes_world_profile_field_labels():
     prompt = sanitize_visual_prompt_text(
         "generation_world_profile: city, story_constraints: protect gate, "
-        "ip_integration_guidance: low intrusion, ip_adaptation: guide"
+        "ip_integration_guidance: low intrusion"
     )
 
     assert "generation_world_profile" not in prompt
     assert "story_constraints" not in prompt
     assert "ip_integration_guidance" not in prompt
-    assert "ip_adaptation" not in prompt
     assert "city" in prompt
     assert "protect gate" in prompt
 
@@ -805,6 +842,19 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
                     (),
                     {
                         "frame_id": plan.frames[0].frame_id,
+                        "appearance_description": "白色卡通兔子作为场景中的陪伴角色，低侵入融入画面",
+                        "negative_constraints": ("避免角色贴纸感",),
+                        "image_text_plan": type(
+                            "ITP", (),
+                            {
+                                "to_dict": lambda self: {
+                                    "summary_text": "从长乐门出发",
+                                    "scene_text": [],
+                                    "visible_text_whitelist": ["从长乐门出发", "长乐门"],
+                                    "text_safety_rules": [],
+                                },
+                            },
+                        )(),
                         "to_dict": lambda self: {
                             "frame_id": plan.frames[0].frame_id,
                             "ip_presence_type": "scene_integrated",
@@ -897,10 +947,13 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
     assert planner_calls["generation_world_profile"].summary == "正定古城清晨漫游"
     assert isinstance(planner_calls["prompt_contexts"], PromptContextEnvelope)
     assert (
-        planner_calls["prompt_contexts"].frame_contexts[0]["ip_adaptation"]["ip_presence_type"]
-        == "scene_integrated"
+        "白色卡通兔子"
+        in planner_calls["prompt_contexts"].frame_contexts[0].get("ip_scene_description", "")
     )
-    assert "ip_presence_options" in planner_calls["prompt_contexts"].frame_contexts[0]
+    assert isinstance(
+        planner_calls["prompt_contexts"].frame_contexts[0].get("ip_negative_constraints"),
+        list,
+    )
     assert "style_context" in planner_calls["prompt_contexts"].frame_contexts[0]
     assert result.planning_snapshot["ip_adaptations_by_frame"][plan.frames[0].frame_id][
         "ip_presence_type"
@@ -961,6 +1014,19 @@ async def test_generate_styled_image_prompt_batch_uses_visible_text_whitelist_fo
                     (),
                     {
                         "frame_id": plan.frames[0].frame_id,
+                        "appearance_description": "",
+                        "negative_constraints": (),
+                        "image_text_plan": type(
+                            "ITP", (),
+                            {
+                                "to_dict": lambda self: {
+                                    "summary_text": "Start from Changle Gate",
+                                    "scene_text": ["Changle Gate"],
+                                    "visible_text_whitelist": ["Start from Changle Gate", "Changle Gate"],
+                                    "text_safety_rules": [],
+                                },
+                            },
+                        )(),
                         "to_dict": lambda self: {
                             "frame_id": plan.frames[0].frame_id,
                             "ip_presence_type": "scene_integrated",

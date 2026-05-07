@@ -18,10 +18,7 @@ def test_image_prompt_prompt_explains_generation_world_profile_contract():
             {
                 "frame_source_text": "从长乐门出发。",
                 "visual_goal": "表现清晨古城入口和陪伴式向导。",
-                "ip_adaptation": {
-                    "ip_presence_type": "scene_integrated",
-                    "presence_mode": "support",
-                },
+                "ip_scene_description": "白色卡通兔子站在古城门前",
             }
         ],
     )
@@ -43,5 +40,5 @@ def test_image_prompt_prompt_explains_generation_world_profile_contract():
     assert "protected original source subject" in prompt
     assert "story_constraints" in prompt
     assert "ip_integration_guidance" in prompt
-    assert "ip_adaptation" in prompt
+    assert "ip_scene_description" in prompt
     assert "must not copy internal keys or JSON labels" in prompt

@@ -188,7 +188,7 @@ async def test_composer_passes_ip_controls_without_deciding_ip_adaptation(monkey
     assert captured["ip_enabled"] is True
     assert captured["ip_profile"] == profile
     assert captured["scene_casts_by_frame"] == scene_casts_by_frame
-    assert "ip_adaptation" not in captured["prompt_contexts"].frame_contexts[0]
+    assert "ip_scene_description" not in captured["prompt_contexts"].frame_contexts[0]
     assert result.prompt_plan_bundle.prompt_plans[0].metadata["ip_presence_type"] == (
         "scene_integrated"
     )
