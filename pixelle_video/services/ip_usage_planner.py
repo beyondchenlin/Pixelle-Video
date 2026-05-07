@@ -80,6 +80,7 @@ class IPUsagePlanner:
             identity_anchors_visible=_visible_anchors(presence_type, ip_profile),
             identity_anchors_suppressed=_suppressed_anchors(presence_type, ip_profile),
             identity_color_terms=_identity_color_terms(ip_profile),
+            visual_identity=_build_visual_identity(ip_profile),
             action=_action_for_presence(presence_type),
             expression=_expression_for_presence(presence_type),
             camera_relationship=_camera_relationship_for_presence(presence_type),
