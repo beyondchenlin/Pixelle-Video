@@ -264,7 +264,13 @@ class PixelleVideoCore:
         reason: str,
     ) -> bool:
         role = self._normalize_comfyui_backend_role(backend_role)
-        return await self._restart_comfyui_backend_role(role, reason)
+        restarted = await self._restart_comfyui_backend_role(role, reason)
+        if not restarted:
+            scope = self._local_comfyui_task_scope.get()
+            if scope is not None:
+                role_state = scope.state_for(role)
+                role_state.pending_memory_release = True
+        return restarted
 
     async def await_comfyui_backend_ready(self, backend_role: str) -> None:
         role = self._normalize_comfyui_backend_role(backend_role)
