@@ -86,7 +86,7 @@
   },
   "8": {
     "inputs": {
-      "model": "whisper-tiny (auto-download)",
+      "model": "whisper-small (auto-download)",
       "device": "auto",
       "dtype": "auto"
     },
