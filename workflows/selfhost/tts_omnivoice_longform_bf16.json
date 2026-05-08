@@ -60,6 +60,10 @@
       "ref_audio": [
         "5",
         0
+      ],
+      "whisper_model": [
+        "8",
+        0
       ]
     },
     "class_type": "OmniVoiceLongformTTS",
@@ -78,6 +82,17 @@
     "class_type": "SaveAudio",
     "_meta": {
       "title": "Save Audio (FLAC)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "model": "whisper-tiny (auto-download)",
+      "device": "auto",
+      "dtype": "auto"
+    },
+    "class_type": "OmniVoiceWhisperLoader",
+    "_meta": {
+      "title": "OmniVoice Whisper Loader"
     }
   }
 }
