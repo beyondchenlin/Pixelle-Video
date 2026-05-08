@@ -194,7 +194,7 @@ function Get-BackendArguments {
     [void]$arguments.Add([string]$Config.Port)
     [void]$arguments.Add('--enable-cors-header')
     [void]$arguments.Add('*')
-    [void]$arguments.Add('--highvram')
+    [void]$arguments.Add('--normalvram')
     [void]$arguments.Add('--disable-async-offload')
 
     return [string[]]$arguments.ToArray()
