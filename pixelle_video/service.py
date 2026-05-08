@@ -254,8 +254,19 @@ class PixelleVideoCore:
             self._comfyui_restart_tasks.pop(role, None)
 
         self._comfyui_restart_tasks[role] = asyncio.create_task(
-            self._restart_comfyui_backend_role(role, reason)
+            self._scheduled_backend_restart(role, reason)
         )
+
+    async def _scheduled_backend_restart(
+        self,
+        backend_role: str,
+        reason: str,
+    ) -> bool:
+        role = self._normalize_comfyui_backend_role(backend_role)
+        restarted = await self._restart_comfyui_backend_role(role, reason)
+        if restarted:
+            self._mark_local_comfyui_released(backend_role=role)
+        return restarted
 
     async def await_comfyui_backend_ready(self, backend_role: str) -> None:
         role = self._normalize_comfyui_backend_role(backend_role)
