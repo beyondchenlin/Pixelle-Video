@@ -1,50 +1,73 @@
-# IP Design Entry Contract Realignment Implementation Plan
+# IP Design Source-Root Realignment Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Restore the left-side IP/world generation entry so request-level `generation_world_hint` and IP controls reach the existing downstream pipeline, then align two small IP design data-shape mismatches.
+**Goal:** Realign IP generation from the source: formal request fields, durable IP facts, planner actorization, SceneCast authority, prompt-context auditability, and verification gates all agree with the historical IP design requirements.
 
-**Architecture:** Keep the formal generation contract narrow. The left content module owns request-level world hint and selected IP IDs; helper fields stay in Streamlit session state or draft API payloads. Downstream API, contract, pipeline, and prompt composition remain unchanged except for focused tests proving the contract is still connected.
+**Architecture:** Introduce a shared pure-Python request contract so web UI and request builders cannot drift. Keep `IPProfile` as the durable fact source, keep `generation_world_hint` request-scoped, feed the actorization planner the full IP/world context, and validate that final prompts do not leak internal control keys.
 
-**Tech Stack:** Python 3.11, Streamlit, Pydantic v2, pytest, Pixelle `IPProfile` / `AssetBible` / `ContentWorldPlanner` / `IPFrameAppearancePlanner`.
+**Tech Stack:** Python 3.11, Streamlit, Pydantic v2, pytest, Pixelle `IPProfile`, `ContentWorldProfile`, `IPUsagePlanner`, `IPFrameAppearancePlanner`, `PromptContextEnvelope`.
 
 ---
 
 ## File Structure
 
+- Create: `pixelle_video/contracts/__init__.py`
+  - Exports shared generation-request contract helpers.
+- Create: `pixelle_video/contracts/ip_generation_request.py`
+  - Owns formal content IP/world request fields, helper-only fields, removed legacy fields, and formal payload building.
+- Create: `tests/test_ip_generation_request_contract.py`
+  - Locks the shared request contract.
 - Modify: `web/components/content_ip_world_controls.py`
-  - Owns left-side IP selection and request-level world hint UI.
-  - Must return only formal generation fields plus IP controls.
+  - Renders left-side IP/world controls and returns only the formal payload.
 - Modify: `web/i18n/locales/zh_CN.json`
-  - Adds Chinese labels for request-level world hint and helper buttons.
+  - Removes old legacy field labels and adds request world-hint labels.
 - Modify: `web/i18n/locales/en_US.json`
-  - Adds English labels for request-level world hint and helper buttons.
+  - Removes old legacy field labels and adds request world-hint labels.
 - Modify: `tests/test_content_ip_world_controls.py`
-  - Update fake UI only where current UI rendering requires `container()`.
-  - Keep existing behavior expectations for `generation_world_hint`.
+  - Locks payload, helper-state, action-button, and fake UI behavior.
+- Create: `tests/test_content_ip_world_static_contract.py`
+  - Fails when removed legacy fields reappear in the left-entry UI or i18n files.
+- Modify: `tests/test_output_preview.py`
+  - Proves helper-only and removed fields are not forwarded to final generation requests.
+- Create: `pixelle_video/services/ip_color_palette.py`
+  - Builds planner-readable color palette prompt entries and separates hex values from prompt text.
+- Modify: `pixelle_video/services/ip_profile_readiness.py`
+  - Makes `ip_generation_identity_terms()` work for both `IPProfile` objects and mapping payloads.
 - Modify: `web/components/ip_design_workbench.py`
-  - Align readiness and color-palette save shape.
+  - Uses shared readiness and shared color-palette builder.
 - Modify: `tests/test_ip_design_workbench_ui.py`
-  - Add regression coverage for anchor-only readiness and color-palette prompt entry shape.
-- Optional modify: `tests/test_style_config_text_rendering_ui.py`
-  - Only if a stale style-side IP payload test expects old helper fields.
+  - Locks anchor-only readiness and saved color-palette shape.
+- Modify: `tests/test_ip_usage_planner.py`
+  - Locks color consumption, full planner input, SceneCast policy, and invalid SceneCast fallback.
+- Modify: `pixelle_video/services/ip_usage_planner.py`
+  - Passes full actorization and generation world context into LLM role selection.
+- Modify: `pixelle_video/prompts/ip_role_selection.py`
+  - Separates stable identity, adaptable actor choices, and per-frame presence rules in the LLM prompt.
+- Modify: `pixelle_video/utils/content_generators.py`
+  - Carries structured `ip_adaptation` into prompt contexts and continues sanitizing final prompt text near result assembly.
+- Modify: `pixelle_video/utils/prompt_helper.py`
+  - Extends final prompt sanitization to cover the expanded IP/world internal key set.
+- Modify: `tests/test_ip_prompt_integration.py`
+  - Proves prompt contexts receive structured `ip_adaptation`.
+- Modify: `tests/test_styled_image_prompt_batch.py`
+  - Proves the main styled-image path strips stale IP context when disabled and validates prompt leakage when enabled.
 
-## Task 1: Reproduce Baseline And Confirm Scope
+---
+
+## Task 1: Baseline And Shared Request Contract
 
 **Files:**
-- Read: `docs/superpowers/specs/2026-05-24-ip-design-entry-contract-realignment-design.md`
-- Test: `tests/test_content_ip_world_controls.py`
-- Test: `tests/test_content_input_storyboard_ui.py`
-- Test: `tests/test_output_preview.py`
-- Test: `tests/test_video_api.py`
-- Test: `tests/test_image_prompt_composer.py`
+- Create: `pixelle_video/contracts/__init__.py`
+- Create: `pixelle_video/contracts/ip_generation_request.py`
+- Create: `tests/test_ip_generation_request_contract.py`
 
-- [ ] **Step 1: Run the failing left-entry test group**
+- [ ] **Step 1: Run the current failing and passing baseline**
 
 Run:
 
 ```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_content_ip_world_controls.py -q
+./.venv/Scripts/python.exe -m pytest tests/test_content_ip_world_controls.py tests/test_content_input_storyboard_ui.py::test_left_content_ip_payload_render_content_input tests/test_output_preview.py::test_build_single_generation_request_includes_generation_world_hint -q
 ```
 
 Expected now:
@@ -52,10 +75,6 @@ Expected now:
 ```text
 11 failed, 4 passed
 ```
-
-The failure list should include missing `generation_world_hint`, missing `safe_rerun`, missing i18n keys, stale helper world hint not cleared, and fake UI missing `container()`.
-
-- [ ] **Step 2: Run the downstream proof tests**
 
 Run:
 
@@ -69,44 +88,217 @@ Expected now:
 4 passed
 ```
 
-This proves the first fix belongs in the left-side control module, not in API schema or standard pipeline.
+- [ ] **Step 2: Write the failing shared contract tests**
 
-- [ ] **Step 3: Commit nothing**
-
-No code has changed in this task.
-
-## Task 2: Restore `generation_world_hint` Payload Contract
-
-**Files:**
-- Modify: `web/components/content_ip_world_controls.py`
-- Test: `tests/test_content_ip_world_controls.py`
-
-- [ ] **Step 1: Write or keep the failing payload tests**
-
-Keep these existing tests as the contract:
+Create `tests/test_ip_generation_request_contract.py`:
 
 ```python
-def test_render_content_ip_world_controls_keeps_world_hint_without_ip():
-    fake_ui = _FakeContentIPWorldUI()
-    fake_ui.session_state["content_generation_world_hint"] = "Manual request world."
-    loader_calls = []
+from pixelle_video.contracts.ip_generation_request import (
+    FORMAL_CONTENT_IP_WORLD_FIELDS,
+    HELPER_ONLY_CONTENT_IP_WORLD_FIELDS,
+    REMOVED_CONTENT_IP_WORLD_FIELDS,
+    build_formal_content_ip_world_payload,
+    dropped_content_ip_world_fields,
+)
 
-    payload = content_ip_world_controls.render_content_ip_world_controls(
-        ui=fake_ui,
-        translate=_tr,
-        pixelle_video=None,
-        content_context={"title": "Demo", "text": "Script text"},
-        asset_bible_loader=lambda: loader_calls.append("called"),
+
+def test_formal_field_set_is_narrow():
+    assert FORMAL_CONTENT_IP_WORLD_FIELDS == {
+        "ip_enabled",
+        "ip_asset_bible_id",
+        "ip_profile_id",
+        "generation_world_hint",
+    }
+
+
+def test_removed_and_helper_field_sets_are_not_formal():
+    forbidden = HELPER_ONLY_CONTENT_IP_WORLD_FIELDS | REMOVED_CONTENT_IP_WORLD_FIELDS
+    assert FORMAL_CONTENT_IP_WORLD_FIELDS.isdisjoint(forbidden)
+    assert REMOVED_CONTENT_IP_WORLD_FIELDS == {
+        "generation_notes",
+        "slot_preference_override",
+        "presence_strength",
+    }
+
+
+def test_build_formal_payload_drops_helper_and_removed_fields():
+    payload = build_formal_content_ip_world_payload(
+        {
+            "ip_enabled": True,
+            "ip_asset_bible_id": "bible_demo",
+            "ip_profile_id": "ip_main",
+            "generation_world_hint": "script world",
+            "ip_profile_world_hint": "asset helper",
+            "generation_world_hint_source": "ip_default",
+            "generation_notes": "old notes",
+            "slot_preference_override": "prefer_main",
+            "presence_strength": "strong",
+        }
     )
 
     assert payload == {
-        "ip_enabled": False,
-        "generation_world_hint": "Manual request world.",
+        "ip_enabled": True,
+        "ip_asset_bible_id": "bible_demo",
+        "ip_profile_id": "ip_main",
+        "generation_world_hint": "script world",
     }
-    assert loader_calls == []
+
+
+def test_disabled_ip_still_carries_request_world_hint():
+    assert build_formal_content_ip_world_payload(
+        {
+            "ip_enabled": False,
+            "ip_asset_bible_id": "bible_demo",
+            "ip_profile_id": "ip_main",
+            "generation_world_hint": "world without selected IP",
+        }
+    ) == {
+        "ip_enabled": False,
+        "generation_world_hint": "world without selected IP",
+    }
+
+
+def test_dropped_content_ip_world_fields_reports_only_known_non_formal_fields():
+    assert dropped_content_ip_world_fields(
+        {
+            "ip_profile_world_hint": "asset helper",
+            "generation_notes": "old notes",
+            "unknown": "ignored",
+        }
+    ) == {"ip_profile_world_hint", "generation_notes"}
 ```
 
-Keep this existing IP-enabled payload assertion:
+- [ ] **Step 3: Run the new tests and confirm import failure**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_ip_generation_request_contract.py -q
+```
+
+Expected now:
+
+```text
+ERROR
+```
+
+The error should mention `pixelle_video.contracts`.
+
+- [ ] **Step 4: Implement the shared contract module**
+
+Create `pixelle_video/contracts/__init__.py`:
+
+```python
+from pixelle_video.contracts.ip_generation_request import (
+    FORMAL_CONTENT_IP_WORLD_FIELDS,
+    HELPER_ONLY_CONTENT_IP_WORLD_FIELDS,
+    REMOVED_CONTENT_IP_WORLD_FIELDS,
+    build_formal_content_ip_world_payload,
+    dropped_content_ip_world_fields,
+)
+
+__all__ = [
+    "FORMAL_CONTENT_IP_WORLD_FIELDS",
+    "HELPER_ONLY_CONTENT_IP_WORLD_FIELDS",
+    "REMOVED_CONTENT_IP_WORLD_FIELDS",
+    "build_formal_content_ip_world_payload",
+    "dropped_content_ip_world_fields",
+]
+```
+
+Create `pixelle_video/contracts/ip_generation_request.py`:
+
+```python
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+
+FORMAL_CONTENT_IP_WORLD_FIELDS = frozenset(
+    {
+        "ip_enabled",
+        "ip_asset_bible_id",
+        "ip_profile_id",
+        "generation_world_hint",
+    }
+)
+HELPER_ONLY_CONTENT_IP_WORLD_FIELDS = frozenset(
+    {
+        "ip_profile_world_hint",
+        "generation_world_hint_source",
+        "generation_world_hint_last_value",
+    }
+)
+REMOVED_CONTENT_IP_WORLD_FIELDS = frozenset(
+    {
+        "generation_notes",
+        "slot_preference_override",
+        "presence_strength",
+    }
+)
+
+
+def build_formal_content_ip_world_payload(source: Mapping[str, Any] | None) -> dict[str, Any]:
+    values = dict(source or {})
+    payload: dict[str, Any] = {"ip_enabled": bool(values.get("ip_enabled"))}
+    if payload["ip_enabled"]:
+        asset_bible_id = _first_text(values.get("ip_asset_bible_id"))
+        profile_id = _first_text(values.get("ip_profile_id"))
+        if asset_bible_id:
+            payload["ip_asset_bible_id"] = asset_bible_id
+        if profile_id:
+            payload["ip_profile_id"] = profile_id
+    world_hint = _first_text(values.get("generation_world_hint"))
+    if world_hint:
+        payload["generation_world_hint"] = world_hint
+    return payload
+
+
+def dropped_content_ip_world_fields(source: Mapping[str, Any] | None) -> set[str]:
+    keys = set(dict(source or {}))
+    return keys & (HELPER_ONLY_CONTENT_IP_WORLD_FIELDS | REMOVED_CONTENT_IP_WORLD_FIELDS)
+
+
+def _first_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return text
+```
+
+- [ ] **Step 5: Run the shared contract tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_ip_generation_request_contract.py -q
+```
+
+Expected:
+
+```text
+5 passed
+```
+
+- [ ] **Step 6: Commit**
+
+```powershell
+git add pixelle_video/contracts tests/test_ip_generation_request_contract.py
+git commit -m "feat: add shared IP generation request contract"
+```
+
+---
+
+## Task 2: Rebuild The Left IP/World Entry At The Source
+
+**Files:**
+- Modify: `web/components/content_ip_world_controls.py`
+- Modify: `tests/test_content_ip_world_controls.py`
+
+- [ ] **Step 1: Lock the formal payload behavior in the existing tests**
+
+Keep or add these assertions in `tests/test_content_ip_world_controls.py`:
 
 ```python
 assert payload == {
@@ -117,14 +309,33 @@ assert payload == {
 }
 assert fake_ui.session_state["content_ip_profile_world_hint"] == "Friendly guide world."
 assert "ip_profile_world_hint" not in payload
+assert "generation_notes" not in payload
+assert "slot_preference_override" not in payload
+assert "presence_strength" not in payload
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+For disabled IP:
+
+```python
+assert payload == {
+    "ip_enabled": False,
+    "generation_world_hint": "Manual request world.",
+}
+```
+
+Add `container()` to `_FakeContentIPWorldUI`:
+
+```python
+def container(self, **kwargs):
+    return _FakeContext()
+```
+
+- [ ] **Step 2: Run the focused tests and confirm failure**
 
 Run:
 
 ```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_content_ip_world_controls.py::test_render_content_ip_world_controls_keeps_world_hint_without_ip tests/test_content_ip_world_controls.py::test_render_content_ip_world_controls_returns_selected_ip_payload_without_helper_field -q
+./.venv/Scripts/python.exe -m pytest tests/test_content_ip_world_controls.py -q
 ```
 
 Expected now:
@@ -133,58 +344,49 @@ Expected now:
 FAILED
 ```
 
-The first failure should show that `generation_world_hint` is missing.
+- [ ] **Step 3: Replace local payload construction with the shared contract**
 
-- [ ] **Step 3: Replace dead payload fields with request world hint**
-
-In `web/components/content_ip_world_controls.py`, change the constants and payload builder to this shape:
+In `web/components/content_ip_world_controls.py`, import:
 
 ```python
+from pixelle_video.contracts.ip_generation_request import build_formal_content_ip_world_payload
 from web.utils.content_api import generate_world_hint_draft
 from web.utils.streamlit_helpers import safe_rerun
+```
 
-CONTENT_IP_STATE_PREFIX = "content_ip"
+Use these state keys:
+
+```python
 CONTENT_GENERATION_WORLD_HINT_KEY = "content_generation_world_hint"
 CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY = "content_generation_world_hint_source"
 CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY = "content_generation_world_hint_last_value"
 CONTENT_IP_PROFILE_WORLD_HINT_KEY = "content_ip_profile_world_hint"
+```
 
+Delete the old state keys:
 
+```python
+CONTENT_GENERATION_NOTES_KEY
+CONTENT_SLOT_PREFERENCE_KEY
+CONTENT_PRESENCE_STRENGTH_KEY
+```
+
+Replace the old local `build_content_ip_world_payload()` body with:
+
+```python
 def build_content_ip_world_payload(
     *,
     ip_payload: Mapping[str, Any] | None = None,
     generation_world_hint: str | None = None,
 ) -> dict[str, Any]:
-    """Build the formal content IP/world payload for request submission."""
     source = dict(ip_payload or {})
-    payload: dict[str, Any] = {"ip_enabled": bool(source.get("ip_enabled", False))}
-    if payload["ip_enabled"]:
-        ip_asset_bible_id = _first_text(source.get("ip_asset_bible_id"))
-        ip_profile_id = _first_text(source.get("ip_profile_id"))
-        if ip_asset_bible_id:
-            payload["ip_asset_bible_id"] = ip_asset_bible_id
-        if ip_profile_id:
-            payload["ip_profile_id"] = ip_profile_id
-
-    hint = _first_text(generation_world_hint)
-    if hint:
-        payload["generation_world_hint"] = hint
-    return payload
+    source["generation_world_hint"] = generation_world_hint
+    return build_formal_content_ip_world_payload(source)
 ```
 
-Remove the formal forwarding of:
+- [ ] **Step 4: Restore helper state and request world-hint actions**
 
-```python
-"generation_notes"
-"slot_preference_override"
-"presence_strength"
-```
-
-These fields are currently UI-only dead parameters because the formal generation contract does not consume them.
-
-- [ ] **Step 4: Sync IP default world hint into helper session state**
-
-Add this helper in `web/components/content_ip_world_controls.py`:
+Add:
 
 ```python
 def _sync_ip_profile_world_hint(session_state, ip_profile_world_hint: str) -> None:
@@ -193,32 +395,6 @@ def _sync_ip_profile_world_hint(session_state, ip_profile_world_hint: str) -> No
         session_state[CONTENT_IP_PROFILE_WORLD_HINT_KEY] = hint
         return
     session_state.pop(CONTENT_IP_PROFILE_WORLD_HINT_KEY, None)
-```
-
-In `render_content_ip_world_controls()`, after `render_ip_prompt_chain_controls(...)`, add:
-
-```python
-ip_default_world_hint = (
-    _first_text(ip_payload.get("ip_profile_world_hint"))
-    if ip_payload.get("ip_enabled")
-    else ""
-)
-_sync_ip_profile_world_hint(session_state, ip_default_world_hint)
-```
-
-- [ ] **Step 5: Render the request-level world hint text area**
-
-Inside the expander, after IP controls, render:
-
-```python
-generation_world_hint = ui.text_area(
-    translate("content.ip_world.generation_world_hint"),
-    key=CONTENT_GENERATION_WORLD_HINT_KEY,
-    value=session_state.get(CONTENT_GENERATION_WORLD_HINT_KEY, ""),
-    height=92,
-    help=translate("content.ip_world.generation_world_hint_help"),
-)
-_mark_world_hint_manual_if_user_edited(session_state, generation_world_hint)
 ```
 
 Add:
@@ -234,80 +410,88 @@ def _mark_world_hint_manual_if_user_edited(session_state, current_hint: str) -> 
         session_state[CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY] = current
 ```
 
-- [ ] **Step 6: Return the formal payload**
-
-At the end of `render_content_ip_world_controls()`, return:
+Add the "use IP default" handler:
 
 ```python
-return build_content_ip_world_payload(
-    ip_payload=ip_payload,
-    generation_world_hint=session_state.get(
-        CONTENT_GENERATION_WORLD_HINT_KEY,
-        generation_world_hint,
-    ),
+def _handle_use_ip_default_world_hint(
+    *,
+    session_state,
+    ui,
+    translate: Translate,
+    ip_default_world_hint: str,
+) -> None:
+    hint = _first_text(ip_default_world_hint)
+    if not hint:
+        ui.warning(translate("content.ip_world.missing_ip_default"))
+        return
+    session_state[CONTENT_GENERATION_WORLD_HINT_KEY] = hint
+    session_state[CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY] = "ip_default"
+    session_state[CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY] = hint
+    safe_rerun()
+```
+
+Add the "generate from script" handler:
+
+```python
+def _handle_generate_world_hint_from_content(
+    *,
+    session_state,
+    ui,
+    translate: Translate,
+    content_context: Mapping[str, Any] | None,
+    storyboard_prompt_language: str,
+    world_preset_id: str | None,
+    ip_default_world_hint: str,
+    world_hint_draft_generator: Callable[..., Mapping[str, Any]],
+) -> None:
+    context = dict(content_context or {})
+    source_text = _first_text(context.get("text"))
+    if not source_text:
+        ui.warning(translate("content.ip_world.missing_content"))
+        return
+    try:
+        response = world_hint_draft_generator(
+            source_text=source_text,
+            title=_first_text(context.get("title")) or None,
+            world_preset_id=world_preset_id,
+            storyboard_prompt_language=storyboard_prompt_language,
+            ip_default_world_hint=_first_text(ip_default_world_hint) or None,
+        )
+    except Exception:
+        logger.exception("failed to generate content world hint draft")
+        ui.warning(translate("content.ip_world.generate_failed"))
+        return
+    hint = _first_text(response.get("world_hint_draft")) if isinstance(response, Mapping) else ""
+    if not hint:
+        ui.warning(translate("content.ip_world.generate_failed"))
+        return
+    session_state[CONTENT_GENERATION_WORLD_HINT_KEY] = hint
+    session_state[CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY] = "generated_from_script"
+    session_state[CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY] = hint
+    safe_rerun()
+```
+
+- [ ] **Step 5: Render only the request world hint controls**
+
+In the expander, after the existing `render_ip_prompt_chain_controls()` call, render:
+
+```python
+ip_default_world_hint = (
+    _first_text(ip_payload.get("ip_profile_world_hint"))
+    if ip_payload.get("ip_enabled")
+    else ""
 )
-```
+_sync_ip_profile_world_hint(session_state, ip_default_world_hint)
 
-- [ ] **Step 7: Run focused tests**
+generation_world_hint = ui.text_area(
+    translate("content.ip_world.generation_world_hint"),
+    key=CONTENT_GENERATION_WORLD_HINT_KEY,
+    value=session_state.get(CONTENT_GENERATION_WORLD_HINT_KEY, ""),
+    height=92,
+    help=translate("content.ip_world.generation_world_hint_help"),
+)
+_mark_world_hint_manual_if_user_edited(session_state, generation_world_hint)
 
-Run:
-
-```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_content_ip_world_controls.py::test_render_content_ip_world_controls_keeps_world_hint_without_ip tests/test_content_ip_world_controls.py::test_render_content_ip_world_controls_returns_selected_ip_payload_without_helper_field tests/test_content_ip_world_controls.py::test_render_content_ip_world_controls_clears_stale_ip_world_hint_when_ip_disabled -q
-```
-
-Expected after this task:
-
-```text
-3 passed
-```
-
-- [ ] **Step 8: Commit**
-
-```powershell
-git add web/components/content_ip_world_controls.py tests/test_content_ip_world_controls.py
-git commit -m "fix: 恢复左侧IP世界观请求合同"
-```
-
-## Task 3: Restore World Hint Helper Actions And I18n
-
-**Files:**
-- Modify: `web/components/content_ip_world_controls.py`
-- Modify: `web/i18n/locales/zh_CN.json`
-- Modify: `web/i18n/locales/en_US.json`
-- Modify: `tests/test_content_ip_world_controls.py`
-
-- [ ] **Step 1: Keep failing helper tests**
-
-Keep these existing tests:
-
-```python
-def test_render_content_ip_world_controls_can_use_ip_default(monkeypatch):
-    ...
-
-def test_render_content_ip_world_controls_generates_world_hint_from_script(monkeypatch):
-    ...
-
-def test_render_content_ip_world_controls_warns_when_generating_without_script():
-    ...
-```
-
-- [ ] **Step 2: Update fake UI to support current preview rendering**
-
-In `tests/test_content_ip_world_controls.py`, add:
-
-```python
-def container(self, **kwargs):
-    return _FakeContext()
-```
-
-to `_FakeContentIPWorldUI`.
-
-- [ ] **Step 3: Add helper action buttons**
-
-In `render_content_ip_world_controls()`, after the text area, add:
-
-```python
 action_col, default_col = ui.columns((1, 1))
 with action_col:
     if ui.button(
@@ -337,82 +521,63 @@ with default_col:
         )
 ```
 
-Add the two handlers:
+Return:
 
 ```python
-def _handle_use_ip_default_world_hint(
-    *,
-    session_state,
-    ui,
-    translate: Translate,
-    ip_default_world_hint: str,
-) -> None:
-    hint = _first_text(ip_default_world_hint)
-    if not hint:
-        ui.warning(translate("content.ip_world.missing_ip_default"))
-        return
-    session_state[CONTENT_GENERATION_WORLD_HINT_KEY] = hint
-    session_state[CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY] = "ip_default"
-    session_state[CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY] = hint
-    safe_rerun()
-
-
-def _handle_generate_world_hint_from_content(
-    *,
-    session_state,
-    ui,
-    translate: Translate,
-    content_context: Mapping[str, Any] | None,
-    storyboard_prompt_language: str,
-    world_preset_id: str | None,
-    ip_default_world_hint: str,
-    world_hint_draft_generator: Callable[..., Mapping[str, Any]],
-) -> None:
-    context = dict(content_context or {})
-    source_text = _first_text(context.get("text"))
-    if not source_text:
-        ui.warning(translate("content.ip_world.missing_content"))
-        return
-    try:
-        response = world_hint_draft_generator(
-            source_text=source_text,
-            title=_first_text(context.get("title")) or None,
-            world_preset_id=world_preset_id,
-            storyboard_prompt_language=storyboard_prompt_language,
-            ip_default_world_hint=_first_text(ip_default_world_hint) or None,
-        )
-    except Exception:
-        logger.exception("failed to generate content world hint draft")
-        ui.warning(translate("content.ip_world.generate_failed"))
-        return
-    if not isinstance(response, Mapping):
-        ui.warning(translate("content.ip_world.generate_failed"))
-        return
-    hint = _first_text(response.get("world_hint_draft"))
-    if not hint:
-        ui.warning(translate("content.ip_world.generate_failed"))
-        return
-    session_state[CONTENT_GENERATION_WORLD_HINT_KEY] = hint
-    session_state[CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY] = "generated_from_script"
-    session_state[CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY] = hint
-    safe_rerun()
+return build_content_ip_world_payload(
+    ip_payload=ip_payload,
+    generation_world_hint=session_state.get(
+        CONTENT_GENERATION_WORLD_HINT_KEY,
+        generation_world_hint,
+    ),
+)
 ```
 
-- [ ] **Step 4: Add i18n keys**
+- [ ] **Step 6: Run the left-entry tests**
 
-In `web/i18n/locales/zh_CN.json`, replace the old generation-notes-only labels with:
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_content_ip_world_controls.py -q
+```
+
+Expected:
+
+```text
+15 passed
+```
+
+- [ ] **Step 7: Commit**
+
+```powershell
+git add web/components/content_ip_world_controls.py tests/test_content_ip_world_controls.py
+git commit -m "fix: restore content IP world request entry"
+```
+
+---
+
+## Task 3: Delete Removed UI Fields And Add Static Gates
+
+**Files:**
+- Modify: `web/i18n/locales/zh_CN.json`
+- Modify: `web/i18n/locales/en_US.json`
+- Create: `tests/test_content_ip_world_static_contract.py`
+- Modify: `tests/test_output_preview.py`
+
+- [ ] **Step 1: Replace i18n keys**
+
+Remove these key names from both locale files:
 
 ```json
-"content.ip_world.generation_world_hint": "世界观提示",
-"content.ip_world.generation_world_hint_help": "描述本次文案发生的世界、叙事边界，以及 IP 在本次内容里如何自然融入；不会覆盖 IP 设计页的长期世界观。",
-"content.ip_world.generate_from_content": "根据文案生成",
-"content.ip_world.use_ip_default": "使用 IP 默认",
-"content.ip_world.missing_content": "请先填写文案，再生成世界观提示草稿。",
-"content.ip_world.missing_ip_default": "当前 IP 没有可用的默认世界观提示。",
-"content.ip_world.generate_failed": "世界观提示草稿生成失败，请稍后重试。"
+[
+  "content.ip_world.generation_notes",
+  "content.ip_world.generation_notes_help",
+  "content.ip_world.slot_preference_override",
+  "content.ip_world.presence_strength"
+]
 ```
 
-In `web/i18n/locales/en_US.json`, add:
+Add these English keys to `web/i18n/locales/en_US.json`:
 
 ```json
 "content.ip_world.generation_world_hint": "World Hint",
@@ -424,61 +589,52 @@ In `web/i18n/locales/en_US.json`, add:
 "content.ip_world.generate_failed": "World hint draft generation failed. Please try again."
 ```
 
-Keep the existing capability-preview i18n keys.
+Add these Chinese keys to `web/i18n/locales/zh_CN.json`:
 
-- [ ] **Step 5: Run helper and i18n tests**
-
-Run:
-
-```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_content_ip_world_controls.py -q
+```json
+"content.ip_world.generation_world_hint": "世界观提示",
+"content.ip_world.generation_world_hint_help": "描述本次文案发生的世界、叙事边界，以及 IP 在本次内容里如何自然融入；不会覆盖 IP 设计页的长期世界观。",
+"content.ip_world.generate_from_content": "根据文案生成",
+"content.ip_world.use_ip_default": "使用 IP 默认",
+"content.ip_world.missing_content": "请先填写文案，再生成世界观提示草稿。",
+"content.ip_world.missing_ip_default": "当前 IP 没有可用的默认世界观提示。",
+"content.ip_world.generate_failed": "世界观提示草稿生成失败，请稍后重试。"
 ```
 
-Expected after this task:
+- [ ] **Step 2: Add static field gate tests**
 
-```text
-15 passed
+Create `tests/test_content_ip_world_static_contract.py`:
+
+```python
+from pathlib import Path
+
+
+FORBIDDEN_FIELDS = (
+    "generation_notes",
+    "slot_preference_override",
+    "presence_strength",
+)
+
+CHECKED_FILES = (
+    Path("web/components/content_ip_world_controls.py"),
+    Path("web/i18n/locales/en_US.json"),
+    Path("web/i18n/locales/zh_CN.json"),
+)
+
+
+def test_removed_content_ip_world_fields_do_not_reappear_in_entry_or_i18n():
+    for path in CHECKED_FILES:
+        text = path.read_text(encoding="utf-8")
+        for field in FORBIDDEN_FIELDS:
+            assert field not in text, f"{field} reappeared in {path}"
 ```
 
-- [ ] **Step 6: Commit**
-
-```powershell
-git add web/components/content_ip_world_controls.py web/i18n/locales/zh_CN.json web/i18n/locales/en_US.json tests/test_content_ip_world_controls.py
-git commit -m "fix: 恢复世界观提示辅助回填"
-```
-
-## Task 4: Verify Formal Request Path Stays Narrow
-
-**Files:**
-- Test: `tests/test_content_input_storyboard_ui.py`
-- Test: `tests/test_output_preview.py`
-- Test: `tests/test_video_api.py`
-- Test: `tests/test_image_prompt_composer.py`
-- Optional modify: tests only if expectations reference removed UI-only fields.
-
-- [ ] **Step 1: Run existing contract tests**
-
-Run:
-
-```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_content_input_storyboard_ui.py::test_left_content_ip_payload_render_content_input tests/test_output_preview.py::test_build_single_generation_request_includes_generation_world_hint tests/test_output_preview.py::test_build_single_generation_request_does_not_forward_ip_profile_world_hint tests/test_video_api.py::test_build_video_generation_params_copies_generation_world_hint tests/test_image_prompt_composer.py::test_composer_passes_generation_world_hint_to_styled_batch -q
-```
-
-Expected:
-
-```text
-5 passed
-```
-
-- [ ] **Step 2: Add a regression assertion that dead UI fields are not forwarded**
+- [ ] **Step 3: Add final request forwarding regression**
 
 In `tests/test_output_preview.py`, add:
 
 ```python
-def test_build_single_generation_request_does_not_forward_content_ip_ui_only_fields():
-    def _progress(_event):
-        return None
-
+def test_build_single_generation_request_drops_content_ip_non_formal_fields():
     request = output_preview.build_single_generation_request(
         {
             "mode": "generate",
@@ -486,29 +642,31 @@ def test_build_single_generation_request_does_not_forward_content_ip_ui_only_fie
             "ip_enabled": True,
             "ip_asset_bible_id": "bible_demo",
             "ip_profile_id": "ip_main",
-            "generation_world_hint": "古城清晨漫游，IP 是陪伴式向导。",
-            "generation_notes": "ui-only old field",
+            "generation_world_hint": "market morning, IP blends in as a guide",
+            "generation_notes": "old UI field",
             "slot_preference_override": "prefer_main",
-            "presence_strength": "more",
+            "presence_strength": "strong",
             "ip_profile_world_hint": "helper only",
+            "generation_world_hint_source": "ip_default",
         },
-        progress_callback=_progress,
+        progress_callback=lambda _event: None,
         session_state={},
     )
 
-    assert request["generation_world_hint"] == "古城清晨漫游，IP 是陪伴式向导。"
+    assert request["generation_world_hint"] == "market morning, IP blends in as a guide"
     assert "generation_notes" not in request
     assert "slot_preference_override" not in request
     assert "presence_strength" not in request
     assert "ip_profile_world_hint" not in request
+    assert "generation_world_hint_source" not in request
 ```
 
-- [ ] **Step 3: Run the new test**
+- [ ] **Step 4: Run tests and grep gate**
 
 Run:
 
 ```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_output_preview.py -k "generation_world_hint or ui_only_fields or ip_profile_world_hint" -q
+./.venv/Scripts/python.exe -m pytest tests/test_content_ip_world_static_contract.py tests/test_output_preview.py -k "content_ip_non_formal_fields or removed_content_ip_world_fields" -q
 ```
 
 Expected:
@@ -517,20 +675,36 @@ Expected:
 passed
 ```
 
-- [ ] **Step 4: Commit**
+Run:
 
 ```powershell
-git add tests/test_output_preview.py
-git commit -m "test: 锁定生成请求世界观合同"
+rg -n "generation_notes|slot_preference_override|presence_strength" web/components/content_ip_world_controls.py web/i18n/locales/en_US.json web/i18n/locales/zh_CN.json
 ```
 
-## Task 5: Align IP Workbench Readiness With Backend
+Expected:
+
+```text
+```
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add web/i18n/locales/zh_CN.json web/i18n/locales/en_US.json tests/test_content_ip_world_static_contract.py tests/test_output_preview.py
+git commit -m "test: prevent removed IP world fields from returning"
+```
+
+---
+
+## Task 4: Align Workbench Fact Sources
 
 **Files:**
+- Create: `pixelle_video/services/ip_color_palette.py`
+- Modify: `pixelle_video/services/ip_profile_readiness.py`
 - Modify: `web/components/ip_design_workbench.py`
 - Modify: `tests/test_ip_design_workbench_ui.py`
+- Modify: `tests/test_ip_usage_planner.py`
 
-- [ ] **Step 1: Add failing frontend readiness test**
+- [ ] **Step 1: Add readiness and color tests**
 
 In `tests/test_ip_design_workbench_ui.py`, add:
 
@@ -539,148 +713,24 @@ def test_ip_profile_ready_for_generation_accepts_identity_anchors():
     from web.components.ip_design_workbench import _ip_profile_ready_for_generation
 
     assert _ip_profile_ready_for_generation(
-        {"identity_lock": [], "identity_anchors": ["蓝色领结"]}
+        {"identity_lock": [], "identity_anchors": ["blue tie"]}
     )
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run:
-
-```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_ip_design_workbench_ui.py::test_ip_profile_ready_for_generation_accepts_identity_anchors -q
-```
-
-Expected now:
-
-```text
-FAILED
-```
-
-- [ ] **Step 3: Implement frontend readiness using both identity fields**
-
-In `web/components/ip_design_workbench.py`, change:
+In the workbench save test, set:
 
 ```python
-def _ip_profile_ready_for_generation(ip_profile: Mapping[str, Any]) -> bool:
-    return bool(_text_list(ip_profile.get("identity_lock")))
+fake_ui.session_state["ip_design_color_rules"] = "#FFFFFF white body, bright blue tie"
 ```
 
-to:
-
-```python
-def _ip_profile_ready_for_generation(ip_profile: Mapping[str, Any]) -> bool:
-    return bool(
-        [
-            *_text_list(ip_profile.get("identity_lock")),
-            *_text_list(ip_profile.get("identity_anchors")),
-        ]
-    )
-```
-
-- [ ] **Step 4: Run readiness tests**
-
-Run:
-
-```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_ip_design_workbench_ui.py -k "ready_for_generation or generation_unavailable" -q
-```
-
-Expected:
-
-```text
-passed
-```
-
-- [ ] **Step 5: Commit**
-
-```powershell
-git add web/components/ip_design_workbench.py tests/test_ip_design_workbench_ui.py
-git commit -m "fix: 统一IP生成可用性判断"
-```
-
-## Task 6: Align `color_palette` Save Shape With Planner Consumption
-
-**Files:**
-- Modify: `web/components/ip_design_workbench.py`
-- Modify: `tests/test_ip_design_workbench_ui.py`
-- Optional test: `tests/test_ip_usage_planner.py`
-
-- [ ] **Step 1: Add failing save-shape test**
-
-In `tests/test_ip_design_workbench_ui.py`, extend `test_ip_design_workbench_saves_asset_bible_through_client()` with a prompt-safe color rule:
-
-```python
-fake_ui.session_state["ip_design_color_rules"] = "纯白色身体, 鲜明宝蓝色领结"
-```
-
-Add assertions after `profile = saved_profiles[0]`:
+Assert:
 
 ```python
 assert profile["color_palette"] == {
-    "rule_1": {"prompt": "纯白色身体"},
-    "rule_2": {"prompt": "鲜明宝蓝色领结"},
+    "rule_1": {"hex": "#FFFFFF", "prompt": "white body"},
+    "rule_2": {"prompt": "bright blue tie"},
 }
 ```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run:
-
-```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_ip_design_workbench_ui.py::test_ip_design_workbench_saves_asset_bible_through_client -q
-```
-
-Expected now:
-
-```text
-FAILED
-```
-
-The failure should show the current root-level `"prompt"` shape.
-
-- [ ] **Step 3: Add a color palette builder**
-
-In `web/components/ip_design_workbench.py`, add:
-
-```python
-def _build_color_palette_prompt_entries(
-    existing_palette: Mapping[str, Any],
-    color_rules: str,
-) -> dict[str, Any]:
-    palette = {
-        str(key): dict(value)
-        for key, value in dict(existing_palette or {}).items()
-        if isinstance(value, Mapping)
-    }
-    rules = _split_csv(color_rules)
-    if not rules:
-        return palette
-    for index, rule in enumerate(rules, start=1):
-        palette[f"rule_{index}"] = {"prompt": rule}
-    return palette
-```
-
-Then replace:
-
-```python
-"color_palette": (
-    {**ip_profile.get("color_palette", {}), "prompt": color_rules}
-    if color_rules.strip()
-    else ip_profile.get("color_palette", {})
-),
-```
-
-with:
-
-```python
-"color_palette": _build_color_palette_prompt_entries(
-    ip_profile.get("color_palette", {}),
-    color_rules,
-),
-```
-
-- [ ] **Step 4: Add planner consumption test**
 
 In `tests/test_ip_usage_planner.py`, add:
 
@@ -693,49 +743,367 @@ def test_identity_color_terms_reads_workbench_palette_entries():
         ip_profile_id="ip_main",
         workspace_id="workspace_1",
         project_id="project_1",
-        name="正定向导兔",
-        identity_lock=("白色卡通兔子",),
+        name="Guide",
+        identity_lock=("white rabbit",),
         color_palette={
-            "rule_1": {"prompt": "纯白色身体"},
-            "rule_2": {"prompt": "鲜明宝蓝色领结"},
+            "rule_1": {"hex": "#FFFFFF", "prompt": "white body"},
+            "rule_2": {"prompt": "bright blue tie"},
         },
     )
 
-    assert _identity_color_terms(profile) == ("纯白色身体", "鲜明宝蓝色领结")
+    assert _identity_color_terms(profile) == ("white body", "bright blue tie")
 ```
 
-- [ ] **Step 5: Run color tests**
+- [ ] **Step 2: Run the new tests and confirm failure**
 
 Run:
 
 ```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_ip_design_workbench_ui.py::test_ip_design_workbench_saves_asset_bible_through_client tests/test_ip_usage_planner.py::test_identity_color_terms_reads_workbench_palette_entries -q
+./.venv/Scripts/python.exe -m pytest tests/test_ip_design_workbench_ui.py::test_ip_profile_ready_for_generation_accepts_identity_anchors tests/test_ip_usage_planner.py::test_identity_color_terms_reads_workbench_palette_entries -q
+```
+
+Expected now:
+
+```text
+FAILED
+```
+
+- [ ] **Step 3: Implement shared color builder**
+
+Create `pixelle_video/services/ip_color_palette.py`:
+
+```python
+from __future__ import annotations
+
+import re
+from collections.abc import Mapping
+from typing import Any
+
+
+HEX_COLOR_RE = re.compile(
+    r"(?<![0-9a-fA-F])#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])"
+)
+
+
+def build_color_palette_prompt_entries(
+    existing_palette: Mapping[str, Any] | None,
+    color_rules: str,
+) -> dict[str, Any]:
+    palette = {
+        str(key): dict(value)
+        for key, value in dict(existing_palette or {}).items()
+        if isinstance(value, Mapping) and not str(key).startswith("rule_")
+    }
+    for index, raw_rule in enumerate(_split_color_rules(color_rules), start=1):
+        entry = _color_rule_entry(raw_rule)
+        if entry:
+            palette[f"rule_{index}"] = entry
+    return palette
+
+
+def _split_color_rules(value: str) -> list[str]:
+    normalized = str(value or "").replace("，", ",")
+    return [item.strip() for item in re.split(r"[\n,]+", normalized) if item.strip()]
+
+
+def _color_rule_entry(raw_rule: str) -> dict[str, str]:
+    text = raw_rule.strip()
+    match = HEX_COLOR_RE.search(text)
+    hex_value = match.group(0).upper() if match else ""
+    prompt = HEX_COLOR_RE.sub("", text).strip(" -:;，,")
+    if not prompt:
+        return {}
+    entry = {"prompt": prompt}
+    if hex_value:
+        entry["hex"] = hex_value
+    return entry
+```
+
+- [ ] **Step 4: Make readiness shared**
+
+In `pixelle_video/services/ip_profile_readiness.py`, import `Mapping` and change field reading:
+
+```python
+from collections.abc import Iterable, Mapping
+```
+
+Add:
+
+```python
+def _read_field(source: Any, field_name: str) -> Any:
+    if isinstance(source, Mapping):
+        return source.get(field_name, ())
+    return getattr(source, field_name, ())
+```
+
+Change `ip_generation_identity_terms()`:
+
+```python
+def ip_generation_identity_terms(ip_profile: Any) -> tuple[str, ...]:
+    return _unique_text(
+        [
+            *_read_text_sequence(_read_field(ip_profile, "identity_lock")),
+            *_read_text_sequence(_read_field(ip_profile, "identity_anchors")),
+        ]
+    )
+```
+
+In `web/components/ip_design_workbench.py`, import:
+
+```python
+from pixelle_video.services.ip_color_palette import build_color_palette_prompt_entries
+from pixelle_video.services.ip_profile_readiness import ip_generation_identity_terms
+```
+
+Change readiness:
+
+```python
+def _ip_profile_ready_for_generation(ip_profile: Mapping[str, Any]) -> bool:
+    return bool(ip_generation_identity_terms(ip_profile))
+```
+
+Change the saved `color_palette` field:
+
+```python
+"color_palette": build_color_palette_prompt_entries(
+    ip_profile.get("color_palette", {}),
+    color_rules,
+),
+```
+
+Update `_read_color_palette_prompt()` so existing mapping entries render back into the textarea:
+
+```python
+def _read_color_palette_prompt(value: Any) -> str:
+    if not isinstance(value, Mapping):
+        return ""
+    prompts = []
+    for item in value.values():
+        if isinstance(item, Mapping):
+            prompt = _first_text(item.get("prompt"))
+            if prompt:
+                prompts.append(prompt)
+    return ", ".join(prompts)
+```
+
+- [ ] **Step 5: Run workbench and planner fact tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_ip_design_workbench_ui.py tests/test_ip_usage_planner.py::test_identity_color_terms_reads_workbench_palette_entries -q
 ```
 
 Expected:
 
 ```text
-2 passed
+passed
 ```
 
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add web/components/ip_design_workbench.py tests/test_ip_design_workbench_ui.py tests/test_ip_usage_planner.py
-git commit -m "fix: 对齐IP颜色规则存储结构"
+git add pixelle_video/services/ip_color_palette.py pixelle_video/services/ip_profile_readiness.py web/components/ip_design_workbench.py tests/test_ip_design_workbench_ui.py tests/test_ip_usage_planner.py
+git commit -m "fix: align IP workbench fact sources"
 ```
 
-## Task 7: Final Verification
+---
+
+## Task 5: Feed The Planner Full Actorization Context
 
 **Files:**
-- Verify: all files touched in Tasks 2-6.
+- Modify: `pixelle_video/services/ip_usage_planner.py`
+- Modify: `pixelle_video/prompts/ip_role_selection.py`
+- Modify: `tests/test_ip_usage_planner.py`
 
-- [ ] **Step 1: Run focused IP/world contract tests**
+- [ ] **Step 1: Add an LLM input regression test**
+
+In `tests/test_ip_usage_planner.py`, add:
+
+```python
+import json
+
+
+async def test_appearance_planner_llm_receives_full_actorization_context():
+    from pixelle_video.models.content_world import ContentWorldProfile
+    from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
+
+    captured = {}
+
+    async def fake_llm(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return json.dumps(
+            [
+                {
+                    "frame_index": 0,
+                    "role_slot": "supporting",
+                    "role_label": "scene guide",
+                    "presence_level": "half body",
+                    "appearance_description": "white rabbit guide blends into the market light",
+                    "reason": "supports the travel scene",
+                }
+            ]
+        )
+
+    profile = _universal_ip_profile()
+    world = ContentWorldProfile(
+        summary="morning travel market",
+        story_constraints="do not replace the street vendor",
+        ip_integration_guidance="the IP should guide quietly from the side",
+    )
+
+    await IPFrameAppearancePlanner(llm_client=fake_llm).plan_batch(
+        storyboard_plan=_plan(
+            StoryboardPlanFrame(
+                index=1,
+                source_text="A market route opens.",
+                visual_goal="show the travel path",
+                primary_subject="street vendor",
+            )
+        ),
+        ip_profile=profile,
+        generation_world_profile=world,
+        scene_casts_by_frame={"frame_1": {"metadata": {"ip_presence_type": "scene_integrated"}}},
+    )
+
+    prompt = captured["prompt"]
+    for token in (
+        "minimal_traits",
+        "semantic_boundary",
+        "negative_constraints",
+        "presence_spectrum",
+        "adaptable_slots",
+        "default_slot_preference",
+        "generation_world_profile",
+        "story_constraints",
+        "ip_integration_guidance",
+        "scene_cast_presence",
+    ):
+        assert token in prompt
+```
+
+- [ ] **Step 2: Run the test and confirm failure**
 
 Run:
 
 ```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_content_ip_world_controls.py tests/test_content_input_storyboard_ui.py::test_left_content_ip_payload_render_content_input tests/test_output_preview.py::test_build_single_generation_request_includes_generation_world_hint tests/test_output_preview.py::test_build_single_generation_request_does_not_forward_ip_profile_world_hint tests/test_video_api.py::test_build_video_generation_params_copies_generation_world_hint tests/test_image_prompt_composer.py::test_composer_passes_generation_world_hint_to_styled_batch -q
+./.venv/Scripts/python.exe -m pytest tests/test_ip_usage_planner.py::test_appearance_planner_llm_receives_full_actorization_context -q
+```
+
+Expected now:
+
+```text
+FAILED
+```
+
+- [ ] **Step 3: Pass world and SceneCast data into LLM role selection**
+
+In `IPFrameAppearancePlanner.plan_batch()`, change the call:
+
+```python
+llm_roles = await self._llm_role_selection(
+    storyboard_plan=storyboard_plan,
+    ip_profile=ip_profile,
+    base_packages=base_packages,
+    generation_world_profile=generation_world_profile,
+    scene_casts_by_frame=scene_casts,
+)
+```
+
+Change `_llm_role_selection()` signature:
+
+```python
+async def _llm_role_selection(
+    self,
+    *,
+    storyboard_plan: StoryboardPlan,
+    ip_profile: IPProfile,
+    base_packages: list[IPFrameAdaptationPackage],
+    generation_world_profile: ContentWorldInput = None,
+    scene_casts_by_frame: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]] | None:
+```
+
+Build `ip_profile_json` with:
+
+```python
+world_profile = _normalize_generation_world_profile(generation_world_profile)
+ip_profile_json = json.dumps(
+    {
+        "name": ip_profile.name,
+        "identity_lock": list(ip_profile.identity_lock),
+        "identity_anchors": list(ip_profile.identity_anchors),
+        "visual_summary": ip_profile.visual_summary,
+        "minimal_traits": list(ip_profile.minimal_traits),
+        "semantic_boundary": list(ip_profile.semantic_boundary),
+        "negative_constraints": list(ip_profile.negative_constraints),
+        "role_presets": list(ip_profile.role_presets),
+        "presence_spectrum": list(ip_profile.presence_spectrum),
+        "adaptable_slots": list(ip_profile.adaptable_slots),
+        "default_slot_preference": ip_profile.default_slot_preference,
+        "style_hint": ip_profile.style_hint,
+        "world_hint": ip_profile.world_hint,
+        "generation_world_profile": world_profile.to_dict() if world_profile else {},
+    },
+    ensure_ascii=False,
+    indent=2,
+)
+```
+
+Build each frame item with:
+
+```python
+scene_cast = _scene_cast_for_frame(scene_casts_by_frame or {}, frame)
+{
+    "frame_index": i,
+    "frame_id": frame.frame_id,
+    "source_text": frame.source_text,
+    "visual_goal": frame.visual_goal,
+    "shot_type": frame.shot_type,
+    "primary_subject": frame.primary_subject,
+    "presence_type": base.ip_presence_type.value,
+    "presence_mode": base.presence_mode.value,
+    "semantic_reason": base.semantic_reason,
+    "must_not_replace": list(base.must_not_replace),
+    "identity_anchors_visible": list(base.identity_anchors_visible),
+    "identity_anchors_suppressed": list(base.identity_anchors_suppressed),
+    "scene_cast_presence": _raw_scene_cast_presence(scene_cast),
+}
+```
+
+Add helper:
+
+```python
+def _raw_scene_cast_presence(scene_cast: Any | None) -> str | None:
+    if not isinstance(scene_cast, Mapping):
+        return None
+    value = scene_cast.get("ip_presence_type") or scene_cast.get("presence_type")
+    metadata = scene_cast.get("metadata")
+    if value is None and isinstance(metadata, Mapping):
+        value = metadata.get("ip_presence_type") or metadata.get("presence_type")
+    return str(value) if value is not None else None
+```
+
+- [ ] **Step 4: Update LLM role-selection prompt wording**
+
+In `pixelle_video/prompts/ip_role_selection.py`, update the instruction section so it says:
+
+```text
+Use stable identity fields as hard visual anchors.
+Use minimal_traits when the IP is partial, far away, or low intrusion.
+Use adaptable_slots for clothing, props, pose, occupation, and scene behavior.
+Use semantic_boundary and negative_constraints as hard boundaries.
+Use generation_world_profile to decide how the IP should fit this script world.
+Use scene_cast_presence as the per-frame presence directive when it is present and valid.
+Never force the IP to dominate frames whose source text or world profile protects another subject.
+```
+
+- [ ] **Step 5: Run planner tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_ip_usage_planner.py -q
 ```
 
 Expected:
@@ -744,12 +1112,133 @@ Expected:
 passed
 ```
 
-- [ ] **Step 2: Run focused IP workbench tests**
+- [ ] **Step 6: Commit**
+
+```powershell
+git add pixelle_video/services/ip_usage_planner.py pixelle_video/prompts/ip_role_selection.py tests/test_ip_usage_planner.py
+git commit -m "feat: feed full IP actorization context to planner"
+```
+
+---
+
+## Task 6: Lock SceneCast Policy And Prompt Context Auditability
+
+**Files:**
+- Modify: `pixelle_video/services/ip_usage_planner.py`
+- Modify: `pixelle_video/utils/content_generators.py`
+- Modify: `tests/test_ip_usage_planner.py`
+- Modify: `tests/test_ip_prompt_integration.py`
+
+- [ ] **Step 1: Add invalid SceneCast fallback test**
+
+In `tests/test_ip_usage_planner.py`, add:
+
+```python
+def test_usage_planner_ignores_invalid_scene_cast_presence_type():
+    frame = StoryboardPlanFrame(
+        index=2,
+        source_text="A guide explains the route through a lively street.",
+        visual_goal="show a balanced narrative travel scene",
+        primary_subject="street route",
+    )
+    plan = _plan(frame)
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_profile(),
+        scene_casts_by_frame={
+            plan.frames[0].frame_id: {
+                "metadata": {"ip_presence_type": "giant_logo_takeover"}
+            }
+        },
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.BALANCED_NARRATIVE
+```
+
+- [ ] **Step 2: Add prompt context audit test**
+
+In `tests/test_ip_prompt_integration.py`, add:
+
+```python
+def test_enrich_prompt_contexts_with_ip_adds_structured_ip_adaptation():
+    from pixelle_video.models.prompt_context import PromptContextEnvelope
+    from pixelle_video.services.ip_usage_planner import IPUsagePlanner
+    from pixelle_video.utils.content_generators import _enrich_prompt_contexts_with_ip
+
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="A guide enters the market.",
+        visual_goal="show integrated IP presence",
+        primary_subject="market route",
+    )
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=_profile(),
+    )[0]
+
+    result = _enrich_prompt_contexts_with_ip(
+        PromptContextEnvelope(plan_context={}, frame_contexts=({},)),
+        expected_count=1,
+        packages=(package,),
+        style_context={"style_kind": "visual_only"},
+    )
+
+    context = result.frame_contexts[0]
+    assert context["ip_scene_description"] == package.appearance_description
+    assert context["ip_adaptation"]["frame_id"] == package.frame_id
+    assert context["ip_adaptation"]["ip_presence_type"] == package.ip_presence_type.value
+```
+
+- [ ] **Step 3: Run tests and confirm failure**
 
 Run:
 
 ```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_ip_design_workbench_ui.py tests/test_ip_usage_planner.py -q
+./.venv/Scripts/python.exe -m pytest tests/test_ip_usage_planner.py::test_usage_planner_ignores_invalid_scene_cast_presence_type tests/test_ip_prompt_integration.py::test_enrich_prompt_contexts_with_ip_adds_structured_ip_adaptation -q
+```
+
+Expected now:
+
+```text
+FAILED
+```
+
+- [ ] **Step 4: Keep invalid SceneCast fallback explicit**
+
+In `pixelle_video/services/ip_usage_planner.py`, keep `_presence_type_from_scene_cast()` returning `None` for invalid enum values:
+
+```python
+try:
+    return IPPresenceType(value)
+except ValueError:
+    logger.info("Ignoring invalid SceneCast IP presence type: %s", value)
+    return None
+```
+
+- [ ] **Step 5: Carry structured adaptation into prompt contexts**
+
+In `_enrich_prompt_contexts_with_ip()`, add:
+
+```python
+package_dict = (
+    package.to_dict()
+    if hasattr(package, "to_dict")
+    else dict(package)
+    if isinstance(package, Mapping)
+    else {}
+)
+frame_contexts[index]["ip_adaptation"] = package_dict
+```
+
+Leave `_strip_ip_prompt_context_fields()` removing `ip_adaptation` when IP prompt chain is disabled.
+
+- [ ] **Step 6: Run integration tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_ip_usage_planner.py tests/test_ip_prompt_integration.py tests/test_styled_image_prompt_batch.py -q
 ```
 
 Expected:
@@ -758,12 +1247,122 @@ Expected:
 passed
 ```
 
-- [ ] **Step 3: Run a wider regression group**
+- [ ] **Step 7: Commit**
+
+```powershell
+git add pixelle_video/services/ip_usage_planner.py pixelle_video/utils/content_generators.py tests/test_ip_usage_planner.py tests/test_ip_prompt_integration.py
+git commit -m "feat: lock SceneCast IP policy and prompt context audit"
+```
+
+---
+
+## Task 7: Extend Final Prompt Sanitization
+
+**Files:**
+- Modify: `pixelle_video/utils/prompt_helper.py`
+- Modify: `pixelle_video/utils/content_generators.py`
+- Modify: `tests/test_styled_image_prompt_batch.py`
+
+- [ ] **Step 1: Add sanitizer coverage for the expanded internal key set**
+
+In `tests/test_styled_image_prompt_batch.py`, add:
+
+```python
+def test_sanitize_visual_prompt_text_removes_ip_adaptation_field_labels():
+    prompt = sanitize_visual_prompt_text(
+        '"ip_adaptation": {"identity_anchors_visible": ["blue tie"]}, '
+        "generation_world_profile: morning market, "
+        "semantic_reason: scene integrated, "
+        "image_text_plan: planned sign, "
+        "#FFFFFF white body"
+    )
+
+    assert "ip_adaptation" not in prompt
+    assert "identity_anchors_visible" not in prompt
+    assert "generation_world_profile" not in prompt
+    assert "semantic_reason" not in prompt
+    assert "image_text_plan" not in prompt
+    assert "#FFFFFF" not in prompt
+```
+
+- [ ] **Step 2: Add styled batch regression for final prompt cleanup**
+
+In `tests/test_styled_image_prompt_batch.py`, add:
+
+```python
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_sanitizes_expanded_ip_internal_keys(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return [
+            "ip_adaptation: white rabbit guide, "
+            "identity_anchors_visible: blue tie, "
+            "generation_world_profile: morning market, "
+            "semantic_reason: scene integrated, "
+            "#FFFFFF white body"
+        ]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["A guide enters the morning market."],
+        image_config={},
+    )
+
+    prompt = result.prompts[0]
+    assert "ip_adaptation" not in prompt
+    assert "identity_anchors_visible" not in prompt
+    assert "generation_world_profile" not in prompt
+    assert "semantic_reason" not in prompt
+    assert "#FFFFFF" not in prompt
+    assert "white rabbit guide" in prompt
+```
+
+- [ ] **Step 3: Run tests and confirm current sanitizer gap**
 
 Run:
 
 ```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_output_preview.py tests/test_video_api.py tests/test_image_prompt_composer.py tests/test_styled_image_prompt_batch.py -q
+./.venv/Scripts/python.exe -m pytest tests/test_styled_image_prompt_batch.py -k "expanded_ip_internal_keys or ip_adaptation_field_labels" -q
+```
+
+Expected now:
+
+```text
+FAILED
+```
+
+- [ ] **Step 4: Extend the existing sanitizer instead of adding a duplicate safety path**
+
+In `pixelle_video/utils/prompt_helper.py`, extend `_FIELD_LABEL_RE`:
+
+```python
+r"['\"]?\b(?:summary_text|scene_text|title_hex|ip_presence_type|presence_mode|"
+r"visible_text_whitelist|negative_constraints|identity_color_terms|"
+r"generation_world_profile|story_constraints|ip_integration_guidance|"
+r"ip_adaptation|identity_anchors_visible|identity_anchors_suppressed|"
+r"semantic_reason|image_text_plan|must_not_replace"
+r")\b['\"]?\s*[:：]\s*"
+```
+
+Keep the existing final prompt cleanup in `pixelle_video/utils/content_generators.py`:
+
+```python
+final_prompts = [
+    sanitize_visual_prompt_text(prompt)
+    for prompt in final_prompts
+]
+```
+
+- [ ] **Step 5: Run final prompt cleanup tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_styled_image_prompt_batch.py -k "sanitize_visual_prompt_text or never_leaks_hex_codes_or_field_names or expanded_ip_internal_keys" -q
 ```
 
 Expected:
@@ -772,24 +1371,101 @@ Expected:
 passed
 ```
 
-If unrelated pre-existing failures appear, capture the failing test names and error messages before deciding whether they belong to this change.
+- [ ] **Step 6: Commit**
 
-- [ ] **Step 4: Check formal request fields with ripgrep**
+```powershell
+git add pixelle_video/utils/prompt_helper.py pixelle_video/utils/content_generators.py tests/test_styled_image_prompt_batch.py
+git commit -m "fix: sanitize expanded IP internal prompt keys"
+```
+
+---
+
+## Task 8: Full Verification And Contract Audit
+
+**Files:**
+- Verify all files touched by Tasks 1-7.
+
+- [ ] **Step 1: Run focused request-entry tests**
 
 Run:
 
 ```powershell
-rg -n "generation_notes|slot_preference_override|presence_strength" web/components/content_ip_world_controls.py web/components/output_preview.py pixelle_video/models/video_generation_contract.py api/schemas/video.py
+./.venv/Scripts/python.exe -m pytest tests/test_ip_generation_request_contract.py tests/test_content_ip_world_controls.py tests/test_content_ip_world_static_contract.py tests/test_content_input_storyboard_ui.py::test_left_content_ip_payload_render_content_input tests/test_output_preview.py::test_build_single_generation_request_includes_generation_world_hint tests/test_output_preview.py::test_build_single_generation_request_does_not_forward_ip_profile_world_hint tests/test_video_api.py::test_build_video_generation_params_copies_generation_world_hint tests/test_image_prompt_composer.py::test_composer_passes_generation_world_hint_to_styled_batch -q
 ```
 
-Expected after Task 2:
+Expected:
+
+```text
+passed
+```
+
+- [ ] **Step 2: Run focused IP fact and planner tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_ip_design_workbench_ui.py tests/test_ip_usage_planner.py tests/test_ip_prompt_integration.py tests/test_styled_image_prompt_batch.py -k "sanitize_visual_prompt_text or ip_prompt_chain or usage_planner or ready_for_generation or color" -q
+```
+
+Expected:
+
+```text
+passed
+```
+
+- [ ] **Step 3: Run styled generation and API regression tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_styled_image_prompt_batch.py tests/test_output_preview.py tests/test_video_api.py tests/test_image_prompt_composer.py tests/test_standard_pipeline_storyboard_generation.py -q
+```
+
+Expected:
+
+```text
+passed
+```
+
+- [ ] **Step 4: Run static request-field gates**
+
+Run:
+
+```powershell
+rg -n "generation_notes|slot_preference_override|presence_strength" web/components/content_ip_world_controls.py web/i18n/locales/en_US.json web/i18n/locales/zh_CN.json
+```
+
+Expected:
 
 ```text
 ```
 
-No matches should appear in the formal request builder or contract. If `ip_usage_planner.py` still has internal `generation_notes` derived from `ContentWorldProfile`, that is allowed because it is not the old frontend dead parameter.
+Run:
 
-- [ ] **Step 5: Confirm git diff**
+```powershell
+rg -n "ip_profile_world_hint|generation_world_hint_source" web/components/output_preview.py api/schemas/video.py api/routers/video.py pixelle_video/models/video_generation_contract.py
+```
+
+Expected:
+
+```text
+```
+
+- [ ] **Step 5: Run final prompt cleanup tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_styled_image_prompt_batch.py -k "never_leaks_hex_codes_or_field_names or expanded_ip_internal_keys" -q
+```
+
+Expected:
+
+```text
+passed
+```
+
+- [ ] **Step 6: Inspect git state**
 
 Run:
 
@@ -801,43 +1477,56 @@ git diff --stat
 Expected:
 
 ```text
-Only files from this plan are modified.
+Only files listed in this plan are modified before the final commit.
 ```
 
-- [ ] **Step 6: Final commit if needed**
-
-If Task 7 required any test-only or documentation updates:
+- [ ] **Step 7: Final commit**
 
 ```powershell
-git add docs/superpowers/specs/2026-05-24-ip-design-entry-contract-realignment-design.md docs/superpowers/plans/2026-05-24-ip-design-entry-contract-realignment-implementation.md
-git commit -m "docs: 补充IP入口合同回归执行计划"
+git add pixelle_video web tests docs/superpowers/specs/2026-05-24-ip-design-entry-contract-realignment-design.md docs/superpowers/plans/2026-05-24-ip-design-entry-contract-realignment-implementation.md
+git commit -m "feat: realign IP design generation source chain"
 ```
+
+---
 
 ## Self-Review
 
-Spec coverage:
+Review pass 1, source ownership:
 
-- Historical requirement that IP should blend into user scripts is covered by the development document and by preserving `generation_world_hint`.
-- Historical requirement that the left content module is the authoritative entry is covered by Tasks 2-4.
-- Historical requirement that `IPProfile` remains the structured identity source is preserved by keeping identity fields separate from `generation_world_hint`.
-- Current failed tests are covered by Tasks 2-3.
-- Color and readiness mismatches are covered by Tasks 5-6.
+- Shared request fields live in `pixelle_video/contracts/ip_generation_request.py`.
+- The left UI returns formal fields only.
+- Legacy UI fields are deleted from code and i18n.
+- Workbench facts are stored in the same shape consumed by the planner.
+- Frontend readiness calls backend readiness logic.
+
+Review pass 2, execution verification:
+
+- Every changed contract has a failing test before implementation.
+- Removed fields have both unit tests and ripgrep gates.
+- Planner input completeness is tested by capturing the LLM prompt.
+- SceneCast valid and invalid presence paths are both tested.
+- Prompt contexts carry structured `ip_adaptation`.
+- Final prompt sanitization removes internal keys and hex codes.
 
 Placeholder scan:
 
-- The plan contains concrete commands and code snippets for each code-changing step.
+- The plan contains concrete file paths, code snippets, commands, and expected outcomes for every task.
 
 Type consistency:
 
-- `generation_world_hint` remains request-level.
+- `generation_world_hint` is request-level.
 - `IPProfile.world_hint` remains asset-level.
 - `ip_profile_world_hint` remains helper-only.
-- `color_palette` stores per-entry mappings with `prompt`, matching `_identity_color_terms()`.
+- `color_palette[*].prompt` contains prompt-safe color language.
+- `color_palette[*].hex` can preserve UI color values without entering prompt text.
+- `ip_adaptation` is allowed in prompt contexts and forbidden in final prompt strings.
 
 ## Execution Handoff
 
-Plan complete and saved to `docs/superpowers/plans/2026-05-24-ip-design-entry-contract-realignment-implementation.md`. Two execution options:
+Plan complete and saved to `docs/superpowers/plans/2026-05-24-ip-design-entry-contract-realignment-implementation.md`.
 
-**1. Subagent-Driven (recommended)** - Dispatch a fresh subagent per task, review between tasks, fast iteration.
+Execution mode:
 
-**2. Inline Execution** - Execute tasks in this session using executing-plans, batch execution with checkpoints.
+**Subagent-Driven (recommended)** - Dispatch a fresh subagent per task, review between tasks, fast iteration.
+
+**Inline Execution** - Execute tasks in this session using `superpowers:executing-plans`, with review checkpoints after each task.
