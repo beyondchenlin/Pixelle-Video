@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from pixelle_video.models.asset_bible import IPProfile
@@ -624,6 +626,145 @@ def _plan_two_frames():
         source_text=frames[0].source_text + frames[1].source_text,
         frames=frames,
     )
+
+
+@pytest.mark.asyncio
+async def test_appearance_planner_llm_receives_full_actorization_context():
+    captured: dict[str, str] = {}
+
+    async def fake_llm(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return json.dumps(
+            [
+                {
+                    "frame_index": 0,
+                    "role_slot": "supporting",
+                    "role_label": "scene guide",
+                    "presence_level": "half body",
+                    "appearance_description": "white rabbit guide blends into the market light",
+                    "reason": "supports the travel scene",
+                }
+            ]
+        )
+
+    profile = IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="Market Guide",
+        identity_lock=("white rabbit body", "long ears"),
+        identity_anchors=("blue necktie",),
+        identity_suppression_rules=("do not show mascot logo",),
+        visual_summary="white rabbit guide with long ears and a blue necktie",
+        minimal_traits=("blue necktie glimpse",),
+        semantic_boundary=("must remain a guide character",),
+        negative_constraints=("must not replace local vendors",),
+        role_presets=("quiet side guide",),
+        presence_spectrum=("scene integrated side guide",),
+        adaptable_slots=("market basket prop", "walking pose"),
+        default_slot_preference="prefer_supporting",
+        style_hint="warm travel illustration",
+        world_hint="heritage market",
+    )
+    world = ContentWorldProfile(
+        summary="morning travel market",
+        story_constraints="do not replace the street vendor",
+        ip_integration_guidance="the IP should guide quietly from the side",
+    )
+    frame = StoryboardPlanFrame(
+        index=1,
+        frame_id="frame_1",
+        source_text="A market route opens.",
+        visual_goal="show the travel path",
+        prompt_intent="travel opening",
+        primary_subject="street vendor",
+    )
+
+    await IPFrameAppearancePlanner(llm_client=fake_llm).plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=profile,
+        generation_world_profile=world,
+        scene_casts_by_frame={"frame_1": {"metadata": {"ip_presence_type": "scene_integrated"}}},
+    )
+
+    prompt = captured["prompt"]
+    for token in (
+        "identity_lock",
+        "identity_anchors",
+        "visual_summary",
+        "minimal_traits",
+        "semantic_boundary",
+        "negative_constraints",
+        "presence_spectrum",
+        "adaptable_slots",
+        "default_slot_preference",
+        "generation_world_profile",
+        "story_constraints",
+        "ip_integration_guidance",
+        "scene_cast_presence",
+        "presence_type",
+        "presence_mode",
+        "semantic_reason",
+        "must_not_replace",
+        "identity_anchors_visible",
+        "identity_anchors_suppressed",
+    ):
+        assert token in prompt
+    for value in (
+        "white rabbit body",
+        "blue necktie",
+        "blue necktie glimpse",
+        "must remain a guide character",
+        "must not replace local vendors",
+        "market basket prop",
+        "morning travel market",
+        "do not replace the street vendor",
+        "the IP should guide quietly from the side",
+        "street vendor",
+        "do not show mascot logo",
+        "scene_integrated",
+    ):
+        assert value in prompt
+    assert '"scene_cast_presence": "scene_integrated"' in prompt
+
+
+@pytest.mark.asyncio
+async def test_appearance_planner_llm_omits_invalid_scene_cast_presence():
+    captured: dict[str, str] = {}
+
+    async def fake_llm(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return json.dumps(
+            [
+                {
+                    "frame_index": 0,
+                    "role_slot": "supporting",
+                    "role_label": "scene guide",
+                    "presence_level": "half body",
+                    "appearance_description": "white rabbit guide remains a quiet side character",
+                    "reason": "invalid SceneCast directive should not affect planning",
+                }
+            ]
+        )
+
+    frame = StoryboardPlanFrame(
+        index=1,
+        frame_id="frame_1",
+        source_text="A market route opens.",
+        visual_goal="show the travel path",
+        prompt_intent="travel opening",
+        primary_subject="street vendor",
+    )
+
+    await IPFrameAppearancePlanner(llm_client=fake_llm).plan_batch(
+        storyboard_plan=_plan(frame),
+        ip_profile=_universal_ip_profile(),
+        scene_casts_by_frame={"frame_1": {"metadata": {"ip_presence_type": "giant_logo_takeover"}}},
+    )
+
+    prompt = captured["prompt"]
+    assert "giant_logo_takeover" not in prompt
+    assert '"scene_cast_presence": null' in prompt
 
 
 @pytest.mark.asyncio

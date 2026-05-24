@@ -54,6 +54,13 @@ For each frame, decide:
 5. **reason**: One sentence explaining WHY this choice fits the frame content.
 
 Rules:
+- Use stable identity fields as hard visual anchors.
+- Use minimal_traits when the IP is partial, far away, or low intrusion.
+- Use adaptable_slots for clothing, props, pose, occupation, and scene behavior.
+- Use semantic_boundary and negative_constraints as hard boundaries.
+- Use generation_world_profile to decide how the IP should fit this script world.
+- Use scene_cast_presence as the per-frame presence directive when it is present and valid.
+- Never force the IP to dominate frames whose source text or world profile protects another subject.
 - Frame 1 (opening) typically uses "supporting" or "protagonist" for scene establishment
 - Vary roles across frames — do NOT use the same role for all frames
 - PROTECTED subjects (historical buildings, religious figures, real people) → use "passerby" or "absent"

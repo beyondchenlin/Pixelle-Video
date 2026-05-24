@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-
 from collections.abc import Mapping
 from typing import Any
 
@@ -95,6 +94,11 @@ class IPUsagePlanner:
 
 def _scene_cast_for_frame(scene_casts: Mapping[str, Any], frame: StoryboardPlanFrame) -> Any | None:
     return scene_casts.get(frame.frame_id) or scene_casts.get(str(frame.index))
+
+
+def _validated_scene_cast_presence(scene_cast: Any | None) -> str | None:
+    presence_type = _presence_type_from_scene_cast(scene_cast)
+    return presence_type.value if presence_type is not None else None
 
 
 def _frame_text(frame: StoryboardPlanFrame) -> str:
@@ -496,6 +500,8 @@ class IPFrameAppearancePlanner:
                 storyboard_plan=storyboard_plan,
                 ip_profile=ip_profile,
                 base_packages=base_packages,
+                generation_world_profile=generation_world_profile,
+                scene_casts_by_frame=scene_casts,
             )
 
         enriched: list[IPFrameAdaptationPackage] = []
@@ -541,6 +547,8 @@ class IPFrameAppearancePlanner:
         storyboard_plan: StoryboardPlan,
         ip_profile: IPProfile,
         base_packages: list[IPFrameAdaptationPackage],
+        generation_world_profile: ContentWorldInput = None,
+        scene_casts_by_frame: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]] | None:
         """Call LLM to decide role_slot, role_label, presence_level, appearance_description per frame.
 
@@ -551,13 +559,23 @@ class IPFrameAppearancePlanner:
             parse_ip_role_selection_response,
         )
 
+        world_profile = _normalize_generation_world_profile(generation_world_profile)
         ip_profile_json = json.dumps(
             {
                 "name": ip_profile.name,
                 "identity_lock": list(ip_profile.identity_lock),
                 "identity_anchors": list(ip_profile.identity_anchors),
                 "visual_summary": ip_profile.visual_summary,
+                "minimal_traits": list(ip_profile.minimal_traits),
+                "semantic_boundary": list(ip_profile.semantic_boundary),
+                "negative_constraints": list(ip_profile.negative_constraints),
                 "role_presets": list(ip_profile.role_presets),
+                "presence_spectrum": list(ip_profile.presence_spectrum),
+                "adaptable_slots": list(ip_profile.adaptable_slots),
+                "default_slot_preference": ip_profile.default_slot_preference,
+                "style_hint": ip_profile.style_hint,
+                "world_hint": ip_profile.world_hint,
+                "generation_world_profile": world_profile.to_dict() if world_profile else {},
             },
             ensure_ascii=False,
             indent=2,
@@ -566,15 +584,24 @@ class IPFrameAppearancePlanner:
             [
                 {
                     "frame_index": i,
+                    "frame_id": frame.frame_id,
                     "source_text": frame.source_text,
                     "visual_goal": frame.visual_goal,
                     "shot_type": frame.shot_type,
                     "primary_subject": frame.primary_subject,
                     "presence_type": base.ip_presence_type.value,
+                    "presence_mode": base.presence_mode,
+                    "semantic_reason": base.semantic_reason,
                     "must_not_replace": list(base.must_not_replace),
+                    "identity_anchors_visible": list(base.identity_anchors_visible),
+                    "identity_anchors_suppressed": list(base.identity_anchors_suppressed),
+                    "scene_cast_presence": _validated_scene_cast_presence(scene_cast),
                 }
                 for i, (frame, base) in enumerate(
                     zip(storyboard_plan.frames, base_packages)
+                )
+                for scene_cast in (
+                    _scene_cast_for_frame(scene_casts_by_frame or {}, frame),
                 )
             ],
             ensure_ascii=False,
