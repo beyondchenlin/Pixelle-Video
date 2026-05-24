@@ -4,9 +4,9 @@
 
 **Goal:** Realign the generation chain so every upstream input, including IP, world, scene, style, text policy, and workflow constraints, produces one complete final visual prompt that is handed unchanged to the media model.
 
-**Architecture:** Work backward from the final prompt. Introduce a shared request contract so web UI and request builders cannot drift, keep `IPProfile` as durable fact source, keep `generation_world_hint` request-scoped, feed structured context to the LLM, semantically fuse style/storyboard/IP/world into final prompt text, and verify the same prompt reaches `StoryboardFrame.image_prompt`, `PromptPlan.final_prompt`, and the media service `prompt` parameter.
+**Architecture:** Work backward from the final prompt. Introduce a shared request contract so web UI and request builders cannot drift, keep `IPProfile` as durable fact source, keep `generation_world_hint` request-scoped, load every LLM prompt body from Markdown templates, feed structured context to the LLM, semantically fuse style/storyboard/IP/world into final prompt text, trace every LLM request/response, and verify the same prompt reaches `StoryboardFrame.image_prompt`, `PromptPlan.final_prompt`, and the media service `prompt` parameter.
 
-**Tech Stack:** Python 3.11, Streamlit, Pydantic v2, pytest, Pixelle `IPProfile`, `ContentWorldProfile`, `IPUsagePlanner`, `IPFrameAppearancePlanner`, `PromptContextEnvelope`.
+**Tech Stack:** Python 3.11, Streamlit, Pydantic v2, pytest, Markdown prompt templates, Pixelle `IPProfile`, `ContentWorldProfile`, `IPUsagePlanner`, `IPFrameAppearancePlanner`, `PromptContextEnvelope`, `LLMTraceContext`, `LLMInteractionRecorder`.
 
 ---
 
@@ -18,6 +18,42 @@
   - Owns formal content IP/world request fields, helper-only fields, removed legacy fields, and formal payload building.
 - Create: `tests/test_ip_generation_request_contract.py`
   - Locks the shared request contract.
+- Create: `pixelle_video/prompts/template_loader.py`
+  - Loads, validates, and renders Markdown prompt templates.
+- Create: `pixelle_video/prompts/templates/__init__.py`
+  - Marks the Markdown template directory as a packaged prompt source.
+- Create: `pixelle_video/prompts/templates/image_generation.md`
+  - Owns the image-prompt generation LLM prompt body.
+- Create: `pixelle_video/prompts/templates/video_generation.md`
+  - Owns the video-prompt generation LLM prompt body.
+- Create: `pixelle_video/prompts/templates/ip_role_selection.md`
+  - Owns the IP role/presence selection LLM prompt body.
+- Create: `pixelle_video/prompts/templates/topic_narration.md`
+  - Owns the topic-to-narration LLM prompt body.
+- Create: `pixelle_video/prompts/templates/content_narration.md`
+  - Owns the content-to-narration LLM prompt body.
+- Create: `pixelle_video/prompts/templates/title_generation.md`
+  - Owns the title-generation LLM prompt body.
+- Create: `pixelle_video/prompts/templates/style_conversion.md`
+  - Owns the style-conversion LLM prompt body.
+- Create: `pixelle_video/prompts/templates/style_resolution.md`
+  - Owns the style-resolution LLM prompt body.
+- Create: `pixelle_video/prompts/templates/content_world.md`
+  - Owns the content-world planning LLM prompt body.
+- Create: `pixelle_video/prompts/templates/storyboard_planning.md`
+  - Owns the storyboard planning LLM prompt body.
+- Create: `pixelle_video/prompts/templates/storyboard_generation.md`
+  - Owns the smart storyboard generation LLM prompt body.
+- Create: `pixelle_video/prompts/templates/prompt_prefix_generation.md`
+  - Owns the prompt-prefix generation LLM prompt body.
+- Create: `pixelle_video/prompts/templates/asset_script_generation.md`
+  - Owns the asset script-generation LLM prompt body.
+- Create: `tests/test_prompt_template_registry.py`
+  - Proves Markdown prompt templates have valid metadata and render without unresolved variables.
+- Create: `tests/test_prompt_template_no_inline_bodies.py`
+  - Fails when prompt bodies are reintroduced as Python triple-quoted constants.
+- Modify: `pixelle_video/prompts/*.py`
+  - Converts prompt modules into Markdown-template adapters instead of prompt-body owners.
 - Modify: `web/components/content_ip_world_controls.py`
   - Renders left-side IP/world controls and returns only the formal payload.
 - Modify: `web/i18n/locales/zh_CN.json`
@@ -56,6 +92,18 @@
   - Proves prompt contexts receive structured `ip_adaptation`.
 - Modify: `tests/test_styled_image_prompt_batch.py`
   - Proves the main styled-image path strips stale IP context when disabled and validates prompt leakage when enabled.
+- Modify: `pixelle_video/models/llm_interaction_trace.py`
+  - Adds template provenance, chain id, and attempt metadata to LLM traces.
+- Modify: `pixelle_video/services/llm_service.py`
+  - Rejects untraced production LLM calls and persists exact request/response payloads.
+- Modify: `pixelle_video/services/llm_interaction_recorder.py`
+  - Stores raw rendered prompts and raw response payloads for every interaction.
+- Create: `pixelle_video/services/prompt_trace_artifacts.py`
+  - Persists per-generation prompt-chain and final-prompt artifacts.
+- Create: `tests/test_generation_llm_trace_contract.py`
+  - Proves every generation LLM call records prompt, response, stage, attempt, and template provenance.
+- Create: `tests/test_prompt_trace_artifacts.py`
+  - Proves per-frame final prompt artifacts link prompt planning to media generation.
 
 ---
 
@@ -79,6 +127,468 @@ The prompt must be suitable for the target image/video model:
 - no unresolved block-list order such as `style, shot_type, world_elements, base_prompt`.
 
 All tasks below serve this contract.
+
+---
+
+## Prompt Provenance And Trace Contract
+
+Every prompt used with a large model is source-controlled as Markdown. Code renders templates; code does not own the prompt prose.
+
+The runtime trace must answer these questions for every generation:
+
+- Which Markdown template produced the prompt?
+- What exact rendered text did the LLM receive?
+- What exact response did the LLM return?
+- How many LLM interactions happened, in what order, and at which generation stage?
+- Which final prompt was handed to ComfyUI or the media model?
+
+Required invariants:
+
+```python
+trace.request_payload["messages"][0]["content"] == rendered_prompt.text
+trace.context.metadata["prompt_template"]["prompt_id"] == rendered_prompt.prompt_id
+final_prompt_artifact["frames"][index]["prompt"] == media_params["prompt"]
+```
+
+No task may add a new LLM prompt as a Python triple-quoted prompt body. New prompt work starts by adding or updating a Markdown template.
+
+---
+
+## Task 0: Markdown Prompt Templates And Mandatory Trace Foundation
+
+**Files:**
+- Create: `pixelle_video/prompts/template_loader.py`
+- Create: `pixelle_video/prompts/templates/__init__.py`
+- Create: `pixelle_video/prompts/templates/image_generation.md`
+- Create: `pixelle_video/prompts/templates/video_generation.md`
+- Create: `pixelle_video/prompts/templates/ip_role_selection.md`
+- Create: `pixelle_video/prompts/templates/topic_narration.md`
+- Create: `pixelle_video/prompts/templates/content_narration.md`
+- Create: `pixelle_video/prompts/templates/title_generation.md`
+- Create: `pixelle_video/prompts/templates/style_conversion.md`
+- Create: `pixelle_video/prompts/templates/style_resolution.md`
+- Create: `pixelle_video/prompts/templates/content_world.md`
+- Create: `pixelle_video/prompts/templates/storyboard_planning.md`
+- Create: `pixelle_video/prompts/templates/storyboard_generation.md`
+- Create: `pixelle_video/prompts/templates/prompt_prefix_generation.md`
+- Create: `pixelle_video/prompts/templates/asset_script_generation.md`
+- Create: `tests/test_prompt_template_registry.py`
+- Create: `tests/test_prompt_template_no_inline_bodies.py`
+- Modify: `pixelle_video/prompts/image_generation.py`
+- Modify: `pixelle_video/prompts/video_generation.py`
+- Modify: `pixelle_video/prompts/ip_role_selection.py`
+- Modify: `pixelle_video/prompts/topic_narration.py`
+- Modify: `pixelle_video/prompts/content_narration.py`
+- Modify: `pixelle_video/prompts/title_generation.py`
+- Modify: `pixelle_video/prompts/style_conversion.py`
+- Modify: `pixelle_video/prompts/style_resolution.py`
+- Modify: `pixelle_video/prompts/content_world.py`
+- Modify: `pixelle_video/prompts/storyboard_planning.py`
+- Modify: `pixelle_video/prompts/storyboard_generation.py`
+- Modify: `pixelle_video/prompts/prompt_prefix_generation.py`
+- Modify: `pixelle_video/prompts/asset_script_generation.py`
+
+- [ ] **Step 1: Write prompt-template registry tests**
+
+Create `tests/test_prompt_template_registry.py`:
+
+```python
+import pytest
+
+from pixelle_video.prompts.template_loader import (
+    PROMPT_TEMPLATE_IDS,
+    PromptTemplateError,
+    load_prompt_template,
+    render_prompt_template,
+)
+
+
+REQUIRED_TEMPLATE_IDS = {
+    "image_generation",
+    "video_generation",
+    "ip_role_selection",
+    "topic_narration",
+    "content_narration",
+    "title_generation",
+    "style_conversion",
+    "style_resolution",
+    "content_world",
+    "storyboard_planning",
+    "storyboard_generation",
+    "prompt_prefix_generation",
+    "asset_script_generation",
+}
+
+
+def test_prompt_registry_contains_every_generation_template():
+    assert REQUIRED_TEMPLATE_IDS <= set(PROMPT_TEMPLATE_IDS)
+
+
+@pytest.mark.parametrize("prompt_id", sorted(REQUIRED_TEMPLATE_IDS))
+def test_prompt_template_has_required_frontmatter(prompt_id):
+    template = load_prompt_template(prompt_id)
+
+    assert template.prompt_id == prompt_id
+    assert template.version
+    assert template.stage
+    assert template.purpose
+    assert template.output_contract
+    assert template.path.name == f"{prompt_id}.md"
+    assert "# " in template.body
+
+
+def test_render_prompt_template_returns_text_and_source_metadata():
+    rendered = render_prompt_template(
+        "image_generation",
+        {
+            "input_payload": {"frame_source_texts": ["A guide enters the market."]},
+            "min_words": 50,
+            "max_words": 100,
+            "language_requirement": "Image prompts must use English",
+            "output_language_label": "English",
+            "detail_requirement": "Ensure clear, complete, and creative descriptions.",
+            "example_prompt": "[detailed English image prompt]",
+        },
+    )
+
+    assert rendered.prompt_id == "image_generation"
+    assert rendered.version
+    assert rendered.path.endswith("image_generation.md")
+    assert "A guide enters the market." in rendered.text
+    assert "{input_payload}" not in rendered.text
+    assert "{{input_payload}}" not in rendered.text
+
+
+def test_render_prompt_template_rejects_unresolved_variables():
+    with pytest.raises(PromptTemplateError, match="missing template variables"):
+        render_prompt_template("title_generation", {"content": "Only one variable"})
+```
+
+- [ ] **Step 2: Write the static no-inline-prompt test**
+
+Create `tests/test_prompt_template_no_inline_bodies.py`:
+
+```python
+import re
+from pathlib import Path
+
+
+PROMPT_MODULE_DIR = Path("pixelle_video/prompts")
+INLINE_PROMPT_CONSTANT_RE = re.compile(
+    r"\b[A-Z][A-Z0-9_]*PROMPT[A-Z0-9_]*\s*=\s*(?:f|r|fr|rf)?[\"']{3}",
+    re.MULTILINE,
+)
+
+
+def test_prompt_modules_do_not_own_long_form_prompt_bodies():
+    offenders = []
+    for path in sorted(PROMPT_MODULE_DIR.glob("*.py")):
+        if path.name in {"__init__.py", "template_loader.py"}:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if INLINE_PROMPT_CONSTANT_RE.search(text):
+            offenders.append(str(path))
+
+    assert offenders == []
+```
+
+- [ ] **Step 3: Run the new tests and confirm current failures**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_prompt_template_registry.py tests/test_prompt_template_no_inline_bodies.py -q
+```
+
+Expected now:
+
+```text
+FAILED
+```
+
+The failures should mention the missing `pixelle_video.prompts.template_loader` module and existing inline prompt constants in `pixelle_video/prompts/*.py`.
+
+- [ ] **Step 4: Implement the Markdown template loader**
+
+Create `pixelle_video/prompts/template_loader.py`:
+
+```python
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from string import Formatter
+from typing import Any
+
+
+TEMPLATE_DIR = Path(__file__).with_name("templates")
+PROMPT_TEMPLATE_IDS = frozenset(
+    path.stem for path in TEMPLATE_DIR.glob("*.md")
+    if path.name != "__init__.py"
+)
+REQUIRED_FRONTMATTER_FIELDS = frozenset(
+    {"prompt_id", "version", "stage", "purpose", "output_contract"}
+)
+
+
+class PromptTemplateError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class PromptTemplate:
+    prompt_id: str
+    version: str
+    stage: str
+    purpose: str
+    output_contract: str
+    path: Path
+    body: str
+
+
+@dataclass(frozen=True)
+class RenderedPrompt:
+    prompt_id: str
+    version: str
+    stage: str
+    purpose: str
+    output_contract: str
+    path: str
+    text: str
+
+    def trace_metadata(self) -> dict[str, str]:
+        return {
+            "prompt_id": self.prompt_id,
+            "version": self.version,
+            "stage": self.stage,
+            "purpose": self.purpose,
+            "output_contract": self.output_contract,
+            "path": self.path,
+        }
+
+
+def load_prompt_template(prompt_id: str) -> PromptTemplate:
+    safe_id = _validate_prompt_id(prompt_id)
+    path = TEMPLATE_DIR / f"{safe_id}.md"
+    if not path.exists():
+        raise PromptTemplateError(f"unknown prompt template: {prompt_id}")
+    frontmatter, body = _split_frontmatter(path.read_text(encoding="utf-8"))
+    missing = REQUIRED_FRONTMATTER_FIELDS - set(frontmatter)
+    if missing:
+        raise PromptTemplateError(f"{safe_id} missing frontmatter fields: {sorted(missing)}")
+    if frontmatter["prompt_id"] != safe_id:
+        raise PromptTemplateError(f"{safe_id} prompt_id does not match file name")
+    return PromptTemplate(
+        prompt_id=safe_id,
+        version=str(frontmatter["version"]).strip(),
+        stage=str(frontmatter["stage"]).strip(),
+        purpose=str(frontmatter["purpose"]).strip(),
+        output_contract=str(frontmatter["output_contract"]).strip(),
+        path=path,
+        body=body.strip(),
+    )
+
+
+def render_prompt_template(prompt_id: str, variables: dict[str, Any]) -> RenderedPrompt:
+    template = load_prompt_template(prompt_id)
+    normalized = {
+        key: _stringify_template_value(value)
+        for key, value in variables.items()
+    }
+    required = {
+        field_name
+        for _, field_name, _, _ in Formatter().parse(template.body)
+        if field_name
+    }
+    missing = required - set(normalized)
+    if missing:
+        raise PromptTemplateError(f"{prompt_id} missing template variables: {sorted(missing)}")
+    text = template.body.format(**normalized)
+    unresolved = sorted(set(re.findall(r"\{[A-Za-z_][A-Za-z0-9_]*\}", text)))
+    if unresolved:
+        raise PromptTemplateError(f"{prompt_id} unresolved template variables: {unresolved}")
+    return RenderedPrompt(
+        prompt_id=template.prompt_id,
+        version=template.version,
+        stage=template.stage,
+        purpose=template.purpose,
+        output_contract=template.output_contract,
+        path=str(template.path),
+        text=text.strip(),
+    )
+
+
+def _validate_prompt_id(prompt_id: str) -> str:
+    value = str(prompt_id or "").strip()
+    if not re.fullmatch(r"[a-z0-9_]+", value):
+        raise PromptTemplateError("prompt_id must contain lowercase letters, numbers, and underscores only")
+    return value
+
+
+def _split_frontmatter(markdown: str) -> tuple[dict[str, str], str]:
+    if not markdown.startswith("---\n"):
+        raise PromptTemplateError("prompt template must start with frontmatter")
+    end = markdown.find("\n---", 4)
+    if end < 0:
+        raise PromptTemplateError("prompt template frontmatter is not closed")
+    frontmatter_text = markdown[4:end].strip()
+    body = markdown[end + len("\n---"):].strip()
+    frontmatter: dict[str, str] = {}
+    for line in frontmatter_text.splitlines():
+        if ":" not in line:
+            raise PromptTemplateError(f"invalid frontmatter line: {line}")
+        key, value = line.split(":", 1)
+        frontmatter[key.strip()] = value.strip()
+    return frontmatter, body
+
+
+def _stringify_template_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+```
+
+- [ ] **Step 5: Move prompt bodies into Markdown templates**
+
+Create each Markdown file listed in this task. For `image_generation.md`, use this front matter, then copy the complete current body of `IMAGE_PROMPT_GENERATION_PROMPT` from `pixelle_video/prompts/image_generation.py` directly below it. The copied body starts with `# Role Definition` and keeps the current JSON output rules intact.
+
+```markdown
+---
+prompt_id: image_generation
+version: 2026-05-24-v1
+stage: image_prompt_generation
+purpose: Generate integrated per-frame visual prompts from structured storyboard context.
+output_contract: ImagePromptBatchResponse
+---
+```
+
+Use these `prompt_id` to `output_contract` mappings:
+
+```python
+{
+    "image_generation": "ImagePromptBatchResponse",
+    "video_generation": "VideoPromptBatchResponse",
+    "ip_role_selection": "IPRoleSelectionResponse",
+    "topic_narration": "NarrationBatchResponse",
+    "content_narration": "NarrationBatchResponse",
+    "title_generation": "str",
+    "style_conversion": "str",
+    "style_resolution": "StyleResolutionResponse",
+    "content_world": "ContentWorldProfile",
+    "storyboard_planning": "StoryboardPromptPlanResponse",
+    "storyboard_generation": "SmartStoryboardResponse",
+    "prompt_prefix_generation": "PromptPrefixGenerationResponse",
+    "asset_script_generation": "AssetScriptGenerationResponse",
+}
+```
+
+- [ ] **Step 6: Convert Python prompt modules into adapters**
+
+In each `pixelle_video/prompts/*.py` builder, replace the prompt-body constant with `render_prompt_template(...)`.
+
+For `pixelle_video/prompts/image_generation.py`, keep a text-returning compatibility function and add a metadata-preserving render function:
+
+```python
+from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
+
+
+def render_image_prompt_prompt(
+    narrations: list[str],
+    min_words: int = 50,
+    max_words: int = 100,
+    prompt_contexts: Any | None = None,
+    prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
+) -> RenderedPrompt:
+    resolved_prompt_language = normalize_prompt_language(prompt_language)
+    input_payload = (
+        {"frame_source_texts": narrations}
+        if prompt_contexts is not None
+        else {"narrations": narrations}
+    )
+    if prompt_contexts is not None:
+        input_payload["prompt_contexts"] = _serialize_prompt_contexts(prompt_contexts)
+    if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE:
+        output_language_label = "Chinese"
+        language_requirement = "必须使用中文"
+        detail_requirement = "确保描述清晰、完整且有创意，篇幅与 50-100 个英文单词的细节密度相当。"
+        example_prompt = "[详细中文图片提示词，遵循风格要求]"
+    else:
+        output_language_label = "English"
+        language_requirement = "Image prompts must use English"
+        detail_requirement = "Ensure clear, complete, and creative descriptions (recommended 50-100 English words)"
+        example_prompt = "[detailed English image prompt following the style requirements]"
+    return render_prompt_template(
+        "image_generation",
+        {
+            "input_payload": input_payload,
+            "min_words": min_words,
+            "max_words": max_words,
+            "language_requirement": language_requirement,
+            "output_language_label": output_language_label,
+            "detail_requirement": detail_requirement,
+            "example_prompt": example_prompt,
+        },
+    )
+
+
+def build_image_prompt_prompt(*args, **kwargs) -> str:
+    return render_image_prompt_prompt(*args, **kwargs).text
+```
+
+Use this exact adapter map for the remaining prompt modules:
+
+```python
+{
+    "video_generation": ("render_video_prompt_prompt", "build_video_prompt_prompt"),
+    "ip_role_selection": ("render_ip_role_selection_prompt", "build_ip_role_selection_prompt"),
+    "topic_narration": ("render_topic_narration_prompt", "build_topic_narration_prompt"),
+    "content_narration": ("render_content_narration_prompt", "build_content_narration_prompt"),
+    "title_generation": ("render_title_generation_prompt", "build_title_generation_prompt"),
+    "style_conversion": ("render_style_conversion_prompt", "build_style_conversion_prompt"),
+    "style_resolution": ("render_style_resolution_prompt", "build_style_resolution_prompt"),
+    "content_world": ("render_content_world_prompt", "build_content_world_prompt"),
+    "storyboard_planning": ("render_storyboard_planning_prompt", "build_storyboard_planning_prompt"),
+    "storyboard_generation": ("render_smart_storyboard_prompt", "build_smart_storyboard_prompt"),
+    "prompt_prefix_generation": ("render_prompt_prefix_generation_prompt", "build_prompt_prefix_generation_prompt"),
+    "asset_script_generation": ("render_asset_script_generation_prompt", "build_asset_script_generation_prompt"),
+}
+```
+
+Each `render_*` function returns `RenderedPrompt`. Each `build_*` function returns `render_*(...).text` for compatibility with existing callers. Production LLM call sites use the `render_*` function so trace metadata can include the template id, version, stage, output contract, and path.
+
+- [ ] **Step 7: Run template tests and static gate**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_prompt_template_registry.py tests/test_prompt_template_no_inline_bodies.py -q
+```
+
+Expected:
+
+```text
+passed
+```
+
+Run:
+
+```powershell
+rg -n "PROMPT\\s*=\\s*\"\"\"|_PROMPT\\s*=\\s*\"\"\"" pixelle_video/prompts
+```
+
+Expected:
+
+```text
+```
+
+- [ ] **Step 8: Commit**
+
+```powershell
+git add pixelle_video/prompts tests/test_prompt_template_registry.py tests/test_prompt_template_no_inline_bodies.py
+git commit -m "refactor: move LLM prompt templates to markdown"
+```
 
 ---
 
@@ -1635,10 +2145,354 @@ git commit -m "fix: sanitize expanded IP internal prompt keys"
 
 ---
 
-## Task 9: Full Verification And Contract Audit
+## Task 9: Mandatory LLM Trace Artifacts
 
 **Files:**
-- Verify all files touched by Tasks 1-8.
+- Modify: `pixelle_video/models/llm_interaction_trace.py`
+- Modify: `pixelle_video/services/llm_service.py`
+- Modify: `pixelle_video/services/llm_interaction_recorder.py`
+- Create: `pixelle_video/services/prompt_trace_artifacts.py`
+- Modify: `pixelle_video/utils/content_generators.py`
+- Modify: `pixelle_video/utils/style_resolution.py`
+- Modify: `pixelle_video/services/content_world_planner.py`
+- Modify: `pixelle_video/services/script_generation.py`
+- Modify: `pixelle_video/services/storyboard_generation.py`
+- Modify: `pixelle_video/services/storyboard_planner.py`
+- Modify: `pixelle_video/services/image_prompt_composer.py`
+- Modify: `pixelle_video/pipelines/standard.py`
+- Modify: `tests/test_llm_service_trace_capture.py`
+- Modify: `tests/test_llm_interaction_trace_model.py`
+- Modify: `tests/test_llm_interaction_recorder.py`
+- Create: `tests/test_generation_llm_trace_contract.py`
+- Create: `tests/test_prompt_trace_artifacts.py`
+
+- [ ] **Step 1: Add trace metadata model tests**
+
+In `tests/test_llm_interaction_trace_model.py`, add:
+
+```python
+def test_trace_context_records_prompt_template_and_chain_metadata():
+    context = LLMTraceContext(
+        workspace_id="workspace_1",
+        task_id="task_123",
+        operation="image_prompt_generation",
+        stage="base_prompt_batch",
+        frame_id="frame_0001",
+        metadata={
+            "chain_id": "chain_abc",
+            "attempt": 2,
+            "prompt_template": {
+                "prompt_id": "image_generation",
+                "version": "2026-05-24-v1",
+                "path": "pixelle_video/prompts/templates/image_generation.md",
+                "output_contract": "ImagePromptBatchResponse",
+            },
+        },
+    )
+
+    restored = LLMTraceContext.from_dict(context.to_dict())
+
+    assert restored.metadata["chain_id"] == "chain_abc"
+    assert restored.metadata["attempt"] == 2
+    assert restored.metadata["prompt_template"]["prompt_id"] == "image_generation"
+    assert restored.metadata["prompt_template"]["path"].endswith("image_generation.md")
+```
+
+- [ ] **Step 2: Make untraced production LLM calls fail before provider IO**
+
+In `tests/test_llm_service_trace_capture.py`, add:
+
+```python
+@pytest.mark.asyncio
+async def test_llm_service_rejects_untraced_generation_calls_before_provider_request(monkeypatch):
+    fake_client, create_recorder = _fake_client(
+        base_url="https://api.deepseek.com/v1",
+        content="plain answer",
+    )
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+
+    with pytest.raises(ValueError, match="LLM trace_context and trace_recorder are required"):
+        await service(
+            prompt="Explain atomic habits",
+            model="deepseek-chat",
+        )
+
+    assert create_recorder.calls == []
+```
+
+Then update `pixelle_video/services/llm_service.py` at the start of `__call__`:
+
+```python
+allow_untraced_llm_call = bool(kwargs.pop("allow_untraced_llm_call", False))
+if not allow_untraced_llm_call and (trace_context is None or trace_recorder is None):
+    raise ValueError(
+        "LLM trace_context and trace_recorder are required for generation calls"
+    )
+```
+
+Use `allow_untraced_llm_call=True` only in low-level unit tests that intentionally exercise provider compatibility without generation trace plumbing.
+
+- [ ] **Step 3: Prove raw request and response payloads contain inspectable prompt text**
+
+In `tests/test_llm_service_trace_capture.py`, extend `test_llm_service_records_successful_text_calls_at_gateway`:
+
+```python
+request_payload = raw_store.payloads[0]["payload"]
+response_payload = raw_store.payloads[1]["payload"]
+
+assert request_payload["messages"][0]["content"] == "Explain atomic habits"
+assert response_payload["content"] == "plain answer"
+assert trace_repository.appended[0]["trace"]["request_preview"]
+assert trace_repository.appended[0]["trace"]["response_preview"]
+```
+
+- [ ] **Step 4: Add generation call-site trace contract tests**
+
+Create `tests/test_generation_llm_trace_contract.py`:
+
+```python
+import ast
+from pathlib import Path
+
+
+GENERATION_LLM_CALL_FILES = [
+    Path("pixelle_video/utils/content_generators.py"),
+    Path("pixelle_video/utils/style_resolution.py"),
+    Path("pixelle_video/services/content_world_planner.py"),
+    Path("pixelle_video/services/script_generation.py"),
+    Path("pixelle_video/services/storyboard_generation.py"),
+    Path("pixelle_video/services/storyboard_planner.py"),
+]
+
+
+def _llm_service_calls(path: Path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id == "llm_service":
+                yield node
+
+
+def test_generation_llm_calls_pass_trace_context_and_recorder():
+    offenders = []
+    for path in GENERATION_LLM_CALL_FILES:
+        for call in _llm_service_calls(path):
+            keyword_names = {keyword.arg for keyword in call.keywords if keyword.arg}
+            if "trace_context" not in keyword_names or "trace_recorder" not in keyword_names:
+                offenders.append(f"{path}:{call.lineno}")
+
+    assert offenders == []
+```
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_generation_llm_trace_contract.py -q
+```
+
+Expected now:
+
+```text
+FAILED
+```
+
+The failure should list current generation call sites that still call `llm_service(...)` without trace metadata.
+
+- [ ] **Step 5: Thread trace context and recorder through generation APIs**
+
+Update public generation functions that call LLMs to accept trace metadata:
+
+```python
+async def generate_image_prompts(
+    llm_service,
+    narrations: list[str],
+    min_words: int = 50,
+    max_words: int = 100,
+    *,
+    prompt_contexts: PromptContextEnvelope | Mapping[str, Any] | None = None,
+    prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
+    trace_context: LLMTraceContext,
+    trace_recorder: LLMInteractionRecorder,
+) -> list[str]:
+    rendered_prompt = render_image_prompt_prompt(
+        narrations,
+        min_words=min_words,
+        max_words=max_words,
+        prompt_contexts=prompt_contexts,
+        prompt_language=prompt_language,
+    )
+    response: ImagePromptBatchResponse = await llm_service(
+        rendered_prompt.text,
+        temperature=0.7,
+        max_tokens=2000,
+        response_type=ImagePromptBatchResponse,
+        trace_context=_with_prompt_template(
+            trace_context,
+            stage="image_prompt_generation",
+            prompt=rendered_prompt,
+        ),
+        trace_recorder=trace_recorder,
+    )
+    return list(response.image_prompts)
+```
+
+Add a small helper near the generation utilities:
+
+```python
+def _with_prompt_template(
+    context: LLMTraceContext,
+    *,
+    stage: str,
+    prompt: RenderedPrompt,
+    frame_id: str | None = None,
+    attempt: int = 1,
+) -> LLMTraceContext:
+    metadata = dict(context.metadata)
+    metadata["prompt_template"] = prompt.trace_metadata()
+    metadata["attempt"] = attempt
+    return LLMTraceContext(
+        workspace_id=context.workspace_id,
+        task_id=context.task_id,
+        operation=context.operation,
+        stage=stage,
+        frame_id=frame_id or context.frame_id,
+        metadata=metadata,
+    )
+```
+
+Apply the same pattern to `generate_video_prompts`, narration generation, style resolution, content-world planning, script generation, storyboard generation, and storyboard planning.
+
+- [ ] **Step 6: Create per-generation prompt artifact writer**
+
+Create `pixelle_video/services/prompt_trace_artifacts.py`:
+
+```python
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+
+def write_final_prompt_artifact(
+    *,
+    output_dir: Path,
+    task_id: str,
+    frames: Sequence[Mapping[str, Any]],
+) -> Path:
+    trace_dir = output_dir / "prompt_traces"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = trace_dir / "final_visual_prompts.md"
+    lines = [
+        f"# Final Visual Prompts",
+        "",
+        f"- task_id: `{task_id}`",
+        f"- frame_count: `{len(frames)}`",
+        "",
+    ]
+    for frame in frames:
+        index = frame["index"]
+        prompt = str(frame["prompt"]).strip()
+        negative_prompt = str(frame.get("negative_prompt") or "").strip()
+        lines.extend(
+            [
+                f"## Frame {index}",
+                "",
+                "### Positive Prompt",
+                "",
+                "```text",
+                prompt,
+                "```",
+                "",
+                "### Negative Prompt",
+                "",
+                "```text",
+                negative_prompt,
+                "```",
+                "",
+            ]
+        )
+    artifact_path.write_text("\n".join(lines), encoding="utf-8")
+    return artifact_path
+```
+
+- [ ] **Step 7: Add final prompt artifact tests**
+
+Create `tests/test_prompt_trace_artifacts.py`:
+
+```python
+from pixelle_video.services.prompt_trace_artifacts import write_final_prompt_artifact
+
+
+def test_final_prompt_artifact_persists_exact_media_prompt(tmp_path):
+    final_prompt = "A white rabbit guide with a blue tie stands in a morning market."
+    artifact = write_final_prompt_artifact(
+        output_dir=tmp_path,
+        task_id="task-1",
+        frames=[
+            {
+                "index": 1,
+                "prompt": final_prompt,
+                "negative_prompt": "blurry, unreadable text",
+            }
+        ],
+    )
+
+    text = artifact.read_text(encoding="utf-8")
+    assert "task-1" in text
+    assert final_prompt in text
+    assert "blurry, unreadable text" in text
+    assert artifact.name == "final_visual_prompts.md"
+```
+
+- [ ] **Step 8: Write final prompt artifacts before media generation**
+
+In `pixelle_video/pipelines/standard.py`, after prompt plans are built and before frame media generation starts, call `write_final_prompt_artifact(...)` with the same prompt values assigned to `StoryboardFrame.image_prompt`.
+
+Use this frame payload shape:
+
+```python
+artifact_frames = [
+    {
+        "index": frame.index,
+        "prompt": frame.image_prompt,
+        "negative_prompt": getattr(frame, "negative_prompt", "") or "",
+    }
+    for frame in frames
+]
+```
+
+Store the artifact path in the task planning snapshot so the UI/log layer can show where the prompt chain lives.
+
+- [ ] **Step 9: Run trace tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_llm_interaction_trace_model.py tests/test_llm_interaction_recorder.py tests/test_llm_service_trace_capture.py tests/test_generation_llm_trace_contract.py tests/test_prompt_trace_artifacts.py -q
+```
+
+Expected:
+
+```text
+passed
+```
+
+- [ ] **Step 10: Commit**
+
+```powershell
+git add pixelle_video/models/llm_interaction_trace.py pixelle_video/services/llm_service.py pixelle_video/services/llm_interaction_recorder.py pixelle_video/services/prompt_trace_artifacts.py pixelle_video/utils/content_generators.py pixelle_video/utils/style_resolution.py pixelle_video/services/content_world_planner.py pixelle_video/services/script_generation.py pixelle_video/services/storyboard_generation.py pixelle_video/services/storyboard_planner.py pixelle_video/services/image_prompt_composer.py pixelle_video/pipelines/standard.py tests/test_llm_service_trace_capture.py tests/test_llm_interaction_trace_model.py tests/test_llm_interaction_recorder.py tests/test_generation_llm_trace_contract.py tests/test_prompt_trace_artifacts.py
+git commit -m "feat: require traceable LLM prompt interactions"
+```
+
+---
+
+## Task 10: Full Verification And Contract Audit
+
+**Files:**
+- Verify all files touched by Tasks 0-9.
 
 - [ ] **Step 1: Run focused request-entry tests**
 
@@ -1654,7 +2508,46 @@ Expected:
 passed
 ```
 
-- [ ] **Step 2: Run focused IP fact and planner tests**
+- [ ] **Step 2: Run prompt template provenance tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_prompt_template_registry.py tests/test_prompt_template_no_inline_bodies.py -q
+```
+
+Expected:
+
+```text
+passed
+```
+
+Run:
+
+```powershell
+rg -n "PROMPT\\s*=\\s*\"\"\"|_PROMPT\\s*=\\s*\"\"\"" pixelle_video/prompts
+```
+
+Expected:
+
+```text
+```
+
+- [ ] **Step 3: Run LLM traceability tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_llm_interaction_trace_model.py tests/test_llm_interaction_recorder.py tests/test_llm_service_trace_capture.py tests/test_generation_llm_trace_contract.py tests/test_prompt_trace_artifacts.py -q
+```
+
+Expected:
+
+```text
+passed
+```
+
+- [ ] **Step 4: Run focused IP fact and planner tests**
 
 Run:
 
@@ -1668,7 +2561,7 @@ Expected:
 passed
 ```
 
-- [ ] **Step 3: Run final visual prompt product contract tests**
+- [ ] **Step 5: Run final visual prompt product contract tests**
 
 Run:
 
@@ -1682,7 +2575,7 @@ Expected:
 passed
 ```
 
-- [ ] **Step 4: Run styled generation and API regression tests**
+- [ ] **Step 6: Run styled generation and API regression tests**
 
 Run:
 
@@ -1696,7 +2589,7 @@ Expected:
 passed
 ```
 
-- [ ] **Step 5: Run static request-field gates**
+- [ ] **Step 7: Run static request-field gates**
 
 Run:
 
@@ -1720,7 +2613,7 @@ Expected:
 ```text
 ```
 
-- [ ] **Step 6: Run final prompt cleanup tests**
+- [ ] **Step 8: Run final prompt cleanup tests**
 
 Run:
 
@@ -1734,7 +2627,7 @@ Expected:
 passed
 ```
 
-- [ ] **Step 7: Inspect git state**
+- [ ] **Step 9: Inspect git state**
 
 Run:
 
@@ -1749,7 +2642,7 @@ Expected:
 Only files listed in this plan are modified before the final commit.
 ```
 
-- [ ] **Step 8: Final commit**
+- [ ] **Step 10: Final commit**
 
 ```powershell
 git add pixelle_video web tests docs/superpowers/specs/2026-05-24-ip-design-entry-contract-realignment-design.md docs/superpowers/plans/2026-05-24-ip-design-entry-contract-realignment-implementation.md
@@ -1762,6 +2655,9 @@ git commit -m "feat: realign IP design generation source chain"
 
 Review pass 1, source ownership:
 
+- All LLM prompt bodies move to Markdown prompt templates with front matter.
+- Python prompt modules become render adapters rather than prompt prose owners.
+- Static tests and ripgrep gates prevent triple-quoted prompt constants from returning.
 - Shared request fields live in `pixelle_video/contracts/ip_generation_request.py`.
 - The left UI returns formal fields only.
 - Legacy UI fields are deleted from code and i18n.
@@ -1778,6 +2674,8 @@ Review pass 2, execution verification:
 - Final visual prompt assembly has product-contract tests.
 - Media handoff proves the frame prompt is sent unchanged as the model prompt.
 - Final prompt sanitization removes internal keys and hex codes.
+- LLM trace tests prove exact request payloads, response payloads, template provenance, stage, and attempt metadata are saved.
+- Final prompt artifact tests prove the prompt sent to media generation is inspectable after the run.
 
 Placeholder scan:
 
@@ -1792,6 +2690,9 @@ Type consistency:
 - `color_palette[*].hex` can preserve UI color values without entering prompt text.
 - `ip_adaptation` is allowed in prompt contexts and forbidden in final prompt strings.
 - `PromptPlan.final_prompt`, `StoryboardFrame.image_prompt`, and media `prompt` are one artifact.
+- `RenderedPrompt.text` is the exact string sent to the LLM.
+- `RenderedPrompt.trace_metadata()` is stored in `LLMTraceContext.metadata["prompt_template"]`.
+- `allow_untraced_llm_call=True` is a low-level test escape hatch only, not a generation-path behavior.
 
 ## Execution Handoff
 

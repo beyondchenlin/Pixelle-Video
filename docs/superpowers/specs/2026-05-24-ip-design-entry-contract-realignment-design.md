@@ -17,6 +17,8 @@ The implementation must solve the drift at its source, across the full generatio
 5. SceneCast influence has an explicit main-chain policy instead of an accidental preview-only ambiguity.
 6. Style, scene, world, IP, text, and workflow constraints are fused into one natural final prompt per frame.
 7. Final prompts receive useful scene language, while internal field names and control keys stay out of final user-facing prompt text.
+8. Every prompt template that is sent to an LLM is stored as a Markdown document, with source metadata that can be audited.
+9. Every LLM interaction records the exact rendered prompt, the exact returned response, the model/provider metadata, and the generation-stage chain that produced it.
 
 The goal is not to repair only the currently failing tests. The goal is to remove the conditions that allowed prompt quality drift: duplicated field definitions, UI-only fields that reached request builders, frontend/backend readiness divergence, color fact shape divergence, incomplete planner inputs, unclear SceneCast authority, and final prompt assembly that can fall back to block concatenation.
 
@@ -47,6 +49,35 @@ The design works backward from the final prompt:
 4. The upstream UI and workbench store structured facts that the LLM and assembly layer can understand.
 
 This is the controlling architecture. IP/world contract repair is one necessary part of it, not the whole product goal.
+
+### 1.3 Prompt Provenance Contract
+
+Prompt quality is the core product surface. Therefore prompt source ownership must be explicit:
+
+- Python code may load, validate, and render prompt templates, but it must not contain long-form prompt bodies.
+- Each LLM prompt template must live in a Markdown file under the prompt-template registry.
+- Each Markdown prompt file must declare `prompt_id`, `version`, `stage`, `purpose`, and `output_contract` in front matter.
+- Builder functions may assemble structured variables and render the Markdown template. They must not recreate the template as a Python triple-quoted string.
+- Prompt fragments such as style-prefix interpretation, IP role selection, world planning, storyboard planning, image prompt generation, video prompt generation, narration, title, and script generation are all governed by the same rule.
+- A final visual prompt can be generated only from traceable upstream prompt-template sources and structured runtime inputs.
+
+This means the implementation must migrate existing prompt bodies out of Python files and into Markdown templates. Keeping prompt bodies in code is not an acceptable intermediate endpoint because it prevents product-level prompt review.
+
+### 1.4 LLM Interaction Trace Contract
+
+Every interaction with an LLM must be inspectable after the run. A generated result without its prompt-and-response chain is incomplete.
+
+For every LLM call, the system must persist:
+
+- a run/task identifier and parent generation chain identifier.
+- operation, stage, optional frame id, attempt number, and retry relationship.
+- provider, model, temperature, max tokens, response mode, and output schema.
+- Markdown template id, template version, and template file path when a template was used.
+- the exact rendered prompt sent to the LLM.
+- the exact response payload returned by the LLM, including parse errors or provider errors.
+- parse/validation status, token usage, elapsed time, and error message when applicable.
+
+The final media-generation prompt also needs a saved artifact per frame. The artifact must link `PromptPlan.final_prompt`, `StoryboardFrame.image_prompt`, and the media service `prompt` parameter so prompt review can work backward from the image/video result to every upstream LLM interaction.
 
 ## 2. Terminal Evidence
 
@@ -255,6 +286,29 @@ The missing design rule is not code reachability. The missing rule is authority:
 
 The full `ip_adaptation` is stored in the planning snapshot. For auditability and prompt planning continuity, frame contexts should also carry a structured `ip_adaptation` package for generation services that consume `prompt_contexts`. Prompt instructions already forbid leaking internal keys into final prompt text.
 
+### 4.8 Prompt Template And Trace Risks
+
+The repository already contains several long-form prompt bodies in Python:
+
+- `pixelle_video/prompts/image_generation.py`
+- `pixelle_video/prompts/video_generation.py`
+- `pixelle_video/prompts/ip_role_selection.py`
+- `pixelle_video/prompts/topic_narration.py`
+- `pixelle_video/prompts/content_narration.py`
+- `pixelle_video/prompts/title_generation.py`
+- `pixelle_video/prompts/style_conversion.py`
+
+Other prompt builders also assemble LLM instructions in code, including storyboard, style-resolution, prompt-prefix, content-world, and asset/script generation paths. `pixelle_video/prompts/script_templates/default.md` proves Markdown prompt storage already fits this codebase, but the pattern has not been generalized.
+
+The repository also has useful LLM tracing primitives:
+
+- `pixelle_video/models/llm_interaction_trace.py`
+- `pixelle_video/services/llm_interaction_recorder.py`
+- `pixelle_video/services/llm_service.py`
+- `tests/test_llm_service_trace_capture.py`
+
+The risk is that tracing is optional at the call boundary. `_record_llm_trace()` returns without recording when `trace_context` or `trace_recorder` is missing, and several business call sites call `llm_service(...)` without mandatory trace metadata. This means the system can still produce a final image/video while losing the exact LLM prompt/response chain that created it.
+
 ## 5. Source-Root Design
 
 ### 5.1 Formal Request Contract
@@ -388,6 +442,54 @@ Disallowed assembly:
 
 The implementation should add tests around `assemble_image_prompt()`, `assemble_storyboard_prompt()`, `generate_styled_image_prompt_batch()`, `build_prompt_plan_bundle()`, and `FrameProcessor._step_generate_media()` so the final prompt is proven to be the same artifact from assembly through ComfyUI handoff.
 
+### 5.9 Markdown Prompt Template Contract
+
+Create one prompt-template registry for all LLM prompt bodies.
+
+Required template shape:
+
+```markdown
+---
+prompt_id: image_generation
+version: 2026-05-24-v1
+stage: image_prompt_generation
+purpose: Generate integrated per-frame visual prompts from structured storyboard context.
+output_contract: ImagePromptBatchResponse
+---
+```
+
+The body below the front matter contains the full prompt prose, starting with its role/instruction section and ending with the output contract rules.
+
+The loader must:
+
+- load templates only from the registered Markdown directory.
+- parse and validate front matter before rendering.
+- return both the rendered text and template metadata.
+- reject unknown `prompt_id` values.
+- reject unresolved template variables.
+- keep all prompt-body prose in Markdown files.
+
+Python files under `pixelle_video/prompts/` should become adapters: they prepare variables, call the Markdown renderer, and return either a `RenderedPrompt` object or a compatibility `.text` value. They should not own prompt language.
+
+Static verification must fail when a Python prompt module reintroduces a long-form triple-quoted prompt constant.
+
+### 5.10 Runtime LLM Trace Contract
+
+The LLM gateway must stop treating tracing as optional for generation work.
+
+Required behavior:
+
+1. every production LLM call receives `LLMTraceContext` and `LLMInteractionRecorder`, or explicitly opts out in a test-only path.
+2. missing trace metadata raises a clear error before the provider request is sent.
+3. the raw request payload stores the exact rendered prompt and request parameters.
+4. the raw response payload stores the exact provider response or error response.
+5. trace metadata includes the Markdown template id/version/path when available.
+6. retries create separate trace entries with attempt numbers and a shared parent chain id.
+7. final visual prompts are persisted as per-frame artifacts after assembly and before media generation.
+8. media generation logs reference the same final prompt artifact that was sent through `media_params["prompt"]`.
+
+The trace is not just a debugging convenience. It is the product feedback loop for prompt optimization.
+
 ## 6. Required Implementation Scope
 
 The implementation ships as one source-root cleanup:
@@ -403,6 +505,10 @@ The implementation ships as one source-root cleanup:
 9. carry structured `ip_adaptation` into prompt contexts.
 10. add final visual prompt assembly tests so style, scene, world, and IP are semantically fused.
 11. verify final prompts do not leak internal field names and are the exact prompts handed to media generation.
+12. migrate every LLM prompt body from Python into Markdown prompt-template files.
+13. add a prompt-template loader/registry with front-matter validation and unresolved-variable checks.
+14. make LLM tracing mandatory for generation call sites and persist request/response payloads for each interaction.
+15. persist per-frame final prompt artifacts that connect prompt planning to media generation.
 
 ## 7. Out Of Scope
 
@@ -437,8 +543,13 @@ The work is complete when all of the following are true:
 15. final prompt assembly tests prove resolved style, storyboard meaning, world constraints, and IP appearance are fused into one natural visual instruction.
 16. `PromptPlan.final_prompt`, `StoryboardFrame.image_prompt`, and the media service `prompt` parameter are the same final prompt artifact.
 17. final generated prompt strings contain scene language but no internal key names or hex color codes.
+18. every LLM prompt template used by generation code exists as a Markdown document with valid front matter.
+19. `rg -n "PROMPT\\s*=\\s*\"\"\"|_PROMPT\\s*=\\s*\"\"\"" pixelle_video/prompts` returns no prompt-body constants.
+20. tests prove prompt rendering records template id, version, file path, rendered text, and output contract.
+21. tests prove each production `llm_service(...)` generation call records request payload, response payload, status, operation, stage, and attempt metadata.
+22. every completed generation has inspectable prompt-trace artifacts showing the LLM interaction count and the exact final prompt sent to media generation.
 
-## 9. Two Review Passes Applied
+## 9. Review Passes Applied
 
 ### Review 1: Architecture And Source Ownership
 
@@ -451,6 +562,18 @@ Correction: final visual prompt assembly, planner actorization input, SceneCast 
 Finding: the earlier plan contained non-required tests and weak wording for dead fields. It also tested final prompt cleanup but not final prompt semantic fusion or media handoff. That permits leftover UI, i18n, and prompt-quality debt.
 
 Correction: the execution plan now requires deletion of legacy controls and i18n keys, shared contract tests, ripgrep gates, planner input tests, SceneCast tests, final prompt assembly tests, media handoff tests, and final prompt leak tests.
+
+### Current Review 1: Prompt Source Ownership
+
+Finding: the document described the final prompt as the product, but it did not yet make Markdown prompt templates the required source of truth. That left room for future work to keep hardcoding prompt prose inside Python.
+
+Correction: this document now requires Markdown prompt templates, front-matter metadata, a renderer/registry, and a static gate that forbids long-form prompt constants in prompt modules.
+
+### Current Review 2: Prompt Process Traceability
+
+Finding: the document relied on existing tracing primitives but did not require every generation LLM call to record its exact prompt and exact response. Optional tracing still leaves the team unable to diagnose which prompt stage caused a bad image.
+
+Correction: this document now requires mandatory trace metadata, raw request/response persistence, attempt counts, prompt-template provenance, final-prompt artifacts, and verification that the media handoff uses the same saved final prompt.
 
 ## 10. Execution Document
 
