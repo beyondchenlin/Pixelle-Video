@@ -44,6 +44,12 @@ def _resolved_ip_world() -> ResolvedStyleSpec:
     )
 
 
+def _assert_old_storyboard_block_tokens_absent(prompt: str, *tokens: str) -> None:
+    assert "Neutral Knowledge Storyboard" not in prompt
+    for token in tokens:
+        assert token not in prompt
+
+
 def _storyboard_plan() -> StoryboardPlan:
     frame = StoryboardPlanFrame(
         index=1,
@@ -1285,9 +1291,14 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
             "planner_version": "1.0",
         }
     ]
-    assert "Neutral Knowledge Storyboard" in result.prompts[0]
-    assert "medium_shot" in result.prompts[0]
-    assert "no visible text" in result.prompts[0]
+    prompt = result.prompts[0]
+    assert (
+        "base scene prompt; rendered as clean educational illustration; "
+        "framed as medium shot, context; "
+        "with strategy board integrated into the environment"
+    ) in prompt
+    assert "no visible text" in prompt
+    _assert_old_storyboard_block_tokens_absent(prompt, "medium_shot")
 
 
 @pytest.mark.asyncio
@@ -1517,11 +1528,14 @@ async def test_generate_styled_image_prompt_batch_storyboard_falls_back_to_legac
         text_rendering=_suppress_image_text(),
     )
 
-    assert result.prompts == [
-        apply_no_text_policy(
-            "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, base scene prompt"
-        )
-    ]
+    expected_prompt = apply_no_text_policy(
+        "flat illustration, base scene prompt; "
+        "rendered as clean educational illustration; framed as medium shot, context; "
+        "with strategy board integrated into the environment"
+    )
+
+    assert result.prompts == [expected_prompt]
+    _assert_old_storyboard_block_tokens_absent(result.prompts[0], "medium_shot")
     assert result.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
 
 
@@ -1609,11 +1623,18 @@ async def test_generate_styled_image_prompt_batch_storyboard_keeps_compatible_te
         text_rendering=_suppress_image_text(),
     )
 
-    assert result.prompts == [
-        apply_no_text_policy(
-            "editorial line art treatment, Neutral Knowledge Storyboard, clean educational illustration, close_up, detail_focus, lab bench, base scene prompt, with etched crosshatching"
-        )
-    ]
+    expected_prompt = apply_no_text_policy(
+        "editorial line art treatment, base scene prompt; "
+        "rendered as clean educational illustration; framed as close up, detail focus; "
+        "with lab bench integrated into the environment, with etched crosshatching"
+    )
+
+    assert result.prompts == [expected_prompt]
+    _assert_old_storyboard_block_tokens_absent(
+        result.prompts[0],
+        "close_up",
+        "detail_focus",
+    )
 
 
 @pytest.mark.asyncio

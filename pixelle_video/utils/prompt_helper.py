@@ -91,6 +91,53 @@ def _normalize_prompt_list(values: Any) -> list[str]:
     return normalized
 
 
+def _humanize_prompt_token(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return re.sub(r"[_-]+", " ", text).strip()
+
+
+def _sentence_clause(*values: Any) -> str:
+    return ", ".join(
+        _normalize_prompt_list([_humanize_prompt_token(value) for value in values])
+    )
+
+
+_NEUTRAL_WORLD_PRESET_IDS = frozenset(
+    {
+        "neutral",
+        "neutral_knowledge_storyboard",
+        "knowledge_storyboard",
+        "clean_classroom",
+        "default_storyboard",
+        "generic_storyboard",
+    }
+)
+
+
+def _semantic_world_identity(world_preset: Any) -> str:
+    preset_id = str(
+        _read_value(world_preset, "preset_id", "")
+        or _read_value(world_preset, "id", "")
+        or _read_value(world_preset, "world_preset_id", "")
+    ).strip()
+    if preset_id.lower() in _NEUTRAL_WORLD_PRESET_IDS:
+        return ""
+
+    display_name = _read_value(world_preset, "display_name", "")
+    identity = str(display_name or "").strip()
+    if not identity:
+        return ""
+
+    lowered = identity.lower()
+    if "neutral" in lowered:
+        return ""
+    if lowered in {"default", "generic", "storyboard", "knowledge storyboard"}:
+        return ""
+    return identity
+
+
 def _normalize_negative_rule_list(values: Any) -> list[str]:
     if values is None:
         return []
@@ -296,6 +343,9 @@ def assemble_image_prompt(
         return base_prompt
 
     if resolved_style.style_kind == "hybrid":
+        if template and template != "{prompt}":
+            return templated
+
         raw_prefix = raw_prefix.strip()
         if raw_prefix and raw_prefix.lower() not in templated.lower():
             return f"{templated}, {raw_prefix}"
@@ -313,27 +363,35 @@ def assemble_storyboard_prompt(
     world_preset: Any,
     normalized_style: Optional[dict[str, Any]] = None,
 ) -> str:
-    prompt = ", ".join(
-        _normalize_prompt_list(
-            [
-                _read_value(world_preset, "display_name", ""),
-                _read_value(world_preset, "style_core", ""),
-                _read_value(frame_plan, "shot_type", ""),
-                _read_value(frame_plan, "shot_purpose", ""),
-                *_normalize_prompt_list(_read_value(frame_plan, "world_elements", ())),
-                base_prompt,
-            ]
-        )
+    base = sanitize_visual_prompt_text(base_prompt)
+    world_identity = _semantic_world_identity(world_preset)
+    style_core = _humanize_prompt_token(_read_value(world_preset, "style_core", ""))
+    shot_type = _humanize_prompt_token(_read_value(frame_plan, "shot_type", ""))
+    shot_purpose = _humanize_prompt_token(_read_value(frame_plan, "shot_purpose", ""))
+    world_elements = _sentence_clause(
+        *_normalize_prompt_list(_read_value(frame_plan, "world_elements", ()))
     )
+
+    clauses = [base]
+    if world_identity:
+        clauses.append(f"set in the {world_identity} world")
+    if style_core:
+        clauses.append(f"rendered as {style_core}")
+    if shot_type or shot_purpose:
+        camera_parts = _sentence_clause(shot_type, shot_purpose)
+        if camera_parts:
+            clauses.append(f"framed as {camera_parts}")
+    if world_elements:
+        clauses.append(f"with {world_elements} integrated into the environment")
+
+    prompt = "; ".join(_normalize_prompt_list(clauses))
 
     if normalized_style is not None:
         prompt = _apply_prompt_template(prompt, normalized_style.get("prompt_template", ""))
-
-    if normalized_style is not None:
-        visual_suffix = normalized_style.get("visual_suffix", "")
+        visual_suffix = _humanize_prompt_token(normalized_style.get("visual_suffix", ""))
         if visual_suffix and visual_suffix.lower() not in prompt.lower():
-            prompt = ", ".join(_normalize_prompt_list([prompt, visual_suffix]))
-    return prompt
+            prompt = "; ".join(_normalize_prompt_list([prompt, visual_suffix]))
+    return sanitize_visual_prompt_text(prompt)
 
 
 def assemble_negative_prompt(

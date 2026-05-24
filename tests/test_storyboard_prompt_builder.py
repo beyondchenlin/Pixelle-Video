@@ -134,6 +134,11 @@ def test_assemble_storyboard_prompt_prefers_world_identity_over_conflicting_ip_p
     )
 
     assert "Angry Birds Three Kingdoms" in prompt
+    assert "set in the Angry Birds Three Kingdoms world" in prompt
+    assert not prompt.startswith("Angry Birds Three Kingdoms,")
+    assert "medium_shot" not in prompt
+    assert "character_relationship" not in prompt
+    assert "framed as medium shot, character relationship" in prompt
     assert "dramatic rim light only" in prompt
     assert "different ip world" not in prompt
 
@@ -158,7 +163,10 @@ def test_assemble_storyboard_prompt_applies_normalized_prompt_template():
     )
 
     assert prompt.startswith("editorial line art treatment, ")
-    assert "Neutral Knowledge Storyboard" in prompt
+    assert "Neutral Knowledge Storyboard" not in prompt
+    assert "close_up" not in prompt
+    assert "detail_focus" not in prompt
+    assert "framed as close up, detail focus" in prompt
     assert prompt.endswith("with etched crosshatching")
 
 
@@ -177,7 +185,8 @@ def test_assemble_storyboard_prompt_includes_shot_language_and_world_elements():
         normalized_style=None,
     )
 
-    assert "close_up" in prompt
-    assert "detail_focus" in prompt
+    assert "close_up" not in prompt
+    assert "detail_focus" not in prompt
+    assert "framed as close up, detail focus" in prompt
     assert "lab bench" in prompt
     assert "culture dish" in prompt

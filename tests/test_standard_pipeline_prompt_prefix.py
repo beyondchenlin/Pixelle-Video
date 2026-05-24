@@ -175,8 +175,12 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
     assert captured["role_locking_strength"] == "strong"
     assert captured["shot_strategy"] == "strict"
     assert ctx.image_prompts == [
-        "flat illustration, Neutral Knowledge Storyboard, clean educational illustration, medium_shot, context, strategy board, bird-universe dog sprint"
+        "flat illustration, bird-universe dog sprint; "
+        "rendered as clean educational illustration; framed as medium shot, context; "
+        "with strategy board integrated into the environment"
     ]
+    assert "Neutral Knowledge Storyboard" not in ctx.image_prompts[0]
+    assert "medium_shot" not in ctx.image_prompts[0]
     assert ctx.media_negative_prompt is None
     assert ctx.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
     assert ctx.planning_snapshot["frames"][0]["shot_type"] == "medium_shot"
