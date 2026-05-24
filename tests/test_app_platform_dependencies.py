@@ -35,6 +35,7 @@ def test_dev_platform_dependencies_mount_workbench_services_and_repositories(tmp
     from api.platform_dependencies import configure_platform_dependencies
     from pixelle_video.services.storyboard_workbench import StoryboardWorkbenchService
     from pixelle_video.storage.dev_repositories import FilesystemDevStoryboardWorkbenchStateStore
+    from pixelle_video.storage.object_store import FilesystemDevRawPayloadStore
 
     app = FastAPI()
     dependencies = configure_platform_dependencies(
@@ -44,6 +45,7 @@ def test_dev_platform_dependencies_mount_workbench_services_and_repositories(tmp
 
     assert app.state.artifact_repository is dependencies.artifact_repository
     assert app.state.artifact_object_store is dependencies.artifact_object_store
+    assert app.state.raw_payload_store is dependencies.raw_payload_store
     assert app.state.trace_repository is dependencies.trace_repository
     assert app.state.prompt_plan_repository is dependencies.prompt_plan_repository
     assert app.state.asset_bible_repository is dependencies.asset_bible_repository
@@ -52,6 +54,7 @@ def test_dev_platform_dependencies_mount_workbench_services_and_repositories(tmp
     assert app.state.stale_mark_repository is dependencies.stale_mark_repository
     assert isinstance(app.state.storyboard_workbench_state_store, FilesystemDevStoryboardWorkbenchStateStore)
     assert isinstance(app.state.storyboard_workbench_service, StoryboardWorkbenchService)
+    assert isinstance(app.state.raw_payload_store, FilesystemDevRawPayloadStore)
 
 
 def test_platform_dependencies_reject_missing_production_repository_adapters(tmp_path):
@@ -90,6 +93,7 @@ def test_platform_dependencies_attach_same_objects_to_core(tmp_path):
     for attr_name in (
         "artifact_repository",
         "artifact_object_store",
+        "raw_payload_store",
         "trace_repository",
         "prompt_plan_repository",
         "storyboard_workbench_state_store",
@@ -150,6 +154,7 @@ def test_web_session_pixelle_video_mounts_storyboard_workbench_dependencies(monk
         for attr_name in (
             "artifact_repository",
             "artifact_object_store",
+            "raw_payload_store",
             "trace_repository",
             "prompt_plan_repository",
             "storyboard_workbench_state_store",
@@ -219,6 +224,9 @@ def test_api_app_lifespan_mounts_storyboard_workbench_dependencies(monkeypatch, 
         )
         assert dependencies_module.get_or_create_platform_dependencies().artifact_object_store is (
             client.app.state.artifact_object_store
+        )
+        assert dependencies_module.get_or_create_platform_dependencies().raw_payload_store is (
+            client.app.state.raw_payload_store
         )
 
 

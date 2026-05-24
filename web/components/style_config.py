@@ -40,6 +40,10 @@ from pixelle_video.config.prompt_prefix_library import (
 )
 from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
 from pixelle_video.models.layered_template import active_layered_template_spec
+from pixelle_video.models.llm_interaction_trace import (
+    LLMTraceContext,
+    trace_context_with_prompt_template,
+)
 from pixelle_video.models.media_placement import MediaPlacement
 from pixelle_video.models.size_contract import (
     DEFAULT_MEDIA_ORIENTATION,
@@ -54,9 +58,10 @@ from pixelle_video.prompt_language import (
     CHINESE_PROMPT_LANGUAGE,
 )
 from pixelle_video.prompts.prompt_prefix_generation import (
-    build_prompt_prefix_generation_prompt,
+    render_prompt_prefix_generation_prompt,
 )
 from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
+from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
@@ -121,8 +126,8 @@ from web.utils.tts_split_mode_ui import get_tts_split_mode_default
 from web.utils.tts_ui import (
     resolve_comfyui_tts_speed,
     resolve_configured_tts_mode,
-    tts_workflow_supports_duration,
     tts_workflow_reference_audio_missing,
+    tts_workflow_supports_duration,
 )
 from web.utils.workflow_defaults import resolve_selectbox_default_index
 
@@ -135,6 +140,83 @@ def _call_with_streamlit_fragment(func, *args, **kwargs):
     if fragment is None or get_script_run_ctx() is None:
         return func(*args, **kwargs)
     return fragment(func)(*args, **kwargs)
+
+
+def _build_web_llm_trace_recorder(pixelle_video) -> LLMInteractionRecorder:
+    trace_repository = getattr(pixelle_video, "trace_repository", None)
+    raw_payload_store = getattr(pixelle_video, "raw_payload_store", None)
+    if trace_repository is None or raw_payload_store is None:
+        raise RuntimeError(
+            "trace_repository and raw_payload_store are required for web prompt prefix trace capture"
+        )
+    return LLMInteractionRecorder(
+        trace_repository=trace_repository,
+        raw_payload_store=raw_payload_store,
+    )
+
+
+def _build_web_prompt_prefix_trace_context(
+    *,
+    component: str,
+    operation: str = "web_prompt_prefix_generation",
+    stage: str = "web_prompt_prefix_generation",
+    action: str = "ai_prompt_prefix_generation",
+    metadata: dict[str, Any] | None = None,
+) -> LLMTraceContext:
+    task_id = f"{operation}_{uuid4().hex}"
+    script_context = get_script_run_ctx()
+    resolved_metadata = {
+        "chain_id": f"{task_id}:{operation}",
+        "ui": "streamlit",
+        "component": "style_config",
+        "subcomponent": component,
+        "action": action,
+    }
+    session_id = getattr(script_context, "session_id", None)
+    if session_id:
+        resolved_metadata["session_id"] = session_id
+    project_id = st.session_state.get("project_id")
+    if project_id:
+        resolved_metadata["project_id"] = str(project_id)
+    if metadata:
+        resolved_metadata.update(metadata)
+    return LLMTraceContext(
+        workspace_id=str(st.session_state.get("workspace_id") or "workspace_1"),
+        task_id=task_id,
+        operation=operation,
+        stage=stage,
+        metadata=resolved_metadata,
+    )
+
+
+def _generate_prompt_prefix_candidates_with_trace(
+    pixelle_video,
+    *,
+    user_idea: str,
+    language: str,
+    component: str,
+) -> PromptPrefixGenerationResult:
+    rendered_prompt = render_prompt_prefix_generation_prompt(
+        user_idea=user_idea,
+        language=language,
+    )
+    trace_context = trace_context_with_prompt_template(
+        _build_web_prompt_prefix_trace_context(component=component),
+        rendered_prompt=rendered_prompt,
+        attempt=1,
+        stage="web_prompt_prefix_generation",
+        metadata={"prompt_language": language},
+    )
+    return run_async(
+        pixelle_video.llm(
+            rendered_prompt.text,
+            response_type=PromptPrefixGenerationResult,
+            temperature=0.4,
+            max_tokens=1200,
+            trace_context=trace_context,
+            trace_recorder=_build_web_llm_trace_recorder(pixelle_video),
+        )
+    )
 
 
 def render_generated_style_preview(preview_media_path: str, template_media_type: str):
@@ -903,17 +985,11 @@ def _render_image_prompt_prefix_library_legacy(
             else:
                 with st.spinner(tr("style.prefix_library.ai_generating")):
                     try:
-                        generation_prompt = build_prompt_prefix_generation_prompt(
+                        result = _generate_prompt_prefix_candidates_with_trace(
+                            pixelle_video,
                             user_idea=ai_idea,
                             language=language,
-                        )
-                        result = run_async(
-                            pixelle_video.llm(
-                                generation_prompt,
-                                response_type=PromptPrefixGenerationResult,
-                                temperature=0.4,
-                                max_tokens=1200,
-                            )
+                            component="legacy_prompt_prefix_library",
                         )
                         generated_candidates = [
                             create_prompt_prefix_item(
@@ -1556,17 +1632,11 @@ def _render_prompt_prefix_ai_panel(
         else:
             with st.spinner(tr("style.prefix_library.ai_generating")):
                 try:
-                    generation_prompt = build_prompt_prefix_generation_prompt(
+                    result = _generate_prompt_prefix_candidates_with_trace(
+                        pixelle_video,
                         user_idea=ai_idea,
                         language=language,
-                    )
-                    result = run_async(
-                        pixelle_video.llm(
-                            generation_prompt,
-                            response_type=PromptPrefixGenerationResult,
-                            temperature=0.4,
-                            max_tokens=1200,
-                        )
+                        component="prompt_prefix_library_panel",
                     )
                     generated_candidates = [
                         create_prompt_prefix_item(
@@ -1751,6 +1821,20 @@ def _generate_single_style_preview_result(
     prompt_language: str = CHINESE_PROMPT_LANGUAGE,
 ) -> dict[str, str | None]:
     media_config = pixelle_video.config.get("comfyui", {}).get(media_type, {})
+    trace_context = _build_web_prompt_prefix_trace_context(
+        component="prompt_prefix_preview",
+        operation="web_prompt_prefix_preview_generation",
+        stage="web_prompt_prefix_preview_generation",
+        action="prompt_prefix_preview_generation",
+        metadata={
+            "workflow": workflow_key,
+            "media_type": media_type,
+            "media_width": media_width,
+            "media_height": media_height,
+            "prompt_language": prompt_language,
+            "has_prompt_prefix": bool(prompt_prefix.strip()),
+        },
+    )
     styled_batch = run_async(
         generate_styled_image_prompt_batch(
             llm_service=pixelle_video.llm,
@@ -1761,6 +1845,8 @@ def _generate_single_style_preview_result(
             workflow=workflow_key,
             media_service=pixelle_video.media,
             media_type=media_type,
+            trace_context=trace_context,
+            trace_recorder=_build_web_llm_trace_recorder(pixelle_video),
         )
     )
     final_prompt = styled_batch.prompts[0]

@@ -79,6 +79,7 @@ def parse_ip_role_selection_response(raw_response: str) -> list[dict[str, Any]] 
 __all__ = [
     "build_ip_role_selection_prompt",
     "parse_ip_role_selection_response",
+    "render_ip_role_selection_prompt",
 ]
 
 

@@ -4,6 +4,7 @@ import pytest
 
 import pixelle_video.services.content_world_planner as content_world_planner
 from pixelle_video.models.content_world import ContentWorldHintSource
+from pixelle_video.models.llm_interaction_trace import LLMTraceRecordingError
 from pixelle_video.prompts.content_world import (
     build_content_world_prompt,
     parse_content_world_profile,
@@ -78,6 +79,21 @@ async def test_content_world_planner_falls_back_when_llm_fails():
     assert profile.hint_source == ContentWorldHintSource.FALLBACK
     assert profile.generation_failed is True
     assert "从长乐门出发" in profile.summary
+
+
+@pytest.mark.asyncio
+async def test_content_world_planner_propagates_trace_recording_failures():
+    async def failing_trace_llm(**kwargs):
+        raise LLMTraceRecordingError("trace store down")
+
+    with pytest.raises(LLMTraceRecordingError, match="trace store down"):
+        await ContentWorldPlanner().plan(
+            llm_service=failing_trace_llm,
+            source_text="从长乐门出发，这是正定的南大门。",
+            generation_world_hint=None,
+            ip_world_hint=None,
+            world_preset={"display_name": "Neutral"},
+        )
 
 
 @pytest.mark.asyncio

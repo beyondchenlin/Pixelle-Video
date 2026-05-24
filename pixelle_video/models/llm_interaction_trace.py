@@ -11,6 +11,19 @@ from types import MappingProxyType
 from typing import Any
 
 MAX_PAYLOAD_PREVIEW_CHARS = 240
+LLM_TRACE_REQUIRED_MESSAGE = "LLM trace_context and trace_recorder are required for generation calls"
+
+
+class LLMTraceError(Exception):
+    """Base type for mandatory LLM trace failures."""
+
+
+class LLMTraceRequiredError(ValueError, LLMTraceError):
+    """Raised when a generation LLM call lacks mandatory trace plumbing."""
+
+
+class LLMTraceRecordingError(RuntimeError, LLMTraceError):
+    """Raised when an LLM interaction cannot be persisted to the trace store."""
 
 
 def _utc_timestamp() -> str:
@@ -332,7 +345,43 @@ def _json_safe_copy(value: Any) -> Any:
 
 __all__ = [
     "LLMInteractionTrace",
+    "LLMTraceError",
     "LLMTraceContext",
+    "LLMTraceRecordingError",
+    "LLMTraceRequiredError",
     "LLMTraceStatus",
+    "LLM_TRACE_REQUIRED_MESSAGE",
     "MAX_PAYLOAD_PREVIEW_CHARS",
+    "trace_context_with_prompt_template",
 ]
+
+
+def trace_context_with_prompt_template(
+    trace_context: LLMTraceContext,
+    *,
+    rendered_prompt: Any,
+    attempt: int,
+    stage: str | None = None,
+    frame_id: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
+) -> LLMTraceContext:
+    if type(attempt) is not int or attempt < 1:
+        raise ValueError("attempt must be a positive integer")
+    trace_metadata = getattr(rendered_prompt, "trace_metadata", None)
+    if not callable(trace_metadata):
+        raise ValueError("rendered_prompt must expose trace_metadata()")
+
+    merged_metadata = _json_safe_copy(trace_context.metadata)
+    merged_metadata["prompt_template"] = trace_metadata()
+    merged_metadata["attempt"] = attempt
+    if metadata:
+        merged_metadata.update(_json_safe_copy(metadata))
+
+    return LLMTraceContext(
+        workspace_id=trace_context.workspace_id,
+        task_id=trace_context.task_id,
+        operation=trace_context.operation,
+        stage=stage if stage is not None else trace_context.stage,
+        frame_id=frame_id if frame_id is not None else trace_context.frame_id,
+        metadata=merged_metadata,
+    )

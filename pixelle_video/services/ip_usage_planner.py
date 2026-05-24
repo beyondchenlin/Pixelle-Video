@@ -13,8 +13,14 @@ from pixelle_video.models.ip_prompt_planning import (
     IPPresenceType,
     IPRoleSlot,
 )
+from pixelle_video.models.llm_interaction_trace import (
+    LLMTraceContext,
+    LLMTraceError,
+    trace_context_with_prompt_template,
+)
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
+from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -483,6 +489,8 @@ class IPFrameAppearancePlanner:
         resolved_style: ResolvedStyleInput = None,
         scene_casts_by_frame: Mapping[str, Any] | None = None,
         generation_world_profile: ContentWorldInput = None,
+        trace_context: LLMTraceContext | None = None,
+        trace_recorder: LLMInteractionRecorder | None = None,
     ) -> list[IPFrameAdaptationPackage]:
         scene_casts = scene_casts_by_frame or {}
         base_packages = self._deterministic.plan_batch(
@@ -503,6 +511,8 @@ class IPFrameAppearancePlanner:
                 base_packages=base_packages,
                 generation_world_profile=generation_world_profile,
                 scene_casts_by_frame=scene_casts,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
             )
 
         enriched: list[IPFrameAdaptationPackage] = []
@@ -550,14 +560,16 @@ class IPFrameAppearancePlanner:
         base_packages: list[IPFrameAdaptationPackage],
         generation_world_profile: ContentWorldInput = None,
         scene_casts_by_frame: Mapping[str, Any] | None = None,
+        trace_context: LLMTraceContext | None = None,
+        trace_recorder: LLMInteractionRecorder | None = None,
     ) -> list[dict[str, Any]] | None:
         """Call LLM to decide role_slot, role_label, presence_level, appearance_description per frame.
 
         Returns None on failure so caller falls back to rule-based selection.
         """
         from pixelle_video.prompts.ip_role_selection import (
-            build_ip_role_selection_prompt,
             parse_ip_role_selection_response,
+            render_ip_role_selection_prompt,
         )
 
         world_profile = _normalize_generation_world_profile(generation_world_profile)
@@ -609,13 +621,29 @@ class IPFrameAppearancePlanner:
             indent=2,
         )
 
-        prompt = build_ip_role_selection_prompt(
+        rendered_prompt = render_ip_role_selection_prompt(
             ip_profile_json=ip_profile_json,
             frames_json=frames_json,
         )
+        rendered_trace_context = (
+            trace_context_with_prompt_template(
+                trace_context,
+                rendered_prompt=rendered_prompt,
+                attempt=1,
+                stage="ip_role_selection",
+            )
+            if trace_context is not None
+            else None
+        )
 
         try:
-            raw_response = await self._llm(prompt)
+            raw_response = await self._llm(
+                rendered_prompt.text,
+                trace_context=rendered_trace_context,
+                trace_recorder=trace_recorder,
+            )
+        except LLMTraceError:
+            raise
         except Exception:
             logger.warning("LLM IP role selection failed, using rule-based fallback", exc_info=True)
             return None

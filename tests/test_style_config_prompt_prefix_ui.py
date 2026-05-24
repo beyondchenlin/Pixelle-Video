@@ -609,7 +609,7 @@ def test_style_config_source_references_prompt_prefix_library_ui():
 
     assert "prompt_prefix_library" in source
     assert "toggle_prompt_prefix_preview_selection" in source
-    assert "build_prompt_prefix_generation_prompt" in source
+    assert "render_prompt_prefix_generation_prompt" in source
     assert "resolve_prompt_prefix_gallery_cover" in source
     assert "get_prompt_prefix_form_item_id" in source
     assert "persist_generated_prompt_prefix_workflow_preview" in source

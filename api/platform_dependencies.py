@@ -29,12 +29,14 @@ from pixelle_video.storage.dev_repositories import (
     FilesystemDevStoryboardWorkbenchStateStore,
     FilesystemDevTraceRepository,
 )
+from pixelle_video.storage.object_store import FilesystemDevRawPayloadStore
 
 
 @dataclass(frozen=True)
 class PlatformDependencies:
     artifact_repository: FilesystemDevArtifactRepository
     artifact_object_store: FilesystemDevArtifactObjectStore
+    raw_payload_store: FilesystemDevRawPayloadStore
     trace_repository: FilesystemDevTraceRepository
     prompt_plan_repository: FilesystemDevPromptPlanRepository
     asset_bible_repository: FilesystemDevAssetBibleRepository
@@ -89,6 +91,7 @@ def build_platform_dependencies(
         root=f"{config.artifact_base_path}/_objects",
         base_url=config.artifact_base_url,
     )
+    raw_payload_store = FilesystemDevRawPayloadStore(f"{platform_root}/raw_payloads")
     trace_repository = FilesystemDevTraceRepository(f"{platform_root}/traces")
     prompt_plan_repository = FilesystemDevPromptPlanRepository(f"{platform_root}/prompt_plans")
     asset_bible_repository = FilesystemDevAssetBibleRepository(f"{platform_root}/assets")
@@ -126,6 +129,7 @@ def build_platform_dependencies(
     dependencies = PlatformDependencies(
         artifact_repository=artifact_repository,
         artifact_object_store=artifact_object_store,
+        raw_payload_store=raw_payload_store,
         trace_repository=trace_repository,
         prompt_plan_repository=prompt_plan_repository,
         asset_bible_repository=asset_bible_repository,

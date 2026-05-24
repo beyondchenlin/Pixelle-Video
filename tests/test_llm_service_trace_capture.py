@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
-from pixelle_video.models.llm_interaction_trace import LLMTraceContext
+from pixelle_video.models.llm_interaction_trace import LLMTraceContext, LLMTraceRecordingError
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_service import LLMService
 
@@ -41,6 +41,11 @@ class FakeTraceRepository:
             }
         )
         return dict(trace)
+
+
+class RaisingRawPayloadStore:
+    async def put_json(self, workspace_id, payload):
+        raise RuntimeError("raw payload store unavailable")
 
 
 class Usage:
@@ -170,20 +175,73 @@ async def test_llm_service_records_successful_text_calls_at_gateway(monkeypatch)
         {"role": "user", "content": "Explain atomic habits"}
     ]
     assert raw_store.payloads[1]["payload"]["content"] == "plain answer"
-    assert trace_repository.appended[0]["trace"]["trace_id"] == "trace_text_success"
-    assert trace_repository.appended[0]["trace"]["status"] == "success"
-    assert trace_repository.appended[0]["trace"]["request_payload_key"] == (
-        raw_store.payloads[0]["storage_key"]
-    )
-    assert trace_repository.appended[0]["trace"]["response_payload_key"] == (
-        raw_store.payloads[1]["storage_key"]
-    )
-    assert trace_repository.appended[0]["trace"]["elapsed_ms"] >= 0
-    assert trace_repository.appended[0]["trace"]["token_usage"] == {
+    stored_trace = trace_repository.appended[0]["trace"]
+    assert stored_trace["trace_id"] == "trace_text_success"
+    assert stored_trace["status"] == "success"
+    assert stored_trace["request_payload_key"] == raw_store.payloads[0]["storage_key"]
+    assert stored_trace["response_payload_key"] == raw_store.payloads[1]["storage_key"]
+    assert stored_trace["elapsed_ms"] >= 0
+    assert stored_trace["token_usage"] == {
         "prompt_tokens": 7,
         "completion_tokens": 5,
         "total_tokens": 12,
     }
+    assert "Explain atomic habits" in stored_trace["request_preview"]
+    assert "plain answer" in stored_trace["response_preview"]
+    assert stored_trace["request_preview"]
+    assert stored_trace["response_preview"]
+
+
+@pytest.mark.asyncio
+async def test_llm_service_propagates_trace_recorder_failure_after_provider_success(monkeypatch):
+    fake_client, create_recorder = _fake_client(
+        base_url="https://api.deepseek.com/v1",
+        content="plain answer",
+    )
+    service = LLMService({})
+    monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    trace_recorder = LLMInteractionRecorder(
+        trace_repository=FakeTraceRepository(),
+        raw_payload_store=RaisingRawPayloadStore(),
+        trace_id_factory=lambda: "trace_store_failure",
+    )
+
+    with pytest.raises(LLMTraceRecordingError, match="Failed to record LLM interaction trace") as exc_info:
+        await service(
+            prompt="Explain atomic habits",
+            model="deepseek-chat",
+            trace_context=LLMTraceContext(
+                workspace_id="workspace_1",
+                task_id="task_123",
+                operation="script_generation",
+                stage="stage1a",
+            ),
+            trace_recorder=trace_recorder,
+        )
+
+    assert len(create_recorder.calls) == 1
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert "raw payload store unavailable" in str(exc_info.value.__cause__)
+
+
+@pytest.mark.asyncio
+async def test_llm_service_rejects_untraced_generation_calls_before_provider_request(monkeypatch):
+    service = LLMService({})
+    provider_requests = []
+
+    def fail_if_client_created(**_):
+        provider_requests.append("client-created")
+        raise AssertionError("provider client should not be created")
+
+    monkeypatch.setattr(service, "_create_client", fail_if_client_created)
+
+    with pytest.raises(
+        ValueError,
+        match="LLM trace_context and trace_recorder are required for generation calls",
+    ):
+        await service(prompt="Explain atomic habits", model="deepseek-chat")
+
+    assert provider_requests == []
 
 
 @pytest.mark.asyncio

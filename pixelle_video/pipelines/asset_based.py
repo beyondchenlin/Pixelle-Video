@@ -33,15 +33,21 @@ Example:
 """
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from loguru import logger
 
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.models.asset_script import AssetCatalogEntry, AssetScriptResponse
+from pixelle_video.models.llm_interaction_trace import (
+    LLMTraceContext,
+    trace_context_with_prompt_template,
+)
 from pixelle_video.models.progress import ProgressEvent
 from pixelle_video.pipelines.linear import LinearVideoPipeline, PipelineContext
 from pixelle_video.pipelines.storyboard_config import resolve_storyboard_render_kwargs
+from pixelle_video.platform_context import resolve_workspace_id
+from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.text_rendering_contract_summary import (
     TEXT_RENDER_PACKAGE_ARTIFACT_PATH,
     build_text_rendering_result_metadata,
@@ -88,6 +94,52 @@ class AssetBasedPipeline(LinearVideoPipeline):
             )
             for asset_id, metadata in self.asset_index.items()
         ]
+
+    def _llm_trace_context(
+        self,
+        context: PipelineContext,
+        *,
+        operation: str,
+        stage: str | None = None,
+        frame_id: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> LLMTraceContext:
+        if not context.task_id:
+            raise ValueError("task_id is required before creating LLM trace contexts")
+        resolved_metadata = {
+            "chain_id": f"{context.task_id}:{operation}",
+            "pipeline": "asset_based",
+        }
+        if context.request_id:
+            resolved_metadata["request_id"] = context.request_id
+        if context.session_id:
+            resolved_metadata["session_id"] = context.session_id
+        if context.api_task_id:
+            resolved_metadata["api_task_id"] = context.api_task_id
+        if metadata:
+            resolved_metadata.update(dict(metadata))
+        return LLMTraceContext(
+            workspace_id=resolve_workspace_id(context.params),
+            task_id=context.task_id,
+            operation=operation,
+            stage=stage,
+            frame_id=frame_id,
+            metadata=resolved_metadata,
+        )
+
+    def _llm_trace_recorder(self, context: PipelineContext) -> LLMInteractionRecorder:
+        trace_repository = getattr(self.core, "trace_repository", None)
+        if trace_repository is None:
+            raise ValueError("trace_repository is required for LLM generation trace capture")
+
+        raw_payload_store = getattr(self.core, "raw_payload_store", None)
+        if raw_payload_store is None:
+            raise ValueError("raw_payload_store is required for LLM generation trace capture")
+
+        return LLMInteractionRecorder(
+            trace_repository=trace_repository,
+            raw_payload_store=raw_payload_store,
+        )
     
     async def __call__(
         self,
@@ -350,7 +402,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
         Returns:
             Updated context with generated script and resolved asset paths
         """
-        from pixelle_video.prompts.asset_script_generation import build_asset_script_prompt
+        from pixelle_video.prompts.asset_script_generation import render_asset_script_prompt
         
         logger.info("🤖 Generating video script with LLM...")
         
@@ -368,19 +420,31 @@ class AssetBasedPipeline(LinearVideoPipeline):
         asset_catalog = self._serialize_asset_catalog()
         
         # Build prompt using the centralized prompt function
-        prompt = build_asset_script_prompt(
+        rendered_prompt = render_asset_script_prompt(
             intent=intent,
             duration=duration,
             assets=asset_catalog,
             title=title
         )
+        trace_context = trace_context_with_prompt_template(
+            self._llm_trace_context(
+                context,
+                operation="asset_script_generation",
+                stage="asset_script_generation",
+            ),
+            rendered_prompt=rendered_prompt,
+            attempt=1,
+            stage="asset_script_generation",
+        )
         
         # Call LLM with structured output
         script: AssetScriptResponse = await self.core.llm(
-            prompt=prompt,
+            prompt=rendered_prompt.text,
             response_type=AssetScriptResponse,
             temperature=0.8,
-            max_tokens=4000
+            max_tokens=4000,
+            trace_context=trace_context,
+            trace_recorder=self._llm_trace_recorder(context),
         )
 
         context.script = []

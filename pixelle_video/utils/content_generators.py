@@ -32,6 +32,11 @@ from pixelle_video.models.content_generation import (
     VideoPromptBatchResponse,
 )
 from pixelle_video.models.content_world import ContentWorldProfile
+from pixelle_video.models.llm_interaction_trace import (
+    LLMTraceContext,
+    LLMTraceError,
+    trace_context_with_prompt_template,
+)
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.prompt_context import (
@@ -51,6 +56,7 @@ from pixelle_video.services.ip_profile_readiness import (
     ensure_ip_profile_ready_for_generation,
 )
 from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
+from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
 from pixelle_video.utils.prompt_batching import (
@@ -139,6 +145,25 @@ def _normalize_prompt_fragments(values: Sequence[Any]) -> list[str]:
         seen.add(lowered)
         normalized.append(cleaned)
     return normalized
+
+
+def _trace_context_for_rendered_prompt(
+    trace_context: LLMTraceContext | None,
+    *,
+    rendered_prompt: Any,
+    attempt: int,
+    stage: str,
+    metadata: Mapping[str, Any] | None = None,
+) -> LLMTraceContext | None:
+    if trace_context is None:
+        return None
+    return trace_context_with_prompt_template(
+        trace_context,
+        rendered_prompt=rendered_prompt,
+        attempt=attempt,
+        stage=stage,
+        metadata=metadata,
+    )
 
 
 def _normalize_prompt_contexts(
@@ -374,6 +399,9 @@ async def generate_title(
     strategy: Literal["auto", "direct", "llm"] = "auto",
     max_length: int = 15,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
+    *,
+    trace_context: LLMTraceContext | None = None,
+    trace_recorder: LLMInteractionRecorder | None = None,
 ) -> str:
     """
     Generate title from content
@@ -447,12 +475,23 @@ async def generate_title(
         # Fall through to LLM
     
     # Use LLM to generate title
-    from pixelle_video.prompts import build_title_generation_prompt
+    from pixelle_video.prompts.title_generation import render_title_generation_prompt
     
     # Pass max_length to prompt so LLM knows the character limit
-    prompt = build_title_generation_prompt(content, max_length=max_length)
+    rendered_prompt = render_title_generation_prompt(content, max_length=max_length)
     try:
-        response = await llm_service(prompt, temperature=0.7, max_tokens=50)
+        response = await llm_service(
+            rendered_prompt.text,
+            temperature=0.7,
+            max_tokens=50,
+            trace_context=_trace_context_for_rendered_prompt(
+                trace_context,
+                rendered_prompt=rendered_prompt,
+                attempt=1,
+                stage="title_generation",
+            ),
+            trace_recorder=trace_recorder,
+        )
     except Exception:
         emit_stage_event(
             channel="ai_creation",
@@ -521,6 +560,9 @@ async def generate_narrations_from_topic(
     max_words: int = 20,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
     preserve_natural_punctuation: bool = True,
+    *,
+    trace_context: LLMTraceContext | None = None,
+    trace_recorder: LLMInteractionRecorder | None = None,
 ) -> List[str]:
     """
     Generate narrations from topic using LLM
@@ -535,7 +577,7 @@ async def generate_narrations_from_topic(
     Returns:
         List of narration texts
     """
-    from pixelle_video.prompts import build_topic_narration_prompt
+    from pixelle_video.prompts.topic_narration import render_topic_narration_prompt
     
     start_time = perf_counter()
     logger.bind(
@@ -553,7 +595,7 @@ async def generate_narrations_from_topic(
         content=build_content_observability(topic),
     )
     
-    prompt = build_topic_narration_prompt(
+    rendered_prompt = render_topic_narration_prompt(
         topic=topic,
         n_storyboard=n_scenes,
         min_words=min_words,
@@ -563,10 +605,17 @@ async def generate_narrations_from_topic(
     
     try:
         response: NarrationBatchResponse = await llm_service(
-            prompt=prompt,
+            prompt=rendered_prompt.text,
             response_type=NarrationBatchResponse,
             temperature=0.8,
-            max_tokens=2000
+            max_tokens=2000,
+            trace_context=_trace_context_for_rendered_prompt(
+                trace_context,
+                rendered_prompt=rendered_prompt,
+                attempt=1,
+                stage="narration_generation",
+            ),
+            trace_recorder=trace_recorder,
         )
 
         narrations = list(response.narrations)
@@ -618,6 +667,9 @@ async def generate_narrations_from_content(
     max_words: int = 20,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
     preserve_natural_punctuation: bool = True,
+    *,
+    trace_context: LLMTraceContext | None = None,
+    trace_recorder: LLMInteractionRecorder | None = None,
 ) -> List[str]:
     """
     Generate narrations from user-provided content using LLM
@@ -632,7 +684,7 @@ async def generate_narrations_from_content(
     Returns:
         List of narration texts
     """
-    from pixelle_video.prompts import build_content_narration_prompt
+    from pixelle_video.prompts.content_narration import render_content_narration_prompt
     
     start_time = perf_counter()
     logger.info(f"Generating {n_scenes} narrations from content ({len(content)} chars)")
@@ -646,7 +698,7 @@ async def generate_narrations_from_content(
         content=build_content_observability(content),
     )
     
-    prompt = build_content_narration_prompt(
+    rendered_prompt = render_content_narration_prompt(
         content=content,
         n_storyboard=n_scenes,
         min_words=min_words,
@@ -656,10 +708,17 @@ async def generate_narrations_from_content(
     
     try:
         response: NarrationBatchResponse = await llm_service(
-            prompt=prompt,
+            prompt=rendered_prompt.text,
             response_type=NarrationBatchResponse,
             temperature=0.8,
-            max_tokens=2000
+            max_tokens=2000,
+            trace_context=_trace_context_for_rendered_prompt(
+                trace_context,
+                rendered_prompt=rendered_prompt,
+                attempt=1,
+                stage="narration_generation",
+            ),
+            trace_recorder=trace_recorder,
         )
 
         narrations = list(response.narrations)
@@ -850,6 +909,9 @@ async def generate_image_prompts(
     style_profile: Optional[dict] = None,
     prompt_contexts: Optional[PromptContextInput] = None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
+    *,
+    trace_context: LLMTraceContext | None = None,
+    trace_recorder: LLMInteractionRecorder | None = None,
 ) -> List[str]:
     """
     Generate image prompts from narrations (with batching and retry)
@@ -867,7 +929,7 @@ async def generate_image_prompts(
     Returns:
         List of image prompts (base prompts, without prefix applied)
     """
-    from pixelle_video.prompts import build_image_prompt_prompt
+    from pixelle_video.prompts.image_generation import render_image_prompt_prompt
     
     resolved_batch_size = _resolve_llm_prompt_batch_size(batch_size)
     resolved_max_concurrency = _resolve_llm_prompt_batch_concurrency(max_concurrency)
@@ -901,7 +963,7 @@ async def generate_image_prompts(
             f"({len(batch.items)} narrations, attempt {attempt}/{max_retries})"
         )
         batch_start_time = perf_counter()
-        prompt = build_image_prompt_prompt(
+        rendered_prompt = render_image_prompt_prompt(
             narrations=batch.items,
             min_words=min_words,
             max_words=max_words,
@@ -915,10 +977,22 @@ async def generate_image_prompts(
         )
 
         response: ImagePromptBatchResponse = await llm_service(
-            prompt=prompt,
+            prompt=rendered_prompt.text,
             response_type=ImagePromptBatchResponse,
             temperature=0.7,
-            max_tokens=8192
+            max_tokens=8192,
+            trace_context=_trace_context_for_rendered_prompt(
+                trace_context,
+                rendered_prompt=rendered_prompt,
+                attempt=attempt,
+                stage="image_prompt_batch",
+                metadata={
+                    "batch_index": batch.index,
+                    "batch_start_index": batch.start_index,
+                    "batch_size": len(batch.items),
+                },
+            ),
+            trace_recorder=trace_recorder,
         )
 
         batch_prompts = list(response.image_prompts)
@@ -1039,6 +1113,9 @@ async def generate_styled_image_prompt_batch(
     ip_profile=None,
     scene_casts_by_frame=None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
+    *,
+    trace_context: LLMTraceContext | None = None,
+    trace_recorder: LLMInteractionRecorder | None = None,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
@@ -1088,6 +1165,8 @@ async def generate_styled_image_prompt_batch(
             generation_world_hint=generation_world_hint,
             ip_world_hint=getattr(ip_profile, "world_hint", None),
             world_preset=storyboard_world_preset,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
         )
         if _should_plan_generation_world_profile(
             generation_world_hint=generation_world_hint,
@@ -1122,7 +1201,12 @@ async def generate_styled_image_prompt_batch(
                 callback=stage_callback,
                 provider=getattr(source, "provider", None),
             )
-            resolved_style = await resolve_style_spec(llm_service, source)
+            resolved_style = await resolve_style_spec(
+                llm_service,
+                source,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
+            )
             style_profile = resolved_style.style_profile
             emit_stage_event(
                 channel="ai_creation",
@@ -1140,6 +1224,8 @@ async def generate_styled_image_prompt_batch(
                 f"{perf_counter() - style_resolution_start:.2f}s "
                 f"(source={source.source_identity}, media_type={media_type})"
             )
+        except LLMTraceError:
+            raise
         except Exception:
             style_resolution_failed = True
             emit_stage_event(
@@ -1217,6 +1303,8 @@ async def generate_styled_image_prompt_batch(
                 prompt_contexts=normalized_prompt_contexts,
                 generation_world_profile=generation_world_profile,
                 frame_overrides=frame_overrides,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
             )
         except Exception:
             emit_stage_event(
@@ -1291,6 +1379,8 @@ async def generate_styled_image_prompt_batch(
             resolved_style=resolved_style if normalized_style is None else normalized_style,
             scene_casts_by_frame=scene_casts_by_frame,
             generation_world_profile=generation_world_profile,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
         )
         prompt_contexts_for_generation = _enrich_prompt_contexts_with_ip(
             normalized_prompt_contexts,
@@ -1318,6 +1408,8 @@ async def generate_styled_image_prompt_batch(
             style_profile=style_profile,
             prompt_contexts=prompt_contexts_for_generation,
             stage_callback=stage_callback,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
         )
     else:
         base_prompts = await generate_image_prompts(
@@ -1333,6 +1425,8 @@ async def generate_styled_image_prompt_batch(
             style_profile=style_profile,
             prompt_contexts=prompt_contexts_for_generation,
             stage_callback=stage_callback,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
         )
 
     capabilities = WorkflowCapabilities()
@@ -1552,6 +1646,9 @@ async def generate_video_prompts(
     style_profile: Optional[dict] = None,
     prompt_contexts: Optional[PromptContextInput] = None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
+    *,
+    trace_context: LLMTraceContext | None = None,
+    trace_recorder: LLMInteractionRecorder | None = None,
 ) -> List[str]:
     """
     Generate video prompts from narrations (with batching and retry)
@@ -1569,7 +1666,7 @@ async def generate_video_prompts(
     Returns:
         List of video prompts (base prompts, without prefix applied)
     """
-    from pixelle_video.prompts.video_generation import build_video_prompt_prompt
+    from pixelle_video.prompts.video_generation import render_video_prompt_prompt
     
     resolved_batch_size = _resolve_llm_prompt_batch_size(batch_size)
     resolved_max_concurrency = _resolve_llm_prompt_batch_concurrency(max_concurrency)
@@ -1603,7 +1700,7 @@ async def generate_video_prompts(
             f"({len(batch.items)} narrations, attempt {attempt}/{max_retries})"
         )
         batch_start_time = perf_counter()
-        prompt = build_video_prompt_prompt(
+        rendered_prompt = render_video_prompt_prompt(
             narrations=batch.items,
             min_words=min_words,
             max_words=max_words,
@@ -1617,10 +1714,22 @@ async def generate_video_prompts(
         )
 
         response: VideoPromptBatchResponse = await llm_service(
-            prompt=prompt,
+            prompt=rendered_prompt.text,
             response_type=VideoPromptBatchResponse,
             temperature=0.7,
-            max_tokens=8192
+            max_tokens=8192,
+            trace_context=_trace_context_for_rendered_prompt(
+                trace_context,
+                rendered_prompt=rendered_prompt,
+                attempt=attempt,
+                stage="video_prompt_batch",
+                metadata={
+                    "batch_index": batch.index,
+                    "batch_start_index": batch.start_index,
+                    "batch_size": len(batch.items),
+                },
+            ),
+            trace_recorder=trace_recorder,
         )
 
         batch_prompts = list(response.video_prompts)

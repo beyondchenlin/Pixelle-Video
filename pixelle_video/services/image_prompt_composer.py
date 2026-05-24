@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Mapping, Optional, Sequence
 
+from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.prompt_context import PromptContextEnvelope
@@ -14,6 +15,7 @@ from pixelle_video.models.video_generation_contract import (
     normalize_plan_frame_overrides,
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
+from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
 
@@ -51,6 +53,8 @@ class ImagePromptComposer:
         ip_profile=None,
         scene_casts_by_frame=None,
         stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
+        trace_context: LLMTraceContext | None = None,
+        trace_recorder: LLMInteractionRecorder | None = None,
     ) -> StyledImagePromptBatch:
         normalized_overrides = normalize_plan_frame_overrides(
             frame_overrides,
@@ -94,6 +98,8 @@ class ImagePromptComposer:
             ip_profile=ip_profile,
             scene_casts_by_frame=scene_casts_by_frame,
             stage_callback=stage_callback,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
         )
         if len(batch.prompts) != storyboard_plan.resolved_scene_count:
             raise ValueError("image prompt count must match storyboard frame count")

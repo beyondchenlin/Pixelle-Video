@@ -14,10 +14,11 @@
 LLM (Large Language Model) endpoints
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
 from api.dependencies import PixelleVideoDep
+from api.llm_trace import build_api_llm_trace_context, build_api_llm_trace_recorder
 from api.schemas.llm import LLMChatRequest, LLMChatResponse
 
 router = APIRouter(prefix="/llm", tags=["Basic Services"])
@@ -25,8 +26,9 @@ router = APIRouter(prefix="/llm", tags=["Basic Services"])
 
 @router.post("/chat", response_model=LLMChatResponse)
 async def llm_chat(
-    request: LLMChatRequest,
-    pixelle_video: PixelleVideoDep
+    chat_request: LLMChatRequest,
+    http_request: Request,
+    pixelle_video: PixelleVideoDep,
 ):
     """
     LLM chat endpoint
@@ -40,13 +42,26 @@ async def llm_chat(
     Returns generated text response.
     """
     try:
-        logger.info(f"LLM chat request: {request.prompt[:50]}...")
+        logger.info(f"LLM chat request: {chat_request.prompt[:50]}...")
+        trace_recorder = build_api_llm_trace_recorder(
+            http_request,
+            route="/llm/chat",
+        )
+        trace_context = build_api_llm_trace_context(
+            http_request,
+            route="/llm/chat",
+            operation="api_llm_chat",
+            stage="api_llm_chat",
+            task_id_prefix="llm_chat",
+        )
         
         # Call LLM service
         response = await pixelle_video.llm(
-            prompt=request.prompt,
-            temperature=request.temperature,
-            max_tokens=request.max_tokens
+            prompt=chat_request.prompt,
+            temperature=chat_request.temperature,
+            max_tokens=chat_request.max_tokens,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
         )
         
         return LLMChatResponse(

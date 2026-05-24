@@ -37,6 +37,40 @@ def test_trace_context_is_semantic_and_immutable():
         context.metadata["prompt_plan_id"] = "changed"
 
 
+def test_trace_context_round_trips_chain_attempt_and_prompt_template_metadata():
+    context = LLMTraceContext(
+        workspace_id="workspace_1",
+        task_id="task_123",
+        operation="image_prompt_generation",
+        stage="image_prompt_batch",
+        frame_id="frame_0001",
+        metadata={
+            "chain_id": "chain_abc",
+            "attempt": 2,
+            "prompt_template": {
+                "prompt_id": "image_generation",
+                "version": "2026-05-01",
+                "path": "pixelle_video/prompts/templates/image_generation.md",
+                "output_contract": "ImagePromptBatchResponse",
+            },
+        },
+    )
+
+    restored = LLMTraceContext.from_dict(context.to_dict())
+
+    assert restored.to_dict()["metadata"] == {
+        "chain_id": "chain_abc",
+        "attempt": 2,
+        "prompt_template": {
+            "prompt_id": "image_generation",
+            "version": "2026-05-01",
+            "path": "pixelle_video/prompts/templates/image_generation.md",
+            "output_contract": "ImagePromptBatchResponse",
+        },
+    }
+    assert restored == context
+
+
 def test_trace_stores_payload_refs_hashes_and_safe_previews_only():
     trace = LLMInteractionTrace.create(
         trace_id="trace_123",

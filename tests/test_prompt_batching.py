@@ -1,5 +1,6 @@
 import pytest
 
+from pixelle_video.models.llm_interaction_trace import LLMTraceRecordingError
 from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.utils.prompt_batching import PromptBatch, run_prompt_batches
 
@@ -28,6 +29,29 @@ async def test_run_prompt_batches_ignores_progress_callback_errors_without_retry
     assert result.outputs == ["scene 1", "scene 2"]
     assert result.call_count == 1
     assert result.retry_count == 0
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_run_prompt_batches_does_not_retry_or_wrap_trace_recording_errors():
+    calls = 0
+    trace_error = LLMTraceRecordingError("trace persistence failed")
+
+    async def run_batch(batch: PromptBatch[str], attempt: int):
+        nonlocal calls
+        calls += 1
+        raise trace_error
+
+    with pytest.raises(LLMTraceRecordingError) as exc_info:
+        await run_prompt_batches(
+            items=["scene 1"],
+            batch_size=1,
+            max_concurrency=1,
+            max_retries=3,
+            run_batch=run_batch,
+        )
+
+    assert exc_info.value is trace_error
     assert calls == 1
 
 

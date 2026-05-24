@@ -39,6 +39,7 @@ from pixelle_video.config.workflow_defaults import infer_workflow_domain
 from pixelle_video.models.asset_bible import AssetBible, IPProfile
 from pixelle_video.models.caption_speech_plan import build_caption_speech_plan
 from pixelle_video.models.creation_package import CreationPackage
+from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.progress import (
     ProgressEvent,
     ProgressEventType,
@@ -92,8 +93,10 @@ from pixelle_video.services.image_prompt_composer import ImagePromptComposer
 from pixelle_video.services.ip_profile_readiness import (
     ensure_ip_profile_ready_for_generation,
 )
+from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
 from pixelle_video.services.omnivoice_longform_blocks import build_omnivoice_longform_block_plan
+from pixelle_video.services.prompt_trace_artifacts import write_final_prompt_artifact
 from pixelle_video.services.render_capability_resolver import (
     RenderCapabilityInput,
     RenderCapabilityResolver,
@@ -345,6 +348,52 @@ class StandardPipeline(LinearVideoPipeline):
         if dispatcher is not None:
             return dispatcher
         return ctx.progress_callback
+
+    def _llm_trace_context(
+        self,
+        ctx: PipelineContext,
+        *,
+        operation: str,
+        stage: str | None = None,
+        frame_id: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> LLMTraceContext:
+        if not ctx.task_id:
+            raise ValueError("task_id is required before creating LLM trace contexts")
+        resolved_metadata = {
+            "chain_id": f"{ctx.task_id}:{operation}",
+            "pipeline": "standard",
+        }
+        if ctx.request_id:
+            resolved_metadata["request_id"] = ctx.request_id
+        if ctx.session_id:
+            resolved_metadata["session_id"] = ctx.session_id
+        if ctx.api_task_id:
+            resolved_metadata["api_task_id"] = ctx.api_task_id
+        if metadata:
+            resolved_metadata.update(dict(metadata))
+        return LLMTraceContext(
+            workspace_id=self._resolve_workspace_id(ctx),
+            task_id=ctx.task_id,
+            operation=operation,
+            stage=stage,
+            frame_id=frame_id,
+            metadata=resolved_metadata,
+        )
+
+    def _llm_trace_recorder(self, ctx: PipelineContext) -> LLMInteractionRecorder:
+        trace_repository = getattr(self.core, "trace_repository", None)
+        if trace_repository is None:
+            raise ValueError("trace_repository is required for LLM generation trace capture")
+
+        raw_payload_store = getattr(self.core, "raw_payload_store", None)
+        if raw_payload_store is None:
+            raise ValueError("raw_payload_store is required for LLM generation trace capture")
+
+        return LLMInteractionRecorder(
+            trace_repository=trace_repository,
+            raw_payload_store=raw_payload_store,
+        )
     
     # ==================== Lifecycle Methods ====================
 
@@ -428,12 +477,15 @@ class StandardPipeline(LinearVideoPipeline):
             )
         
         if mode == "generate":
+            trace_recorder = self._llm_trace_recorder(ctx)
             self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_SOURCE_TEXT, 0.05)
             ctx.source_text = await ScriptGenerationService().generate(
                 llm_service=self.llm,
                 topic=text,
                 script_length_mode=ctx.params.get("script_length_mode", "auto"),
                 script_target_words=ctx.params.get("script_target_words"),
+                trace_context=self._llm_trace_context(ctx, operation="script_generation"),
+                trace_recorder=trace_recorder,
             )
             logger.info("✅ Generated complete source text for storyboard planning")
         else:  # fixed
@@ -442,6 +494,11 @@ class StandardPipeline(LinearVideoPipeline):
             logger.info("✅ Prepared fixed source text for storyboard planning")
 
         self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_STORYBOARD_PLAN, 0.08)
+        storyboard_trace_recorder = (
+            self._llm_trace_recorder(ctx)
+            if storyboard_contract.storyboard_mode == "smart"
+            else None
+        )
         ctx.storyboard_plan = await StoryboardGenerationService(
             config=self.core.config,
         ).generate(
@@ -452,6 +509,12 @@ class StandardPipeline(LinearVideoPipeline):
             storyboard_scene_count=storyboard_contract.storyboard_scene_count,
             storyboard_max_scene_count=storyboard_contract.storyboard_max_scene_count,
             prompt_language=storyboard_contract.storyboard_prompt_language,
+            trace_context=(
+                self._llm_trace_context(ctx, operation="storyboard_generation")
+                if storyboard_trace_recorder is not None
+                else None
+            ),
+            trace_recorder=storyboard_trace_recorder,
         )
         ctx.source_text = ctx.storyboard_plan.source_text
         ctx.caption_speech_plan = build_caption_speech_plan(
@@ -493,6 +556,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
             logger.info(f"   Title: '{title}' (user-specified)")
         else:
+            trace_recorder = self._llm_trace_recorder(ctx)
             self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_TITLE, 0.10)
             if mode == "generate":
                 ctx.title = await generate_title(
@@ -500,6 +564,8 @@ class StandardPipeline(LinearVideoPipeline):
                     text,
                     strategy="auto",
                     stage_callback=stage_callback,
+                    trace_context=self._llm_trace_context(ctx, operation="title_generation"),
+                    trace_recorder=trace_recorder,
                 )
                 logger.info(f"   Title: '{ctx.title}' (auto-generated)")
             else:  # fixed
@@ -508,6 +574,8 @@ class StandardPipeline(LinearVideoPipeline):
                     text,
                     strategy="llm",
                     stage_callback=stage_callback,
+                    trace_context=self._llm_trace_context(ctx, operation="title_generation"),
+                    trace_recorder=trace_recorder,
                 )
                 logger.info(f"   Title: '{ctx.title}' (LLM-generated)")
 
@@ -538,6 +606,7 @@ class StandardPipeline(LinearVideoPipeline):
         
         # Only generate image prompts if template requires media
         if template_requires_media:
+            trace_recorder = self._llm_trace_recorder(ctx)
             self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_IMAGE_PROMPTS, 0.15)
             
             prompt_prefix = ctx.params.get("prompt_prefix")
@@ -604,6 +673,8 @@ class StandardPipeline(LinearVideoPipeline):
                 ip_profile=ip_profile,
                 scene_casts_by_frame=scene_casts_by_frame,
                 stage_callback=stage_callback,
+                trace_context=self._llm_trace_context(ctx, operation="visual_prompt_planning"),
+                trace_recorder=trace_recorder,
             )
 
             ctx.image_prompts = styled_batch.prompts
@@ -743,6 +814,8 @@ class StandardPipeline(LinearVideoPipeline):
             )
             ctx.storyboard.frames.append(frame)
 
+        self._write_final_prompt_trace_artifact(ctx)
+
         effective_max_sentences, effective_max_chars, normalize_block_text_for_tts, single_audio_block = (
             self._resolve_effective_timing_plan_settings(ctx.config)
         )
@@ -774,6 +847,34 @@ class StandardPipeline(LinearVideoPipeline):
                 ),
                 encoding="utf-8",
             )
+
+    def _write_final_prompt_trace_artifact(self, ctx: PipelineContext) -> None:
+        if ctx.storyboard is None or not ctx.task_dir or not ctx.task_id:
+            return
+
+        artifact_path = write_final_prompt_artifact(
+            Path(ctx.task_dir),
+            task_id=ctx.task_id,
+            frames=[
+                {
+                    "index": frame.index,
+                    "prompt": frame.image_prompt or "",
+                    "negative_prompt": ctx.media_negative_prompt or "",
+                }
+                for frame in ctx.storyboard.frames
+            ],
+        )
+        relative_path = str(artifact_path.relative_to(Path(ctx.task_dir)))
+        record = {
+            "path": str(artifact_path),
+            "relative_path": relative_path,
+            "frame_count": len(ctx.storyboard.frames),
+        }
+        ctx.observability.setdefault("prompt_traces", {})["final_visual_prompts"] = record
+        ctx.planning_snapshot = dict(ctx.planning_snapshot or {})
+        ctx.planning_snapshot["final_visual_prompt_artifact"] = record
+        ctx.storyboard.planning_snapshot = dict(ctx.storyboard.planning_snapshot or {})
+        ctx.storyboard.planning_snapshot["final_visual_prompt_artifact"] = record
 
     def _ai_stage_callback(self, ctx: PipelineContext):
         return lambda payload: self._record_ai_creation_stage(ctx, payload)

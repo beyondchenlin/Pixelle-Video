@@ -22,12 +22,17 @@ from typing import Any, Mapping, Optional
 from loguru import logger
 
 from pixelle_video.config.prompt_prefix_library import get_active_image_prompt_prefix_item
+from pixelle_video.models.llm_interaction_trace import (
+    LLMTraceContext,
+    trace_context_with_prompt_template,
+)
 from pixelle_video.models.style_resolution import (
     ResolvedStyleSpec,
     StyleResolutionResponse,
     StyleSourceSpec,
 )
-from pixelle_video.prompts import build_style_resolution_prompt
+from pixelle_video.prompts.style_resolution import render_style_resolution_prompt
+from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 
 RESOLVER_VERSION = "2026-04-21-v1"
 _STYLE_RESOLUTION_CACHE_MAX_SIZE = 128
@@ -244,19 +249,36 @@ def _remember_resolved_style(cache_key: str, resolved: ResolvedStyleSpec) -> Non
         logger.debug("Evicted style resolution cache entry {}", evicted_key)
 
 
-async def resolve_style_spec(llm_service, source: StyleSourceSpec) -> ResolvedStyleSpec:
+async def resolve_style_spec(
+    llm_service,
+    source: StyleSourceSpec,
+    *,
+    trace_context: LLMTraceContext | None = None,
+    trace_recorder: LLMInteractionRecorder | None = None,
+) -> ResolvedStyleSpec:
     cache_key = build_style_resolution_cache_key(source)
     cached = _STYLE_RESOLUTION_CACHE.get(cache_key)
     if cached is not None:
         _STYLE_RESOLUTION_CACHE.move_to_end(cache_key)
         return cached
 
-    prompt = build_style_resolution_prompt(source.raw_content)
+    rendered_prompt = render_style_resolution_prompt(source.raw_content)
     response = await llm_service(
-        prompt=prompt,
+        prompt=rendered_prompt.text,
         response_type=StyleResolutionResponse,
         temperature=0.2,
         max_tokens=1200,
+        trace_context=(
+            trace_context_with_prompt_template(
+                trace_context,
+                rendered_prompt=rendered_prompt,
+                attempt=1,
+                stage="style_resolution",
+            )
+            if trace_context is not None
+            else None
+        ),
+        trace_recorder=trace_recorder,
     )
     resolved = _coerce_style_resolution_response(response).to_resolved_style_spec(
         source=source,

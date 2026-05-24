@@ -27,7 +27,13 @@ from loguru import logger
 from openai import AsyncOpenAI, BadRequestError
 from pydantic import BaseModel, ValidationError
 
-from pixelle_video.models.llm_interaction_trace import LLMTraceContext, LLMTraceStatus
+from pixelle_video.models.llm_interaction_trace import (
+    LLM_TRACE_REQUIRED_MESSAGE,
+    LLMTraceContext,
+    LLMTraceRecordingError,
+    LLMTraceRequiredError,
+    LLMTraceStatus,
+)
 from pixelle_video.services.llm_capabilities import (
     is_json_object_response_format_unsupported_error,
     structured_output_capabilities,
@@ -186,6 +192,10 @@ class LLMService:
             )
             print(data["name"])  # Direct dict access
         """
+        allow_untraced_llm_call = bool(kwargs.pop("allow_untraced_llm_call", False))
+        if not allow_untraced_llm_call and (trace_context is None or trace_recorder is None):
+            raise LLMTraceRequiredError(LLM_TRACE_REQUIRED_MESSAGE)
+
         # Create client (new instance each time to support parameter overrides)
         client = self._create_client(api_key=api_key, base_url=base_url)
         
@@ -844,7 +854,7 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
                 validation_errors=validation_errors,
             )
         except Exception as exc:
-            logger.warning("Failed to record LLM interaction trace: {}", exc)
+            raise LLMTraceRecordingError(f"Failed to record LLM interaction trace: {exc}") from exc
     
     @property
     def active(self) -> str:

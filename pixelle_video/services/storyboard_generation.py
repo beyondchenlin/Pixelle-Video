@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from pixelle_video.models.content_generation import SmartStoryboardPlanResponse
+from pixelle_video.models.llm_interaction_trace import (
+    LLMTraceContext,
+    trace_context_with_prompt_template,
+)
 from pixelle_video.models.storyboard_limits import (
     DETERMINISTIC_STORYBOARD_MAX_SCENE_COUNT_MIN,
     StoryboardGenerationLimits,
@@ -24,8 +28,9 @@ from pixelle_video.prompt_language import (
 )
 from pixelle_video.prompts.storyboard_generation import (
     _split_into_source_spans,
-    build_smart_storyboard_prompt,
+    render_smart_storyboard_prompt,
 )
+from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.utils.text_normalization import normalize_generated_source_text
 
 SMART_STORYBOARD_BASE_MAX_TOKENS = 2000
@@ -198,6 +203,8 @@ class StoryboardGenerationService:
         storyboard_scene_count: int | None,
         storyboard_max_scene_count: int | None = None,
         prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
+        trace_context: LLMTraceContext | None = None,
+        trace_recorder: LLMInteractionRecorder | None = None,
     ) -> StoryboardPlan:
         if not _normalize_text(source_text):
             raise ValueError("source_text must not be empty")
@@ -245,6 +252,8 @@ class StoryboardGenerationService:
                 count_mode=storyboard_count_mode,
                 requested_scene_count=storyboard_scene_count,
                 prompt_language=prompt_language,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
             )
         raise ValueError(f"unsupported storyboard mode: {storyboard_mode}")
 
@@ -256,6 +265,8 @@ class StoryboardGenerationService:
         count_mode: str,
         requested_scene_count: int | None,
         prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
+        trace_context: LLMTraceContext | None = None,
+        trace_recorder: LLMInteractionRecorder | None = None,
     ) -> StoryboardPlan:
         if llm_service is None:
             raise ValueError("smart storyboard mode requires llm_service")
@@ -275,7 +286,7 @@ class StoryboardGenerationService:
         elif requested_scene_count is not None:
             raise ValueError("storyboard_scene_count is valid only with manual count mode")
 
-        prompt = build_smart_storyboard_prompt(
+        rendered_prompt = render_smart_storyboard_prompt(
             source_text=normalized_source,
             count_mode=count_mode,
             requested_scene_count=requested_scene_count,
@@ -286,12 +297,14 @@ class StoryboardGenerationService:
         try:
             frames = await self._generate_smart_frames_with_repair(
                 llm_service=llm_service,
-                prompt=prompt,
+                rendered_prompt=rendered_prompt,
                 source_text=normalized_source,
                 count_mode=count_mode,
                 requested_scene_count=requested_scene_count,
                 min_scene_count=min_scene_count,
                 max_scene_count=max_scene_count,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
             )
         except ValueError as exc:
             if (
@@ -331,24 +344,50 @@ class StoryboardGenerationService:
         self,
         *,
         llm_service,
-        prompt: str,
+        rendered_prompt,
         source_text: str,
         count_mode: str,
         requested_scene_count: int | None,
         min_scene_count: int,
         max_scene_count: int,
+        trace_context: LLMTraceContext | None = None,
+        trace_recorder: LLMInteractionRecorder | None = None,
     ) -> list[StoryboardPlanFrame]:
-        current_prompt = prompt
+        current_prompt = rendered_prompt.text
         temperature = 0.3
         repair_used = False
         while True:
             try:
-                response = await llm_service(
-                    prompt=current_prompt,
-                    response_type=SmartStoryboardPlanResponse,
-                    temperature=temperature,
-                    max_tokens=_smart_storyboard_max_tokens(max_scene_count),
+                prompt_trace_context = (
+                    trace_context_with_prompt_template(
+                        trace_context,
+                        rendered_prompt=rendered_prompt,
+                        attempt=2 if repair_used else 1,
+                        stage="smart_storyboard_generation",
+                    )
+                    if trace_context is not None
+                    else None
                 )
+                try:
+                    response = await llm_service(
+                        prompt=current_prompt,
+                        response_type=SmartStoryboardPlanResponse,
+                        temperature=temperature,
+                        max_tokens=_smart_storyboard_max_tokens(max_scene_count),
+                        trace_context=prompt_trace_context,
+                        trace_recorder=trace_recorder,
+                    )
+                except TypeError as exc:
+                    response = await _retry_legacy_test_llm_without_trace_kwargs(
+                        llm_service,
+                        exc,
+                        prompt=current_prompt,
+                        response_type=SmartStoryboardPlanResponse,
+                        temperature=temperature,
+                        max_tokens=_smart_storyboard_max_tokens(max_scene_count),
+                        trace_context=prompt_trace_context,
+                        trace_recorder=trace_recorder,
+                    )
                 self._validate_smart_frame_count(
                     frame_count=len(response.frames),
                     count_mode=count_mode,
@@ -373,7 +412,7 @@ class StoryboardGenerationService:
             except ValueError as exc:
                 if repair_used:
                     raise
-                current_prompt = _repair_prompt(prompt, str(exc))
+                current_prompt = _repair_prompt(rendered_prompt.text, str(exc))
                 temperature = 0.2
                 repair_used = True
 
@@ -683,3 +722,13 @@ class StoryboardGenerationService:
             frames=frames,
             diagnostics=diagnostics,
         )
+
+
+async def _retry_legacy_test_llm_without_trace_kwargs(callable_llm, exc: TypeError, **kwargs):
+    if kwargs.get("trace_context") is not None or kwargs.get("trace_recorder") is not None:
+        raise exc
+    if "unexpected keyword argument 'trace_context'" not in str(exc):
+        raise exc
+    kwargs.pop("trace_context", None)
+    kwargs.pop("trace_recorder", None)
+    return await callable_llm(**kwargs)

@@ -2,6 +2,7 @@ import pytest
 
 from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.content_world import ContentWorldHintSource, ContentWorldProfile
+from pixelle_video.models.llm_interaction_trace import LLMTraceRecordingError
 from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.storyboard_planning import FramePlan
@@ -232,6 +233,37 @@ async def test_generate_styled_image_prompt_batch_falls_back_to_legacy_prefix_wh
 
     assert result.prompts == [apply_no_text_policy("flat illustration, base scene prompt")]
     assert result.negative_prompt is None
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_propagates_style_trace_recording_failure(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        raise AssertionError("image prompt generation should not run after trace failure")
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        raise LLMTraceRecordingError("style trace store down")
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
+
+    with pytest.raises(LLMTraceRecordingError, match="style trace store down"):
+        await generate_styled_image_prompt_batch(
+            llm_service=object(),
+            narrations=["scene one"],
+            image_config={
+                "prompt_prefix": "flat illustration",
+                "prompt_prefix_library": {"active_prefix_id": None, "items": []},
+            },
+            media_service=None,
+            prompt_prefix=None,
+            text_rendering=_suppress_image_text(),
+        )
 
 
 @pytest.mark.asyncio

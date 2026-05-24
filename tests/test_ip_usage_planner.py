@@ -9,6 +9,7 @@ from pixelle_video.models.ip_prompt_planning import (
     IPPresenceType,
     IPRoleSlot,
 )
+from pixelle_video.models.llm_interaction_trace import LLMTraceRecordingError
 from pixelle_video.models.scene_cast import SceneCast
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
@@ -655,7 +656,7 @@ def _plan_two_frames():
 async def test_appearance_planner_llm_receives_full_actorization_context():
     captured: dict[str, str] = {}
 
-    async def fake_llm(prompt: str) -> str:
+    async def fake_llm(prompt: str, **kwargs) -> str:
         captured["prompt"] = prompt
         return json.dumps(
             [
@@ -752,10 +753,31 @@ async def test_appearance_planner_llm_receives_full_actorization_context():
 
 
 @pytest.mark.asyncio
+async def test_appearance_planner_propagates_trace_recording_failure():
+    async def failing_trace_llm(*args, **kwargs):
+        raise LLMTraceRecordingError("ip role trace store down")
+
+    frame = StoryboardPlanFrame(
+        index=1,
+        frame_id="frame_1",
+        source_text="A market route opens.",
+        visual_goal="show the travel path",
+        prompt_intent="travel opening",
+        primary_subject="street vendor",
+    )
+
+    with pytest.raises(LLMTraceRecordingError, match="ip role trace store down"):
+        await IPFrameAppearancePlanner(llm_client=failing_trace_llm).plan_batch(
+            storyboard_plan=_plan(frame),
+            ip_profile=_universal_ip_profile(),
+        )
+
+
+@pytest.mark.asyncio
 async def test_appearance_planner_llm_omits_invalid_scene_cast_presence():
     captured: dict[str, str] = {}
 
-    async def fake_llm(prompt: str) -> str:
+    async def fake_llm(prompt: str, **kwargs) -> str:
         captured["prompt"] = prompt
         return json.dumps(
             [

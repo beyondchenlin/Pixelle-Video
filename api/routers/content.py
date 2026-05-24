@@ -16,10 +16,11 @@ Content generation endpoints
 Endpoints for generating narrations, image prompts, and titles.
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from loguru import logger
 
 from api.dependencies import PixelleVideoDep
+from api.llm_trace import build_api_llm_trace_context, build_api_llm_trace_recorder
 from api.schemas.content import (
     ImagePromptGenerateRequest,
     ImagePromptGenerateResponse,
@@ -57,6 +58,7 @@ def _serialize_frame_overrides(frame_overrides):
 @router.post("/world-hint-draft", response_model=WorldHintDraftGenerateResponse)
 async def generate_world_hint_draft(
     request: WorldHintDraftGenerateRequest,
+    http_request: Request,
     pixelle_video: PixelleVideoDep,
 ):
     """Generate an editable world-hint draft without triggering the formal generation pipeline."""
@@ -68,12 +70,24 @@ async def generate_world_hint_draft(
             if request.title
             else request.source_text
         )
+        trace_recorder = build_api_llm_trace_recorder(
+            http_request,
+            route="/content/world-hint-draft",
+        )
+        trace_context = build_api_llm_trace_context(
+            http_request,
+            route="/content/world-hint-draft",
+            operation="api_world_hint_draft",
+            stage="api_world_hint_draft",
+        )
         profile = await ContentWorldPlanner().plan(
             llm_service=pixelle_video.llm,
             source_text=source_text,
             generation_world_hint=None,
             ip_world_hint=request.ip_default_world_hint,
             world_preset=world_preset,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
         )
         draft = build_world_hint_draft(
             profile,
@@ -101,7 +115,8 @@ async def generate_world_hint_draft(
 @router.post("/narration", response_model=NarrationGenerateResponse)
 async def generate_narration(
     request: NarrationGenerateRequest,
-    pixelle_video: PixelleVideoDep
+    http_request: Request,
+    pixelle_video: PixelleVideoDep,
 ):
     """
     Generate narrations from text
@@ -117,6 +132,16 @@ async def generate_narration(
     """
     try:
         logger.info(f"Generating {request.n_scenes} narrations from text")
+        trace_recorder = build_api_llm_trace_recorder(
+            http_request,
+            route="/content/narration",
+        )
+        trace_context = build_api_llm_trace_context(
+            http_request,
+            route="/content/narration",
+            operation="api_narration_generation",
+            stage="api_narration_generation",
+        )
         
         # Call narration generator utility function
         narrations = await generate_narrations_from_topic(
@@ -124,7 +149,9 @@ async def generate_narration(
             topic=request.text,
             n_scenes=request.n_scenes,
             min_words=request.min_words,
-            max_words=request.max_words
+            max_words=request.max_words,
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
         )
         
         return NarrationGenerateResponse(
@@ -139,7 +166,8 @@ async def generate_narration(
 @router.post("/image-prompt", response_model=ImagePromptGenerateResponse)
 async def generate_image_prompt(
     request: ImagePromptGenerateRequest,
-    pixelle_video: PixelleVideoDep
+    http_request: Request,
+    pixelle_video: PixelleVideoDep,
 ):
     """
     Generate image prompts from narrations
@@ -154,6 +182,16 @@ async def generate_image_prompt(
     """
     try:
         logger.info(f"Generating image prompts for {len(request.narrations)} narrations")
+        trace_recorder = build_api_llm_trace_recorder(
+            http_request,
+            route="/content/image-prompt",
+        )
+        trace_context = build_api_llm_trace_context(
+            http_request,
+            route="/content/image-prompt",
+            operation="api_image_prompt_generation",
+            stage="api_image_prompt_generation",
+        )
 
         image_config = pixelle_video.config.get("comfyui", {}).get("image", {})
         storyboard_plan = (
@@ -190,6 +228,8 @@ async def generate_image_prompt(
                 shot_strategy=request.shot_strategy,
                 frame_overrides=_serialize_frame_overrides(request.frame_overrides),
                 text_rendering=text_rendering,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
             )
         else:
             batch = await generate_styled_image_prompt_batch(
@@ -213,6 +253,8 @@ async def generate_image_prompt(
                 shot_strategy=request.shot_strategy,
                 frame_overrides=_serialize_frame_overrides(request.frame_overrides),
                 text_rendering=text_rendering,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
             )
 
         return ImagePromptGenerateResponse(
@@ -241,7 +283,8 @@ async def generate_image_prompt(
 @router.post("/title", response_model=TitleGenerateResponse)
 async def generate_title_endpoint(
     request: TitleGenerateRequest,
-    pixelle_video: PixelleVideoDep
+    http_request: Request,
+    pixelle_video: PixelleVideoDep,
 ):
     """
     Generate video title from text
@@ -255,12 +298,24 @@ async def generate_title_endpoint(
     """
     try:
         logger.info("Generating title from text")
+        trace_recorder = build_api_llm_trace_recorder(
+            http_request,
+            route="/content/title",
+        )
+        trace_context = build_api_llm_trace_context(
+            http_request,
+            route="/content/title",
+            operation="api_title_generation",
+            stage="api_title_generation",
+        )
         
         # Call title generator utility function
         title = await generate_title(
             llm_service=pixelle_video.llm,
             content=request.text,
-            strategy="llm"
+            strategy="llm",
+            trace_context=trace_context,
+            trace_recorder=trace_recorder,
         )
         
         return TitleGenerateResponse(

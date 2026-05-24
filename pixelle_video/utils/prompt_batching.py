@@ -20,6 +20,7 @@ from typing import Any, Awaitable, Callable, Generic, Sequence, TypeVar
 
 from loguru import logger
 
+from pixelle_video.models.llm_interaction_trace import LLMTraceError
 from pixelle_video.models.progress import ProgressI18nMessage
 
 TInput = TypeVar("TInput")
@@ -173,6 +174,8 @@ async def run_prompt_batches(
                         logger.warning(f"Prompt batch progress callback failed: {exc}")
 
                 return batch.start_index, outputs
+            except LLMTraceError:
+                raise
             except Exception as exc:
                 if attempt >= max_retries:
                     async with state_lock:
