@@ -9,6 +9,7 @@ from pixelle_video.prompt_language import (
     PromptLanguage,
     normalize_prompt_language,
 )
+from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
 
 
 def _split_into_sentences(text: str) -> list[tuple[str, int, int]]:
@@ -93,7 +94,7 @@ def _split_into_source_spans(text: str, span_count: int) -> list[tuple[str, int,
     return spans
 
 
-def build_smart_storyboard_prompt(
+def render_smart_storyboard_prompt(
     *,
     source_text: str,
     count_mode: str,
@@ -101,7 +102,7 @@ def build_smart_storyboard_prompt(
     min_scene_count: int,
     max_scene_count: int,
     prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
-) -> str:
+) -> RenderedPrompt:
     count_instruction = (
         f"Create exactly {requested_scene_count} storyboard frames."
         if count_mode == "manual"
@@ -125,70 +126,56 @@ def build_smart_storyboard_prompt(
     )
 
     resolved_prompt_language = normalize_prompt_language(prompt_language)
-    payload = {
-        "task": "create_storyboard_plan_from_complete_source_text",
-        "prompt_language": resolved_prompt_language,
-        "source_text": source_text,
-        "sentences": sentence_list,
-        "count_instruction": count_instruction,
-        "requirements": [
-            "Understand the complete source_text before creating frames.",
-            "The returned frames must cover the entire source_text in source order.",
-            "Do not omit meaningful source_text; only whitespace-only gaps between frames are allowed.",
-            "Use sentence_indices to specify which sentences each frame covers.",
-            "Frames may cover multiple consecutive sentences (e.g., [0, 1, 2]).",
-            "Do not split one sentence across multiple frames when using sentence_indices.",
-            "All sentence indices must be covered by exactly one frame (no gaps, no overlaps).",
-            "When using sentence_indices, omit source_start and source_end entirely unless you can provide both integers together.",
-            "Maintain continuity of style, subjects, and visual logic across all frames.",
-            "Do not rewrite or summarize voiceover text; speech and captions are planned separately from source_text.",
-            "Do not generate final image prompts.",
-            "Return JSON only.",
-        ],
-        "frame_schema": {
-            "source_text": "Text preview covered by this frame (for reference).",
-            "visual_goal": (
-                "这一帧需要传达的视觉重点"
-                if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE
-                else "What this frame should communicate visually."
+    source_span_items = [
+        {
+            "index": index,
+            "text": span_text,
+            "source_start": start,
+            "source_end": end,
+        }
+        for index, (span_text, start, end) in enumerate(source_spans)
+    ]
+    visual_goal_description = (
+        "杩欎竴甯ч渶瑕佷紶杈剧殑瑙嗚閲嶇偣"
+        if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE
+        else "What this frame should communicate visually."
+    )
+    return render_prompt_template(
+        "storyboard_generation",
+        {
+            "prompt_language_json": json.dumps(resolved_prompt_language, ensure_ascii=False),
+            "source_text_json": json.dumps(source_text, ensure_ascii=False),
+            "sentences_json": json.dumps(sentence_list, ensure_ascii=False, indent=2),
+            "count_instruction_json": json.dumps(count_instruction, ensure_ascii=False),
+            "use_source_spans": use_source_spans,
+            "use_sentence_indices": not use_source_spans,
+            "source_spans_json": json.dumps(source_span_items, ensure_ascii=False, indent=2),
+            "write_chinese_fields": resolved_prompt_language == CHINESE_PROMPT_LANGUAGE,
+            "visual_goal_description_json": json.dumps(
+                visual_goal_description,
+                ensure_ascii=False,
             ),
-            "prompt_intent": "Guidance for later image prompt composition.",
-            "sentence_indices": "Required: consecutive sentence indices covered by this frame (e.g., [0, 1] or [3]).",
         },
-    }
-    if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE:
-        payload["requirements"].append(
-            "Write visual_goal and prompt_intent in Chinese."
-        )
-    if use_source_spans:
-        payload["source_spans"] = [
-            {
-                "index": index,
-                "text": span_text,
-                "source_start": start,
-                "source_end": end,
-            }
-            for index, (span_text, start, end) in enumerate(source_spans)
-        ]
-        payload["requirements"] = [
-            requirement
-            for requirement in payload["requirements"]
-            if "sentence_indices" not in requirement
-            and "sentence indices" not in requirement
-        ]
-        payload["requirements"].extend(
-            [
-                "Use source_span_indices, not sentence_indices, because the requested frame count exceeds the sentence count.",
-                "Each frame must cover one or more consecutive source_spans.",
-                "All source_span_indices must be covered by exactly one frame in source order (no gaps, no overlaps).",
-                "When using source_span_indices, omit source_start and source_end entirely unless you can provide both integers together.",
-            ]
-        )
-        payload["frame_schema"].pop("sentence_indices", None)
-        payload["frame_schema"]["source_span_indices"] = (
-            "Required: consecutive source_spans covered by this frame (e.g., [0] or [1, 2])."
-        )
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    )
 
 
 __all__ = ["build_smart_storyboard_prompt", "_split_into_sentences", "_split_into_source_spans"]
+
+
+def build_smart_storyboard_prompt(
+    *,
+    source_text: str,
+    count_mode: str,
+    requested_scene_count: int | None,
+    min_scene_count: int,
+    max_scene_count: int,
+    prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
+) -> str:
+    return render_smart_storyboard_prompt(
+        source_text=source_text,
+        count_mode=count_mode,
+        requested_scene_count=requested_scene_count,
+        min_scene_count=min_scene_count,
+        max_scene_count=max_scene_count,
+        prompt_language=prompt_language,
+    ).text

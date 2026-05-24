@@ -1,3 +1,5 @@
+from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
+
 # Copyright (C) 2025 AIDC-AI
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,22 +19,8 @@ For converting user's custom style description to image generation prompt.
 """
 
 
-STYLE_CONVERSION_PROMPT = """Convert this style description into a detailed image generation prompt for Stable Diffusion/FLUX:
 
-Style Description: {description}
-
-Requirements:
-- Focus on visual elements, colors, lighting, mood, atmosphere
-- Be specific and detailed
-- Use professional photography/art terminology
-- Output ONLY the prompt in English (no explanations)
-- Keep it under 100 words
-- Use comma-separated descriptive phrases
-
-Image Prompt:"""
-
-
-def build_style_conversion_prompt(description: str) -> str:
+def render_style_conversion_prompt(description: str) -> RenderedPrompt:
     """
     Build style conversion prompt
     
@@ -49,5 +37,13 @@ def build_style_conversion_prompt(description: str) -> str:
         >>> build_style_conversion_prompt("赛博朋克风格，霓虹灯，未来感")
         # Returns prompt that will convert to: "cyberpunk style, neon lights, futuristic..."
     """
-    return STYLE_CONVERSION_PROMPT.format(description=description)
+    return render_prompt_template(
+        "style_conversion",
+        {"description": description},
+    )
 
+
+
+
+def build_style_conversion_prompt(description: str) -> str:
+    return render_style_conversion_prompt(description).text

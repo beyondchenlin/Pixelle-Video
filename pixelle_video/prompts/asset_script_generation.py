@@ -19,6 +19,33 @@ from __future__ import annotations
 import json
 
 from pixelle_video.models.asset_script import AssetCatalogEntry, AssetScriptResponse
+from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
+
+
+def render_asset_script_prompt(
+    intent: str,
+    duration: int,
+    assets: list[AssetCatalogEntry],
+    title: str = "",
+) -> RenderedPrompt:
+    return render_prompt_template(
+        "asset_script_generation",
+        {
+            "intent_json": json.dumps(intent.strip(), ensure_ascii=False),
+            "duration_seconds_json": json.dumps(duration, ensure_ascii=False),
+            "title_json": json.dumps(title.strip(), ensure_ascii=False),
+            "available_assets_json": json.dumps(
+                [asset.to_prompt_dict() for asset in assets],
+                ensure_ascii=False,
+                indent=2,
+            ),
+            "required_output_json": json.dumps(
+                AssetScriptResponse.model_json_schema(),
+                ensure_ascii=False,
+                indent=2,
+            ),
+        },
+    )
 
 
 def build_asset_script_prompt(
@@ -27,23 +54,4 @@ def build_asset_script_prompt(
     assets: list[AssetCatalogEntry],
     title: str = "",
 ) -> str:
-    payload = {
-        "task": "plan_asset_video_script",
-        "intent": intent.strip(),
-        "duration_seconds": duration,
-        "title": title.strip(),
-        "available_assets": [asset.to_prompt_dict() for asset in assets],
-        "required_output": AssetScriptResponse.model_json_schema(),
-        "instructions": [
-            "Detect the user's input language and keep all narrations in that same language unless the intent explicitly asks for another output language.",
-            "Determine a scene count that reasonably matches the target duration, typically 5-15 seconds per scene.",
-            "Assign exactly one asset_id from available_assets to each scene.",
-            "Return every asset_id exactly as provided in available_assets. Never invent, rewrite, or partially match asset ids.",
-            "Each scene should contain 1-3 narration sentences.",
-            "Try to use all available assets when it improves coverage, but asset reuse is allowed when necessary.",
-            "Total duration across scenes should approximately match duration_seconds.",
-            "Validate the final payload against required_output before returning it.",
-            "Return JSON only.",
-        ],
-    }
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return render_asset_script_prompt(intent, duration, assets, title=title).text

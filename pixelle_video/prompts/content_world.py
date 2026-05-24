@@ -7,41 +7,26 @@ from collections.abc import Mapping
 from typing import Any
 
 from pixelle_video.models.content_world import ContentWorldProfile
+from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
 from pixelle_video.utils.json_parsing import parse_llm_json_response
 
 
-def build_content_world_prompt(
+def render_content_world_prompt(
     *,
     source_text: str,
     generation_world_hint: str | None = None,
     ip_world_hint: str | None = None,
     world_preset: Mapping[str, Any] | None = None,
-) -> str:
-    payload = {
-        "task": "extract_current_generation_world_profile",
-        "source_text": source_text,
-        "generation_world_hint": generation_world_hint,
-        "ip_default_world_hint": ip_world_hint,
-        "world_preset": dict(world_preset or {}),
-        "required_output": {
-            "summary": "string",
-            "time_space": "string",
-            "visual_environment": "string",
-            "atmosphere": "string",
-            "cultural_context": "string",
-            "story_constraints": "string",
-            "ip_integration_guidance": "string",
+) -> RenderedPrompt:
+    return render_prompt_template(
+        "content_world",
+        {
+            "source_text_json": json.dumps(source_text, ensure_ascii=False),
+            "generation_world_hint_json": json.dumps(generation_world_hint, ensure_ascii=False),
+            "ip_world_hint_json": json.dumps(ip_world_hint, ensure_ascii=False),
+            "world_preset_json": json.dumps(dict(world_preset or {}), ensure_ascii=False, indent=2),
         },
-        "instructions": [
-            "Return JSON only.",
-            "Treat generation_world_hint as the highest priority when present.",
-            "Use ip_default_world_hint only as compatibility guidance, not as the current story world.",
-            "Do not output markdown fences.",
-            "Do not output hex color codes.",
-            "Do not copy field names into natural language values.",
-        ],
-    }
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    )
 
 
 def parse_content_world_profile(
@@ -67,3 +52,18 @@ def parse_content_world_profile(
 
 
 __all__ = ["build_content_world_prompt", "parse_content_world_profile"]
+
+
+def build_content_world_prompt(
+    *,
+    source_text: str,
+    generation_world_hint: str | None = None,
+    ip_world_hint: str | None = None,
+    world_preset: Mapping[str, Any] | None = None,
+) -> str:
+    return render_content_world_prompt(
+        source_text=source_text,
+        generation_world_hint=generation_world_hint,
+        ip_world_hint=ip_world_hint,
+        world_preset=world_preset,
+    ).text
