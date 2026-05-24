@@ -548,6 +548,7 @@ The work is complete when all of the following are true:
 20. tests prove prompt rendering records template id, version, file path, rendered text, and output contract.
 21. tests prove each production `llm_service(...)` generation call records request payload, response payload, status, operation, stage, and attempt metadata.
 22. every completed generation has inspectable prompt-trace artifacts showing the LLM interaction count and the exact final prompt sent to media generation.
+23. any untraced LLM escape hatch is restricted to low-level tests and cannot appear in production generation call sites.
 
 ## 9. Review Passes Applied
 

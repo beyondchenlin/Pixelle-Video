@@ -46,6 +46,8 @@
   - Owns the smart storyboard generation LLM prompt body.
 - Create: `pixelle_video/prompts/templates/prompt_prefix_generation.md`
   - Owns the prompt-prefix generation LLM prompt body.
+- Create: `pixelle_video/prompts/templates/script_generation.md`
+  - Owns the complete script-generation LLM prompt body.
 - Create: `pixelle_video/prompts/templates/asset_script_generation.md`
   - Owns the asset script-generation LLM prompt body.
 - Create: `tests/test_prompt_template_registry.py`
@@ -147,7 +149,7 @@ Required invariants:
 ```python
 trace.request_payload["messages"][0]["content"] == rendered_prompt.text
 trace.context.metadata["prompt_template"]["prompt_id"] == rendered_prompt.prompt_id
-final_prompt_artifact["frames"][index]["prompt"] == media_params["prompt"]
+media_params["prompt"] in final_prompt_artifact_path.read_text(encoding="utf-8")
 ```
 
 No task may add a new LLM prompt as a Python triple-quoted prompt body. New prompt work starts by adding or updating a Markdown template.
@@ -172,6 +174,7 @@ No task may add a new LLM prompt as a Python triple-quoted prompt body. New prom
 - Create: `pixelle_video/prompts/templates/storyboard_generation.md`
 - Create: `pixelle_video/prompts/templates/prompt_prefix_generation.md`
 - Create: `pixelle_video/prompts/templates/asset_script_generation.md`
+- Create: `pixelle_video/prompts/templates/script_generation.md`
 - Create: `tests/test_prompt_template_registry.py`
 - Create: `tests/test_prompt_template_no_inline_bodies.py`
 - Modify: `pixelle_video/prompts/image_generation.py`
@@ -186,6 +189,7 @@ No task may add a new LLM prompt as a Python triple-quoted prompt body. New prom
 - Modify: `pixelle_video/prompts/storyboard_planning.py`
 - Modify: `pixelle_video/prompts/storyboard_generation.py`
 - Modify: `pixelle_video/prompts/prompt_prefix_generation.py`
+- Modify: `pixelle_video/prompts/script_generation.py`
 - Modify: `pixelle_video/prompts/asset_script_generation.py`
 
 - [ ] **Step 1: Write prompt-template registry tests**
@@ -216,6 +220,7 @@ REQUIRED_TEMPLATE_IDS = {
     "storyboard_planning",
     "storyboard_generation",
     "prompt_prefix_generation",
+    "script_generation",
     "asset_script_generation",
 }
 
@@ -480,6 +485,7 @@ Use these `prompt_id` to `output_contract` mappings:
     "storyboard_planning": "StoryboardPromptPlanResponse",
     "storyboard_generation": "SmartStoryboardResponse",
     "prompt_prefix_generation": "PromptPrefixGenerationResponse",
+    "script_generation": "ScriptGenerationResponse",
     "asset_script_generation": "AssetScriptGenerationResponse",
 }
 ```
@@ -552,6 +558,7 @@ Use this exact adapter map for the remaining prompt modules:
     "storyboard_planning": ("render_storyboard_planning_prompt", "build_storyboard_planning_prompt"),
     "storyboard_generation": ("render_smart_storyboard_prompt", "build_smart_storyboard_prompt"),
     "prompt_prefix_generation": ("render_prompt_prefix_generation_prompt", "build_prompt_prefix_generation_prompt"),
+    "script_generation": ("render_script_generation_prompt", "build_script_generation_prompt"),
     "asset_script_generation": ("render_asset_script_generation_prompt", "build_asset_script_generation_prompt"),
 }
 ```
@@ -2282,6 +2289,18 @@ def test_generation_llm_calls_pass_trace_context_and_recorder():
             keyword_names = {keyword.arg for keyword in call.keywords if keyword.arg}
             if "trace_context" not in keyword_names or "trace_recorder" not in keyword_names:
                 offenders.append(f"{path}:{call.lineno}")
+
+    assert offenders == []
+
+
+def test_untraced_llm_escape_hatch_is_not_used_by_production_call_sites():
+    offenders = []
+    for path in sorted(Path("pixelle_video").rglob("*.py")):
+        if path == Path("pixelle_video/services/llm_service.py"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "allow_untraced_llm_call" in text:
+            offenders.append(str(path))
 
     assert offenders == []
 ```
