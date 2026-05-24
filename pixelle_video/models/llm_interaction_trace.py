@@ -353,6 +353,7 @@ __all__ = [
     "LLM_TRACE_REQUIRED_MESSAGE",
     "MAX_PAYLOAD_PREVIEW_CHARS",
     "trace_context_with_prompt_template",
+    "trace_context_with_prompt_template_overlay",
 ]
 
 
@@ -383,5 +384,32 @@ def trace_context_with_prompt_template(
         operation=trace_context.operation,
         stage=stage if stage is not None else trace_context.stage,
         frame_id=frame_id if frame_id is not None else trace_context.frame_id,
+        metadata=merged_metadata,
+    )
+
+
+def trace_context_with_prompt_template_overlay(
+    trace_context: LLMTraceContext,
+    *,
+    rendered_prompt: Any,
+    metadata: Mapping[str, Any] | None = None,
+) -> LLMTraceContext:
+    trace_metadata = getattr(rendered_prompt, "trace_metadata", None)
+    if not callable(trace_metadata):
+        raise ValueError("rendered_prompt must expose trace_metadata()")
+
+    merged_metadata = _json_safe_copy(trace_context.metadata)
+    overlays = list(merged_metadata.get("prompt_template_overlays") or [])
+    overlays.append(trace_metadata())
+    merged_metadata["prompt_template_overlays"] = overlays
+    if metadata:
+        merged_metadata.update(_json_safe_copy(metadata))
+
+    return LLMTraceContext(
+        workspace_id=trace_context.workspace_id,
+        task_id=trace_context.task_id,
+        operation=trace_context.operation,
+        stage=trace_context.stage,
+        frame_id=trace_context.frame_id,
         metadata=merged_metadata,
     )

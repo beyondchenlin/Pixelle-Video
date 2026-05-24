@@ -22,6 +22,9 @@ REQUIRED_TEMPLATE_IDS = {
     "prompt_prefix_generation",
     "script_generation",
     "asset_script_generation",
+    "structured_json_object",
+    "structured_schema_output",
+    "storyboard_repair",
 }
 
 JSON_PROMPT_TEMPLATE_IDS = {
@@ -30,6 +33,9 @@ JSON_PROMPT_TEMPLATE_IDS = {
     "storyboard_planning",
     "storyboard_generation",
     "asset_script_generation",
+    "structured_json_object",
+    "structured_schema_output",
+    "storyboard_repair",
 }
 
 JSON_PROMPT_MODULES = {
@@ -38,6 +44,9 @@ JSON_PROMPT_MODULES = {
     "storyboard_planning": "pixelle_video/prompts/storyboard_planning.py",
     "storyboard_generation": "pixelle_video/prompts/storyboard_generation.py",
     "asset_script_generation": "pixelle_video/prompts/asset_script_generation.py",
+    "structured_json_object": "pixelle_video/prompts/structured_output.py",
+    "structured_schema_output": "pixelle_video/prompts/structured_output.py",
+    "storyboard_repair": "pixelle_video/prompts/storyboard_generation.py",
 }
 
 

@@ -1037,7 +1037,7 @@ def test_runtime_asset_dirs_are_gitignored():
     assert "resources/prompt_prefix_previews/custom/" in gitignore
 
 
-def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeypatch):
+def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeypatch, tmp_path):
     captured = {}
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
@@ -1050,6 +1050,8 @@ def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeyp
 
     class _FakePixelleVideo:
         llm = object()
+        trace_repository = object()
+        raw_payload_store = object()
         config = {
             "comfyui": {
                 "image": {
@@ -1065,6 +1067,7 @@ def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeyp
 
     monkeypatch.setattr(style_config, "generate_styled_image_prompt_batch", fake_generate_styled_image_prompt_batch)
     monkeypatch.setattr(style_config, "run_async", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(style_config, "PROJECT_ROOT", tmp_path)
 
     preview_results = style_config._generate_prompt_prefix_preview_results(
         pixelle_video=_FakePixelleVideo(),
@@ -1076,10 +1079,16 @@ def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeyp
     )
 
     assert preview_results[0]["final_prompt"] == "preview final prompt"
+    trace_path = tmp_path / preview_results[0]["prompt_trace_path"]
+    assert trace_path.is_file()
+    trace_content = trace_path.read_text(encoding="utf-8")
+    assert "preview final prompt" in trace_content
+    assert '"workflow": "selfhost/image_z_image_turbo.json"' in trace_content
+    assert '"prompt_prefix": "angry birds world"' in trace_content
     assert captured["media_kwargs"]["negative_prompt"] == "avoid realism"
 
 
-def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatch):
+def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatch, tmp_path):
     captured = {}
 
     async def fake_generate_styled_image_prompt_batch(**kwargs):
@@ -1094,6 +1103,8 @@ def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatc
 
     class _FakePixelleVideo:
         llm = object()
+        trace_repository = object()
+        raw_payload_store = object()
         config = {
             "comfyui": {
                 "video": {
@@ -1109,6 +1120,7 @@ def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatc
 
     monkeypatch.setattr(style_config, "generate_styled_image_prompt_batch", fake_generate_styled_image_prompt_batch)
     monkeypatch.setattr(style_config, "run_async", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(style_config, "PROJECT_ROOT", tmp_path)
 
     preview = style_config._generate_single_style_preview_result(
         pixelle_video=_FakePixelleVideo(),
@@ -1122,6 +1134,9 @@ def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatc
     )
 
     assert preview["final_prompt"] == "video preview final prompt"
+    trace_path = tmp_path / preview["prompt_trace_path"]
+    assert trace_path.is_file()
+    assert "video preview final prompt" in trace_path.read_text(encoding="utf-8")
     assert captured["media_type"] == "video"
     assert captured["prompt_language"] == "zh_CN"
     assert captured["media_kwargs"]["negative_prompt"] == "avoid blur"

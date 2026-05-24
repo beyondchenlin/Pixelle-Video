@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ def write_final_prompt_artifact(
     output_dir: Path,
     task_id: str,
     frames: Sequence[Mapping[str, Any]],
+    generation_context: Mapping[str, Any] | None = None,
 ) -> Path:
     artifact_dir = Path(output_dir) / "prompt_traces"
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -21,6 +23,17 @@ def write_final_prompt_artifact(
         f"Frame count: {len(frames)}",
         "",
     ]
+    if generation_context:
+        lines.extend(
+            [
+                "## Generation Context",
+                "",
+                "```json",
+                json.dumps(generation_context, ensure_ascii=False, indent=2, default=str),
+                "```",
+                "",
+            ]
+        )
     for index, frame in enumerate(frames, start=1):
         frame_number = frame.get("index") if frame.get("index") is not None else index
         frame_id = str(frame.get("frame_id") or frame_number)

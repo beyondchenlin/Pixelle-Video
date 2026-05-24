@@ -136,7 +136,7 @@ def render_smart_storyboard_prompt(
         for index, (span_text, start, end) in enumerate(source_spans)
     ]
     visual_goal_description = (
-        "杩欎竴甯ч渶瑕佷紶杈剧殑瑙嗚閲嶇偣"
+        "这一帧需要传达的视觉重点"
         if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE
         else "What this frame should communicate visually."
     )
@@ -159,7 +159,27 @@ def render_smart_storyboard_prompt(
     )
 
 
-__all__ = ["build_smart_storyboard_prompt", "_split_into_sentences", "_split_into_source_spans"]
+def render_storyboard_repair_prompt(
+    *,
+    original_prompt: str,
+    reason: str,
+) -> RenderedPrompt:
+    return render_prompt_template(
+        "storyboard_repair",
+        {
+            "original_prompt": original_prompt,
+            "reason": reason,
+        },
+    )
+
+
+__all__ = [
+    "build_smart_storyboard_prompt",
+    "render_smart_storyboard_prompt",
+    "render_storyboard_repair_prompt",
+    "_split_into_sentences",
+    "_split_into_source_spans",
+]
 
 
 def build_smart_storyboard_prompt(

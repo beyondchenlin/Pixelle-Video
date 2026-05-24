@@ -33,6 +33,11 @@ from pixelle_video.models.llm_interaction_trace import (
     LLMTraceRecordingError,
     LLMTraceRequiredError,
     LLMTraceStatus,
+    trace_context_with_prompt_template_overlay,
+)
+from pixelle_video.prompts.structured_output import (
+    render_structured_json_object_prompt,
+    render_structured_schema_output_prompt,
 )
 from pixelle_video.services.llm_capabilities import (
     is_json_object_response_format_unsupported_error,
@@ -192,8 +197,7 @@ class LLMService:
             )
             print(data["name"])  # Direct dict access
         """
-        allow_untraced_llm_call = bool(kwargs.pop("allow_untraced_llm_call", False))
-        if not allow_untraced_llm_call and (trace_context is None or trace_recorder is None):
+        if trace_context is None or trace_recorder is None:
             raise LLMTraceRequiredError(LLM_TRACE_REQUIRED_MESSAGE)
 
         # Create client (new instance each time to support parameter overrides)
@@ -526,12 +530,12 @@ class LLMService:
         Returns:
             Parsed JSON as dictionary
         """
-        # Enhance prompt to ensure JSON output
-        enhanced_prompt = f"""{prompt}
-
-## IMPORTANT: JSON Output Format Required
-You MUST respond with ONLY a valid JSON object (no markdown, no extra text).
-Output ONLY the JSON object, nothing else."""
+        rendered_prompt = render_structured_json_object_prompt(prompt)
+        trace_context = trace_context_with_prompt_template_overlay(
+            trace_context,
+            rendered_prompt=rendered_prompt,
+        ) if trace_context is not None else None
+        enhanced_prompt = rendered_prompt.text
 
         request_payload = self._build_request_payload(
             model=model,
@@ -539,6 +543,7 @@ Output ONLY the JSON object, nothing else."""
             temperature=temperature,
             max_tokens=max_tokens,
             extra_parameters=kwargs,
+            response_format={"type": "json_object"},
         )
 
         started_at = perf_counter()
@@ -619,8 +624,15 @@ Output ONLY the JSON object, nothing else."""
         trace_recorder: Optional[LLMInteractionRecorder] = None,
         **kwargs
     ) -> T:
-        json_schema_instruction = self._get_json_schema_instruction(response_type)
-        enhanced_prompt = f"{prompt}\n\n{json_schema_instruction}"
+        rendered_prompt = self._render_structured_schema_prompt(
+            prompt=prompt,
+            response_type=response_type,
+        )
+        trace_context = trace_context_with_prompt_template_overlay(
+            trace_context,
+            rendered_prompt=rendered_prompt,
+        ) if trace_context is not None else None
+        enhanced_prompt = rendered_prompt.text
         capabilities = structured_output_capabilities(
             base_url=str(client.base_url or ""),
             model=model,
@@ -663,11 +675,23 @@ Output ONLY the JSON object, nothing else."""
                         error_message=str(exc),
                     )
                     raise
+                await self._record_llm_trace(
+                    trace_context=trace_context,
+                    trace_recorder=trace_recorder,
+                    provider=str(client.base_url or ""),
+                    model=model,
+                    request_payload=self._build_request_payload_from_kwargs(trace_request_kwargs),
+                    response_payload=None,
+                    status=LLMTraceStatus.ERROR,
+                    elapsed_ms=_elapsed_ms(started_at),
+                    error_message=str(exc),
+                )
                 logger.warning(
                     "Provider rejected JSON mode for structured output; retrying with prompt-only schema: {}",
                     exc,
                 )
                 trace_request_kwargs = {**request_kwargs, "max_tokens": max_tokens}
+                started_at = perf_counter()
                 try:
                     response = await client.chat.completions.create(**trace_request_kwargs)
                 except Exception as retry_exc:
@@ -738,34 +762,18 @@ Output ONLY the JSON object, nothing else."""
         )
         return parsed
     
-    def _get_json_schema_instruction(self, response_type: Type[T]) -> str:
-        """
-        Generate JSON schema instruction for LLM fallback mode
-        
-        Args:
-            response_type: Pydantic model class
-        
-        Returns:
-            Formatted instruction string with JSON schema
-        """
+    def _render_structured_schema_prompt(self, *, prompt: str, response_type: Type[T]):
         try:
-            # Get JSON schema from Pydantic model
             schema = response_type.model_json_schema()
             schema_str = json.dumps(schema, indent=2, ensure_ascii=False)
-            
-            return f"""## IMPORTANT: JSON Output Format Required
-You MUST respond with ONLY a valid JSON object (no markdown, no extra text).
-The JSON must strictly follow this schema:
-
-```json
-{schema_str}
-```
-
-Output ONLY the JSON object, nothing else."""
+            return render_structured_schema_output_prompt(
+                prompt=prompt,
+                response_type_name=response_type.__name__,
+                schema_json=schema_str,
+            )
         except Exception as e:
             logger.warning(f"Failed to generate JSON schema: {e}")
-            return """## IMPORTANT: JSON Output Format Required
-You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
+            return render_structured_json_object_prompt(prompt)
     
     def _parse_response_as_model(self, content: str, response_type: Type[T]) -> T:
         """
@@ -838,7 +846,7 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
         validation_errors: tuple[Mapping[str, Any], ...] = (),
     ) -> None:
         if trace_context is None or trace_recorder is None:
-            return
+            raise LLMTraceRequiredError(LLM_TRACE_REQUIRED_MESSAGE)
         try:
             await trace_recorder.record_interaction(
                 context=trace_context,

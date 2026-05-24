@@ -131,17 +131,12 @@ def test_web_prompt_prefix_generation_uses_rendered_template_metadata():
     assert rendered_template_calls >= 1
 
 
-def test_allow_untraced_llm_call_escape_hatch_is_not_used_in_production_code():
+def test_untraced_llm_call_escape_hatch_does_not_exist_in_production_code():
     offenders: list[str] = []
     for root in (Path("pixelle_video"), Path("api"), Path("web")):
         for path in root.rglob("*.py"):
-            if path == Path("pixelle_video/services/llm_service.py"):
-                continue
-            tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.keyword):
-                    continue
-                if node.arg == "allow_untraced_llm_call":
-                    offenders.append(f"{path}:{node.lineno}")
+            text = path.read_text(encoding="utf-8-sig")
+            if "allow_untraced_llm_call" in text:
+                offenders.append(str(path))
 
     assert offenders == []

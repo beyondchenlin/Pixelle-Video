@@ -12,6 +12,11 @@ def test_write_final_prompt_artifact_persists_exact_media_prompts(tmp_path):
                 "negative_prompt": "no text, no watermark",
             }
         ],
+        generation_context={
+            "workflow": "selfhost/image_z_image_turbo.json",
+            "style_source": "prompt_prefix_library",
+            "ip_controls": {"ip_enabled": True, "ip_profile_id": "hero"},
+        },
     )
 
     assert artifact_path.name == "final_visual_prompts.md"
@@ -20,5 +25,8 @@ def test_write_final_prompt_artifact_persists_exact_media_prompts(tmp_path):
     assert "# Final Visual Prompts" in content
     assert "Task ID: task_123" in content
     assert "Frame count: 1" in content
+    assert "## Generation Context" in content
+    assert '"workflow": "selfhost/image_z_image_turbo.json"' in content
+    assert '"ip_profile_id": "hero"' in content
     assert "```text\na precise image prompt\nwith a second line\n```" in content
     assert "```text\nno text, no watermark\n```" in content

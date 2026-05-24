@@ -863,6 +863,7 @@ class StandardPipeline(LinearVideoPipeline):
                 }
                 for frame in ctx.storyboard.frames
             ],
+            generation_context=self._final_prompt_generation_context(ctx),
         )
         relative_path = str(artifact_path.relative_to(Path(ctx.task_dir)))
         record = {
@@ -875,6 +876,48 @@ class StandardPipeline(LinearVideoPipeline):
         ctx.planning_snapshot["final_visual_prompt_artifact"] = record
         ctx.storyboard.planning_snapshot = dict(ctx.storyboard.planning_snapshot or {})
         ctx.storyboard.planning_snapshot["final_visual_prompt_artifact"] = record
+
+    def _final_prompt_generation_context(self, ctx: PipelineContext) -> dict[str, Any]:
+        resolved_style = None
+        if ctx.resolved_style is not None:
+            resolved_style = {
+                "style_kind": ctx.resolved_style.style_kind,
+                "source_identity": ctx.resolved_style.source_identity,
+                "content_hash": ctx.resolved_style.content_hash,
+                "resolver_version": ctx.resolved_style.resolver_version,
+                "style_profile": ctx.resolved_style.style_profile,
+                "has_prompt_template": bool(ctx.resolved_style.prompt_template),
+                "has_negative_prompt": bool(ctx.resolved_style.negative_prompt),
+            }
+
+        prompt_plan_bundle = (
+            ctx.prompt_plan_bundle.to_dict()
+            if ctx.prompt_plan_bundle is not None
+            else None
+        )
+        ip_controls = IPControlsContract.from_mapping(ctx.params).to_dict()
+        storyboard_contract = StoryboardControlsContract.from_mapping(ctx.params)
+        storyboard_controls = {
+            **storyboard_contract.to_generation_dict(),
+            **storyboard_contract.to_planning_dict(include_prompt_language=True),
+        }
+
+        return {
+            "pipeline": "standard",
+            "task_id": ctx.task_id,
+            "request": {
+                "mode": ctx.params.get("mode"),
+                "workflow": ctx.params.get("workflow"),
+                "prompt_language": ctx.params.get("prompt_language"),
+                "generation_world_hint": ctx.params.get("generation_world_hint"),
+                "prompt_prefix": ctx.params.get("prompt_prefix"),
+                "ip_controls": ip_controls,
+                "storyboard_controls": storyboard_controls,
+            },
+            "resolved_style": resolved_style,
+            "planning_snapshot": ctx.planning_snapshot or {},
+            "prompt_plan_bundle": prompt_plan_bundle,
+        }
 
     def _ai_stage_callback(self, ctx: PipelineContext):
         return lambda payload: self._record_ai_creation_stage(ctx, payload)

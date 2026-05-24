@@ -3,7 +3,9 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
+from pixelle_video.models.llm_interaction_trace import LLMTraceContext
 from pixelle_video.models.storyboard_planning import StoryboardPlanningResponse
+from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_service import LLMService
 
 
@@ -43,6 +45,62 @@ class _CreateRejectsJsonModeThenSucceeds:
         if "response_format" in kwargs:
             raise TypeError(self.message)
         return self.response
+
+
+class _FakeRawPayloadStore:
+    def __init__(self):
+        self.payloads = []
+
+    async def put_json(self, workspace_id, payload):
+        key = f"raw-payloads/{workspace_id}/{len(self.payloads) + 1:032x}.json"
+        self.payloads.append(
+            {
+                "workspace_id": workspace_id,
+                "storage_key": key,
+                "payload": dict(payload),
+            }
+        )
+        return key
+
+
+class _FakeTraceRepository:
+    def __init__(self):
+        self.appended = []
+
+    async def append_llm_interaction(self, workspace_id, trace):
+        self.appended.append(
+            {
+                "workspace_id": workspace_id,
+                "trace": dict(trace),
+            }
+        )
+        return dict(trace)
+
+
+def _trace_dependencies(trace_id_prefix="structured_trace"):
+    raw_store = _FakeRawPayloadStore()
+    trace_repository = _FakeTraceRepository()
+    counter = {"value": 0}
+
+    def _next_trace_id():
+        counter["value"] += 1
+        return f"{trace_id_prefix}_{counter['value']}"
+
+    recorder = LLMInteractionRecorder(
+        trace_repository=trace_repository,
+        raw_payload_store=raw_store,
+        trace_id_factory=_next_trace_id,
+    )
+    trace_context = LLMTraceContext(
+        workspace_id="workspace_1",
+        task_id="task_123",
+        operation="movie_review",
+        stage="structured_output",
+    )
+    return {
+        "trace_context": trace_context,
+        "trace_recorder": recorder,
+    }, raw_store, trace_repository
 
 
 def _build_fake_client(*, base_url: str, parse_response=None, create_response=None):
@@ -86,17 +144,20 @@ async def test_llm_service_uses_native_structured_output_for_supported_openai_mo
 
     service = LLMService({})
     monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    trace_kwargs, _, trace_repository = _trace_dependencies("native_structured")
 
     result = await service(
         prompt="Review Inception",
         model="gpt-4o-mini",
         response_type=MovieReview,
+        **trace_kwargs,
     )
 
     assert result == MovieReview(title="Inception", rating=9)
     assert len(parse_recorder.calls) == 1
     assert parse_recorder.calls[0]["response_format"] is MovieReview
     assert create_recorder.calls == []
+    assert trace_repository.appended[0]["trace"]["status"] == "success"
 
 
 @pytest.mark.asyncio
@@ -118,20 +179,24 @@ async def test_llm_service_uses_dashscope_json_mode_without_max_tokens(monkeypat
 
     service = LLMService({})
     monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    trace_kwargs, _, trace_repository = _trace_dependencies("dashscope_json")
 
     result = await service(
         prompt="Review Qwen",
         model="qwen-max",
         response_type=MovieReview,
         max_tokens=8192,
+        **trace_kwargs,
     )
 
     assert result == MovieReview(title="Qwen", rating=8)
     assert parse_recorder.calls == []
     assert len(create_recorder.calls) == 1
-    assert "JSON Output Format Required" in create_recorder.calls[0]["messages"][0]["content"]
+    assert "# JSON output requirements" in create_recorder.calls[0]["messages"][0]["content"]
     assert create_recorder.calls[0]["response_format"] == {"type": "json_object"}
     assert "max_tokens" not in create_recorder.calls[0]
+    metadata = trace_repository.appended[0]["trace"]["context"]["metadata"]
+    assert metadata["prompt_template_overlays"][0]["prompt_id"] == "structured_schema_output"
 
 
 @pytest.mark.asyncio
@@ -153,18 +218,22 @@ async def test_llm_service_uses_json_mode_with_max_tokens_for_generic_compatible
 
     service = LLMService({})
     monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    trace_kwargs, _, trace_repository = _trace_dependencies("compatible_json")
 
     result = await service(
         prompt="Review compatible provider",
         model="deepseek-chat",
         response_type=MovieReview,
         max_tokens=8192,
+        **trace_kwargs,
     )
 
     assert result == MovieReview(title="Compatible", rating=8)
     assert len(create_recorder.calls) == 1
     assert create_recorder.calls[0]["response_format"] == {"type": "json_object"}
     assert create_recorder.calls[0]["max_tokens"] == 8192
+    metadata = trace_repository.appended[0]["trace"]["context"]["metadata"]
+    assert metadata["prompt_template_overlays"][0]["path"].endswith("structured_schema_output.md")
 
 
 @pytest.mark.asyncio
@@ -193,12 +262,14 @@ async def test_llm_service_retries_without_json_mode_when_provider_rejects_it(mo
 
     service = LLMService({})
     monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    trace_kwargs, raw_store, trace_repository = _trace_dependencies("fallback_json")
 
     result = await service(
         prompt="Review fallback provider",
         model="custom-model",
         response_type=MovieReview,
         max_tokens=1234,
+        **trace_kwargs,
     )
 
     assert result == MovieReview(title="Fallback", rating=7)
@@ -207,6 +278,9 @@ async def test_llm_service_retries_without_json_mode_when_provider_rejects_it(mo
     assert create_recorder.calls[0]["max_tokens"] == 1234
     assert "response_format" not in create_recorder.calls[1]
     assert create_recorder.calls[1]["max_tokens"] == 1234
+    assert [item["trace"]["status"] for item in trace_repository.appended] == ["error", "success"]
+    assert raw_store.payloads[0]["payload"]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in raw_store.payloads[1]["payload"]
 
 
 @pytest.mark.asyncio
@@ -238,6 +312,7 @@ async def test_llm_service_does_not_retry_unrelated_type_errors(monkeypatch):
 
     service = LLMService({})
     monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    trace_kwargs, _, trace_repository = _trace_dependencies("unrelated_type_error")
 
     with pytest.raises(TypeError, match="temperature"):
         await service(
@@ -245,9 +320,11 @@ async def test_llm_service_does_not_retry_unrelated_type_errors(monkeypatch):
             model="custom-model",
             response_type=MovieReview,
             max_tokens=1234,
+            **trace_kwargs,
         )
 
     assert len(create_recorder.calls) == 1
+    assert trace_repository.appended[0]["trace"]["status"] == "error"
 
 
 @pytest.mark.asyncio
@@ -279,6 +356,7 @@ async def test_llm_service_does_not_retry_invalid_parameter_errors_that_only_men
 
     service = LLMService({})
     monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    trace_kwargs, _, trace_repository = _trace_dependencies("invalid_parameter")
 
     with pytest.raises(TypeError, match="max_tokens"):
         await service(
@@ -286,9 +364,11 @@ async def test_llm_service_does_not_retry_invalid_parameter_errors_that_only_men
             model="custom-model",
             response_type=MovieReview,
             max_tokens=1234,
+            **trace_kwargs,
         )
 
     assert len(create_recorder.calls) == 1
+    assert trace_repository.appended[0]["trace"]["status"] == "error"
 
 
 @pytest.mark.asyncio
@@ -310,16 +390,20 @@ async def test_llm_service_falls_back_to_schema_prompt_for_unsupported_openai_mo
 
     service = LLMService({})
     monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
+    trace_kwargs, _, trace_repository = _trace_dependencies("legacy_schema_prompt")
 
     result = await service(
         prompt="Review The Matrix",
         model="gpt-3.5-turbo",
         response_type=MovieReview,
+        **trace_kwargs,
     )
 
     assert result == MovieReview(title="Legacy", rating=7)
     assert parse_recorder.calls == []
     assert len(create_recorder.calls) == 1
+    metadata = trace_repository.appended[0]["trace"]["context"]["metadata"]
+    assert metadata["prompt_template_overlays"][0]["prompt_id"] == "structured_schema_output"
 
 
 def test_parse_response_as_model_rejects_truncated_outer_payload_instead_of_embedded_frame():

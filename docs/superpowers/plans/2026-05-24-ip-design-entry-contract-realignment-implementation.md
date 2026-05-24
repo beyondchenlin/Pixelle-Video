@@ -2231,14 +2231,11 @@ async def test_llm_service_rejects_untraced_generation_calls_before_provider_req
 Then update `pixelle_video/services/llm_service.py` at the start of `__call__`:
 
 ```python
-allow_untraced_llm_call = bool(kwargs.pop("allow_untraced_llm_call", False))
-if not allow_untraced_llm_call and (trace_context is None or trace_recorder is None):
-    raise ValueError(
-        "LLM trace_context and trace_recorder are required for generation calls"
-    )
+if trace_context is None or trace_recorder is None:
+    raise LLMTraceRequiredError(LLM_TRACE_REQUIRED_MESSAGE)
 ```
 
-Use `allow_untraced_llm_call=True` only in low-level unit tests that intentionally exercise provider compatibility without generation trace plumbing.
+No production or unit-test escape hatch is allowed here; provider compatibility tests must provide a real trace fixture.
 
 - [ ] **Step 3: Prove raw request and response payloads contain inspectable prompt text**
 
@@ -2293,11 +2290,10 @@ def test_generation_llm_calls_pass_trace_context_and_recorder():
     assert offenders == []
 
 
-def test_untraced_llm_escape_hatch_is_not_used_by_production_call_sites():
+def test_untraced_llm_escape_hatch_does_not_exist_in_production_code():
     offenders = []
-    for path in sorted(Path("pixelle_video").rglob("*.py")):
-        if path == Path("pixelle_video/services/llm_service.py"):
-            continue
+    for root in (Path("pixelle_video"), Path("api"), Path("web")):
+      for path in sorted(root.rglob("*.py")):
         text = path.read_text(encoding="utf-8")
         if "allow_untraced_llm_call" in text:
             offenders.append(str(path))
@@ -2400,6 +2396,7 @@ def write_final_prompt_artifact(
     output_dir: Path,
     task_id: str,
     frames: Sequence[Mapping[str, Any]],
+    generation_context: Mapping[str, Any] | None = None,
 ) -> Path:
     trace_dir = output_dir / "prompt_traces"
     trace_dir.mkdir(parents=True, exist_ok=True)
@@ -2411,6 +2408,15 @@ def write_final_prompt_artifact(
         f"- frame_count: `{len(frames)}`",
         "",
     ]
+    if generation_context:
+        lines.extend([
+            "## Generation Context",
+            "",
+            "```json",
+            json.dumps(generation_context, ensure_ascii=False, indent=2, default=str),
+            "```",
+            "",
+        ])
     for frame in frames:
         index = frame["index"]
         prompt = str(frame["prompt"]).strip()
@@ -2462,13 +2468,14 @@ def test_final_prompt_artifact_persists_exact_media_prompt(tmp_path):
     text = artifact.read_text(encoding="utf-8")
     assert "task-1" in text
     assert final_prompt in text
+    assert "Generation Context" in text
     assert "blurry, unreadable text" in text
     assert artifact.name == "final_visual_prompts.md"
 ```
 
 - [ ] **Step 8: Write final prompt artifacts before media generation**
 
-In `pixelle_video/pipelines/standard.py`, after prompt plans are built and before frame media generation starts, call `write_final_prompt_artifact(...)` with the same prompt values assigned to `StoryboardFrame.image_prompt`.
+In `pixelle_video/pipelines/standard.py`, after prompt plans are built and before frame media generation starts, call `write_final_prompt_artifact(...)` with the same prompt values assigned to `StoryboardFrame.image_prompt`, plus a `Generation Context` snapshot containing workflow, prompt prefix, world hint, IP controls, storyboard controls, resolved style, planning snapshot, and prompt plan bundle.
 
 Use this frame payload shape:
 
@@ -2711,7 +2718,7 @@ Type consistency:
 - `PromptPlan.final_prompt`, `StoryboardFrame.image_prompt`, and media `prompt` are one artifact.
 - `RenderedPrompt.text` is the exact string sent to the LLM.
 - `RenderedPrompt.trace_metadata()` is stored in `LLMTraceContext.metadata["prompt_template"]`.
-- `allow_untraced_llm_call=True` is a low-level test escape hatch only, not a generation-path behavior.
+- No `allow_untraced_llm_call` escape hatch exists; every LLM generation call must provide trace context and a trace recorder.
 
 ## Execution Handoff
 

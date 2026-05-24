@@ -31,6 +31,7 @@ from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_r
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.prompt_prefix_library import (
+    PROJECT_ROOT,
     build_prompt_prefix_workflow_preview_record,
     filter_prompt_prefix_items,
     get_effective_image_prompt_prefix,
@@ -62,6 +63,7 @@ from pixelle_video.prompts.prompt_prefix_generation import (
 )
 from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
+from pixelle_video.services.prompt_trace_artifacts import write_final_prompt_artifact
 from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
@@ -1804,6 +1806,7 @@ def _generate_prompt_prefix_preview_results(
                     "content": item["content"],
                     "final_prompt": preview_result["final_prompt"],
                     "preview_media_path": preview_result["preview_media_path"],
+                    "prompt_trace_path": preview_result["prompt_trace_path"],
                 }
             )
 
@@ -1860,10 +1863,63 @@ def _generate_single_style_preview_result(
             height=int(media_height),
         )
     )
+    prompt_trace_path = _write_prompt_prefix_preview_prompt_trace(
+        workflow_key=workflow_key,
+        media_width=media_width,
+        media_height=media_height,
+        test_prompt=test_prompt,
+        prompt_prefix=prompt_prefix,
+        prompt_language=prompt_language,
+        media_type=media_type,
+        final_prompt=final_prompt,
+        negative_prompt=styled_batch.negative_prompt or "",
+        preview_media_path=media_result.url,
+    )
     return {
         "final_prompt": final_prompt,
         "preview_media_path": media_result.url,
+        "prompt_trace_path": prompt_trace_path,
     }
+
+
+def _write_prompt_prefix_preview_prompt_trace(
+    *,
+    workflow_key: str,
+    media_width: int,
+    media_height: int,
+    test_prompt: str,
+    prompt_prefix: str,
+    prompt_language: str,
+    media_type: str,
+    final_prompt: str,
+    negative_prompt: str,
+    preview_media_path: str | None,
+) -> str:
+    task_id = f"prefix_preview_{uuid4().hex[:12]}"
+    output_dir = PROJECT_ROOT / "resources" / "prompt_prefix_previews" / "traces" / task_id
+    artifact_path = write_final_prompt_artifact(
+        output_dir,
+        task_id=task_id,
+        frames=[
+            {
+                "index": 1,
+                "prompt": final_prompt,
+                "negative_prompt": negative_prompt,
+            }
+        ],
+        generation_context={
+            "source": "prompt_prefix_preview",
+            "workflow": workflow_key,
+            "media_type": media_type,
+            "media_width": int(media_width),
+            "media_height": int(media_height),
+            "prompt_language": prompt_language,
+            "test_prompt": test_prompt,
+            "prompt_prefix": prompt_prefix,
+            "preview_media_path": preview_media_path,
+        },
+    )
+    return artifact_path.relative_to(PROJECT_ROOT).as_posix()
 
 
 def _save_prompt_prefix_item_with_workflow_preview(

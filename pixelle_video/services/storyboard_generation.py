@@ -29,6 +29,7 @@ from pixelle_video.prompt_language import (
 from pixelle_video.prompts.storyboard_generation import (
     _split_into_source_spans,
     render_smart_storyboard_prompt,
+    render_storyboard_repair_prompt,
 )
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.utils.text_normalization import normalize_generated_source_text
@@ -141,16 +142,6 @@ def _smart_storyboard_max_tokens(max_scene_count: int) -> int:
         max_scene_count * SMART_STORYBOARD_MAX_TOKENS_PER_SCENE,
     )
     return min(requested_tokens, SMART_STORYBOARD_COMPATIBLE_MAX_TOKENS)
-
-
-def _repair_prompt(original_prompt: str, reason: str) -> str:
-    return (
-        f"{original_prompt}\n\n"
-        "# Repair the previous storyboard response\n"
-        f"The previous response was invalid: {reason}\n"
-        "Return a corrected JSON object that satisfies the same schema and requirements."
-    )
-
 
 
 def _extend_frame_source(
@@ -353,7 +344,7 @@ class StoryboardGenerationService:
         trace_context: LLMTraceContext | None = None,
         trace_recorder: LLMInteractionRecorder | None = None,
     ) -> list[StoryboardPlanFrame]:
-        current_prompt = rendered_prompt.text
+        current_rendered_prompt = rendered_prompt
         temperature = 0.3
         repair_used = False
         while True:
@@ -361,16 +352,21 @@ class StoryboardGenerationService:
                 prompt_trace_context = (
                     trace_context_with_prompt_template(
                         trace_context,
-                        rendered_prompt=rendered_prompt,
+                        rendered_prompt=current_rendered_prompt,
                         attempt=2 if repair_used else 1,
                         stage="smart_storyboard_generation",
+                        metadata=(
+                            {"base_prompt_template": rendered_prompt.trace_metadata()}
+                            if repair_used
+                            else None
+                        ),
                     )
                     if trace_context is not None
                     else None
                 )
                 try:
                     response = await llm_service(
-                        prompt=current_prompt,
+                        prompt=current_rendered_prompt.text,
                         response_type=SmartStoryboardPlanResponse,
                         temperature=temperature,
                         max_tokens=_smart_storyboard_max_tokens(max_scene_count),
@@ -381,7 +377,7 @@ class StoryboardGenerationService:
                     response = await _retry_legacy_test_llm_without_trace_kwargs(
                         llm_service,
                         exc,
-                        prompt=current_prompt,
+                        prompt=current_rendered_prompt.text,
                         response_type=SmartStoryboardPlanResponse,
                         temperature=temperature,
                         max_tokens=_smart_storyboard_max_tokens(max_scene_count),
@@ -412,7 +408,10 @@ class StoryboardGenerationService:
             except ValueError as exc:
                 if repair_used:
                     raise
-                current_prompt = _repair_prompt(rendered_prompt.text, str(exc))
+                current_rendered_prompt = render_storyboard_repair_prompt(
+                    original_prompt=rendered_prompt.text,
+                    reason=str(exc),
+                )
                 temperature = 0.2
                 repair_used = True
 
