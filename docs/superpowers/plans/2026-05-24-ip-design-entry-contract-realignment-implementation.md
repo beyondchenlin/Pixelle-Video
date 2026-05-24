@@ -1,10 +1,10 @@
-# IP Design Source-Root Realignment Implementation Plan
+# Final Visual Prompt Source-Root Realignment Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Realign IP generation from the source: formal request fields, durable IP facts, planner actorization, SceneCast authority, prompt-context auditability, and verification gates all agree with the historical IP design requirements.
+**Goal:** Realign the generation chain so every upstream input, including IP, world, scene, style, text policy, and workflow constraints, produces one complete final visual prompt that is handed unchanged to the media model.
 
-**Architecture:** Introduce a shared pure-Python request contract so web UI and request builders cannot drift. Keep `IPProfile` as the durable fact source, keep `generation_world_hint` request-scoped, feed the actorization planner the full IP/world context, and validate that final prompts do not leak internal control keys.
+**Architecture:** Work backward from the final prompt. Introduce a shared request contract so web UI and request builders cannot drift, keep `IPProfile` as durable fact source, keep `generation_world_hint` request-scoped, feed structured context to the LLM, semantically fuse style/storyboard/IP/world into final prompt text, and verify the same prompt reaches `StoryboardFrame.image_prompt`, `PromptPlan.final_prompt`, and the media service `prompt` parameter.
 
 **Tech Stack:** Python 3.11, Streamlit, Pydantic v2, pytest, Pixelle `IPProfile`, `ContentWorldProfile`, `IPUsagePlanner`, `IPFrameAppearancePlanner`, `PromptContextEnvelope`.
 
@@ -47,11 +47,38 @@
 - Modify: `pixelle_video/utils/content_generators.py`
   - Carries structured `ip_adaptation` into prompt contexts and continues sanitizing final prompt text near result assembly.
 - Modify: `pixelle_video/utils/prompt_helper.py`
-  - Extends final prompt sanitization to cover the expanded IP/world internal key set.
+  - Locks semantic final prompt assembly and extends final prompt sanitization to cover the expanded IP/world internal key set.
+- Create: `tests/test_visual_prompt_final_product_contract.py`
+  - Proves the final prompt is a fused visual instruction, not a raw block list.
+- Modify: `tests/test_frame_processor_negative_prompt.py`
+  - Proves the final frame prompt is handed unchanged to the media model.
 - Modify: `tests/test_ip_prompt_integration.py`
   - Proves prompt contexts receive structured `ip_adaptation`.
 - Modify: `tests/test_styled_image_prompt_batch.py`
   - Proves the main styled-image path strips stale IP context when disabled and validates prompt leakage when enabled.
+
+---
+
+## Product Contract
+
+The final artifact of this plan is not an IP payload and not a group of prompt fragments. The final artifact is one complete visual prompt per generated frame.
+
+The invariant is:
+
+```python
+media_params["prompt"] == storyboard_frame.image_prompt == prompt_plan.final_prompt
+```
+
+The prompt must be suitable for the target image/video model:
+
+- one coherent visual instruction.
+- style expressed as visual language.
+- IP integrated into the scene role, not appended as an extra object.
+- world and storyboard constraints expressed as image semantics.
+- no raw JSON keys, field labels, enum names, hex codes, or section headers.
+- no unresolved block-list order such as `style, shot_type, world_elements, base_prompt`.
+
+All tasks below serve this contract.
 
 ---
 
@@ -442,7 +469,7 @@ def _handle_generate_world_hint_from_content(
     storyboard_prompt_language: str,
     world_preset_id: str | None,
     ip_default_world_hint: str,
-    world_hint_draft_generator: Callable[..., Mapping[str, Any]],
+    world_hint_draft_generator: Callable,
 ) -> None:
     context = dict(content_context or {})
     source_text = _first_text(context.get("text"))
@@ -1256,7 +1283,235 @@ git commit -m "feat: lock SceneCast IP policy and prompt context audit"
 
 ---
 
-## Task 7: Extend Final Prompt Sanitization
+## Task 7: Lock Final Visual Prompt Assembly Contract
+
+**Files:**
+- Create: `tests/test_visual_prompt_final_product_contract.py`
+- Modify: `pixelle_video/utils/prompt_helper.py`
+- Modify: `tests/test_frame_processor_negative_prompt.py`
+
+- [ ] **Step 1: Add final prompt assembly contract tests**
+
+Create `tests/test_visual_prompt_final_product_contract.py`:
+
+```python
+from types import SimpleNamespace
+
+from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
+from pixelle_video.models.style_resolution import ResolvedStyleSpec
+from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
+from pixelle_video.utils.prompt_helper import assemble_image_prompt, assemble_storyboard_prompt
+
+
+def test_assemble_storyboard_prompt_returns_fused_scene_language_not_block_list():
+    frame_plan = SimpleNamespace(
+        shot_type="medium_shot",
+        shot_purpose="establish_market_space",
+        world_elements=("ancient gate", "morning market"),
+    )
+
+    prompt = assemble_storyboard_prompt(
+        base_prompt=(
+            "A white rabbit guide with a blue tie stands beside the tea stall, "
+            "naturally pointing visitors toward the old city gate."
+        ),
+        frame_plan=frame_plan,
+        world_preset={
+            "display_name": "Neutral Knowledge Storyboard",
+            "style_core": "clean educational illustration",
+        },
+        normalized_style=None,
+    )
+
+    assert not prompt.startswith("Neutral Knowledge Storyboard,")
+    assert "medium_shot" not in prompt
+    assert "establish_market_space" not in prompt
+    assert "clean educational illustration" in prompt
+    assert "ancient gate" in prompt
+    assert "morning market" in prompt
+    assert "white rabbit guide with a blue tie" in prompt
+
+
+def test_assemble_image_prompt_uses_resolved_style_template_without_raw_prefix_append():
+    resolved_style = ResolvedStyleSpec(
+        style_kind="visual_only",
+        source_identity="test",
+        raw_content="raw watercolor prefix that should not be appended",
+        prompt_template="warm watercolor scene: {prompt}, soft hand-painted texture",
+        negative_prompt="",
+        style_profile={"style_kind": "visual_only"},
+    )
+
+    prompt = assemble_image_prompt(
+        "A rabbit guide walks through a quiet morning market.",
+        raw_prefix="raw watercolor prefix that should not be appended",
+        resolved_style=resolved_style,
+    )
+
+    assert prompt == (
+        "warm watercolor scene: A rabbit guide walks through a quiet morning market., "
+        "soft hand-painted texture"
+    )
+    assert prompt.count("raw watercolor prefix") == 0
+
+
+def test_prompt_plan_final_prompt_matches_generated_visual_prompt():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="The guide introduces the old city gate.",
+        visual_goal="show a coherent travel illustration",
+        prompt_intent="visualize the guide and gate in one image",
+        primary_subject="old city gate",
+    )
+    plan = StoryboardPlan.build(
+        mode="smart",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="The guide introduces the old city gate.",
+        frames=[frame],
+        plan_id="plan_1",
+    )
+    final_prompt = (
+        "A white rabbit guide with a blue tie points toward the old city gate "
+        "inside a warm educational illustration."
+    )
+
+    bundle = build_prompt_plan_bundle(
+        storyboard_plan=plan,
+        image_prompts=(final_prompt,),
+        planning_snapshot={},
+    )
+
+    assert bundle.image_prompt_drafts[0].prompt_text == final_prompt
+    assert bundle.prompt_plans[0].final_prompt == final_prompt
+```
+
+- [ ] **Step 2: Add media handoff test**
+
+In `tests/test_frame_processor_negative_prompt.py`, add:
+
+```python
+@pytest.mark.asyncio
+async def test_step_generate_media_forwards_final_frame_prompt_to_media_model(monkeypatch, tmp_path):
+    captured = {}
+
+    class _FakeCore:
+        async def media(self, **kwargs):
+            captured.update(kwargs)
+            return MediaResult(media_type="image", url="https://example.com/frame.png")
+
+    processor = FrameProcessor(_FakeCore())
+
+    async def fake_download_media(*args, **kwargs):
+        return str(tmp_path / "frame.png")
+
+    monkeypatch.setattr(processor, "_download_media", fake_download_media)
+
+    final_prompt = (
+        "A white rabbit guide with a blue tie stands naturally in the morning market, "
+        "warm watercolor light, old city gate in the background."
+    )
+    frame = StoryboardFrame(index=0, narration="scene", image_prompt=final_prompt)
+    config = StoryboardConfig(media_width=1024, media_height=1024, task_id="task-1")
+
+    await processor._step_generate_media(frame, config)
+
+    assert captured["prompt"] == final_prompt
+```
+
+- [ ] **Step 3: Run tests and confirm current prompt assembly gap**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_visual_prompt_final_product_contract.py tests/test_frame_processor_negative_prompt.py::test_step_generate_media_forwards_final_frame_prompt_to_media_model -q
+```
+
+Expected now:
+
+```text
+FAILED
+```
+
+The failure should come from the storyboard prompt assembly test because the current implementation emits a comma-separated block list with raw values such as `Neutral Knowledge Storyboard` and `medium_shot`.
+
+- [ ] **Step 4: Replace storyboard block assembly with semantic visual assembly**
+
+In `pixelle_video/utils/prompt_helper.py`, add:
+
+```python
+def _humanize_prompt_token(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return re.sub(r"[_-]+", " ", text).strip()
+
+
+def _sentence_clause(*values: Any) -> str:
+    return ", ".join(_normalize_prompt_list(_humanize_prompt_token(value) for value in values))
+```
+
+Replace `assemble_storyboard_prompt()` with:
+
+```python
+def assemble_storyboard_prompt(
+    *,
+    base_prompt: str,
+    frame_plan: Any,
+    world_preset: Any,
+    normalized_style: dict[str, Any] | None = None,
+) -> str:
+    base = sanitize_visual_prompt_text(base_prompt)
+    style_core = _humanize_prompt_token(_read_value(world_preset, "style_core", ""))
+    shot_type = _humanize_prompt_token(_read_value(frame_plan, "shot_type", ""))
+    shot_purpose = _humanize_prompt_token(_read_value(frame_plan, "shot_purpose", ""))
+    world_elements = _sentence_clause(*_normalize_prompt_list(_read_value(frame_plan, "world_elements", ())))
+
+    clauses = [base]
+    if style_core:
+        clauses.append(f"rendered as {style_core}")
+    if shot_type or shot_purpose:
+        camera_parts = _sentence_clause(shot_type, shot_purpose)
+        if camera_parts:
+            clauses.append(f"framed as {camera_parts}")
+    if world_elements:
+        clauses.append(f"with {world_elements} integrated into the environment")
+
+    prompt = "; ".join(_normalize_prompt_list(clauses))
+    if normalized_style is not None:
+        prompt = _apply_prompt_template(prompt, normalized_style.get("prompt_template", ""))
+        visual_suffix = _humanize_prompt_token(normalized_style.get("visual_suffix", ""))
+        if visual_suffix and visual_suffix.lower() not in prompt.lower():
+            prompt = "; ".join(_normalize_prompt_list([prompt, visual_suffix]))
+    return sanitize_visual_prompt_text(prompt)
+```
+
+This keeps style, shot, and world information as meaning around the base visual prompt. It does not emit the preset display name, raw enum spelling, or a plain block list.
+
+- [ ] **Step 5: Run final prompt assembly tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_visual_prompt_final_product_contract.py tests/test_frame_processor_negative_prompt.py::test_step_generate_media_forwards_final_frame_prompt_to_media_model -q
+```
+
+Expected:
+
+```text
+passed
+```
+
+- [ ] **Step 6: Commit**
+
+```powershell
+git add pixelle_video/utils/prompt_helper.py tests/test_visual_prompt_final_product_contract.py tests/test_frame_processor_negative_prompt.py
+git commit -m "test: lock final visual prompt product contract"
+```
+
+---
+
+## Task 8: Extend Final Prompt Sanitization
 
 **Files:**
 - Modify: `pixelle_video/utils/prompt_helper.py`
@@ -1380,10 +1635,10 @@ git commit -m "fix: sanitize expanded IP internal prompt keys"
 
 ---
 
-## Task 8: Full Verification And Contract Audit
+## Task 9: Full Verification And Contract Audit
 
 **Files:**
-- Verify all files touched by Tasks 1-7.
+- Verify all files touched by Tasks 1-8.
 
 - [ ] **Step 1: Run focused request-entry tests**
 
@@ -1404,7 +1659,7 @@ passed
 Run:
 
 ```powershell
-./.venv/Scripts/python.exe -m pytest tests/test_ip_design_workbench_ui.py tests/test_ip_usage_planner.py tests/test_ip_prompt_integration.py tests/test_styled_image_prompt_batch.py -k "sanitize_visual_prompt_text or ip_prompt_chain or usage_planner or ready_for_generation or color" -q
+./.venv/Scripts/python.exe -m pytest tests/test_ip_design_workbench_ui.py tests/test_ip_usage_planner.py tests/test_ip_prompt_integration.py -q
 ```
 
 Expected:
@@ -1413,7 +1668,21 @@ Expected:
 passed
 ```
 
-- [ ] **Step 3: Run styled generation and API regression tests**
+- [ ] **Step 3: Run final visual prompt product contract tests**
+
+Run:
+
+```powershell
+./.venv/Scripts/python.exe -m pytest tests/test_visual_prompt_final_product_contract.py tests/test_frame_processor_negative_prompt.py::test_step_generate_media_forwards_final_frame_prompt_to_media_model -q
+```
+
+Expected:
+
+```text
+passed
+```
+
+- [ ] **Step 4: Run styled generation and API regression tests**
 
 Run:
 
@@ -1427,7 +1696,7 @@ Expected:
 passed
 ```
 
-- [ ] **Step 4: Run static request-field gates**
+- [ ] **Step 5: Run static request-field gates**
 
 Run:
 
@@ -1451,7 +1720,7 @@ Expected:
 ```text
 ```
 
-- [ ] **Step 5: Run final prompt cleanup tests**
+- [ ] **Step 6: Run final prompt cleanup tests**
 
 Run:
 
@@ -1465,7 +1734,7 @@ Expected:
 passed
 ```
 
-- [ ] **Step 6: Inspect git state**
+- [ ] **Step 7: Inspect git state**
 
 Run:
 
@@ -1480,7 +1749,7 @@ Expected:
 Only files listed in this plan are modified before the final commit.
 ```
 
-- [ ] **Step 7: Final commit**
+- [ ] **Step 8: Final commit**
 
 ```powershell
 git add pixelle_video web tests docs/superpowers/specs/2026-05-24-ip-design-entry-contract-realignment-design.md docs/superpowers/plans/2026-05-24-ip-design-entry-contract-realignment-implementation.md
@@ -1506,6 +1775,8 @@ Review pass 2, execution verification:
 - Planner input completeness is tested by capturing the LLM prompt.
 - SceneCast valid and invalid presence paths are both tested.
 - Prompt contexts carry structured `ip_adaptation`.
+- Final visual prompt assembly has product-contract tests.
+- Media handoff proves the frame prompt is sent unchanged as the model prompt.
 - Final prompt sanitization removes internal keys and hex codes.
 
 Placeholder scan:
@@ -1520,6 +1791,7 @@ Type consistency:
 - `color_palette[*].prompt` contains prompt-safe color language.
 - `color_palette[*].hex` can preserve UI color values without entering prompt text.
 - `ip_adaptation` is allowed in prompt contexts and forbidden in final prompt strings.
+- `PromptPlan.final_prompt`, `StoryboardFrame.image_prompt`, and media `prompt` are one artifact.
 
 ## Execution Handoff
 

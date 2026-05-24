@@ -1,19 +1,52 @@
-# IP Design Source-Root Realignment Design
+# Final Visual Prompt Source-Root Realignment Design
 
 Date: 2026-05-24
 
 ## 1. Decision
 
-This design supersedes the narrower entry-repair framing. The implementation must solve the IP design drift at its source, across the full generation path:
+This design supersedes the narrower entry-repair framing. The primary product is the final visual prompt sent to the image/video generation model through the media service and ComfyUI-compatible workflows.
+
+The final prompt must be a complete, semantically coherent visual instruction. It must not be a mechanical sequence of blocks such as style prefix + scene block + IP block + world block. IP design, scene design, style prefix, world hint, storyboard planning, text policy, and negative constraints are upstream inputs that exist only to help produce that final prompt.
+
+The implementation must solve the drift at its source, across the full generation path:
 
 1. The generation-page IP/world entry exposes only the formal request contract.
 2. `IPProfile` remains the single structured source of truth for durable IP facts.
 3. Request-level `generation_world_hint` remains separate from asset-level `IPProfile.world_hint`.
 4. The actorization planner receives the full IP fact surface it needs to place the IP naturally in each frame.
 5. SceneCast influence has an explicit main-chain policy instead of an accidental preview-only ambiguity.
-6. Final prompts receive useful scene language, while internal field names and control keys stay out of final user-facing prompt text.
+6. Style, scene, world, IP, text, and workflow constraints are fused into one natural final prompt per frame.
+7. Final prompts receive useful scene language, while internal field names and control keys stay out of final user-facing prompt text.
 
-The goal is not to repair only the currently failing tests. The goal is to remove the conditions that allowed the contract drift: duplicated field definitions, UI-only fields that reached request builders, frontend/backend readiness divergence, color fact shape divergence, incomplete planner inputs, and unclear SceneCast authority.
+The goal is not to repair only the currently failing tests. The goal is to remove the conditions that allowed prompt quality drift: duplicated field definitions, UI-only fields that reached request builders, frontend/backend readiness divergence, color fact shape divergence, incomplete planner inputs, unclear SceneCast authority, and final prompt assembly that can fall back to block concatenation.
+
+### 1.1 Final Prompt Product Contract
+
+For every generated frame that needs media, the chain must end with:
+
+```python
+media_params["prompt"] == storyboard_frame.image_prompt == prompt_plan.final_prompt
+```
+
+That prompt must:
+
+- describe one coherent image, not multiple appended instructions.
+- integrate style as visual language, not as a detached prefix.
+- integrate IP as a subject/role inside the scene, not as an extra sticker or trailing sentence.
+- integrate world and storyboard constraints as scene semantics.
+- keep negative rules and text policies out of the positive prompt unless the workflow requires positive-only handling.
+- avoid JSON keys, parameter names, hex color codes, section labels, and internal control words.
+
+### 1.2 Reverse Design Logic
+
+The design works backward from the final prompt:
+
+1. ComfyUI or the media model receives one final positive prompt plus a separate negative prompt when the workflow supports one.
+2. The final prompt is assembled from an LLM-produced base prompt plus structured style, storyboard, IP, world, text, and workflow constraints.
+3. The LLM receives structured prompt contexts so it can write the base prompt as integrated scene language.
+4. The upstream UI and workbench store structured facts that the LLM and assembly layer can understand.
+
+This is the controlling architecture. IP/world contract repair is one necessary part of it, not the whole product goal.
 
 ## 2. Terminal Evidence
 
@@ -101,6 +134,20 @@ Existing repository specs define these rules:
 - `IPFrameAppearancePlanner` should drive frame-level natural-language appearance descriptions.
 
 ## 4. Current Code Facts
+
+### 4.0 Current Final Prompt Chain
+
+The current generation path already has the right high-level shape:
+
+1. `StandardPipeline` calls `ImagePromptComposer().compose()` with storyboard, style, IP, world, and text-rendering inputs.
+2. `ImagePromptComposer` builds structured frame `prompt_contexts` from the storyboard plan.
+3. `generate_styled_image_prompt_batch()` enriches those contexts with generation world profile, style profile, IP adaptation, text policy, and workflow capability data.
+4. `generate_image_prompts()` asks the LLM to produce base visual prompts from the structured contexts.
+5. `assemble_storyboard_prompt()` or `assemble_image_prompt()` produces `final_prompts`.
+6. `StandardPipeline` writes each final prompt to `StoryboardFrame.image_prompt`.
+7. `FrameProcessor._step_generate_media()` sends `frame.image_prompt` as `media_params["prompt"]` to the media service, which routes to ComfyUI-compatible workflows or other image/video providers.
+
+So the target architecture is not a new parallel pipeline. The issue is that the existing path needs a stronger product contract: all upstream inputs must be semantically fused into the final prompt, and tests must fail when the chain degrades into plain block concatenation.
 
 ### 4.1 Entry Contract Drift
 
@@ -319,6 +366,28 @@ Final prompt strings must not include internal keys such as:
 
 The context may contain structured keys; final generated prompt text must not copy those key names.
 
+### 5.8 Final Visual Prompt Assembly Contract
+
+The assembly layer must treat upstream inputs as meaning, not as raw text chunks.
+
+Allowed assembly:
+
+- use a resolved style template that contains `{prompt}` exactly once.
+- translate shot type, shot purpose, world elements, style core, and visual suffix into natural visual clauses.
+- merge IP scene description into the scene sentence or paragraph.
+- add text whitelist and workflow-specific positive-only constraints only after final prompt semantics are formed.
+- sanitize the final string before it becomes `StoryboardFrame.image_prompt`.
+
+Disallowed assembly:
+
+- prefixing a raw style paragraph before every prompt when a structured style profile exists.
+- appending `ip_scene_description` as a separate trailing sentence.
+- emitting raw enum values such as `medium_shot`, `scene_integrated`, or `balanced_narrative`.
+- copying JSON keys such as `generation_world_profile`, `identity_anchors_visible`, or `ip_adaptation`.
+- treating `generation_world_hint` as permanent IP identity.
+
+The implementation should add tests around `assemble_image_prompt()`, `assemble_storyboard_prompt()`, `generate_styled_image_prompt_batch()`, `build_prompt_plan_bundle()`, and `FrameProcessor._step_generate_media()` so the final prompt is proven to be the same artifact from assembly through ComfyUI handoff.
+
 ## 6. Required Implementation Scope
 
 The implementation ships as one source-root cleanup:
@@ -331,7 +400,9 @@ The implementation ships as one source-root cleanup:
 6. update color-rule persistence to planner-readable prompt entries with hex separation.
 7. enrich `IPFrameAppearancePlanner` LLM input with full actorization and world profile data.
 8. lock SceneCast presence authority with tests.
-9. carry structured `ip_adaptation` into prompt contexts and verify final prompts do not leak internal field names.
+9. carry structured `ip_adaptation` into prompt contexts.
+10. add final visual prompt assembly tests so style, scene, world, and IP are semantically fused.
+11. verify final prompts do not leak internal field names and are the exact prompts handed to media generation.
 
 ## 7. Out Of Scope
 
@@ -363,21 +434,23 @@ The work is complete when all of the following are true:
 12. SceneCast metadata with valid `ip_presence_type` controls per-frame presence in the main generation path.
 13. invalid SceneCast presence values fall back without breaking generation.
 14. prompt contexts include structured `ip_adaptation` when IP prompt chain is enabled.
-15. final generated prompt strings contain scene language but no internal key names or hex color codes.
+15. final prompt assembly tests prove resolved style, storyboard meaning, world constraints, and IP appearance are fused into one natural visual instruction.
+16. `PromptPlan.final_prompt`, `StoryboardFrame.image_prompt`, and the media service `prompt` parameter are the same final prompt artifact.
+17. final generated prompt strings contain scene language but no internal key names or hex color codes.
 
 ## 9. Two Review Passes Applied
 
 ### Review 1: Architecture And Source Ownership
 
-Finding: the earlier document framed planner and SceneCast work as a deferred enhancement. That left the root cause open because the IP can still fail to blend naturally after the entry tests pass.
+Finding: the earlier document framed planner and SceneCast work as a deferred enhancement. It also did not make the final prompt the top-level product contract. That left the root cause open because the IP can still fail to blend naturally after the entry tests pass.
 
-Correction: planner actorization input, SceneCast authority, and prompt-context auditability are now required scope.
+Correction: final visual prompt assembly, planner actorization input, SceneCast authority, and prompt-context auditability are now required scope.
 
 ### Review 2: Execution And Verification
 
-Finding: the earlier plan contained non-required tests and weak wording for dead fields. That permits leftover UI and i18n debt.
+Finding: the earlier plan contained non-required tests and weak wording for dead fields. It also tested final prompt cleanup but not final prompt semantic fusion or media handoff. That permits leftover UI, i18n, and prompt-quality debt.
 
-Correction: the execution plan now requires deletion of legacy controls and i18n keys, shared contract tests, ripgrep gates, planner input tests, SceneCast tests, and final prompt leak tests.
+Correction: the execution plan now requires deletion of legacy controls and i18n keys, shared contract tests, ripgrep gates, planner input tests, SceneCast tests, final prompt assembly tests, media handoff tests, and final prompt leak tests.
 
 ## 10. Execution Document
 
