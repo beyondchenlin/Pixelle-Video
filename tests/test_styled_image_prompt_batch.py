@@ -824,15 +824,29 @@ def test_sanitize_visual_prompt_text_removes_world_profile_field_labels():
     assert "protect gate" in prompt
 
 
-def test_sanitize_visual_prompt_text_removes_ip_adaptation_field_label():
+def test_sanitize_visual_prompt_text_removes_expanded_ip_internal_keys():
     prompt = sanitize_visual_prompt_text(
-        "ip_adaptation: white rabbit guide, blue tie, integrated market pose"
+        "ip_adaptation: white rabbit guide, "
+        "identity_anchors_visible: blue tie, "
+        "identity_anchors_suppressed: plastic mascot duplicate, "
+        "generation_world_profile: morning market, "
+        "semantic_reason: keeps character continuity, "
+        "image_text_plan: hand-painted wayfinding sign, "
+        "must_not_replace: white rabbit guide, "
+        "title_hex: #FFFFFF"
     )
 
     assert "ip_adaptation" not in prompt
+    assert "identity_anchors_visible" not in prompt
+    assert "identity_anchors_suppressed" not in prompt
+    assert "generation_world_profile" not in prompt
+    assert "semantic_reason" not in prompt
+    assert "image_text_plan" not in prompt
+    assert "must_not_replace" not in prompt
+    assert "#FFFFFF" not in prompt
     assert "white rabbit guide" in prompt
     assert "blue tie" in prompt
-    assert "integrated market pose" in prompt
+    assert "morning market" in prompt
 
 
 @pytest.mark.asyncio
@@ -980,7 +994,16 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
 @pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_never_leaks_hex_codes_or_field_names(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
-        return ["summary_text: 从长乐门出发，title_hex: #5A2A12，白色兔子。"]
+        return [
+            "summary_text: white rabbit guide, title_hex: #5A2A12, "
+            "identity_anchors_visible: blue tie, "
+            "identity_anchors_suppressed: plastic mascot duplicate, "
+            "generation_world_profile: morning market, "
+            "semantic_reason: keeps character continuity, "
+            "image_text_plan: hand-painted wayfinding sign, "
+            "must_not_replace: white rabbit guide, "
+            "ip_adaptation: natural guide pose"
+        ]
 
     monkeypatch.setattr(
         "pixelle_video.utils.content_generators.generate_image_prompts",
@@ -1008,6 +1031,16 @@ async def test_generate_styled_image_prompt_batch_never_leaks_hex_codes_or_field
     assert "#5A2A12" not in result.prompts[0]
     assert "summary_text" not in result.prompts[0]
     assert "title_hex" not in result.prompts[0]
+    assert "identity_anchors_visible" not in result.prompts[0]
+    assert "identity_anchors_suppressed" not in result.prompts[0]
+    assert "generation_world_profile" not in result.prompts[0]
+    assert "semantic_reason" not in result.prompts[0]
+    assert "image_text_plan" not in result.prompts[0]
+    assert "must_not_replace" not in result.prompts[0]
+    assert "ip_adaptation" not in result.prompts[0]
+    assert "white rabbit guide" in result.prompts[0]
+    assert "blue tie" in result.prompts[0]
+    assert "morning market" in result.prompts[0]
 
 
 @pytest.mark.asyncio
