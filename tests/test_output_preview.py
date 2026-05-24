@@ -305,6 +305,33 @@ def test_build_single_generation_request_does_not_forward_ip_profile_world_hint(
     assert "ip_profile_world_hint" not in request
 
 
+def test_build_single_generation_request_drops_content_ip_non_formal_fields():
+    request = output_preview.build_single_generation_request(
+        {
+            "text": "demo",
+            "mode": "generate",
+            "ip_enabled": True,
+            "ip_asset_bible_id": "bible_demo",
+            "ip_profile_id": "ip_main",
+            "generation_world_hint": "market morning, IP blends in as a guide",
+            "generation_notes": "old UI field",
+            "slot_preference_override": "prefer_main",
+            "presence_strength": "strong",
+            "ip_profile_world_hint": "helper only",
+            "generation_world_hint_source": "ip_default",
+        },
+        progress_callback=lambda _event: None,
+        session_state={},
+    )
+
+    assert request["generation_world_hint"] == "market morning, IP blends in as a guide"
+    assert "generation_notes" not in request
+    assert "slot_preference_override" not in request
+    assert "presence_strength" not in request
+    assert "ip_profile_world_hint" not in request
+    assert "generation_world_hint_source" not in request
+
+
 def test_build_single_generation_request_omits_empty_layered_template_snapshot():
     def _progress(_event):
         return None
