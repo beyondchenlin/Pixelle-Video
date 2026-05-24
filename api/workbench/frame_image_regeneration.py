@@ -84,6 +84,11 @@ async def execute_frame_image_regeneration(
             "media_type": "image",
             "width": size_contract.media_width,
             "height": size_contract.media_height,
+            "media_width": size_contract.media_width,
+            "media_height": size_contract.media_height,
+            "canvas_width": size_contract.canvas_width,
+            "canvas_height": size_contract.canvas_height,
+            "sync_media_size_to_canvas": size_contract.sync_media_size_to_canvas,
         },
     )
     media_result = await media(

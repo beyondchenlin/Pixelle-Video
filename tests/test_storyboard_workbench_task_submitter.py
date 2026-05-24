@@ -359,6 +359,8 @@ async def test_execute_frame_image_regeneration_generates_image_and_records_cand
     assert '"source": "storyboard_workbench.frame_image_regeneration"' in trace_content
     assert '"workflow": "selfhost/image_z_image_turbo_gguf.json"' in trace_content
     assert '"requested_workflow": "selfhost/image_z_image_turbo_gguf.json"' in trace_content
+    assert '"canvas_width": 768' in trace_content
+    assert '"canvas_height": 768' in trace_content
 
 
 @pytest.mark.asyncio
@@ -413,6 +415,8 @@ async def test_execute_frame_image_regeneration_records_default_workflow_in_prom
     )
     assert '"requested_workflow": null' in trace_content
     assert '"workflow": "selfhost/default_image_trace.json"' in trace_content
+    assert '"canvas_width": 768' in trace_content
+    assert '"canvas_height": 768' in trace_content
 
 
 @pytest.mark.asyncio

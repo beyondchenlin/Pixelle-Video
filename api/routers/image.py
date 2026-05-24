@@ -75,6 +75,8 @@ async def image_generate(
                 "media_type": "image",
                 "width": request.width,
                 "height": request.height,
+                "canvas_width": request.width,
+                "canvas_height": request.height,
             },
         )
         logger.info(f"Image prompt trace artifact written: {prompt_trace_path}")

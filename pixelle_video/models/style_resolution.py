@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from pixelle_video.models.prompt_plan import PromptPlanBundle
 
 StyleKind = Literal["visual_only", "ip_world", "hybrid"]
-StyleSourceOrigin = Literal["request", "library", "legacy"]
+StyleSourceOrigin = Literal["request", "library"]
 
 
 def _normalize_optional_string(value: str) -> str:

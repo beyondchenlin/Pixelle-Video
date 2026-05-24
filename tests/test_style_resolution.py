@@ -41,6 +41,17 @@ def test_resolve_style_source_prefers_request_override():
     assert source.source_identity.startswith("request:")
 
 
+def test_resolve_style_source_ignores_legacy_config_prompt_prefix():
+    source = resolve_style_source(
+        {
+            "prompt_prefix": "legacy prefix must not become a raw fallback",
+            "prompt_prefix_library": {"active_prefix_id": None, "items": []},
+        }
+    )
+
+    assert source is None
+
+
 def test_build_style_resolution_cache_key_distinguishes_library_and_request():
     library_source = StyleSourceSpec(
         origin="library",

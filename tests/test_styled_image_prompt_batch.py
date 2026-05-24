@@ -230,7 +230,7 @@ async def test_generate_styled_image_prompt_batch_stops_when_style_resolution_fa
                 "prompt_prefix_library": {"active_prefix_id": None, "items": []},
             },
             media_service=None,
-            prompt_prefix=None,
+            prompt_prefix="flat illustration",
             text_rendering=_suppress_image_text(),
         )
 
@@ -261,13 +261,13 @@ async def test_generate_styled_image_prompt_batch_propagates_style_trace_recordi
                 "prompt_prefix_library": {"active_prefix_id": None, "items": []},
             },
             media_service=None,
-            prompt_prefix=None,
+            prompt_prefix="flat illustration",
             text_rendering=_suppress_image_text(),
         )
 
 
 @pytest.mark.asyncio
-async def test_generate_styled_image_prompt_batch_preserves_raw_ip_world_prefix_when_template_missing(monkeypatch):
+async def test_generate_styled_image_prompt_batch_uses_structured_style_when_template_missing(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
         return ["base scene prompt"]
 
@@ -312,7 +312,12 @@ async def test_generate_styled_image_prompt_batch_preserves_raw_ip_world_prefix_
         text_rendering=_suppress_image_text(),
     )
 
-    assert result.prompts == [apply_no_text_policy("Angry Birds style, base scene prompt")]
+    prompt = result.prompts[0]
+    assert prompt.startswith("base scene prompt")
+    assert "rounded geometric cartoon forms" in prompt
+    assert "destructible wooden obstacles" in prompt
+    assert "Angry Birds style" not in prompt
+    assert prompt == apply_no_text_policy(prompt)
 
 
 @pytest.mark.asyncio
@@ -387,7 +392,7 @@ async def test_generate_styled_image_prompt_batch_appends_no_text_policy_when_ne
             },
             content_hash="hash-flat",
             resolver_version="2026-04-21-v1",
-            source_identity="legacy:hash-flat",
+            source_identity="request:hash-flat",
             raw_content="flat illustration",
         )
 
@@ -1022,6 +1027,7 @@ async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_
         llm_service=object(),
         narrations=["从长乐门出发。"],
         image_config={"prompt_prefix": "古城旅行纪录片风格"},
+        prompt_prefix="structured test style",
         storyboard_plan=plan,
         world_preset_id="neutral_knowledge_storyboard",
         generation_world_hint="古城清晨漫游，低侵入陪伴。",
@@ -1597,6 +1603,7 @@ async def test_generate_styled_image_prompt_batch_storyboard_stops_when_style_re
                 "prompt_prefix": "flat illustration",
                 "prompt_prefix_library": {"active_prefix_id": None, "items": []},
             },
+            prompt_prefix="flat illustration",
             world_preset_id="neutral_knowledge_storyboard",
             text_rendering=_suppress_image_text(),
         )
@@ -1731,7 +1738,7 @@ async def test_generate_styled_image_prompt_batch_uses_resolved_style_when_story
             },
             content_hash="hash-flat",
             resolver_version="2026-04-21-v1",
-            source_identity="legacy:hash-flat",
+            source_identity="request:hash-flat",
             raw_content="flat illustration",
         )
 
@@ -1756,6 +1763,7 @@ async def test_generate_styled_image_prompt_batch_uses_resolved_style_when_story
         llm_service=object(),
         narrations=["scene one"],
         image_config={"prompt_prefix": "flat illustration", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
+        prompt_prefix="flat illustration",
         text_rendering=_suppress_image_text(),
     )
 

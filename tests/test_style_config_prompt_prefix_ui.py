@@ -1063,6 +1063,10 @@ def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeyp
             }
         }
 
+        def resolve_workflow_key(self, *, workflow=None, media_type="image"):
+            assert media_type == "image"
+            return workflow or "selfhost/default_image.json"
+
         async def media(self, **kwargs):
             captured["media_kwargs"] = kwargs
             return type("MediaResult", (), {"url": "preview.png"})()
@@ -1090,6 +1094,10 @@ def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeyp
     trace_content = trace_path.read_text(encoding="utf-8")
     assert "preview final prompt" in trace_content
     assert '"workflow": "selfhost/image_z_image_turbo.json"' in trace_content
+    assert '"requested_workflow": "selfhost/image_z_image_turbo.json"' in trace_content
+    assert '"canvas_width": 1024' in trace_content
+    assert '"canvas_height": 1024' in trace_content
+    assert "Frame ID: prompt_prefix_preview" in trace_content
     assert '"prompt_prefix": "angry birds world"' in trace_content
     assert captured["media_kwargs"]["negative_prompt"] == "avoid realism"
 
@@ -1120,6 +1128,10 @@ def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatc
             }
         }
 
+        def resolve_workflow_key(self, *, workflow=None, media_type="image"):
+            assert media_type == "video"
+            return workflow or "runninghub/default_video.json"
+
         async def media(self, **kwargs):
             captured["media_kwargs"] = kwargs
             return type("MediaResult", (), {"url": "preview.mp4"})()
@@ -1146,7 +1158,12 @@ def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatc
     assert preview["final_prompt"] == "video preview final prompt"
     trace_path = Path(preview["prompt_trace_path"])
     assert trace_path.is_file()
-    assert "video preview final prompt" in trace_path.read_text(encoding="utf-8")
+    trace_content = trace_path.read_text(encoding="utf-8")
+    assert "video preview final prompt" in trace_content
+    assert '"requested_workflow": "runninghub/video_wan2.1_fusionx.json"' in trace_content
+    assert '"workflow": "runninghub/video_wan2.1_fusionx.json"' in trace_content
+    assert '"canvas_width": 1024' in trace_content
+    assert '"canvas_height": 1024' in trace_content
     assert captured["media_type"] == "video"
     assert captured["prompt_language"] == "zh_CN"
     assert captured["media_kwargs"]["negative_prompt"] == "avoid blur"
@@ -1165,6 +1182,9 @@ def test_generate_single_style_preview_persists_prompt_trace_when_media_fails(mo
         trace_repository = object()
         raw_payload_store = object()
         config = {"comfyui": {"image": {}}}
+
+        def resolve_workflow_key(self, *, workflow=None, media_type="image"):
+            return workflow or "selfhost/default_image.json"
 
         async def media(self, **kwargs):
             raise RuntimeError("media failed")
@@ -1192,3 +1212,7 @@ def test_generate_single_style_preview_persists_prompt_trace_when_media_fails(mo
     trace_content = next(tmp_path.rglob("final_visual_prompts.md")).read_text(encoding="utf-8")
     assert "preview prompt before failure" in trace_content
     assert '"preview_media_path": null' in trace_content
+    assert '"requested_workflow": "selfhost/image_z_image_turbo.json"' in trace_content
+    assert '"workflow": "selfhost/image_z_image_turbo.json"' in trace_content
+    assert '"canvas_width": 1024' in trace_content
+    assert '"canvas_height": 1024' in trace_content

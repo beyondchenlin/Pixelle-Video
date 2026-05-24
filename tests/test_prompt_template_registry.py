@@ -157,6 +157,14 @@ def test_content_generators_do_not_fallback_to_raw_style_prefix_after_resolution
     from pathlib import Path
 
     source = Path("pixelle_video/utils/content_generators.py").read_text(encoding="utf-8")
+    prompt_helper = Path("pixelle_video/utils/prompt_helper.py").read_text(encoding="utf-8")
+    style_resolution = Path("pixelle_video/utils/style_resolution.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "style_resolution_failed" not in source
     assert "legacy prefix concatenation" not in source
+    assert "build_image_prompt(base_prompt, raw_prefix)" not in prompt_helper
+    assert 'f"{templated}, {raw_prefix}"' not in prompt_helper
+    assert 'origin="legacy"' not in style_resolution
+    assert "legacy:" not in style_resolution

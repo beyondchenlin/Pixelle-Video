@@ -62,7 +62,10 @@ from pixelle_video.prompts.prompt_prefix_generation import (
 )
 from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
-from pixelle_video.services.prompt_trace_artifacts import write_final_prompt_artifact
+from pixelle_video.services.prompt_trace_artifacts import (
+    media_workflow_trace_context,
+    write_final_prompt_artifact,
+)
 from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
 from pixelle_video.tts_split_strategy import SUPPORTED_TTS_SPLIT_MODES
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
@@ -1853,7 +1856,11 @@ def _generate_single_style_preview_result(
         )
     )
     final_prompt = styled_batch.prompts[0]
+    workflow_trace_service = pixelle_video.media
+    if not callable(getattr(workflow_trace_service, "resolve_workflow_key", None)):
+        workflow_trace_service = pixelle_video
     prompt_trace_path = _write_prompt_prefix_preview_prompt_trace(
+        media_service=workflow_trace_service,
         workflow_key=workflow_key,
         media_width=media_width,
         media_height=media_height,
@@ -1884,6 +1891,7 @@ def _generate_single_style_preview_result(
 
 def _write_prompt_prefix_preview_prompt_trace(
     *,
+    media_service,
     workflow_key: str,
     media_width: int,
     media_height: int,
@@ -1897,22 +1905,30 @@ def _write_prompt_prefix_preview_prompt_trace(
 ) -> str:
     task_id = f"prefix_preview_{uuid4().hex[:12]}"
     output_dir = Path(get_runtime_path("prompt_prefix_preview_traces", task_id))
+    workflow_context = media_workflow_trace_context(
+        media_service,
+        workflow=workflow_key,
+        media_type=media_type,
+    )
     artifact_path = write_final_prompt_artifact(
         output_dir,
         task_id=task_id,
         frames=[
             {
                 "index": 1,
+                "frame_id": "prompt_prefix_preview",
                 "prompt": final_prompt,
                 "negative_prompt": negative_prompt,
             }
         ],
         generation_context={
             "source": "prompt_prefix_preview",
-            "workflow": workflow_key,
+            **workflow_context,
             "media_type": media_type,
             "media_width": int(media_width),
             "media_height": int(media_height),
+            "canvas_width": int(media_width),
+            "canvas_height": int(media_height),
             "prompt_language": prompt_language,
             "test_prompt": test_prompt,
             "prompt_prefix": prompt_prefix,

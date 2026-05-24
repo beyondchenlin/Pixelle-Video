@@ -88,22 +88,6 @@ def resolve_style_source(
                 item_id=active_item["id"],
             )
 
-    legacy_prefix = ""
-    if isinstance(image_config, dict):
-        legacy_prefix = (image_config.get("prompt_prefix") or "").strip()
-    else:
-        legacy_prefix = (getattr(image_config, "prompt_prefix", "") or "").strip()
-
-    if legacy_prefix:
-        content_hash = _hash_text(legacy_prefix)
-        return StyleSourceSpec(
-            origin="legacy",
-            raw_content=legacy_prefix,
-            content_hash=content_hash,
-            source_identity=f"legacy:{content_hash}",
-            item_id=None,
-        )
-
     return None
 
 

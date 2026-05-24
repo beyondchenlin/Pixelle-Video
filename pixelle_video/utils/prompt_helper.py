@@ -13,7 +13,7 @@
 """
 Prompt helper utilities
 
-Simple utilities for building prompts with optional prefixes.
+Utilities for assembling final visual prompts from structured inputs.
 """
 
 import re
@@ -184,34 +184,16 @@ def _apply_prompt_template(prompt: str, prompt_template: str = "") -> str:
 
 def build_image_prompt(prompt: str, prefix: str = "") -> str:
     """
-    Build final image prompt with optional prefix
+    Return a cleaned image prompt without legacy raw-prefix concatenation.
     
     Args:
         prompt: User's raw prompt
-        prefix: Optional prefix to add before the prompt
+        prefix: Deprecated. Kept for call-site compatibility; ignored.
     
     Returns:
-        Final prompt with prefix applied (if provided)
-    
-    Examples:
-        >>> build_image_prompt("a cat", "")
-        'a cat'
-        
-        >>> build_image_prompt("a cat", "anime style")
-        'anime style, a cat'
-        
-        >>> build_image_prompt("a cat", "  anime style  ")
-        'anime style, a cat'
+        Cleaned prompt text.
     """
-    prefix = prefix.strip() if prefix else ""
-    prompt = prompt.strip() if prompt else ""
-    
-    if prefix and prompt:
-        return f"{prefix}, {prompt}"
-    elif prefix:
-        return prefix
-    else:
-        return prompt
+    return sanitize_visual_prompt_text(prompt)
 
 
 def apply_no_text_policy(prompt: str, enabled: bool = True) -> str:
@@ -328,34 +310,42 @@ def assemble_image_prompt(
     raw_prefix: str = "",
     resolved_style: Optional[ResolvedStyleSpec] = None,
 ) -> str:
+    base_prompt = sanitize_visual_prompt_text(base_prompt)
     if resolved_style is None:
-        return build_image_prompt(base_prompt, raw_prefix)
-
-    base_prompt = base_prompt.strip()
-    template = (resolved_style.prompt_template or "").strip()
-    templated = _apply_prompt_template(base_prompt, template)
-
-    if resolved_style.style_kind == "ip_world":
-        if template and template != "{prompt}":
-            return templated
-
-        world_prefix = raw_prefix.strip() or (resolved_style.raw_content or "").strip()
-        if world_prefix and world_prefix.lower() not in base_prompt.lower():
-            return build_image_prompt(base_prompt, world_prefix)
         return base_prompt
 
-    if resolved_style.style_kind == "hybrid":
-        if template and template != "{prompt}":
-            return templated
-
-        raw_prefix = raw_prefix.strip()
-        if raw_prefix and raw_prefix.lower() not in templated.lower():
-            return f"{templated}, {raw_prefix}"
-        return templated
-
+    template = (resolved_style.prompt_template or "").strip()
     if template and template != "{prompt}":
-        return templated
-    return build_image_prompt(base_prompt, raw_prefix)
+        return sanitize_visual_prompt_text(_apply_prompt_template(base_prompt, template))
+
+    style_clause = _structured_style_clause(resolved_style)
+    return sanitize_visual_prompt_text(
+        ", ".join(_normalize_prompt_list([base_prompt, style_clause]))
+    )
+
+
+def _structured_style_clause(resolved_style: ResolvedStyleSpec) -> str:
+    profile = resolved_style.style_profile or {}
+    visual_parts = _normalize_prompt_list(
+        [
+            _humanize_prompt_token(_read_value(profile, "shape_language", "")),
+            _humanize_prompt_token(_read_value(profile, "material", "")),
+            _humanize_prompt_token(_read_value(profile, "palette", "")),
+            _humanize_prompt_token(_read_value(profile, "lighting", "")),
+            _humanize_prompt_token(_read_value(profile, "world_elements", "")),
+            _humanize_prompt_token(_read_value(profile, "consistency_anchor", "")),
+        ]
+    )
+    if not visual_parts:
+        return ""
+
+    if resolved_style.style_kind == "ip_world":
+        lead = "adapted into a coherent style world with"
+    elif resolved_style.style_kind == "hybrid":
+        lead = "using an integrated hybrid visual style with"
+    else:
+        lead = "rendered with"
+    return f"{lead} {', '.join(visual_parts)}"
 
 
 def assemble_storyboard_prompt(

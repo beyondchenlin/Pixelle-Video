@@ -175,6 +175,47 @@ def test_assemble_image_prompt_uses_hybrid_template_without_raw_prefix_append():
     assert prompt.count("raw hybrid prefix") == 0
 
 
+def test_assemble_image_prompt_without_resolved_style_does_not_append_raw_prefix():
+    prompt = assemble_image_prompt(
+        "A rabbit guide walks through a quiet morning market.",
+        raw_prefix="raw prefix must not be appended",
+        resolved_style=None,
+    )
+
+    assert prompt == "A rabbit guide walks through a quiet morning market."
+    assert "raw prefix" not in prompt
+
+
+def test_assemble_image_prompt_without_template_uses_structured_style_profile():
+    resolved_style = ResolvedStyleSpec(
+        style_kind="ip_world",
+        source_identity="test",
+        raw_content="Angry Birds style must not be appended",
+        prompt_template="",
+        negative_prompt="",
+        style_profile={
+            "style_kind": "ip_world",
+            "shape_language": "rounded geometric cartoon forms",
+            "material": "clean game-like cartoon surface",
+            "palette": "high saturation reds and yellows",
+            "lighting": "bright playful lighting",
+            "world_elements": "destructible wooden obstacles and game-like props",
+            "consistency_anchor": "all frames belong to the same playful bird universe",
+        },
+    )
+
+    prompt = assemble_image_prompt(
+        "A rabbit guide walks through a quiet morning market.",
+        raw_prefix="Angry Birds style must not be appended",
+        resolved_style=resolved_style,
+    )
+
+    assert prompt.startswith("A rabbit guide walks through a quiet morning market.")
+    assert "rounded geometric cartoon forms" in prompt
+    assert "destructible wooden obstacles" in prompt
+    assert "Angry Birds style" not in prompt
+
+
 def test_prompt_plan_final_prompt_matches_generated_visual_prompt():
     frame = StoryboardPlanFrame(
         index=1,

@@ -2482,7 +2482,7 @@ artifact_frames = [
 
 Store the artifact path in the task planning snapshot so the UI/log layer can show where the prompt chain lives.
 
-For direct media entry points such as `/image/generate`, workbench frame regeneration, and prompt-prefix previews, write the final prompt artifact before the media call. The artifact must include `requested_workflow` and the resolved `workflow` when the caller used a default, plus media type and dimensions. If style resolution fails, abort generation instead of falling back to raw prefix concatenation; a mechanically prefixed prompt is not an acceptable final visual prompt.
+For direct media entry points such as `/image/generate`, workbench frame regeneration, and prompt-prefix previews, write the final prompt artifact before the media call. The artifact must include `requested_workflow` and the resolved `workflow` when the caller used a default, plus media type and media/canvas dimensions. If style resolution fails, abort generation instead of falling back to raw prefix concatenation; a mechanically prefixed prompt is not an acceptable final visual prompt. The same rule applies when a resolved style has no prompt template: use structured style profile fields as semantic visual clauses, not raw prefix text. Legacy `image_config.prompt_prefix` is not an implicit style source.
 
 - [ ] **Step 9: Run trace tests**
 

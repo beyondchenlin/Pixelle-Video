@@ -436,6 +436,8 @@ Disallowed assembly:
 
 - prefixing a raw style paragraph before every prompt when a structured style profile exists.
 - falling back to raw prefix concatenation after style resolution fails.
+- using legacy `image_config.prompt_prefix` as an implicit style source when no request override or active library item exists.
+- using raw prefix concatenation when a resolved style lacks a prompt template; structured style profile fields must be fused semantically instead.
 - appending `ip_scene_description` as a separate trailing sentence.
 - emitting raw enum values such as `medium_shot`, `scene_integrated`, or `balanced_narrative`.
 - copying JSON keys such as `generation_world_profile`, `identity_anchors_visible`, or `ip_adaptation`.
