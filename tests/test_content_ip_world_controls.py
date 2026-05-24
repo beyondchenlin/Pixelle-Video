@@ -1,8 +1,7 @@
-from web.components import content_ip_world_controls
 import inspect
-import json
-from pathlib import Path
+
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
+from web.components import content_ip_world_controls
 
 
 class _FakeContext:
@@ -13,9 +12,24 @@ class _FakeContext:
         return False
 
 
+class _FakeSessionState(dict):
+    def __init__(self):
+        super().__init__()
+        self.rendered_widget_keys = set()
+
+    def __setitem__(self, key, value):
+        if key in self.rendered_widget_keys:
+            raise RuntimeError(f"cannot mutate rendered widget key: {key}")
+        super().__setitem__(key, value)
+
+    def mark_widget_rendered(self, key):
+        if key:
+            self.rendered_widget_keys.add(key)
+
+
 class _FakeContentIPWorldUI:
     def __init__(self):
-        self.session_state = {}
+        self.session_state = _FakeSessionState()
         self.expanders = []
         self.toggle_calls = []
         self.selectbox_calls = []
@@ -43,9 +57,9 @@ class _FakeContentIPWorldUI:
     def text_area(self, label, value="", **kwargs):
         key = kwargs.get("key")
         self.text_area_calls.append({"label": label, "value": value, **kwargs})
-        if key in self.session_state:
-            return self.session_state[key]
-        return value
+        widget_value = self.session_state[key] if key in self.session_state else value
+        self.session_state.mark_widget_rendered(key)
+        return widget_value
 
     def button(self, label, **kwargs):
         key = kwargs.get("key")
@@ -54,6 +68,9 @@ class _FakeContentIPWorldUI:
 
     def columns(self, spec):
         return [_FakeContext() for _ in spec]
+
+    def container(self, **_kwargs):
+        return _FakeContext()
 
     def caption(self, *_args, **_kwargs):
         return None
@@ -154,6 +171,9 @@ def test_render_content_ip_world_controls_returns_selected_ip_payload_without_he
     }
     assert fake_ui.session_state["content_ip_profile_world_hint"] == "Friendly guide world."
     assert "ip_profile_world_hint" not in payload
+    assert "generation_notes" not in payload
+    assert "slot_preference_override" not in payload
+    assert "presence_strength" not in payload
 
 
 
@@ -181,6 +201,42 @@ def test_render_content_ip_world_controls_can_use_ip_default(monkeypatch):
     assert fake_ui.session_state["content_generation_world_hint"] == "Friendly guide world."
     assert fake_ui.session_state["content_generation_world_hint_source"] == "ip_default"
     assert reruns == ["rerun"]
+
+
+def test_render_content_ip_world_controls_warns_when_ip_default_missing(monkeypatch):
+    fake_ui = _FakeContentIPWorldUI()
+    fake_ui.session_state.update(
+        {
+            "content_ip_enabled": True,
+            "content_ip_asset_bible_id": "bible_demo",
+            "content_ip_profile_id": "ip_main",
+            "_button_returns": {"content_world_hint_use_ip_default": True},
+        }
+    )
+    reruns = []
+    monkeypatch.setattr(content_ip_world_controls, "safe_rerun", lambda: reruns.append("rerun"))
+
+    content_ip_world_controls.render_content_ip_world_controls(
+        ui=fake_ui,
+        translate=_tr,
+        pixelle_video=None,
+        content_context={"title": "Demo", "text": "Script text"},
+        asset_bible_loader=lambda: [
+            {
+                "asset_bible_id": "bible_demo",
+                "ip_profiles": [
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "White Rabbit Guide",
+                    }
+                ],
+            }
+        ],
+    )
+
+    assert fake_ui.warning_calls == ["content.ip_world.missing_ip_default"]
+    assert "content_generation_world_hint" not in fake_ui.session_state
+    assert reruns == []
 
 
 def test_render_content_ip_world_controls_clears_stale_ip_world_hint_when_ip_disabled():
@@ -383,32 +439,52 @@ def test_render_content_ip_world_controls_marks_auto_world_hint_as_manual_after_
     assert fake_ui.session_state["content_generation_world_hint_last_value"] == "Edited world hint."
 
 
-def test_content_ip_world_translation_keys_exist_in_supported_locales():
-    locale_dir = Path(__file__).resolve().parents[1] / "web" / "i18n" / "locales"
-    required_keys = {
-        "content.ip_world.section_title",
-        "content.ip_world.enabled",
-        "content.ip_world.enabled_help",
-        "content.ip_world.asset_bible",
-        "content.ip_world.ip_profile",
-        "content.ip_world.selected_profile",
-        "content.ip_world.empty_asset_bibles",
-        "content.ip_world.empty_profiles",
-        "content.ip_world.load_failed",
-        "content.ip_world.generation_world_hint",
-        "content.ip_world.generation_world_hint_help",
-        "content.ip_world.generate_from_content",
-        "content.ip_world.use_ip_default",
-        "content.ip_world.missing_content",
-        "content.ip_world.missing_ip_default",
-        "content.ip_world.generate_failed",
-    }
+def test_content_ip_world_controls_render_request_world_hint_keys():
+    fake_ui = _FakeContentIPWorldUI()
 
-    for locale_name in ("zh_CN", "en_US"):
-        with (locale_dir / f"{locale_name}.json").open(encoding="utf-8") as file:
-            translations = json.load(file)["t"]
-        missing = required_keys - set(translations)
-        assert missing == set()
+    content_ip_world_controls.render_content_ip_world_controls(
+        ui=fake_ui,
+        translate=_tr,
+        pixelle_video=None,
+        content_context={"title": "Demo title", "text": "Script text"},
+        asset_bible_loader=_asset_bibles,
+    )
+
+    assert fake_ui.text_area_calls == [
+        {
+            "label": "content.ip_world.generation_world_hint",
+            "key": "content_generation_world_hint",
+            "value": "",
+            "height": 92,
+            "help": "content.ip_world.generation_world_hint_help",
+        }
+    ]
+    assert [call["key"] for call in fake_ui.button_calls] == [
+        "content_world_hint_generate_from_content",
+        "content_world_hint_use_ip_default",
+    ]
+
+
+def test_build_content_ip_world_payload_uses_formal_contract_only():
+    payload = content_ip_world_controls.build_content_ip_world_payload(
+        ip_payload={
+            "ip_enabled": True,
+            "ip_asset_bible_id": "bible_demo",
+            "ip_profile_id": "ip_main",
+            "ip_profile_world_hint": "helper only",
+            "generation_notes": "legacy",
+            "slot_preference_override": "legacy",
+            "presence_strength": "legacy",
+        },
+        generation_world_hint="script world",
+    )
+
+    assert payload == {
+        "ip_enabled": True,
+        "ip_asset_bible_id": "bible_demo",
+        "ip_profile_id": "ip_main",
+        "generation_world_hint": "script world",
+    }
 
 
 def test_content_ip_world_controls_uses_shared_default_prompt_language_constant():

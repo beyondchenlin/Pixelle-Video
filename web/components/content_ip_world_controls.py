@@ -6,19 +6,23 @@ from typing import Any
 
 import streamlit as st
 
+from pixelle_video.contracts.ip_generation_request import build_formal_content_ip_world_payload
 from pixelle_video.prompt_language import CHINESE_PROMPT_LANGUAGE
 from web.components.ip_prompt_chain_controls import (
     load_ip_prompt_chain_asset_bibles,
     render_ip_prompt_chain_controls,
 )
 from web.i18n import tr
+from web.utils.content_api import generate_world_hint_draft
+from web.utils.streamlit_helpers import safe_rerun
 
 logger = logging.getLogger(__name__)
 
 CONTENT_IP_STATE_PREFIX = "content_ip"
-CONTENT_GENERATION_NOTES_KEY = "content_generation_notes"
-CONTENT_SLOT_PREFERENCE_KEY = "content_slot_preference"
-CONTENT_PRESENCE_STRENGTH_KEY = "content_presence_strength"
+CONTENT_GENERATION_WORLD_HINT_KEY = "content_generation_world_hint"
+CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY = "content_generation_world_hint_source"
+CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY = "content_generation_world_hint_last_value"
+CONTENT_IP_PROFILE_WORLD_HINT_KEY = "content_ip_profile_world_hint"
 
 Translate = Callable[..., str]
 
@@ -26,31 +30,12 @@ Translate = Callable[..., str]
 def build_content_ip_world_payload(
     *,
     ip_payload: Mapping[str, Any] | None = None,
-    generation_notes: str | None = None,
-    slot_preference: str | None = None,
-    presence_strength: str | None = None,
+    generation_world_hint: str | None = None,
 ) -> dict[str, Any]:
-    """Build the formal content IP integration payload for request submission."""
+    """Build the formal content IP/world payload for request submission."""
     source = dict(ip_payload or {})
-    payload: dict[str, Any] = {"ip_enabled": bool(source.get("ip_enabled", False))}
-    if payload["ip_enabled"]:
-        ip_asset_bible_id = _first_text(source.get("ip_asset_bible_id"))
-        ip_profile_id = _first_text(source.get("ip_profile_id"))
-        if ip_asset_bible_id:
-            payload["ip_asset_bible_id"] = ip_asset_bible_id
-        if ip_profile_id:
-            payload["ip_profile_id"] = ip_profile_id
-
-    notes = _first_text(generation_notes)
-    if notes:
-        payload["generation_notes"] = notes
-    slot = _first_text(slot_preference)
-    if slot and slot != "default":
-        payload["slot_preference_override"] = slot
-    strength = _first_text(presence_strength)
-    if strength and strength != "default":
-        payload["presence_strength"] = strength
-    return payload
+    source["generation_world_hint"] = generation_world_hint
+    return build_formal_content_ip_world_payload(source)
 
 
 def render_content_ip_world_controls(
@@ -64,18 +49,20 @@ def render_content_ip_world_controls(
     asset_bible_loader: Callable[[], Sequence[Mapping[str, Any]]] | None = None,
     world_hint_draft_generator: Callable[..., Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Render left-column IP character integration controls."""
+    """Render left-column IP character and request world-hint controls."""
     session_state = ui.session_state
     with ui.expander(translate("content.ip_world.section_title"), expanded=True):
         resolved_asset_bible_loader = asset_bible_loader
         asset_bibles: Sequence[Mapping[str, Any]] = ()
         if resolved_asset_bible_loader is None:
-            resolved_asset_bible_loader = lambda: _load_content_ip_asset_bibles(
-                pixelle_video=pixelle_video,
-                session_state=session_state,
-                ui=ui,
-                translate=translate,
-            )
+
+            def resolved_asset_bible_loader() -> Sequence[Mapping[str, Any]]:
+                return _load_content_ip_asset_bibles(
+                    pixelle_video=pixelle_video,
+                    session_state=session_state,
+                    ui=ui,
+                    translate=translate,
+                )
 
         ip_payload = render_ip_prompt_chain_controls(
             ui=ui,
@@ -86,50 +73,58 @@ def render_content_ip_world_controls(
             label_key_prefix="content.ip_world",
         )
 
-        if ip_payload.get("ip_enabled"):
-            ip_asset_bible_id = _first_text(ip_payload.get("ip_asset_bible_id"))
-            ip_profile_id = _first_text(ip_payload.get("ip_profile_id"))
-            selected_profile = _resolve_selected_ip_profile(
-                asset_bible_loader=resolved_asset_bible_loader,
-                asset_bible_id=ip_asset_bible_id,
-                ip_profile_id=ip_profile_id,
-            )
+        ip_default_world_hint = (
+            _first_text(ip_payload.get("ip_profile_world_hint"))
+            if ip_payload.get("ip_enabled")
+            else ""
+        )
+        _sync_ip_profile_world_hint(session_state, ip_default_world_hint)
 
-            slot_col, presence_col = ui.columns((1, 1))
-            with slot_col:
-                slot_preference = _render_select_or_default(
-                    ui,
-                    translate("content.ip_world.slot_preference_override"),
-                    key=CONTENT_SLOT_PREFERENCE_KEY,
-                    options=["prefer_supporting", "prefer_main", "auto", "minimal"],
+        action_col, default_col = ui.columns((1, 1))
+        with action_col:
+            if ui.button(
+                translate("content.ip_world.generate_from_content"),
+                key="content_world_hint_generate_from_content",
+            ):
+                _handle_generate_world_hint_from_content(
+                    session_state=session_state,
+                    ui=ui,
+                    translate=translate,
+                    content_context=content_context,
+                    storyboard_prompt_language=storyboard_prompt_language,
+                    world_preset_id=world_preset_id,
+                    ip_default_world_hint=ip_default_world_hint,
+                    world_hint_draft_generator=(
+                        world_hint_draft_generator or generate_world_hint_draft
+                    ),
                 )
-            with presence_col:
-                presence_strength = _render_select_or_default(
-                    ui,
-                    translate("content.ip_world.presence_strength"),
-                    key=CONTENT_PRESENCE_STRENGTH_KEY,
-                    options=["more", "default", "less", "minimal"],
+        with default_col:
+            if ui.button(
+                translate("content.ip_world.use_ip_default"),
+                key="content_world_hint_use_ip_default",
+            ):
+                _handle_use_ip_default_world_hint(
+                    session_state=session_state,
+                    ui=ui,
+                    translate=translate,
+                    ip_default_world_hint=ip_default_world_hint,
                 )
 
-            generation_notes = ui.text_area(
-                translate("content.ip_world.generation_notes"),
-                key=CONTENT_GENERATION_NOTES_KEY,
-                value=session_state.get(CONTENT_GENERATION_NOTES_KEY, ""),
-                height=72,
-                help=translate("content.ip_world.generation_notes_help"),
-            )
-
-            _render_ip_capability_preview(selected_profile, ui=ui, translate=translate)
-        else:
-            slot_preference = ""
-            presence_strength = ""
-            generation_notes = ""
+        generation_world_hint = ui.text_area(
+            translate("content.ip_world.generation_world_hint"),
+            key=CONTENT_GENERATION_WORLD_HINT_KEY,
+            value=session_state.get(CONTENT_GENERATION_WORLD_HINT_KEY, ""),
+            height=92,
+            help=translate("content.ip_world.generation_world_hint_help"),
+        )
+        _mark_world_hint_manual_if_user_edited(session_state, generation_world_hint)
 
     return build_content_ip_world_payload(
         ip_payload=ip_payload,
-        generation_notes=session_state.get(CONTENT_GENERATION_NOTES_KEY, generation_notes),
-        slot_preference=session_state.get(CONTENT_SLOT_PREFERENCE_KEY, slot_preference),
-        presence_strength=session_state.get(CONTENT_PRESENCE_STRENGTH_KEY, presence_strength),
+        generation_world_hint=session_state.get(
+            CONTENT_GENERATION_WORLD_HINT_KEY,
+            generation_world_hint,
+        ),
     )
 
 
@@ -153,81 +148,81 @@ def _load_content_ip_asset_bibles(
         return []
 
 
-def _resolve_selected_ip_profile(
+def _sync_ip_profile_world_hint(session_state, ip_profile_world_hint: str) -> None:
+    hint = _first_text(ip_profile_world_hint)
+    if hint:
+        session_state[CONTENT_IP_PROFILE_WORLD_HINT_KEY] = hint
+        return
+    session_state.pop(CONTENT_IP_PROFILE_WORLD_HINT_KEY, None)
+
+
+def _mark_world_hint_manual_if_user_edited(session_state, current_hint: str) -> None:
+    current = _first_text(current_hint)
+    source = _first_text(session_state.get(CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY))
+    last = _first_text(session_state.get(CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY))
+    if source in {"generated_from_script", "ip_default"} and last and current != last:
+        session_state[CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY] = "manual"
+    if current:
+        session_state[CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY] = current
+
+
+def _handle_use_ip_default_world_hint(
     *,
-    asset_bible_loader: Callable[[], Sequence[Mapping[str, Any]]],
-    asset_bible_id: str,
-    ip_profile_id: str,
-) -> dict[str, Any]:
-    if not asset_bible_id or not ip_profile_id:
-        return {}
-    try:
-        asset_bibles = asset_bible_loader()
-    except Exception:
-        return {}
-    for ab in asset_bibles:
-        if _first_text(ab.get("asset_bible_id")) == asset_bible_id:
-            for profile in _list_of_dicts(ab.get("ip_profiles")):
-                if _first_text(profile.get("ip_profile_id")) == ip_profile_id:
-                    return dict(profile)
-    return {}
-
-
-def _render_select_or_default(
-    ui,
-    label: str,
-    *,
-    key: str,
-    options: list[str],
-) -> str:
-    """Render a selectbox with a 'default' option (use IP profile default)."""
-    all_options = ["default", *options]
-    current = _first_text(ui.session_state.get(key))
-    index = all_options.index(current) if current in all_options else 0
-    selected = ui.selectbox(label, all_options, key=key, index=index)
-    return _first_text(selected)
-
-
-def _render_ip_capability_preview(
-    selected_profile: Mapping[str, Any],
-    *,
+    session_state,
     ui,
     translate: Translate,
+    ip_default_world_hint: str,
 ) -> None:
-    if not selected_profile:
+    hint = _first_text(ip_default_world_hint)
+    if not hint:
+        ui.warning(translate("content.ip_world.missing_ip_default"))
         return
-    with ui.container(border=True):
-        ui.caption(translate("content.ip_world.ip_capability_preview"))
-        anchors = _text_list(selected_profile.get("identity_lock"))
-        if anchors:
-            ui.caption(translate("content.ip_world.capability_visual_anchors", anchors=", ".join(anchors[:6])))
-        visual = _first_text(selected_profile.get("visual_summary"))
-        if visual:
-            ui.caption(translate("content.ip_world.capability_visual_summary", summary=visual))
-        roles = _text_list(selected_profile.get("role_presets"))
-        if roles:
-            role_names = [r.split("：")[0] for r in roles[:4] if "：" in r]
-            if role_names:
-                ui.caption(translate("content.ip_world.capability_available_roles", roles=" / ".join(role_names)))
-        presence = _text_list(selected_profile.get("presence_spectrum"))
-        if presence:
-            first = presence[0].split("：")[0] if "：" in presence[0] else presence[0]
-            last = presence[-1].split("：")[0] if "：" in presence[-1] else presence[-1]
-            ui.caption(translate("content.ip_world.capability_presence_range", first=first, last=last))
-        ready = bool(anchors)
-        ui.caption(translate("content.ip_world.capability_status_ready") if ready else translate("content.ip_world.capability_status_missing"))
+    session_state[CONTENT_GENERATION_WORLD_HINT_KEY] = hint
+    session_state[CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY] = "ip_default"
+    session_state[CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY] = hint
+    safe_rerun()
 
 
-def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, (list, tuple)) or isinstance(value, (str, bytes)):
-        return []
-    return [dict(item) for item in value if isinstance(item, Mapping)]
-
-
-def _text_list(value: Any) -> list[str]:
-    if not isinstance(value, (list, tuple)):
-        return []
-    return [_first_text(item) for item in value if _first_text(item)]
+def _handle_generate_world_hint_from_content(
+    *,
+    session_state,
+    ui,
+    translate: Translate,
+    content_context: Mapping[str, Any] | None,
+    storyboard_prompt_language: str,
+    world_preset_id: str | None,
+    ip_default_world_hint: str,
+    world_hint_draft_generator: Callable[..., Mapping[str, Any]],
+) -> None:
+    context = dict(content_context or {})
+    source_text = _first_text(context.get("text"))
+    if not source_text:
+        ui.warning(translate("content.ip_world.missing_content"))
+        return
+    try:
+        response = world_hint_draft_generator(
+            source_text=source_text,
+            title=_first_text(context.get("title")) or None,
+            world_preset_id=world_preset_id,
+            storyboard_prompt_language=storyboard_prompt_language,
+            ip_default_world_hint=_first_text(ip_default_world_hint) or None,
+        )
+    except Exception:
+        logger.exception("failed to generate content world hint draft")
+        ui.warning(translate("content.ip_world.generate_failed"))
+        return
+    hint = (
+        _first_text(response.get("world_hint_draft"))
+        if isinstance(response, Mapping)
+        else ""
+    )
+    if not hint:
+        ui.warning(translate("content.ip_world.generate_failed"))
+        return
+    session_state[CONTENT_GENERATION_WORLD_HINT_KEY] = hint
+    session_state[CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY] = "generated_from_script"
+    session_state[CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY] = hint
+    safe_rerun()
 
 
 def _first_text(*values: Any) -> str:
@@ -241,6 +236,8 @@ def _first_text(*values: Any) -> str:
 
 
 __all__ = [
+    "CONTENT_GENERATION_WORLD_HINT_KEY",
+    "CONTENT_IP_PROFILE_WORLD_HINT_KEY",
     "CONTENT_IP_STATE_PREFIX",
     "build_content_ip_world_payload",
     "render_content_ip_world_controls",
