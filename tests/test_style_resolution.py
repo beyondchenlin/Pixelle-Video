@@ -21,7 +21,7 @@ from pixelle_video.utils.style_resolution import (
 
 def test_resolve_style_source_prefers_request_override():
     image_config = {
-        "prompt_prefix": "legacy prefix",
+        "prompt_prefix": "retired config value",
         "prompt_prefix_library": {
             "active_prefix_id": "warm-story",
             "items": [
@@ -44,7 +44,7 @@ def test_resolve_style_source_prefers_request_override():
 def test_resolve_style_source_ignores_legacy_config_prompt_prefix():
     source = resolve_style_source(
         {
-            "prompt_prefix": "legacy prefix must not become a raw fallback",
+            "prompt_prefix": "retired config value must not become a raw fallback",
             "prompt_prefix_library": {"active_prefix_id": None, "items": []},
         }
     )

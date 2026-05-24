@@ -63,6 +63,7 @@ from pixelle_video.prompts.prompt_prefix_generation import (
 from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.prompt_trace_artifacts import (
+    build_media_prompt_trace_context,
     media_workflow_trace_context,
     write_final_prompt_artifact,
 )
@@ -801,9 +802,6 @@ def _render_image_prompt_prefix_library_legacy(
             f"· {get_prompt_prefix_category_label(active_item['scene_category_id'], 'scene', language)}"
         )
         st.code(active_item["content"], language=None)
-    elif effective_prefix:
-        st.caption(tr("style.prefix_library.active_legacy"))
-        st.code(effective_prefix, language=None)
     else:
         st.caption(tr("style.prefix_library.active_empty"))
 
@@ -1859,8 +1857,13 @@ def _generate_single_style_preview_result(
     workflow_trace_service = pixelle_video.media
     if not callable(getattr(workflow_trace_service, "resolve_workflow_key", None)):
         workflow_trace_service = pixelle_video
+    workflow_context = media_workflow_trace_context(
+        workflow_trace_service,
+        workflow=workflow_key,
+        media_type=media_type,
+    )
     prompt_trace_path = _write_prompt_prefix_preview_prompt_trace(
-        media_service=workflow_trace_service,
+        workflow_context=workflow_context,
         workflow_key=workflow_key,
         media_width=media_width,
         media_height=media_height,
@@ -1876,10 +1879,21 @@ def _generate_single_style_preview_result(
         pixelle_video.media(
             prompt=final_prompt,
             negative_prompt=styled_batch.negative_prompt,
-            workflow=workflow_key,
+            workflow=workflow_context["workflow"],
             media_type=media_type,
             width=int(media_width),
             height=int(media_height),
+            media_prompt_trace_context=build_media_prompt_trace_context(
+                artifact_path=prompt_trace_path,
+                task_id=Path(prompt_trace_path).parent.parent.name,
+                prompt=final_prompt,
+                negative_prompt=styled_batch.negative_prompt or "",
+                workflow_context=workflow_context,
+                media_type=media_type,
+                frame_id="prompt_prefix_preview",
+                media_width=int(media_width),
+                media_height=int(media_height),
+            ),
         )
     )
     return {
@@ -1891,7 +1905,7 @@ def _generate_single_style_preview_result(
 
 def _write_prompt_prefix_preview_prompt_trace(
     *,
-    media_service,
+    workflow_context: dict[str, Any],
     workflow_key: str,
     media_width: int,
     media_height: int,
@@ -1902,14 +1916,11 @@ def _write_prompt_prefix_preview_prompt_trace(
     final_prompt: str,
     negative_prompt: str,
     preview_media_path: str | None,
+    task_id: str | None = None,
+    output_dir: Path | None = None,
 ) -> str:
-    task_id = f"prefix_preview_{uuid4().hex[:12]}"
-    output_dir = Path(get_runtime_path("prompt_prefix_preview_traces", task_id))
-    workflow_context = media_workflow_trace_context(
-        media_service,
-        workflow=workflow_key,
-        media_type=media_type,
-    )
+    task_id = task_id or f"prefix_preview_{uuid4().hex[:12]}"
+    output_dir = output_dir or Path(get_runtime_path("prompt_prefix_preview_traces", task_id))
     artifact_path = write_final_prompt_artifact(
         output_dir,
         task_id=task_id,
@@ -2168,9 +2179,6 @@ def _render_image_prompt_prefix_library(
                 )
                 if active_item.get("note"):
                     st.caption(active_item["note"])
-            elif effective_prefix:
-                st.caption(tr("style.prefix_library.active_legacy"))
-                st.code(effective_prefix, language=None)
             else:
                 st.caption(tr("style.prefix_library.active_empty"))
         with active_action_col:
@@ -3238,11 +3246,9 @@ def render_style_config(
             st.info(f"📐 {size_info_text}")
         
             if template_media_type == "video":
-                current_prefix = comfyui_config.get(media_config_key, {}).get("prompt_prefix", "")
-
                 prompt_prefix = st.text_area(
                     tr('style.prompt_prefix'),
-                    value=current_prefix,
+                    value="",
                     placeholder=tr("style.prompt_prefix_placeholder"),
                     height=80,
                     label_visibility="visible",

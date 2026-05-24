@@ -16,8 +16,13 @@ from pixelle_video.models.video_generation_contract import (
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
+from pixelle_video.services.llm_trace_refs import merge_llm_trace_refs
 from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
+from pixelle_video.utils.prompt_helper import (
+    final_visual_prompt_clause_template_metadata,
+    final_visual_prompt_template_metadata,
+)
 
 
 @dataclass
@@ -53,6 +58,7 @@ class ImagePromptComposer:
         ip_profile=None,
         scene_casts_by_frame=None,
         stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
+        upstream_llm_trace_refs: Optional[Sequence[Mapping[str, str]]] = None,
         trace_context: LLMTraceContext | None = None,
         trace_recorder: LLMInteractionRecorder | None = None,
     ) -> StyledImagePromptBatch:
@@ -98,6 +104,7 @@ class ImagePromptComposer:
             ip_profile=ip_profile,
             scene_casts_by_frame=scene_casts_by_frame,
             stage_callback=stage_callback,
+            upstream_llm_trace_refs=upstream_llm_trace_refs,
             trace_context=trace_context,
             trace_recorder=trace_recorder,
         )
@@ -105,10 +112,28 @@ class ImagePromptComposer:
             raise ValueError("image prompt count must match storyboard frame count")
 
         planning_snapshot = dict(batch.planning_snapshot or {})
+        llm_trace_refs = merge_llm_trace_refs(
+            upstream_llm_trace_refs,
+            planning_snapshot.get("llm_trace_refs"),
+        )
+        if llm_trace_refs:
+            planning_snapshot["llm_trace_refs"] = llm_trace_refs
+        planning_snapshot.setdefault(
+            "final_visual_prompt_template",
+            final_visual_prompt_template_metadata(),
+        )
+        planning_snapshot.setdefault(
+            "final_visual_prompt_clause_template",
+            final_visual_prompt_clause_template_metadata(),
+        )
         planning_snapshot["storyboard_generation"] = storyboard_plan.to_dict()
         prompt_plan_bundle = build_prompt_plan_bundle(
             storyboard_plan=storyboard_plan,
             image_prompts=batch.prompts,
+            source_trace_ids_by_frame=_prompt_generation_trace_ids_by_frame(
+                storyboard_plan,
+                planning_snapshot,
+            ),
             planning_snapshot=planning_snapshot,
         )
         planning_snapshot["prompt_plan_bundle_ref"] = {
@@ -172,6 +197,30 @@ def _build_prompt_contexts(
         plan_context=plan_context,
         frame_contexts=frame_contexts,
     )
+
+
+def _prompt_generation_trace_ids_by_frame(
+    storyboard_plan: StoryboardPlan,
+    planning_snapshot: Mapping[str, Any],
+) -> dict[str, str]:
+    refs = planning_snapshot.get("prompt_generation_trace_refs_by_index")
+    if not isinstance(refs, Sequence) or isinstance(refs, (str, bytes)):
+        return {}
+    trace_ids_by_frame: dict[str, str] = {}
+    for ref in refs:
+        if not isinstance(ref, Mapping):
+            continue
+        try:
+            prompt_index = int(ref.get("prompt_index"))
+        except (TypeError, ValueError):
+            continue
+        if prompt_index < 0 or prompt_index >= len(storyboard_plan.frames):
+            continue
+        trace_id = str(ref.get("trace_id") or "").strip()
+        if not trace_id:
+            continue
+        trace_ids_by_frame[storyboard_plan.frames[prompt_index].frame_id] = trace_id
+    return trace_ids_by_frame
 
 
 __all__ = ["ImagePromptComposer"]

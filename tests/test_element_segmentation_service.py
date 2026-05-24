@@ -37,12 +37,30 @@ class FakeCore:
     def __init__(self, kit: FakeKit, comfyui_url: str = "http://comfy.local") -> None:
         self.kit = kit
         self.comfyui_url = comfyui_url
+        self.workflow_calls: list[dict[str, object]] = []
 
     async def _get_or_create_comfykit(self) -> FakeKit:
         return self.kit
 
     def _get_comfykit_config(self) -> dict[str, str]:
         return {"comfyui_url": self.comfyui_url}
+
+    async def execute_comfykit_workflow(
+        self,
+        workflow_input: object,
+        workflow_params: dict[str, object],
+        **kwargs: object,
+    ) -> FakeComfyResult:
+        self.workflow_calls.append(
+            {
+                "workflow_input": workflow_input,
+                "workflow_params": dict(workflow_params),
+                **kwargs,
+            }
+        )
+        if kwargs.get("media_prompt_trace_context") is None:
+            raise ValueError("media_prompt_trace_context is required")
+        return await self.kit.execute(workflow_input, workflow_params)
 
 
 def _png(path: Path, color: tuple[int, int, int, int]) -> None:
@@ -82,7 +100,8 @@ async def test_segment_image_builds_manifest_from_comfy_outputs(tmp_path: Path) 
             ],
         ),
     )
-    service = ElementSegmentationService(FakeCore(kit))
+    core = FakeCore(kit)
+    service = ElementSegmentationService(core)
 
     manifest = await service.segment_image(
         image_path=str(source),
@@ -114,6 +133,11 @@ async def test_segment_image_builds_manifest_from_comfy_outputs(tmp_path: Path) 
             },
         ),
     ]
+    assert core.workflow_calls[0]["media_type"] == "image"
+    trace_context = core.workflow_calls[0]["media_prompt_trace_context"]
+    assert isinstance(trace_context, dict)
+    assert trace_context["prompt"] == "main simple drawing subjects"
+    assert Path(str(trace_context["artifact_path"])).is_file()
     output_root = tmp_path / "out" / "element_animation" / "frame_000"
     assert manifest.background.mode == "inpainted"
     assert manifest.background.image_path == str(output_root / "background.png")
@@ -152,7 +176,8 @@ async def test_segment_image_falls_back_to_source_low_motion_when_background_mis
             ],
         ),
     )
-    service = ElementSegmentationService(FakeCore(kit))
+    core = FakeCore(kit)
+    service = ElementSegmentationService(core)
 
     manifest = await service.segment_image(
         image_path=str(source),
@@ -174,6 +199,9 @@ async def test_segment_image_falls_back_to_source_low_motion_when_background_mis
     assert kit.calls[0][1]["prompt"] == (
         "main foreground subjects, separated simple drawing elements"
     )
+    trace_context = core.workflow_calls[0]["media_prompt_trace_context"]
+    artifact_text = Path(str(trace_context["artifact_path"])).read_text(encoding="utf-8")
+    assert '"prompt_id": "element_segmentation"' in artifact_text
     assert manifest.background.mode == "source_image_low_motion"
     assert manifest.background.motion_bounds.translate_px <= 6
     assert manifest.background.motion_bounds.rotate_deg <= 0.5

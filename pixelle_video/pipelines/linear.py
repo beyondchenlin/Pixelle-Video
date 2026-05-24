@@ -79,6 +79,7 @@ class PipelineContext:
     media_negative_prompt: Optional[str] = None
     planning_snapshot: Optional[Dict[str, Any]] = None
     prompt_plan_bundle: Optional[PromptPlanBundle] = None
+    llm_trace_refs: List[Dict[str, str]] = field(default_factory=list)
     creation_package: Optional[CreationPackage] = None
     timing_plan: Optional[TimingPlan] = None
     

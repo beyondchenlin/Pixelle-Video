@@ -162,12 +162,16 @@ def test_assemble_storyboard_prompt_applies_normalized_prompt_template():
         },
     )
 
-    assert prompt.startswith("editorial line art treatment, ")
+    assert prompt.startswith("host explainer introduces penicillin")
+    assert "Visual style:" in prompt
+    assert "editorial line art treatment" in prompt
+    assert "with etched crosshatching" in prompt
+    assert "editorial line art treatment, host explainer" not in prompt
     assert "Neutral Knowledge Storyboard" not in prompt
     assert "close_up" not in prompt
     assert "detail_focus" not in prompt
     assert "framed as close up, detail focus" in prompt
-    assert prompt.endswith("with etched crosshatching")
+    assert prompt.index("Visual style:") < prompt.index("Composition:")
 
 
 def test_assemble_storyboard_prompt_includes_shot_language_and_world_elements():

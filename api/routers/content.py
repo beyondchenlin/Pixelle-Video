@@ -36,6 +36,10 @@ from pixelle_video.models.text_overlay import project_prompt_text_rendering_requ
 from pixelle_video.services.content_world_hint_draft_builder import build_world_hint_draft
 from pixelle_video.services.content_world_planner import ContentWorldPlanner
 from pixelle_video.services.image_prompt_composer import ImagePromptComposer
+from pixelle_video.services.llm_trace_refs import (
+    LLMTraceCollector,
+    llm_trace_refs_from_records,
+)
 from pixelle_video.utils.content_generators import (
     generate_narrations_from_topic,
     generate_styled_image_prompt_batch,
@@ -53,6 +57,47 @@ def _serialize_frame_overrides(frame_overrides):
     if frame_overrides is None:
         return None
     return [override.model_dump(exclude_none=True) for override in frame_overrides]
+
+
+def _image_prompt_response_provenance(batch) -> dict[str, object]:
+    planning_snapshot = dict(batch.planning_snapshot or {})
+    prompt_plan_bundle = (
+        batch.prompt_plan_bundle.to_dict()
+        if batch.prompt_plan_bundle is not None
+        else None
+    )
+    llm_trace_refs = planning_snapshot.get("llm_trace_refs")
+    if not isinstance(llm_trace_refs, list):
+        llm_trace_refs = []
+    if prompt_plan_bundle is not None:
+        bundle_refs = prompt_plan_bundle.get("metadata", {}).get("llm_trace_refs", [])
+        if isinstance(bundle_refs, list):
+            seen = {
+                (
+                    str(ref.get("trace_id") or ""),
+                    str(ref.get("stage") or ""),
+                )
+                for ref in llm_trace_refs
+                if isinstance(ref, dict)
+            }
+            for ref in bundle_refs:
+                if not isinstance(ref, dict):
+                    continue
+                identity = (
+                    str(ref.get("trace_id") or ""),
+                    str(ref.get("stage") or ""),
+                )
+                if identity in seen or not all(identity):
+                    continue
+                seen.add(identity)
+                llm_trace_refs.append(ref)
+
+    return {
+        "negative_prompt": batch.negative_prompt,
+        "planning_snapshot": planning_snapshot or None,
+        "prompt_plan_bundle": prompt_plan_bundle,
+        "llm_trace_refs": llm_trace_refs,
+    }
 
 
 @router.post("/world-hint-draft", response_model=WorldHintDraftGenerateResponse)
@@ -142,6 +187,7 @@ async def generate_narration(
             operation="api_narration_generation",
             stage="api_narration_generation",
         )
+        trace_collector = LLMTraceCollector(trace_recorder)
         
         # Call narration generator utility function
         narrations = await generate_narrations_from_topic(
@@ -151,11 +197,12 @@ async def generate_narration(
             min_words=request.min_words,
             max_words=request.max_words,
             trace_context=trace_context,
-            trace_recorder=trace_recorder,
+            trace_recorder=trace_collector,
         )
         
         return NarrationGenerateResponse(
-            narrations=narrations
+            narrations=narrations,
+            llm_trace_refs=llm_trace_refs_from_records(trace_collector.records),
         )
         
     except Exception as e:
@@ -228,6 +275,7 @@ async def generate_image_prompt(
                 shot_strategy=request.shot_strategy,
                 frame_overrides=_serialize_frame_overrides(request.frame_overrides),
                 text_rendering=text_rendering,
+                upstream_llm_trace_refs=request.upstream_llm_trace_refs,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
             )
@@ -253,12 +301,14 @@ async def generate_image_prompt(
                 shot_strategy=request.shot_strategy,
                 frame_overrides=_serialize_frame_overrides(request.frame_overrides),
                 text_rendering=text_rendering,
+                upstream_llm_trace_refs=request.upstream_llm_trace_refs,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
             )
 
         return ImagePromptGenerateResponse(
-            image_prompts=batch.prompts
+            image_prompts=batch.prompts,
+            **_image_prompt_response_provenance(batch),
         )
 
     except ValueError as e:

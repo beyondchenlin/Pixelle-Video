@@ -94,6 +94,11 @@ from pixelle_video.services.ip_profile_readiness import (
     ensure_ip_profile_ready_for_generation,
 )
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
+from pixelle_video.services.llm_trace_refs import (
+    LLMTraceCollector,
+    llm_trace_refs_from_records,
+    merge_llm_trace_refs,
+)
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
 from pixelle_video.services.omnivoice_longform_blocks import build_omnivoice_longform_block_plan
 from pixelle_video.services.prompt_trace_artifacts import (
@@ -163,6 +168,7 @@ from pixelle_video.utils.workflow_capabilities import (
     WorkflowCapabilities,
     get_workflow_capabilities,
 )
+from pixelle_video.workflow_content_contracts import extract_workflow_file_trace
 
 HYPERFRAMES_LONG_RENDER_FALLBACK_SECONDS = 120.0
 HYPERFRAMES_CJK_CHARS_PER_SECOND_ESTIMATE = 4.0
@@ -397,6 +403,18 @@ class StandardPipeline(LinearVideoPipeline):
             trace_repository=trace_repository,
             raw_payload_store=raw_payload_store,
         )
+
+    @staticmethod
+    def _merge_runtime_llm_trace_refs(
+        ctx: PipelineContext,
+        collector: LLMTraceCollector | None,
+    ) -> None:
+        if collector is None:
+            return
+        ctx.llm_trace_refs = merge_llm_trace_refs(
+            ctx.llm_trace_refs,
+            llm_trace_refs_from_records(collector.records),
+        )
     
     # ==================== Lifecycle Methods ====================
 
@@ -480,7 +498,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
         
         if mode == "generate":
-            trace_recorder = self._llm_trace_recorder(ctx)
+            trace_collector = LLMTraceCollector(self._llm_trace_recorder(ctx))
             self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_SOURCE_TEXT, 0.05)
             ctx.source_text = await ScriptGenerationService().generate(
                 llm_service=self.llm,
@@ -488,8 +506,9 @@ class StandardPipeline(LinearVideoPipeline):
                 script_length_mode=ctx.params.get("script_length_mode", "auto"),
                 script_target_words=ctx.params.get("script_target_words"),
                 trace_context=self._llm_trace_context(ctx, operation="script_generation"),
-                trace_recorder=trace_recorder,
+                trace_recorder=trace_collector,
             )
+            self._merge_runtime_llm_trace_refs(ctx, trace_collector)
             logger.info("✅ Generated complete source text for storyboard planning")
         else:  # fixed
             self._report_progress(ctx.progress_callback, ProgressEventType.PREPARING_SOURCE_TEXT, 0.05)
@@ -497,8 +516,8 @@ class StandardPipeline(LinearVideoPipeline):
             logger.info("✅ Prepared fixed source text for storyboard planning")
 
         self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_STORYBOARD_PLAN, 0.08)
-        storyboard_trace_recorder = (
-            self._llm_trace_recorder(ctx)
+        storyboard_trace_collector = (
+            LLMTraceCollector(self._llm_trace_recorder(ctx))
             if storyboard_contract.storyboard_mode == "smart"
             else None
         )
@@ -514,11 +533,12 @@ class StandardPipeline(LinearVideoPipeline):
             prompt_language=storyboard_contract.storyboard_prompt_language,
             trace_context=(
                 self._llm_trace_context(ctx, operation="storyboard_generation")
-                if storyboard_trace_recorder is not None
+                if storyboard_trace_collector is not None
                 else None
             ),
-            trace_recorder=storyboard_trace_recorder,
+            trace_recorder=storyboard_trace_collector,
         )
+        self._merge_runtime_llm_trace_refs(ctx, storyboard_trace_collector)
         ctx.source_text = ctx.storyboard_plan.source_text
         ctx.caption_speech_plan = build_caption_speech_plan(
             ctx.storyboard_plan.source_text,
@@ -559,7 +579,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
             logger.info(f"   Title: '{title}' (user-specified)")
         else:
-            trace_recorder = self._llm_trace_recorder(ctx)
+            trace_collector = LLMTraceCollector(self._llm_trace_recorder(ctx))
             self._report_progress(ctx.progress_callback, ProgressEventType.GENERATING_TITLE, 0.10)
             if mode == "generate":
                 ctx.title = await generate_title(
@@ -568,7 +588,7 @@ class StandardPipeline(LinearVideoPipeline):
                     strategy="auto",
                     stage_callback=stage_callback,
                     trace_context=self._llm_trace_context(ctx, operation="title_generation"),
-                    trace_recorder=trace_recorder,
+                    trace_recorder=trace_collector,
                 )
                 logger.info(f"   Title: '{ctx.title}' (auto-generated)")
             else:  # fixed
@@ -578,9 +598,10 @@ class StandardPipeline(LinearVideoPipeline):
                     strategy="llm",
                     stage_callback=stage_callback,
                     trace_context=self._llm_trace_context(ctx, operation="title_generation"),
-                    trace_recorder=trace_recorder,
+                    trace_recorder=trace_collector,
                 )
                 logger.info(f"   Title: '{ctx.title}' (LLM-generated)")
+            self._merge_runtime_llm_trace_refs(ctx, trace_collector)
 
     async def plan_visuals(self, ctx: PipelineContext):
         """Step 4: Generate image prompts or visual descriptions."""
@@ -676,6 +697,7 @@ class StandardPipeline(LinearVideoPipeline):
                 ip_profile=ip_profile,
                 scene_casts_by_frame=scene_casts_by_frame,
                 stage_callback=stage_callback,
+                upstream_llm_trace_refs=ctx.llm_trace_refs,
                 trace_context=self._llm_trace_context(ctx, operation="visual_prompt_planning"),
                 trace_recorder=trace_recorder,
             )
@@ -695,7 +717,10 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.resolved_style = None
             ctx.media_negative_prompt = None
             ctx.planning_snapshot = (
-                {"storyboard_generation": ctx.storyboard_plan.to_dict()}
+                {
+                    "storyboard_generation": ctx.storyboard_plan.to_dict(),
+                    "llm_trace_refs": ctx.llm_trace_refs,
+                }
                 if ctx.storyboard_plan is not None
                 else None
             )
@@ -855,6 +880,21 @@ class StandardPipeline(LinearVideoPipeline):
         if ctx.storyboard is None or not ctx.task_dir or not ctx.task_id:
             return
 
+        media_type = "image"
+        if ctx.config is not None:
+            resolved_media_domain = self._resolve_media_domain(ctx.config)
+            if resolved_media_domain in {"image", "video"}:
+                media_type = resolved_media_domain
+        requested_media_workflow = (
+            ctx.config.media_workflow
+            if ctx.config is not None
+            else ctx.params.get("media_workflow")
+        )
+        workflow_trace_context = media_workflow_trace_context(
+            getattr(self.core, "media", None),
+            workflow=requested_media_workflow,
+            media_type=media_type,
+        )
         storyboard_plan_frames = (
             tuple(ctx.storyboard_plan.frames)
             if ctx.storyboard_plan is not None
@@ -876,7 +916,11 @@ class StandardPipeline(LinearVideoPipeline):
                 }
                 for index, frame in enumerate(ctx.storyboard.frames)
             ],
-            generation_context=self._final_prompt_generation_context(ctx),
+            generation_context=self._final_prompt_generation_context(
+                ctx,
+                workflow_trace_context=workflow_trace_context,
+                media_type=media_type,
+            ),
         )
         relative_path = str(artifact_path.relative_to(Path(ctx.task_dir)))
         record = {
@@ -889,8 +933,29 @@ class StandardPipeline(LinearVideoPipeline):
         ctx.planning_snapshot["final_visual_prompt_artifact"] = record
         ctx.storyboard.planning_snapshot = dict(ctx.storyboard.planning_snapshot or {})
         ctx.storyboard.planning_snapshot["final_visual_prompt_artifact"] = record
+        if ctx.config is not None:
+            ctx.config.media_workflow = workflow_trace_context["workflow"]
+            ctx.config.media_prompt_trace_context = {
+                "artifact_path": str(artifact_path),
+                "task_id": ctx.task_id,
+                "workflow": workflow_trace_context.get("workflow"),
+                "workflow_input": workflow_trace_context.get("workflow_input"),
+                "requested_workflow": workflow_trace_context.get("requested_workflow"),
+                "media_type": media_type,
+                **extract_workflow_file_trace(workflow_trace_context),
+                "frame_ids_by_index": {
+                    str(index): storyboard_plan_frames[index].frame_id
+                    for index in range(min(len(storyboard_plan_frames), len(ctx.storyboard.frames)))
+                },
+            }
 
-    def _final_prompt_generation_context(self, ctx: PipelineContext) -> dict[str, Any]:
+    def _final_prompt_generation_context(
+        self,
+        ctx: PipelineContext,
+        *,
+        workflow_trace_context: dict[str, Any] | None = None,
+        media_type: str | None = None,
+    ) -> dict[str, Any]:
         resolved_style = None
         if ctx.resolved_style is not None:
             resolved_style = {
@@ -923,24 +988,21 @@ class StandardPipeline(LinearVideoPipeline):
                 "canvas_height": ctx.config.canvas_height,
                 "sync_media_size_to_canvas": ctx.config.sync_media_size_to_canvas,
             }
-        requested_media_workflow = (
-            ctx.config.media_workflow
-            if ctx.config is not None
-            else ctx.params.get("media_workflow")
-        )
-        media_type = "image"
-        if ctx.config is not None:
+        resolved_media_type = media_type or "image"
+        if media_type is None and ctx.config is not None:
             resolved_media_domain = self._resolve_media_domain(ctx.config)
             if resolved_media_domain in {"image", "video"}:
-                media_type = resolved_media_domain
-        workflow_trace_context = media_workflow_trace_context(
+                resolved_media_type = resolved_media_domain
+        workflow_trace_context = workflow_trace_context or media_workflow_trace_context(
             getattr(self.core, "media", None),
-            workflow=requested_media_workflow,
-            media_type=media_type,
+            workflow=(ctx.config.media_workflow if ctx.config is not None else ctx.params.get("media_workflow")),
+            media_type=resolved_media_type,
         )
         media_workflow_context = {
             "requested_media_workflow": workflow_trace_context.get("requested_workflow"),
             "media_workflow": workflow_trace_context.get("workflow"),
+            "media_workflow_input": workflow_trace_context.get("workflow_input"),
+            **extract_workflow_file_trace(workflow_trace_context),
         }
         if workflow_trace_context.get("workflow_resolution_error"):
             media_workflow_context["media_workflow_resolution_error"] = (
@@ -955,6 +1017,7 @@ class StandardPipeline(LinearVideoPipeline):
                 "workflow": ctx.params.get("workflow"),
                 **media_workflow_context,
                 **media_dimensions,
+                "media_type": resolved_media_type,
                 "prompt_language": ctx.params.get("prompt_language"),
                 "generation_world_hint": ctx.params.get("generation_world_hint"),
                 "prompt_prefix": ctx.params.get("prompt_prefix"),

@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from pixelle_video.prompts.template_loader import render_prompt_template
+
 JSONPrimitive = str | int | float | bool | None
 JSONValue = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
 FrozenJSONValue = (
@@ -13,11 +15,10 @@ FrozenJSONValue = (
 _TEXT_MODES = {"suppress", "programmatic_only", "native_hint", "hybrid"}
 _TARGETS = {"hyperframes", "html", "ass", "native_prompt", "python"}
 _DENSITIES = {"low", "medium", "high"}
-DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT = (
-    "no visible text, no Chinese characters, no English letters, no words, "
-    "no subtitles, no captions, no watermark, no logo text, convey the idea "
-    "through objects, symbols, composition, and scene elements instead of written text"
-)
+DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT = render_prompt_template(
+    "final_visual_prompt_clauses",
+    {"no_text_positive_rule": True},
+).text
 
 
 def freeze_json_value(value: Any) -> FrozenJSONValue:

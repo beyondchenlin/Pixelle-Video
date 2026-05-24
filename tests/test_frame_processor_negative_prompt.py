@@ -5,6 +5,11 @@ import pytest
 from pixelle_video.models.media import MediaResult
 from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.services.frame_processor import FrameProcessor
+from pixelle_video.services.prompt_trace_artifacts import (
+    build_workflow_params_trace,
+    validate_media_prompt_trace_artifact,
+    write_single_media_prompt_trace_context,
+)
 
 
 @pytest.mark.asyncio
@@ -93,6 +98,79 @@ async def test_step_generate_media_uses_video_template_when_workflow_missing(mon
 
     assert captured["media_type"] == "video"
     assert captured["duration"] == 2.0
+
+
+@pytest.mark.asyncio
+async def test_step_generate_media_records_video_duration_in_trace_artifact(
+    monkeypatch,
+    tmp_path,
+):
+    prompt = "dynamic bird-world dog sprint"
+
+    class _FakeCore:
+        async def media(self, **kwargs):
+            workflow_param_trace = build_workflow_params_trace(
+                {
+                    "prompt": kwargs["prompt"],
+                    "width": kwargs["width"],
+                    "height": kwargs["height"],
+                    "index": kwargs["index"],
+                    "duration": kwargs["duration"],
+                },
+                prompt=kwargs["prompt"],
+            )
+            trace_context = kwargs["media_prompt_trace_context"]
+            validate_media_prompt_trace_artifact(
+                trace_context,
+                prompt=kwargs["prompt"],
+                resolved_workflow=trace_context["workflow"],
+                resolved_workflow_input=trace_context["workflow_input"],
+                media_type="video",
+                width=kwargs["width"],
+                height=kwargs["height"],
+                negative_prompt="",
+                workflow_param_trace=workflow_param_trace,
+            )
+            return MediaResult(media_type="video", url="https://example.com/frame.mp4", duration=2.0)
+
+    processor = FrameProcessor(_FakeCore())
+
+    async def fake_download_media(*args, **kwargs):
+        return str(tmp_path / "frame.mp4")
+
+    monkeypatch.setattr(processor, "_download_media", fake_download_media)
+
+    frame = StoryboardFrame(index=0, narration="scene", image_prompt=prompt, duration=2.0)
+    config = StoryboardConfig(
+        media_width=1024,
+        media_height=1024,
+        task_id="task-1",
+        frame_template="1080x1920/video_default.html",
+        media_workflow="video_default.json",
+        media_prompt_trace_context=write_single_media_prompt_trace_context(
+            tmp_path / "trace",
+            task_id="task-1",
+            prompt=prompt,
+            workflow="video_default.json",
+            media_type="video",
+            source="test",
+            media_width=1024,
+            media_height=1024,
+        ),
+    )
+
+    await processor._step_generate_media(frame, config)
+
+    artifact_path = (
+        tmp_path
+        / "trace"
+        / "media_prompt_calls"
+        / "frame_001"
+        / "prompt_traces"
+        / "final_visual_prompts.md"
+    )
+    artifact_text = artifact_path.read_text(encoding="utf-8")
+    assert '"index": "1"' in artifact_text
 
 
 @pytest.mark.asyncio

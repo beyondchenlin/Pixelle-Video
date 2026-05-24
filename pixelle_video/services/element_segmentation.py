@@ -20,14 +20,16 @@ from pixelle_video.models.element_animation import (
     ElementRenderBackend,
     SegmentedElement,
 )
+from pixelle_video.prompts.template_loader import render_prompt_template
 from pixelle_video.services.element_animation_presets import (
     resolve_background_bounds,
     resolve_element_bounds,
 )
-
-DEFAULT_SEGMENTATION_PROMPT = (
-    "main foreground subjects, separated simple drawing elements"
+from pixelle_video.services.prompt_trace_artifacts import (
+    write_single_media_prompt_trace_context,
 )
+
+DEFAULT_SEGMENTATION_PROMPT_TEMPLATE_ID = "element_segmentation"
 PRESET_CYCLE = ["float", "pulse", "drift", "parallax", "pop"]
 
 
@@ -54,7 +56,7 @@ class ElementSegmentationService:
         intensity: AnimationIntensity,
         audio_path: str | None = None,
     ) -> ElementAnimationManifest:
-        workflow_prompt = prompt or DEFAULT_SEGMENTATION_PROMPT
+        workflow_prompt, prompt_template_metadata = _resolve_segmentation_prompt(prompt)
         workflow_params = {
             "image": image_path,
             "prompt": workflow_prompt,
@@ -64,16 +66,38 @@ class ElementSegmentationService:
             "height": height,
         }
 
+        trace_context = write_single_media_prompt_trace_context(
+            Path(output_dir),
+            task_id=task_id,
+            prompt=workflow_prompt,
+            workflow=workflow,
+            workflow_input=workflow,
+            media_type="image",
+            source="element_segmentation",
+            frame_id=str(frame_index),
+            media_width=width,
+            media_height=height,
+            workflow_params=workflow_params,
+            generation_context={
+                "frame_index": frame_index,
+                "candidate_limit": candidate_limit,
+                "selected_count": selected_count,
+                "prompt_template": prompt_template_metadata,
+            },
+        )
         execute_workflow = getattr(self.core, "execute_comfykit_workflow", None)
-        if callable(execute_workflow):
-            result = await execute_workflow(
-                workflow,
-                workflow_params,
-                workflow_source="selfhost",
+        if not callable(execute_workflow):
+            raise ValueError(
+                "Element segmentation requires core.execute_comfykit_workflow "
+                "so prompt trace validation cannot be bypassed"
             )
-        else:
-            kit = await self.core._get_or_create_comfykit()
-            result = await kit.execute(workflow, workflow_params)
+        result = await execute_workflow(
+            workflow,
+            workflow_params,
+            workflow_source="selfhost",
+            media_prompt_trace_context=trace_context,
+            media_type="image",
+        )
 
         stable_dir = Path(output_dir) / "element_animation" / f"frame_{frame_index:03d}"
         stable_dir.mkdir(parents=True, exist_ok=True)
@@ -228,3 +252,10 @@ class ElementSegmentationService:
         if bbox is None:
             return [0, 0, width, height], True
         return [int(value) for value in bbox], False
+
+
+def _resolve_segmentation_prompt(prompt: str | None) -> tuple[str, dict[str, str]]:
+    if prompt:
+        return prompt, {"source": "caller"}
+    rendered = render_prompt_template(DEFAULT_SEGMENTATION_PROMPT_TEMPLATE_ID)
+    return rendered.text, rendered.trace_metadata()

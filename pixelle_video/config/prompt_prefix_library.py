@@ -265,8 +265,7 @@ def get_effective_image_prompt_prefix(image_config: Any) -> str:
                 if content and content.strip():
                     return content.strip()
 
-    legacy_prefix = _read_mapping_or_attr(image_config, "prompt_prefix", "") or ""
-    return legacy_prefix.strip()
+    return ""
 
 
 def get_active_image_prompt_prefix_item(image_config: Any) -> Optional[dict[str, Any]]:

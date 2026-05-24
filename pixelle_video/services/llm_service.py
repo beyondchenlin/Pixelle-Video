@@ -65,21 +65,9 @@ class LLMService:
     - Any custom provider with OpenAI-compatible API
 
     Usage:
-        # Direct call
-        answer = await pixelle_video.llm("Explain atomic habits")
-
-        # With parameters
-        answer = await pixelle_video.llm(
-            prompt="Explain atomic habits in 3 sentences",
-            temperature=0.7,
-            max_tokens=2000
-        )
-
-        # Structured output as dict
-        data = await pixelle_video.llm(
-            prompt="Generate a JSON with 'name' and 'value'",
-            response_type=dict
-        )
+        LLM calls require trace_context and trace_recorder so the exact prompt,
+        response, template source, and status are saved. Prefer the pipeline
+        helpers that create those trace objects before calling this service.
     """
     
     def __init__(self, config: dict):
@@ -175,8 +163,8 @@ class LLMService:
             Generated text (str), parsed Pydantic model instance, or dict (depending on response_type)
 
         Examples:
-            # Basic text generation
-            answer = await pixelle_video.llm("Explain atomic habits")
+            LLM calls must pass trace_context and trace_recorder. Pipeline and
+            service helpers create these objects before calling this boundary.
 
             # Structured output with Pydantic model
             class MovieReview(BaseModel):
@@ -186,14 +174,18 @@ class LLMService:
 
             review = await pixelle_video.llm(
                 prompt="Review the movie Inception",
-                response_type=MovieReview
+                response_type=MovieReview,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
             )
             print(review.title)  # Structured access
 
             # Structured output as dict (no model definition needed)
             data = await pixelle_video.llm(
                 prompt="Generate a JSON object with 'name' and 'age' fields",
-                response_type=dict
+                response_type=dict,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
             )
             print(data["name"])  # Direct dict access
         """

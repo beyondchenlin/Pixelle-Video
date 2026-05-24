@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +18,7 @@ from pixelle_video.tts_workflow_contract import (
 )
 from pixelle_video.tts_workflow_family import (
     infer_tts_workflow_family,
+    is_known_tts_workflow_resource,
     is_omnivoice_longform_workflow_key,
     is_omnivoice_workflow_key,
     is_tts_workflow_family,
@@ -39,6 +41,10 @@ class _FakeCore:
     async def _get_or_create_comfykit(self):
         return self.kit
 
+    async def execute_comfykit_workflow(self, workflow_input, params, **kwargs):
+        assert kwargs.get("tts_workflow_trace_context") is not None
+        return await self.kit.execute(workflow_input, params)
+
 
 class _FailingKit:
     async def execute(self, workflow_input, params):
@@ -51,6 +57,10 @@ class _FailingCore:
 
     async def _get_or_create_comfykit(self):
         return self.kit
+
+    async def execute_comfykit_workflow(self, workflow_input, params, **kwargs):
+        assert kwargs.get("tts_workflow_trace_context") is not None
+        return await self.kit.execute(workflow_input, params)
 
 
 class _RecordingTtsCore:
@@ -146,6 +156,128 @@ def test_tts_workflow_family_detects_omnivoice_from_node_class(tmp_path):
     assert infer_tts_workflow_family(workflow_path) == "omnivoice"
     assert is_tts_workflow_family(workflow_path, "omnivoice") is True
     assert is_omnivoice_workflow_key(workflow_path) is True
+
+
+def test_tts_workflow_family_detects_omnivoice_from_ui_nodes(tmp_path):
+    workflow_path = tmp_path / "custom_voice.json"
+    workflow_path.write_text(
+        """
+        {
+          "nodes": [
+            {
+              "id": 1,
+              "type": "OmniVoiceLongformTTS",
+              "inputs": []
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    assert infer_tts_workflow_family(workflow_path) == "omnivoice"
+    assert is_known_tts_workflow_resource(workflow_path) is True
+
+
+def test_tts_workflow_resource_requires_confirmed_tts_content(tmp_path):
+    workflow_path = tmp_path / "OmniVoice_fake.json"
+    workflow_path.write_text(
+        """
+        {
+          "source": "selfhost"
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    assert infer_tts_workflow_family(workflow_path) == "omnivoice"
+    assert is_known_tts_workflow_resource(workflow_path) is False
+
+
+def test_runninghub_tts_descriptor_uses_explicit_domain_not_filename(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("PIXELLE_VIDEO_ROOT", str(tmp_path))
+    workflow_path = tmp_path / "workflows" / "runninghub" / "voice_descriptor.json"
+    workflow_path.parent.mkdir(parents=True)
+    workflow_path.write_text(
+        """
+        {
+          "source": "runninghub",
+          "workflow_id": "rh-voice-123",
+          "workflow_domain": "tts",
+          "service_domain": "tts"
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    assert is_known_tts_workflow_resource(workflow_path) is True
+
+
+def test_runninghub_tts_descriptor_does_not_trust_filename_without_domain(tmp_path):
+    workflow_path = tmp_path / "workflows" / "runninghub" / "tts_edge.json"
+    workflow_path.parent.mkdir(parents=True)
+    workflow_path.write_text(
+        """
+        {
+          "source": "runninghub",
+          "workflow_id": "rh-voice-123"
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    assert is_known_tts_workflow_resource(workflow_path) is False
+
+
+def test_tts_service_scans_runninghub_tts_descriptor_without_tts_prefix(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("PIXELLE_VIDEO_ROOT", str(tmp_path))
+    workflow_dir = tmp_path / "workflows" / "runninghub"
+    workflow_dir.mkdir(parents=True)
+    workflow_path = workflow_dir / "voice_descriptor.json"
+    workflow_path.write_text(
+        """
+        {
+          "source": "runninghub",
+          "workflow_id": "rh-voice-123",
+          "workflow_domain": "tts",
+          "service_domain": "tts"
+        }
+        """,
+        encoding="utf-8",
+    )
+    service = TTSService({"comfyui": {"tts": {}}})
+    workflow_info = service._resolve_workflow("runninghub/voice_descriptor.json")
+
+    assert workflow_info["key"] == "runninghub/voice_descriptor.json"
+    assert workflow_info["workflow_domain"] == "tts"
+    assert workflow_info["service_domain"] == "tts"
+
+
+def test_tts_service_ignores_runninghub_tts_prefix_without_explicit_domain(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("PIXELLE_VIDEO_ROOT", str(tmp_path))
+    workflow_dir = tmp_path / "workflows" / "runninghub"
+    workflow_dir.mkdir(parents=True)
+    workflow_path = workflow_dir / "tts_edge.json"
+    workflow_path.write_text(
+        """
+        {
+          "source": "runninghub",
+          "workflow_id": "rh-voice-123"
+        }
+        """,
+        encoding="utf-8",
+    )
+    service = TTSService({"comfyui": {"tts": {}}})
+    assert service._scan_workflows() == []
 
 
 def test_tts_workflow_family_detects_omnivoice_longform_capability_from_node_class(tmp_path):
@@ -285,6 +417,10 @@ async def test_tts_service_copies_local_comfyui_result_to_output_path(tmp_path):
         async def _get_or_create_comfykit(self):
             return _LocalResultKit()
 
+        async def execute_comfykit_workflow(self, workflow_input, params, **kwargs):
+            assert kwargs.get("tts_workflow_trace_context") is not None
+            return await _LocalResultKit().execute(workflow_input, params)
+
     service = TTSService({"comfyui": {"tts": {}}}, core=_LocalResultCore())
 
     returned_path = await service._call_comfyui_workflow(
@@ -315,6 +451,10 @@ async def test_tts_service_accepts_opus_audio_from_outputs(tmp_path):
         async def _get_or_create_comfykit(self):
             return _OpusOutputKit()
 
+        async def execute_comfykit_workflow(self, workflow_input, params, **kwargs):
+            assert kwargs.get("tts_workflow_trace_context") is not None
+            return await _OpusOutputKit().execute(workflow_input, params)
+
     service = TTSService({"comfyui": {"tts": {}}}, core=_OpusOutputCore())
 
     returned_path = await service._call_comfyui_workflow(
@@ -327,6 +467,176 @@ async def test_tts_service_accepts_opus_audio_from_outputs(tmp_path):
     )
 
     assert returned_path == str(source_path)
+
+
+@pytest.mark.asyncio
+async def test_tts_service_rejects_core_without_provenance_execute_boundary():
+    class _LegacyKit:
+        async def execute(self, workflow_input, params):
+            raise AssertionError("legacy kit.execute fallback must not run")
+
+    class _LegacyCore:
+        async def _get_or_create_comfykit(self):
+            return _LegacyKit()
+
+    service = TTSService({"comfyui": {"tts": {}}}, core=_LegacyCore())
+
+    with pytest.raises(RuntimeError, match="provenance-capable"):
+        await service._call_comfyui_workflow(
+            {
+                "key": "selfhost/tts_edge.json",
+                "source": "selfhost",
+                "path": "workflows/selfhost/tts_edge.json",
+            },
+            text="generated text",
+        )
+
+
+@pytest.mark.asyncio
+async def test_tts_service_writes_trace_for_comfyui_workflow(tmp_path, monkeypatch):
+    source_path = tmp_path / "comfyui-result.wav"
+    source_path.write_bytes(b"audio-data")
+    output_path = tmp_path / "requested" / "audio.wav"
+    captured = {}
+
+    async def fake_execute(
+        workflow_input,
+        workflow_params,
+        workflow_info,
+        *,
+        backend_role="default",
+        tts_workflow_trace_context=None,
+    ):
+        assert isinstance(tts_workflow_trace_context, dict)
+        captured["workflow_input"] = workflow_input
+        captured["workflow_params"] = dict(workflow_params)
+        captured["workflow_info"] = dict(workflow_info)
+        captured["backend_role"] = backend_role
+        captured["trace_context"] = dict(tts_workflow_trace_context)
+        return SimpleNamespace(
+            status="completed",
+            audios=[str(source_path)],
+            files=[],
+            outputs={},
+        )
+
+    service = TTSService({"comfyui": {"tts": {}}})
+    monkeypatch.setattr(service, "_execute_workflow", fake_execute)
+    monkeypatch.setattr(service, "_validate_required_workflow_params", lambda *_args: None)
+
+    returned_path = await service._call_comfyui_workflow(
+        {
+            "key": "selfhost/tts_edge.json",
+            "source": "selfhost",
+            "path": "workflows/selfhost/tts_edge.json",
+        },
+        text="hello trace",
+        voice="en-US-JennyNeural",
+        speed=1.2,
+        output_path=str(output_path),
+    )
+
+    artifact_path = Path(str(captured["trace_context"]["artifact_path"]))
+    result_path = artifact_path.with_name("tts_service_result.md")
+    artifact_text = artifact_path.read_text(encoding="utf-8")
+    result_text = result_path.read_text(encoding="utf-8")
+
+    assert returned_path == str(output_path)
+    assert captured["workflow_params"]["text"] == "hello trace"
+    assert captured["trace_context"]["workflow"] == "selfhost/tts_edge.json"
+    assert captured["trace_context"]["workflow_input"] == "workflows/selfhost/tts_edge.json"
+    assert "hello trace" in artifact_text
+    assert result_path.is_file()
+    assert "pixelle.tts_service_result.v1" in result_text
+    assert '"status": "completed"' in result_text
+    assert output_path.read_bytes() == b"audio-data"
+
+
+@pytest.mark.asyncio
+async def test_tts_service_does_not_duplicate_core_workflow_result_for_comfyui_failure(
+    monkeypatch,
+    tmp_path,
+):
+    output_path = tmp_path / "failed.wav"
+    captured = {}
+
+    async def fake_execute(
+        workflow_input,
+        workflow_params,
+        workflow_info,
+        *,
+        backend_role="default",
+        tts_workflow_trace_context=None,
+    ):
+        assert isinstance(tts_workflow_trace_context, dict)
+        captured["trace_context"] = dict(tts_workflow_trace_context)
+        return SimpleNamespace(
+            status="failed",
+            msg="WebSocket connection closed",
+            audios=[],
+            files=[],
+            outputs={},
+        )
+
+    service = TTSService({"comfyui": {"tts": {}}})
+    monkeypatch.setattr(service, "_execute_workflow", fake_execute)
+    monkeypatch.setattr(service, "_validate_required_workflow_params", lambda *_args: None)
+
+    with pytest.raises(Exception, match="WebSocket connection closed"):
+        await service._call_comfyui_workflow(
+            {
+                "key": "selfhost/tts_edge.json",
+                "source": "selfhost",
+                "path": "workflows/selfhost/tts_edge.json",
+            },
+            text="failure trace",
+            output_path=str(output_path),
+        )
+
+    artifact_path = Path(str(captured["trace_context"]["artifact_path"]))
+    service_result_path = artifact_path.with_name("tts_service_result.md")
+    service_result_text = service_result_path.read_text(encoding="utf-8")
+
+    assert not artifact_path.with_name("tts_workflow_result.md").exists()
+    assert service_result_path.is_file()
+    assert '"status": "failed"' in service_result_text
+    assert "WebSocket connection closed" in service_result_text
+
+
+@pytest.mark.asyncio
+async def test_tts_service_writes_trace_for_local_edge_tts(tmp_path, monkeypatch):
+    output_path = tmp_path / "local.wav"
+    calls = []
+
+    async def fake_edge_tts(*, text, voice, rate, output_path):
+        calls.append(
+            {
+                "text": text,
+                "voice": voice,
+                "rate": rate,
+                "output_path": output_path,
+            }
+        )
+        Path(output_path).write_bytes(b"local-audio")
+
+    monkeypatch.setattr("pixelle_video.services.tts_service.edge_tts", fake_edge_tts)
+    service = TTSService({"local": {"voice": "en-US-JennyNeural", "speed": 1.0}})
+
+    returned_path = await service._call_local_tts(
+        text="local trace",
+        output_path=str(output_path),
+    )
+
+    artifacts = list((tmp_path / "prompt_traces" / "tts").glob("*/tts_workflow.md"))
+    result_artifacts = [
+        artifact.with_name("tts_workflow_result.md") for artifact in artifacts
+    ]
+
+    assert returned_path == str(output_path)
+    assert calls[0]["text"] == "local trace"
+    assert len(artifacts) == 1
+    assert "local trace" in artifacts[0].read_text(encoding="utf-8")
+    assert result_artifacts[0].is_file()
 
 
 @pytest.mark.asyncio
@@ -397,6 +707,7 @@ async def test_tts_service_passes_omnivoice_duration_to_workflow(monkeypatch):
         workflow_info,
         *,
         backend_role="default",
+        tts_workflow_trace_context=None,
     ):
         captured["workflow_input"] = workflow_input
         captured["workflow_params"] = dict(workflow_params)
@@ -450,6 +761,7 @@ async def test_tts_service_maps_reference_audio_text_to_prompt_text_workflows(mo
         workflow_info,
         *,
         backend_role="default",
+        tts_workflow_trace_context=None,
     ):
         captured["workflow_params"] = dict(workflow_params)
         captured["backend_role"] = backend_role
@@ -473,6 +785,45 @@ async def test_tts_service_maps_reference_audio_text_to_prompt_text_workflows(mo
     assert captured["workflow_params"]["prompt_text"] == "reference transcript"
     assert "reference_audio_text" not in captured["workflow_params"]
     assert captured["backend_role"] == "default"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case_variant_params",
+    [
+        {"Text": "hidden"},
+        {"Ref_Audio": "voice.wav"},
+        {"Prompt_Text": "reference transcript"},
+    ],
+)
+async def test_tts_service_rejects_case_variant_tts_workflow_params(
+    monkeypatch,
+    case_variant_params,
+):
+    service = TTSService({"comfyui": {"tts": {}}})
+    monkeypatch.setattr(
+        service,
+        "_resolve_workflow",
+        lambda workflow=None: {
+            "key": "selfhost/tts_edge.json",
+            "path": "workflows/selfhost/tts_edge.json",
+            "source": "selfhost",
+        },
+    )
+    monkeypatch.setattr(service, "_validate_required_workflow_params", lambda *_args: None)
+
+    async def fail_if_executed(*_args, **_kwargs):
+        raise AssertionError("case-variant TTS params must be rejected")
+
+    monkeypatch.setattr(service, "_execute_workflow", fail_if_executed)
+
+    with pytest.raises(ValueError, match="lowercase"):
+        await service(
+            text="hello",
+            inference_mode="comfyui",
+            workflow="selfhost/tts_edge.json",
+            **case_variant_params,
+        )
 
 
 @pytest.mark.asyncio

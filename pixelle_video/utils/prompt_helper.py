@@ -22,34 +22,39 @@ from typing import Any, Optional
 
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
 from pixelle_video.models.text_overlay import DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
+from pixelle_video.prompts.template_loader import (
+    load_prompt_template,
+    render_prompt_template,
+)
+
+FINAL_VISUAL_PROMPT_TEMPLATE_ID = "final_visual_prompt"
+FINAL_VISUAL_PROMPT_CLAUSES_TEMPLATE_ID = "final_visual_prompt_clauses"
+
+
+def _render_final_visual_prompt_clause(**variables: Any) -> str:
+    return render_prompt_template(
+        FINAL_VISUAL_PROMPT_CLAUSES_TEMPLATE_ID,
+        dict(variables),
+    ).text.strip()
+
+
+def _split_prompt_clause_rules(value: str) -> tuple[str, ...]:
+    return tuple(
+        segment.strip()
+        for segment in str(value or "").split(",")
+        if segment.strip()
+    )
+
 
 NO_TEXT_POSITIVE_RULE = DEFAULT_IMAGE_TEXT_POSITIVE_PROMPT
-NO_TEXT_NEGATIVE_RULES: tuple[str, ...] = (
-    "text",
-    "letters",
-    "words",
-    "typography",
-    "subtitles",
-    "captions",
-    "watermark",
-    "logo",
-    "Chinese characters",
-    "English letters",
-    "handwriting",
-    "calligraphy",
-    "printed text",
+NO_TEXT_NEGATIVE_RULES: tuple[str, ...] = _split_prompt_clause_rules(
+    _render_final_visual_prompt_clause(no_text_negative_rules=True)
 )
-PLANNED_TEXT_POSITIVE_GUARD = (
-    "only render the explicitly requested planned text, no extra captions, "
-    "no extra subtitles, no watermark, no logo text, no random letters"
+PLANNED_TEXT_POSITIVE_GUARD = _render_final_visual_prompt_clause(
+    planned_text_positive_guard=True
 )
-PLANNED_TEXT_NEGATIVE_RULES: tuple[str, ...] = (
-    "unplanned text",
-    "random letters",
-    "watermark",
-    "logo text",
-    "extra captions",
-    "extra subtitles",
+PLANNED_TEXT_NEGATIVE_RULES: tuple[str, ...] = _split_prompt_clause_rules(
+    _render_final_visual_prompt_clause(planned_text_negative_rules=True)
 )
 _HEX_COLOR_RE = re.compile(
     r"(?<![0-9a-fA-F])#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])"
@@ -175,13 +180,6 @@ def _read_nested_value(container: Any, path: Sequence[str]) -> Any:
     return current
 
 
-def _apply_prompt_template(prompt: str, prompt_template: str = "") -> str:
-    template = (prompt_template or "").strip()
-    if template and "{prompt}" in template:
-        return template.replace("{prompt}", prompt)
-    return prompt
-
-
 def build_image_prompt(prompt: str, prefix: str = "") -> str:
     """
     Return a cleaned image prompt without legacy raw-prefix concatenation.
@@ -204,7 +202,10 @@ def apply_no_text_policy(prompt: str, enabled: bool = True) -> str:
     if NO_TEXT_POSITIVE_RULE.lower() in cleaned_prompt.lower():
         return cleaned_prompt
 
-    return ", ".join(_normalize_prompt_list([cleaned_prompt, NO_TEXT_POSITIVE_RULE]))
+    return append_final_visual_prompt_requirements(
+        cleaned_prompt,
+        [NO_TEXT_POSITIVE_RULE],
+    )
 
 
 def apply_image_text_policy(prompt: str, image_text_policy: Any) -> str:
@@ -218,7 +219,10 @@ def apply_image_text_policy(prompt: str, image_text_policy: Any) -> str:
     ).strip()
     if not positive_prompt:
         return cleaned_prompt
-    return ", ".join(_normalize_prompt_list([cleaned_prompt, positive_prompt]))
+    return append_final_visual_prompt_requirements(
+        cleaned_prompt,
+        [positive_prompt],
+    )
 
 
 def apply_text_rendering_policy(
@@ -228,7 +232,10 @@ def apply_text_rendering_policy(
     has_native_hints: bool,
 ) -> str:
     if has_native_hints and _read_value(policy, "allow_native_text_in_image", False):
-        return ", ".join(_normalize_prompt_list([prompt, PLANNED_TEXT_POSITIVE_GUARD]))
+        return append_final_visual_prompt_requirements(
+            prompt,
+            [PLANNED_TEXT_POSITIVE_GUARD],
+        )
 
     return apply_no_text_policy(
         prompt,
@@ -245,12 +252,86 @@ def sanitize_visual_prompt_text(prompt: str) -> str:
     return cleaned.strip(" ,，;；")
 
 
+def final_visual_prompt_template_metadata() -> dict[str, str]:
+    template = load_prompt_template(FINAL_VISUAL_PROMPT_TEMPLATE_ID)
+    return {
+        "prompt_id": template.prompt_id,
+        "version": template.version,
+        "stage": template.stage,
+        "purpose": template.purpose,
+        "output_contract": template.output_contract,
+        "path": str(template.path),
+    }
+
+
+def final_visual_prompt_clause_template_metadata() -> dict[str, str]:
+    template = load_prompt_template(FINAL_VISUAL_PROMPT_CLAUSES_TEMPLATE_ID)
+    return {
+        "prompt_id": template.prompt_id,
+        "version": template.version,
+        "stage": template.stage,
+        "purpose": template.purpose,
+        "output_contract": template.output_contract,
+        "path": str(template.path),
+    }
+
+
+def _render_final_visual_prompt(
+    *,
+    base_prompt: str,
+    world_clause: str = "",
+    style_clause: str = "",
+    camera_clause: str = "",
+    environment_clause: str = "",
+    visual_suffix: str = "",
+) -> str:
+    rendered = render_prompt_template(
+        FINAL_VISUAL_PROMPT_TEMPLATE_ID,
+        {
+            "base_prompt": sanitize_visual_prompt_text(base_prompt),
+            "world_clause": sanitize_visual_prompt_text(world_clause),
+            "style_clause": sanitize_visual_prompt_text(style_clause),
+            "camera_clause": sanitize_visual_prompt_text(camera_clause),
+            "environment_clause": sanitize_visual_prompt_text(environment_clause),
+            "visual_suffix": sanitize_visual_prompt_text(visual_suffix),
+        },
+    )
+    return sanitize_visual_prompt_text(rendered.text)
+
+
+def append_final_visual_prompt_requirements(
+    base_prompt: str,
+    requirements: Any,
+) -> str:
+    visual_suffix = ", ".join(_normalize_prompt_list(requirements))
+    cleaned_base_prompt = sanitize_visual_prompt_text(base_prompt)
+    if not visual_suffix:
+        return cleaned_base_prompt
+    existing_requirements = re.search(
+        r"\s+Rendering requirements:\s*",
+        cleaned_base_prompt,
+    )
+    if existing_requirements is not None:
+        existing_suffix = cleaned_base_prompt[existing_requirements.end() :].strip()
+        cleaned_base_prompt = cleaned_base_prompt[
+            : existing_requirements.start()
+        ].strip()
+        visual_suffix = ", ".join(
+            _normalize_prompt_list([existing_suffix, visual_suffix])
+        )
+    return _render_final_visual_prompt(
+        base_prompt=cleaned_base_prompt,
+        visual_suffix=visual_suffix,
+    )
+
+
 def build_visible_text_whitelist_clause(whitelist: Any) -> str:
     allowed_text = _normalize_prompt_list(whitelist)
     if not allowed_text:
         return ""
-    quoted = "、".join(f"“{item}”" for item in allowed_text)
-    return f"画面文字只允许白名单内容：{quoted}；only whitelisted text may appear, no extra words."
+    return _render_final_visual_prompt_clause(
+        visible_text_whitelist="、".join(f"“{item}”" for item in allowed_text)
+    )
 
 
 def merge_z_image_constraints_into_prompt(
@@ -259,12 +340,13 @@ def merge_z_image_constraints_into_prompt(
     extra_constraints: Any = None,
     visible_text_whitelist: Any = None,
 ) -> str:
-    clauses = [sanitize_visual_prompt_text(prompt)]
-    whitelist_clause = build_visible_text_whitelist_clause(visible_text_whitelist)
-    if whitelist_clause:
-        clauses.append(whitelist_clause)
-    clauses.extend(_normalize_negative_rule_list(extra_constraints))
-    return sanitize_visual_prompt_text(", ".join(_normalize_prompt_list(clauses)))
+    return append_final_visual_prompt_requirements(
+        prompt,
+        [
+            build_visible_text_whitelist_clause(visible_text_whitelist),
+            *_normalize_negative_rule_list(extra_constraints),
+        ],
+    )
 
 
 def ip_negative_constraints_from_context(frame_context: Any) -> tuple[str, ...]:
@@ -312,15 +394,24 @@ def assemble_image_prompt(
 ) -> str:
     base_prompt = sanitize_visual_prompt_text(base_prompt)
     if resolved_style is None:
-        return base_prompt
+        return _render_final_visual_prompt(base_prompt=base_prompt)
 
     template = (resolved_style.prompt_template or "").strip()
-    if template and template != "{prompt}":
-        return sanitize_visual_prompt_text(_apply_prompt_template(base_prompt, template))
-
     style_clause = _structured_style_clause(resolved_style)
-    return sanitize_visual_prompt_text(
-        ", ".join(_normalize_prompt_list([base_prompt, style_clause]))
+    if template and template != "{prompt}":
+        template_style_fragments = [
+            fragment
+            for fragment in _prompt_template_style_fragments(template)
+            if fragment.lower() not in style_clause.lower()
+        ]
+        style_clause = _sentence_clause(
+            style_clause,
+            *template_style_fragments,
+        )
+
+    return _render_final_visual_prompt(
+        base_prompt=base_prompt,
+        style_clause=style_clause,
     )
 
 
@@ -339,13 +430,18 @@ def _structured_style_clause(resolved_style: ResolvedStyleSpec) -> str:
     if not visual_parts:
         return ""
 
+    joined_visual_parts = ", ".join(visual_parts)
     if resolved_style.style_kind == "ip_world":
-        lead = "adapted into a coherent style world with"
-    elif resolved_style.style_kind == "hybrid":
-        lead = "using an integrated hybrid visual style with"
-    else:
-        lead = "rendered with"
-    return f"{lead} {', '.join(visual_parts)}"
+        return _render_final_visual_prompt_clause(
+            style_ip_world_visual_parts=joined_visual_parts
+        )
+    if resolved_style.style_kind == "hybrid":
+        return _render_final_visual_prompt_clause(
+            style_hybrid_visual_parts=joined_visual_parts
+        )
+    return _render_final_visual_prompt_clause(
+        style_default_visual_parts=joined_visual_parts
+    )
 
 
 def assemble_storyboard_prompt(
@@ -364,26 +460,65 @@ def assemble_storyboard_prompt(
         *_normalize_prompt_list(_read_value(frame_plan, "world_elements", ()))
     )
 
-    clauses = [base]
+    world_clause = ""
     if world_identity:
-        clauses.append(f"set in the {world_identity} world")
+        world_clause = _render_final_visual_prompt_clause(
+            world_identity=world_identity
+        )
+    style_clause = ""
     if style_core:
-        clauses.append(f"rendered as {style_core}")
+        style_clause = _render_final_visual_prompt_clause(style_core=style_core)
+    camera_clause = ""
     if shot_type or shot_purpose:
         camera_parts = _sentence_clause(shot_type, shot_purpose)
         if camera_parts:
-            clauses.append(f"framed as {camera_parts}")
+            camera_clause = _render_final_visual_prompt_clause(
+                camera_parts=camera_parts
+            )
+    environment_clause = ""
     if world_elements:
-        clauses.append(f"with {world_elements} integrated into the environment")
-
-    prompt = "; ".join(_normalize_prompt_list(clauses))
-
+        environment_clause = _render_final_visual_prompt_clause(
+            world_elements=world_elements
+        )
     if normalized_style is not None:
-        prompt = _apply_prompt_template(prompt, normalized_style.get("prompt_template", ""))
+        style_template_parts = _prompt_template_style_fragments(
+            normalized_style.get("prompt_template", "")
+        )
         visual_suffix = _humanize_prompt_token(normalized_style.get("visual_suffix", ""))
-        if visual_suffix and visual_suffix.lower() not in prompt.lower():
-            prompt = "; ".join(_normalize_prompt_list([prompt, visual_suffix]))
-    return sanitize_visual_prompt_text(prompt)
+        if style_template_parts:
+            style_template_parts = tuple(
+                fragment
+                for fragment in style_template_parts
+                if fragment.lower() not in style_clause.lower()
+            )
+            style_clause = _sentence_clause(
+                style_clause,
+                *_normalize_prompt_list(style_template_parts),
+            )
+        if visual_suffix and visual_suffix.lower() not in style_clause.lower():
+            style_clause = _sentence_clause(style_clause, visual_suffix)
+
+    prompt = _render_final_visual_prompt(
+        base_prompt=base,
+        world_clause=world_clause,
+        style_clause=style_clause,
+        camera_clause=camera_clause,
+        environment_clause=environment_clause,
+    )
+
+    return prompt
+
+
+def _prompt_template_style_fragments(prompt_template: str) -> tuple[str, ...]:
+    template = str(prompt_template or "").strip()
+    if not template or "{prompt}" not in template:
+        return ()
+    fragments: list[str] = []
+    for fragment in template.split("{prompt}"):
+        cleaned = sanitize_visual_prompt_text(fragment).strip(" ,:;")
+        if cleaned:
+            fragments.append(cleaned)
+    return tuple(fragments)
 
 
 def assemble_negative_prompt(

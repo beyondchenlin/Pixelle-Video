@@ -9,13 +9,17 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
+from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
+from pixelle_video.services.prompt_trace_artifacts import (
+    write_single_media_prompt_trace_context,
+)
 from pixelle_video.utils.os_util import create_task_output_dir, get_temp_path
 from web.components.content_input import render_version_info
 from web.components.digital_tts_config import render_style_config
-from web.state.storyboard_capture import capture_snapshot_from_task_dir
 from web.components.output_preview import render_scaled_video_preview
 from web.i18n import get_language, tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
+from web.state.storyboard_capture import capture_snapshot_from_task_dir
 from web.utils.async_helpers import run_async
 
 
@@ -50,6 +54,16 @@ def build_tts_generation_kwargs(
             tts_kwargs["duration"] = tts_duration
 
     return tts_kwargs
+
+
+def _render_direct_media_prompt(prompt_key: str, **variables: Any) -> RenderedPrompt:
+    return render_prompt_template(
+        "direct_media_prompt",
+        {
+            prompt_key: True,
+            **variables,
+        },
+    )
 
 
 class DigitalHumanPipelineUI(PipelineUI):
@@ -426,13 +440,36 @@ class DigitalHumanPipelineUI(PipelineUI):
                             second_workflow_path = Path(workflow_path.get("second_workflow_path"))
                             if not second_workflow_path.exists():
                                 raise Exception(f"The second step workflow file does not exist:{second_workflow_path}")
+                            second_workflow_identity = pixelle_video.resolve_comfykit_workflow_file_identity(
+                                second_workflow_path
+                            )
                             second_workflow_params = {
                                 "videoimage": generated_image_path,
                                 "audio": audio_path
                             }
+                            second_prompt = _render_direct_media_prompt(
+                                "digital_human_generated_image_video_synthesis"
+                            )
+                            second_prompt_trace_context = write_single_media_prompt_trace_context(
+                                Path(task_dir),
+                                task_id=task_id,
+                                prompt=second_prompt.text,
+                                workflow=str(second_workflow_identity["workflow_input"]),
+                                media_type="video",
+                                source="web.pipeline.digital_human.customize.second_workflow",
+                                generation_context={
+                                    "videoimage": generated_image_path,
+                                    "audio": audio_path,
+                                    "workflow_file": str(second_workflow_path),
+                                    "direct_media_prompt_template": second_prompt.trace_metadata(),
+                                },
+                                workflow_params=second_workflow_params,
+                            )
                             second_result = await pixelle_video.execute_comfykit_workflow_file(
                                 second_workflow_path,
                                 second_workflow_params,
+                                media_prompt_trace_context=second_prompt_trace_context,
+                                media_type="video",
                             )
                             # Video Link Extraction
                             generated_video_url = None
@@ -473,13 +510,36 @@ class DigitalHumanPipelineUI(PipelineUI):
 
                             if goods_text and goods_text.strip():
                                 workflow_path = third_workflow_path
+                                workflow_identity = pixelle_video.resolve_comfykit_workflow_file_identity(
+                                    workflow_path
+                                )
                                 workflow_params = {"firstimage": character_assets[0], "secondimage": goods_assets[0]}
                                 generated_text = goods_text
 
                                 status_text.text(tr("progress.step_image"))
+                                combine_prompt = _render_direct_media_prompt(
+                                    "digital_human_goods_image_combine"
+                                )
+                                combine_prompt_trace_context = write_single_media_prompt_trace_context(
+                                    Path(task_dir),
+                                    task_id=task_id,
+                                    prompt=combine_prompt.text,
+                                    workflow=str(workflow_identity["workflow_input"]),
+                                    media_type="image",
+                                    source="web.pipeline.digital_human.goods_image_combine",
+                                    generation_context={
+                                        "firstimage": character_assets[0],
+                                        "secondimage": goods_assets[0],
+                                        "workflow_file": str(workflow_path),
+                                        "direct_media_prompt_template": combine_prompt.trace_metadata(),
+                                    },
+                                    workflow_params=workflow_params,
+                                )
                                 combine_image = await pixelle_video.execute_comfykit_workflow_file(
                                     workflow_path,
                                     workflow_params,
+                                    media_prompt_trace_context=combine_prompt_trace_context,
+                                    media_type="image",
                                 )
                                 if combine_image.status != "completed":
                                     raise Exception(f"workflow execution failed: {combine_image.msg}")
@@ -498,13 +558,36 @@ class DigitalHumanPipelineUI(PipelineUI):
 
                                 if not second_workflow_path.exists():
                                     raise Exception(f"The second step workflow file does not exist:{second_workflow_path}")
+                                second_workflow_identity = pixelle_video.resolve_comfykit_workflow_file_identity(
+                                    second_workflow_path
+                                )
                                 second_workflow_params = {
                                     "videoimage": generated_image_url,
                                     "audio": audio_path
                                 }
+                                second_prompt = _render_direct_media_prompt(
+                                    "digital_human_goods_video_synthesis"
+                                )
+                                second_prompt_trace_context = write_single_media_prompt_trace_context(
+                                    Path(task_dir),
+                                    task_id=task_id,
+                                    prompt=second_prompt.text,
+                                    workflow=str(second_workflow_identity["workflow_input"]),
+                                    media_type="video",
+                                    source="web.pipeline.digital_human.goods_video_synthesis",
+                                    generation_context={
+                                        "videoimage": generated_image_url,
+                                        "audio": audio_path,
+                                        "workflow_file": str(second_workflow_path),
+                                        "direct_media_prompt_template": second_prompt.trace_metadata(),
+                                    },
+                                    workflow_params=second_workflow_params,
+                                )
                                 second_result = await pixelle_video.execute_comfykit_workflow_file(
                                     second_workflow_path,
                                     second_workflow_params,
+                                    media_prompt_trace_context=second_prompt_trace_context,
+                                    media_type="video",
                                 )
                                 # Video Link Extraction
                                 generated_video_url = None
@@ -533,12 +616,37 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 
                             else:
                                 workflow_path = first_workflow_path
+                                workflow_identity = pixelle_video.resolve_comfykit_workflow_file_identity(
+                                    workflow_path
+                                )
                                 workflow_params = {"firstimage": character_assets[0], "secondimage": goods_assets[0], "goodstype": goods_title}
                                 
                                 status_text.text(tr("progress.step_image"))
+                                synthesis_prompt = _render_direct_media_prompt(
+                                    "digital_human_goods_type_synthesis",
+                                    goods_type=goods_title,
+                                )
+                                synthesis_prompt_trace_context = write_single_media_prompt_trace_context(
+                                    Path(task_dir),
+                                    task_id=task_id,
+                                    prompt=synthesis_prompt.text,
+                                    workflow=str(workflow_identity["workflow_input"]),
+                                    media_type="image",
+                                    source="web.pipeline.digital_human.goods_type_synthesis",
+                                    generation_context={
+                                        "firstimage": character_assets[0],
+                                        "secondimage": goods_assets[0],
+                                        "goodstype": goods_title,
+                                        "workflow_file": str(workflow_path),
+                                        "direct_media_prompt_template": synthesis_prompt.trace_metadata(),
+                                    },
+                                    workflow_params=workflow_params,
+                                )
                                 synthesis_result = await pixelle_video.execute_comfykit_workflow_file(
                                     workflow_path,
                                     workflow_params,
+                                    media_prompt_trace_context=synthesis_prompt_trace_context,
+                                    media_type="image",
                                 )
                                 if synthesis_result.status != "completed":
                                     raise Exception(f"workflow execution failed: {synthesis_result.msg}")
@@ -559,13 +667,36 @@ class DigitalHumanPipelineUI(PipelineUI):
 
                                 if not second_workflow_path.exists():
                                     raise Exception(f"The second step workflow file does not exist:{second_workflow_path}")
+                                second_workflow_identity = pixelle_video.resolve_comfykit_workflow_file_identity(
+                                    second_workflow_path
+                                )
                                 second_workflow_params = {
                                     "videoimage": generated_image_url,
                                     "audio": audio_path
                                 }
+                                second_prompt = _render_direct_media_prompt(
+                                    "digital_human_generated_product_video_synthesis"
+                                )
+                                second_prompt_trace_context = write_single_media_prompt_trace_context(
+                                    Path(task_dir),
+                                    task_id=task_id,
+                                    prompt=second_prompt.text,
+                                    workflow=str(second_workflow_identity["workflow_input"]),
+                                    media_type="video",
+                                    source="web.pipeline.digital_human.generated_video_synthesis",
+                                    generation_context={
+                                        "videoimage": generated_image_url,
+                                        "audio": audio_path,
+                                        "workflow_file": str(second_workflow_path),
+                                        "direct_media_prompt_template": second_prompt.trace_metadata(),
+                                    },
+                                    workflow_params=second_workflow_params,
+                                )
                                 second_result = await pixelle_video.execute_comfykit_workflow_file(
                                     second_workflow_path,
                                     second_workflow_params,
+                                    media_prompt_trace_context=second_prompt_trace_context,
+                                    media_type="video",
                                 )
                                 # Video Link Extraction
                                 generated_video_url = None

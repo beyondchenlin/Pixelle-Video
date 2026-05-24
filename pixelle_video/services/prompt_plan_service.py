@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from pixelle_video.models.prompt_plan import (
     ImagePromptDraft,
@@ -16,6 +16,7 @@ def build_prompt_plan_bundle(
     storyboard_plan: StoryboardPlan,
     image_prompts: Sequence[str],
     source_trace_id: str | None = None,
+    source_trace_ids_by_frame: Mapping[str, str] | None = None,
     planning_snapshot: dict[str, object] | None = None,
 ) -> PromptPlanBundle:
     prompts = [_normalize_prompt(prompt) for prompt in image_prompts]
@@ -25,7 +26,11 @@ def build_prompt_plan_bundle(
     drafts: list[ImagePromptDraft] = []
     plans: list[PromptPlan] = []
     ip_adaptations_by_frame = _ip_adaptations_by_frame(planning_snapshot)
+    trace_ids_by_frame = _normalize_trace_ids_by_frame(source_trace_ids_by_frame)
+    llm_trace_refs = _llm_trace_refs(planning_snapshot)
+    final_prompt_template = _final_visual_prompt_template(planning_snapshot)
     for frame, prompt in zip(storyboard_plan.frames, prompts):
+        frame_source_trace_id = trace_ids_by_frame.get(frame.frame_id) or source_trace_id
         draft_id = _stable_id(
             "image_prompt_draft",
             storyboard_plan.plan_id,
@@ -44,8 +49,11 @@ def build_prompt_plan_bundle(
             storyboard_plan_id=storyboard_plan.plan_id,
             frame_id=frame.frame_id,
             prompt_text=prompt,
-            source_trace_id=source_trace_id,
-            metadata={"frame_index": frame.index},
+            source_trace_id=frame_source_trace_id,
+            metadata=_build_prompt_draft_metadata(
+                frame_index=frame.index,
+                llm_trace_refs=llm_trace_refs,
+            ),
         )
         plan = PromptPlan(
             prompt_plan_id=prompt_plan_id,
@@ -56,13 +64,16 @@ def build_prompt_plan_bundle(
                 "source_text": frame.source_text,
                 "visual_goal": frame.visual_goal,
                 "prompt_intent": frame.prompt_intent,
+                **_final_prompt_template_sections(final_prompt_template),
                 "generated_prompt": prompt,
             },
             final_prompt=prompt,
-            source_trace_id=source_trace_id,
+            source_trace_id=frame_source_trace_id,
             metadata=_build_prompt_plan_metadata(
                 frame_index=frame.index,
                 ip_adaptation=ip_adaptations_by_frame.get(frame.frame_id),
+                llm_trace_refs=llm_trace_refs,
+                final_prompt_template=final_prompt_template,
             ),
         )
         drafts.append(draft)
@@ -72,7 +83,8 @@ def build_prompt_plan_bundle(
         storyboard_plan_id=storyboard_plan.plan_id,
         image_prompt_drafts=tuple(drafts),
         prompt_plans=tuple(plans),
-        source_trace_id=source_trace_id,
+        source_trace_id=source_trace_id or _first_trace_id(trace_ids_by_frame),
+        metadata={"llm_trace_refs": llm_trace_refs} if llm_trace_refs else {},
     )
 
 
@@ -80,6 +92,23 @@ def _normalize_prompt(prompt: str) -> str:
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("image prompts must be non-empty strings")
     return prompt.strip()
+
+
+def _normalize_trace_ids_by_frame(value: Mapping[str, str] | None) -> dict[str, str]:
+    if not isinstance(value, Mapping):
+        return {}
+    return {
+        str(frame_id): str(trace_id).strip()
+        for frame_id, trace_id in value.items()
+        if str(frame_id).strip() and str(trace_id).strip()
+    }
+
+
+def _first_trace_id(trace_ids_by_frame: Mapping[str, str]) -> str | None:
+    for trace_id in trace_ids_by_frame.values():
+        if trace_id:
+            return trace_id
+    return None
 
 
 def _ip_adaptations_by_frame(planning_snapshot: dict[str, object] | None) -> dict[str, dict[str, object]]:
@@ -95,12 +124,90 @@ def _ip_adaptations_by_frame(planning_snapshot: dict[str, object] | None) -> dic
     }
 
 
+def _llm_trace_refs(planning_snapshot: dict[str, object] | None) -> list[dict[str, str]]:
+    if not isinstance(planning_snapshot, dict):
+        return []
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def append_ref(value: object) -> None:
+        if not isinstance(value, Mapping):
+            return
+        trace_id = str(value.get("trace_id") or "").strip()
+        stage = str(value.get("stage") or "").strip()
+        if not trace_id or not stage:
+            return
+        identity = (trace_id, stage)
+        if identity in seen:
+            return
+        seen.add(identity)
+        refs.append({"trace_id": trace_id, "stage": stage})
+
+    llm_refs = planning_snapshot.get("llm_trace_refs")
+    if isinstance(llm_refs, Sequence) and not isinstance(llm_refs, (str, bytes)):
+        for ref in llm_refs:
+            append_ref(ref)
+
+    prompt_refs = planning_snapshot.get("prompt_generation_trace_refs_by_index")
+    if isinstance(prompt_refs, Sequence) and not isinstance(prompt_refs, (str, bytes)):
+        for ref in prompt_refs:
+            append_ref(ref)
+
+    return refs
+
+
+def _final_visual_prompt_template(
+    planning_snapshot: dict[str, object] | None,
+) -> dict[str, str] | None:
+    if not isinstance(planning_snapshot, dict):
+        return None
+    value = planning_snapshot.get("final_visual_prompt_template")
+    if not isinstance(value, Mapping):
+        return None
+    metadata = {
+        str(key): str(item).strip()
+        for key, item in value.items()
+        if str(key).strip() and str(item).strip()
+    }
+    return metadata or None
+
+
+def _final_prompt_template_sections(
+    final_prompt_template: dict[str, str] | None,
+) -> dict[str, str]:
+    if not final_prompt_template:
+        return {}
+    sections: dict[str, str] = {}
+    for key in ("prompt_id", "version", "stage", "path"):
+        value = final_prompt_template.get(key)
+        if value:
+            sections[f"final_prompt_template_{key}"] = value
+    return sections
+
+
+def _build_prompt_draft_metadata(
+    *,
+    frame_index: int,
+    llm_trace_refs: list[dict[str, str]],
+) -> dict[str, object]:
+    metadata: dict[str, object] = {"frame_index": frame_index}
+    if llm_trace_refs:
+        metadata["llm_trace_refs"] = list(llm_trace_refs)
+    return metadata
+
+
 def _build_prompt_plan_metadata(
     *,
     frame_index: int,
     ip_adaptation: dict[str, object] | None,
+    llm_trace_refs: list[dict[str, str]],
+    final_prompt_template: dict[str, str] | None,
 ) -> dict[str, object]:
     metadata: dict[str, object] = {"frame_index": frame_index}
+    if llm_trace_refs:
+        metadata["llm_trace_refs"] = list(llm_trace_refs)
+    if final_prompt_template:
+        metadata["final_visual_prompt_template"] = dict(final_prompt_template)
     if not isinstance(ip_adaptation, dict):
         return metadata
 

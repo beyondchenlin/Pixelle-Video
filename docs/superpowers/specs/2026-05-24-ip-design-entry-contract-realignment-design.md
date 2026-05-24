@@ -60,6 +60,7 @@ Prompt quality is the core product surface. Therefore prompt source ownership mu
 - Builder functions may assemble structured variables and render the Markdown template. They must not recreate the template as a Python triple-quoted string.
 - Prompt fragments such as style-prefix interpretation, IP role selection, world planning, storyboard planning, image prompt generation, video prompt generation, narration, title, and script generation are all governed by the same rule.
 - A final visual prompt can be generated only from traceable upstream prompt-template sources and structured runtime inputs.
+- `PromptPlanBundle`, `PromptPlan`, and `ImagePromptDraft` must carry source trace ids for the LLM prompt-generation batch that produced the final prompt text.
 
 This means the implementation must migrate existing prompt bodies out of Python files and into Markdown templates. Keeping prompt bodies in code is not an acceptable intermediate endpoint because it prevents product-level prompt review.
 
@@ -489,7 +490,9 @@ Required behavior:
 5. trace metadata includes the Markdown template id/version/path when available.
 6. retries create separate trace entries with attempt numbers and a shared parent chain id.
 7. final visual prompts are persisted as per-frame artifacts after assembly and before media generation.
-8. media generation logs reference the same final prompt artifact that was sent through `media_params["prompt"]`.
+8. every media call carries `media_prompt_trace_context`; `MediaService` rejects calls without it before workflow execution.
+9. requested workflow, resolved workflow, and executed workflow use the same resolved key, with trace resolution failing before media execution if unresolved.
+10. media generation logs reference the same final prompt artifact that was sent through `media_params["prompt"]`.
 
 The trace is not just a debugging convenience. It is the product feedback loop for prompt optimization.
 

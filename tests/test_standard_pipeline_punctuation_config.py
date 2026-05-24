@@ -21,6 +21,8 @@ async def test_generate_content_routes_complete_script_before_storyboard_plannin
         tts = None
         media = None
         video = None
+        trace_repository = object()
+        raw_payload_store = object()
 
     async def fake_script_generate(self, **kwargs):
         captured["script"] = kwargs
@@ -57,6 +59,7 @@ async def test_generate_content_routes_complete_script_before_storyboard_plannin
 
     pipeline = StandardPipeline(_FakeCore())
     ctx = PipelineContext(input_text="topic", params={"mode": "generate"})
+    ctx.task_id = "task-punctuation-script"
 
     await pipeline.generate_content(ctx)
 

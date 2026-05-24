@@ -45,7 +45,7 @@ def test_get_effective_image_prompt_prefix_prefers_active_library_item():
         {
             "comfyui": {
                 "image": {
-                    "prompt_prefix": "legacy prefix",
+                    "prompt_prefix": "retired config prefix",
                     "prompt_prefix_library": {
                         "active_prefix_id": "custom-flat",
                         "items": [
@@ -68,12 +68,12 @@ def test_get_effective_image_prompt_prefix_prefers_active_library_item():
     assert get_effective_image_prompt_prefix(config.comfyui.image) == "flat illustration, simple shapes"
 
 
-def test_get_effective_image_prompt_prefix_falls_back_to_legacy_prefix_when_library_has_no_active_item():
+def test_get_effective_image_prompt_prefix_returns_empty_when_library_has_no_active_item():
     config = PixelleVideoConfig.model_validate(
-        {"comfyui": {"image": {"prompt_prefix": "legacy prefix", "prompt_prefix_library": {"active_prefix_id": None, "items": []}}}}
+        {"comfyui": {"image": {"prompt_prefix": "retired config prefix", "prompt_prefix_library": {"active_prefix_id": None, "items": []}}}}
     )
 
-    assert get_effective_image_prompt_prefix(config.comfyui.image) == "legacy prefix"
+    assert get_effective_image_prompt_prefix(config.comfyui.image) == ""
 ```
 
 - [ ] **Step 2: Run test to verify it fails**

@@ -8,6 +8,8 @@ from pixelle_video.utils.prompt_helper import (
     NO_TEXT_POSITIVE_RULE,
     apply_image_text_policy,
     apply_text_rendering_policy,
+    final_visual_prompt_clause_template_metadata,
+    final_visual_prompt_template_metadata,
     select_image_text_negative_prompt,
     select_negative_text_rules,
 )
@@ -73,7 +75,7 @@ def test_image_text_policy_routes_custom_positive_and_negative_prompts():
 
     prompt = apply_image_text_policy("a clean desk", policy)
 
-    assert prompt == "a clean desk, avoid any generated lettering"
+    assert prompt == "a clean desk Rendering requirements: avoid any generated lettering"
     assert select_image_text_negative_prompt(policy) == ("signage", "captions")
 
 
@@ -138,7 +140,7 @@ async def test_generate_styled_image_prompt_batch_injects_native_hints_before_te
         allow_native_text_in_image=True,
     )
     assert result.prompts == [
-        'a clean hanging sign, render the planned text "Pixelle", '
+        'a clean hanging sign Rendering requirements: render the planned text "Pixelle", '
         "only render the explicitly requested planned text, no extra captions, "
         "no extra subtitles, no watermark, no logo text, no random letters"
     ]
@@ -146,6 +148,8 @@ async def test_generate_styled_image_prompt_batch_injects_native_hints_before_te
     assert "random letters" in result.negative_prompt
     assert "Chinese characters" not in result.negative_prompt
     assert result.planning_snapshot == {
+        "final_visual_prompt_template": final_visual_prompt_template_metadata(),
+        "final_visual_prompt_clause_template": final_visual_prompt_clause_template_metadata(),
         "text_rendering_policy": policy.to_dict(),
         "native_prompt_hint_count": 1,
         "frames_with_native_hints": [0],
@@ -206,6 +210,58 @@ async def test_generate_styled_image_prompt_batch_does_not_conflict_native_text_
     assert "unplanned text" in result.negative_prompt
     assert "random letters" in result.negative_prompt
     assert "forbid all typography" not in result.negative_prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_keeps_image_text_positive_with_native_hints(
+    monkeypatch,
+):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        return ["a clean hanging sign"]
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: None,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
+        lambda *args, **kwargs: type("Caps", (), {"supports_negative_prompt": True})(),
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["scene one"],
+        image_config={},
+        media_service=object(),
+        workflow="selfhost/image_z_image_turbo.json",
+        native_prompt_hints_by_frame={
+            0: [
+                NativePromptHint(
+                    prompt_fragment='render the planned text "Pixelle"',
+                    source_candidate_ids=("candidate-1",),
+                )
+            ]
+        },
+        text_rendering={
+            "overlay": {
+                "enabled": True,
+                "mode": "native_hint",
+                "renderer_targets": ["native_prompt"],
+            },
+            "image_text": {
+                "suppress_embedded_text": True,
+                "positive_prompt": "keep lettering crisp and limited to Pixelle",
+            },
+        },
+    )
+
+    assert 'render the planned text "Pixelle"' in result.prompts[0]
+    assert "keep lettering crisp and limited to Pixelle" in result.prompts[0]
+    assert result.prompts[0].count("Rendering requirements:") == 1
 
 
 @pytest.mark.asyncio
@@ -276,5 +332,7 @@ async def test_generate_styled_image_prompt_batch_uses_image_text_policy_prompts
         },
     )
 
-    assert result.prompts == ["a clean desk, avoid generated lettering"]
+    assert result.prompts == [
+        "a clean desk Rendering requirements: avoid generated lettering"
+    ]
     assert result.negative_prompt == "signage, captions"

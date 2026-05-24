@@ -136,7 +136,7 @@ def test_untraced_llm_call_escape_hatch_does_not_exist_in_production_code():
     for root in (Path("pixelle_video"), Path("api"), Path("web")):
         for path in root.rglob("*.py"):
             text = path.read_text(encoding="utf-8-sig")
-            if "allow_untraced_llm_call" in text:
+            if "allow_untraced_" + "llm_call" in text:
                 offenders.append(str(path))
 
     assert offenders == []

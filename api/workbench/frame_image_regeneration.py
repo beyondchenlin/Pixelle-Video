@@ -9,6 +9,7 @@ from pixelle_video.models.prompt_plan import PromptPlan
 from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
 from pixelle_video.services.prompt_trace_artifacts import (
+    build_media_prompt_trace_context,
     media_workflow_trace_context,
     write_single_media_prompt_artifact,
 )
@@ -67,7 +68,7 @@ async def execute_frame_image_regeneration(
         if prompt_trace_root is not None
         else Path(get_runtime_path("media_prompt_traces", task_id))
     )
-    write_single_media_prompt_artifact(
+    prompt_trace_path = write_single_media_prompt_artifact(
         prompt_trace_output_dir,
         task_id=task_id,
         prompt=prompt_plan.final_prompt,
@@ -94,10 +95,21 @@ async def execute_frame_image_regeneration(
     media_result = await media(
         prompt=prompt_plan.final_prompt,
         media_type="image",
-        workflow=workflow,
+        workflow=workflow_trace_context["workflow"],
         width=size_contract.media_width,
         height=size_contract.media_height,
         negative_prompt=negative_prompt,
+        media_prompt_trace_context=build_media_prompt_trace_context(
+            artifact_path=prompt_trace_path,
+            task_id=task_id,
+            prompt=prompt_plan.final_prompt,
+            negative_prompt=str(negative_prompt or ""),
+            workflow_context=workflow_trace_context,
+            media_type="image",
+            frame_id=frame_id,
+            media_width=size_contract.media_width,
+            media_height=size_contract.media_height,
+        ),
     )
     source_path = _resolve_media_source_path(media_result.url)
     result = await service.record_frame_image_regeneration_result(

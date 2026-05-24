@@ -23,14 +23,41 @@ from loguru import logger
 
 from pixelle_video.config.tts_defaults import resolve_tts_inference_mode
 from pixelle_video.services.comfy_base_service import ComfyBaseService
+from pixelle_video.services.tts_trace_artifacts import (
+    write_tts_service_result_artifact,
+    write_tts_workflow_result_artifact,
+    write_tts_workflow_trace_context,
+)
 from pixelle_video.tts_voices import speed_to_rate
 from pixelle_video.tts_workflow_contract import (
     build_ref_audio_text_params,
     get_missing_required_tts_workflow_params,
     get_tts_workflow_metadata,
 )
+from pixelle_video.tts_workflow_param_contract import (
+    reject_case_variant_tts_workflow_params,
+)
 from pixelle_video.utils.os_util import get_output_path
 from pixelle_video.utils.tts_util import edge_tts
+
+
+def _tts_trace_output_dir(output_path: Optional[str]) -> Path:
+    if output_path:
+        return Path(output_path).parent
+    return Path(get_output_path())
+
+
+def _summarize_tts_workflow_result(result) -> dict[str, object]:
+    return {
+        "status": str(getattr(result, "status", "")),
+        "msg": str(getattr(result, "msg", "") or ""),
+        "audios": [str(value) for value in getattr(result, "audios", []) or []],
+        "files": [str(value) for value in getattr(result, "files", []) or []],
+        "outputs": {
+            str(key): str(value)
+            for key, value in (getattr(result, "outputs", {}) or {}).items()
+        },
+    }
 
 
 class TTSService(ComfyBaseService):
@@ -187,7 +214,23 @@ class TTSService(ComfyBaseService):
             # Generate unique filename
             unique_id = uuid.uuid4().hex
             output_path = get_output_path(f"{unique_id}.mp3")
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        workflow_params = {
+            "text": text,
+            "voice": final_voice,
+            "speed": final_speed,
+            "rate": rate,
+            "output_path": output_path,
+        }
+        trace_context = write_tts_workflow_trace_context(
+            Path(output_path).parent,
+            task_id=None,
+            text=text,
+            workflow="local_edge_tts",
+            workflow_input="local_edge_tts",
+            source="tts.local_edge_tts",
+            workflow_params=workflow_params,
+        )
         
         # Call Edge TTS
         try:
@@ -199,9 +242,23 @@ class TTSService(ComfyBaseService):
             )
             
             logger.info(f"✅ Generated audio (local Edge TTS): {output_path}")
+            write_tts_workflow_result_artifact(
+                trace_context,
+                status="completed",
+                result={"output_path": output_path},
+            )
             return output_path
         
         except Exception as e:
+            write_tts_workflow_result_artifact(
+                trace_context,
+                status="error",
+                result={
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                    "output_path": output_path,
+                },
+            )
             logger.error(f"Local TTS generation error: {e}")
             raise
     
@@ -236,6 +293,7 @@ class TTSService(ComfyBaseService):
         logger.info(f"🎙️  Using workflow: {workflow_info['key']}")
         
         # 1. Build workflow parameters (ComfyKit config is now managed by core)
+        reject_case_variant_tts_workflow_params(params)
         workflow_params = {"text": text}
         ref_audio_text = params.pop("reference_audio_text", None)
         if ref_audio_text is None:
@@ -263,24 +321,34 @@ class TTSService(ComfyBaseService):
         self._validate_required_workflow_params(workflow_info, workflow_params)
         
         logger.debug(f"Workflow parameters: {workflow_params}")
+        if workflow_info["source"] == "runninghub" and "workflow_id" in workflow_info:
+            # RunningHub: pass workflow_id
+            workflow_input = workflow_info["workflow_id"]
+            logger.info(f"Executing RunningHub TTS workflow: {workflow_input}")
+        else:
+            # Selfhost: pass file path
+            workflow_input = workflow_info["path"]
+            logger.info(f"Executing selfhost TTS workflow: {workflow_input}")
+        trace_context = write_tts_workflow_trace_context(
+            _tts_trace_output_dir(output_path),
+            task_id=None,
+            text=text,
+            workflow=str(workflow_info["key"]),
+            workflow_input=str(workflow_input),
+            source=f"tts.{workflow_info['source']}",
+            workflow_params=workflow_params,
+        )
+        result = None
+        audio_path = None
         
         # 3. Execute workflow using shared ComfyKit instance from core
         try:
-            # Determine what to pass to ComfyKit based on source
-            if workflow_info["source"] == "runninghub" and "workflow_id" in workflow_info:
-                # RunningHub: pass workflow_id
-                workflow_input = workflow_info["workflow_id"]
-                logger.info(f"Executing RunningHub TTS workflow: {workflow_input}")
-            else:
-                # Selfhost: pass file path
-                workflow_input = workflow_info["path"]
-                logger.info(f"Executing selfhost TTS workflow: {workflow_input}")
-            
             result = await self._execute_workflow(
                 workflow_input,
                 workflow_params,
                 workflow_info,
                 backend_role=backend_role,
+                tts_workflow_trace_context=trace_context,
             )
             
             # 4. Handle result
@@ -293,8 +361,6 @@ class TTSService(ComfyBaseService):
             
             # ComfyKit result can have audio files in different output types
             # Try to get audio file path from result
-            audio_path = None
-            
             # Check for audio files in result.audios (if available)
             if hasattr(result, 'audios') and result.audios:
                 audio_path = result.audios[0]
@@ -329,9 +395,36 @@ class TTSService(ComfyBaseService):
                 output_path=output_path,
             )
             logger.info(f"✅ Generated audio (ComfyUI): {materialized_path}")
+            result_summary = _summarize_tts_workflow_result(result)
+            result_summary["audio_path"] = str(audio_path)
+            result_summary["materialized_path"] = str(materialized_path)
+            write_tts_service_result_artifact(
+                trace_context,
+                status="completed",
+                result=result_summary,
+            )
             return materialized_path
         
         except Exception as e:
+            if result is not None:
+                service_result = _summarize_tts_workflow_result(result)
+                if audio_path is not None:
+                    service_result["audio_path"] = str(audio_path)
+                service_result.update(
+                    {
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                    }
+                )
+                write_tts_service_result_artifact(
+                    trace_context,
+                    status=(
+                        "error"
+                        if str(getattr(result, "status", "")) == "completed"
+                        else "failed"
+                    ),
+                    result=service_result,
+                )
             logger.error(f"TTS generation error: {e}")
             raise
 

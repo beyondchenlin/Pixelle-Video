@@ -63,12 +63,9 @@ async def list_tts_workflows(pixelle_video: PixelleVideoDep):
         # Get all workflows from TTS service
         all_workflows = pixelle_video.tts.list_workflows()
         
-        # Filter to TTS workflows only (filename starts with "tts_")
-        tts_workflows = [
-            WorkflowInfo(**wf) 
-            for wf in all_workflows 
-            if wf["name"].startswith("tts_")
-        ]
+        # TTSService.list_workflows() already applies the workflow domain contract,
+        # including RunningHub descriptors that declare TTS without a tts_ filename.
+        tts_workflows = [WorkflowInfo(**wf) for wf in all_workflows]
         
         return WorkflowListResponse(workflows=tts_workflows)
         

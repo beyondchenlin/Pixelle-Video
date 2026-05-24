@@ -883,6 +883,8 @@ async def test_standard_pipeline_initialize_storyboard_uses_render_config_defaul
             "tts": None,
             "media": None,
             "video": None,
+            "trace_repository": object(),
+            "raw_payload_store": object(),
         },
     )()
 
@@ -928,6 +930,8 @@ async def test_standard_pipeline_initialize_storyboard_preserves_media_placement
             "tts": None,
             "media": None,
             "video": None,
+            "trace_repository": object(),
+            "raw_payload_store": object(),
         },
     )()
 
@@ -986,6 +990,8 @@ async def test_standard_pipeline_generate_content_defaults_prompt_language_to_en
             "tts": None,
             "media": None,
             "video": None,
+            "trace_repository": object(),
+            "raw_payload_store": object(),
         },
     )()
     pipeline = StandardPipeline(fake_core)
@@ -993,6 +999,7 @@ async def test_standard_pipeline_generate_content_defaults_prompt_language_to_en
         input_text="Sentence 1.",
         params={"mode": "fixed"},
     )
+    ctx.task_id = "task-default-language-content"
 
     await pipeline.generate_content(ctx)
 
@@ -1038,6 +1045,8 @@ async def test_standard_pipeline_plan_visuals_defaults_prompt_language_to_englis
             "tts": None,
             "media": object(),
             "video": None,
+            "trace_repository": object(),
+            "raw_payload_store": object(),
         },
     )()
     pipeline = StandardPipeline(fake_core)
@@ -1051,6 +1060,7 @@ async def test_standard_pipeline_plan_visuals_defaults_prompt_language_to_englis
         params={"frame_template": "1080x1920/image_default.html"},
     )
     ctx.storyboard_plan = _storyboard_plan_from_segments(["Sentence 1."])
+    ctx.task_id = "task-default-language-visuals"
 
     await pipeline.plan_visuals(ctx)
 

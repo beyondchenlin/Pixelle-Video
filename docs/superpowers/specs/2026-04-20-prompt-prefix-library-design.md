@@ -421,17 +421,16 @@ Actual generation behavior should stay simple and deterministic.
 
 Rules:
 
-1. For image generation, if an active library prefix exists, use that single prefix for actual generation.
-2. If the image prefix library is absent or has no valid active item, fall back to legacy `comfyui.image.prompt_prefix`.
-3. If neither source yields a usable prefix, fall back to empty-prefix behavior.
-4. Preview comparison may use multiple selected prefixes, but each preview image is still generated with exactly one prefix at a time.
-5. Video generation continues using existing video-prefix behavior and is outside this library's resolution path.
+1. For image generation, if an active library prefix exists, use that single prefix as a style source.
+2. If the image prefix library is absent or has no valid active item, use structured scene prompting without silently activating `comfyui.image.prompt_prefix`.
+3. Preview comparison may use multiple selected prefixes, but each preview image is still generated with exactly one explicit prefix source at a time.
+4. Video generation must follow the same explicit-source rule; saved config text is not an implicit source.
 
-The existing prompt assembly helper can remain conceptually unchanged:
+Prompt assembly must produce one coherent final prompt:
 
-- each final prompt is still `build_image_prompt(base_prompt, selected_prefix_content)`
-
-What changes is selection and management, not the final prompt-building rule.
+- each selected style source is resolved into structured style semantics first
+- final prompt assembly fuses scene, style, IP, text policy, and workflow constraints semantically
+- no raw prefix concatenation is allowed in production generation
 
 ## Validation Rules
 

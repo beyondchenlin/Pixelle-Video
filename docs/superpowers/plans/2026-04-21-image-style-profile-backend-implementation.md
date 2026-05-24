@@ -96,7 +96,7 @@ from pixelle_video.utils.style_resolution import (
 
 def test_resolve_style_source_prefers_request_override():
     image_config = {
-        "prompt_prefix": "legacy prefix",
+        "prompt_prefix": "retired config prefix",
         "prompt_prefix_library": {
             "active_prefix_id": "warm-story",
             "items": [
@@ -787,7 +787,7 @@ def assemble_image_prompt(
     resolved_style: Optional[ResolvedStyleSpec] = None,
 ) -> str:
     if resolved_style is None:
-        return build_image_prompt(base_prompt, raw_prefix)
+        return sanitize_visual_prompt_text(base_prompt)
 
     template = (resolved_style.prompt_template or "").strip()
     if template and "{prompt}" in template:
@@ -806,7 +806,7 @@ def assemble_image_prompt(
 
     if template:
         return templated
-    return build_image_prompt(base_prompt, raw_prefix)
+    return semantic_style_fusion(base_prompt, resolved_style.style_profile)
 
 
 def assemble_negative_prompt(
@@ -883,7 +883,8 @@ async def generate_styled_image_prompt_batch(
             resolved_style = await resolve_style_spec(llm_service, source)
             style_profile = resolved_style.style_profile
         except Exception:
-            logger.exception("Style resolution failed, falling back to legacy prefix concatenation")
+            logger.exception("Style resolution failed; aborting prompt generation")
+            raise
 
     base_prompts = await generate_image_prompts(
         llm_service=llm_service,
@@ -980,7 +981,7 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
             {
                 "comfyui": {
                     "image": {
-                        "prompt_prefix": "legacy prefix",
+                        "prompt_prefix": "retired config prefix",
                         "prompt_prefix_library": {
                             "active_prefix_id": "custom-flat",
                             "items": [
@@ -1253,7 +1254,7 @@ class _FakePixelleVideo:
         self.config = {
             "comfyui": {
                 "image": {
-                    "prompt_prefix": "legacy prefix",
+                    "prompt_prefix": "retired config prefix",
                     "prompt_prefix_library": {"active_prefix_id": None, "items": []},
                 }
             }

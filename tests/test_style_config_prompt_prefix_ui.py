@@ -523,6 +523,105 @@ def test_resolve_prompt_prefix_workflow_display_label_prefers_display_name_map()
     assert style_config._resolve_prompt_prefix_workflow_display_label(None, workflow_display_map) is None
 
 
+def test_render_image_prompt_prefix_library_does_not_promote_legacy_config_prefix(monkeypatch):
+    class _FakeContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeStreamlit:
+        def __init__(self):
+            self.session_state = {}
+            self.captions = []
+
+        def markdown(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, value, *_args, **_kwargs):
+            self.captions.append(value)
+
+        def container(self, **_kwargs):
+            return _FakeContext()
+
+        def expander(self, _label, **_kwargs):
+            return _FakeContext()
+
+        def columns(self, spec, **_kwargs):
+            count = spec if isinstance(spec, int) else len(spec)
+            return [_FakeContext() for _ in range(count)]
+
+        def button(self, *_args, **_kwargs):
+            return False
+
+        def image(self, *_args, **_kwargs):
+            return None
+
+        def selectbox(self, _label, options, **_kwargs):
+            return options[0]
+
+        def text_input(self, _label, value="", **_kwargs):
+            return value
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def code(self, *_args, **_kwargs):
+            raise AssertionError("legacy prompt_prefix must not render as the active style source")
+
+    class _FakeConfigManager:
+        config = type(
+            "Config",
+            (),
+            {
+                "comfyui": type(
+                    "ComfyUI",
+                    (),
+                    {
+                        "image": {
+                            "prompt_prefix": "retired config value must not leak",
+                            "prompt_prefix_library": {
+                                "active_prefix_id": None,
+                                "items": [],
+                            },
+                        }
+                    },
+                )()
+            },
+        )()
+
+        @staticmethod
+        def get_image_prompt_prefix_library():
+            return {"active_prefix_id": None, "items": []}
+
+    fake_st = _FakeStreamlit()
+
+    monkeypatch.setattr(style_config, "st", fake_st)
+    monkeypatch.setattr(style_config, "config_manager", _FakeConfigManager())
+    monkeypatch.setattr(style_config, "tr", lambda key, **_kwargs: key)
+    monkeypatch.setattr(style_config, "get_language", lambda: "en_US")
+    monkeypatch.setattr(
+        style_config,
+        "get_localized_prompt_prefix_category_options",
+        lambda language: ([], []),
+    )
+    monkeypatch.setattr(style_config, "filter_prompt_prefix_items", lambda items, **_kwargs: items)
+    monkeypatch.setattr(style_config, "_build_prompt_prefix_live_preview_map", lambda: {})
+    monkeypatch.setattr(style_config, "_render_prompt_prefix_library_action_toolbar", lambda **_kwargs: None)
+
+    style_config._render_image_prompt_prefix_library(
+        pixelle_video=object(),
+        workflow_key="selfhost/image_z_image_turbo.json",
+        media_width=1024,
+        media_height=1024,
+        workflow_display_map={"selfhost/image_z_image_turbo.json": "image_z_image_turbo.json - Selfhost"},
+    )
+
+    assert fake_st.session_state["prompt_prefix_effective_value"] == ""
+    assert "style.prefix_library.active_empty" in fake_st.captions
+
+
 def test_get_prompt_prefix_source_label_maps_known_sources():
     translations = {
         "style.prefix_library.source_builtin": "Built-in",
@@ -655,6 +754,8 @@ def test_style_config_source_references_prompt_prefix_library_ui():
     assert "workflow_display_map=workflow_display_map" in source
     assert "on_open_panel=lambda mode: _set_prompt_prefix_panel_state(mode)" in source
     assert 'st.session_state["prompt_prefix_effective_value"] = effective_prefix' in source
+    assert 'style.prefix_library.active_legacy' not in source
+    assert "st.code(effective_prefix" not in source
     assert "_call_with_streamlit_fragment(" in source
     assert 'st.container(key="prompt_prefix_library_root")' in current_prefix_section
     filter_panel_section = current_prefix_section.split('tr("style.prefix_library.filter_panel")', 1)[1]
@@ -1027,6 +1128,18 @@ def test_prompt_prefix_library_locale_keys_exist():
         assert "style.prefix_library.source_builtin" in translations
         assert "style.prefix_library.source_manual" in translations
         assert "style.prefix_library.source_llm" in translations
+        assert "active_legacy" not in "\n".join(translations)
+        assert "legacy " + "prefix" not in "\n".join(translations).lower()
+        prompt_prefix_values = [
+            str(value).lower()
+            for key, value in translations.items()
+            if key.startswith("style.prompt_prefix")
+        ]
+        combined_prompt_prefix_text = "\n".join(prompt_prefix_values)
+        assert "config default" not in combined_prompt_prefix_text
+        assert "配置文件默认值" not in combined_prompt_prefix_text
+        assert "automatically added" not in combined_prompt_prefix_text
+        assert "自动添加" not in combined_prompt_prefix_text
 
 
 def test_runtime_asset_dirs_are_gitignored():
@@ -1099,7 +1212,11 @@ def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeyp
     assert '"canvas_height": 1024' in trace_content
     assert "Frame ID: prompt_prefix_preview" in trace_content
     assert '"prompt_prefix": "angry birds world"' in trace_content
+    assert '"preview_media_path": null' in trace_content
+    assert preview_results[0]["preview_media_path"] == "preview.png"
     assert captured["media_kwargs"]["negative_prompt"] == "avoid realism"
+    assert captured["media_kwargs"]["workflow"] == "selfhost/image_z_image_turbo.json"
+    assert captured["media_kwargs"]["media_prompt_trace_context"]["artifact_path"] == str(trace_path)
 
 
 def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatch, tmp_path):
@@ -1164,9 +1281,13 @@ def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatc
     assert '"workflow": "runninghub/video_wan2.1_fusionx.json"' in trace_content
     assert '"canvas_width": 1024' in trace_content
     assert '"canvas_height": 1024' in trace_content
+    assert '"preview_media_path": null' in trace_content
+    assert preview["preview_media_path"] == "preview.mp4"
     assert captured["media_type"] == "video"
     assert captured["prompt_language"] == "zh_CN"
     assert captured["media_kwargs"]["negative_prompt"] == "avoid blur"
+    assert captured["media_kwargs"]["workflow"] == "runninghub/video_wan2.1_fusionx.json"
+    assert captured["media_kwargs"]["media_prompt_trace_context"]["artifact_path"] == str(trace_path)
 
 
 def test_generate_single_style_preview_persists_prompt_trace_when_media_fails(monkeypatch, tmp_path):

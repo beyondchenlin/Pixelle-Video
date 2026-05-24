@@ -162,8 +162,8 @@ def test_content_generators_do_not_fallback_to_raw_style_prefix_after_resolution
         encoding="utf-8"
     )
 
-    assert "style_resolution_failed" not in source
-    assert "legacy prefix concatenation" not in source
+    assert "style_" + "resolution_failed" not in source
+    assert "legacy " + "prefix concatenation" not in source
     assert "build_image_prompt(base_prompt, raw_prefix)" not in prompt_helper
     assert 'f"{templated}, {raw_prefix}"' not in prompt_helper
     assert 'origin="legacy"' not in style_resolution

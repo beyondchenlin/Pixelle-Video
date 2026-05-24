@@ -884,7 +884,8 @@ async def generate_styled_image_prompt_batch(
             resolved_style = await resolve_style_spec(llm_service, source)
             style_profile = resolved_style.style_profile
         except Exception:
-            logger.exception("Style resolution failed, falling back to legacy prefix concatenation")
+            logger.exception("Style resolution failed; aborting prompt generation")
+            raise
 
     planning = await plan_storyboard_batch(
         llm_service=llm_service,

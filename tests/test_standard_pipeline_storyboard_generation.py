@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
@@ -218,6 +220,14 @@ async def test_generate_content_fixed_defaults_to_smart_storyboard(monkeypatch):
 
     async def fake_storyboard_generate(self, **kwargs):
         captured.update(kwargs)
+        await kwargs["trace_recorder"].record_interaction(
+            context=replace(kwargs["trace_context"], stage="smart_storyboard_generation"),
+            provider="fake",
+            model="fake-model",
+            request_payload={"prompt": "storyboard"},
+            response_payload={"frames": []},
+            status="success",
+        )
         return plan
 
     monkeypatch.setattr(
@@ -240,6 +250,7 @@ async def test_generate_content_fixed_defaults_to_smart_storyboard(monkeypatch):
     assert captured["storyboard_mode"] == "smart"
     assert captured["storyboard_count_mode"] == "auto"
     assert captured["storyboard_scene_count"] is None
+    assert ctx.llm_trace_refs[0]["stage"] == "smart_storyboard_generation"
 
 
 @pytest.mark.asyncio
@@ -378,10 +389,14 @@ async def test_plan_visuals_uses_image_prompt_composer(monkeypatch):
     )
     ctx.task_id = "task-1"
     ctx.storyboard_plan = _plan()
+    ctx.llm_trace_refs = [
+        {"trace_id": "trace_smart_storyboard", "stage": "smart_storyboard_generation"}
+    ]
 
     await StandardPipeline(_DummyCore()).plan_visuals(ctx)
 
     assert captured["storyboard_plan"] is ctx.storyboard_plan
+    assert captured["upstream_llm_trace_refs"] == ctx.llm_trace_refs
     assert ctx.image_prompts == ["prompt one", "prompt two"]
     assert ctx.media_negative_prompt == "bad anatomy"
     assert ctx.planning_snapshot["storyboard_generation"]["resolved_scene_count"] == 2

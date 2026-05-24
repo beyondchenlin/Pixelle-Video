@@ -9,13 +9,16 @@ from loguru import logger
 from moviepy.editor import VideoFileClip
 
 from pixelle_video.config import config_manager
+from pixelle_video.services.prompt_trace_artifacts import (
+    write_single_media_prompt_trace_context,
+)
 from pixelle_video.utils.os_util import create_task_output_dir, get_temp_path
 from web.components.content_input import render_version_info
 from web.components.output_preview import render_scaled_video_preview
 from web.components.selfhost_workflow_notice import render_selfhost_workflow_notice
-from web.state.storyboard_capture import capture_snapshot_from_task_dir
 from web.i18n import get_language, tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
+from web.state.storyboard_capture import capture_snapshot_from_task_dir
 from web.utils.async_helpers import run_async
 
 
@@ -301,16 +304,36 @@ class ActionTransferPipelineUI(PipelineUI):
                         if not workflow_path.exists():
                             raise Exception(f"The workflow file does not exist: {workflow_path}")
 
+                        workflow_identity = pixelle_video.resolve_comfykit_workflow_file_identity(
+                            workflow_path
+                        )
                         workflow_params = {
                             "video": video_path,
                             "image": image_path,
                             "prompt": prompt,
                             "second": second
                         }
+                        prompt_trace_context = write_single_media_prompt_trace_context(
+                            Path(task_dir),
+                            task_id=task_id,
+                            prompt=prompt,
+                            workflow=str(workflow_identity["workflow_input"]),
+                            media_type="video",
+                            source="web.pipeline.action_transfer",
+                            generation_context={
+                                "image": image_path,
+                                "video": video_path,
+                                "second": second,
+                                "workflow_file": str(workflow_path),
+                            },
+                            workflow_params=workflow_params,
+                        )
 
                         video_result = await pixelle_video.execute_comfykit_workflow_file(
                             workflow_path,
                             workflow_params,
+                            media_prompt_trace_context=prompt_trace_context,
+                            media_type="video",
                         )
 
                         generated_video_url = None

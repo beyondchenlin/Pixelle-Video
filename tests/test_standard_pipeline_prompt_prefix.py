@@ -3,10 +3,19 @@ import pytest
 from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.storyboard_planning import FramePlan
-from pixelle_video.models.style_resolution import StyledImagePromptBatch, StyleSourceSpec
+from pixelle_video.models.style_resolution import (
+    ResolvedStyleSpec,
+    StyledImagePromptBatch,
+    StyleSourceSpec,
+)
 from pixelle_video.pipelines.linear import PipelineContext
 from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
+
+
+class _FakeMedia:
+    def resolve_workflow_key(self, *, workflow=None, media_type="image"):
+        return workflow or f"selfhost/{media_type}_trace_default.json"
 
 
 class _DummyCore:
@@ -14,8 +23,10 @@ class _DummyCore:
         self.config = config
         self.llm = object()
         self.tts = None
-        self.media = object()
+        self.media = _FakeMedia()
         self.video = None
+        self.trace_repository = object()
+        self.raw_payload_store = object()
 
 
 def _storyboard_plan(narration: str = "scene one") -> StoryboardPlan:
@@ -89,7 +100,16 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
         )()
 
     async def fake_resolve_style_spec(*args, **kwargs):
-        raise RuntimeError("resolver boom")
+        return ResolvedStyleSpec(
+            style_kind="visual_only",
+            prompt_template="flat illustration, {prompt}",
+            negative_prompt="",
+            style_profile={},
+            content_hash="hash-123",
+            resolver_version="test",
+            source_identity="request:hash-123",
+            raw_content="flat illustration",
+        )
 
     monkeypatch.setattr(
         "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
@@ -127,7 +147,7 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
             {
                 "comfyui": {
                     "image": {
-                        "prompt_prefix": "legacy prefix",
+                            "prompt_prefix": "retired config value",
                         "prompt_prefix_library": {
                             "active_prefix_id": "custom-flat",
                             "items": [
@@ -175,9 +195,10 @@ async def test_standard_pipeline_plan_visuals_uses_shared_styled_batch(monkeypat
     assert captured["role_locking_strength"] == "strong"
     assert captured["shot_strategy"] == "strict"
     assert ctx.image_prompts == [
-        "flat illustration, bird-universe dog sprint; "
-        "rendered as clean educational illustration; framed as medium shot, context; "
-        "with strategy board integrated into the environment"
+        "bird-universe dog sprint "
+        "Visual style: rendered as clean educational illustration, flat illustration "
+        "Composition: framed as medium shot, context "
+        "Environment: with strategy board integrated into the environment"
     ]
     assert "Neutral Knowledge Storyboard" not in ctx.image_prompts[0]
     assert "medium_shot" not in ctx.image_prompts[0]
@@ -240,6 +261,7 @@ async def test_standard_pipeline_plan_visuals_passes_explicit_override(monkeypat
         },
     )
     ctx.storyboard_plan = _storyboard_plan()
+    ctx.task_id = "task-prompt-prefix-override"
 
     await pipeline.plan_visuals(ctx)
 
@@ -288,6 +310,7 @@ async def test_standard_pipeline_plan_visuals_uses_video_config_and_media_type(m
         params={"frame_template": "1080x1920/video_default.html"},
     )
     ctx.storyboard_plan = _storyboard_plan()
+    ctx.task_id = "task-prompt-prefix-video"
 
     await pipeline.plan_visuals(ctx)
 

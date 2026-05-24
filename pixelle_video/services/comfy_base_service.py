@@ -14,10 +14,11 @@
 ComfyUI Base Service - Common logic for ComfyUI-based services
 """
 
+import inspect
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from loguru import logger
 
@@ -27,7 +28,70 @@ from pixelle_video.config.workflow_defaults import (
     is_workflow_compatible,
     resolve_default_workflow,
 )
+from pixelle_video.runninghub_workflow_contracts import (
+    ANALYSIS_WORKFLOW_DOMAINS,
+    MEDIA_WORKFLOW_DOMAINS,
+    RUNNINGHUB_SOURCE,
+    runninghub_registry_root,
+    validate_runninghub_descriptor_contract,
+)
 from pixelle_video.utils.os_util import get_resource_path, list_resource_dirs, list_resource_files
+from pixelle_video.workflow_content_contracts import (
+    build_workflow_file_trace,
+    workflow_content_contract,
+)
+
+_WORKFLOW_METADATA_DOMAIN_KEYS = ("media_type", "workflow_domain", "service_domain")
+
+
+def _callable_accepts_keyword(callable_obj, keyword: str) -> bool:
+    try:
+        signature = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return True
+    return any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        or parameter.name == keyword
+        for parameter in signature.parameters.values()
+    )
+
+
+def _workflow_info_declared_domains(workflow_info: Dict[str, Any]) -> set[str]:
+    media_type = str(workflow_info.get("media_type") or "").strip().lower()
+    if media_type in MEDIA_WORKFLOW_DOMAINS:
+        return {media_type}
+    return {
+        str(workflow_info.get(key) or "").strip().lower()
+        for key in _WORKFLOW_METADATA_DOMAIN_KEYS
+        if str(workflow_info.get(key) or "").strip()
+    }
+
+
+def _workflow_info_is_compatible(
+    workflow_info: Dict[str, Any],
+    workflow_domain: Optional[str],
+) -> bool:
+    domain = str(workflow_domain or "").strip().lower()
+    if not domain:
+        return True
+    media_type = str(workflow_info.get("media_type") or "").strip().lower()
+    if domain in MEDIA_WORKFLOW_DOMAINS and media_type in MEDIA_WORKFLOW_DOMAINS:
+        return domain == media_type
+    declared_domains = _workflow_info_declared_domains(workflow_info)
+    if domain in declared_domains:
+        return True
+    return is_workflow_compatible(str(workflow_info.get("key") or ""), domain)
+
+
+def _filter_workflow_infos_for_domain(
+    workflow_domain: Optional[str],
+    workflow_infos: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    return [
+        workflow_info
+        for workflow_info in workflow_infos
+        if _workflow_info_is_compatible(workflow_info, workflow_domain)
+    ]
 
 
 class ComfyBaseService:
@@ -103,20 +167,26 @@ class ComfyBaseService:
         
         # Scan each source directory for workflow files
         for source_name in source_dirs:
-            # Get all JSON files for this source (merged from both locations)
-            workflow_files = list_resource_files("workflows", source_name)
-            
-            # Filter to only files matching the prefix
-            matching_files = [
-                f for f in workflow_files 
-                if f.startswith(self.WORKFLOW_PREFIX) and f.endswith('.json')
-            ]
-            
-            for filename in matching_files:
+            workflow_paths = self._workflow_file_paths_for_source(source_name)
+
+            for file_path in workflow_paths:
+                filename = file_path.name
+                if not filename.endswith('.json'):
+                    continue
+                matches_prefix = filename.startswith(self.WORKFLOW_PREFIX)
                 try:
-                    # Get actual file path (custom > default)
-                    file_path = Path(get_resource_path("workflows", source_name, filename))
                     workflow_info = self._parse_workflow_file(file_path, source_name)
+                    if source_name == RUNNINGHUB_SOURCE and self.service_name == "tts":
+                        if "tts" not in _workflow_info_declared_domains(workflow_info):
+                            continue
+                    elif (
+                        source_name == RUNNINGHUB_SOURCE
+                        and self.service_name.endswith("_analysis")
+                    ):
+                        if workflow_info.get("service_domain") != self.service_name:
+                            continue
+                    elif not matches_prefix:
+                        continue
                     workflows.append(workflow_info)
                     logger.debug(f"Found workflow: {workflow_info['key']}")
                 except Exception as e:
@@ -124,6 +194,22 @@ class ComfyBaseService:
         
         # Sort by key (source/name)
         return sorted(workflows, key=lambda w: w["key"])
+
+    def _workflow_file_paths_for_source(self, source_name: str) -> list[Path]:
+        if str(source_name).strip().lower() == RUNNINGHUB_SOURCE:
+            registry_root = runninghub_registry_root()
+            if not registry_root.is_dir():
+                return []
+            return sorted(
+                path
+                for path in registry_root.iterdir()
+                if path.is_file() and path.suffix.lower() == ".json"
+            )
+
+        return [
+            Path(get_resource_path("workflows", source_name, filename))
+            for filename in list_resource_files("workflows", source_name)
+        ]
     
     def _parse_workflow_file(self, file_path: Path, source: str) -> Dict[str, Any]:
         """
@@ -153,14 +239,46 @@ class ComfyBaseService:
             "display_name": f"{file_path.name} - {source.title()}",
             "source": source,
             "path": str(file_path),
-            "key": f"{source}/{file_path.name}"
+            "key": f"{source}/{file_path.name}",
+            "service_domain": self.service_name,
         }
         
         # Check if it's a wrapper format (RunningHub, etc.)
         if "source" in content:
             # Wrapper format: {"source": "runninghub", "workflow_id": "xxx", ...}
+            if str(content.get("source") or source).strip().lower() == RUNNINGHUB_SOURCE:
+                content = validate_runninghub_descriptor_contract(file_path, content)
+                workflow_info.pop("service_domain", None)
             if "workflow_id" in content:
                 workflow_info["workflow_id"] = content["workflow_id"]
+            for metadata_key in ("media_type", "workflow_domain", "service_domain"):
+                value = content.get(metadata_key)
+                if isinstance(value, str) and value.strip():
+                    workflow_info[metadata_key] = value.strip().lower()
+            declared_domains = _workflow_info_declared_domains(workflow_info)
+            if declared_domains.intersection(ANALYSIS_WORKFLOW_DOMAINS):
+                if workflow_info.get("workflow_domain") not in {
+                    "image_analysis",
+                    "video_analysis",
+                }:
+                    raise ValueError(
+                        f"RunningHub analysis workflow requires explicit workflow_domain: {file_path}"
+                    )
+                if workflow_info.get("service_domain") not in {
+                    "image_analysis",
+                    "video_analysis",
+                }:
+                    raise ValueError(
+                        f"RunningHub analysis workflow requires explicit service_domain: {file_path}"
+                    )
+                if workflow_info.get("workflow_domain") != workflow_info.get(
+                    "service_domain"
+                ):
+                    raise ValueError(
+                        f"RunningHub analysis workflow domain metadata does not match: {file_path}"
+                    )
+        elif source == "selfhost":
+            workflow_info["workflow_content_contract"] = workflow_content_contract(content)
         
         return workflow_info
     
@@ -168,6 +286,7 @@ class ComfyBaseService:
         self,
         workflow_domain: Optional[str] = None,
         available_keys: Optional[List[str]] = None,
+        available_workflows: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """
         Get the effective default workflow for a domain.
@@ -179,13 +298,23 @@ class ComfyBaseService:
             ValueError: If no compatible workflow can be resolved
         """
         domain = workflow_domain or self.service_name
-        available_keys = available_keys or self.available
+        available_workflows = available_workflows or self._scan_workflows()
+        available_keys = available_keys or [wf["key"] for wf in available_workflows]
         configured_workflow = get_configured_default_workflow(self.global_config, domain)
-        default_workflow = resolve_default_workflow(
-            domain=domain,
-            available_keys=available_keys,
-            configured_workflow=configured_workflow,
+        compatible_workflows = _filter_workflow_infos_for_domain(
+            domain,
+            available_workflows,
         )
+        compatible_keys = [workflow_info["key"] for workflow_info in compatible_workflows]
+        default_workflow = None
+        if configured_workflow and configured_workflow in compatible_keys:
+            default_workflow = configured_workflow
+        else:
+            default_workflow = resolve_default_workflow(
+                domain=domain,
+                available_keys=compatible_keys or available_keys,
+                configured_workflow=configured_workflow,
+            )
         
         if not default_workflow:
             raise ValueError(
@@ -230,15 +359,31 @@ class ComfyBaseService:
             workflow = self._get_default_workflow(
                 workflow_domain=workflow_domain,
                 available_keys=available_keys,
+                available_workflows=available_workflows,
             )
         else:
             workflow = workflow.strip()
+            matching_workflow = next(
+                (wf_info for wf_info in available_workflows if wf_info["key"] == workflow),
+                None,
+            )
             if (
                 workflow_domain
-                and workflow in available_keys
-                and not is_workflow_compatible(workflow, workflow_domain)
+                and matching_workflow is not None
+                and not _workflow_info_is_compatible(matching_workflow, workflow_domain)
             ):
-                compatible_keys = filter_workflow_keys_for_domain(workflow_domain, available_keys)
+                compatible_keys = [
+                    workflow_info["key"]
+                    for workflow_info in _filter_workflow_infos_for_domain(
+                        workflow_domain,
+                        available_workflows,
+                    )
+                ]
+                if not compatible_keys:
+                    compatible_keys = filter_workflow_keys_for_domain(
+                        workflow_domain,
+                        available_keys,
+                    )
                 compatible_str = ", ".join(compatible_keys) if compatible_keys else "none"
                 raise ValueError(
                     f"Workflow '{workflow}' is not compatible with domain '{workflow_domain}'. "
@@ -317,6 +462,17 @@ class ComfyBaseService:
             return None
         return get_registry()
 
+    def _build_resolved_workflow_file_trace(
+        self,
+        workflow_info: Mapping[str, Any],
+        workflow_input: Any,
+    ) -> dict[str, Any]:
+        return build_workflow_file_trace(
+            str(workflow_info.get("path") or ""),
+            str(workflow_info.get("key") or ""),
+            workflow_input,
+        )
+
     async def _execute_workflow(
         self,
         workflow_input: Any,
@@ -324,19 +480,122 @@ class ComfyBaseService:
         workflow_info: Dict[str, Any],
         *,
         backend_role: str = "default",
+        media_prompt_trace_context: Optional[Dict[str, Any]] = None,
+        tts_workflow_trace_context: Optional[Dict[str, Any]] = None,
+        analysis_workflow_trace_context: Optional[Dict[str, Any]] = None,
+        media_type: Optional[str] = None,
+        workflow_domain: Optional[str] = None,
     ):
         """Execute a workflow through the core so local ComfyUI lifecycle is centralized."""
         execute_workflow = getattr(self.core, "execute_comfykit_workflow", None)
-        if callable(execute_workflow):
-            return await execute_workflow(
-                workflow_input,
-                workflow_params,
-                workflow_source=workflow_info.get("source", "selfhost"),
-                backend_role=backend_role,
+        if not callable(execute_workflow):
+            raise RuntimeError(
+                "A provenance-capable core.execute_comfykit_workflow is required "
+                "before workflow execution"
             )
 
-        kit = await self.core._get_or_create_comfykit()
-        return await kit.execute(workflow_input, workflow_params)
+        execute_kwargs = {
+            "workflow_source": workflow_info.get("source", "selfhost"),
+            "backend_role": backend_role,
+        }
+        analysis_service_domain = None
+        media_service_domain = None
+        tts_service_domain = None
+        effective_media_type = media_type
+        if str(workflow_domain or "").strip().lower() in {
+            "analysis",
+            "image_analysis",
+            "video_analysis",
+        }:
+            execute_workflow = getattr(
+                self.core,
+                "_execute_analysis_comfykit_workflow",
+                None,
+            )
+            if not callable(execute_workflow):
+                raise RuntimeError(
+                    "A provenance-capable core._execute_analysis_comfykit_workflow "
+                    "is required before analysis workflow execution"
+                )
+            analysis_service_domain = workflow_info.get("service_domain")
+            if analysis_service_domain not in {"image_analysis", "video_analysis"}:
+                raise ValueError(
+                    "analysis workflow execution requires explicit service_domain metadata"
+                )
+            if (
+                self.service_name.endswith("_analysis")
+                and analysis_service_domain != self.service_name
+            ):
+                raise ValueError(
+                    "analysis workflow service_domain does not match calling service"
+                )
+        elif self.service_name == "tts" or tts_workflow_trace_context is not None:
+            tts_execute_workflow = getattr(
+                self.core,
+                "_execute_tts_comfykit_workflow",
+                None,
+            )
+            if callable(tts_execute_workflow):
+                execute_workflow = tts_execute_workflow
+                tts_service_domain = "tts"
+            elif workflow_info.get("source") == "runninghub":
+                raise RuntimeError(
+                    "A provenance-capable core._execute_tts_comfykit_workflow is "
+                    "required before RunningHub TTS workflow execution"
+                )
+        else:
+            descriptor_media_domain = str(workflow_info.get("media_type") or "").strip().lower()
+            requested_media_domain = str(media_type or workflow_domain or "").strip().lower()
+            if descriptor_media_domain in MEDIA_WORKFLOW_DOMAINS:
+                if (
+                    requested_media_domain in MEDIA_WORKFLOW_DOMAINS
+                    and requested_media_domain != descriptor_media_domain
+                ):
+                    raise ValueError(
+                        "media_type does not match resolved media workflow contract"
+                    )
+                requested_media_domain = descriptor_media_domain
+            if requested_media_domain in {"image", "video"}:
+                media_execute_workflow = getattr(
+                    self.core,
+                    "_execute_media_comfykit_workflow",
+                    None,
+                )
+                if callable(media_execute_workflow):
+                    execute_workflow = media_execute_workflow
+                    media_service_domain = requested_media_domain
+                    effective_media_type = requested_media_domain
+        optional_kwargs = {
+            "media_prompt_trace_context": media_prompt_trace_context,
+            "tts_workflow_trace_context": tts_workflow_trace_context,
+            "analysis_workflow_trace_context": analysis_workflow_trace_context,
+            "media_type": effective_media_type,
+            "workflow_domain": workflow_domain,
+            "analysis_service_domain": analysis_service_domain,
+            "media_service_domain": media_service_domain,
+            "tts_service_domain": tts_service_domain,
+            "resolved_workflow": workflow_info.get("key"),
+        }
+        workflow_file_trace = self._build_resolved_workflow_file_trace(
+            workflow_info,
+            workflow_input,
+        )
+        if workflow_file_trace:
+            optional_kwargs["workflow_file_trace"] = workflow_file_trace
+        for key, value in optional_kwargs.items():
+            if value is None:
+                continue
+            if not _callable_accepts_keyword(execute_workflow, key):
+                raise RuntimeError(
+                    "A provenance-capable core.execute_comfykit_workflow is required "
+                    f"to accept {key}"
+                )
+            execute_kwargs[key] = value
+        return await execute_workflow(
+            workflow_input,
+            workflow_params,
+            **execute_kwargs,
+        )
     
     def list_workflows(self) -> List[Dict[str, Any]]:
         """

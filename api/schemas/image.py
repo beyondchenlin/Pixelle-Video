@@ -35,6 +35,22 @@ class ImageGenerateRequest(BaseModel):
     width: int = Field(1024, ge=512, le=2048, description="Image width")
     height: int = Field(1024, ge=512, le=2048, description="Image height")
     workflow: Optional[str] = Field(None, description="Custom workflow filename")
+    negative_prompt: Optional[str] = Field(
+        None,
+        description="Negative prompt paired with the image prompt",
+    )
+    planning_snapshot: Optional[dict] = Field(
+        None,
+        description="Upstream prompt planning provenance returned by /content/image-prompt",
+    )
+    prompt_plan_bundle: Optional[dict] = Field(
+        None,
+        description="Upstream prompt plan bundle returned by /content/image-prompt",
+    )
+    llm_trace_refs: list[dict] = Field(
+        default_factory=list,
+        description="Upstream LLM trace refs returned by /content/image-prompt",
+    )
 
 
 class ImageGenerateResponse(BaseModel):

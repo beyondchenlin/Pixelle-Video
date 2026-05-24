@@ -65,6 +65,10 @@ class NarrationGenerateResponse(BaseModel):
     success: bool = True
     message: str = "Success"
     narrations: List[str] = Field(..., description="Generated narrations")
+    llm_trace_refs: List[dict] = Field(
+        default_factory=list,
+        description="LLM trace references used to produce the narrations",
+    )
 
 
 # ============================================================================
@@ -131,6 +135,10 @@ class ImagePromptGenerateRequest(BaseModel):
         None,
         description="Unified text rendering and generated-image text policy",
     )
+    upstream_llm_trace_refs: List[dict] = Field(
+        default_factory=list,
+        description="Prior LLM trace references that this prompt generation depends on",
+    )
 
     @model_validator(mode="after")
     def validate_storyboard_contract(self) -> "ImagePromptGenerateRequest":
@@ -177,6 +185,22 @@ class ImagePromptGenerateResponse(BaseModel):
     success: bool = True
     message: str = "Success"
     image_prompts: List[str] = Field(..., description="Generated image prompts")
+    negative_prompt: Optional[str] = Field(
+        None,
+        description="Shared negative prompt paired with the generated image prompts",
+    )
+    planning_snapshot: Optional[dict] = Field(
+        None,
+        description="Structured prompt planning provenance, including trace refs",
+    )
+    prompt_plan_bundle: Optional[dict] = Field(
+        None,
+        description="Replayable prompt plan bundle for downstream media generation",
+    )
+    llm_trace_refs: List[dict] = Field(
+        default_factory=list,
+        description="LLM trace references used to produce the prompts",
+    )
 
 
 # ============================================================================

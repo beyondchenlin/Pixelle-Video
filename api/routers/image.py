@@ -23,12 +23,26 @@ from loguru import logger
 from api.dependencies import PixelleVideoDep
 from api.schemas.image import ImageGenerateRequest, ImageGenerateResponse
 from pixelle_video.services.prompt_trace_artifacts import (
+    build_media_prompt_trace_context,
     media_workflow_trace_context,
     write_single_media_prompt_artifact,
 )
 from pixelle_video.utils.os_util import get_runtime_path
 
 router = APIRouter(prefix="/image", tags=["Basic Services"])
+
+
+def _image_generation_upstream_prompt_provenance(
+    request: ImageGenerateRequest,
+) -> dict[str, object]:
+    provenance: dict[str, object] = {}
+    if request.planning_snapshot is not None:
+        provenance["planning_snapshot"] = request.planning_snapshot
+    if request.prompt_plan_bundle is not None:
+        provenance["prompt_plan_bundle"] = request.prompt_plan_bundle
+    if request.llm_trace_refs:
+        provenance["llm_trace_refs"] = request.llm_trace_refs
+    return provenance
 
 
 @router.post("/generate", response_model=ImageGenerateResponse)
@@ -61,16 +75,26 @@ async def image_generate(
             if prompt_trace_output_dir is not None
             else get_runtime_path("media_prompt_traces", trace_task_id)
         )
+        workflow_context = media_workflow_trace_context(
+            pixelle_video.media,
+            workflow=request.workflow,
+            media_type="image",
+        )
+        upstream_prompt_provenance = _image_generation_upstream_prompt_provenance(
+            request
+        )
         prompt_trace_path = write_single_media_prompt_artifact(
             output_dir,
             task_id=trace_task_id,
             prompt=request.prompt,
+            negative_prompt=request.negative_prompt or "",
             generation_context={
                 "source": "api.image.generate",
-                **media_workflow_trace_context(
-                    pixelle_video.media,
-                    workflow=request.workflow,
-                    media_type="image",
+                **workflow_context,
+                **(
+                    {"upstream_prompt_provenance": upstream_prompt_provenance}
+                    if upstream_prompt_provenance
+                    else {}
                 ),
                 "media_type": "image",
                 "width": request.width,
@@ -84,9 +108,21 @@ async def image_generate(
         # Call media service (backward compatible with image API)
         media_result = await pixelle_video.media(
             prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
             width=request.width,
             height=request.height,
-            workflow=request.workflow
+            workflow=workflow_context["workflow"],
+            media_prompt_trace_context=build_media_prompt_trace_context(
+                artifact_path=prompt_trace_path,
+                task_id=trace_task_id,
+                prompt=request.prompt,
+                negative_prompt=request.negative_prompt or "",
+                workflow_context=workflow_context,
+                media_type="image",
+                frame_id="1",
+                media_width=request.width,
+                media_height=request.height,
+            ),
         )
         
         # For backward compatibility, only support image results in /image endpoint

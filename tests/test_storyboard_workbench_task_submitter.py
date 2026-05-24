@@ -340,16 +340,18 @@ async def test_execute_frame_image_regeneration_generates_image_and_records_cand
         },
     )
 
-    assert media.calls == [
-        {
-            "prompt": "A quiet lab, cinematic lighting",
-            "media_type": "image",
-            "workflow": "selfhost/image_z_image_turbo_gguf.json",
-            "width": 768,
-            "height": 768,
-            "negative_prompt": "blurry",
-        }
-    ]
+    assert len(media.calls) == 1
+    media_call = media.calls[0]
+    assert media_call["prompt"] == "A quiet lab, cinematic lighting"
+    assert media_call["media_type"] == "image"
+    assert media_call["workflow"] == "selfhost/image_z_image_turbo_gguf.json"
+    assert media_call["width"] == 768
+    assert media_call["height"] == 768
+    assert media_call["negative_prompt"] == "blurry"
+    media_prompt_trace_context = media_call["media_prompt_trace_context"]
+    assert media_prompt_trace_context["frame_id"] == "frame_0001"
+    assert media_prompt_trace_context["prompt"] == "A quiet lab, cinematic lighting"
+    assert media_prompt_trace_context["workflow"] == "selfhost/image_z_image_turbo_gguf.json"
     assert result["artifact_version_id"] == artifact_repository.created_versions[-1][2]["version_id"]
     assert state_store.saved[-1][3]["last_generation_job_id"] == "regen-task-1"
     trace_content = next((tmp_path / "prompt_trace_runtime").rglob("final_visual_prompts.md")).read_text(

@@ -1,4 +1,6 @@
 {
     "source": "runninghub",
-    "workflow_id": "1996069253201739777"
+    "workflow_id": "1996069253201739777",
+    "workflow_domain": "image_analysis",
+    "service_domain": "image_analysis"
 }

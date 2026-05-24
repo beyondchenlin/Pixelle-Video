@@ -1,13 +1,20 @@
+from types import SimpleNamespace
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from api.dependencies import get_pixelle_video
-from api.routers.content import generate_image_prompt, generate_world_hint_draft
+from api.routers.content import (
+    generate_image_prompt,
+    generate_narration,
+    generate_world_hint_draft,
+)
 from api.routers.content import router as content_router
 from api.schemas.content import (
     ImagePromptGenerateRequest,
+    NarrationGenerateRequest,
     WorldHintDraftGenerateRequest,
 )
 from api.schemas.content import (
@@ -16,6 +23,7 @@ from api.schemas.content import (
 from api.schemas.video import StoryboardFrameOverride as VideoStoryboardFrameOverride
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
+from pixelle_video.services.prompt_plan_service import build_prompt_plan_bundle
 
 
 class _FakePixelleVideo:
@@ -25,7 +33,7 @@ class _FakePixelleVideo:
         self.config = {
             "comfyui": {
                 "image": {
-                    "prompt_prefix": "legacy prefix",
+                    "prompt_prefix": "retired config value",
                     "prompt_prefix_library": {"active_prefix_id": None, "items": []},
                 }
             },
@@ -39,6 +47,18 @@ class _FakePixelleVideo:
                 ],
             },
         }
+
+
+def _fake_http_request() -> SimpleNamespace:
+    return SimpleNamespace(
+        headers={"x-task-id": "task-content-api-test"},
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                trace_repository=object(),
+                raw_payload_store=object(),
+            )
+        ),
+    )
 
 
 def test_world_hint_draft_request_rejects_blank_source_text():
@@ -75,6 +95,7 @@ async def test_generate_world_hint_draft_endpoint_uses_content_world_planner(mon
             ip_default_world_hint="适合亲切文旅讲解世界。",
             storyboard_prompt_language="zh_CN",
         ),
+        _fake_http_request(),
         _FakePixelleVideo(),
     )
 
@@ -190,6 +211,19 @@ def test_image_prompt_generate_request_accepts_prompt_generation_performance_con
     assert request.llm_prompt_batch_concurrent_limit == 3
 
 
+def test_image_prompt_generate_request_accepts_upstream_llm_trace_refs():
+    request = ImagePromptGenerateRequest(
+        narrations=["scene one"],
+        upstream_llm_trace_refs=[
+            {"trace_id": "trace-narration-1", "stage": "api_narration_generation"}
+        ],
+    )
+
+    assert request.upstream_llm_trace_refs == [
+        {"trace_id": "trace-narration-1", "stage": "api_narration_generation"}
+    ]
+
+
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [
@@ -284,6 +318,35 @@ def test_image_prompt_generate_request_rejects_unknown_text_rendering_keys(text_
 
 
 @pytest.mark.asyncio
+async def test_generate_narration_endpoint_returns_llm_trace_refs(monkeypatch):
+    async def fake_generate_narrations_from_topic(**kwargs):
+        kwargs["trace_recorder"].records.append(
+            SimpleNamespace(
+                trace_id="trace-narration-1",
+                context=SimpleNamespace(stage="api_narration_generation"),
+                status="success",
+            )
+        )
+        return ["scene one"]
+
+    monkeypatch.setattr(
+        "api.routers.content.generate_narrations_from_topic",
+        fake_generate_narrations_from_topic,
+    )
+
+    response = await generate_narration(
+        NarrationGenerateRequest(text="source text", n_scenes=1),
+        _fake_http_request(),
+        _FakePixelleVideo(),
+    )
+
+    assert response.narrations == ["scene one"]
+    assert response.llm_trace_refs == [
+        {"trace_id": "trace-narration-1", "stage": "api_narration_generation"}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypatch):
     plan = _storyboard_plan()
 
@@ -301,6 +364,9 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
         assert kwargs["role_locking_strength"] == "strong"
         assert kwargs["shot_strategy"] == "strict"
         assert kwargs["storyboard_plan"].plan_id == plan.plan_id
+        assert kwargs["upstream_llm_trace_refs"] == [
+            {"trace_id": "trace-narration-1", "stage": "api_narration_generation"}
+        ]
         assert kwargs["frame_overrides"] == [
             {
                 "plan_id": plan.plan_id,
@@ -335,6 +401,9 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
         role_locking_strength="strong",
         shot_strategy="strict",
         storyboard_generation=plan.to_dict(),
+        upstream_llm_trace_refs=[
+            {"trace_id": "trace-narration-1", "stage": "api_narration_generation"}
+        ],
         frame_overrides=[
             {
                 "plan_id": plan.plan_id,
@@ -349,9 +418,68 @@ async def test_generate_image_prompt_endpoint_uses_shared_styled_batch(monkeypat
     object.__setattr__(request, "prompt_prefix", "angry birds world")
     object.__setattr__(request, "workflow", "selfhost/image_z_image_turbo.json")
 
-    response = await generate_image_prompt(request, _FakePixelleVideo())
+    response = await generate_image_prompt(request, _fake_http_request(), _FakePixelleVideo())
 
     assert response.image_prompts == ["styled prompt"]
+
+
+@pytest.mark.asyncio
+async def test_generate_image_prompt_endpoint_returns_prompt_provenance(monkeypatch):
+    plan = _storyboard_plan()
+    llm_trace_refs = [{"trace_id": "trace-image-1", "stage": "image_prompt_batch"}]
+    template_metadata = {
+        "prompt_id": "final_visual_prompt",
+        "version": "1",
+        "stage": "final_visual_prompt_assembly",
+        "path": "pixelle_video/prompts/templates/final_visual_prompt.md",
+    }
+    prompt_plan_bundle = build_prompt_plan_bundle(
+        storyboard_plan=plan,
+        image_prompts=("styled prompt one", "styled prompt two"),
+        planning_snapshot={
+            "llm_trace_refs": llm_trace_refs,
+            "final_visual_prompt_template": template_metadata,
+        },
+    )
+
+    async def fake_compose(self, **_kwargs):
+        return StyledImagePromptBatch(
+            prompts=["styled prompt one", "styled prompt two"],
+            negative_prompt="blur",
+            resolved_style=None,
+            planning_snapshot={
+                "llm_trace_refs": llm_trace_refs,
+                "final_visual_prompt_template": template_metadata,
+            },
+            prompt_plan_bundle=prompt_plan_bundle,
+        )
+
+    monkeypatch.setattr(
+        "api.routers.content.ImagePromptComposer.compose",
+        fake_compose,
+    )
+
+    response = await generate_image_prompt(
+        ImagePromptGenerateRequest(
+            narrations=plan.source_texts(),
+            storyboard_generation=plan.to_dict(),
+        ),
+        _fake_http_request(),
+        _FakePixelleVideo(),
+    )
+
+    assert response.image_prompts == ["styled prompt one", "styled prompt two"]
+    assert response.negative_prompt == "blur"
+    assert response.llm_trace_refs == llm_trace_refs
+    assert response.planning_snapshot["final_visual_prompt_template"]["prompt_id"] == (
+        "final_visual_prompt"
+    )
+    assert response.prompt_plan_bundle["prompt_plans"][0]["final_prompt"] == (
+        "styled prompt one"
+    )
+    assert response.prompt_plan_bundle["prompt_plans"][0]["metadata"][
+        "final_visual_prompt_template"
+    ]["prompt_id"] == "final_visual_prompt"
 
 
 def test_image_prompt_generate_request_accepts_storyboard_prompt_language():
@@ -436,10 +564,55 @@ async def test_generate_image_prompt_endpoint_threads_text_rendering(monkeypatch
                 },
             },
         ),
+        _fake_http_request(),
         _FakePixelleVideo(),
     )
 
     assert response.image_prompts == ["styled prompt"]
+
+
+@pytest.mark.asyncio
+async def test_generate_image_prompt_endpoint_threads_upstream_refs_without_storyboard(
+    monkeypatch,
+):
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        assert kwargs["upstream_llm_trace_refs"] == [
+            {"trace_id": "trace-narration-1", "stage": "api_narration_generation"}
+        ]
+        return StyledImagePromptBatch(
+            prompts=["styled prompt"],
+            negative_prompt=None,
+            resolved_style=None,
+            planning_snapshot={
+                "llm_trace_refs": [
+                    {
+                        "trace_id": "trace-narration-1",
+                        "stage": "api_narration_generation",
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(
+        "api.routers.content.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    response = await generate_image_prompt(
+        ImagePromptGenerateRequest(
+            narrations=["scene one"],
+            upstream_llm_trace_refs=[
+                {"trace_id": "trace-narration-1", "stage": "api_narration_generation"}
+            ],
+        ),
+        _fake_http_request(),
+        _FakePixelleVideo(),
+    )
+
+    assert response.image_prompts == ["styled prompt"]
+    assert response.llm_trace_refs == [
+        {"trace_id": "trace-narration-1", "stage": "api_narration_generation"}
+    ]
 
 
 @pytest.mark.asyncio
@@ -480,6 +653,7 @@ async def test_generate_image_prompt_endpoint_filters_render_style_payloads(monk
                 "image_text": {"suppress_embedded_text": True},
             },
         ),
+        _fake_http_request(),
         _FakePixelleVideo(),
     )
 

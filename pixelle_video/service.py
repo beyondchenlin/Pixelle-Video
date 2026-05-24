@@ -19,6 +19,7 @@ Provides unified access to all capabilities (LLM, TTS, Image, etc.)
 import asyncio
 import hashlib
 import json
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -34,7 +35,17 @@ from pixelle_video.models.video_generation_contract import (
 )
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.standard import StandardPipeline
+from pixelle_video.runninghub_workflow_contracts import (
+    ANALYSIS_WORKFLOW_DOMAINS,
+    MEDIA_WORKFLOW_DOMAINS,
+    runninghub_descriptor_domains,
+    validate_runninghub_descriptor_contract,
+)
 from pixelle_video.services.alignment_service import AlignmentService
+from pixelle_video.services.analysis_trace_artifacts import (
+    validate_analysis_workflow_trace_artifact,
+    write_analysis_workflow_result_artifact,
+)
 from pixelle_video.services.audio_edit_service import AudioEditService
 from pixelle_video.services.comfyui_backend_manager import ManagedComfyUIBackend
 from pixelle_video.services.comfyui_backend_registry import ComfyUIBackendRegistry
@@ -58,12 +69,39 @@ from pixelle_video.services.image_analysis import ImageAnalysisService
 from pixelle_video.services.llm_service import LLMService
 from pixelle_video.services.media import MediaService
 from pixelle_video.services.persistence import PersistenceService
+from pixelle_video.services.prompt_trace_artifacts import (
+    build_workflow_params_trace,
+    require_media_prompt_trace_context,
+    summarize_media_workflow_result,
+    validate_media_prompt_trace_artifact,
+    write_media_workflow_result_artifact,
+)
 from pixelle_video.services.tts_service import TTSService
+from pixelle_video.services.tts_trace_artifacts import (
+    validate_tts_workflow_trace_artifact,
+    write_tts_workflow_result_artifact,
+)
 from pixelle_video.services.video import VideoService
 from pixelle_video.services.video_analysis import VideoAnalysisService
 from pixelle_video.tts_workflow_contract import is_index_tts2_workflow_key
-from pixelle_video.tts_workflow_family import is_omnivoice_workflow_key
+from pixelle_video.tts_workflow_family import (
+    is_known_tts_workflow_resource,
+    is_omnivoice_workflow_key,
+)
+from pixelle_video.tts_workflow_param_contract import (
+    is_tts_workflow_param_name,
+    workflow_params_have_case_variant_tts_key,
+    workflow_params_look_like_tts_generation,
+)
 from pixelle_video.utils.os_util import get_output_path
+from pixelle_video.workflow_content_contracts import (
+    WORKFLOW_FILE_TRACE_KEYS,
+    build_workflow_file_trace,
+    extract_workflow_file_trace,
+    load_workflow_json,
+    workflow_content_contract,
+    workflow_file_sha256,
+)
 
 _GGUF_WORKFLOW_NODE_CLASS_TYPES = frozenset(
     {
@@ -80,6 +118,1110 @@ _EXTENSION_RELEASE_CONTEXTS: dict[ComfyUIExtensionName, str] = {
     "gguf": "gguf",
     "omnivoice": "omnivoice",
 }
+_WORKFLOW_PROMPT_PARAM_KEYS = (
+    "prompt",
+    "positive_prompt",
+    "image_prompt",
+    "video_prompt",
+    "text_prompt",
+)
+_WORKFLOW_WIDTH_PARAM_KEYS = ("width", "media_width", "image_width", "video_width")
+_WORKFLOW_HEIGHT_PARAM_KEYS = ("height", "media_height", "image_height", "video_height")
+_WORKFLOW_NEGATIVE_PROMPT_PARAM_KEYS = (
+    "negative",
+    "negative_prompt",
+    "negative_image_prompt",
+    "negative_video_prompt",
+)
+_MEDIA_PROMPT_TRACE_MEDIA_TYPES = MEDIA_WORKFLOW_DOMAINS
+_MEDIA_PROMPT_TRACE_CONTROL_PARAM_KEYS = frozenset(
+    {
+        "batch_size",
+        "cfg",
+        "clip_skip",
+        "denoise",
+        "duration",
+        "fps",
+        "frame_count",
+        "frame_rate",
+        "frames",
+        "guidance",
+        "guidance_scale",
+        "motion_bucket_id",
+        "noise_aug_strength",
+        "num_frames",
+        "sampler",
+        "sampler_name",
+        "scheduler",
+        "second",
+        "seconds",
+        "seed",
+        "steps",
+        "strength",
+        "height",
+        "media_height",
+        "media_width",
+        "width",
+    }
+)
+_MEDIA_PROMPT_TRACE_INPUT_PARAM_KEYS = frozenset(
+    {
+        "audio",
+        "image",
+        "media",
+        "ref_audio",
+        "reference_audio",
+        "reference_image",
+        "source_image",
+        "target_image",
+        "video",
+    }
+)
+_MEDIA_PROMPT_TRACE_VISUAL_INPUT_PARAM_KEYS = frozenset(
+    {
+        "image",
+        "media",
+        "reference_image",
+        "source_image",
+        "target_image",
+        "video",
+    }
+)
+_MEDIA_PROMPT_TRACE_VISUAL_INPUT_PARAM_SUFFIXES = (
+    "image",
+    "media",
+    "video",
+)
+_ANALYSIS_WORKFLOW_DOMAINS = ANALYSIS_WORKFLOW_DOMAINS
+_ANALYSIS_PROMPT_PARAM_KEYS = frozenset(
+    {
+        "caption",
+        "instruction",
+        "instructions",
+        "prompt",
+        "question",
+        "query",
+        "text",
+        *_WORKFLOW_PROMPT_PARAM_KEYS,
+        *_WORKFLOW_NEGATIVE_PROMPT_PARAM_KEYS,
+    }
+)
+_ANALYSIS_PROMPT_PARAM_SUFFIXES = (
+    "_caption",
+    "_instruction",
+    "_instructions",
+    "_prompt",
+    "_prompt_text",
+    "_query",
+    "_question",
+    "_question_text",
+)
+_ANALYSIS_PROMPT_PARAM_PREFIXES = (
+    "caption_",
+    "instruction_",
+    "instructions_",
+    "prompt_",
+    "query_",
+    "question_",
+)
+_ANALYSIS_ALLOWED_INPUT_PARAM_KEYS = frozenset(
+    {
+        "file",
+        "image",
+        "image_path",
+        "input",
+        "input_file",
+        "input_image",
+        "input_media",
+        "input_path",
+        "input_url",
+        "input_video",
+        "media",
+        "media_path",
+        "path",
+        "source_image",
+        "source_media",
+        "source_video",
+        "url",
+        "video",
+        "video_path",
+    }
+)
+_ANALYSIS_ALLOWED_INPUT_PARAM_SUFFIXES = (
+    "_file",
+    "_image",
+    "_media",
+    "_path",
+    "_url",
+    "_video",
+)
+_MEDIA_PROMPT_TRACE_INPUT_PARAM_SUFFIXES = (
+    "audio",
+    "file",
+    "image",
+    "media",
+    "path",
+    "url",
+    "video",
+)
+
+
+def _workflow_param_value(
+    workflow_params: Mapping[str, Any],
+    keys: tuple[str, ...],
+) -> Any:
+    normalized_keys = {key.lower() for key in keys}
+    for key, value in workflow_params.items():
+        if str(key or "").strip().lower() in normalized_keys:
+            return value
+    return None
+
+
+def _extract_prompt_from_workflow_params(workflow_params: Mapping[str, Any]) -> str:
+    for key in _WORKFLOW_PROMPT_PARAM_KEYS:
+        value = _workflow_param_value(workflow_params, (key,))
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _extract_negative_prompt_from_workflow_params(
+    workflow_params: Mapping[str, Any],
+) -> str:
+    values: list[str] = []
+    for key in _WORKFLOW_NEGATIVE_PROMPT_PARAM_KEYS:
+        value = _workflow_param_value(workflow_params, (key,))
+        if isinstance(value, str) and value.strip():
+            values.append(value.strip())
+    if len(set(values)) > 1:
+        raise ValueError(
+            "media_prompt_trace_context workflow negative prompt alias does not match negative prompt"
+        )
+    if values:
+        return values[0]
+    return ""
+
+
+def _extract_int_from_workflow_params(
+    workflow_params: Mapping[str, Any],
+    keys: tuple[str, ...],
+) -> int | None:
+    for key in keys:
+        value = _workflow_param_value(workflow_params, (key,))
+        if value is None or str(value).strip() == "":
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _workflow_input_looks_like_media_generation(workflow_input: Any) -> bool:
+    if isinstance(workflow_input, Mapping):
+        return False
+    normalized = str(workflow_input or "").replace("\\", "/").strip().lower()
+    if not normalized:
+        return False
+    filename = normalized.rsplit("/", 1)[-1]
+    return (
+        filename.startswith(("image_", "video_"))
+        or "/image_" in normalized
+        or "/video_" in normalized
+    )
+
+
+def _workflow_identifier_looks_like_analysis(workflow_identifier: Any) -> bool:
+    if isinstance(workflow_identifier, Mapping):
+        return False
+    normalized = str(workflow_identifier or "").replace("\\", "/").strip().lower()
+    if not normalized:
+        return False
+    filename = normalized.rsplit("/", 1)[-1]
+    return (
+        filename.startswith(("analyse_", "analyze_", "analysis_"))
+        or filename.startswith(("image_analysis", "video_analysis"))
+        or filename.startswith(("image_understanding", "video_understanding"))
+        or "/analyse_" in normalized
+        or "/analyze_" in normalized
+        or "/analysis_" in normalized
+        or "/image_understanding" in normalized
+        or "/video_understanding" in normalized
+    )
+
+
+def _workflow_identifier_looks_like_non_media_generation(
+    workflow_identifier: Any,
+) -> bool:
+    return is_known_tts_workflow_resource(workflow_identifier)
+
+
+def _workflow_identifier_looks_like_workflow_resource(
+    workflow_identifier: Any,
+) -> bool:
+    if isinstance(workflow_identifier, Mapping):
+        return False
+    normalized = str(workflow_identifier or "").replace("\\", "/").strip().lower()
+    if not normalized:
+        return False
+    return (
+        normalized.startswith(("workflows/", "selfhost/", "runninghub/", "custom/"))
+        or "/workflows/" in normalized
+    )
+
+
+def _workflow_identifier_looks_like_raw_workflow_compatibility_name(
+    workflow_identifier: Any,
+) -> bool:
+    if isinstance(workflow_identifier, Mapping):
+        return False
+    return str(workflow_identifier or "").replace("\\", "/").strip().lower() == "workflow.json"
+
+
+def _raw_workflow_compatibility_boundary_applies(
+    workflow_input: Any,
+    *,
+    workflow_source: str,
+    resolved_workflow: str | None,
+    workflow_file_boundary: bool,
+) -> bool:
+    if workflow_file_boundary:
+        return False
+    if str(workflow_source or "selfhost").strip().lower() != "selfhost":
+        return False
+    if not _workflow_identifier_looks_like_raw_workflow_compatibility_name(workflow_input):
+        return False
+    return True
+
+
+def _enforce_raw_workflow_compatibility_boundary(
+    workflow_input: Any,
+    workflow_params: Mapping[str, Any],
+    *,
+    workflow_source: str,
+    resolved_workflow: str | None,
+    workflow_file_boundary: bool,
+) -> None:
+    if not _raw_workflow_compatibility_boundary_applies(
+        workflow_input,
+        workflow_source=workflow_source,
+        resolved_workflow=resolved_workflow,
+        workflow_file_boundary=workflow_file_boundary,
+    ):
+        return
+    raise ValueError(
+        "raw workflow.json is not allowed through public ComfyKit execution; "
+        "use a resolved workflow path or execute_comfykit_workflow_file"
+    )
+
+
+def _workflow_params_have_media_inputs_or_controls(
+    workflow_params: Mapping[str, Any],
+) -> bool:
+    for key, value in workflow_params.items():
+        name = str(key or "").strip().lower()
+        if not name or value in (None, "", [], {}):
+            continue
+        if name in _MEDIA_PROMPT_TRACE_CONTROL_PARAM_KEYS:
+            return True
+        if name in _MEDIA_PROMPT_TRACE_INPUT_PARAM_KEYS:
+            return True
+        if name.endswith(_MEDIA_PROMPT_TRACE_INPUT_PARAM_SUFFIXES):
+            return True
+    return False
+
+
+def _workflow_params_have_traceable_payload(
+    workflow_params: Mapping[str, Any],
+) -> bool:
+    prompt = _extract_prompt_from_workflow_params(workflow_params)
+    return bool(build_workflow_params_trace(workflow_params, prompt=prompt or None))
+
+
+def _workflow_params_have_visual_media_payload(
+    workflow_params: Mapping[str, Any],
+    *,
+    prompt_is_text_input: bool = False,
+) -> bool:
+    prompt_keys = {key.lower() for key in _WORKFLOW_PROMPT_PARAM_KEYS}
+    negative_prompt_keys = {
+        key.lower() for key in _WORKFLOW_NEGATIVE_PROMPT_PARAM_KEYS
+    }
+    dimension_keys = {
+        *[key.lower() for key in _WORKFLOW_WIDTH_PARAM_KEYS],
+        *[key.lower() for key in _WORKFLOW_HEIGHT_PARAM_KEYS],
+    }
+    for key, value in workflow_params.items():
+        raw_name = str(key or "").strip()
+        name = raw_name.lower()
+        if not raw_name or value in (None, "", [], {}):
+            continue
+        if name in prompt_keys:
+            if prompt_is_text_input and raw_name == "prompt":
+                continue
+            return True
+        if name in negative_prompt_keys:
+            return True
+        if name in dimension_keys:
+            return True
+        if name in _MEDIA_PROMPT_TRACE_VISUAL_INPUT_PARAM_KEYS:
+            return True
+        if name.endswith(_MEDIA_PROMPT_TRACE_VISUAL_INPUT_PARAM_SUFFIXES):
+            return True
+    return False
+
+
+def _workflow_params_have_negative_prompt_payload(
+    workflow_params: Mapping[str, Any],
+) -> bool:
+    negative_prompt_keys = {
+        key.lower() for key in _WORKFLOW_NEGATIVE_PROMPT_PARAM_KEYS
+    }
+    return any(
+        str(key or "").strip().lower() in negative_prompt_keys
+        and isinstance(value, str)
+        and bool(value.strip())
+        for key, value in workflow_params.items()
+    )
+
+
+def _workflow_params_look_like_non_media_generation(
+    workflow_params: Mapping[str, Any],
+) -> bool:
+    return workflow_params_look_like_tts_generation(workflow_params)
+
+
+def _workflow_params_have_tts_signal(
+    workflow_params: Mapping[str, Any],
+) -> bool:
+    has_text_input = False
+    has_only_tts_params = True
+    for key, value in workflow_params.items():
+        name = str(key or "").strip()
+        if not name or value in (None, "", [], {}):
+            continue
+        normalized = name.lower()
+        if not is_tts_workflow_param_name(name):
+            has_only_tts_params = False
+            continue
+        if normalized in {"prompt", "prompt_text", "text"}:
+            has_text_input = True
+    return has_only_tts_params and has_text_input
+
+
+def _workflow_params_have_case_variant_non_media_key(
+    workflow_params: Mapping[str, Any],
+) -> bool:
+    return workflow_params_have_case_variant_tts_key(workflow_params)
+
+
+def _enforce_known_non_media_workflow_param_case_boundary(
+    workflow_input: Any,
+    workflow_params: Mapping[str, Any],
+    *,
+    resolved_workflow: str | None,
+) -> None:
+    if not (
+        _workflow_identifier_looks_like_non_media_generation(workflow_input)
+        or _workflow_identifier_looks_like_non_media_generation(resolved_workflow)
+    ):
+        return
+    if _workflow_params_have_case_variant_non_media_key(workflow_params):
+        raise ValueError(
+            "non-media workflow params must use exact lowercase keys"
+        )
+
+
+def _workflow_params_have_case_variant_prompt_key(
+    workflow_params: Mapping[str, Any],
+) -> bool:
+    prompt_keys = {key.lower() for key in _WORKFLOW_PROMPT_PARAM_KEYS}
+    for key, value in workflow_params.items():
+        name = str(key or "").strip()
+        if (
+            name
+            and name.lower() in prompt_keys
+            and name != name.lower()
+            and isinstance(value, str)
+            and value.strip()
+        ):
+            return True
+    return False
+
+
+def _comfykit_workflow_requires_media_prompt_trace(
+    workflow_input: Any,
+    workflow_params: Mapping[str, Any],
+    *,
+    workflow_source: str,
+    media_type: str | None = None,
+    resolved_workflow: str | None = None,
+    workflow_file_boundary: bool = False,
+) -> bool:
+    resolved_media_type = str(media_type or "").strip().lower()
+    if resolved_media_type in _MEDIA_PROMPT_TRACE_MEDIA_TYPES:
+        return True
+
+    normalized_source = str(workflow_source or "selfhost").strip().lower()
+    known_non_media_workflow = (
+        _workflow_identifier_looks_like_non_media_generation(workflow_input)
+        or _workflow_identifier_looks_like_non_media_generation(resolved_workflow)
+    )
+    has_visual_media_payload = _workflow_params_have_visual_media_payload(
+        workflow_params,
+        prompt_is_text_input=known_non_media_workflow,
+    )
+    prompt = _extract_prompt_from_workflow_params(workflow_params)
+    traceable_payload = _workflow_params_have_traceable_payload(workflow_params)
+    has_case_variant_prompt = _workflow_params_have_case_variant_prompt_key(
+        workflow_params
+    )
+    has_negative_prompt_payload = _workflow_params_have_negative_prompt_payload(
+        workflow_params
+    )
+    has_media_inputs_or_controls = _workflow_params_have_media_inputs_or_controls(
+        workflow_params
+    )
+    non_media_workflow = (
+        known_non_media_workflow
+        and not has_visual_media_payload
+    )
+    if non_media_workflow:
+        return False
+
+    if prompt:
+        return True
+
+    if normalized_source == "runninghub" and (
+        prompt or traceable_payload or has_media_inputs_or_controls
+    ):
+        return True
+    if _workflow_input_looks_like_media_generation(
+        workflow_input
+    ) or _workflow_input_looks_like_media_generation(resolved_workflow):
+        return bool(prompt or traceable_payload or has_media_inputs_or_controls)
+    if has_case_variant_prompt:
+        return True
+    if has_negative_prompt_payload:
+        return True
+    if has_media_inputs_or_controls:
+        return True
+    if traceable_payload:
+        return True
+    return False
+
+
+def _infer_media_type_from_workflow_input(workflow_input: Any) -> str:
+    normalized = str(workflow_input or "").replace("\\", "/").strip().lower()
+    filename = normalized.rsplit("/", 1)[-1]
+    if filename.startswith("video_") or "/video_" in normalized:
+        return "video"
+    if filename.startswith("image_") or "/image_" in normalized:
+        return "image"
+    return ""
+
+
+def _workflow_domain_requests_analysis(workflow_domain: str | None) -> bool:
+    return str(workflow_domain or "").strip().lower() in _ANALYSIS_WORKFLOW_DOMAINS
+
+
+def _workflow_boundary_is_analysis(
+    *,
+    workflow_input: Any,
+    resolved_workflow: str | None,
+    workflow_domain: str | None,
+    analysis_service_domain: str | None,
+) -> bool:
+    recognized_analysis_workflow = (
+        _workflow_identifier_looks_like_analysis(workflow_input)
+        or _workflow_identifier_looks_like_analysis(resolved_workflow)
+    )
+    if not _workflow_domain_requests_analysis(workflow_domain):
+        return False
+    if str(analysis_service_domain or "").strip().lower() not in {
+        "image_analysis",
+        "video_analysis",
+    }:
+        raise ValueError(
+            "workflow_domain analysis requires a resolved analysis service workflow"
+        )
+    if not recognized_analysis_workflow:
+        raise ValueError(
+            "workflow_domain analysis requires a resolved analysis workflow"
+        )
+    return True
+
+
+def _workflow_identifier_requires_analysis_boundary(
+    workflow_input: Any,
+    resolved_workflow: str | None,
+) -> bool:
+    return (
+        _workflow_identifier_looks_like_analysis(workflow_input)
+        or _workflow_identifier_looks_like_analysis(resolved_workflow)
+    )
+
+
+def _analysis_media_type_for_service_domain(service_domain: str | None) -> str:
+    normalized = str(service_domain or "").strip().lower()
+    if normalized == "image_analysis":
+        return "image"
+    if normalized == "video_analysis":
+        return "video"
+    return ""
+
+
+def _extract_analysis_media_path(
+    workflow_params: Mapping[str, Any],
+    *,
+    service_domain: str | None,
+) -> str:
+    media_type = _analysis_media_type_for_service_domain(service_domain)
+    if media_type == "image":
+        value = _workflow_param_value(workflow_params, ("image", "media", "path", "url"))
+    elif media_type == "video":
+        value = _workflow_param_value(workflow_params, ("video", "media", "path", "url"))
+    else:
+        value = None
+    return str(value or "").strip()
+
+
+def _analysis_param_name_is_prompt_like(name: str) -> bool:
+    normalized = str(name or "").strip().lower()
+    if not normalized:
+        return False
+    return (
+        normalized in _ANALYSIS_PROMPT_PARAM_KEYS
+        or normalized.endswith(_ANALYSIS_PROMPT_PARAM_SUFFIXES)
+        or normalized.startswith(_ANALYSIS_PROMPT_PARAM_PREFIXES)
+    )
+
+
+def _analysis_param_name_is_allowed_input(name: str) -> bool:
+    normalized = str(name or "").strip().lower()
+    if not normalized:
+        return False
+    return normalized in _ANALYSIS_ALLOWED_INPUT_PARAM_KEYS or normalized.endswith(
+        _ANALYSIS_ALLOWED_INPUT_PARAM_SUFFIXES
+    )
+
+
+def _existing_selfhost_workflow_content_contract(workflow_input: Any) -> dict[str, Any]:
+    if isinstance(workflow_input, Mapping):
+        return {}
+    try:
+        workflow_path = Path(str(workflow_input))
+    except (TypeError, ValueError):
+        return {}
+    if not workflow_path.is_file():
+        return {}
+    try:
+        workflow = load_workflow_json(workflow_path)
+    except Exception:
+        return {}
+    if str(workflow.get("source") or "selfhost").strip().lower() == "runninghub":
+        return {}
+    return workflow_content_contract(workflow)
+
+
+def _enforce_selfhost_workflow_content_boundary(
+    *,
+    workflow_input: Any,
+    workflow_domain: str | None,
+    media_workflow_contract: str | None,
+    media_prompt_trace_context: Mapping[str, Any] | None,
+    tts_workflow_trace_context: Mapping[str, Any] | None,
+    analysis_workflow_trace_context: Mapping[str, Any] | None,
+) -> None:
+    content_contract = _existing_selfhost_workflow_content_contract(workflow_input)
+    if not content_contract:
+        return
+    if content_contract.get("contains_tts_nodes") and str(
+        media_workflow_contract or ""
+    ).strip().lower() in _MEDIA_PROMPT_TRACE_MEDIA_TYPES:
+        raise ValueError(
+            "selfhost workflow content resolves to TTS nodes and cannot execute "
+            "through a media workflow contract"
+        )
+    if (
+        content_contract.get("contains_analysis_nodes")
+        and not _workflow_domain_requests_analysis(workflow_domain)
+    ):
+        raise ValueError(
+            "analysis workflow execution requires a resolved analysis service workflow"
+        )
+    _require_workflow_prompt_literal_trace(
+        workflow_contract=content_contract,
+        trace_contexts=(
+            media_prompt_trace_context,
+            tts_workflow_trace_context,
+            analysis_workflow_trace_context,
+        ),
+    )
+
+
+def _require_workflow_prompt_literal_trace(
+    *,
+    workflow_contract: Mapping[str, Any],
+    trace_contexts: tuple[Mapping[str, Any] | None, ...],
+) -> None:
+    prompt_literals = workflow_contract.get("prompt_literals")
+    if not prompt_literals:
+        return
+    expected_sha256 = str(workflow_contract.get("prompt_literals_sha256") or "").strip()
+    if not expected_sha256:
+        raise ValueError("workflow prompt literals require a workflow literal hash")
+    active_contexts = [
+        context for context in trace_contexts if isinstance(context, Mapping)
+    ]
+    if not active_contexts:
+        raise ValueError(
+            "workflow prompt literals require a prompt trace context "
+            "(media_prompt_trace_context, tts_workflow_trace_context, or "
+            "analysis_workflow_trace_context) before workflow execution"
+        )
+    traced_hashes = [
+        str(context.get("workflow_prompt_literals_sha256") or "").strip()
+        for context in active_contexts
+    ]
+    if not any(traced_hashes):
+        raise ValueError(
+            "workflow prompt literals require workflow_prompt_literals_sha256 in the "
+            "prompt trace context"
+        )
+    if expected_sha256 not in traced_hashes:
+        raise ValueError(
+            "prompt trace context workflow prompt literal hash does not match"
+        )
+
+
+def _workflow_file_trace_from_identity(
+    workflow_identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    workflow_file_sha = str(
+        workflow_identity.get("workflow_file_sha256") or ""
+    ).strip()
+    workflow_contract = workflow_identity.get("workflow_content_contract")
+    if not workflow_file_sha or not isinstance(workflow_contract, Mapping):
+        return {}
+    return {
+        "workflow_file_sha256": workflow_file_sha,
+        "workflow_prompt_literals": list(workflow_contract.get("prompt_literals") or []),
+        "workflow_prompt_literals_sha256": str(
+            workflow_contract.get("prompt_literals_sha256") or ""
+        ),
+    }
+
+
+def _workflow_file_trace_from_execution_request(
+    *,
+    workflow_input: Any,
+    resolved_workflow: str | None,
+    workflow_file_trace: Mapping[str, Any] | None,
+    trusted_workflow_file_trace: bool = False,
+) -> dict[str, Any]:
+    canonical_trace = build_workflow_file_trace(
+        str(resolved_workflow or ""),
+        str(workflow_input or ""),
+    )
+    explicit_trace = _complete_workflow_file_trace(workflow_file_trace)
+    if canonical_trace and explicit_trace and explicit_trace != canonical_trace:
+        raise ValueError("workflow file trace does not match resolved workflow file")
+    if canonical_trace:
+        return canonical_trace
+    if explicit_trace and trusted_workflow_file_trace:
+        return explicit_trace
+    if explicit_trace:
+        raise ValueError("workflow file trace cannot be verified against resolved workflow file")
+    return {}
+
+
+def _complete_workflow_file_trace(
+    workflow_file_trace: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(workflow_file_trace, Mapping) or not workflow_file_trace:
+        return {}
+    extracted = extract_workflow_file_trace(workflow_file_trace)
+    missing = [key for key in WORKFLOW_FILE_TRACE_KEYS if key not in extracted]
+    if missing:
+        raise ValueError("workflow file trace is incomplete")
+    if not str(extracted.get("workflow_file_sha256") or "").strip():
+        raise ValueError("workflow file trace is incomplete")
+    if not isinstance(extracted.get("workflow_prompt_literals"), list):
+        raise ValueError("workflow file trace is incomplete")
+    if not str(extracted.get("workflow_prompt_literals_sha256") or "").strip():
+        raise ValueError("workflow file trace is incomplete")
+    return extracted
+
+
+def _execution_requires_workflow_file_trace(
+    *,
+    media_prompt_trace_context: Mapping[str, Any] | None,
+    tts_workflow_trace_context: Mapping[str, Any] | None,
+    analysis_workflow_trace_context: Mapping[str, Any] | None,
+    media_workflow_contract: str | None,
+    tts_workflow_contract: str | None,
+    tts_service_domain: str | None,
+    analysis_service_domain: str | None,
+) -> bool:
+    has_trace_context = any(
+        isinstance(context, Mapping)
+        for context in (
+            media_prompt_trace_context,
+            tts_workflow_trace_context,
+            analysis_workflow_trace_context,
+        )
+    )
+    if not has_trace_context:
+        return False
+    media_contract = str(media_workflow_contract or "").strip().lower()
+    if media_contract in _MEDIA_PROMPT_TRACE_MEDIA_TYPES:
+        return True
+    if str(tts_workflow_contract or "").strip():
+        return True
+    if str(tts_service_domain or "").strip().lower() == "tts":
+        return True
+    return str(analysis_service_domain or "").strip().lower() in {
+        "image_analysis",
+        "video_analysis",
+    }
+
+
+def _validate_analysis_workflow_boundary(
+    workflow_params: Mapping[str, Any],
+) -> None:
+    for key, value in workflow_params.items():
+        name = str(key or "").strip()
+        if not name or value in (None, "", [], {}):
+            continue
+        if _analysis_param_name_is_prompt_like(name):
+            raise ValueError(
+                "analysis_prompt_trace_context is required before analysis workflow prompt execution"
+            )
+        if not _analysis_param_name_is_allowed_input(name):
+            raise ValueError(
+                "analysis workflow params are restricted to media inputs without analysis prompt trace"
+            )
+
+
+def _validate_comfykit_analysis_trace_boundary(
+    *,
+    workflow_input: Any,
+    workflow_params: Mapping[str, Any],
+    analysis_workflow_trace_context: Mapping[str, Any] | None,
+    workflow_domain: str | None,
+    analysis_service_domain: str | None,
+    resolved_workflow: str | None,
+    workflow_file_trace: Mapping[str, Any] | None = None,
+) -> Mapping[str, Any] | None:
+    if not isinstance(workflow_params, Mapping):
+        return None
+    if not _workflow_boundary_is_analysis(
+        workflow_input=workflow_input,
+        resolved_workflow=resolved_workflow,
+        workflow_domain=workflow_domain,
+        analysis_service_domain=analysis_service_domain,
+    ):
+        return None
+    _validate_analysis_workflow_boundary(workflow_params)
+    media_type = _analysis_media_type_for_service_domain(analysis_service_domain)
+    media_path = _extract_analysis_media_path(
+        workflow_params,
+        service_domain=analysis_service_domain,
+    )
+    if not media_type or not media_path:
+        raise ValueError(
+            "analysis_workflow_trace_context media input is required before analysis workflow execution"
+        )
+    return validate_analysis_workflow_trace_artifact(
+        analysis_workflow_trace_context,
+        media_path=media_path,
+        media_type=media_type,
+        workflow=str(resolved_workflow or workflow_input),
+        workflow_input=str(workflow_input),
+        service_domain=str(analysis_service_domain or ""),
+        workflow_params=workflow_params,
+        workflow_file_trace=workflow_file_trace,
+    )
+
+
+def _extract_tts_text_from_workflow_params(
+    workflow_params: Mapping[str, Any],
+) -> str:
+    for key in ("text", "prompt"):
+        if key not in workflow_params:
+            continue
+        value = workflow_params.get(key)
+        if value is None:
+            continue
+        text = str(value)
+        if text.strip():
+            return text
+    return ""
+
+
+def _summarize_tts_workflow_result(result: Any) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "status": str(getattr(result, "status", "")),
+        "msg": str(getattr(result, "msg", "") or ""),
+        "audios": [str(value) for value in getattr(result, "audios", []) or []],
+        "files": [str(value) for value in getattr(result, "files", []) or []],
+    }
+    outputs = getattr(result, "outputs", {}) or {}
+    if isinstance(outputs, Mapping):
+        summary["outputs"] = {
+            str(key): str(value)
+            for key, value in outputs.items()
+        }
+    else:
+        summary["outputs"] = {}
+    return summary
+
+
+def _summarize_analysis_workflow_result(result: Any) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "status": str(getattr(result, "status", "")),
+        "msg": str(getattr(result, "msg", "") or ""),
+        "texts": [str(value) for value in getattr(result, "texts", []) or []],
+        "files": [str(value) for value in getattr(result, "files", []) or []],
+    }
+    outputs = getattr(result, "outputs", {}) or {}
+    if isinstance(outputs, Mapping):
+        summary["outputs"] = {
+            str(key): value
+            for key, value in outputs.items()
+        }
+    else:
+        summary["outputs"] = {}
+    return summary
+
+
+def _comfykit_workflow_requires_tts_trace(
+    workflow_input: Any,
+    workflow_params: Mapping[str, Any],
+    *,
+    workflow_source: str,
+    tts_workflow_contract: str | None = None,
+    media_workflow_contract: str | None = None,
+) -> bool:
+    if str(media_workflow_contract or "").strip().lower() in _MEDIA_PROMPT_TRACE_MEDIA_TYPES:
+        return False
+    known_tts_workflow = (
+        _workflow_identifier_looks_like_non_media_generation(workflow_input)
+        or _workflow_identifier_looks_like_non_media_generation(tts_workflow_contract)
+    )
+    has_tts_signal = _workflow_params_have_tts_signal(workflow_params)
+    if not known_tts_workflow and not has_tts_signal:
+        return False
+    if known_tts_workflow:
+        return True
+    if _workflow_params_have_visual_media_payload(
+        workflow_params,
+        prompt_is_text_input=True,
+    ):
+        return False
+    return str(workflow_source or "").strip().lower() == "runninghub"
+
+
+def _runninghub_boundary_is_known_non_media(
+    *,
+    workflow_input: Any,
+    tts_workflow_contract: str | None,
+    workflow_domain: str | None,
+) -> bool:
+    has_trusted_tts_contract = _workflow_identifier_looks_like_non_media_generation(
+        tts_workflow_contract
+    )
+    if str(workflow_domain or "").strip().lower() == "tts":
+        return has_trusted_tts_contract
+    return (
+        _workflow_identifier_looks_like_non_media_generation(workflow_input)
+        or has_trusted_tts_contract
+    )
+
+
+def _validate_comfykit_tts_trace_boundary(
+    *,
+    workflow_input: Any,
+    workflow_params: Mapping[str, Any],
+    workflow_source: str,
+    tts_workflow_trace_context: Mapping[str, Any] | None,
+    tts_workflow_contract: str | None,
+    media_workflow_contract: str | None = None,
+    workflow_file_trace: Mapping[str, Any] | None = None,
+) -> Mapping[str, Any] | None:
+    if not isinstance(workflow_params, Mapping):
+        return None
+    _enforce_known_non_media_workflow_param_case_boundary(
+        workflow_input,
+        workflow_params,
+        resolved_workflow=tts_workflow_contract,
+    )
+    if not _comfykit_workflow_requires_tts_trace(
+        workflow_input,
+        workflow_params,
+        workflow_source=workflow_source,
+        tts_workflow_contract=tts_workflow_contract,
+        media_workflow_contract=media_workflow_contract,
+    ):
+        return None
+    if not isinstance(tts_workflow_trace_context, Mapping):
+        raise ValueError(
+            "tts_workflow_trace_context is required before TTS workflow execution"
+        )
+    trace_text = _extract_tts_text_from_workflow_params(workflow_params)
+    if not trace_text:
+        trace_text = str(tts_workflow_trace_context.get("text") or "")
+    return validate_tts_workflow_trace_artifact(
+        tts_workflow_trace_context,
+        text=trace_text,
+        workflow=str(tts_workflow_contract or workflow_input),
+        workflow_input=str(workflow_input),
+        workflow_params=workflow_params,
+        workflow_file_trace=workflow_file_trace,
+    )
+
+
+def _validate_comfykit_media_prompt_trace_boundary(
+    *,
+    workflow_input: Any,
+    workflow_params: Mapping[str, Any],
+    workflow_source: str,
+    media_prompt_trace_context: Mapping[str, Any] | None,
+    media_type: str | None,
+    resolved_workflow: str | None,
+    media_workflow_contract: str | None = None,
+    tts_workflow_contract: str | None = None,
+    workflow_domain: str | None = None,
+    analysis_service_domain: str | None = None,
+    workflow_file_boundary: bool = False,
+    workflow_file_trace: Mapping[str, Any] | None = None,
+) -> Mapping[str, Any] | None:
+    if not isinstance(workflow_params, Mapping):
+        return None
+
+    _enforce_raw_workflow_compatibility_boundary(
+        workflow_input,
+        workflow_params,
+        workflow_source=workflow_source,
+        resolved_workflow=resolved_workflow,
+        workflow_file_boundary=workflow_file_boundary,
+    )
+    _enforce_known_non_media_workflow_param_case_boundary(
+        workflow_input,
+        workflow_params,
+        resolved_workflow=resolved_workflow,
+    )
+    if (
+        _workflow_identifier_requires_analysis_boundary(workflow_input, resolved_workflow)
+        and not _workflow_domain_requests_analysis(workflow_domain)
+    ):
+        raise ValueError(
+            "analysis workflow execution requires a resolved analysis service workflow"
+        )
+    if _workflow_boundary_is_analysis(
+        workflow_input=workflow_input,
+        resolved_workflow=resolved_workflow,
+        workflow_domain=workflow_domain,
+        analysis_service_domain=analysis_service_domain,
+    ):
+        _validate_analysis_workflow_boundary(workflow_params)
+        return None
+    trusted_media_type = str(media_workflow_contract or "").strip().lower()
+    if trusted_media_type and trusted_media_type not in _MEDIA_PROMPT_TRACE_MEDIA_TYPES:
+        raise ValueError(
+            "media workflow contract must be image or video before media workflow execution"
+        )
+    requested_media_type = str(media_type or "").strip().lower()
+    if trusted_media_type and requested_media_type and requested_media_type != trusted_media_type:
+        raise ValueError(
+            "media_type does not match resolved media workflow contract"
+        )
+    effective_media_type = trusted_media_type or requested_media_type or None
+    requires_trace = _comfykit_workflow_requires_media_prompt_trace(
+        workflow_input,
+        workflow_params,
+        workflow_source=workflow_source,
+        media_type=effective_media_type,
+        resolved_workflow=resolved_workflow,
+        workflow_file_boundary=workflow_file_boundary,
+    )
+    if (
+        str(workflow_source or "").strip().lower() == "runninghub"
+        and not trusted_media_type
+        and not _runninghub_boundary_is_known_non_media(
+            workflow_input=workflow_input,
+            tts_workflow_contract=tts_workflow_contract,
+            workflow_domain=workflow_domain,
+        )
+    ):
+        if not requires_trace:
+            raise ValueError(
+                "RunningHub workflow execution requires an explicit service workflow contract"
+            )
+        raise ValueError(
+            "RunningHub media workflow execution requires an explicit media workflow contract"
+        )
+    if not isinstance(media_prompt_trace_context, Mapping):
+        if requires_trace:
+            raise ValueError(
+                "media_prompt_trace_context is required before media workflow execution"
+            )
+        return None
+
+    trace_prompt = _extract_prompt_from_workflow_params(workflow_params)
+    if not trace_prompt:
+        trace_prompt = str(media_prompt_trace_context.get("prompt") or "").strip()
+    if not trace_prompt:
+        raise ValueError(
+            "media_prompt_trace_context prompt is required before media workflow execution"
+        )
+
+    resolved_media_type = (
+        str(effective_media_type or "").strip()
+        or str(media_prompt_trace_context.get("media_type") or "").strip()
+        or _infer_media_type_from_workflow_input(workflow_input)
+    )
+    if resolved_media_type not in _MEDIA_PROMPT_TRACE_MEDIA_TYPES:
+        raise ValueError(
+            "media_type is required before media workflow execution"
+        )
+
+    media_width = _extract_int_from_workflow_params(
+        workflow_params,
+        _WORKFLOW_WIDTH_PARAM_KEYS,
+    )
+    media_height = _extract_int_from_workflow_params(
+        workflow_params,
+        _WORKFLOW_HEIGHT_PARAM_KEYS,
+    )
+    negative_prompt = _extract_negative_prompt_from_workflow_params(workflow_params)
+    workflow_param_trace = build_workflow_params_trace(
+        workflow_params,
+        prompt=trace_prompt,
+    )
+    trace_context = require_media_prompt_trace_context(
+        media_prompt_trace_context,
+        prompt=trace_prompt,
+        media_type=resolved_media_type,
+        width=media_width,
+        height=media_height,
+        negative_prompt=negative_prompt,
+    )
+    resolved_workflow_input = str(workflow_input)
+    validate_media_prompt_trace_artifact(
+        trace_context,
+        prompt=trace_prompt,
+        resolved_workflow=str(resolved_workflow or resolved_workflow_input),
+        resolved_workflow_input=resolved_workflow_input,
+        media_type=resolved_media_type,
+        width=media_width,
+        height=media_height,
+        negative_prompt=negative_prompt,
+        workflow_param_trace=workflow_param_trace,
+        workflow_file_trace=workflow_file_trace,
+    )
+    return trace_context
 
 
 class _LocalComfyUIWorkflowSession:
@@ -141,7 +1283,8 @@ class PixelleVideoCore:
         # Use capabilities directly
         answer = await pixelle_video.llm("Explain atomic habits")
         audio = await pixelle_video.tts("Hello world")
-        media = await pixelle_video.media(prompt="a cat")
+        # Media calls require a saved prompt trace context; use API/pipeline helpers
+        # unless you have already written the final prompt artifact.
         
         # Check active capabilities
         print(f"Using LLM: {pixelle_video.llm.active}")
@@ -1247,6 +2390,282 @@ class PixelleVideoCore:
         *,
         workflow_source: str,
         backend_role: str = "default",
+        media_prompt_trace_context: Mapping[str, Any] | None = None,
+        tts_workflow_trace_context: Mapping[str, Any] | None = None,
+        workflow_domain: str | None = None,
+        media_type: str | None = None,
+        resolved_workflow: str | None = None,
+        workflow_file_trace: Mapping[str, Any] | None = None,
+    ):
+        if isinstance(workflow_input, Mapping):
+            raise ValueError(
+                "raw workflow mappings are not allowed through public ComfyKit execution; "
+                "use execute_comfykit_workflow_file with a traceable workflow file"
+            )
+        return await self._execute_comfykit_workflow_checked(
+            workflow_input,
+            workflow_params,
+            workflow_source=workflow_source,
+            backend_role=backend_role,
+            media_prompt_trace_context=media_prompt_trace_context,
+            tts_workflow_trace_context=tts_workflow_trace_context,
+            tts_workflow_contract=None,
+            tts_service_domain=None,
+            workflow_domain=workflow_domain,
+            analysis_service_domain=None,
+            media_type=media_type,
+            resolved_workflow=resolved_workflow,
+            workflow_file_trace=workflow_file_trace,
+        )
+
+    async def _execute_analysis_comfykit_workflow(
+        self,
+        workflow_input,
+        workflow_params: dict,
+        *,
+        workflow_source: str,
+        analysis_service_domain: str,
+        backend_role: str = "default",
+        media_prompt_trace_context: Mapping[str, Any] | None = None,
+        tts_workflow_trace_context: Mapping[str, Any] | None = None,
+        analysis_workflow_trace_context: Mapping[str, Any] | None = None,
+        workflow_domain: str | None = "analysis",
+        media_type: str | None = None,
+        resolved_workflow: str | None = None,
+        workflow_file_trace: Mapping[str, Any] | None = None,
+    ):
+        return await self._execute_comfykit_workflow_checked(
+            workflow_input,
+            workflow_params,
+            workflow_source=workflow_source,
+            backend_role=backend_role,
+            media_prompt_trace_context=media_prompt_trace_context,
+            tts_workflow_trace_context=tts_workflow_trace_context,
+            analysis_workflow_trace_context=analysis_workflow_trace_context,
+            tts_workflow_contract=None,
+            tts_service_domain=None,
+            workflow_domain=workflow_domain,
+            analysis_service_domain=analysis_service_domain,
+            media_type=media_type,
+            resolved_workflow=resolved_workflow,
+            workflow_file_trace=workflow_file_trace,
+        )
+
+    async def _execute_tts_comfykit_workflow(
+        self,
+        workflow_input,
+        workflow_params: dict,
+        *,
+        workflow_source: str,
+        tts_service_domain: str = "tts",
+        backend_role: str = "default",
+        media_prompt_trace_context: Mapping[str, Any] | None = None,
+        tts_workflow_trace_context: Mapping[str, Any] | None = None,
+        workflow_domain: str | None = None,
+        media_type: str | None = None,
+        resolved_workflow: str | None = None,
+        workflow_file_trace: Mapping[str, Any] | None = None,
+    ):
+        if str(tts_service_domain or "").strip().lower() != "tts":
+            raise ValueError("TTS workflow execution requires the tts service domain")
+        return await self._execute_comfykit_workflow_checked(
+            workflow_input,
+            workflow_params,
+            workflow_source=workflow_source,
+            backend_role=backend_role,
+            media_prompt_trace_context=media_prompt_trace_context,
+            tts_workflow_trace_context=tts_workflow_trace_context,
+            tts_workflow_contract=resolved_workflow,
+            tts_service_domain=tts_service_domain,
+            workflow_domain=workflow_domain,
+            analysis_service_domain=None,
+            media_type=media_type,
+            resolved_workflow=resolved_workflow,
+            workflow_file_trace=workflow_file_trace,
+        )
+
+    async def _execute_media_comfykit_workflow(
+        self,
+        workflow_input,
+        workflow_params: dict,
+        *,
+        workflow_source: str,
+        media_service_domain: str,
+        backend_role: str = "default",
+        media_prompt_trace_context: Mapping[str, Any] | None = None,
+        tts_workflow_trace_context: Mapping[str, Any] | None = None,
+        workflow_domain: str | None = None,
+        media_type: str | None = None,
+        resolved_workflow: str | None = None,
+        workflow_file_trace: Mapping[str, Any] | None = None,
+    ):
+        media_contract = str(media_service_domain or "").strip().lower()
+        if media_contract not in _MEDIA_PROMPT_TRACE_MEDIA_TYPES:
+            raise ValueError("media workflow execution requires an image or video service domain")
+        requested_media_type = str(media_type or "").strip().lower()
+        if requested_media_type and requested_media_type != media_contract:
+            raise ValueError("media workflow execution media_type does not match service domain")
+        return await self._execute_comfykit_workflow_checked(
+            workflow_input,
+            workflow_params,
+            workflow_source=workflow_source,
+            backend_role=backend_role,
+            media_prompt_trace_context=media_prompt_trace_context,
+            tts_workflow_trace_context=tts_workflow_trace_context,
+            tts_workflow_contract=None,
+            tts_service_domain=None,
+            workflow_domain=workflow_domain,
+            analysis_service_domain=None,
+            media_workflow_contract=media_contract,
+            media_type=media_type,
+            resolved_workflow=resolved_workflow,
+            workflow_file_trace=workflow_file_trace,
+        )
+
+    async def _execute_comfykit_workflow_checked(
+        self,
+        workflow_input,
+        workflow_params: dict,
+        *,
+        workflow_source: str,
+        backend_role: str = "default",
+        media_prompt_trace_context: Mapping[str, Any] | None = None,
+        tts_workflow_trace_context: Mapping[str, Any] | None = None,
+        analysis_workflow_trace_context: Mapping[str, Any] | None = None,
+        tts_workflow_contract: str | None = None,
+        tts_service_domain: str | None = None,
+        workflow_domain: str | None = None,
+        analysis_service_domain: str | None = None,
+        media_workflow_contract: str | None = None,
+        media_type: str | None = None,
+        resolved_workflow: str | None = None,
+        workflow_file_trace: Mapping[str, Any] | None = None,
+        trusted_workflow_file_trace: bool = False,
+    ):
+        effective_workflow_file_trace = _workflow_file_trace_from_execution_request(
+            workflow_input=workflow_input,
+            resolved_workflow=resolved_workflow,
+            workflow_file_trace=workflow_file_trace,
+            trusted_workflow_file_trace=trusted_workflow_file_trace,
+        )
+        if (
+            _execution_requires_workflow_file_trace(
+                media_prompt_trace_context=media_prompt_trace_context,
+                tts_workflow_trace_context=tts_workflow_trace_context,
+                analysis_workflow_trace_context=analysis_workflow_trace_context,
+                media_workflow_contract=media_workflow_contract,
+                tts_workflow_contract=tts_workflow_contract,
+                tts_service_domain=tts_service_domain,
+                analysis_service_domain=analysis_service_domain,
+            )
+            and not effective_workflow_file_trace
+        ):
+            raise ValueError(
+                "workflow file trace is required before ComfyKit workflow execution"
+            )
+        tts_trace_context = _validate_comfykit_tts_trace_boundary(
+            workflow_input=workflow_input,
+            workflow_params=workflow_params,
+            workflow_source=workflow_source,
+            tts_workflow_trace_context=tts_workflow_trace_context,
+            tts_workflow_contract=tts_workflow_contract,
+            media_workflow_contract=media_workflow_contract,
+            workflow_file_trace=effective_workflow_file_trace,
+        )
+        analysis_trace_context = _validate_comfykit_analysis_trace_boundary(
+            workflow_input=workflow_input,
+            workflow_params=workflow_params,
+            analysis_workflow_trace_context=analysis_workflow_trace_context,
+            workflow_domain=workflow_domain,
+            analysis_service_domain=analysis_service_domain,
+            resolved_workflow=resolved_workflow,
+            workflow_file_trace=effective_workflow_file_trace,
+        )
+        _enforce_selfhost_workflow_content_boundary(
+            workflow_input=workflow_input,
+            workflow_domain=workflow_domain,
+            media_workflow_contract=media_workflow_contract,
+            media_prompt_trace_context=media_prompt_trace_context,
+            tts_workflow_trace_context=tts_workflow_trace_context,
+            analysis_workflow_trace_context=analysis_workflow_trace_context,
+        )
+        trace_context = _validate_comfykit_media_prompt_trace_boundary(
+            workflow_input=workflow_input,
+            workflow_params=workflow_params,
+            workflow_source=workflow_source,
+            media_prompt_trace_context=media_prompt_trace_context,
+            media_type=media_type,
+            resolved_workflow=resolved_workflow,
+            media_workflow_contract=media_workflow_contract,
+            tts_workflow_contract=tts_workflow_contract,
+            workflow_domain=workflow_domain,
+            analysis_service_domain=analysis_service_domain,
+            workflow_file_trace=effective_workflow_file_trace,
+        )
+        try:
+            result = await self._execute_comfykit_workflow_unchecked(
+                workflow_input,
+                workflow_params,
+                workflow_source=workflow_source,
+                backend_role=backend_role,
+            )
+        except Exception as exc:
+            if isinstance(trace_context, Mapping):
+                write_media_workflow_result_artifact(
+                    trace_context,
+                    status="error",
+                    result={
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
+            if isinstance(tts_trace_context, Mapping):
+                write_tts_workflow_result_artifact(
+                    tts_trace_context,
+                    status="error",
+                    result={
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
+            if isinstance(analysis_trace_context, Mapping):
+                write_analysis_workflow_result_artifact(
+                    analysis_trace_context,
+                    status="error",
+                    result={
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
+            raise
+
+        if isinstance(trace_context, Mapping):
+            write_media_workflow_result_artifact(
+                trace_context,
+                status=str(getattr(result, "status", "") or "completed"),
+                result=summarize_media_workflow_result(result),
+            )
+        if isinstance(tts_trace_context, Mapping):
+            write_tts_workflow_result_artifact(
+                tts_trace_context,
+                status=str(getattr(result, "status", "") or "completed"),
+                result=_summarize_tts_workflow_result(result),
+            )
+        if isinstance(analysis_trace_context, Mapping):
+            write_analysis_workflow_result_artifact(
+                analysis_trace_context,
+                status=str(getattr(result, "status", "") or "completed"),
+                result=_summarize_analysis_workflow_result(result),
+            )
+        return result
+
+    async def _execute_comfykit_workflow_unchecked(
+        self,
+        workflow_input,
+        workflow_params: dict,
+        *,
+        workflow_source: str,
+        backend_role: str = "default",
     ):
         normalized_source = str(workflow_source or "selfhost").lower()
         if normalized_source == "runninghub":
@@ -1303,11 +2722,48 @@ class PixelleVideoCore:
                             f"workflow; preserving original error: {exc}"
                         )
 
-    async def execute_comfykit_workflow_file(
+    def _validate_selfhost_workflow_content_contract(
+        self,
+        *,
+        workflow_path: Path,
+        workflow_contract: Mapping[str, Any],
+        workflow_params: Mapping[str, Any],
+        media_prompt_trace_context: Mapping[str, Any] | None,
+        tts_workflow_trace_context: Mapping[str, Any] | None,
+        analysis_workflow_trace_context: Mapping[str, Any] | None,
+        workflow_domain: str | None,
+        media_type: str | None,
+    ) -> None:
+        if workflow_contract.get("contains_tts_nodes") and media_prompt_trace_context is not None:
+            raise ValueError(
+                "selfhost workflow content resolves to TTS nodes and cannot execute "
+                "through a media prompt trace"
+            )
+        if (
+            workflow_contract.get("contains_analysis_nodes")
+            and not _workflow_domain_requests_analysis(workflow_domain)
+        ):
+            raise ValueError(
+                "analysis workflow execution requires a resolved analysis service workflow"
+            )
+        prompt_literals = workflow_contract.get("prompt_literals")
+        _require_workflow_prompt_literal_trace(
+            workflow_contract=workflow_contract,
+            trace_contexts=(
+                media_prompt_trace_context,
+                tts_workflow_trace_context,
+                analysis_workflow_trace_context,
+            ),
+        )
+        if media_type and not workflow_params and prompt_literals:
+            raise ValueError(
+                "workflow prompt literals require traced workflow params before media execution"
+            )
+
+    def resolve_comfykit_workflow_file_identity(
         self,
         workflow_path: str | Path,
-        workflow_params: dict,
-    ):
+    ) -> dict[str, Any]:
         path = Path(workflow_path)
         if not path.exists():
             raise FileNotFoundError(f"Workflow file does not exist: {path}")
@@ -1319,23 +2775,157 @@ class PixelleVideoCore:
             raise ValueError(f"Workflow file must contain a JSON object: {path}")
 
         workflow_source = str(workflow_config.get("source") or "selfhost").lower()
+        content_contract = workflow_content_contract(workflow_config)
+        file_sha256 = workflow_file_sha256(path)
         if workflow_source == "runninghub":
-            workflow_id = workflow_config.get("workflow_id")
-            if not workflow_id:
-                raise ValueError(f"RunningHub workflow missing workflow_id: {path}")
-            workflow_input = workflow_id
-            backend_role = "default"
-        else:
-            workflow_input = str(path)
-            backend_role = self._get_comfyui_backend_registry().resolve_role_for_workflow(
+            workflow_config = validate_runninghub_descriptor_contract(
+                path,
+                workflow_config,
+            )
+            workflow_id = workflow_config["workflow_id"]
+            workflow_domain, service_domain = runninghub_descriptor_domains(
+                workflow_config,
+            )
+            return {
+                "path": path,
+                "workflow_key": str(path),
+                "source": workflow_source,
+                "workflow_input": str(workflow_id),
+                "backend_role": "default",
+                "workflow_domain": workflow_domain,
+                "service_domain": service_domain,
+                "workflow_file_sha256": file_sha256,
+                "workflow_content_contract": content_contract,
+                "media_type": workflow_config.get("media_type"),
+            }
+
+        return {
+            "path": path,
+            "workflow_key": str(path),
+            "source": workflow_source,
+            "workflow_input": str(path),
+            "backend_role": self._get_comfyui_backend_registry().resolve_role_for_workflow(
                 str(path)
+            ),
+            "workflow_file_sha256": file_sha256,
+            "workflow_content_contract": content_contract,
+        }
+
+    async def execute_comfykit_workflow_file(
+        self,
+        workflow_path: str | Path,
+        workflow_params: dict,
+        *,
+        media_prompt_trace_context: Mapping[str, Any] | None = None,
+        tts_workflow_trace_context: Mapping[str, Any] | None = None,
+        analysis_workflow_trace_context: Mapping[str, Any] | None = None,
+        workflow_domain: str | None = None,
+        media_type: str | None = None,
+    ):
+        workflow_identity = self.resolve_comfykit_workflow_file_identity(workflow_path)
+        workflow_input = str(workflow_identity["workflow_input"])
+        workflow_key = str(workflow_identity.get("workflow_key") or workflow_input)
+        workflow_source = str(workflow_identity["source"])
+        backend_role = str(workflow_identity["backend_role"])
+        workflow_content = workflow_identity.get("workflow_content_contract")
+        if not isinstance(workflow_content, Mapping):
+            workflow_content = {}
+        workflow_file_trace = _workflow_file_trace_from_identity(workflow_identity)
+        runninghub_media_contract = (
+            str(workflow_identity.get("media_type") or "").strip().lower()
+            if workflow_source == "runninghub"
+            else ""
+        )
+        descriptor_workflow_domain = str(
+            workflow_identity.get("workflow_domain") or ""
+        ).strip().lower()
+        descriptor_service_domain = str(
+            workflow_identity.get("service_domain") or ""
+        ).strip().lower()
+        boundary_resolved_workflow = (
+            workflow_key
+            if (
+                tts_workflow_trace_context is not None
+                or descriptor_workflow_domain in _ANALYSIS_WORKFLOW_DOMAINS
+            )
+            else workflow_input
+        )
+        descriptor_analysis_service_domain = (
+            descriptor_service_domain
+            if descriptor_service_domain in {"image_analysis", "video_analysis"}
+            else None
+        )
+        if workflow_source != "runninghub":
+            self._validate_selfhost_workflow_content_contract(
+                workflow_path=Path(workflow_identity["path"]),
+                workflow_contract=workflow_content,
+                workflow_params=workflow_params,
+                media_prompt_trace_context=media_prompt_trace_context,
+                tts_workflow_trace_context=tts_workflow_trace_context,
+                analysis_workflow_trace_context=analysis_workflow_trace_context,
+                workflow_domain=workflow_domain or descriptor_workflow_domain or None,
+                media_type=media_type,
             )
 
-        return await self.execute_comfykit_workflow(
+        _validate_comfykit_tts_trace_boundary(
+            workflow_input=workflow_input,
+            workflow_params=workflow_params,
+            workflow_source=workflow_source,
+            tts_workflow_trace_context=tts_workflow_trace_context,
+            tts_workflow_contract=workflow_key,
+            media_workflow_contract=runninghub_media_contract or None,
+            workflow_file_trace=workflow_file_trace,
+        )
+        trace_context = _validate_comfykit_media_prompt_trace_boundary(
+            workflow_input=workflow_input,
+            workflow_params=workflow_params,
+            workflow_source=workflow_source,
+            media_prompt_trace_context=media_prompt_trace_context,
+            media_type=media_type,
+            resolved_workflow=boundary_resolved_workflow,
+            media_workflow_contract=runninghub_media_contract or None,
+            tts_workflow_contract=workflow_key
+            if descriptor_workflow_domain == "tts" or descriptor_service_domain == "tts"
+            else None,
+            workflow_domain=workflow_domain or descriptor_workflow_domain or None,
+            analysis_service_domain=descriptor_analysis_service_domain,
+            workflow_file_boundary=True,
+            workflow_file_trace=workflow_file_trace,
+        )
+        resolved_media_type = str(runninghub_media_contract or media_type or "").strip()
+        if isinstance(trace_context, Mapping):
+            resolved_media_type = (
+                resolved_media_type
+                or str(trace_context.get("media_type") or "").strip()
+            )
+
+        execute_kwargs: dict[str, Any] = {
+            "workflow_source": workflow_source,
+            "backend_role": backend_role,
+            "media_prompt_trace_context": trace_context,
+            "media_type": resolved_media_type or None,
+            "resolved_workflow": boundary_resolved_workflow,
+        }
+        if workflow_source == "runninghub":
+            execute_kwargs["media_workflow_contract"] = runninghub_media_contract or None
+        effective_workflow_domain = workflow_domain or descriptor_workflow_domain or None
+        if effective_workflow_domain is not None:
+            execute_kwargs["workflow_domain"] = effective_workflow_domain
+        if descriptor_analysis_service_domain is not None:
+            execute_kwargs["analysis_service_domain"] = descriptor_analysis_service_domain
+            execute_kwargs["analysis_workflow_trace_context"] = analysis_workflow_trace_context
+        if tts_workflow_trace_context is not None:
+            execute_kwargs["tts_workflow_trace_context"] = tts_workflow_trace_context
+            execute_kwargs["tts_workflow_contract"] = workflow_key
+        if descriptor_service_domain == "tts":
+            execute_kwargs["tts_workflow_contract"] = workflow_key
+        execute_kwargs["workflow_file_trace"] = workflow_file_trace
+        execute_kwargs["trusted_workflow_file_trace"] = True
+
+        return await self._execute_comfykit_workflow_checked(
             workflow_input,
             workflow_params,
-            workflow_source=workflow_source,
-            backend_role=backend_role,
+            **execute_kwargs,
         )
     
     async def __aenter__(self):

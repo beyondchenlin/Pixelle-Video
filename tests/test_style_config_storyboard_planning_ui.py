@@ -2358,7 +2358,7 @@ def test_render_style_config_keeps_video_generation_section_expanded_by_default(
     result = style_config.render_style_config(_FakeVideo(), storyboard_default_enabled=True)
 
     assert result["media_workflow"] == "selfhost/video_default.json"
-    assert result["prompt_prefix"] == "cinematic mood"
+    assert result["prompt_prefix"] == ""
     assert ("section.video", True) in fake_st.expanders
     assert fake_st.popovers == ["help.feature_description"]
     expander_html = "\n".join(body for body, _kwargs in fake_st.expander_markdowns)

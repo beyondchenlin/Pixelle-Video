@@ -48,6 +48,8 @@ async def test_asset_based_generate_content_resolves_asset_id_to_path():
         video = object()
         frame_processor = object()
         persistence = object()
+        trace_repository = object()
+        raw_payload_store = object()
 
         async def llm(self, *, prompt, **kwargs):
             captured["prompt"] = prompt
@@ -77,6 +79,7 @@ async def test_asset_based_generate_content_resolves_asset_id_to_path():
     ctx = PipelineContext(input_text="Promote the spring sale", params={"duration": 30, "intent": "Promote the spring sale"})
     ctx.request = ctx.params
     ctx.title = "Spring Sale"
+    ctx.task_id = "task-asset-script-001"
 
     await pipeline.generate_content(ctx)
 
@@ -104,6 +107,8 @@ async def test_asset_based_generate_content_rejects_unknown_asset_id():
         video = object()
         frame_processor = object()
         persistence = object()
+        trace_repository = object()
+        raw_payload_store = object()
 
         async def llm(self, *, prompt, **kwargs):
             return AssetScriptResponse(
@@ -131,6 +136,7 @@ async def test_asset_based_generate_content_rejects_unknown_asset_id():
     ctx = PipelineContext(input_text="Promote the spring sale", params={"duration": 30, "intent": "Promote the spring sale"})
     ctx.request = ctx.params
     ctx.title = "Spring Sale"
+    ctx.task_id = "task-asset-script-002"
 
     with pytest.raises(ValueError, match="unknown asset_id"):
         await pipeline.generate_content(ctx)

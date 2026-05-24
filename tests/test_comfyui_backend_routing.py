@@ -6,7 +6,30 @@ from pixelle_video.config import config_manager
 from pixelle_video.config.schema import PixelleVideoConfig
 from pixelle_video.service import PixelleVideoCore
 from pixelle_video.services.media import MediaService
+from pixelle_video.services.prompt_trace_artifacts import (
+    write_single_media_prompt_trace_context,
+)
 from pixelle_video.services.tts_service import TTSService
+
+
+def _media_prompt_trace_context(
+    tmp_path,
+    *,
+    prompt: str = "a cat",
+    workflow: str = "selfhost/image_z_image_turbo_gguf.json",
+) -> dict[str, object]:
+    task_id = "task-media-routing"
+    workflow_input = f"workflows/{workflow}"
+    return write_single_media_prompt_trace_context(
+        tmp_path,
+        task_id=task_id,
+        prompt=prompt,
+        workflow=workflow,
+        workflow_input=workflow_input,
+        media_type="image",
+        source="test",
+        workflow_params={"prompt": prompt},
+    )
 
 
 def _dual_backend_config() -> PixelleVideoConfig:
@@ -47,7 +70,7 @@ async def test_core_caches_comfykit_per_backend(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_media_service_passes_selfhost_image_backend_role(monkeypatch):
+async def test_media_service_passes_selfhost_image_backend_role(monkeypatch, tmp_path):
     monkeypatch.setattr(config_manager, "config", _dual_backend_config())
     calls = []
 
@@ -62,7 +85,15 @@ async def test_media_service_passes_selfhost_image_backend_role(monkeypatch):
             *,
             workflow_source,
             backend_role,
+            media_prompt_trace_context,
+            media_type,
+            resolved_workflow,
+            workflow_file_trace,
         ):
+            assert media_prompt_trace_context is not None
+            assert media_type == "image"
+            assert resolved_workflow == "selfhost/image_z_image_turbo_gguf.json"
+            assert workflow_file_trace
             calls.append(
                 {
                     "workflow_input": workflow_input,
@@ -86,7 +117,11 @@ async def test_media_service_passes_selfhost_image_backend_role(monkeypatch):
         },
     )
 
-    await service(prompt="a cat", media_type="image")
+    await service(
+        prompt="a cat",
+        media_type="image",
+        media_prompt_trace_context=_media_prompt_trace_context(tmp_path),
+    )
 
     assert calls == [
         {
@@ -113,7 +148,13 @@ async def test_tts_service_passes_selfhost_tts_backend_role(monkeypatch):
             *,
             workflow_source,
             backend_role,
+            tts_workflow_trace_context,
+            resolved_workflow,
+            workflow_file_trace,
         ):
+            assert tts_workflow_trace_context is not None
+            assert resolved_workflow == "selfhost/tts_edge.json"
+            assert workflow_file_trace
             calls.append(
                 {
                     "workflow_input": workflow_input,
@@ -150,7 +191,7 @@ async def test_tts_service_passes_selfhost_tts_backend_role(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_services_without_backend_registry_fall_back_to_default_role(monkeypatch):
+async def test_services_without_backend_registry_fall_back_to_default_role(monkeypatch, tmp_path):
     calls = []
 
     class LegacyCore:
@@ -161,7 +202,15 @@ async def test_services_without_backend_registry_fall_back_to_default_role(monke
             *,
             workflow_source,
             backend_role,
+            media_prompt_trace_context,
+            media_type,
+            resolved_workflow,
+            workflow_file_trace,
         ):
+            assert media_prompt_trace_context is not None
+            assert media_type == "image"
+            assert resolved_workflow == "selfhost/image_z_image_turbo_gguf.json"
+            assert workflow_file_trace
             calls.append((workflow_input, workflow_source, backend_role))
             return SimpleNamespace(status="completed", images=["generated.png"])
 
@@ -179,7 +228,11 @@ async def test_services_without_backend_registry_fall_back_to_default_role(monke
         },
     )
 
-    await service(prompt="a cat", media_type="image")
+    await service(
+        prompt="a cat",
+        media_type="image",
+        media_prompt_trace_context=_media_prompt_trace_context(tmp_path),
+    )
 
     assert calls == [
         (

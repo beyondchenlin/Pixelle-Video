@@ -2,13 +2,16 @@ import pytest
 
 from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.content_world import ContentWorldHintSource, ContentWorldProfile
-from pixelle_video.models.llm_interaction_trace import LLMTraceRecordingError
+from pixelle_video.models.llm_interaction_trace import LLMTraceContext, LLMTraceRecordingError
 from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.storyboard_planning import FramePlan
 from pixelle_video.models.style_resolution import ResolvedStyleSpec, StyleSourceSpec
 from pixelle_video.utils.content_generators import generate_styled_image_prompt_batch
-from pixelle_video.utils.prompt_helper import apply_no_text_policy, sanitize_visual_prompt_text
+from pixelle_video.utils.prompt_helper import (
+    apply_no_text_policy,
+    sanitize_visual_prompt_text,
+)
 
 
 def _progress_message_key(message):
@@ -149,6 +152,137 @@ async def test_generate_styled_image_prompt_batch_accepts_task3_ip_passthrough_k
 
 
 @pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_records_prompt_generation_trace_refs_by_index(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        await kwargs["trace_recorder"].record_interaction(
+            context=LLMTraceContext(
+                workspace_id="workspace_1",
+                task_id="task_1",
+                operation="visual_prompt_planning",
+                stage="image_prompt_batch",
+                metadata={
+                    "batch_index": 1,
+                    "batch_start_index": 0,
+                    "batch_size": 2,
+                },
+            ),
+            provider="fake",
+            model="fake-model",
+            request_payload={"prompt": "request"},
+            response_payload={"image_prompts": ["base one", "base two"]},
+            status="success",
+        )
+        return ["base one", "base two"]
+
+    class _FakeTraceRecorder:
+        async def record_interaction(self, **kwargs):
+            return type(
+                "Trace",
+                (),
+                {
+                    "trace_id": "trace_image_prompt_batch_1",
+                    "context": kwargs["context"],
+                    "status": kwargs["status"],
+                },
+            )()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_source",
+        lambda image_config, prompt_prefix_override=None: None,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["scene one", "scene two"],
+        image_config={},
+        trace_context=LLMTraceContext(
+            workspace_id="workspace_1",
+            task_id="task_1",
+            operation="visual_prompt_planning",
+        ),
+        trace_recorder=_FakeTraceRecorder(),
+    )
+
+    assert result.planning_snapshot["prompt_generation_trace_refs_by_index"] == [
+        {
+            "prompt_index": 0,
+            "trace_id": "trace_image_prompt_batch_1",
+            "stage": "image_prompt_batch",
+        },
+        {
+            "prompt_index": 1,
+            "trace_id": "trace_image_prompt_batch_1",
+            "stage": "image_prompt_batch",
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generate_styled_image_prompt_batch_records_upstream_llm_trace_refs(monkeypatch):
+    async def fake_generate_image_prompts(*args, **kwargs):
+        await kwargs["trace_recorder"].record_interaction(
+            context=LLMTraceContext(
+                workspace_id="workspace_1",
+                task_id="task_1",
+                operation="visual_prompt_planning",
+                stage="image_prompt_batch",
+                metadata={"batch_start_index": 0, "batch_size": 1},
+            ),
+            provider="fake",
+            model="fake-model",
+            request_payload={"prompt": "request"},
+            response_payload={"image_prompts": ["base one"]},
+            status="success",
+        )
+        return ["base one"]
+
+    class _FakeTraceRecorder:
+        def __init__(self):
+            self.count = 0
+
+        async def record_interaction(self, **kwargs):
+            self.count += 1
+            return type(
+                "Trace",
+                (),
+                {
+                    "trace_id": f"trace_{self.count}",
+                    "context": kwargs["context"],
+                    "status": kwargs["status"],
+                },
+            )()
+
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.generate_image_prompts",
+        fake_generate_image_prompts,
+    )
+
+    result = await generate_styled_image_prompt_batch(
+        llm_service=object(),
+        narrations=["scene one"],
+        image_config={},
+        upstream_llm_trace_refs=[
+            {"trace_id": "trace_narration_1", "stage": "api_narration_generation"}
+        ],
+        trace_context=LLMTraceContext(
+            workspace_id="workspace_1",
+            task_id="task_1",
+            operation="visual_prompt_planning",
+        ),
+        trace_recorder=_FakeTraceRecorder(),
+    )
+
+    assert result.planning_snapshot["llm_trace_refs"] == [
+        {"trace_id": "trace_narration_1", "stage": "api_narration_generation"},
+        {"trace_id": "trace_1", "stage": "image_prompt_batch"},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_blocks_raw_fallback_for_ip_world(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
         assert kwargs["style_profile"]["style_kind"] == "ip_world"
@@ -191,11 +325,13 @@ async def test_generate_styled_image_prompt_batch_blocks_raw_fallback_for_ip_wor
         text_rendering=_suppress_image_text("text, Chinese characters"),
     )
 
-    assert result.prompts == [
-        apply_no_text_policy(
-            "rounded geometric dog sprinting across playful wooden obstacles, same playful bird-universe silhouette"
-        )
-    ]
+    prompt = result.prompts[0]
+    assert prompt.startswith(
+        "rounded geometric dog sprinting across playful wooden obstacles"
+    )
+    assert "Visual style:" in prompt
+    assert "same playful bird universe silhouette" in prompt
+    assert "no visible text" in prompt
     assert "Angry Birds style" not in result.prompts[0]
     assert result.negative_prompt is not None
     assert "photo realism" in result.negative_prompt
@@ -362,10 +498,13 @@ async def test_generate_styled_image_prompt_batch_ignores_capability_probe_failu
         text_rendering=_suppress_image_text(),
     )
 
-    assert result.prompts == [
-        apply_no_text_policy("base scene prompt, same playful bird-universe silhouette")
-        + ", photo realism, realistic fur"
-    ]
+    prompt = result.prompts[0]
+    assert prompt.startswith("base scene prompt")
+    assert "Visual style:" in prompt
+    assert "same playful bird universe silhouette" in prompt
+    assert "no visible text" in prompt
+    assert "photo realism" in prompt
+    assert "realistic fur" in prompt
     assert result.negative_prompt is None
 
 
@@ -497,7 +636,7 @@ async def test_generate_styled_image_prompt_batch_merges_ip_negative_constraints
 
 
 @pytest.mark.asyncio
-async def test_generate_styled_image_prompt_batch_keeps_per_frame_ip_negative_out_of_batch_negative_prompt(monkeypatch):
+async def test_generate_styled_image_prompt_batch_merges_per_frame_ip_negative_into_batch_negative_prompt(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
         return ["frame one prompt", "frame two prompt"]
 
@@ -588,8 +727,8 @@ async def test_generate_styled_image_prompt_batch_keeps_per_frame_ip_negative_ou
     assert result.negative_prompt is not None
     assert "photo realism" in result.negative_prompt
     assert "letters" in result.negative_prompt
-    assert "avoid frame one sticker" not in result.negative_prompt
-    assert "avoid frame two mascot" not in result.negative_prompt
+    assert "avoid frame one sticker" in result.negative_prompt
+    assert "avoid frame two mascot" in result.negative_prompt
 
 
 @pytest.mark.asyncio
@@ -1167,11 +1306,18 @@ async def test_generate_styled_image_prompt_batch_uses_visible_text_whitelist_fo
         storyboard_plan=plan,
         ip_enabled=True,
         ip_profile=_ip_profile(),
+        text_rendering={
+            "image_text": {
+                "suppress_embedded_text": True,
+                "positive_prompt": "render only approved gate lettering",
+            }
+        },
     )
 
     assert "Start from Changle Gate" in result.prompts[0]
     assert "Changle Gate" in result.prompts[0]
     assert "only whitelisted text" in result.prompts[0].lower()
+    assert "render only approved gate lettering" in result.prompts[0]
     assert "no visible text" not in result.prompts[0]
 
 
@@ -1277,11 +1423,11 @@ async def test_generate_styled_image_prompt_batch_uses_video_prompt_generator_fo
 
     assert captured["style_profile"]["style_kind"] == "ip_world"
     assert captured["prompt_language"] == "zh_CN"
-    assert result.prompts == [
-        apply_no_text_policy(
-            "dynamic dog sprinting through playful wooden obstacles, same playful bird-universe silhouette"
-        )
-    ]
+    prompt = result.prompts[0]
+    assert prompt.startswith("dynamic dog sprinting through playful wooden obstacles")
+    assert "Visual style:" in prompt
+    assert "same playful bird universe silhouette" in prompt
+    assert "no visible text" in prompt
 
 
 @pytest.mark.asyncio
@@ -1389,11 +1535,10 @@ async def test_generate_styled_image_prompt_batch_returns_planning_snapshot_for_
         }
     ]
     prompt = result.prompts[0]
-    assert (
-        "base scene prompt; rendered as clean educational illustration; "
-        "framed as medium shot, context; "
-        "with strategy board integrated into the environment"
-    ) in prompt
+    assert prompt.startswith("base scene prompt")
+    assert "Visual style: rendered as clean educational illustration" in prompt
+    assert "Composition: framed as medium shot, context" in prompt
+    assert "Environment: with strategy board integrated into the environment" in prompt
     assert "no visible text" in prompt
     _assert_old_storyboard_block_tokens_absent(prompt, "medium_shot")
 
@@ -1694,9 +1839,11 @@ async def test_generate_styled_image_prompt_batch_storyboard_keeps_compatible_te
     )
 
     expected_prompt = apply_no_text_policy(
-        "editorial line art treatment, base scene prompt; "
-        "rendered as clean educational illustration; framed as close up, detail focus; "
-        "with lab bench integrated into the environment, with etched crosshatching"
+        "base scene prompt "
+        "Visual style: rendered as clean educational illustration, "
+        "editorial line art treatment, with etched crosshatching "
+        "Composition: framed as close up, detail focus "
+        "Environment: with lab bench integrated into the environment"
     )
 
     assert result.prompts == [expected_prompt]
@@ -1767,7 +1914,13 @@ async def test_generate_styled_image_prompt_batch_uses_resolved_style_when_story
         text_rendering=_suppress_image_text(),
     )
 
-    assert result.prompts == [apply_no_text_policy("flat illustration treatment: base scene prompt")]
+    assert result.prompts == [
+        apply_no_text_policy(
+            "base scene prompt "
+            "Visual style: rendered with flat geometry, matte illustration, "
+            "warm muted colors, soft studio light, flat illustration treatment"
+        )
+    ]
     assert result.planning_snapshot is None
 
 

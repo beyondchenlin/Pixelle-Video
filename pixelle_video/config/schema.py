@@ -173,7 +173,7 @@ class ImageSubConfig(BaseModel):
     )
     prompt_prefix: str = Field(
         default="Minimalist black-and-white matchstick figure style illustration, clean lines, simple sketch style",
-        description="Prompt prefix for all image generation"
+        description="Legacy image prompt prefix retained for config compatibility; not used as an implicit style source"
     )
     prompt_prefix_library: PromptPrefixLibraryConfig = Field(
         default_factory=lambda: PromptPrefixLibraryConfig.model_validate(
@@ -184,8 +184,8 @@ class ImageSubConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def preserve_legacy_prompt_prefix_when_library_is_missing(cls, data: Any):
-        """Keep upgraded configs on their existing legacy prefix until users pick a library item."""
+    def attach_empty_library_for_legacy_prompt_prefix_configs(cls, data: Any):
+        """Attach a library shell for old configs without activating retired prefix text."""
         if not isinstance(data, dict):
             return data
         if "prompt_prefix_library" in data or "prompt_prefix" not in data:

@@ -45,6 +45,8 @@ class _DummyCore:
         self.llm = object()
         self.video = object()
         self.frame_processor = SimpleNamespace()
+        self.trace_repository = object()
+        self.raw_payload_store = object()
         self.tts = _ResolverService(tts_defaults or {"tts": "selfhost/tts_edge.json"})
         self.media = _ResolverService(
             media_defaults
@@ -1252,6 +1254,7 @@ async def test_determine_title_progress_does_not_regress_after_generate_content(
         params={"mode": "generate"},
         progress_callback=events.append,
     )
+    ctx.task_id = "task-staged-title-progress"
 
     async def fake_script_generate(self, **kwargs):
         return "scene 1. scene 2. scene 3."

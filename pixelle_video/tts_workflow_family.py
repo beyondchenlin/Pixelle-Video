@@ -4,6 +4,11 @@ import json
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
+from pixelle_video.runninghub_workflow_contracts import (
+    runninghub_descriptor_domains,
+    validate_runninghub_descriptor_contract,
+)
+
 TtsWorkflowFamily = Literal["edge", "indextts2", "omnivoice", "generic"]
 
 EDGE_NODE_TYPES = frozenset({"PixelleEdgeTTS", "EdgeTTS"})
@@ -27,6 +32,19 @@ def infer_tts_workflow_family(workflow_key: Any) -> TtsWorkflowFamily:
     return _infer_family_from_stem(workflow_key)
 
 
+def is_known_tts_workflow_resource(workflow_key: Any) -> bool:
+    resource_path, workflow = _load_workflow_resource(workflow_key)
+    if not isinstance(workflow, Mapping):
+        return False
+    if _infer_family_from_workflow(workflow) is not None:
+        return True
+    return _is_known_runninghub_tts_descriptor(
+        workflow_key,
+        resource_path=resource_path,
+        workflow=workflow,
+    )
+
+
 def is_tts_workflow_family(workflow_key: Any, family: TtsWorkflowFamily) -> bool:
     return infer_tts_workflow_family(workflow_key) == family
 
@@ -48,30 +66,26 @@ def _infer_family_from_workflow(workflow: Mapping[str, Any] | None) -> TtsWorkfl
     if not isinstance(workflow, Mapping):
         return None
 
-    nodes = workflow
-    for wrapper_key in ("workflow", "prompt"):
-        wrapped = workflow.get(wrapper_key)
-        if isinstance(wrapped, Mapping):
-            nodes = wrapped
-            break
-
-    for node in nodes.values():
-        if not isinstance(node, Mapping):
-            continue
-
-        class_type = node.get("class_type")
-        if isinstance(class_type, str):
-            if class_type in OMNIVOICE_NODE_TYPES or class_type.startswith("OmniVoice"):
-                return "omnivoice"
-            if class_type in INDEX_TTS2_NODE_TYPES or class_type.startswith("IndexTTS2"):
-                return "indextts2"
-            if class_type in EDGE_NODE_TYPES:
-                return "edge"
-
-        nested_family = _infer_family_from_workflow(node)
-        if nested_family is not None:
+    for node in _iter_workflow_node_mappings(workflow):
+        nested_family = _infer_family_from_node_mapping(node)
+        if nested_family:
             return nested_family
 
+    return None
+
+
+def _infer_family_from_node_mapping(node: Mapping[str, Any]) -> TtsWorkflowFamily | None:
+    class_type = node.get("class_type")
+    if not isinstance(class_type, str):
+        class_type = node.get("type")
+    if not isinstance(class_type, str):
+        return None
+    if class_type in OMNIVOICE_NODE_TYPES or class_type.startswith("OmniVoice"):
+        return "omnivoice"
+    if class_type in INDEX_TTS2_NODE_TYPES or class_type.startswith("IndexTTS2"):
+        return "indextts2"
+    if class_type in EDGE_NODE_TYPES:
+        return "edge"
     return None
 
 
@@ -82,21 +96,11 @@ def _contains_node_class_type(
     if not isinstance(workflow, Mapping):
         return False
 
-    nodes = workflow
-    for wrapper_key in ("workflow", "prompt"):
-        wrapped = workflow.get(wrapper_key)
-        if isinstance(wrapped, Mapping):
-            nodes = wrapped
-            break
-
-    for node in nodes.values():
-        if not isinstance(node, Mapping):
-            continue
-
+    for node in _iter_workflow_node_mappings(workflow):
         class_type = node.get("class_type")
+        if not isinstance(class_type, str):
+            class_type = node.get("type")
         if isinstance(class_type, str) and class_type in class_types:
-            return True
-        if _contains_node_class_type(node, class_types):
             return True
 
     return False
@@ -114,17 +118,19 @@ def _infer_family_from_stem(workflow_key: Any) -> TtsWorkflowFamily:
 
 
 def _load_workflow_from_key(workflow_key: Any) -> Mapping[str, Any] | None:
+    _resource_path, workflow = _load_workflow_resource(workflow_key)
+    return workflow
+
+
+def _load_workflow_resource(
+    workflow_key: Any,
+) -> tuple[Path | None, Mapping[str, Any] | None]:
     if isinstance(workflow_key, Mapping):
-        return workflow_key
+        return None, workflow_key
     if not workflow_key:
-        return None
+        return None, None
 
-    key_path = Path(str(workflow_key))
-    candidates = [key_path, Path("workflows") / key_path]
-    if len(key_path.parts) == 1:
-        candidates.append(Path("workflows") / "selfhost" / key_path)
-
-    for candidate in candidates:
+    for candidate in _resolve_workflow_path_candidates(workflow_key):
         if not candidate.exists():
             continue
         try:
@@ -132,6 +138,57 @@ def _load_workflow_from_key(workflow_key: Any) -> Mapping[str, Any] | None:
         except Exception:
             continue
         if isinstance(value, Mapping):
-            return value
+            return candidate, value
 
-    return None
+    return None, None
+
+
+def _resolve_workflow_path_candidates(workflow_key: Any) -> tuple[Path, ...]:
+    key_path = Path(str(workflow_key))
+    candidates = [key_path, Path("workflows") / key_path]
+    if len(key_path.parts) == 1:
+        candidates.append(Path("workflows") / "selfhost" / key_path)
+
+    resolved_candidates = []
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved_candidates.append(candidate)
+    return tuple(resolved_candidates)
+
+
+def _iter_workflow_node_mappings(value: Any):
+    if isinstance(value, Mapping):
+        yield value
+        for child in value.values():
+            yield from _iter_workflow_node_mappings(child)
+        return
+    if isinstance(value, list):
+        for child in value:
+            yield from _iter_workflow_node_mappings(child)
+
+
+def _is_known_runninghub_tts_descriptor(
+    workflow_key: Any,
+    *,
+    resource_path: Path | None,
+    workflow: Mapping[str, Any],
+) -> bool:
+    source = str(workflow.get("source") or "").strip().lower()
+    workflow_id = str(workflow.get("workflow_id") or "").strip()
+    if source != "runninghub" or not workflow_id or resource_path is None:
+        return False
+
+    try:
+        workflow = validate_runninghub_descriptor_contract(resource_path, workflow)
+    except ValueError:
+        return False
+    declared_domains = {
+        domain
+        for domain in runninghub_descriptor_domains(workflow)
+        if domain is not None
+    }
+    return "tts" in declared_domains

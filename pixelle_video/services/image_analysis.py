@@ -21,7 +21,13 @@ from typing import Literal, Optional
 
 from loguru import logger
 
+from pixelle_video.services.analysis_trace_artifacts import (
+    summarize_analysis_service_workflow_result,
+    write_analysis_service_result_artifact,
+    write_analysis_workflow_trace_context,
+)
 from pixelle_video.services.comfy_base_service import ComfyBaseService
+from pixelle_video.utils.os_util import get_output_path
 
 
 class ImageAnalysisService(ComfyBaseService):
@@ -131,6 +137,9 @@ class ImageAnalysisService(ComfyBaseService):
         logger.debug(f"Workflow parameters: {workflow_params}")
         
         # 4. Execute workflow using shared ComfyKit instance from core
+        trace_context = None
+        result = None
+        extraction_source = {"kind": "not_started"}
         try:
             # Determine what to pass to ComfyKit based on source
             if workflow_info["source"] == "runninghub" and "workflow_id" in workflow_info:
@@ -141,8 +150,25 @@ class ImageAnalysisService(ComfyBaseService):
                 # Selfhost: pass file path
                 workflow_input = workflow_info["path"]
                 logger.info(f"Executing selfhost workflow: {workflow_input}")
+            trace_context = write_analysis_workflow_trace_context(
+                Path(get_output_path()),
+                task_id=None,
+                media_path=str(image_path),
+                media_type="image",
+                workflow=str(workflow_info["key"]),
+                workflow_input=str(workflow_input),
+                source=f"analysis.{workflow_info['source']}",
+                service_domain="image_analysis",
+                workflow_params=workflow_params,
+            )
             
-            result = await self._execute_workflow(workflow_input, workflow_params, workflow_info)
+            result = await self._execute_workflow(
+                workflow_input,
+                workflow_params,
+                workflow_info,
+                workflow_domain="analysis",
+                analysis_workflow_trace_context=trace_context,
+            )
             
             # 5. Extract description from result
             if result.status != "completed":
@@ -152,6 +178,7 @@ class ImageAnalysisService(ComfyBaseService):
             
             # Extract text description from result (format varies by source)
             description = None
+            extraction_source = {"kind": "unknown"}
             
             # Try format 1: Selfhost outputs (direct text in outputs)
             # Format: {'6': {'text': ['description text']}}
@@ -161,6 +188,10 @@ class ImageAnalysisService(ComfyBaseService):
                         text_list = node_output['text']
                         if text_list and len(text_list) > 0:
                             description = text_list[0]
+                            extraction_source = {
+                                "kind": "workflow_outputs_text",
+                                "node_id": str(node_id),
+                            }
                             break
             
             # Try format 2: RunningHub raw_data (text file URL)
@@ -178,6 +209,11 @@ class ImageAnalysisService(ComfyBaseService):
                                     if resp.status == 200:
                                         description = await resp.text()
                                         description = description.strip()
+                                        extraction_source = {
+                                            "kind": "runninghub_raw_data_text_url",
+                                            "file_url": str(item["fileUrl"]),
+                                            "http_status": resp.status,
+                                        }
                                         break
             
             if not description:
@@ -185,9 +221,40 @@ class ImageAnalysisService(ComfyBaseService):
                 raise Exception("No description generated")
             
             logger.info(f"✅ Image analyzed: {description[:100]}...")
+            write_analysis_service_result_artifact(
+                trace_context,
+                status="completed",
+                returned_description=description,
+                extraction_source=extraction_source,
+            )
             
             return description
         
         except Exception as e:
+            if trace_context is not None and result is not None:
+                try:
+                    result_status = str(getattr(result, "status", ""))
+                    write_analysis_service_result_artifact(
+                        trace_context,
+                        status="error" if result_status == "completed" else "failed",
+                        returned_description="",
+                        extraction_source={
+                            "kind": (
+                                "service_extraction_error"
+                                if result_status == "completed"
+                                else "service_workflow_failure"
+                            ),
+                            "error_type": type(e).__name__,
+                            "error": str(e),
+                            "last_extraction_source": extraction_source,
+                            "workflow_result": summarize_analysis_service_workflow_result(
+                                result
+                            ),
+                        },
+                    )
+                except Exception as artifact_error:
+                    logger.warning(
+                        f"Failed to write image analysis service error trace: {artifact_error}"
+                    )
             logger.error(f"Image analysis error: {e}")
             raise

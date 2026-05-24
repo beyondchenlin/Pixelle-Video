@@ -125,6 +125,7 @@ class StoryboardConfig:
     # Media workflow
     media_workflow: Optional[str] = None       # Media workflow filename (image or video, None = use default)
     media_negative_prompt: Optional[str] = None  # Optional negative prompt for media workflows
+    media_prompt_trace_context: Optional[Dict[str, Any]] = None  # Prompt trace artifact context required for media generation
     
     # Frame template (includes template design-coordinate information in path)
     frame_template: str = DEFAULT_IMAGE_TEMPLATE

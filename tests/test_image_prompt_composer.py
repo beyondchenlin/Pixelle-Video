@@ -61,7 +61,13 @@ async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
                 "prompts": ["prompt one", "prompt two"],
                 "resolved_style": None,
                 "negative_prompt": None,
-                "planning_snapshot": {"frames": [{"scene_id": "1"}, {"scene_id": "2"}]},
+                "planning_snapshot": {
+                    "frames": [{"scene_id": "1"}, {"scene_id": "2"}],
+                    "prompt_generation_trace_refs_by_index": [
+                        {"prompt_index": 0, "trace_id": "trace_prompt_batch_1"},
+                        {"prompt_index": 1, "trace_id": "trace_prompt_batch_1"},
+                    ],
+                },
             },
         )()
 
@@ -106,6 +112,64 @@ async def test_composer_generates_one_prompt_per_plan_frame(monkeypatch):
     ]
     assert prompt_plan_bundle.prompt_plans[0].final_prompt == "prompt one"
     assert prompt_plan_bundle.image_prompt_drafts[0].prompt_text == "prompt one"
+    assert prompt_plan_bundle.source_trace_id == "trace_prompt_batch_1"
+    assert prompt_plan_bundle.prompt_plans[0].source_trace_id == "trace_prompt_batch_1"
+    assert prompt_plan_bundle.image_prompt_drafts[0].source_trace_id == "trace_prompt_batch_1"
+
+
+@pytest.mark.asyncio
+async def test_composer_carries_all_upstream_llm_trace_ids_into_prompt_plan_metadata(monkeypatch):
+    plan = _plan()
+
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        return type(
+            "Batch",
+            (),
+            {
+                "prompts": ["prompt one", "prompt two"],
+                "resolved_style": None,
+                "negative_prompt": None,
+                "planning_snapshot": {
+                    "llm_trace_refs": [
+                        {"trace_id": "trace_world", "stage": "content_world_planning"},
+                        {"trace_id": "trace_style", "stage": "style_resolution"},
+                        {"trace_id": "trace_storyboard", "stage": "storyboard_planning"},
+                        {"trace_id": "trace_ip", "stage": "ip_role_selection"},
+                    ],
+                    "prompt_generation_trace_refs_by_index": [
+                        {"prompt_index": 0, "trace_id": "trace_prompt_batch_1", "stage": "image_prompt_batch"},
+                        {"prompt_index": 1, "trace_id": "trace_prompt_batch_1", "stage": "image_prompt_batch"},
+                    ],
+                },
+            },
+        )()
+
+    monkeypatch.setattr(
+        "pixelle_video.services.image_prompt_composer.generate_styled_image_prompt_batch",
+        fake_generate_styled_image_prompt_batch,
+    )
+
+    result = await ImagePromptComposer().compose(
+        llm_service=object(),
+        storyboard_plan=plan,
+        image_config={},
+        upstream_llm_trace_refs=[
+            {"trace_id": "trace_smart_storyboard", "stage": "smart_storyboard_generation"}
+        ],
+    )
+
+    bundle = result.prompt_plan_bundle
+    trace_ids = [ref["trace_id"] for ref in bundle.metadata["llm_trace_refs"]]
+    assert trace_ids == [
+        "trace_smart_storyboard",
+        "trace_world",
+        "trace_style",
+        "trace_storyboard",
+        "trace_ip",
+        "trace_prompt_batch_1",
+    ]
+    assert bundle.prompt_plans[0].metadata["llm_trace_refs"] == bundle.metadata["llm_trace_refs"]
+    assert bundle.image_prompt_drafts[0].metadata["llm_trace_refs"] == bundle.metadata["llm_trace_refs"]
 
 
 @pytest.mark.asyncio

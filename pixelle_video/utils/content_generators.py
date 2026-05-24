@@ -57,6 +57,11 @@ from pixelle_video.services.ip_profile_readiness import (
 )
 from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
+from pixelle_video.services.llm_trace_refs import (
+    LLMTraceCollector,
+    llm_trace_refs_from_records,
+    merge_llm_trace_refs,
+)
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
 from pixelle_video.utils.prompt_batching import (
@@ -69,6 +74,7 @@ from pixelle_video.utils.prompt_generation_performance import (
     DEFAULT_PROMPT_BATCH_SIZE,
 )
 from pixelle_video.utils.prompt_helper import (
+    append_final_visual_prompt_requirements,
     apply_image_text_policy,
     apply_text_rendering_policy,
     assemble_image_prompt,
@@ -76,6 +82,8 @@ from pixelle_video.utils.prompt_helper import (
     assemble_storyboard_prompt,
     build_image_prompt,
     build_visible_text_whitelist_clause,
+    final_visual_prompt_clause_template_metadata,
+    final_visual_prompt_template_metadata,
     ip_negative_constraints_from_context,
     ip_visible_text_whitelist_from_context,
     merge_z_image_constraints_into_prompt,
@@ -164,6 +172,41 @@ def _trace_context_for_rendered_prompt(
         stage=stage,
         metadata=metadata,
     )
+
+
+def _trace_status_value(trace: Any) -> str:
+    status = getattr(trace, "status", "")
+    return str(getattr(status, "value", status) or "")
+
+
+def _prompt_generation_trace_refs_by_index(
+    records: Sequence[Any],
+    *,
+    stage: str,
+) -> list[dict[str, Any]]:
+    refs_by_index: dict[int, dict[str, Any]] = {}
+    for trace in records:
+        trace_id = getattr(trace, "trace_id", None)
+        context = getattr(trace, "context", None)
+        if not trace_id or getattr(context, "stage", None) != stage:
+            continue
+        if _trace_status_value(trace) != "success":
+            continue
+        metadata = getattr(context, "metadata", {}) or {}
+        try:
+            batch_start_index = int(metadata.get("batch_start_index", 0))
+            batch_size = int(metadata.get("batch_size", 1))
+        except (TypeError, ValueError):
+            continue
+        if batch_size <= 0:
+            continue
+        for prompt_index in range(batch_start_index, batch_start_index + batch_size):
+            refs_by_index[prompt_index] = {
+                "prompt_index": prompt_index,
+                "trace_id": str(trace_id),
+                "stage": stage,
+            }
+    return [refs_by_index[index] for index in sorted(refs_by_index)]
 
 
 def _normalize_prompt_contexts(
@@ -1113,6 +1156,7 @@ async def generate_styled_image_prompt_batch(
     ip_profile=None,
     scene_casts_by_frame=None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
+    upstream_llm_trace_refs: Optional[Sequence[Mapping[str, str]]] = None,
     *,
     trace_context: LLMTraceContext | None = None,
     trace_recorder: LLMInteractionRecorder | None = None,
@@ -1126,8 +1170,25 @@ async def generate_styled_image_prompt_batch(
     if ip_prompt_chain_enabled:
         ensure_ip_profile_ready_for_generation(ip_profile)
     text_rendering_settings = build_text_rendering_settings(text_rendering)
+    image_text_payload = (
+        text_rendering.get("image_text")
+        if isinstance(text_rendering, Mapping)
+        else None
+    )
+    explicit_image_text_positive_prompt = (
+        str(image_text_payload.get("positive_prompt") or "").strip()
+        if isinstance(image_text_payload, Mapping)
+        and "positive_prompt" in image_text_payload
+        else ""
+    )
     native_hints = dict(native_prompt_hints_by_frame or {})
     resolved_text_policy = build_text_rendering_policy(text_rendering_settings.overlay)
+    trace_collector = (
+        LLMTraceCollector(trace_recorder)
+        if trace_recorder is not None
+        else None
+    )
+    active_trace_recorder = trace_collector or trace_recorder
 
     def _storyboard_controls_enabled() -> bool:
         return any(
@@ -1165,7 +1226,7 @@ async def generate_styled_image_prompt_batch(
             ip_world_hint=getattr(ip_profile, "world_hint", None),
             world_preset=storyboard_world_preset,
             trace_context=trace_context,
-            trace_recorder=trace_recorder,
+            trace_recorder=active_trace_recorder,
         )
         if _should_plan_generation_world_profile(
             generation_world_hint=generation_world_hint,
@@ -1204,7 +1265,7 @@ async def generate_styled_image_prompt_batch(
                 llm_service,
                 source,
                 trace_context=trace_context,
-                trace_recorder=trace_recorder,
+                trace_recorder=active_trace_recorder,
             )
             style_profile = resolved_style.style_profile
             emit_stage_event(
@@ -1303,7 +1364,7 @@ async def generate_styled_image_prompt_batch(
                 generation_world_profile=generation_world_profile,
                 frame_overrides=frame_overrides,
                 trace_context=trace_context,
-                trace_recorder=trace_recorder,
+                trace_recorder=active_trace_recorder,
             )
         except Exception:
             emit_stage_event(
@@ -1379,7 +1440,7 @@ async def generate_styled_image_prompt_batch(
             scene_casts_by_frame=scene_casts_by_frame,
             generation_world_profile=generation_world_profile,
             trace_context=trace_context,
-            trace_recorder=trace_recorder,
+            trace_recorder=active_trace_recorder,
         )
         prompt_contexts_for_generation = _enrich_prompt_contexts_with_ip(
             normalized_prompt_contexts,
@@ -1408,7 +1469,7 @@ async def generate_styled_image_prompt_batch(
             prompt_contexts=prompt_contexts_for_generation,
             stage_callback=stage_callback,
             trace_context=trace_context,
-            trace_recorder=trace_recorder,
+            trace_recorder=active_trace_recorder,
         )
     else:
         base_prompts = await generate_image_prompts(
@@ -1425,8 +1486,27 @@ async def generate_styled_image_prompt_batch(
             prompt_contexts=prompt_contexts_for_generation,
             stage_callback=stage_callback,
             trace_context=trace_context,
-            trace_recorder=trace_recorder,
+            trace_recorder=active_trace_recorder,
         )
+
+    if trace_collector is not None:
+        trace_stage = "video_prompt_batch" if media_type == "video" else "image_prompt_batch"
+        prompt_trace_refs = _prompt_generation_trace_refs_by_index(
+            trace_collector.records,
+            stage=trace_stage,
+        )
+        if prompt_trace_refs:
+            planning_snapshot = dict(planning_snapshot or {})
+            planning_snapshot["prompt_generation_trace_refs_by_index"] = prompt_trace_refs
+    llm_trace_refs = merge_llm_trace_refs(
+        upstream_llm_trace_refs,
+        llm_trace_refs_from_records(trace_collector.records)
+        if trace_collector is not None
+        else (),
+    )
+    if llm_trace_refs:
+        planning_snapshot = dict(planning_snapshot or {})
+        planning_snapshot["llm_trace_refs"] = llm_trace_refs
 
     capabilities = WorkflowCapabilities()
     if media_service is not None:
@@ -1476,16 +1556,12 @@ async def generate_styled_image_prompt_batch(
 
     if native_hints:
         final_prompts = [
-            ", ".join(
-                _normalize_prompt_fragments(
-                    [
-                        prompt,
-                        *[
-                            _native_prompt_fragment(hint)
-                            for hint in native_hints.get(index, ())
-                        ],
-                    ]
-                )
+            append_final_visual_prompt_requirements(
+                prompt,
+                [
+                    _native_prompt_fragment(hint)
+                    for hint in native_hints.get(index, ())
+                ],
             )
             for index, prompt in enumerate(final_prompts)
         ]
@@ -1530,26 +1606,43 @@ async def generate_styled_image_prompt_batch(
         if ip_prompt_chain_enabled
         else [() for _ in final_prompts]
     )
-    final_prompts = [
-        (
-            prompt
-            if native_text_allowed and bool(native_hints.get(index))
-            else ", ".join(
-                _normalize_prompt_fragments(
-                    [
-                        prompt,
-                        build_visible_text_whitelist_clause(
-                            ip_visible_text_whitelists[index]
-                        ),
-                    ]
+    resolved_final_prompts: list[str] = []
+    for index, prompt in enumerate(final_prompts):
+        has_native_text_hint = native_text_allowed and bool(native_hints.get(index))
+        if (
+            ip_visible_text_whitelists[index]
+            and not has_native_text_hint
+            and not (media_type == "image" and not capabilities.supports_negative_prompt)
+        ):
+            requirements = [
+                build_visible_text_whitelist_clause(
+                    ip_visible_text_whitelists[index]
+                )
+            ]
+            if explicit_image_text_positive_prompt:
+                requirements.append(explicit_image_text_positive_prompt)
+            resolved_final_prompts.append(
+                append_final_visual_prompt_requirements(
+                    prompt,
+                    requirements,
                 )
             )
-            if ip_visible_text_whitelists[index]
-            and not (media_type == "image" and not capabilities.supports_negative_prompt)
-            else apply_image_text_policy(prompt, text_rendering_settings.image_text)
+            continue
+        if has_native_text_hint:
+            if explicit_image_text_positive_prompt:
+                resolved_final_prompts.append(
+                    append_final_visual_prompt_requirements(
+                        prompt,
+                        [explicit_image_text_positive_prompt],
+                    )
+                )
+            else:
+                resolved_final_prompts.append(prompt)
+            continue
+        resolved_final_prompts.append(
+            apply_image_text_policy(prompt, text_rendering_settings.image_text)
         )
-        for index, prompt in enumerate(final_prompts)
-    ]
+    final_prompts = resolved_final_prompts
 
     shared_negative_rules: list[str] = []
     if has_any_native_hints and native_text_allowed:
@@ -1578,7 +1671,15 @@ async def generate_styled_image_prompt_batch(
     negative_prompt = assemble_negative_prompt(
         resolved_style,
         supports_negative_prompt=capabilities.supports_negative_prompt,
-        extra_negative_rules=shared_negative_rules or None,
+        extra_negative_rules=[
+            *shared_negative_rules,
+            *[
+                rule
+                for frame_rules in ip_negative_rules_by_frame
+                for rule in frame_rules
+            ],
+        ]
+        or None,
     )
     final_prompts = [
         sanitize_visual_prompt_text(prompt)
@@ -1597,8 +1698,24 @@ async def generate_styled_image_prompt_batch(
             )
             for index, prompt in enumerate(final_prompts)
         ]
+    if planning_snapshot is not None:
+        planning_snapshot = dict(planning_snapshot)
+        planning_snapshot["final_visual_prompt_template"] = (
+            final_visual_prompt_template_metadata()
+        )
+        planning_snapshot["final_visual_prompt_clause_template"] = (
+            final_visual_prompt_clause_template_metadata()
+        )
     if native_prompt_hints_by_frame is not None or text_rendering_settings.overlay.enabled:
         planning_snapshot = dict(planning_snapshot or {})
+        planning_snapshot.setdefault(
+            "final_visual_prompt_template",
+            final_visual_prompt_template_metadata(),
+        )
+        planning_snapshot.setdefault(
+            "final_visual_prompt_clause_template",
+            final_visual_prompt_clause_template_metadata(),
+        )
         planning_snapshot["text_rendering_policy"] = resolved_text_policy.to_dict()
         planning_snapshot["native_prompt_hint_count"] = sum(
             len(items) for items in native_hints.values()
