@@ -9,6 +9,37 @@ from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.utils.template_util import get_template_orientation
 
 
+class _FakeRawPayloadStore:
+    def __init__(self):
+        self.payloads = []
+
+    async def put_json(self, workspace_id, payload):
+        storage_key = f"raw-payloads/{workspace_id}/{len(self.payloads) + 1}.json"
+        self.payloads.append(
+            {
+                "workspace_id": workspace_id,
+                "storage_key": storage_key,
+                "payload": dict(payload),
+            }
+        )
+        return storage_key
+
+
+class _FakeTraceRepository:
+    def __init__(self):
+        self.llm_interactions = []
+
+    async def append_llm_interaction(self, workspace_id, trace):
+        stored = dict(trace)
+        self.llm_interactions.append(
+            {
+                "workspace_id": workspace_id,
+                "trace": stored,
+            }
+        )
+        return stored
+
+
 class _DummyCore:
     def __init__(self, config=None):
         self.config = config or {"comfyui": {"image": {}, "video": {}}}
@@ -16,6 +47,8 @@ class _DummyCore:
         self.tts = None
         self.media = object()
         self.video = None
+        self.raw_payload_store = _FakeRawPayloadStore()
+        self.trace_repository = _FakeTraceRepository()
 
 
 class _RecordingAssetBibleRepository:
@@ -119,6 +152,7 @@ async def test_generate_content_fixed_defaults_to_smart_storyboard(monkeypatch):
     )
 
     ctx = PipelineContext(input_text="第一句。第二句。", params={"mode": "fixed"})
+    ctx.task_id = "task-fixed-smart-storyboard"
     await StandardPipeline(_DummyCore()).generate_content(ctx)
 
     assert ctx.source_text == "第一句。第二句。"
@@ -231,6 +265,7 @@ async def test_generate_content_generate_mode_uses_complete_source_text(monkeypa
         input_text="自律主题",
         params={"mode": "generate", "script_length_mode": "custom", "script_target_words": 180},
     )
+    ctx.task_id = "task-generate-complete-source"
     await StandardPipeline(_DummyCore()).generate_content(ctx)
 
     assert ctx.source_text == "第一句。第二句。"
@@ -609,6 +644,7 @@ async def test_generate_content_builds_caption_speech_plan_from_source_not_story
     )
 
     ctx = PipelineContext(input_text="topic", params={"mode": "generate"})
+    ctx.task_id = "task-caption-source"
     await StandardPipeline(_DummyCore()).generate_content(ctx)
 
     assert ctx.caption_speech_plan.source_text == source_text
