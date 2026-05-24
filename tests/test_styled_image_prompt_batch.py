@@ -818,6 +818,17 @@ def test_sanitize_visual_prompt_text_removes_world_profile_field_labels():
     assert "protect gate" in prompt
 
 
+def test_sanitize_visual_prompt_text_removes_ip_adaptation_field_label():
+    prompt = sanitize_visual_prompt_text(
+        "ip_adaptation: white rabbit guide, blue tie, integrated market pose"
+    )
+
+    assert "ip_adaptation" not in prompt
+    assert "white rabbit guide" in prompt
+    assert "blue tie" in prompt
+    assert "integrated market pose" in prompt
+
+
 @pytest.mark.asyncio
 async def test_generate_styled_image_prompt_batch_plans_ip_after_storyboard_and_style_resolution(monkeypatch):
     planner_calls = {}

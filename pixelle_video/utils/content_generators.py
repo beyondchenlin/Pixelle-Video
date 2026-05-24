@@ -47,10 +47,10 @@ from pixelle_video.models.text_overlay import (
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
 from pixelle_video.services.content_world_planner import ContentWorldPlanner
-from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner, IPUsagePlanner
 from pixelle_video.services.ip_profile_readiness import (
     ensure_ip_profile_ready_for_generation,
 )
+from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
 from pixelle_video.services.storyboard_planner import plan_storyboard_batch
 from pixelle_video.utils.logging_util import build_content_observability, emit_stage_event
 from pixelle_video.utils.prompt_batching import (
@@ -190,6 +190,14 @@ def _enrich_prompt_contexts_with_ip(
         raise ValueError("IP adaptation package count must match storyboard frame count")
 
     for index, package in enumerate(packages):
+        package_dict = (
+            package.to_dict()
+            if hasattr(package, "to_dict")
+            else dict(package)
+            if isinstance(package, Mapping)
+            else {}
+        )
+        frame_contexts[index]["ip_adaptation"] = package_dict
         frame_contexts[index]["ip_scene_description"] = (
             getattr(package, "appearance_description", "") or ""
         )

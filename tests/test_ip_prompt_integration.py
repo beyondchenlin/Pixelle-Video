@@ -38,7 +38,6 @@ def _make_pkg(frame_id: str = "frame_0001", **overrides: Any) -> IPFrameAdaptati
 
 def test_enrich_injects_ip_scene_description():
     from pixelle_video.utils.content_generators import (
-        PromptContextEnvelope,
         _enrich_prompt_contexts_with_ip,
     )
 
@@ -56,7 +55,6 @@ def test_enrich_injects_ip_scene_description():
 
 def test_enrich_injects_style_context():
     from pixelle_video.utils.content_generators import (
-        PromptContextEnvelope,
         _enrich_prompt_contexts_with_ip,
     )
 
@@ -93,6 +91,26 @@ def test_enrich_with_existing_prompt_contexts():
     assert "ip_scene_description" in result.frame_contexts[0]
 
 
+def test_enrich_prompt_contexts_with_ip_adds_structured_ip_adaptation():
+    from pixelle_video.utils.content_generators import (
+        PromptContextEnvelope,
+        _enrich_prompt_contexts_with_ip,
+    )
+
+    pkg = _make_pkg()
+    result = _enrich_prompt_contexts_with_ip(
+        PromptContextEnvelope(plan_context={}, frame_contexts=({},)),
+        expected_count=1,
+        packages=(pkg,),
+        style_context={"style_kind": "visual_only"},
+    )
+
+    context = result.frame_contexts[0]
+    assert context["ip_scene_description"] == pkg.appearance_description
+    assert context["ip_adaptation"]["frame_id"] == pkg.frame_id
+    assert context["ip_adaptation"]["ip_presence_type"] == pkg.ip_presence_type.value
+
+
 def test_enrich_mismatched_count_raises():
     from pixelle_video.utils.content_generators import _enrich_prompt_contexts_with_ip
 
@@ -110,7 +128,6 @@ def test_enrich_mismatched_count_raises():
 
 def test_strip_removes_ip_fields():
     from pixelle_video.utils.content_generators import (
-        PromptContextEnvelope,
         _enrich_prompt_contexts_with_ip,
         _strip_ip_prompt_context_fields,
     )
@@ -124,6 +141,7 @@ def test_strip_removes_ip_fields():
     )
     stripped = _strip_ip_prompt_context_fields(enriched)
     assert stripped is not None
+    assert "ip_adaptation" not in stripped.frame_contexts[0]
     assert "ip_scene_description" not in stripped.frame_contexts[0]
     assert "ip_negative_constraints" not in stripped.frame_contexts[0]
     assert "ip_image_text_plan" not in stripped.frame_contexts[0]

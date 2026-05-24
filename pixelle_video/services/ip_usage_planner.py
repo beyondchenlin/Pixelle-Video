@@ -200,6 +200,7 @@ def _presence_type_from_scene_cast(scene_cast: Any | None) -> IPPresenceType | N
     try:
         return IPPresenceType(value)
     except ValueError:
+        logger.info("Ignoring invalid SceneCast IP presence type: %s", value)
         return None
 
 

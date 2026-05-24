@@ -315,6 +315,29 @@ def test_usage_planner_reads_scene_cast_metadata_presence_type_override():
     assert package.ip_presence_type is IPPresenceType.STRONG_IDENTITY
 
 
+def test_usage_planner_ignores_invalid_scene_cast_presence_type():
+    frame = StoryboardPlanFrame(
+        index=1,
+        source_text="A guide explains the route through a lively street.",
+        visual_goal="show a balanced narrative travel scene",
+        prompt_intent="narrative route explanation",
+        primary_subject="street route",
+    )
+    plan = _plan(frame)
+
+    package = IPUsagePlanner().plan_batch(
+        storyboard_plan=plan,
+        ip_profile=_profile(),
+        scene_casts_by_frame={
+            plan.frames[0].frame_id: {
+                "metadata": {"ip_presence_type": "giant_logo_takeover"},
+            },
+        },
+    )[0]
+
+    assert package.ip_presence_type is IPPresenceType.BALANCED_NARRATIVE
+
+
 def test_usage_planner_treats_uppercase_english_documentary_style_as_low_intrusion():
     frame = StoryboardPlanFrame(
         index=1,
