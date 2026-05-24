@@ -10,6 +10,8 @@ from pixelle_video.platform_context import (
     DEFAULT_WORKSPACE_ID,
     first_explicit_text,
 )
+from pixelle_video.services.ip_color_palette import build_color_palette_prompt_entries
+from pixelle_video.services.ip_profile_readiness import ip_generation_identity_terms
 from web.i18n import tr
 from web.utils.asset_bible_payloads import (
     build_asset_bible_draft_payload_from_response,
@@ -304,10 +306,9 @@ def _render_asset_bible_section(
                             "default_slot_preference": default_slot_preference,
                             "presence_spectrum": _split_csv(presence_spectrum),
                             "role_presets": _split_lines(role_presets),
-                            "color_palette": (
-                                {**ip_profile.get("color_palette", {}), "prompt": color_rules}
-                                if color_rules.strip()
-                                else ip_profile.get("color_palette", {})
+                            "color_palette": build_color_palette_prompt_entries(
+                                ip_profile.get("color_palette", {}),
+                                color_rules,
                             ),
                             "identity_anchors": _text_list(ip_profile.get("identity_anchors")),
                             "identity_suppression_rules": _split_csv(identity_suppression_rules),
@@ -660,7 +661,7 @@ def _build_asset_bible_save_payload(
 
 
 def _ip_profile_ready_for_generation(ip_profile: Mapping[str, Any]) -> bool:
-    return bool(_text_list(ip_profile.get("identity_lock")))
+    return bool(ip_generation_identity_terms(ip_profile))
 
 
 def _render_select_or_custom(
@@ -746,10 +747,17 @@ def _first_text(*values: Any) -> str:
 
 
 def _read_color_palette_prompt(value: Any) -> str:
-    """Read the prompt text from a color_palette dict."""
     if not isinstance(value, Mapping):
         return ""
-    return _first_text(value.get("prompt", ""))
+    prompts: list[str] = []
+    for key, item in value.items():
+        if not str(key).startswith("rule_"):
+            continue
+        if isinstance(item, Mapping):
+            prompt = _first_text(item.get("prompt"))
+            if prompt:
+                prompts.append(prompt)
+    return ", ".join(prompts)
 
 
 __all__ = ["render_ip_design_workbench"]

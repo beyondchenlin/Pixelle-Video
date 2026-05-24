@@ -2,7 +2,11 @@ import pytest
 
 from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.content_world import ContentWorldProfile
-from pixelle_video.models.ip_prompt_planning import IPFrameAdaptationPackage, IPPresenceType, IPRoleSlot
+from pixelle_video.models.ip_prompt_planning import (
+    IPFrameAdaptationPackage,
+    IPPresenceType,
+    IPRoleSlot,
+)
 from pixelle_video.models.scene_cast import SceneCast
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import ResolvedStyleSpec
@@ -35,6 +39,24 @@ def _plan(frame):
         source_text=frame.source_text,
         frames=[frame],
     )
+
+
+def test_identity_color_terms_reads_workbench_palette_entries():
+    from pixelle_video.services.ip_usage_planner import _identity_color_terms
+
+    profile = IPProfile(
+        ip_profile_id="ip_main",
+        workspace_id="workspace_1",
+        project_id="project_1",
+        name="Guide",
+        identity_lock=("white rabbit",),
+        color_palette={
+            "rule_1": {"hex": "#FFFFFF", "prompt": "white body"},
+            "rule_2": {"prompt": "bright blue tie"},
+        },
+    )
+
+    assert _identity_color_terms(profile) == ("white body", "bright blue tie")
 
 
 def test_usage_planner_marks_establishing_frame_as_scene_integrated_by_default():

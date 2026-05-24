@@ -290,7 +290,7 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
             "ip_design_ip_type": "cartoon_animal",
             "ip_design_visual_summary": "白色卡通兔子，蓝色领结，长耳朵。",
             "ip_design_identity_lock": "白色卡通兔子, 长耳朵, 圆润脸型",
-            "ip_design_color_rules": "#FFFFFF body, #006BFF tie",
+            "ip_design_color_rules": "#FFFFFF white body, bright blue tie",
             "ip_design_minimal_traits": "蓝色领结一角, 长耳朵轮廓",
             "ip_design_adaptable_slots": "服装配饰, 手持道具, 动作姿势",
             "ip_design_default_slot_preference": "prefer_supporting",
@@ -331,7 +331,85 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
     assert profile["semantic_boundary"] == ["不能变成人类", "不能替代历史建筑"]
     assert profile["negative_constraints"] == ["避免画成普通人类讲解者", "避免多余文字"]
     assert profile["visible_text_whitelist"] == ["长乐门", "正定古城"]
+    assert profile["color_palette"] == {
+        "rule_1": {"hex": "#FFFFFF", "prompt": "white body"},
+        "rule_2": {"prompt": "bright blue tie"},
+    }
     assert fake_ui.successes == ["ip_design.asset_bible.saved"]
+
+
+def test_ip_design_workbench_preserves_non_rule_palette_entries_when_saving():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state.update(
+        {
+            "ip_design_asset_bible_id": "bible_demo",
+            "ip_design_ip_profile_id": "ip_main",
+            "ip_design_ip_name": "Updated IP",
+            "ip_design_identity_lock": "white rabbit",
+            "ip_design_color_rules": "#FFFFFF white body",
+            "ip_design_save_asset_bible": True,
+        }
+    )
+    client = _FakeIPDesignClient(
+        asset_bibles=[
+            _asset_bible(
+                ip_profiles=[
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "Main IP",
+                        "identity_lock": ["white rabbit"],
+                        "color_palette": {
+                            "brand": {"hex": "#101010", "prompt": "ink outlines"},
+                            "rule_1": {"prompt": "old rule"},
+                        },
+                    },
+                ]
+            )
+        ]
+    )
+
+    render_ip_design_workbench(
+        ip_design_client=client,
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    profile = client.calls[-1]["payload"]["ip_profiles"][0]
+    assert profile["color_palette"] == {
+        "brand": {"hex": "#101010", "prompt": "ink outlines"},
+        "rule_1": {"hex": "#FFFFFF", "prompt": "white body"},
+    }
+
+
+def test_color_palette_builder_preserves_non_rule_scalar_and_list_entries():
+    from pixelle_video.services.ip_color_palette import build_color_palette_prompt_entries
+
+    existing_palette = {
+        "label": "brand reference",
+        "swatches": ["#101010", "#F4F4F4"],
+        "brand": {"hex": "#101010", "prompt": "ink outlines"},
+        "rule_1": {"prompt": "old rule"},
+    }
+
+    palette = build_color_palette_prompt_entries(
+        existing_palette,
+        "#FFFFFF white body",
+    )
+
+    assert palette == {
+        "label": "brand reference",
+        "swatches": ["#101010", "#F4F4F4"],
+        "brand": {"hex": "#101010", "prompt": "ink outlines"},
+        "rule_1": {"hex": "#FFFFFF", "prompt": "white body"},
+    }
+    assert existing_palette == {
+        "label": "brand reference",
+        "swatches": ["#101010", "#F4F4F4"],
+        "brand": {"hex": "#101010", "prompt": "ink outlines"},
+        "rule_1": {"prompt": "old rule"},
+    }
 
 
 def test_ip_design_workbench_preserves_sibling_ip_profiles_when_saving():
@@ -427,6 +505,83 @@ def test_ip_design_workbench_reads_profile_matching_session_ip_profile_id():
     assert by_area_key["ip_design_logline"]["value"] == "Side logline"
     assert by_key["ip_design_identity_lock"]["value"] == "side rabbit"
     assert by_area_key["ip_design_visual_summary"]["value"] == "side visual summary"
+
+
+def test_ip_design_workbench_renders_existing_color_mapping_prompts():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+    client = _FakeIPDesignClient(
+        asset_bibles=[
+            _asset_bible(
+                ip_profiles=[
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "Main IP",
+                        "identity_lock": ["white rabbit"],
+                        "color_palette": {
+                            "brand": {"hex": "#101010", "prompt": "ink outlines"},
+                            "rule_1": {"hex": "#FFFFFF", "prompt": "white body"},
+                            "rule_2": {"prompt": "bright blue tie"},
+                        },
+                    },
+                ]
+            )
+        ]
+    )
+
+    render_ip_design_workbench(
+        ip_design_client=client,
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    by_key = {item["key"]: item for item in fake_ui.text_inputs}
+    assert by_key["ip_design_color_rules"]["value"] == "white body, bright blue tie"
+
+
+def test_ip_design_workbench_noop_save_does_not_duplicate_non_rule_mapping_prompt():
+    from web.components.ip_design_workbench import render_ip_design_workbench
+
+    fake_ui = _FakeUI()
+    fake_ui.session_state.update({"ip_design_save_asset_bible": True})
+    client = _FakeIPDesignClient(
+        asset_bibles=[
+            _asset_bible(
+                ip_profiles=[
+                    {
+                        "ip_profile_id": "ip_main",
+                        "name": "Main IP",
+                        "identity_lock": ["white rabbit"],
+                        "color_palette": {
+                            "brand": {"hex": "#101010", "prompt": "ink outlines"},
+                            "rule_1": {"hex": "#FFFFFF", "prompt": "white body"},
+                        },
+                    },
+                ]
+            )
+        ]
+    )
+
+    render_ip_design_workbench(
+        ip_design_client=client,
+        ui=fake_ui,
+        translate=lambda key, **_kwargs: key,
+    )
+
+    profile = client.calls[-1]["payload"]["ip_profiles"][0]
+    assert profile["color_palette"] == {
+        "brand": {"hex": "#101010", "prompt": "ink outlines"},
+        "rule_1": {"hex": "#FFFFFF", "prompt": "white body"},
+    }
+
+
+def test_ip_profile_ready_for_generation_accepts_identity_anchors():
+    from web.components.ip_design_workbench import _ip_profile_ready_for_generation
+
+    assert _ip_profile_ready_for_generation(
+        {"identity_lock": [], "identity_anchors": ["blue tie"]}
+    )
 
 
 def test_ip_design_workbench_marks_ip_without_identity_anchors_unavailable():
