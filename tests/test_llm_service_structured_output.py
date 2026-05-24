@@ -144,7 +144,7 @@ async def test_llm_service_uses_native_structured_output_for_supported_openai_mo
 
     service = LLMService({})
     monkeypatch.setattr(service, "_create_client", lambda **_: fake_client)
-    trace_kwargs, _, trace_repository = _trace_dependencies("native_structured")
+    trace_kwargs, raw_store, trace_repository = _trace_dependencies("native_structured")
 
     result = await service(
         prompt="Review Inception",
@@ -157,6 +157,8 @@ async def test_llm_service_uses_native_structured_output_for_supported_openai_mo
     assert len(parse_recorder.calls) == 1
     assert parse_recorder.calls[0]["response_format"] is MovieReview
     assert create_recorder.calls == []
+    assert raw_store.payloads[0]["payload"]["response_format"]["name"] == "MovieReview"
+    assert raw_store.payloads[0]["payload"]["response_format"]["schema"]["properties"]["title"]["type"] == "string"
     assert trace_repository.appended[0]["trace"]["status"] == "success"
 
 

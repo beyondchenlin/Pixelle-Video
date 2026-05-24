@@ -103,12 +103,6 @@ def render_smart_storyboard_prompt(
     max_scene_count: int,
     prompt_language: PromptLanguage = DEFAULT_PROMPT_LANGUAGE,
 ) -> RenderedPrompt:
-    count_instruction = (
-        f"Create exactly {requested_scene_count} storyboard frames."
-        if count_mode == "manual"
-        else f"Choose the best storyboard frame count between {min_scene_count} and {max_scene_count}."
-    )
-
     sentences = _split_into_sentences(source_text)
     sentence_list = [
         {"index": i, "text": sent[0]}
@@ -135,26 +129,22 @@ def render_smart_storyboard_prompt(
         }
         for index, (span_text, start, end) in enumerate(source_spans)
     ]
-    visual_goal_description = (
-        "这一帧需要传达的视觉重点"
-        if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE
-        else "What this frame should communicate visually."
-    )
     return render_prompt_template(
         "storyboard_generation",
         {
             "prompt_language_json": json.dumps(resolved_prompt_language, ensure_ascii=False),
             "source_text_json": json.dumps(source_text, ensure_ascii=False),
             "sentences_json": json.dumps(sentence_list, ensure_ascii=False, indent=2),
-            "count_instruction_json": json.dumps(count_instruction, ensure_ascii=False),
+            "manual_count_mode": count_mode == "manual",
+            "auto_count_mode": count_mode != "manual",
+            "requested_scene_count": requested_scene_count or "",
+            "min_scene_count": min_scene_count,
+            "max_scene_count": max_scene_count,
             "use_source_spans": use_source_spans,
             "use_sentence_indices": not use_source_spans,
             "source_spans_json": json.dumps(source_span_items, ensure_ascii=False, indent=2),
             "write_chinese_fields": resolved_prompt_language == CHINESE_PROMPT_LANGUAGE,
-            "visual_goal_description_json": json.dumps(
-                visual_goal_description,
-                ensure_ascii=False,
-            ),
+            "write_english_fields": resolved_prompt_language != CHINESE_PROMPT_LANGUAGE,
         },
     )
 

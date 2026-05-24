@@ -249,10 +249,11 @@ def test_render_prompt_template_returns_text_and_source_metadata():
             "input_payload": {"frame_source_texts": ["A guide enters the market."]},
             "min_words": 50,
             "max_words": 100,
-            "language_requirement": "Image prompts must use English",
-            "output_language_label": "English",
-            "detail_requirement": "Ensure clear, complete, and creative descriptions.",
-            "example_prompt": "[detailed English image prompt]",
+            "style_profile_json": "null",
+            "narrations_json": "{\"frame_source_texts\": [\"A guide enters the market.\"]}",
+            "narrations_count": 1,
+            "output_language_chinese": False,
+            "output_language_english": True,
         },
     )
 
@@ -515,26 +516,14 @@ def render_image_prompt_prompt(
     )
     if prompt_contexts is not None:
         input_payload["prompt_contexts"] = _serialize_prompt_contexts(prompt_contexts)
-    if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE:
-        output_language_label = "Chinese"
-        language_requirement = "必须使用中文"
-        detail_requirement = "确保描述清晰、完整且有创意，篇幅与 50-100 个英文单词的细节密度相当。"
-        example_prompt = "[详细中文图片提示词，遵循风格要求]"
-    else:
-        output_language_label = "English"
-        language_requirement = "Image prompts must use English"
-        detail_requirement = "Ensure clear, complete, and creative descriptions (recommended 50-100 English words)"
-        example_prompt = "[detailed English image prompt following the style requirements]"
     return render_prompt_template(
         "image_generation",
         {
             "input_payload": input_payload,
             "min_words": min_words,
             "max_words": max_words,
-            "language_requirement": language_requirement,
-            "output_language_label": output_language_label,
-            "detail_requirement": detail_requirement,
-            "example_prompt": example_prompt,
+            "output_language_chinese": resolved_prompt_language == CHINESE_PROMPT_LANGUAGE,
+            "output_language_english": resolved_prompt_language != CHINESE_PROMPT_LANGUAGE,
         },
     )
 

@@ -62,21 +62,6 @@ def render_video_prompt_prompt(
     narrations_json = json.dumps(payload, ensure_ascii=False, indent=2)
     style_profile_json = json.dumps(style_profile or None, ensure_ascii=False, indent=2)
     resolved_prompt_language = normalize_prompt_language(prompt_language)
-    if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE:
-        output_language_label = "Chinese"
-        language_requirement = "Video prompts must use Chinese"
-        description_length_guidance = (
-            "Ensure clear, complete, and creative descriptions "
-            f"(roughly equivalent in detail density to {min_words}-{max_words} English words)"
-        )
-        example_prompt = "[detailed Chinese video prompt with dynamic elements and camera movements]"
-    else:
-        output_language_label = "English"
-        language_requirement = "Video prompts must use English"
-        description_length_guidance = (
-            f"Ensure clear, complete, and creative descriptions (recommended {min_words}-{max_words} English words)"
-        )
-        example_prompt = "[detailed English video prompt with dynamic elements and camera movements]"
     
     return render_prompt_template(
         "video_generation",
@@ -87,10 +72,8 @@ def render_video_prompt_prompt(
             "narrations_count": len(narrations),
             "min_words": min_words,
             "max_words": max_words,
-            "output_language_label": output_language_label,
-            "language_requirement": language_requirement,
-            "description_length_guidance": description_length_guidance,
-            "example_prompt": example_prompt,
+            "output_language_chinese": resolved_prompt_language == CHINESE_PROMPT_LANGUAGE,
+            "output_language_english": resolved_prompt_language != CHINESE_PROMPT_LANGUAGE,
         },
     )
 

@@ -139,8 +139,6 @@ def _apply_template_defaults(prompt_id: str, variables: dict[str, Any]) -> dict[
         resolved.setdefault("narrations_json", _json_default(input_payload))
         resolved.setdefault("style_profile_json", _json_default(None))
         resolved.setdefault("narrations_count", _frame_source_count(input_payload))
-        if "detail_requirement" in resolved:
-            resolved.setdefault("description_length_guidance", resolved["detail_requirement"])
     return resolved
 
 

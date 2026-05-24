@@ -908,6 +908,11 @@ class StandardPipeline(LinearVideoPipeline):
             "request": {
                 "mode": ctx.params.get("mode"),
                 "workflow": ctx.params.get("workflow"),
+                "media_workflow": (
+                    ctx.config.media_workflow
+                    if ctx.config is not None
+                    else ctx.params.get("media_workflow")
+                ),
                 "prompt_language": ctx.params.get("prompt_language"),
                 "generation_world_hint": ctx.params.get("generation_world_hint"),
                 "prompt_prefix": ctx.params.get("prompt_prefix"),

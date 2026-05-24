@@ -23,13 +23,15 @@ class SmartFakeLLM:
             },
         ]
 
-    async def __call__(self, *, prompt, response_type, temperature, max_tokens):
+    async def __call__(self, *, prompt, response_type, temperature, max_tokens, **kwargs):
         self.calls.append(
             {
                 "prompt": prompt,
                 "response_type": response_type,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "trace_context": kwargs.get("trace_context"),
+                "trace_recorder": kwargs.get("trace_recorder"),
             }
         )
         return response_type(frames=self.frames)
@@ -40,13 +42,15 @@ class SequencedSmartFakeLLM:
         self.calls = []
         self.frame_batches = list(frame_batches)
 
-    async def __call__(self, *, prompt, response_type, temperature, max_tokens):
+    async def __call__(self, *, prompt, response_type, temperature, max_tokens, **kwargs):
         self.calls.append(
             {
                 "prompt": prompt,
                 "response_type": response_type,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "trace_context": kwargs.get("trace_context"),
+                "trace_recorder": kwargs.get("trace_recorder"),
             }
         )
         frames = self.frame_batches.pop(0)
@@ -57,13 +61,15 @@ class FailingThenSmartFakeLLM:
     def __init__(self):
         self.calls = []
 
-    async def __call__(self, *, prompt, response_type, temperature, max_tokens):
+    async def __call__(self, *, prompt, response_type, temperature, max_tokens, **kwargs):
         self.calls.append(
             {
                 "prompt": prompt,
                 "response_type": response_type,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "trace_context": kwargs.get("trace_context"),
+                "trace_recorder": kwargs.get("trace_recorder"),
             }
         )
         if len(self.calls) == 1:

@@ -310,6 +310,7 @@ async def test_execute_frame_image_regeneration_generates_image_and_records_cand
             "storyboard_workbench_service": service,
             "storyboard_workbench_state_store": state_store,
             "prompt_plan_repository": _FakePromptPlanRepository(),
+            "prompt_trace_output_dir": tmp_path / "prompt_trace_runtime",
         },
     )()
 
@@ -342,6 +343,12 @@ async def test_execute_frame_image_regeneration_generates_image_and_records_cand
     ]
     assert result["artifact_version_id"] == artifact_repository.created_versions[-1][2]["version_id"]
     assert state_store.saved[-1][3]["last_generation_job_id"] == "regen-task-1"
+    trace_content = next((tmp_path / "prompt_trace_runtime").rglob("final_visual_prompts.md")).read_text(
+        encoding="utf-8"
+    )
+    assert "A quiet lab, cinematic lighting" in trace_content
+    assert '"source": "storyboard_workbench.frame_image_regeneration"' in trace_content
+    assert '"workflow": "selfhost/image_z_image_turbo_gguf.json"' in trace_content
 
 
 @pytest.mark.asyncio

@@ -50,13 +50,10 @@ class ScriptGenerationService:
             length_mode=length_mode,
             script_target_words=script_target_words,
         )
-        length_instruction = self._length_instruction(
-            length_mode=length_mode,
-            target_words=target_words,
-        )
         rendered_prompt = render_script_generation_prompt(
             topic=normalized_topic,
-            length_instruction=length_instruction,
+            length_mode=length_mode.value,
+            target_words=target_words,
         )
 
         prompt_trace_context = (
@@ -69,26 +66,14 @@ class ScriptGenerationService:
             if trace_context is not None
             else None
         )
-        try:
-            response: ScriptGenerationResponse = await llm_service(
-                prompt=rendered_prompt.text,
-                response_type=ScriptGenerationResponse,
-                temperature=0.7,
-                max_tokens=script_generation_max_tokens(target_words),
-                trace_context=prompt_trace_context,
-                trace_recorder=trace_recorder,
-            )
-        except TypeError as exc:
-            response = await _retry_legacy_test_llm_without_trace_kwargs(
-                llm_service,
-                exc,
-                prompt=rendered_prompt.text,
-                response_type=ScriptGenerationResponse,
-                temperature=0.7,
-                max_tokens=script_generation_max_tokens(target_words),
-                trace_context=prompt_trace_context,
-                trace_recorder=trace_recorder,
-            )
+        response: ScriptGenerationResponse = await llm_service(
+            prompt=rendered_prompt.text,
+            response_type=ScriptGenerationResponse,
+            temperature=0.7,
+            max_tokens=script_generation_max_tokens(target_words),
+            trace_context=prompt_trace_context,
+            trace_recorder=trace_recorder,
+        )
         return response.source_text
 
     def _target_words(
@@ -112,25 +97,4 @@ class ScriptGenerationService:
             raise ValueError("script_target_words is only valid with custom script length mode")
         return self.length_words.get(length_mode)
 
-    @staticmethod
-    def _length_instruction(
-        *,
-        length_mode: ScriptLengthMode,
-        target_words: int | None,
-    ) -> str:
-        if length_mode == ScriptLengthMode.AUTO:
-            return "Use a natural length for the topic."
-        return f"Write about {target_words} words."
-
-
 __all__ = ["ScriptGenerationService"]
-
-
-async def _retry_legacy_test_llm_without_trace_kwargs(callable_llm, exc: TypeError, **kwargs):
-    if kwargs.get("trace_context") is not None or kwargs.get("trace_recorder") is not None:
-        raise exc
-    if "unexpected keyword argument 'trace_context'" not in str(exc):
-        raise exc
-    kwargs.pop("trace_context", None)
-    kwargs.pop("trace_recorder", None)
-    return await callable_llm(**kwargs)

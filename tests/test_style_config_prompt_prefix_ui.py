@@ -1035,6 +1035,8 @@ def test_runtime_asset_dirs_are_gitignored():
 
     assert ".superpowers/" in gitignore
     assert "resources/prompt_prefix_previews/custom/" in gitignore
+    assert "_runtime/*" in gitignore
+    assert "resources/prompt_prefix_previews/traces/" not in style_config._write_prompt_prefix_preview_prompt_trace.__code__.co_consts
 
 
 def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeypatch, tmp_path):
@@ -1067,7 +1069,11 @@ def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeyp
 
     monkeypatch.setattr(style_config, "generate_styled_image_prompt_batch", fake_generate_styled_image_prompt_batch)
     monkeypatch.setattr(style_config, "run_async", lambda coro: asyncio.run(coro))
-    monkeypatch.setattr(style_config, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        style_config,
+        "get_runtime_path",
+        lambda *parts: str(tmp_path.joinpath(*parts)),
+    )
 
     preview_results = style_config._generate_prompt_prefix_preview_results(
         pixelle_video=_FakePixelleVideo(),
@@ -1079,7 +1085,7 @@ def test_generate_prompt_prefix_preview_results_uses_shared_styled_batch(monkeyp
     )
 
     assert preview_results[0]["final_prompt"] == "preview final prompt"
-    trace_path = tmp_path / preview_results[0]["prompt_trace_path"]
+    trace_path = Path(preview_results[0]["prompt_trace_path"])
     assert trace_path.is_file()
     trace_content = trace_path.read_text(encoding="utf-8")
     assert "preview final prompt" in trace_content
@@ -1120,7 +1126,11 @@ def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatc
 
     monkeypatch.setattr(style_config, "generate_styled_image_prompt_batch", fake_generate_styled_image_prompt_batch)
     monkeypatch.setattr(style_config, "run_async", lambda coro: asyncio.run(coro))
-    monkeypatch.setattr(style_config, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        style_config,
+        "get_runtime_path",
+        lambda *parts: str(tmp_path.joinpath(*parts)),
+    )
 
     preview = style_config._generate_single_style_preview_result(
         pixelle_video=_FakePixelleVideo(),
@@ -1134,9 +1144,51 @@ def test_generate_single_video_style_preview_uses_shared_styled_batch(monkeypatc
     )
 
     assert preview["final_prompt"] == "video preview final prompt"
-    trace_path = tmp_path / preview["prompt_trace_path"]
+    trace_path = Path(preview["prompt_trace_path"])
     assert trace_path.is_file()
     assert "video preview final prompt" in trace_path.read_text(encoding="utf-8")
     assert captured["media_type"] == "video"
     assert captured["prompt_language"] == "zh_CN"
     assert captured["media_kwargs"]["negative_prompt"] == "avoid blur"
+
+
+def test_generate_single_style_preview_persists_prompt_trace_when_media_fails(monkeypatch, tmp_path):
+    async def fake_generate_styled_image_prompt_batch(**kwargs):
+        return StyledImagePromptBatch(
+            prompts=["preview prompt before failure"],
+            negative_prompt="avoid blur",
+            resolved_style=None,
+        )
+
+    class _FakePixelleVideo:
+        llm = object()
+        trace_repository = object()
+        raw_payload_store = object()
+        config = {"comfyui": {"image": {}}}
+
+        async def media(self, **kwargs):
+            raise RuntimeError("media failed")
+
+    monkeypatch.setattr(style_config, "generate_styled_image_prompt_batch", fake_generate_styled_image_prompt_batch)
+    monkeypatch.setattr(style_config, "run_async", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(
+        style_config,
+        "get_runtime_path",
+        lambda *parts: str(tmp_path.joinpath(*parts)),
+    )
+
+    with pytest.raises(RuntimeError, match="media failed"):
+        style_config._generate_single_style_preview_result(
+            pixelle_video=_FakePixelleVideo(),
+            workflow_key="selfhost/image_z_image_turbo.json",
+            media_width=1024,
+            media_height=1024,
+            test_prompt="a dog",
+            prompt_prefix="storybook style",
+            media_type="image",
+            prompt_language="en_US",
+        )
+
+    trace_content = next(tmp_path.rglob("final_visual_prompts.md")).read_text(encoding="utf-8")
+    assert "preview prompt before failure" in trace_content
+    assert '"preview_media_path": null' in trace_content

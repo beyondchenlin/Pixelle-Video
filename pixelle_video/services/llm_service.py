@@ -385,7 +385,7 @@ class LLMService:
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
             max_tokens=max_tokens,
-            response_format=response_type.__name__,
+            response_format=self._structured_response_format_payload(response_type),
             extra_parameters=kwargs,
         )
         started_at = perf_counter()
@@ -774,6 +774,18 @@ class LLMService:
         except Exception as e:
             logger.warning(f"Failed to generate JSON schema: {e}")
             return render_structured_json_object_prompt(prompt)
+
+    def _structured_response_format_payload(self, response_type: Type[T]) -> dict[str, Any]:
+        try:
+            schema = response_type.model_json_schema()
+        except Exception as exc:
+            logger.warning(f"Failed to generate native structured output schema: {exc}")
+            schema = {}
+        return {
+            "type": "pydantic_model",
+            "name": response_type.__name__,
+            "schema": schema,
+        }
     
     def _parse_response_as_model(self, content: str, response_type: Type[T]) -> T:
         """

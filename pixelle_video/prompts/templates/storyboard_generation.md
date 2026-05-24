@@ -11,8 +11,13 @@ output_contract: JSON storyboard plan payload.
   "task": "create_storyboard_plan_from_complete_source_text",
   "prompt_language": {prompt_language_json},
   "source_text": {source_text_json},
-  "sentences": {sentences_json},
-  "count_instruction": {count_instruction_json}
+  "sentences": {sentences_json}
+<!-- if manual_count_mode -->
+  ,"count_instruction": "Create exactly {requested_scene_count} storyboard frames."
+<!-- endif -->
+<!-- if auto_count_mode -->
+  ,"count_instruction": "Choose the best storyboard frame count between {min_scene_count} and {max_scene_count}."
+<!-- endif -->
 <!-- if use_source_spans -->
   ,"source_spans": {source_spans_json}
 <!-- endif -->
@@ -43,7 +48,12 @@ output_contract: JSON storyboard plan payload.
   ],
   "frame_schema": {{
     "source_text": "Text preview covered by this frame (for reference).",
-    "visual_goal": {visual_goal_description_json},
+<!-- if write_chinese_fields -->
+    "visual_goal": "这一帧需要传达的视觉重点",
+<!-- endif -->
+<!-- if write_english_fields -->
+    "visual_goal": "What this frame should communicate visually.",
+<!-- endif -->
     "prompt_intent": "Guidance for later image prompt composition."
 <!-- if use_sentence_indices -->
     ,"sentence_indices": "Required: consecutive sentence indices covered by this frame (e.g., [0, 1] or [3])."

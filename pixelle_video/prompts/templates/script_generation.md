@@ -9,8 +9,13 @@ output_contract: JSON object with source_text only.
 <!-- template-loader:strip # script_generation -->
 {{
   "task": "generate_complete_video_script_source_text",
-  "topic": {topic_json},
-  "length_instruction": {length_instruction_json},
+  "topic": {topic_json}
+<!-- if length_auto -->
+  ,"length_instruction": "Use a natural length for the topic.",
+<!-- endif -->
+<!-- if length_targeted -->
+  ,"length_instruction": "Write about {target_words} words.",
+<!-- endif -->
   "script_generation_strategy": <!-- json-block script_generation_strategy -->
 你是一位有 10 年经验的短视频编导、爆款文案策划、口播脚本专家，同时也是中文内容润色专家。
 

@@ -74,10 +74,11 @@ def test_render_prompt_template_returns_text_and_source_metadata():
             "input_payload": {"frame_source_texts": ["A guide enters the market."]},
             "min_words": 50,
             "max_words": 100,
-            "language_requirement": "Image prompts must use English",
-            "output_language_label": "English",
-            "detail_requirement": "Ensure clear, complete, and creative descriptions.",
-            "example_prompt": "[detailed English image prompt]",
+            "style_profile_json": "null",
+            "narrations_json": '{"frame_source_texts": ["A guide enters the market."]}',
+            "narrations_count": 1,
+            "output_language_chinese": False,
+            "output_language_english": True,
         },
     )
 
@@ -123,3 +124,30 @@ def test_script_generation_uses_registered_template_as_prompt_source():
     assert "script_templates" not in source
     assert "SCRIPT_TEMPLATE_DIR" not in source
     assert "load_script_generation_template" not in source
+
+
+def test_prompt_modules_do_not_inject_instruction_body_fragments():
+    from pathlib import Path
+
+    offenders = []
+    forbidden_fragments = {
+        "language_requirement",
+        "description_length_guidance",
+        "example_prompt",
+        "count_instruction",
+        "visual_goal_description",
+        "length_instruction",
+    }
+    for path in (
+        Path("pixelle_video/prompts/image_generation.py"),
+        Path("pixelle_video/prompts/video_generation.py"),
+        Path("pixelle_video/prompts/storyboard_generation.py"),
+        Path("pixelle_video/prompts/script_generation.py"),
+        Path("pixelle_video/services/script_generation.py"),
+    ):
+        text = path.read_text(encoding="utf-8")
+        for fragment in forbidden_fragments:
+            if fragment in text:
+                offenders.append(f"{path}:{fragment}")
+
+    assert offenders == []

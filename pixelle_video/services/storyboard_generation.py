@@ -364,26 +364,14 @@ class StoryboardGenerationService:
                     if trace_context is not None
                     else None
                 )
-                try:
-                    response = await llm_service(
-                        prompt=current_rendered_prompt.text,
-                        response_type=SmartStoryboardPlanResponse,
-                        temperature=temperature,
-                        max_tokens=_smart_storyboard_max_tokens(max_scene_count),
-                        trace_context=prompt_trace_context,
-                        trace_recorder=trace_recorder,
-                    )
-                except TypeError as exc:
-                    response = await _retry_legacy_test_llm_without_trace_kwargs(
-                        llm_service,
-                        exc,
-                        prompt=current_rendered_prompt.text,
-                        response_type=SmartStoryboardPlanResponse,
-                        temperature=temperature,
-                        max_tokens=_smart_storyboard_max_tokens(max_scene_count),
-                        trace_context=prompt_trace_context,
-                        trace_recorder=trace_recorder,
-                    )
+                response = await llm_service(
+                    prompt=current_rendered_prompt.text,
+                    response_type=SmartStoryboardPlanResponse,
+                    temperature=temperature,
+                    max_tokens=_smart_storyboard_max_tokens(max_scene_count),
+                    trace_context=prompt_trace_context,
+                    trace_recorder=trace_recorder,
+                )
                 self._validate_smart_frame_count(
                     frame_count=len(response.frames),
                     count_mode=count_mode,
@@ -721,13 +709,3 @@ class StoryboardGenerationService:
             frames=frames,
             diagnostics=diagnostics,
         )
-
-
-async def _retry_legacy_test_llm_without_trace_kwargs(callable_llm, exc: TypeError, **kwargs):
-    if kwargs.get("trace_context") is not None or kwargs.get("trace_recorder") is not None:
-        raise exc
-    if "unexpected keyword argument 'trace_context'" not in str(exc):
-        raise exc
-    kwargs.pop("trace_context", None)
-    kwargs.pop("trace_recorder", None)
-    return await callable_llm(**kwargs)

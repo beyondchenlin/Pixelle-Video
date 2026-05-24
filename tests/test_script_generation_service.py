@@ -9,13 +9,15 @@ class ScriptFakeLLM:
         self.calls = []
         self.source_text = source_text
 
-    async def __call__(self, *, prompt, response_type, temperature, max_tokens):
+    async def __call__(self, *, prompt, response_type, temperature, max_tokens, **kwargs):
         self.calls.append(
             {
                 "prompt": prompt,
                 "response_type": response_type,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
+                "trace_context": kwargs.get("trace_context"),
+                "trace_recorder": kwargs.get("trace_recorder"),
             }
         )
         return response_type(source_text=self.source_text)
@@ -45,7 +47,8 @@ def test_script_generation_prompt_loads_plain_narration_strategy():
 
     prompt = build_script_generation_prompt(
         topic="强者思维",
-        length_instruction="Write about 200 words.",
+        length_mode="custom",
+        target_words=200,
     )
     payload = json.loads(prompt)
 

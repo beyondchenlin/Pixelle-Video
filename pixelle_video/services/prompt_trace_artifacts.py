@@ -72,4 +72,28 @@ def write_final_prompt_artifact(
     return artifact_path
 
 
-__all__ = ["write_final_prompt_artifact"]
+def write_single_media_prompt_artifact(
+    output_dir: Path,
+    *,
+    task_id: str,
+    prompt: str,
+    negative_prompt: str = "",
+    generation_context: Mapping[str, Any] | None = None,
+    frame_id: str | None = None,
+) -> Path:
+    return write_final_prompt_artifact(
+        output_dir,
+        task_id=task_id,
+        frames=[
+            {
+                "index": 1,
+                "frame_id": frame_id or "1",
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+            }
+        ],
+        generation_context=generation_context,
+    )
+
+
+__all__ = ["write_final_prompt_artifact", "write_single_media_prompt_artifact"]

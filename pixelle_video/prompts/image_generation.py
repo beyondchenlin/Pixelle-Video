@@ -91,20 +91,6 @@ def render_image_prompt_prompt(
     narrations_json = json.dumps(payload, ensure_ascii=False, indent=2)
     style_profile_json = json.dumps(style_profile or None, ensure_ascii=False, indent=2)
     resolved_prompt_language = normalize_prompt_language(prompt_language)
-    if resolved_prompt_language == CHINESE_PROMPT_LANGUAGE:
-        output_language_label = "Chinese"
-        language_requirement = "必须使用中文"
-        description_length_guidance = (
-            "确保描述清晰、完整且有创意，篇幅与 50-100 个英文单词的细节密度相当。"
-        )
-        example_prompt = "[详细中文图片提示词，遵循风格要求]"
-    else:
-        output_language_label = "English"
-        language_requirement = "Image prompts must use English"
-        description_length_guidance = (
-            "Ensure clear, complete, and creative descriptions (recommended 50-100 English words)"
-        )
-        example_prompt = "[detailed English image prompt following the style requirements]"
     
     return render_prompt_template(
         "image_generation",
@@ -115,10 +101,8 @@ def render_image_prompt_prompt(
             "narrations_count": len(narrations),
             "min_words": min_words,
             "max_words": max_words,
-            "output_language_label": output_language_label,
-            "language_requirement": language_requirement,
-            "description_length_guidance": description_length_guidance,
-            "example_prompt": example_prompt,
+            "output_language_chinese": resolved_prompt_language == CHINESE_PROMPT_LANGUAGE,
+            "output_language_english": resolved_prompt_language != CHINESE_PROMPT_LANGUAGE,
         },
     )
 

@@ -14,11 +14,16 @@
 Image generation endpoints
 """
 
+from pathlib import Path
+from uuid import uuid4
+
 from fastapi import APIRouter, HTTPException
 from loguru import logger
 
 from api.dependencies import PixelleVideoDep
 from api.schemas.image import ImageGenerateRequest, ImageGenerateResponse
+from pixelle_video.services.prompt_trace_artifacts import write_single_media_prompt_artifact
+from pixelle_video.utils.os_util import get_runtime_path
 
 router = APIRouter(prefix="/image", tags=["Basic Services"])
 
@@ -42,6 +47,30 @@ async def image_generate(
     """
     try:
         logger.info(f"Image generation request: {request.prompt[:50]}...")
+        trace_task_id = f"image_generate_{uuid4().hex[:12]}"
+        prompt_trace_output_dir = getattr(
+            pixelle_video,
+            "prompt_trace_output_dir",
+            None,
+        )
+        output_dir = (
+            Path(prompt_trace_output_dir) / trace_task_id
+            if prompt_trace_output_dir is not None
+            else get_runtime_path("media_prompt_traces", trace_task_id)
+        )
+        prompt_trace_path = write_single_media_prompt_artifact(
+            output_dir,
+            task_id=trace_task_id,
+            prompt=request.prompt,
+            generation_context={
+                "source": "api.image.generate",
+                "workflow": request.workflow,
+                "media_type": "image",
+                "width": request.width,
+                "height": request.height,
+            },
+        )
+        logger.info(f"Image prompt trace artifact written: {prompt_trace_path}")
         
         # Call media service (backward compatible with image API)
         media_result = await pixelle_video.media(
