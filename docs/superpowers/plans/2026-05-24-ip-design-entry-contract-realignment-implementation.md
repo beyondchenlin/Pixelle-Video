@@ -2464,7 +2464,7 @@ def test_final_prompt_artifact_persists_exact_media_prompt(tmp_path):
 
 - [ ] **Step 8: Write final prompt artifacts before media generation**
 
-In `pixelle_video/pipelines/standard.py`, after prompt plans are built and before frame media generation starts, call `write_final_prompt_artifact(...)` with the same prompt values assigned to `StoryboardFrame.image_prompt`, plus a `Generation Context` snapshot containing workflow, prompt prefix, world hint, IP controls, storyboard controls, resolved style, planning snapshot, and prompt plan bundle.
+In `pixelle_video/pipelines/standard.py`, after prompt plans are built and before frame media generation starts, call `write_final_prompt_artifact(...)` with the same prompt values assigned to `StoryboardFrame.image_prompt`, plus a `Generation Context` snapshot containing requested workflow, resolved media workflow, prompt prefix, world hint, IP controls, storyboard controls, resolved style, media/canvas size, planning snapshot, and prompt plan bundle.
 
 Use this frame payload shape:
 
@@ -2472,14 +2472,17 @@ Use this frame payload shape:
 artifact_frames = [
     {
         "index": frame.index,
+        "frame_id": storyboard_plan.frames[index].frame_id,
         "prompt": frame.image_prompt,
         "negative_prompt": getattr(frame, "negative_prompt", "") or "",
     }
-    for frame in frames
+    for index, frame in enumerate(frames)
 ]
 ```
 
 Store the artifact path in the task planning snapshot so the UI/log layer can show where the prompt chain lives.
+
+For direct media entry points such as `/image/generate`, workbench frame regeneration, and prompt-prefix previews, write the final prompt artifact before the media call. The artifact must include `requested_workflow` and the resolved `workflow` when the caller used a default, plus media type and dimensions. If style resolution fails, abort generation instead of falling back to raw prefix concatenation; a mechanically prefixed prompt is not an acceptable final visual prompt.
 
 - [ ] **Step 9: Run trace tests**
 

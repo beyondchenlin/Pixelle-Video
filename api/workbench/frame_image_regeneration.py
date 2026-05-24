@@ -8,7 +8,10 @@ from pixelle_video.models.progress import ProgressEvent, ProgressEventType
 from pixelle_video.models.prompt_plan import PromptPlan
 from pixelle_video.models.size_contract import GenerationSizeContract
 from pixelle_video.models.storyboard_workbench import StoryboardFrameWorkbenchState
-from pixelle_video.services.prompt_trace_artifacts import write_single_media_prompt_artifact
+from pixelle_video.services.prompt_trace_artifacts import (
+    media_workflow_trace_context,
+    write_single_media_prompt_artifact,
+)
 from pixelle_video.utils.os_util import get_runtime_path
 
 
@@ -46,6 +49,11 @@ async def execute_frame_image_regeneration(
     )
     size_contract = GenerationSizeContract.from_params(request_params)
     workflow = request_params.get("model") or request_params.get("media_workflow")
+    workflow_trace_context = media_workflow_trace_context(
+        media,
+        workflow=workflow,
+        media_type="image",
+    )
     negative_prompt = request_params.get("media_negative_prompt") or request_params.get(
         "negative_prompt"
     )
@@ -72,7 +80,7 @@ async def execute_frame_image_regeneration(
             "frame_id": frame_id,
             "prompt_plan_id": prompt_plan_id,
             "artifact_id": artifact_id,
-            "workflow": workflow,
+            **workflow_trace_context,
             "media_type": "image",
             "width": size_contract.media_width,
             "height": size_contract.media_height,
@@ -96,7 +104,11 @@ async def execute_frame_image_regeneration(
         project_id=request_params.get("project_id"),
         prompt_plan=prompt_plan,
         provider=request_params.get("provider"),
-        provider_metadata={"workflow": workflow} if workflow else {},
+        provider_metadata=(
+            {"workflow": workflow_trace_context["workflow"]}
+            if workflow_trace_context.get("workflow")
+            else {}
+        ),
         width=size_contract.media_width,
         height=size_contract.media_height,
     )

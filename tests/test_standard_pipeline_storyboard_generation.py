@@ -2,6 +2,7 @@ import pytest
 
 from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
 from pixelle_video.models.prompt_plan import PromptPlanBundle
+from pixelle_video.models.storyboard import Storyboard, StoryboardConfig, StoryboardFrame
 from pixelle_video.models.storyboard_plan import StoryboardPlan, StoryboardPlanFrame
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.pipelines.linear import PipelineContext
@@ -135,6 +136,79 @@ def _plan(source_text="第一句。第二句。", mode="smart"):
             ),
         ],
     )
+
+
+def test_write_final_prompt_trace_artifact_uses_plan_frame_ids_and_media_sizes(tmp_path):
+    plan = StoryboardPlan.build(
+        mode="smart",
+        count_mode="auto",
+        requested_scene_count=None,
+        source_text="Scene one. Scene two.",
+        frames=[
+            StoryboardPlanFrame(
+                index=1,
+                source_text="Scene one.",
+                visual_goal="Show scene one.",
+                prompt_intent="Prompt scene one.",
+                frame_id="frame_alpha",
+            ),
+            StoryboardPlanFrame(
+                index=2,
+                source_text="Scene two.",
+                visual_goal="Show scene two.",
+                prompt_intent="Prompt scene two.",
+                frame_id="frame_beta",
+            ),
+        ],
+        plan_id="plan_trace_context",
+    )
+    config = StoryboardConfig(
+        media_width=768,
+        media_height=512,
+        canvas_width=1280,
+        canvas_height=720,
+        task_id="task_trace_context",
+        media_workflow=None,
+    )
+    ctx = PipelineContext(
+        input_text="Scene one. Scene two.",
+        params={"mode": "smart", "media_workflow": None},
+    )
+    ctx.task_id = "task_trace_context"
+    ctx.task_dir = str(tmp_path)
+    ctx.storyboard_plan = plan
+    ctx.config = config
+    ctx.storyboard = Storyboard(
+        title="Trace context",
+        config=config,
+        frames=[
+            StoryboardFrame(index=0, narration="Scene one.", image_prompt="final prompt one"),
+            StoryboardFrame(index=1, narration="Scene two.", image_prompt="final prompt two"),
+        ],
+    )
+    ctx.media_negative_prompt = "no blur"
+
+    class _TraceMedia:
+        def resolve_workflow_key(self, *, workflow=None, media_type="image"):
+            assert workflow is None
+            assert media_type == "image"
+            return "selfhost/image_trace_default.json"
+
+    core = _DummyCore()
+    core.media = _TraceMedia()
+    StandardPipeline(core)._write_final_prompt_trace_artifact(ctx)
+
+    content = (tmp_path / "prompt_traces" / "final_visual_prompts.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Frame ID: frame_alpha" in content
+    assert "Frame ID: frame_beta" in content
+    assert '"media_width": 768' in content
+    assert '"media_height": 512' in content
+    assert '"canvas_width": 1280' in content
+    assert '"canvas_height": 720' in content
+    assert '"requested_media_workflow": null' in content
+    assert '"media_workflow": "selfhost/image_trace_default.json"' in content
 
 
 @pytest.mark.asyncio

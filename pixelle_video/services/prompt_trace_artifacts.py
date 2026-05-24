@@ -96,4 +96,32 @@ def write_single_media_prompt_artifact(
     )
 
 
-__all__ = ["write_final_prompt_artifact", "write_single_media_prompt_artifact"]
+def media_workflow_trace_context(
+    media_service: Any,
+    *,
+    workflow: str | None,
+    media_type: str,
+) -> dict[str, Any]:
+    requested_workflow = workflow.strip() if isinstance(workflow, str) else workflow
+    context: dict[str, Any] = {"requested_workflow": requested_workflow}
+    resolver = getattr(media_service, "resolve_workflow_key", None)
+    if not callable(resolver):
+        context["workflow"] = requested_workflow
+        return context
+
+    try:
+        context["workflow"] = resolver(
+            workflow=requested_workflow,
+            media_type=media_type,
+        )
+    except Exception as exc:
+        context["workflow"] = requested_workflow
+        context["workflow_resolution_error"] = str(exc)
+    return context
+
+
+__all__ = [
+    "media_workflow_trace_context",
+    "write_final_prompt_artifact",
+    "write_single_media_prompt_artifact",
+]

@@ -177,6 +177,18 @@ class MediaService(ComfyBaseService):
         
         # Sort by key (source/name)
         return sorted(workflows, key=lambda w: w["key"])
+
+    def resolve_workflow_key(
+        self,
+        *,
+        workflow: Optional[str] = None,
+        media_type: str = "image",
+    ) -> str:
+        workflow_info = self._resolve_workflow(
+            workflow=workflow,
+            workflow_domain=media_type,
+        )
+        return str(workflow_info["key"])
     
     async def __call__(
         self,

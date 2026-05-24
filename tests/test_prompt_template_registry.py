@@ -151,3 +151,12 @@ def test_prompt_modules_do_not_inject_instruction_body_fragments():
                 offenders.append(f"{path}:{fragment}")
 
     assert offenders == []
+
+
+def test_content_generators_do_not_fallback_to_raw_style_prefix_after_resolution_failure():
+    from pathlib import Path
+
+    source = Path("pixelle_video/utils/content_generators.py").read_text(encoding="utf-8")
+
+    assert "style_resolution_failed" not in source
+    assert "legacy prefix concatenation" not in source

@@ -22,7 +22,10 @@ from loguru import logger
 
 from api.dependencies import PixelleVideoDep
 from api.schemas.image import ImageGenerateRequest, ImageGenerateResponse
-from pixelle_video.services.prompt_trace_artifacts import write_single_media_prompt_artifact
+from pixelle_video.services.prompt_trace_artifacts import (
+    media_workflow_trace_context,
+    write_single_media_prompt_artifact,
+)
 from pixelle_video.utils.os_util import get_runtime_path
 
 router = APIRouter(prefix="/image", tags=["Basic Services"])
@@ -64,7 +67,11 @@ async def image_generate(
             prompt=request.prompt,
             generation_context={
                 "source": "api.image.generate",
-                "workflow": request.workflow,
+                **media_workflow_trace_context(
+                    pixelle_video.media,
+                    workflow=request.workflow,
+                    media_type="image",
+                ),
                 "media_type": "image",
                 "width": request.width,
                 "height": request.height,

@@ -77,7 +77,7 @@ For every LLM call, the system must persist:
 - the exact response payload returned by the LLM, including parse errors or provider errors.
 - parse/validation status, token usage, elapsed time, and error message when applicable.
 
-The final media-generation prompt also needs a saved artifact per frame. The artifact must link `PromptPlan.final_prompt`, `StoryboardFrame.image_prompt`, and the media service `prompt` parameter so prompt review can work backward from the image/video result to every upstream LLM interaction.
+The final media-generation prompt also needs a saved artifact per frame. The artifact must link `PromptPlan.final_prompt`, `StoryboardFrame.image_prompt`, and the media service `prompt` parameter so prompt review can work backward from the image/video result to every upstream LLM interaction. It must include stable frame identity, requested and resolved workflow keys, media type, and media/canvas dimensions when those values exist.
 
 ## 2. Terminal Evidence
 
@@ -435,6 +435,7 @@ Allowed assembly:
 Disallowed assembly:
 
 - prefixing a raw style paragraph before every prompt when a structured style profile exists.
+- falling back to raw prefix concatenation after style resolution fails.
 - appending `ip_scene_description` as a separate trailing sentence.
 - emitting raw enum values such as `medium_shot`, `scene_integrated`, or `balanced_narrative`.
 - copying JSON keys such as `generation_world_profile`, `identity_anchors_visible`, or `ip_adaptation`.

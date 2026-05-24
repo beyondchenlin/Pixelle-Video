@@ -96,7 +96,10 @@ from pixelle_video.services.ip_profile_readiness import (
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.native_prompt_projection import NativePromptProjection
 from pixelle_video.services.omnivoice_longform_blocks import build_omnivoice_longform_block_plan
-from pixelle_video.services.prompt_trace_artifacts import write_final_prompt_artifact
+from pixelle_video.services.prompt_trace_artifacts import (
+    media_workflow_trace_context,
+    write_final_prompt_artifact,
+)
 from pixelle_video.services.render_capability_resolver import (
     RenderCapabilityInput,
     RenderCapabilityResolver,
@@ -852,16 +855,26 @@ class StandardPipeline(LinearVideoPipeline):
         if ctx.storyboard is None or not ctx.task_dir or not ctx.task_id:
             return
 
+        storyboard_plan_frames = (
+            tuple(ctx.storyboard_plan.frames)
+            if ctx.storyboard_plan is not None
+            else ()
+        )
         artifact_path = write_final_prompt_artifact(
             Path(ctx.task_dir),
             task_id=ctx.task_id,
             frames=[
                 {
                     "index": frame.index,
+                    "frame_id": (
+                        storyboard_plan_frames[index].frame_id
+                        if index < len(storyboard_plan_frames)
+                        else None
+                    ),
                     "prompt": frame.image_prompt or "",
                     "negative_prompt": ctx.media_negative_prompt or "",
                 }
-                for frame in ctx.storyboard.frames
+                for index, frame in enumerate(ctx.storyboard.frames)
             ],
             generation_context=self._final_prompt_generation_context(ctx),
         )
@@ -901,6 +914,38 @@ class StandardPipeline(LinearVideoPipeline):
             **storyboard_contract.to_generation_dict(),
             **storyboard_contract.to_planning_dict(include_prompt_language=True),
         }
+        media_dimensions = {}
+        if ctx.config is not None:
+            media_dimensions = {
+                "media_width": ctx.config.media_width,
+                "media_height": ctx.config.media_height,
+                "canvas_width": ctx.config.canvas_width,
+                "canvas_height": ctx.config.canvas_height,
+                "sync_media_size_to_canvas": ctx.config.sync_media_size_to_canvas,
+            }
+        requested_media_workflow = (
+            ctx.config.media_workflow
+            if ctx.config is not None
+            else ctx.params.get("media_workflow")
+        )
+        media_type = "image"
+        if ctx.config is not None:
+            resolved_media_domain = self._resolve_media_domain(ctx.config)
+            if resolved_media_domain in {"image", "video"}:
+                media_type = resolved_media_domain
+        workflow_trace_context = media_workflow_trace_context(
+            getattr(self.core, "media", None),
+            workflow=requested_media_workflow,
+            media_type=media_type,
+        )
+        media_workflow_context = {
+            "requested_media_workflow": workflow_trace_context.get("requested_workflow"),
+            "media_workflow": workflow_trace_context.get("workflow"),
+        }
+        if workflow_trace_context.get("workflow_resolution_error"):
+            media_workflow_context["media_workflow_resolution_error"] = (
+                workflow_trace_context["workflow_resolution_error"]
+            )
 
         return {
             "pipeline": "standard",
@@ -908,11 +953,8 @@ class StandardPipeline(LinearVideoPipeline):
             "request": {
                 "mode": ctx.params.get("mode"),
                 "workflow": ctx.params.get("workflow"),
-                "media_workflow": (
-                    ctx.config.media_workflow
-                    if ctx.config is not None
-                    else ctx.params.get("media_workflow")
-                ),
+                **media_workflow_context,
+                **media_dimensions,
                 "prompt_language": ctx.params.get("prompt_language"),
                 "generation_world_hint": ctx.params.get("generation_world_hint"),
                 "prompt_prefix": ctx.params.get("prompt_prefix"),

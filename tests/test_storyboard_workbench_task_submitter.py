@@ -227,9 +227,18 @@ async def test_task_manager_worker_mode_uses_worker_capability_registry():
 
 
 class _FakeMedia:
-    def __init__(self, generated_path: Path) -> None:
+    def __init__(
+        self,
+        generated_path: Path,
+        default_workflow: str = "selfhost/default_image_workflow.json",
+    ) -> None:
         self.generated_path = generated_path
+        self.default_workflow = default_workflow
         self.calls: list[dict[str, Any]] = []
+
+    def resolve_workflow_key(self, *, workflow=None, media_type="image"):
+        assert media_type == "image"
+        return workflow or self.default_workflow
 
     async def __call__(self, **kwargs):
         self.calls.append(kwargs)
@@ -349,6 +358,61 @@ async def test_execute_frame_image_regeneration_generates_image_and_records_cand
     assert "A quiet lab, cinematic lighting" in trace_content
     assert '"source": "storyboard_workbench.frame_image_regeneration"' in trace_content
     assert '"workflow": "selfhost/image_z_image_turbo_gguf.json"' in trace_content
+    assert '"requested_workflow": "selfhost/image_z_image_turbo_gguf.json"' in trace_content
+
+
+@pytest.mark.asyncio
+async def test_execute_frame_image_regeneration_records_default_workflow_in_prompt_trace(tmp_path):
+    from api.workbench.frame_image_regeneration import execute_frame_image_regeneration
+    from pixelle_video.services.storyboard_workbench import StoryboardWorkbenchService
+    from tests.test_storyboard_frame_regeneration import (
+        RecordingArtifactRepository,
+        RecordingObjectStore,
+        RecordingTraceRepository,
+        UnusedPromptPlanRepository,
+    )
+
+    generated = tmp_path / "generated.png"
+    generated.write_bytes(b"image")
+    service = StoryboardWorkbenchService(
+        artifact_repository=RecordingArtifactRepository(created_versions=[]),
+        object_store=RecordingObjectStore(uploaded_files=[]),
+        trace_repository=RecordingTraceRepository(events=[]),
+        prompt_plan_repository=UnusedPromptPlanRepository(),
+    )
+    media = _FakeMedia(generated, default_workflow="selfhost/default_image_trace.json")
+    core = type(
+        "Core",
+        (),
+        {
+            "media": media,
+            "storyboard_workbench_service": service,
+            "storyboard_workbench_state_store": _FakeStateStore(),
+            "prompt_plan_repository": _FakePromptPlanRepository(),
+            "prompt_trace_output_dir": tmp_path / "prompt_trace_runtime",
+        },
+    )()
+
+    await execute_frame_image_regeneration(
+        core=core,
+        task_id="regen-task-default-workflow",
+        request_params={
+            "workspace_id": "workspace_1",
+            "storyboard_id": "storyboard_001",
+            "frame_id": "frame_0001",
+            "prompt_plan_id": "prompt_plan_001",
+            "artifact_id": "artifact_frame_0001_image",
+            "provider": "comfyui",
+            "media_width": 768,
+            "media_height": 768,
+        },
+    )
+
+    trace_content = next((tmp_path / "prompt_trace_runtime").rglob("final_visual_prompts.md")).read_text(
+        encoding="utf-8"
+    )
+    assert '"requested_workflow": null' in trace_content
+    assert '"workflow": "selfhost/default_image_trace.json"' in trace_content
 
 
 @pytest.mark.asyncio

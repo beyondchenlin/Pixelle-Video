@@ -205,10 +205,9 @@ async def test_generate_styled_image_prompt_batch_blocks_raw_fallback_for_ip_wor
 
 
 @pytest.mark.asyncio
-async def test_generate_styled_image_prompt_batch_falls_back_to_legacy_prefix_when_resolver_fails(monkeypatch):
+async def test_generate_styled_image_prompt_batch_stops_when_style_resolution_fails(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
-        assert kwargs["style_profile"] is None
-        return ["base scene prompt"]
+        raise AssertionError("image prompt generation should not run after style resolution fails")
 
     async def fake_resolve_style_spec(*args, **kwargs):
         raise RuntimeError("resolver boom")
@@ -222,17 +221,18 @@ async def test_generate_styled_image_prompt_batch_falls_back_to_legacy_prefix_wh
         fake_resolve_style_spec,
     )
 
-    result = await generate_styled_image_prompt_batch(
-        llm_service=object(),
-        narrations=["scene one"],
-        image_config={"prompt_prefix": "flat illustration", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
-        media_service=None,
-        prompt_prefix=None,
-        text_rendering=_suppress_image_text(),
-    )
-
-    assert result.prompts == [apply_no_text_policy("flat illustration, base scene prompt")]
-    assert result.negative_prompt is None
+    with pytest.raises(RuntimeError, match="resolver boom"):
+        await generate_styled_image_prompt_batch(
+            llm_service=object(),
+            narrations=["scene one"],
+            image_config={
+                "prompt_prefix": "flat illustration",
+                "prompt_prefix_library": {"active_prefix_id": None, "items": []},
+            },
+            media_service=None,
+            prompt_prefix=None,
+            text_rendering=_suppress_image_text(),
+        )
 
 
 @pytest.mark.asyncio
@@ -369,9 +369,35 @@ async def test_generate_styled_image_prompt_batch_appends_no_text_policy_when_ne
     async def fake_generate_image_prompts(*args, **kwargs):
         return ["base scene prompt"]
 
+    async def fake_resolve_style_spec(*args, **kwargs):
+        return ResolvedStyleSpec(
+            style_kind="visual_only",
+            prompt_template="flat illustration treatment: {prompt}",
+            negative_prompt="",
+            style_profile={
+                "style_kind": "visual_only",
+                "subject_policy": "preserve_subject_semantics",
+                "shape_language": "flat geometry",
+                "material": "matte illustration",
+                "palette": "warm muted colors",
+                "lighting": "soft studio light",
+                "world_elements": "",
+                "consistency_anchor": "flat illustration treatment",
+                "negative_rules": "",
+            },
+            content_hash="hash-flat",
+            resolver_version="2026-04-21-v1",
+            source_identity="legacy:hash-flat",
+            raw_content="flat illustration",
+        )
+
     monkeypatch.setattr(
         "pixelle_video.utils.content_generators.generate_image_prompts",
         fake_generate_image_prompts,
+    )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
     )
     monkeypatch.setattr(
         "pixelle_video.utils.content_generators.get_media_workflow_capabilities",
@@ -1540,34 +1566,12 @@ async def test_generate_styled_image_prompt_batch_passes_prompt_contexts_to_stor
 
 
 @pytest.mark.asyncio
-async def test_generate_styled_image_prompt_batch_storyboard_falls_back_to_legacy_prefix_when_resolver_fails(monkeypatch):
+async def test_generate_styled_image_prompt_batch_storyboard_stops_when_style_resolution_fails(monkeypatch):
     async def fake_generate_image_prompts(*args, **kwargs):
-        assert kwargs["style_profile"] is None
-        return ["base scene prompt"]
+        raise AssertionError("image prompt generation should not run after style resolution fails")
 
     async def fake_plan_storyboard_batch(**kwargs):
-        return type(
-            "PlanResult",
-            (),
-            {
-                "frames": (
-                    FramePlan(
-                        scene_id="scene-1",
-                        shot_type="medium_shot",
-                        shot_purpose="context",
-                        world_elements=("strategy board",),
-                        prompt_intent="teach the first relationship",
-                    ),
-                ),
-                "planning_snapshot": {
-                    "world_preset_id": "neutral_knowledge_storyboard",
-                    "world_preset": {
-                        "display_name": "Neutral Knowledge Storyboard",
-                        "style_core": "clean educational illustration",
-                    },
-                },
-            },
-        )()
+        raise AssertionError("storyboard planning should not run after style resolution fails")
 
     async def fake_resolve_style_spec(*args, **kwargs):
         raise RuntimeError("resolver boom")
@@ -1585,23 +1589,17 @@ async def test_generate_styled_image_prompt_batch_storyboard_falls_back_to_legac
         fake_resolve_style_spec,
     )
 
-    result = await generate_styled_image_prompt_batch(
-        llm_service=object(),
-        narrations=["scene one"],
-        image_config={"prompt_prefix": "flat illustration", "prompt_prefix_library": {"active_prefix_id": None, "items": []}},
-        world_preset_id="neutral_knowledge_storyboard",
-        text_rendering=_suppress_image_text(),
-    )
-
-    expected_prompt = apply_no_text_policy(
-        "flat illustration, base scene prompt; "
-        "rendered as clean educational illustration; framed as medium shot, context; "
-        "with strategy board integrated into the environment"
-    )
-
-    assert result.prompts == [expected_prompt]
-    _assert_old_storyboard_block_tokens_absent(result.prompts[0], "medium_shot")
-    assert result.planning_snapshot["world_preset_id"] == "neutral_knowledge_storyboard"
+    with pytest.raises(RuntimeError, match="resolver boom"):
+        await generate_styled_image_prompt_batch(
+            llm_service=object(),
+            narrations=["scene one"],
+            image_config={
+                "prompt_prefix": "flat illustration",
+                "prompt_prefix_library": {"active_prefix_id": None, "items": []},
+            },
+            world_preset_id="neutral_knowledge_storyboard",
+            text_rendering=_suppress_image_text(),
+        )
 
 
 @pytest.mark.asyncio
@@ -1703,7 +1701,7 @@ async def test_generate_styled_image_prompt_batch_storyboard_keeps_compatible_te
 
 
 @pytest.mark.asyncio
-async def test_generate_styled_image_prompt_batch_keeps_legacy_prompt_path_when_storyboard_controls_disabled(monkeypatch):
+async def test_generate_styled_image_prompt_batch_uses_resolved_style_when_storyboard_controls_disabled(monkeypatch):
     async def fail_plan_storyboard_batch(**kwargs):
         raise AssertionError("storyboard planner should not run without storyboard controls")
 
@@ -1712,7 +1710,30 @@ async def test_generate_styled_image_prompt_batch_keeps_legacy_prompt_path_when_
             raise AssertionError("world planner should not run without world signals")
 
     async def fake_generate_image_prompts(*args, **kwargs):
+        assert kwargs["style_profile"]["style_kind"] == "visual_only"
         return ["base scene prompt"]
+
+    async def fake_resolve_style_spec(*args, **kwargs):
+        return ResolvedStyleSpec(
+            style_kind="visual_only",
+            prompt_template="flat illustration treatment: {prompt}",
+            negative_prompt="",
+            style_profile={
+                "style_kind": "visual_only",
+                "subject_policy": "preserve_subject_semantics",
+                "shape_language": "flat geometry",
+                "material": "matte illustration",
+                "palette": "warm muted colors",
+                "lighting": "soft studio light",
+                "world_elements": "",
+                "consistency_anchor": "flat illustration treatment",
+                "negative_rules": "",
+            },
+            content_hash="hash-flat",
+            resolver_version="2026-04-21-v1",
+            source_identity="legacy:hash-flat",
+            raw_content="flat illustration",
+        )
 
     monkeypatch.setattr(
         "pixelle_video.utils.content_generators.ContentWorldPlanner",
@@ -1726,6 +1747,10 @@ async def test_generate_styled_image_prompt_batch_keeps_legacy_prompt_path_when_
         "pixelle_video.utils.content_generators.generate_image_prompts",
         fake_generate_image_prompts,
     )
+    monkeypatch.setattr(
+        "pixelle_video.utils.content_generators.resolve_style_spec",
+        fake_resolve_style_spec,
+    )
 
     result = await generate_styled_image_prompt_batch(
         llm_service=object(),
@@ -1734,7 +1759,7 @@ async def test_generate_styled_image_prompt_batch_keeps_legacy_prompt_path_when_
         text_rendering=_suppress_image_text(),
     )
 
-    assert result.prompts == [apply_no_text_policy("flat illustration, base scene prompt")]
+    assert result.prompts == [apply_no_text_policy("flat illustration treatment: base scene prompt")]
     assert result.planning_snapshot is None
 
 

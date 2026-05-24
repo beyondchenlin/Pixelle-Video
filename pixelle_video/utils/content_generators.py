@@ -1152,7 +1152,6 @@ async def generate_styled_image_prompt_batch(
         if storyboard_enabled
         else None
     )
-    style_resolution_failed = False
     source = resolve_style_source(image_config, prompt_prefix_override=prompt_prefix)
     raw_prefix = source.raw_content if source else ""
     resolved_style = None
@@ -1182,6 +1181,7 @@ async def generate_styled_image_prompt_batch(
     )
 
     if source is not None:
+        style_resolution_start = perf_counter()
         try:
             if progress_callback:
                 progress_callback(
@@ -1192,7 +1192,6 @@ async def generate_styled_image_prompt_batch(
                         fallback="resolving style profile",
                     ),
                 )
-            style_resolution_start = perf_counter()
             emit_stage_event(
                 channel="ai_creation",
                 stage="style_resolution",
@@ -1227,7 +1226,6 @@ async def generate_styled_image_prompt_batch(
         except LLMTraceError:
             raise
         except Exception:
-            style_resolution_failed = True
             emit_stage_event(
                 channel="ai_creation",
                 stage="style_resolution",
@@ -1239,7 +1237,8 @@ async def generate_styled_image_prompt_batch(
                 llm_call_count=1,
                 retry_count=0,
             )
-            logger.exception("Style resolution failed, falling back to legacy prefix concatenation")
+            logger.exception("Style resolution failed; aborting prompt generation")
+            raise
     else:
         emit_stage_event(
             channel="ai_creation",
@@ -1465,7 +1464,7 @@ async def generate_styled_image_prompt_batch(
                     world_preset=world_preset,
                     normalized_style=normalized_style,
                 ),
-                raw_prefix if style_resolution_failed else "",
+                "",
             )
             for index, base_prompt in enumerate(base_prompts)
         ]
