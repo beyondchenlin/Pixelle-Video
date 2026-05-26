@@ -8,7 +8,7 @@ PREFIX = "ip_design"
 @dataclass(frozen=True)
 class _AssetBibleKeys:
     select: str = f"{PREFIX}_asset_bible_select"
-    id: str = f"{PREFIX}_asset_bible_id"
+    asset_bible_id: str = f"{PREFIX}_asset_bible_id"
 
 
 @dataclass(frozen=True)
@@ -20,17 +20,17 @@ class _IPFormKeys:
     logline: str = f"{PREFIX}_logline"
     visual_summary: str = f"{PREFIX}_visual_summary"
     identity_lock: str = f"{PREFIX}_identity_lock"
-    color_rules: str = f"{PREFIX}_color_rules"
+    color_palette: str = f"{PREFIX}_color_palette"
     minimal_traits: str = f"{PREFIX}_minimal_traits"
     adaptable_slots: str = f"{PREFIX}_adaptable_slots"
-    default_slot_pref: str = f"{PREFIX}_default_slot_preference"
+    default_slot_preference: str = f"{PREFIX}_default_slot_preference"
     presence_spectrum: str = f"{PREFIX}_presence_spectrum"
     role_presets: str = f"{PREFIX}_role_presets"
     negative_constraints: str = f"{PREFIX}_negative_constraints"
     semantic_boundary: str = f"{PREFIX}_semantic_boundary"
-    id_suppression: str = f"{PREFIX}_identity_suppression_rules"
-    forbidden: str = f"{PREFIX}_forbidden_elements"
-    visible_text: str = f"{PREFIX}_visible_text_whitelist"
+    identity_suppression_rules: str = f"{PREFIX}_identity_suppression_rules"
+    forbidden_elements: str = f"{PREFIX}_forbidden_elements"
+    visible_text_whitelist: str = f"{PREFIX}_visible_text_whitelist"
     active_asset_tab: str = f"{PREFIX}_active_asset_tab"
     _dirty: str = f"{PREFIX}_form_dirty"
 
@@ -46,7 +46,7 @@ class _IPFormKeys:
 @dataclass(frozen=True)
 class _SceneCastKeys:
     select: str = f"{PREFIX}_scene_cast_select"
-    id: str = f"{PREFIX}_scene_cast_id"
+    scene_cast_id: str = f"{PREFIX}_scene_cast_id"
     storyboard_plan_id: str = f"{PREFIX}_storyboard_plan_id"
     frame_id: str = f"{PREFIX}_frame_id"
     character_ids: str = f"{PREFIX}_character_ids"

@@ -26,10 +26,10 @@ from web.ip_design.models import (
     StyleProfileDraft,
 )
 from web.ip_design.session_keys import IPSessionKeys
+from web.ip_design.asset_bible_payloads import _to_ip_profile_draft
 from web.utils.asset_bible_payloads import (
     build_asset_bible_draft_payload_from_response,
     upsert_ip_profile_draft,
-    _to_ip_profile_draft,
 )
 from web.utils.streamlit_helpers import (
     build_model_from_form,
@@ -181,7 +181,7 @@ def _render_asset_bible_selector(
         asset_bible_id = keyed_text_input(
             ui,
             translate("ip_design.asset_bible.id"),
-            key=IPSessionKeys.ASSET_BIBLE.id,
+            key=IPSessionKeys.ASSET_BIBLE.asset_bible_id,
             value=selected_id,
         )
 
@@ -224,10 +224,13 @@ def _render_ip_profile_tab(
         ip_profile_dict = _find_ip_profile(selected_asset_bible, selected_ip_id)
 
     if ip_profile_dict and not st.session_state.get(IPSessionKeys.FORM._dirty):
-        ip_profile_draft = _dict_to_ip_profile_draft(ip_profile_dict)
+        ip_profile_draft = _to_ip_profile_draft(ip_profile_dict)
         populate_form_from_model(ip_profile_draft, IPSessionKeys.FORM)
-        st.session_state[IPSessionKeys.FORM.color_rules] = _read_color_palette_prompt(
+        st.session_state[IPSessionKeys.FORM.color_palette] = _read_color_palette_prompt(
             ip_profile_dict.get("color_palette")
+        )
+        st.session_state[IPSessionKeys.FORM.role_presets] = "\n".join(
+            text_list(ip_profile_dict.get("role_presets"))
         )
 
     # Block 1: Basic Settings
@@ -279,7 +282,7 @@ def _render_ip_profile_tab(
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.color_palette"),
-            key=IPSessionKeys.FORM.color_rules,
+            key=IPSessionKeys.FORM.color_palette,
             value=_read_color_palette_prompt(ip_profile_dict.get("color_palette")),
         )
         keyed_text_input(
@@ -305,7 +308,7 @@ def _render_ip_profile_tab(
         _render_select_or_custom(
             ui,
             translate("ip_design.asset_bible.default_slot_preference"),
-            key=IPSessionKeys.FORM.default_slot_pref,
+            key=IPSessionKeys.FORM.default_slot_preference,
             value=first_text(ip_profile_dict.get("default_slot_preference"), "prefer_supporting"),
             options=["prefer_supporting", "prefer_main", "auto", "minimal"],
         )
@@ -345,13 +348,13 @@ def _render_ip_profile_tab(
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.identity_suppression_rules"),
-            key=IPSessionKeys.FORM.id_suppression,
+            key=IPSessionKeys.FORM.identity_suppression_rules,
             value=", ".join(text_list(ip_profile_dict.get("identity_suppression_rules"))),
         )
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.forbidden_elements"),
-            key=IPSessionKeys.FORM.forbidden,
+            key=IPSessionKeys.FORM.forbidden_elements,
             value=", ".join(text_list(ip_profile_dict.get("forbidden_elements"))),
         )
 
@@ -361,7 +364,7 @@ def _render_ip_profile_tab(
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.visible_text_whitelist"),
-            key=IPSessionKeys.FORM.visible_text,
+            key=IPSessionKeys.FORM.visible_text_whitelist,
             value=", ".join(text_list(ip_profile_dict.get("visible_text_whitelist"))),
         )
 
@@ -374,7 +377,7 @@ def _render_ip_profile_tab(
         translate("ip_design.asset_bible.save"),
         key="ip_design_save_asset_bible",
     ):
-        asset_bible_id_form = st.session_state.get(IPSessionKeys.ASSET_BIBLE.id, "")
+        asset_bible_id_form = st.session_state.get(IPSessionKeys.ASSET_BIBLE.asset_bible_id, "")
         ip_profile_id_form = st.session_state.get(IPSessionKeys.FORM.ip_profile_id, "")
         ip_name_form = st.session_state.get(IPSessionKeys.FORM.name, "")
         if not all(v.strip() for v in (asset_bible_id_form, ip_profile_id_form, ip_name_form)):
@@ -392,7 +395,7 @@ def _render_ip_profile_tab(
         ]
 
         # Patch color_palette
-        raw_color_rules = st.session_state.get(IPSessionKeys.FORM.color_rules, "")
+        raw_color_rules = st.session_state.get(IPSessionKeys.FORM.color_palette, "")
         existing_color_palette = ip_profile_dict.get("color_palette", {})
         ip_profile_save["color_palette"] = build_color_palette_prompt_entries(
             existing_color_palette, raw_color_rules,
@@ -451,7 +454,7 @@ def _render_scene_cast_tab(
         keyed_text_input(
             ui,
             translate("ip_design.scene_cast.id"),
-            key=IPSessionKeys.SCENE_CAST.id,
+            key=IPSessionKeys.SCENE_CAST.scene_cast_id,
             value=selected_scene_cast_id,
         )
         keyed_text_input(
@@ -504,7 +507,7 @@ def _render_scene_cast_tab(
                 translate("ip_design.scene_cast.save"),
                 key="ip_design_save_scene_cast",
             ):
-                scene_cast_id = st.session_state.get(IPSessionKeys.SCENE_CAST.id, "")
+                scene_cast_id = st.session_state.get(IPSessionKeys.SCENE_CAST.scene_cast_id, "")
                 storyboard_plan_id = st.session_state.get(IPSessionKeys.SCENE_CAST.storyboard_plan_id, "")
                 frame_id = st.session_state.get(IPSessionKeys.SCENE_CAST.frame_id, "")
                 if not all(v.strip() for v in (scene_cast_id, storyboard_plan_id, frame_id)):
@@ -701,7 +704,7 @@ def _render_readiness_tab(
 def _select_asset_bible(asset_bibles: list[dict[str, Any]], *, ui, translate: Translate) -> str:
     def _on_asset_bible_change():
         _clear_ip_form_session_state(ui)
-        ui.session_state.pop(IPSessionKeys.ASSET_BIBLE.id, None)
+        ui.session_state.pop(IPSessionKeys.ASSET_BIBLE.asset_bible_id, None)
         ui.session_state.pop(IPSessionKeys.FORM.ip_profile_select, None)
 
     options = [first_text(item.get("asset_bible_id")) for item in asset_bibles]
@@ -823,7 +826,7 @@ def _find_ip_profile(asset_bible: dict[str, Any], ip_profile_id: str) -> dict[st
 def _clear_ip_form_session_state(ui) -> None:
     preserve = {
         IPSessionKeys.ASSET_BIBLE.select,
-        IPSessionKeys.ASSET_BIBLE.id,
+        IPSessionKeys.ASSET_BIBLE.asset_bible_id,
         IPSessionKeys.FORM.ip_profile_select,
         IPSessionKeys.PRESET.select,
         IPSessionKeys.PRESET.import_id,
@@ -882,11 +885,8 @@ def _render_select_or_custom(
 
     if selected == custom_value:
         return keyed_text_input(ui, "", key=key, value=current_value if current_value not in options else "")
+    st.session_state[key] = selected
     return selected
-
-
-def _dict_to_ip_profile_draft(data: dict[str, Any]) -> IPProfileDraft:
-    return _to_ip_profile_draft(data)
 
 
 def _read_color_palette_prompt(value: Any) -> str:

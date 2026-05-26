@@ -225,10 +225,6 @@ def _handle_generate_world_hint_from_content(
     safe_rerun()
 
 
-def first_text(*values: Any) -> str:
-    return first_text(*values)
-
-
 __all__ = [
     "CONTENT_GENERATION_WORLD_HINT_KEY",
     "CONTENT_IP_PROFILE_WORLD_HINT_KEY",

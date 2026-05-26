@@ -168,6 +168,12 @@ def _deserialize_field(raw: Any, field_info) -> Any:
         return split_csv(str(raw)) if raw else []
     if origin is dict:
         return _parse_json_dict(str(raw)) if raw else {}
+    if origin is typing.Literal:
+        val = str(raw) if raw else ""
+        if val:
+            return val
+        default = field_info.default
+        return default if isinstance(default, str) else ""
     return str(raw) if raw else ""
 
 

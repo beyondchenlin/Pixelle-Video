@@ -128,11 +128,11 @@ def test_ip_session_keys_structure():
     from web.ip_design.session_keys import IPSessionKeys
     keys = IPSessionKeys()
     assert keys.ASSET_BIBLE.select == "ip_design_asset_bible_select"
-    assert keys.ASSET_BIBLE.id == "ip_design_asset_bible_id"
+    assert keys.ASSET_BIBLE.asset_bible_id == "ip_design_asset_bible_id"
     assert keys.FORM.ip_profile_select == "ip_design_ip_profile_select"
     assert keys.FORM.name == "ip_design_ip_name"
     assert keys.FORM.logline == "ip_design_logline"
-    assert keys.SCENE_CAST.id == "ip_design_scene_cast_id"
+    assert keys.SCENE_CAST.scene_cast_id == "ip_design_scene_cast_id"
     assert keys.SCENE_CAST.frame_id == "ip_design_frame_id"
     assert keys.SCENE_CAST.character_ids == "ip_design_character_ids"
     assert keys.SCENE_CAST.prop_ids == "ip_design_prop_ids"
@@ -148,6 +148,41 @@ def test_ip_session_keys_widget_keys_contains_form_fields():
     assert "ip_design_ip_name" in widget
     assert "ip_design_logline" in widget
     assert len(widget) > 0
+
+
+def test_form_session_key_names_match_scene_cast():
+    from web.ip_design.session_keys import IPSessionKeys
+    from web.ip_design.models import SceneCastDraft
+    keys = IPSessionKeys()
+    model_fields = set(SceneCastDraft.model_fields)
+    key_attrs = {f.name for f in keys.SCENE_CAST.__class__.__dataclass_fields__.values()
+                 if not f.name.startswith("_") and f.name != "select"}
+    missing = model_fields - key_attrs
+    assert not missing, (
+        f"SceneCastDraft fields without SCENE_CAST key mapping: {missing}"
+    )
+    # Verify every key_attr resolves to a non-empty session state key
+    for attr in key_attrs:
+        key = getattr(keys.SCENE_CAST, attr)
+        assert key and key.startswith("ip_design_"), f"Invalid key value for {attr}: {key}"
+
+
+def test_form_session_key_names_match_model_fields():
+    from web.ip_design.session_keys import IPSessionKeys
+    from web.ip_design.models import IPProfileDraft
+    from web.ip_design.asset_bible_payloads import _to_ip_profile_draft
+    keys = IPSessionKeys()
+    model_fields = set(IPProfileDraft.model_fields)
+    key_attrs = {f.name for f in keys.FORM.__class__.__dataclass_fields__.values()
+                 if not f.name.startswith("_") and f.name not in ("ip_profile_select", "active_asset_tab")}
+    missing = model_fields - key_attrs
+    assert not missing, (
+        f"Model fields without session key mapping (breaks populate_form_from_model/build_model_from_form): {missing}"
+    )
+    # Verify every key_attr resolves to a non-empty session state key
+    for attr in key_attrs:
+        key = getattr(keys.FORM, attr)
+        assert key and key.startswith("ip_design_"), f"Invalid key value for {attr}: {key}"
 
 
 # ── _to_model helper tests ──
