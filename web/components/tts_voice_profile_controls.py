@@ -25,6 +25,7 @@ from web.i18n import tr
 
 NO_VOICE_PROFILE = "__none__"
 DEFAULT_INDEXTTS2_VOICE_PROFILE = "\u73ed\u54e5-indextts2"
+DEFAULT_OMNIVOICE_VOICE_PROFILE = "\u59ae-omnivoice"
 
 
 def _profile_by_name(profiles: list[dict], name: str) -> dict | None:
@@ -52,6 +53,8 @@ def render_tts_voice_profile_controls(
         default_name = active_profile_name
     elif model_slug == "indextts2" and DEFAULT_INDEXTTS2_VOICE_PROFILE in profile_names:
         default_name = DEFAULT_INDEXTTS2_VOICE_PROFILE
+    elif model_slug == "omnivoice" and DEFAULT_OMNIVOICE_VOICE_PROFILE in profile_names:
+        default_name = DEFAULT_OMNIVOICE_VOICE_PROFILE
     else:
         default_name = NO_VOICE_PROFILE
     select_options = [NO_VOICE_PROFILE, *profile_names]
