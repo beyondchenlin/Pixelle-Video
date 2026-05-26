@@ -182,7 +182,7 @@ def get_pixelle_video():
         run_async(pixelle_video.initialize())
         state.pixelle_video = pixelle_video
         state.config_hash = config_hash
-        logger.info("鉁?PixelleVideoCore initialized and cached")
+        logger.info("PixelleVideoCore initialized and cached")
     else:
         pixelle_video = state.pixelle_video
         logger.debug("Reusing cached PixelleVideoCore instance")
