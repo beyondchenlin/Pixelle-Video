@@ -144,9 +144,13 @@ def keyed_text_area(ui, label: str, *, key: str, value: str = "", height: int = 
     return ui.text_area(label, key=key, height=height, **kwargs)
 
 
-def populate_form_from_model(model: BaseModel, key_group) -> None:
-    ss = st.session_state
-    for field_name in model.model_fields:
+def _resolve_session_state(session_state: Any | None) -> Any:
+    return st.session_state if session_state is None else session_state
+
+
+def populate_form_from_model(model: BaseModel, key_group, *, session_state: Any | None = None) -> None:
+    ss = _resolve_session_state(session_state)
+    for field_name in model.__class__.model_fields:
         key = getattr(key_group, field_name, None)
         if key:
             value = getattr(model, field_name)
@@ -157,8 +161,8 @@ def populate_form_from_model(model: BaseModel, key_group) -> None:
             ss[key] = value
 
 
-def build_model_from_form(model_cls: type[BaseModel], key_group) -> BaseModel:
-    ss = st.session_state
+def build_model_from_form(model_cls: type[BaseModel], key_group, *, session_state: Any | None = None) -> BaseModel:
+    ss = _resolve_session_state(session_state)
     data: dict[str, Any] = {}
     for field_name, field_info in model_cls.model_fields.items():
         key = getattr(key_group, field_name, None)

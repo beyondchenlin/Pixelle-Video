@@ -726,6 +726,7 @@
     "ip_design.help.asset_bible_id": "AssetBible 的唯一标识符，建议使用小写字母和下划线，如：my_character、brand_mascot",
     "ip_design.help.ip_profile_id": "IP 形象的唯一标识符，在同一 AssetBible 内不能重复",
     "ip_design.help.ip_name": "给这个 IP 起个名字，如：小粉猫、科技少年",
+    "ip_design.help.ip_type": "选择最接近的 IP 类型；只有内置类型无法描述该形象时才使用自定义。",
     "ip_design.help.logline": "用一句话概括这个角色的核心特征，如：一只粉色毛发的可爱小猫，总是充满好奇心",
     "ip_design.help.visual_summary": "详细描述角色的外貌特征，这是 LLM 生成时最重要的参考。建议包含：发型/发色、脸型、眼睛、服装风格、身型、配饰等",
     "ip_design.help.identity_lock": "必须保持不变的特征，如：粉色头发、圆脸、蓝眼睛。这些特征在任何场景都不会改变",

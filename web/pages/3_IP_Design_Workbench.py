@@ -52,14 +52,14 @@ def render_ip_design_workbench_page(
 
 
 def main() -> None:
-    init_session_state()
-    init_i18n()
     st.set_page_config(
         page_title=tr("ip_design.browser.title"),
         page_icon="🎭",
         layout="wide",
         initial_sidebar_state="collapsed",
     )
+    init_session_state()
+    init_i18n()
     render_header()
     render_ip_design_workbench_page()
 

@@ -69,11 +69,17 @@ class _PresetKeys:
     import_id: str = f"{PREFIX}_import_asset_bible_id"
 
 
+@dataclass(frozen=True)
+class _MetaKeys:
+    ip_profile_populated_for: str = f"{PREFIX}_ip_profile_populated_for"
+
+
 class IPSessionKeys:
     ASSET_BIBLE = _AssetBibleKeys()
     FORM = _IPFormKeys()
     SCENE_CAST = _SceneCastKeys()
     PRESET = _PresetKeys()
+    META = _MetaKeys()
 
 
 __all__ = ["IPSessionKeys"]

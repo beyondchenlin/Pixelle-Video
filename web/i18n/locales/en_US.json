@@ -725,6 +725,7 @@
     "ip_design.help.asset_bible_id": "Unique identifier for AssetBible. Use lowercase letters and underscores, e.g.: my_character, brand_mascot",
     "ip_design.help.ip_profile_id": "Unique identifier for IP Profile. Cannot be duplicated within the same AssetBible",
     "ip_design.help.ip_name": "Give this IP a name, e.g.: Pink Kitty, Tech Boy",
+    "ip_design.help.ip_type": "Choose the closest IP category. Use Custom only when the built-in categories do not describe the character.",
     "ip_design.help.logline": "Summarize the character's core traits in one sentence, e.g.: A curious pink-haired kitten full of wonder",
     "ip_design.help.visual_summary": "Detailed description of character appearance. This is the most important reference for LLM generation. Include: hairstyle/color, face shape, eyes, clothing style, body type, accessories, etc.",
     "ip_design.help.identity_lock": "Features that must remain unchanged, e.g.: pink hair, round face, blue eyes. These never change across any scenes",
