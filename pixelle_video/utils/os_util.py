@@ -17,6 +17,7 @@ Provides utilities for managing paths and files in Pixelle-Video.
 Inspired by Pixelle-MCP's os_util.py.
 """
 
+import functools
 import os
 import random
 from datetime import datetime
@@ -178,6 +179,9 @@ def get_root_path(*paths: str) -> str:
     """
     Get path relative to Pixelle-Video root path
     
+    This function has NO side effects — it does not create any directories.
+    Use ensure_pixelle_video_root_path() if directory creation is needed.
+    
     Args:
         *paths: Path components to join
     
@@ -188,7 +192,7 @@ def get_root_path(*paths: str) -> str:
         get_root_path("temp", "audio.mp3")
         # Returns: "/path/to/project/temp/audio.mp3"
     """
-    root_path = ensure_pixelle_video_root_path()
+    root_path = get_pixelle_video_root_path()
     if paths:
         return os.path.join(root_path, *paths)
     return root_path
@@ -492,12 +496,16 @@ def get_resource_path(resource_type: Literal["bgm", "templates", "workflows"], *
     )
 
 
+@functools.lru_cache(maxsize=32)
 def list_resource_files(
     resource_type: Literal["bgm", "templates", "workflows"],
     subdir: str = ""
 ) -> list[str]:
     """
     List resource files with custom override support
+    
+    Results are cached (lru_cache, maxsize=32) because resource files rarely
+    change at runtime. Use clear_resource_cache() to force a rescan.
     
     Merges files from both default and custom locations:
         - Files from data/{resource_type}/* (custom, higher priority)
@@ -542,11 +550,15 @@ def list_resource_files(
     return sorted(files.keys())
 
 
+@functools.lru_cache(maxsize=16)
 def list_resource_dirs(
     resource_type: Literal["bgm", "templates", "workflows"]
 ) -> list[str]:
     """
     List subdirectories in resource directory
+    
+    Results are cached (lru_cache, maxsize=16) because resource directories rarely
+    change at runtime. Use clear_resource_cache() to force a rescan.
     
     Merges directories from both default and custom locations.
     
@@ -583,6 +595,12 @@ def list_resource_dirs(
                 dirs.add(item.name)
     
     return sorted(dirs)
+
+
+def clear_resource_cache():
+    """Clear all cached resource scan results so the next call rescans from disk."""
+    list_resource_files.cache_clear()
+    list_resource_dirs.cache_clear()
 
 
 def resource_exists(resource_type: Literal["bgm", "templates", "workflows"], *paths: str) -> bool:

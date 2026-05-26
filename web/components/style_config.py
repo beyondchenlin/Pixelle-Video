@@ -60,6 +60,18 @@ from pixelle_video.prompt_language import (
 from pixelle_video.prompts.prompt_prefix_generation import (
     render_prompt_prefix_generation_prompt,
 )
+from pixelle_video.services.frame_html import HTMLFrameGenerator
+from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
+from pixelle_video.utils.template_util import (
+    get_supported_template_orientations,
+    get_template_preview_path,
+    get_template_type,
+    get_templates_grouped_by_size_and_type,
+    parse_template_size,
+    resolve_compatible_template_for_orientation,
+    resolve_default_template_for_type_and_orientation,
+    resolve_template_path,
+)
 from pixelle_video.render_backend import SUPPORTED_RENDER_BACKENDS
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.prompt_trace_artifacts import (
@@ -2531,9 +2543,6 @@ def render_style_config(
         # Local Mode UI
         # ================================================================
         if tts_mode == "local":
-            # Import voice configuration
-            from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
-            
             # Get saved voice from config
             local_config = tts_config.get("local", {})
             saved_voice = local_config.get("voice", "zh-CN-YunjianNeural")
@@ -2734,16 +2743,6 @@ def render_style_config(
         
         # Template preview link (based on language)
         current_lang = get_language()
-        
-        # Import template utilities
-        from pixelle_video.utils.template_util import (
-            get_supported_template_orientations,
-            get_template_preview_path,
-            get_template_type,
-            get_templates_grouped_by_size_and_type,
-            resolve_compatible_template_for_orientation,
-            resolve_default_template_for_type_and_orientation,
-        )
         
         # Template type selector
         st.markdown(f"**{tr('template.type_selector')}**")
@@ -2952,7 +2951,6 @@ def render_style_config(
         
 
         # Display final canvas and template base coordinate size separately
-        from pixelle_video.utils.template_util import parse_template_size
         if frame_template:
             template_width, template_height = parse_template_size(frame_template)
         else:
@@ -2976,10 +2974,6 @@ def render_style_config(
         )
         
         # Custom template parameters (for video generation)
-        from pixelle_video.services.frame_html import HTMLFrameGenerator
-
-        # Resolve template path to support both data/templates/ and templates/
-        from pixelle_video.utils.template_util import resolve_template_path
         generator_for_params = None
         if frame_template:
             template_path_for_params = resolve_template_path(frame_template)

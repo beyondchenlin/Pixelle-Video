@@ -35,7 +35,12 @@ from pixelle_video.runninghub_workflow_contracts import (
     runninghub_registry_root,
     validate_runninghub_descriptor_contract,
 )
-from pixelle_video.utils.os_util import get_resource_path, list_resource_dirs, list_resource_files
+from pixelle_video.utils.os_util import (
+    clear_resource_cache,
+    get_resource_path,
+    list_resource_dirs,
+    list_resource_files,
+)
 from pixelle_video.workflow_content_contracts import (
     build_workflow_file_trace,
     workflow_content_contract,
@@ -203,6 +208,7 @@ class ComfyBaseService:
     def clear_workflows_cache(self):
         """Clear cached workflow scan results so the next call rescans from disk."""
         self._workflows_cache = None
+        clear_resource_cache()
 
     def _workflow_file_paths_for_source(self, source_name: str) -> list[Path]:
         if str(source_name).strip().lower() == RUNNINGHUB_SOURCE:
