@@ -96,8 +96,8 @@ class IPProfileDraft(BaseModel):
     identity_suppression_rules: list[str] = []
     forbidden_elements: list[str] = []
     visible_text_whitelist: list[str] = []
-    identity_anchors: str = ""
-    variable_slots: str = ""
+    identity_anchors: list[str] = Field(default_factory=list)
+    variable_slots: list[str] = Field(default_factory=list)
     world_hint: str = ""
     style_hint: str = ""
     image_text_palette: dict[str, Any] = Field(default_factory=dict)
