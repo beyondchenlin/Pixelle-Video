@@ -223,7 +223,7 @@ def _render_ip_profile_tab(
     else:
         ip_profile_dict = _find_ip_profile(selected_asset_bible, selected_ip_id)
 
-    if ip_profile_dict and not st.session_state.get(IPSessionKeys.FORM._dirty):
+    if ip_profile_dict:
         ip_profile_draft = _to_ip_profile_draft(ip_profile_dict)
         populate_form_from_model(ip_profile_draft, IPSessionKeys.FORM)
         st.session_state[IPSessionKeys.FORM.color_palette] = _read_color_palette_prompt(
@@ -400,13 +400,6 @@ def _render_ip_profile_tab(
         ip_profile_save["color_palette"] = build_color_palette_prompt_entries(
             existing_color_palette, raw_color_rules,
         )
-
-        # Carry over fields not in the form
-        for field in ("identity_anchors", "variable_slots", "world_hint",
-                      "style_hint", "image_text_palette", "metadata"):
-            ip_profile_save[field] = ip_profile_dict.get(field) or (
-                {} if field in ("image_text_palette", "metadata") else ""
-            )
 
         try:
             is_existing = bool(find_item(asset_bibles, "asset_bible_id", asset_bible_id_form))

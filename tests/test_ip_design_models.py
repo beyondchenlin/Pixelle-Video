@@ -173,9 +173,11 @@ def test_form_session_key_names_match_model_fields():
     from web.ip_design.asset_bible_payloads import _to_ip_profile_draft
     keys = IPSessionKeys()
     model_fields = set(IPProfileDraft.model_fields)
+    carrier_fields = {"identity_anchors", "variable_slots", "world_hint",
+                      "style_hint", "image_text_palette", "metadata"}
     key_attrs = {f.name for f in keys.FORM.__class__.__dataclass_fields__.values()
                  if not f.name.startswith("_") and f.name not in ("ip_profile_select", "active_asset_tab")}
-    missing = model_fields - key_attrs
+    missing = model_fields - key_attrs - carrier_fields
     assert not missing, (
         f"Model fields without session key mapping (breaks populate_form_from_model/build_model_from_form): {missing}"
     )

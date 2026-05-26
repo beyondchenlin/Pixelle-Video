@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 from pydantic import BaseModel
@@ -37,6 +36,12 @@ def _to_ip_profile_draft(data: dict[str, Any]) -> IPProfileDraft:
         identity_suppression_rules=_ensure_str_list(data.get("identity_suppression_rules", [])),
         forbidden_elements=_ensure_str_list(data.get("forbidden_elements", [])),
         visible_text_whitelist=_ensure_str_list(data.get("visible_text_whitelist", [])),
+        identity_anchors=data.get("identity_anchors", ""),
+        variable_slots=data.get("variable_slots", ""),
+        world_hint=data.get("world_hint", ""),
+        style_hint=data.get("style_hint", ""),
+        image_text_palette=data.get("image_text_palette", {}),
+        metadata=data.get("metadata", {}),
     )
 
 
@@ -114,14 +119,3 @@ def _ensure_list_of_dicts(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
-
-
-# ── @deprecated stub — 保留向后兼容 ──
-
-def get_asset_bible_draft(asset_bible_data: dict[str, Any]) -> dict[str, Any]:
-    warnings.warn(
-        "get_asset_bible_draft is deprecated, use _to_asset_bible_draft()",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return asset_bible_data

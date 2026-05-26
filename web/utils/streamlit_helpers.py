@@ -15,6 +15,7 @@ Streamlit helper functions
 """
 
 import json
+import logging
 import typing
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -23,6 +24,8 @@ from pydantic import BaseModel
 import streamlit as st
 
 T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
 
 
 def session_state_has_key(session_state: Any, key: str) -> bool:
@@ -181,7 +184,8 @@ def _parse_json_dict(value: str) -> dict[str, Any]:
     try:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
-        return {"raw": value}
+        logger.warning("_parse_json_dict: non-JSON input '%s', returning {}", value)
+        return {}
 
 
 __all__ = [

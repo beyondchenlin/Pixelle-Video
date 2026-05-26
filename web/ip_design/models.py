@@ -96,6 +96,12 @@ class IPProfileDraft(BaseModel):
     identity_suppression_rules: list[str] = []
     forbidden_elements: list[str] = []
     visible_text_whitelist: list[str] = []
+    identity_anchors: str = ""
+    variable_slots: str = ""
+    world_hint: str = ""
+    style_hint: str = ""
+    image_text_palette: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class CharacterProfileDraft(BaseModel):
