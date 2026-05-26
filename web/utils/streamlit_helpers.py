@@ -17,7 +17,7 @@ Streamlit helper functions
 import json
 import logging
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
@@ -108,9 +108,23 @@ def first_text(*values: Any) -> str:
 
 
 def list_of_dicts(value: Any) -> list[dict[str, Any]]:
+    """Normalize list-like API/model values to plain dictionaries.
+
+    Typed IP Design clients now return Pydantic response models whose list fields
+    contain Pydantic item models. Older call sites still expect list[dict], so this
+    helper accepts both dict-like items and BaseModel instances.
+    """
+    if isinstance(value, BaseModel):
+        value = value.model_dump()
     if not isinstance(value, list):
         return []
-    return [item for item in value if isinstance(item, dict)]
+    result: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, BaseModel):
+            result.append(item.model_dump())
+        elif isinstance(item, Mapping):
+            result.append(dict(item))
+    return result
 
 
 def text_list(value: Any) -> list[str]:
