@@ -664,7 +664,17 @@ def _render_asset_bible_preset_import(
     if not hasattr(ip_design_client, "list_asset_bible_presets"):
         return {"saved": False}
     try:
-        presets = list_of_dicts(ip_design_client.list_asset_bible_presets())
+        preset_response = ip_design_client.list_asset_bible_presets()
+        if isinstance(preset_response, dict):
+            if not preset_response.get("success", True):
+                return {"saved": False}
+            presets = list_of_dicts(
+                preset_response.get("presets", preset_response.get("items", []))
+            )
+        else:
+            if not getattr(preset_response, "success", True):
+                return {"saved": False}
+            presets = list_of_dicts(getattr(preset_response, "presets", preset_response))
     except Exception:
         ui.caption(translate("ip_design.asset_bible.presets_load_failed"))
         return {"saved": False}
@@ -705,7 +715,6 @@ def _render_asset_bible_preset_import(
             project_id=project_id,
             preset_id=selected_preset_id,
             asset_bible_id=import_asset_bible_id,
-            conflict_policy="overwrite",
         )
     except Exception:
         ui.error(translate("ip_design.asset_bible.import_failed"))
