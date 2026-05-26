@@ -134,7 +134,7 @@ TEMPLATE_TEXT_STYLE_PRESETS: dict[str, TemplateTextStylePreset] = {
         has_title_region=True,
         title_style={
             **GENERIC_TEMPLATE_TEXT_STYLE_PRESET.title_style,
-            "font_size": 76,
+            "font_size": 55,
             "font_weight": 900,
             "primary_color": "#171410",
             "stroke_width": 0,
