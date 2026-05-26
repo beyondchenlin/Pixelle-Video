@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import typing
 from collections.abc import Callable
 from typing import Any
 
@@ -62,6 +63,47 @@ def render_ip_design_workbench(
 
     ui.markdown(f"### {translate('ip_design.surface.title')}")
     ui.caption(translate("ip_design.surface.caption"))
+
+    # Introduction and Concepts Section
+    with ui.expander(translate("ip_design.intro.title"), expanded=True):
+        ui.markdown(f"**{translate('ip_design.intro.what_is_ip')}**")
+        ui.caption(translate("ip_design.intro.what_is_ip_body"))
+
+        ui.markdown(f"**{translate('ip_design.intro.concepts_title')}**")
+
+        concepts = [
+            ("concept_asset_bible", "concept_asset_bible_body"),
+            ("concept_ip_profile", "concept_ip_profile_body"),
+            ("concept_scene_cast", "concept_scene_cast_body"),
+            ("concept_visual_anchors", "concept_visual_anchors_body"),
+            ("concept_adaptable", "concept_adaptable_body"),
+        ]
+        for title_key, body_key in concepts:
+            ui.markdown(translate(f"ip_design.intro.{title_key}"))
+            ui.caption(translate(f"ip_design.intro.{body_key}"))
+
+        ui.markdown(f"**{translate('ip_design.intro.quick_start_title')}**")
+        for i in range(1, 5):
+            ui.caption(translate(f"ip_design.intro.quick_start_step{i}"))
+
+    # Detailed Guide Section
+    with ui.expander(translate("ip_design.guide.title"), expanded=False):
+        ui.markdown(f"**{translate('ip_design.guide.what_is_ip')}**")
+        ui.caption(translate("ip_design.guide.what_is_ip_body"))
+        ui.markdown(f"**{translate('ip_design.guide.workflow_title')}**")
+        steps = [
+            ("step1_title", "step1_body"),
+            ("step2_title", "step2_body"),
+            ("step3_title", "step3_body"),
+            ("step4_title", "step4_body"),
+            ("step5_title", "step5_body"),
+        ]
+        for title_key, body_key in steps:
+            ui.markdown(translate(f"ip_design.guide.{title_key}"))
+            ui.caption(translate(f"ip_design.guide.{body_key}"))
+        ui.markdown(f"**{translate('ip_design.guide.best_practices_title')}**")
+        for i in range(1, 5):
+            ui.caption(translate(f"ip_design.guide.best_practice{i}"))
 
     try:
         response = ip_design_client.list_asset_bibles(
@@ -183,6 +225,7 @@ def _render_asset_bible_selector(
             translate("ip_design.asset_bible.id"),
             key=IPSessionKeys.ASSET_BIBLE.asset_bible_id,
             value=selected_id,
+            help=translate("ip_design.help.asset_bible_id"),
         )
 
     return selected_asset_bible, asset_bible_id
@@ -244,18 +287,21 @@ def _render_ip_profile_tab(
             key=IPSessionKeys.FORM.ip_type,
             value=first_text(ip_profile_dict.get("ip_type")),
             options=["cartoon_animal", "anime_human", "hybrid_real_anime", "line_drawing", "3d_cartoon"],
+            format_func=lambda x: translate("ip_design.ip_type.custom") if x == "__custom__" else translate(f"ip_design.ip_type.{x}"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.ip_profile_id"),
             key=IPSessionKeys.FORM.ip_profile_id,
             value=first_text(ip_profile_dict.get("ip_profile_id")),
+            help=translate("ip_design.help.ip_profile_id"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.ip_name"),
             key=IPSessionKeys.FORM.name,
             value=first_text(ip_profile_dict.get("name")),
+            help=translate("ip_design.help.ip_name"),
         )
         keyed_text_area(
             ui,
@@ -263,6 +309,7 @@ def _render_ip_profile_tab(
             key=IPSessionKeys.FORM.logline,
             value=first_text(ip_profile_dict.get("logline")),
             height=68,
+            help=translate("ip_design.help.logline"),
         )
         keyed_text_area(
             ui,
@@ -270,6 +317,7 @@ def _render_ip_profile_tab(
             key=IPSessionKeys.FORM.visual_summary,
             value=first_text(ip_profile_dict.get("visual_summary")),
             height=88,
+            help=translate("ip_design.help.visual_summary"),
         )
 
     # Block 2: Visual Anchors
@@ -280,18 +328,21 @@ def _render_ip_profile_tab(
             translate("ip_design.asset_bible.identity_lock"),
             key=IPSessionKeys.FORM.identity_lock,
             value=", ".join(text_list(ip_profile_dict.get("identity_lock"))),
+            help=translate("ip_design.help.identity_lock"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.color_palette"),
             key=IPSessionKeys.FORM.color_palette,
             value=_read_color_palette_prompt(ip_profile_dict.get("color_palette")),
+            help=translate("ip_design.help.color_palette"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.minimal_traits"),
             key=IPSessionKeys.FORM.minimal_traits,
             value=", ".join(text_list(ip_profile_dict.get("minimal_traits"))),
+            help=translate("ip_design.help.minimal_traits"),
         )
 
     # Block 3: Adaptable Items
@@ -302,6 +353,7 @@ def _render_ip_profile_tab(
             translate("ip_design.asset_bible.adaptable_slots"),
             key=IPSessionKeys.FORM.adaptable_slots,
             value=", ".join(text_list(ip_profile_dict.get("adaptable_slots"))),
+            help=translate("ip_design.help.adaptable_slots"),
         )
 
     # Block 4: Replacement Strategy
@@ -313,12 +365,14 @@ def _render_ip_profile_tab(
             key=IPSessionKeys.FORM.default_slot_preference,
             value=first_text(ip_profile_dict.get("default_slot_preference"), "prefer_supporting"),
             options=["prefer_supporting", "prefer_main", "auto", "minimal"],
+            format_func=lambda x: translate("ip_design.slot_preference.custom") if x == "__custom__" else translate(f"ip_design.slot_preference.{x}"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.presence_spectrum"),
             key=IPSessionKeys.FORM.presence_spectrum,
             value=", ".join(text_list(ip_profile_dict.get("presence_spectrum"))),
+            help=translate("ip_design.help.presence_spectrum"),
         )
 
     # Block 5: Role Capabilities
@@ -330,6 +384,7 @@ def _render_ip_profile_tab(
             key=IPSessionKeys.FORM.role_presets,
             value="\n".join(text_list(ip_profile_dict.get("role_presets"))),
             height=136,
+            help=translate("ip_design.help.role_presets"),
         )
 
     # Block 6: Constraints
@@ -340,24 +395,28 @@ def _render_ip_profile_tab(
             translate("ip_design.asset_bible.negative_constraints"),
             key=IPSessionKeys.FORM.negative_constraints,
             value=", ".join(text_list(ip_profile_dict.get("negative_constraints"))),
+            help=translate("ip_design.help.negative_constraints"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.semantic_boundary"),
             key=IPSessionKeys.FORM.semantic_boundary,
             value=", ".join(text_list(ip_profile_dict.get("semantic_boundary"))),
+            help=translate("ip_design.help.semantic_boundary"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.identity_suppression_rules"),
             key=IPSessionKeys.FORM.identity_suppression_rules,
             value=", ".join(text_list(ip_profile_dict.get("identity_suppression_rules"))),
+            help=translate("ip_design.help.identity_suppression_rules"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.asset_bible.forbidden_elements"),
             key=IPSessionKeys.FORM.forbidden_elements,
             value=", ".join(text_list(ip_profile_dict.get("forbidden_elements"))),
+            help=translate("ip_design.help.forbidden_elements"),
         )
 
     # Block 7: Visible Text
@@ -368,6 +427,7 @@ def _render_ip_profile_tab(
             translate("ip_design.asset_bible.visible_text_whitelist"),
             key=IPSessionKeys.FORM.visible_text_whitelist,
             value=", ".join(text_list(ip_profile_dict.get("visible_text_whitelist"))),
+            help=translate("ip_design.help.visible_text_whitelist"),
         )
 
     if _ip_profile_ready_for_generation(ip_profile_dict):
@@ -390,16 +450,11 @@ def _render_ip_profile_tab(
         draft = build_model_from_form(IPProfileDraft, IPSessionKeys.FORM)
         ip_profile_save = draft.model_dump()
 
-        # Carry over carrier fields from original data (no widget → not in model_dump)
-        _CARRIER_FIELDS: list[tuple[str, type]] = [
-            ("identity_anchors", list),
-            ("variable_slots", list),
-            ("world_hint", str),
-            ("style_hint", str),
-            ("image_text_palette", dict),
-            ("metadata", dict),
-        ]
-        for field_name, field_type in _CARRIER_FIELDS:
+        # Carry over carrier fields from original data
+        # Derives from IPProfileDraft model — any field without a matching form key
+        # is auto-carried, so model additions stay in sync without manual maintenance.
+        _carrier_fields = _derive_carrier_fields()
+        for field_name, field_type in _carrier_fields:
             raw = ip_profile_dict.get(field_name)
             if field_type is list:
                 ip_profile_save[field_name] = text_list(raw) if raw else []
@@ -469,42 +524,49 @@ def _render_scene_cast_tab(
             translate("ip_design.scene_cast.id"),
             key=IPSessionKeys.SCENE_CAST.scene_cast_id,
             value=selected_scene_cast_id,
+            help=translate("ip_design.help.scene_cast_id"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.scene_cast.storyboard_plan_id"),
             key=IPSessionKeys.SCENE_CAST.storyboard_plan_id,
             value=first_text(selected_scene_cast.get("storyboard_plan_id")),
+            help=translate("ip_design.help.storyboard_plan_id"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.scene_cast.frame_id"),
             key=IPSessionKeys.SCENE_CAST.frame_id,
             value=first_text(selected_scene_cast.get("frame_id")),
+            help=translate("ip_design.help.frame_id"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.scene_cast.character_ids"),
             key=IPSessionKeys.SCENE_CAST.character_ids,
             value=", ".join(text_list(selected_scene_cast.get("character_ids"))),
+            help=translate("ip_design.help.character_ids"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.scene_cast.scene_id"),
             key=IPSessionKeys.SCENE_CAST.scene_id,
             value=first_text(selected_scene_cast.get("scene_id")),
+            help=translate("ip_design.help.scene_id"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.scene_cast.prop_ids"),
             key=IPSessionKeys.SCENE_CAST.prop_ids,
             value=", ".join(text_list(selected_scene_cast.get("prop_ids"))),
+            help=translate("ip_design.help.prop_ids"),
         )
         keyed_text_input(
             ui,
             translate("ip_design.scene_cast.style_id"),
             key=IPSessionKeys.SCENE_CAST.style_id,
             value=first_text(selected_scene_cast.get("style_id")),
+            help=translate("ip_design.help.style_id"),
         )
         keyed_text_area(
             ui,
@@ -512,6 +574,7 @@ def _render_scene_cast_tab(
             key=IPSessionKeys.SCENE_CAST.continuity_notes,
             value="\n".join(text_list(selected_scene_cast.get("continuity_notes"))),
             height=88,
+            help=translate("ip_design.help.continuity_notes"),
         )
 
         col1, col2 = ui.columns([1, 1])
@@ -757,12 +820,13 @@ def _render_asset_bible_summary(
     translate: Translate,
 ) -> None:
     ip_count = len(list_of_dicts(asset_bible.get("ip_profiles")))
+    sep = translate("ip_design.asset_bible.separator")
     summary = (
-        f"{first_text(asset_bible.get('asset_bible_id'))} · "
+        f"{first_text(asset_bible.get('asset_bible_id'))}{sep}"
         f"{translate('ip_design.asset_bible.counts', characters=len(list_of_dicts(asset_bible.get('character_profiles'))), scenes=len(list_of_dicts(asset_bible.get('scene_assets'))), props=len(list_of_dicts(asset_bible.get('prop_assets'))), styles=len(list_of_dicts(asset_bible.get('style_profiles'))))}"
     )
     if ip_count:
-        summary += f" · IP×{ip_count}"
+        summary += f"{sep}{translate('ip_design.asset_bible.counts_ip', count=ip_count)}"
     ui.caption(summary)
 
 
@@ -853,6 +917,31 @@ def _clear_ip_form_session_state(ui) -> None:
             del ui.session_state[key]
 
 
+def _derive_carrier_fields() -> list[tuple[str, type]]:
+    """
+    Derive carrier fields from IPProfileDraft minus form-mapped fields.
+    
+    Carrier fields are model fields without a Streamlit form widget.
+    Auto-synchronizes with the model — adding a field to IPProfileDraft
+    without a matching IPSessionKeys.FORM attribute automatically includes it.
+    """
+    hints = typing.get_type_hints(IPProfileDraft)
+    result: list[tuple[str, type]] = []
+    for name, field_info in IPProfileDraft.model_fields.items():
+        if getattr(IPSessionKeys.FORM, name, None) is not None:
+            continue
+        resolved = hints.get(name, str)
+        origin = typing.get_origin(resolved)
+        if origin is list:
+            carrier_type = list
+        elif origin is dict:
+            carrier_type = dict
+        else:
+            carrier_type = str
+        result.append((name, carrier_type))
+    return result
+
+
 def _build_asset_bible_save_payload(
     *,
     source_asset_bible: dict[str, Any],
@@ -888,13 +977,15 @@ def _render_select_or_custom(
     key: str,
     value: str = "",
     options: list[str],
+    format_func=None,
 ) -> str:
     custom_value = "__custom__"
     all_options = [*options, custom_value]
     current_value = first_text(value)
     select_index = all_options.index(current_value) if current_value in all_options else len(all_options) - 1
 
-    selected = ui.selectbox(label, all_options, key=f"{key}_select", index=select_index)
+    fmt = format_func if format_func else lambda x: x
+    selected = ui.selectbox(label, all_options, key=f"{key}_select", index=select_index, format_func=fmt)
 
     if selected == custom_value:
         return keyed_text_input(ui, label, key=key, value=current_value if current_value not in options else "")

@@ -130,13 +130,17 @@ def find_item(items: list[dict[str, Any]], field_name: str, value: str) -> dict[
     return None
 
 
-def keyed_text_input(ui, label: str, *, key: str, value: str = "") -> str:
+def keyed_text_input(ui, label: str, *, key: str, value: str = "", help: str | None = None) -> str:
     kwargs = keyed_widget_default_kwargs(getattr(ui, "session_state", {}), key, value=value)
+    if help:
+        kwargs["help"] = help
     return ui.text_input(label, key=key, **kwargs)
 
 
-def keyed_text_area(ui, label: str, *, key: str, value: str = "", height: int = 68) -> str:
+def keyed_text_area(ui, label: str, *, key: str, value: str = "", height: int = 68, help: str | None = None) -> str:
     kwargs = keyed_widget_default_kwargs(getattr(ui, "session_state", {}), key, value=value)
+    if help:
+        kwargs["help"] = help
     return ui.text_area(label, key=key, height=height, **kwargs)
 
 
