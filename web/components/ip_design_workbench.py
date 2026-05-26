@@ -113,6 +113,7 @@ def render_ip_design_workbench(
             project_id=project_id,
             asset_bible_id=asset_bible_id,
             selected_asset_bible=selected_asset_bible,
+            asset_bibles=asset_bibles,
             ui=ui,
             translate=translate,
         )
@@ -194,6 +195,7 @@ def _render_ip_profile_tab(
     project_id: str,
     asset_bible_id: str,
     selected_asset_bible: dict[str, Any],
+    asset_bibles: list[dict[str, Any]],
     ui,
     translate: Translate,
 ) -> None:
