@@ -122,15 +122,14 @@ class HttpIPDesignClient:
         asset_bible_id: str,
         payload: dict[str, Any],
     ) -> SaveResponse:
-        return SaveResponse(
-            **self._asset_bible_saver(
-                api_base_url=self.api_base_url,
-                workspace_id=workspace_id,
-                project_id=project_id,
-                asset_bible_id=asset_bible_id,
-                payload=payload,
-            )
+        raw = self._asset_bible_saver(
+            api_base_url=self.api_base_url,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            asset_bible_id=asset_bible_id,
+            payload=payload,
         )
+        return SaveResponse(success=raw.get("success", True), message=raw.get("message", ""))
 
     def list_scene_casts(
         self,
@@ -174,16 +173,15 @@ class HttpIPDesignClient:
         scene_cast_id: str,
         payload: dict[str, Any],
     ) -> SaveResponse:
-        return SaveResponse(
-            **self._scene_cast_saver(
-                api_base_url=self.api_base_url,
-                workspace_id=workspace_id,
-                project_id=project_id,
-                asset_bible_id=asset_bible_id,
-                scene_cast_id=scene_cast_id,
-                payload=payload,
-            )
+        raw = self._scene_cast_saver(
+            api_base_url=self.api_base_url,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            asset_bible_id=asset_bible_id,
+            scene_cast_id=scene_cast_id,
+            payload=payload,
         )
+        return SaveResponse(success=raw.get("success", True), message=raw.get("message", ""))
 
     def delete_scene_cast(
         self,
@@ -193,15 +191,14 @@ class HttpIPDesignClient:
         asset_bible_id: str,
         scene_cast_id: str,
     ) -> DeleteResponse:
-        return DeleteResponse(
-            **self._scene_cast_deleter(
-                api_base_url=self.api_base_url,
-                workspace_id=workspace_id,
-                project_id=project_id,
-                asset_bible_id=asset_bible_id,
-                scene_cast_id=scene_cast_id,
-            )
+        raw = self._scene_cast_deleter(
+            api_base_url=self.api_base_url,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            asset_bible_id=asset_bible_id,
+            scene_cast_id=scene_cast_id,
         )
+        return DeleteResponse(success=raw.get("success", True), message=raw.get("message", ""))
 
 
 __all__ = ["HttpIPDesignClient"]

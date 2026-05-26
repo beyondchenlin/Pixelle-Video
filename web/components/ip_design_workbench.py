@@ -16,6 +16,7 @@ from web.i18n import tr
 from web.ip_design.models import (
     AssetBibleDraft,
     CharacterProfileDraft,
+    FieldId,
     IPProfileDraft,
     ListSceneCastsResponse,
     PropAssetDraft,
@@ -687,7 +688,6 @@ def _render_readiness_tab(
             ui.caption(f"{translate('ip_design.readiness.ready')}: {', '.join(identity_terms)}")
         else:
             ui.caption(translate("ip_design.readiness.not_ready"))
-            from web.ip_design.models import FieldId
             missing = []
             for field in FieldId:
                 if not profile.get(field.value):
