@@ -143,6 +143,11 @@ class PromptPrefixItemConfig(BaseModel):
     note: str = Field(default="")
     preview_asset_path: Optional[str] = Field(default=None)
     workflow_preview_assets: dict[str, PromptPrefixWorkflowPreviewAssetConfig] = Field(default_factory=dict)
+    style_contract_kind: Literal["legacy_text", "visual_style_contract"] = Field(default="legacy_text")
+    visual_style_contract: Optional[dict[str, Any]] = Field(default=None)
+    visual_style_layers: list[dict[str, Any]] = Field(default_factory=list)
+    integration_rules: list[str] = Field(default_factory=list)
+    negative_rules: list[str] = Field(default_factory=list)
     created_at: Optional[str] = Field(default=None)
 
     @model_validator(mode="before")

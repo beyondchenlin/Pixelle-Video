@@ -147,6 +147,7 @@ class ImagePromptComposer:
             resolved_style=batch.resolved_style,
             planning_snapshot=planning_snapshot,
             prompt_plan_bundle=prompt_plan_bundle,
+            rendered_prompts=batch.rendered_prompts,
         )
 
 

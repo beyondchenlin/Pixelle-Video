@@ -1,0 +1,29 @@
+diff --git a/pixelle_video/config/schema.py b/pixelle_video/config/schema.py
+index c553bcb..v2fix01 100644
+--- a/pixelle_video/config/schema.py
++++ b/pixelle_video/config/schema.py
+@@ -139,6 +139,11 @@ class PromptPrefixItemConfig(BaseModel):
+     note: str = Field(default="")
+     preview_asset_path: Optional[str] = Field(default=None)
+     workflow_preview_assets: dict[str, PromptPrefixWorkflowPreviewAssetConfig] = Field(default_factory=dict)
++    style_contract_kind: Literal["legacy_text", "visual_style_contract"] = Field(default="legacy_text")
++    visual_style_contract: Optional[dict[str, Any]] = Field(default=None)
++    visual_style_layers: list[dict[str, Any]] = Field(default_factory=list)
++    integration_rules: list[str] = Field(default_factory=list)
++    negative_rules: list[str] = Field(default_factory=list)
+     created_at: Optional[str] = Field(default=None)
+
+     @model_validator(mode="before")
+diff --git a/pixelle_video/services/image_prompt_composer.py b/pixelle_video/services/image_prompt_composer.py
+index 4815045..v2fix01 100644
+--- a/pixelle_video/services/image_prompt_composer.py
++++ b/pixelle_video/services/image_prompt_composer.py
+@@ -136,6 +136,7 @@ class ImagePromptComposer:
+             negative_prompt=batch.negative_prompt,
+             resolved_style=batch.resolved_style,
+             planning_snapshot=planning_snapshot,
+             prompt_plan_bundle=prompt_plan_bundle,
++            rendered_prompts=batch.rendered_prompts,
+         )
+
+
