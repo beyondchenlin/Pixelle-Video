@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping, Sequence
 
+from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPrompt
 from pixelle_video.models.prompt_plan import (
     ImagePromptDraft,
     PromptPlan,
@@ -14,14 +15,14 @@ from pixelle_video.models.storyboard_plan import StoryboardPlan
 def build_prompt_plan_bundle(
     *,
     storyboard_plan: StoryboardPlan,
-    image_prompts: Sequence[str],
+    rendered_prompts: Sequence[RenderedMediaPrompt],
     source_trace_id: str | None = None,
     source_trace_ids_by_frame: Mapping[str, str] | None = None,
     planning_snapshot: dict[str, object] | None = None,
 ) -> PromptPlanBundle:
-    prompts = [_normalize_prompt(prompt) for prompt in image_prompts]
-    if len(prompts) != len(storyboard_plan.frames):
-        raise ValueError("image prompt count must match storyboard frame count")
+    rendered_items = tuple(rendered_prompts)
+    if len(rendered_items) != len(storyboard_plan.frames):
+        raise ValueError("rendered prompt count must match storyboard frame count")
 
     drafts: list[ImagePromptDraft] = []
     plans: list[PromptPlan] = []
@@ -29,7 +30,8 @@ def build_prompt_plan_bundle(
     trace_ids_by_frame = _normalize_trace_ids_by_frame(source_trace_ids_by_frame)
     llm_trace_refs = _llm_trace_refs(planning_snapshot)
     final_prompt_template = _final_visual_prompt_template(planning_snapshot)
-    for frame, prompt in zip(storyboard_plan.frames, prompts):
+    for frame, rendered_prompt in zip(storyboard_plan.frames, rendered_items):
+        prompt = _normalize_prompt(rendered_prompt.prompt)
         frame_source_trace_id = trace_ids_by_frame.get(frame.frame_id) or source_trace_id
         draft_id = _stable_id(
             "image_prompt_draft",
@@ -60,13 +62,7 @@ def build_prompt_plan_bundle(
             storyboard_plan_id=storyboard_plan.plan_id,
             frame_id=frame.frame_id,
             image_prompt_draft_id=draft.image_prompt_draft_id,
-            prompt_sections={
-                "source_text": frame.source_text,
-                "visual_goal": frame.visual_goal,
-                "prompt_intent": frame.prompt_intent,
-                **_final_prompt_template_sections(final_prompt_template),
-                "generated_prompt": prompt,
-            },
+            prompt_sections=rendered_prompt.prompt_contract.prompt_sections(),
             final_prompt=prompt,
             source_trace_id=frame_source_trace_id,
             metadata=_build_prompt_plan_metadata(
@@ -74,6 +70,8 @@ def build_prompt_plan_bundle(
                 ip_adaptation=ip_adaptations_by_frame.get(frame.frame_id),
                 llm_trace_refs=llm_trace_refs,
                 final_prompt_template=final_prompt_template,
+                renderer_id=rendered_prompt.renderer_id,
+                renderer_version=rendered_prompt.renderer_version,
             ),
         )
         drafts.append(draft)
@@ -202,12 +200,18 @@ def _build_prompt_plan_metadata(
     ip_adaptation: dict[str, object] | None,
     llm_trace_refs: list[dict[str, str]],
     final_prompt_template: dict[str, str] | None,
+    renderer_id: str | None = None,
+    renderer_version: str | None = None,
 ) -> dict[str, object]:
     metadata: dict[str, object] = {"frame_index": frame_index}
     if llm_trace_refs:
         metadata["llm_trace_refs"] = list(llm_trace_refs)
     if final_prompt_template:
         metadata["final_visual_prompt_template"] = dict(final_prompt_template)
+    if renderer_id:
+        metadata["prompt_renderer_id"] = renderer_id
+    if renderer_version:
+        metadata["prompt_renderer_version"] = renderer_version
     if not isinstance(ip_adaptation, dict):
         return metadata
 

@@ -26,6 +26,7 @@ from loguru import logger
 
 from pixelle_video.models.caption_speech_plan import CaptionSpeechPlan
 from pixelle_video.models.creation_package import CreationPackage
+from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPrompt
 from pixelle_video.models.progress import (
     CallbackProgressSink,
     ProgressDispatcher,
@@ -75,6 +76,7 @@ class PipelineContext:
     
     # === Visuals ===
     image_prompts: List[Optional[str]] = field(default_factory=list)
+    rendered_media_prompts: List[RenderedMediaPrompt] = field(default_factory=list)
     resolved_style: Optional[ResolvedStyleSpec] = None
     media_negative_prompt: Optional[str] = None
     planning_snapshot: Optional[Dict[str, Any]] = None

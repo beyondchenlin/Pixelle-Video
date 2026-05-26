@@ -21,7 +21,12 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPrompt
 from pixelle_video.models.prompt_plan import PromptPlanBundle
+from pixelle_video.models.visual_style_contract import (
+    VisualStyleLayerContract,
+    visual_style_contract_from_style_profile,
+)
 
 StyleKind = Literal["visual_only", "ip_world", "hybrid"]
 StyleSourceOrigin = Literal["request", "library"]
@@ -57,6 +62,7 @@ class ResolvedStyleSpec:
     resolver_version: str = ""
     source_identity: str = ""
     raw_content: str = ""
+    visual_style_contract: VisualStyleLayerContract = field(default_factory=VisualStyleLayerContract)
 
 
 class StyleResolutionProfileResponse(BaseModel):
@@ -94,6 +100,7 @@ class StyleResolutionResponse(BaseModel):
     prompt_template: str = ""
     negative_prompt: str = ""
     style_profile: StyleResolutionProfileResponse
+    visual_style_contract: Optional[dict[str, Any]] = None
 
     @field_validator("prompt_template")
     @classmethod
@@ -120,6 +127,12 @@ class StyleResolutionResponse(BaseModel):
         source: StyleSourceSpec,
         resolver_version: str,
     ) -> ResolvedStyleSpec:
+        if self.visual_style_contract:
+            visual_style_contract = VisualStyleLayerContract.from_dict(self.visual_style_contract)
+        else:
+            visual_style_contract = visual_style_contract_from_style_profile(
+                self.style_profile.model_dump()
+            )
         return ResolvedStyleSpec(
             style_kind=self.style_kind,
             prompt_template=self.prompt_template,
@@ -129,6 +142,7 @@ class StyleResolutionResponse(BaseModel):
             resolver_version=resolver_version,
             source_identity=source.source_identity,
             raw_content=source.raw_content,
+            visual_style_contract=visual_style_contract,
         )
 
 
@@ -139,6 +153,7 @@ class StyledImagePromptBatch:
     resolved_style: Optional[ResolvedStyleSpec]
     planning_snapshot: Optional[dict[str, Any]] = None
     prompt_plan_bundle: Optional[PromptPlanBundle] = None
+    rendered_prompts: list[RenderedMediaPrompt] = field(default_factory=list)
 
 
 __all__ = [

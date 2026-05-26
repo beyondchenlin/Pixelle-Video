@@ -591,8 +591,9 @@ class FrameProcessor:
             "height": config.media_height,
             "index": frame.index + 1,  # 1-based index for workflow
         }
-        if config.media_negative_prompt:
-            media_params["negative_prompt"] = config.media_negative_prompt
+        frame_negative_prompt = frame.negative_prompt or config.media_negative_prompt
+        if frame_negative_prompt:
+            media_params["negative_prompt"] = frame_negative_prompt
 
         # For video workflows: pass audio duration as target video duration
         # This ensures video length matches audio length from the source
@@ -615,8 +616,8 @@ class FrameProcessor:
                 "height": config.media_height,
                 "index": media_params["index"],
             }
-            if config.media_negative_prompt:
-                workflow_params_for_trace["negative_prompt"] = config.media_negative_prompt
+            if frame_negative_prompt:
+                workflow_params_for_trace["negative_prompt"] = frame_negative_prompt
             if "duration" in media_params:
                 workflow_params_for_trace["duration"] = media_params["duration"]
             workflow_param_trace = build_workflow_params_trace(
@@ -632,7 +633,7 @@ class FrameProcessor:
                         ),
                         task_id=trace_context.get("task_id") or config.task_id or "",
                         prompt=frame.image_prompt or "",
-                        negative_prompt=config.media_negative_prompt or "",
+                        negative_prompt=frame_negative_prompt or "",
                         workflow=str(
                             trace_context.get("workflow")
                             or trace_context.get("workflow_input")

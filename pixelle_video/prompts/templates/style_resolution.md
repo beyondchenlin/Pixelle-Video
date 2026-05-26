@@ -20,6 +20,9 @@ output_contract: JSON object matching StyleResolutionResponse.
     "Do not leave any style_profile field empty.",
     "For ip_world, subject_policy, world_elements, and consistency_anchor must describe the persistent world rules.",
     "For visual_only, preserve the subject semantics instead of replacing it with a named IP character.",
+    "When the style describes scoped object rendering, include visual_style_contract.layers with explicit targets, rendering_style, positive_rules, boundary_rules, priority, and exclusive.",
+    "Use visual_style_contract for object-level style separation, such as photorealistic human character versus flat illustrated non-human world.",
+    "If no scoped layers are needed, visual_style_contract may be null; the runtime will normalize style_profile into a visual style contract.",
     "Validate the final payload against required_output before returning it.",
     "Do not wrap the JSON in markdown fences."
   ]

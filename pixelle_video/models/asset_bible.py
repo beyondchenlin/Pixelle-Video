@@ -4,10 +4,24 @@ import re
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
+from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
 _HEX_COLOR_RE = re.compile(r"(?<![0-9a-fA-F])#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-fA-F])")
+
+
+class IPRenderingStyle(str, Enum):
+    STYLE_INHERITED = "style_inherited"
+    PHOTOREALISTIC_HUMAN = "photorealistic_human"
+    STYLIZED_CHARACTER = "stylized_character"
+    FLAT_ILLUSTRATION = "flat_illustration"
+
+
+class IPStyleScope(str, Enum):
+    IP_CHARACTER_ONLY = "ip_character_only"
+    IP_WORLD = "ip_world"
+    INHERITED = "inherited"
 
 
 @dataclass(frozen=True)
@@ -19,6 +33,10 @@ class IPProfile:
     logline: str | None = None
     world_hint: str | None = None
     style_hint: str | None = None
+    rendering_style: IPRenderingStyle = IPRenderingStyle.STYLE_INHERITED
+    style_scope: IPStyleScope = IPStyleScope.IP_CHARACTER_ONLY
+    exclusive_visual_layer: bool = False
+    style_boundary_rules: tuple[str, ...] = ()
     forbidden_elements: tuple[str, ...] = ()
     identity_lock: tuple[str, ...] = ()
     identity_anchors: tuple[str, ...] = ()
@@ -46,6 +64,14 @@ class IPProfile:
         object.__setattr__(self, "logline", _optional_prompt_str("logline", self.logline))
         object.__setattr__(self, "world_hint", _optional_prompt_str("world_hint", self.world_hint))
         object.__setattr__(self, "style_hint", _optional_prompt_str("style_hint", self.style_hint))
+        object.__setattr__(self, "rendering_style", _coerce_ip_rendering_style(self.rendering_style))
+        object.__setattr__(self, "style_scope", _coerce_ip_style_scope(self.style_scope))
+        object.__setattr__(self, "exclusive_visual_layer", bool(self.exclusive_visual_layer))
+        object.__setattr__(
+            self,
+            "style_boundary_rules",
+            _normalize_prompt_text_tuple("style_boundary_rules", self.style_boundary_rules),
+        )
         object.__setattr__(
             self,
             "forbidden_elements",
@@ -111,6 +137,10 @@ class IPProfile:
             "logline": self.logline,
             "world_hint": self.world_hint,
             "style_hint": self.style_hint,
+            "rendering_style": self.rendering_style.value,
+            "style_scope": self.style_scope.value,
+            "exclusive_visual_layer": self.exclusive_visual_layer,
+            "style_boundary_rules": list(self.style_boundary_rules),
             "forbidden_elements": list(self.forbidden_elements),
             "identity_lock": list(self.identity_lock),
             "identity_anchors": list(self.identity_anchors),
@@ -142,6 +172,10 @@ class IPProfile:
             logline=payload.get("logline"),
             world_hint=payload.get("world_hint"),
             style_hint=payload.get("style_hint"),
+            rendering_style=payload.get("rendering_style", IPRenderingStyle.STYLE_INHERITED.value),
+            style_scope=payload.get("style_scope", IPStyleScope.IP_CHARACTER_ONLY.value),
+            exclusive_visual_layer=payload.get("exclusive_visual_layer", False),
+            style_boundary_rules=_payload_sequence_or_default(payload.get("style_boundary_rules")),
             forbidden_elements=_payload_sequence_or_default(payload.get("forbidden_elements")),
             identity_lock=_payload_sequence_or_default(payload.get("identity_lock")),
             identity_anchors=_payload_sequence_or_default(payload.get("identity_anchors")),
@@ -490,6 +524,28 @@ def _require_non_empty(field_name: str, value: Any) -> str:
     return value.strip()
 
 
+def _coerce_ip_rendering_style(value: Any) -> IPRenderingStyle:
+    if isinstance(value, IPRenderingStyle):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return IPRenderingStyle(value.strip())
+        except ValueError as exc:
+            raise ValueError(f"unsupported IP rendering_style: {value}") from exc
+    return IPRenderingStyle.STYLE_INHERITED
+
+
+def _coerce_ip_style_scope(value: Any) -> IPStyleScope:
+    if isinstance(value, IPStyleScope):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return IPStyleScope(value.strip())
+        except ValueError as exc:
+            raise ValueError(f"unsupported IP style_scope: {value}") from exc
+    return IPStyleScope.IP_CHARACTER_ONLY
+
+
 def _optional_str(value: Any) -> str | None:
     if value is None:
         return None
@@ -654,6 +710,8 @@ __all__ = [
     "AssetBible",
     "CharacterProfile",
     "IPProfile",
+    "IPRenderingStyle",
+    "IPStyleScope",
     "PropAsset",
     "SceneAsset",
     "StyleProfile",

@@ -129,7 +129,7 @@ class ImagePromptComposer:
         planning_snapshot["storyboard_generation"] = storyboard_plan.to_dict()
         prompt_plan_bundle = build_prompt_plan_bundle(
             storyboard_plan=storyboard_plan,
-            image_prompts=batch.prompts,
+            rendered_prompts=batch.rendered_prompts,
             source_trace_ids_by_frame=_prompt_generation_trace_ids_by_frame(
                 storyboard_plan,
                 planning_snapshot,

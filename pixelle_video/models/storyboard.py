@@ -211,6 +211,7 @@ class StoryboardFrame:
     index: int                                 # Frame index (0-based)
     narration: str                             # Narration text
     image_prompt: str                          # Image generation prompt (can be None for text-only or video)
+    negative_prompt: Optional[str] = None      # Optional per-frame negative prompt for capable workflows
     
     # Generated resource paths
     audio_path: Optional[str] = None           # Audio file path (narration)

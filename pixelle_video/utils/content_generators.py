@@ -39,6 +39,10 @@ from pixelle_video.models.llm_interaction_trace import (
 )
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.progress import ProgressI18nMessage
+from pixelle_video.models.final_visual_prompt_contract import (
+    RenderedMediaPrompt,
+    join_rendered_negative_prompts,
+)
 from pixelle_video.models.prompt_context import (
     PromptContextEnvelope,
     PromptContextInput,
@@ -52,9 +56,12 @@ from pixelle_video.models.text_overlay import (
 )
 from pixelle_video.prompt_language import DEFAULT_PROMPT_LANGUAGE, PromptLanguage
 from pixelle_video.services.content_world_planner import ContentWorldPlanner
+from pixelle_video.services.final_visual_prompt_contract_builder import FinalVisualPromptContractBuilder
 from pixelle_video.services.ip_profile_readiness import (
     ensure_ip_profile_ready_for_generation,
 )
+from pixelle_video.services.model_prompt_renderer import select_model_prompt_renderer
+from pixelle_video.services.visual_style_contract_resolver import VisualStyleContractResolver
 from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import (
@@ -1531,28 +1538,49 @@ async def generate_styled_image_prompt_batch(
         narration_count=len(narrations),
     )
 
-    if planning is not None:
-        if len(frame_plans) != len(base_prompts):
-            raise ValueError("storyboard planner frames do not match generated base prompt count")
+    if planning is not None and len(frame_plans) != len(base_prompts):
+        raise ValueError("storyboard planner frames do not match generated base prompt count")
 
-        world_preset = planning_snapshot.get("world_preset") or {}
-        final_prompts = [
-            build_image_prompt(
-                assemble_storyboard_prompt(
-                    base_prompt=base_prompt,
-                    frame_plan=frame_plans[index],
-                    world_preset=world_preset,
-                    normalized_style=normalized_style,
-                ),
-                "",
-            )
-            for index, base_prompt in enumerate(base_prompts)
-        ]
-    else:
-        final_prompts = [
-            assemble_image_prompt(base_prompt, raw_prefix=raw_prefix, resolved_style=resolved_style)
-            for base_prompt in base_prompts
-        ]
+    world_preset = (planning_snapshot or {}).get("world_preset") or {}
+    frame_contexts_for_contract = _frame_contexts_for_final_prompts(
+        prompt_contexts_for_generation,
+        len(base_prompts),
+    )
+    active_style_item = None
+    if isinstance(image_config, Mapping):
+        prefix_library = image_config.get("prompt_prefix_library") or {}
+        active_prefix_id = prefix_library.get("active_prefix_id") if isinstance(prefix_library, Mapping) else None
+        for item in prefix_library.get("items", ()) if isinstance(prefix_library, Mapping) else ():
+            if isinstance(item, Mapping) and item.get("id") == active_prefix_id:
+                active_style_item = item
+                break
+    visual_style_contract = VisualStyleContractResolver().resolve(
+        resolved_style=resolved_style,
+        active_style_item=active_style_item,
+        fallback_to_default_world=True,
+    )
+    prompt_renderer = select_model_prompt_renderer(
+        workflow=workflow,
+        capabilities=capabilities,
+    )
+    prompt_contract_builder = FinalVisualPromptContractBuilder()
+    rendered_media_prompts: list[RenderedMediaPrompt] = []
+    for index, base_prompt in enumerate(base_prompts):
+        frame_context = frame_contexts_for_contract[index]
+        frame_plan = frame_plans[index] if index < len(frame_plans) else None
+        ip_adaptation = frame_context.get("ip_adaptation") if isinstance(frame_context, Mapping) else None
+        contract = prompt_contract_builder.build(
+            base_prompt=base_prompt,
+            frame_context=frame_context,
+            frame_plan=frame_plan,
+            ip_profile=ip_profile if ip_prompt_chain_enabled else None,
+            ip_adaptation=ip_adaptation if isinstance(ip_adaptation, Mapping) else None,
+            visual_style_contract=visual_style_contract,
+            generation_world_profile=generation_world_profile,
+            world_preset=world_preset,
+        )
+        rendered_media_prompts.append(prompt_renderer.render(contract, capabilities=capabilities))
+    final_prompts = [rendered.prompt for rendered in rendered_media_prompts]
 
     if native_hints:
         final_prompts = [
@@ -1668,36 +1696,15 @@ async def generate_styled_image_prompt_batch(
         else [() for _ in final_prompts]
     )
 
-    negative_prompt = assemble_negative_prompt(
-        resolved_style,
-        supports_negative_prompt=capabilities.supports_negative_prompt,
-        extra_negative_rules=[
-            *shared_negative_rules,
-            *[
-                rule
-                for frame_rules in ip_negative_rules_by_frame
-                for rule in frame_rules
-            ],
-        ]
-        or None,
-    )
     final_prompts = [
         sanitize_visual_prompt_text(prompt)
         for prompt in final_prompts
     ]
-    if media_type == "image" and not capabilities.supports_negative_prompt:
-        final_prompts = [
-            merge_z_image_constraints_into_prompt(
-                prompt,
-                extra_constraints=[
-                    *(resolved_style.negative_prompt if resolved_style is not None else "",),
-                    *shared_negative_rules,
-                    *ip_negative_rules_by_frame[index],
-                ],
-                visible_text_whitelist=ip_visible_text_whitelists[index],
-            )
-            for index, prompt in enumerate(final_prompts)
-        ]
+    rendered_media_prompts = [
+        rendered.with_prompt(final_prompts[index])
+        for index, rendered in enumerate(rendered_media_prompts)
+    ]
+    negative_prompt = join_rendered_negative_prompts(rendered_media_prompts)
     if planning_snapshot is not None:
         planning_snapshot = dict(planning_snapshot)
         planning_snapshot["final_visual_prompt_template"] = (
@@ -1746,6 +1753,7 @@ async def generate_styled_image_prompt_batch(
         negative_prompt=negative_prompt,
         resolved_style=resolved_style,
         planning_snapshot=planning_snapshot,
+        rendered_prompts=rendered_media_prompts,
     )
 
 

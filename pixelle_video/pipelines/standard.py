@@ -703,6 +703,7 @@ class StandardPipeline(LinearVideoPipeline):
             )
 
             ctx.image_prompts = styled_batch.prompts
+            ctx.rendered_media_prompts = list(styled_batch.rendered_prompts)
             ctx.resolved_style = styled_batch.resolved_style
             ctx.media_negative_prompt = styled_batch.negative_prompt
             ctx.planning_snapshot = dict(styled_batch.planning_snapshot or {}) or None
@@ -833,10 +834,14 @@ class StandardPipeline(LinearVideoPipeline):
         
         # Create frames
         for i, (plan_frame, image_prompt) in enumerate(zip(ctx.storyboard_plan.frames, ctx.image_prompts)):
+            frame_negative_prompt = None
+            if i < len(ctx.rendered_media_prompts):
+                frame_negative_prompt = ctx.rendered_media_prompts[i].negative_prompt
             frame = StoryboardFrame(
                 index=i,
                 narration=plan_frame.source_text,
                 image_prompt=image_prompt,
+                negative_prompt=frame_negative_prompt,
                 created_at=datetime.now(),
                 **build_storyboard_frame_planning_kwargs(ctx.planning_snapshot, i),
             )
@@ -912,7 +917,11 @@ class StandardPipeline(LinearVideoPipeline):
                         else None
                     ),
                     "prompt": frame.image_prompt or "",
-                    "negative_prompt": ctx.media_negative_prompt or "",
+                    "negative_prompt": (
+                        frame.negative_prompt
+                        if frame.negative_prompt is not None
+                        else ctx.media_negative_prompt or ""
+                    ),
                 }
                 for index, frame in enumerate(ctx.storyboard.frames)
             ],
