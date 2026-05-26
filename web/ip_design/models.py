@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -79,16 +79,14 @@ class ImportPresetResponse(TypedResponse):
 class IPProfileDraft(BaseModel):
     ip_profile_id: str
     name: str
-    ip_type: Literal["cartoon_animal", "anime_human", "hybrid_real_anime",
-                      "line_drawing", "3d_cartoon"] = "cartoon_animal"
+    ip_type: str = "cartoon_animal"
     logline: str = ""
     visual_summary: str = ""
     identity_lock: list[str] = []
     color_palette: dict[str, Any] = Field(default_factory=dict)
     minimal_traits: list[str] = []
     adaptable_slots: list[str] = []
-    default_slot_preference: Literal["prefer_supporting", "prefer_main",
-                                      "auto", "minimal"] = "prefer_supporting"
+    default_slot_preference: str = "prefer_supporting"
     presence_spectrum: list[str] = []
     role_presets: list[str] = []
     negative_constraints: list[str] = []

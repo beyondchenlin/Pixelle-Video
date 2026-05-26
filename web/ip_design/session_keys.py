@@ -32,7 +32,6 @@ class _IPFormKeys:
     forbidden_elements: str = f"{PREFIX}_forbidden_elements"
     visible_text_whitelist: str = f"{PREFIX}_visible_text_whitelist"
     active_asset_tab: str = f"{PREFIX}_active_asset_tab"
-    _dirty: str = f"{PREFIX}_form_dirty"
 
     @classmethod
     def all_keys(cls) -> set[str]:
@@ -54,7 +53,6 @@ class _SceneCastKeys:
     prop_ids: str = f"{PREFIX}_prop_ids"
     style_id: str = f"{PREFIX}_style_id"
     continuity_notes: str = f"{PREFIX}_continuity_notes"
-    _dirty: str = f"{PREFIX}_scene_cast_dirty"
 
     @classmethod
     def all_keys(cls) -> set[str]:

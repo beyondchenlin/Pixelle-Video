@@ -209,6 +209,7 @@ def _render_ip_profile_tab(
 
     def _on_ip_profile_change():
         _clear_ip_form_session_state(ui)
+        st.session_state["_form_populated"] = False
 
     selected_ip_id = ui.selectbox(
         translate("ip_design.asset_bible.ip_profile"),
@@ -223,7 +224,7 @@ def _render_ip_profile_tab(
     else:
         ip_profile_dict = _find_ip_profile(selected_asset_bible, selected_ip_id)
 
-    if ip_profile_dict:
+    if ip_profile_dict and not st.session_state.get("_form_populated"):
         ip_profile_draft = _to_ip_profile_draft(ip_profile_dict)
         populate_form_from_model(ip_profile_draft, IPSessionKeys.FORM)
         st.session_state[IPSessionKeys.FORM.color_palette] = _read_color_palette_prompt(
@@ -232,6 +233,7 @@ def _render_ip_profile_tab(
         st.session_state[IPSessionKeys.FORM.role_presets] = "\n".join(
             text_list(ip_profile_dict.get("role_presets"))
         )
+        st.session_state["_form_populated"] = True
 
     # Block 1: Basic Settings
     with ui.container(border=True):
@@ -387,6 +389,24 @@ def _render_ip_profile_tab(
         # Build model from form for simple fields
         draft = build_model_from_form(IPProfileDraft, IPSessionKeys.FORM)
         ip_profile_save = draft.model_dump()
+
+        # Carry over carrier fields from original data (no widget → not in model_dump)
+        _CARRIER_FIELDS: list[tuple[str, type]] = [
+            ("identity_anchors", list),
+            ("variable_slots", list),
+            ("world_hint", str),
+            ("style_hint", str),
+            ("image_text_palette", dict),
+            ("metadata", dict),
+        ]
+        for field_name, field_type in _CARRIER_FIELDS:
+            raw = ip_profile_dict.get(field_name)
+            if field_type is list:
+                ip_profile_save[field_name] = text_list(raw) if raw else []
+            elif field_type is dict:
+                ip_profile_save[field_name] = raw if isinstance(raw, dict) else {}
+            else:
+                ip_profile_save[field_name] = first_text(raw) if raw else ""
 
         # Patch role_presets (newline-split from text area)
         raw_role_presets = st.session_state.get(IPSessionKeys.FORM.role_presets, "")

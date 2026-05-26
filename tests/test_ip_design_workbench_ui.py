@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from web.ip_design.models import ListAssetBiblesResponse, ListSceneCastsResponse, AssetBibleSummary
+
 
 class _NoopContext:
     def __enter__(self):
@@ -32,7 +34,8 @@ class _FakeUI:
         return _NoopContext()
 
     def columns(self, count):
-        return [_NoopContext() for _ in range(count)]
+        n = count if isinstance(count, int) else len(count)
+        return [_NoopContext() for _ in range(n)]
 
     def tabs(self, labels):
         self.markdowns.append("TABS:" + ",".join(labels))
@@ -100,7 +103,13 @@ class _FakeIPDesignClient:
 
     def list_asset_bibles(self, **kwargs):
         self.calls.append({"method": "list_asset_bibles", **kwargs})
-        return {"success": True, "asset_bibles": self.asset_bibles}
+        return ListAssetBiblesResponse(
+            success=True,
+            asset_bibles=[
+                AssetBibleSummary(**ab) if isinstance(ab, dict) else ab
+                for ab in self.asset_bibles
+            ],
+        )
 
     def load_asset_bible(self, **kwargs):
         self.calls.append({"method": "load_asset_bible", **kwargs})
@@ -115,7 +124,7 @@ class _FakeIPDesignClient:
 
     def list_scene_casts(self, **kwargs):
         self.calls.append({"method": "list_scene_casts", **kwargs})
-        return {"success": True, "scene_casts": self.scene_casts}
+        return ListSceneCastsResponse(success=True, scene_casts=self.scene_casts)
 
     def load_scene_cast(self, **kwargs):
         self.calls.append({"method": "load_scene_cast", **kwargs})
@@ -232,14 +241,11 @@ def test_ip_design_workbench_lists_assets_and_scene_casts():
     assert "IP" in rendered
     assert "cast_frame_1" in rendered
     assert "char_luna" in rendered
-    assert client.calls[:3] == [
+    assert client.calls[:2] == [
         {
             "method": "list_asset_bibles",
             "workspace_id": "workspace_1",
             "project_id": "project_1",
-        },
-        {
-            "method": "list_asset_bible_presets",
         },
         {
             "method": "list_scene_casts",
@@ -248,6 +254,7 @@ def test_ip_design_workbench_lists_assets_and_scene_casts():
             "asset_bible_id": "bible_demo",
         },
     ]
+    assert any(c["method"] == "list_asset_bible_presets" for c in client.calls)
 
 
 def test_ip_design_workbench_renders_scene_cast_summary_from_translation_only():
@@ -301,6 +308,7 @@ def test_ip_design_workbench_saves_asset_bible_through_client():
             "ip_design_negative_constraints": "避免画成普通人类讲解者, 避免多余文字",
             "ip_design_visible_text_whitelist": "长乐门, 正定古城",
             "ip_design_save_asset_bible": True,
+            "_form_populated": True,
         }
     )
     client = _FakeIPDesignClient()
@@ -350,6 +358,7 @@ def test_ip_design_workbench_preserves_non_rule_palette_entries_when_saving():
             "ip_design_identity_lock": "white rabbit",
             "ip_design_color_rules": "#FFFFFF white body",
             "ip_design_save_asset_bible": True,
+            "_form_populated": True,
         }
     )
     client = _FakeIPDesignClient(
@@ -423,6 +432,7 @@ def test_ip_design_workbench_preserves_sibling_ip_profiles_when_saving():
             "ip_design_ip_name": "Updated Main",
             "ip_design_identity_lock": "updated main rabbit",
             "ip_design_save_asset_bible": True,
+            "_form_populated": True,
         }
     )
     client = _FakeIPDesignClient(
