@@ -122,7 +122,17 @@ def load_ip_prompt_chain_asset_bibles(
         return []
     business_context = resolve_business_context(session_state)
     response = client.list_asset_bibles(**business_context)
-    return list_of_dicts(response.get("asset_bibles"))
+
+    # Typed clients return ListAssetBiblesResponse; legacy/mock clients may still
+    # return a plain dict. Keep this boundary tolerant so content IP controls do
+    # not crash while the migration is in progress.
+    if isinstance(response, Mapping):
+        if not response.get("success", True):
+            return []
+        return list_of_dicts(response.get("asset_bibles"))
+    if not getattr(response, "success", True):
+        return []
+    return list_of_dicts(getattr(response, "asset_bibles", []))
 
 
 def resolve_selected_ip_prompt_chain_profile_summary(
