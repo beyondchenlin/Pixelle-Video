@@ -14,6 +14,7 @@
 Template utility functions for size parsing and template management
 """
 
+import functools
 import logging
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple
@@ -362,6 +363,7 @@ def format_template_display_info(template_name: str, size: str) -> TemplateDispl
     )
 
 
+@functools.lru_cache(maxsize=1)
 def get_all_templates_with_info() -> List[TemplateInfo]:
     """
     Get all templates with their display information
@@ -390,6 +392,11 @@ def get_all_templates_with_info() -> List[TemplateInfo]:
             ))
     
     return result
+
+
+def clear_template_cache():
+    """Clear cached template scan results so the next call rescans from disk."""
+    get_all_templates_with_info.cache_clear()
 
 
 def get_templates_grouped_by_size() -> dict:

@@ -179,6 +179,9 @@ class MediaService(ComfyBaseService):
         
         Override parent method to support multiple prefixes
         """
+        if self._workflows_cache is not None:
+            return self._workflows_cache
+
         from pathlib import Path
 
         from pixelle_video.utils.os_util import (
@@ -245,7 +248,8 @@ class MediaService(ComfyBaseService):
                     logger.error(f"Failed to parse workflow {source_name}/{filename}: {e}")
         
         # Sort by key (source/name)
-        return sorted(workflows, key=lambda w: w["key"])
+        self._workflows_cache = sorted(workflows, key=lambda w: w["key"])
+        return self._workflows_cache
 
     def resolve_workflow_key(
         self,

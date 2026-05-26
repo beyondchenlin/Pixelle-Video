@@ -524,7 +524,8 @@ def list_resource_files(
     
     # Build directory paths
     default_dir = Path(get_root_path(resource_type, subdir)) if subdir else Path(get_root_path(resource_type))
-    custom_dir = Path(get_data_path(resource_type, subdir)) if subdir else Path(get_data_path(resource_type))
+    # Build custom path directly to avoid get_data_path() -> os.makedirs() side effect
+    custom_dir = Path(get_root_path("data", resource_type, subdir)) if subdir else Path(get_root_path("data", resource_type))
     
     # Scan default directory first (lower priority)
     if default_dir.exists() and default_dir.is_dir():
@@ -566,7 +567,8 @@ def list_resource_dirs(
     
     # Build directory paths
     default_dir = Path(get_root_path(resource_type))
-    custom_dir = Path(get_data_path(resource_type))
+    # Build custom path directly to avoid get_data_path() -> os.makedirs() side effect
+    custom_dir = Path(get_root_path("data", resource_type))
     
     # Scan default directory
     if default_dir.exists() and default_dir.is_dir():
