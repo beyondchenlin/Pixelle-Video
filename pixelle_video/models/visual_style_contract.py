@@ -77,8 +77,8 @@ class VisualStyleLayer:
         )
 
     def prompt_clause(self) -> str:
-        target_clause = ", ".join(target.value.replace("_", " ") for target in self.targets)
-        style_clause = self.rendering_style.value.replace("_", " ")
+        target_clause = ", ".join(_target_prompt_label(target) for target in self.targets)
+        style_clause = _rendering_style_prompt_label(self.rendering_style)
         rules = ", ".join(_dedupe([*self.positive_rules, *self.boundary_rules]))
         if rules:
             return f"{target_clause}: {style_clause}, {rules}"
@@ -204,7 +204,7 @@ def default_mixed_style_world_contract() -> VisualStyleLayerContract:
                     "black-white-gray palette",
                     "soft diffused lighting",
                 ),
-                boundary_rules=("do not render non-human elements photorealistically",),
+                boundary_rules=("do not render non-IP world elements photorealistically",),
                 priority=20,
             ),
         ),
@@ -229,6 +229,34 @@ def _infer_rendering_style(rules: Sequence[str]) -> VisualRenderingStyle:
     if "photoreal" in joined or "realistic" in joined:
         return VisualRenderingStyle.CINEMATIC_REALISM
     return VisualRenderingStyle.STYLE_INHERITED
+
+
+def _target_prompt_label(target: VisualLayerTarget) -> str:
+    labels = {
+        VisualLayerTarget.IP_CHARACTER: "IP character layer",
+        VisualLayerTarget.HUMAN_CHARACTER: "human character layer",
+        VisualLayerTarget.NON_IP_WORLD: "non-IP world layer",
+        VisualLayerTarget.ALL_NON_HUMAN: "non-IP animals, props, background, and environment",
+        VisualLayerTarget.ANIMAL: "non-IP animals",
+        VisualLayerTarget.PROP: "props",
+        VisualLayerTarget.ENVIRONMENT: "environment",
+        VisualLayerTarget.TEXT_BOARD: "teaching boards and readable visual boards",
+        VisualLayerTarget.BACKGROUND: "background",
+        VisualLayerTarget.GLOBAL: "whole image",
+    }
+    return labels[target]
+
+
+def _rendering_style_prompt_label(style: VisualRenderingStyle) -> str:
+    labels = {
+        VisualRenderingStyle.STYLE_INHERITED: "inherited visual style",
+        VisualRenderingStyle.PHOTOREALISTIC_HUMAN: "photorealistic real-human style",
+        VisualRenderingStyle.FLAT_MONOCHROME_ILLUSTRATION: "flat monochrome illustration",
+        VisualRenderingStyle.FLAT_ILLUSTRATION: "flat illustration",
+        VisualRenderingStyle.CINEMATIC_REALISM: "cinematic realism",
+        VisualRenderingStyle.STYLIZED_CHARACTER: "stylized character style",
+    }
+    return labels[style]
 
 
 def _normalize_targets(values: Sequence[Any]) -> tuple[VisualLayerTarget, ...]:

@@ -53,6 +53,8 @@ class FinalVisualPromptContractBuilder:
             visual_style_contract,
             ip_profile=ip_profile,
             ip_present=ip_present,
+            frame_context=frame_context,
+            frame_plan=frame_plan,
         )
         character_layer_style = _character_layer_style(
             visual_style_contract,
@@ -149,20 +151,36 @@ def _ip_visual_style_contract(ip_profile: IPProfile) -> VisualStyleLayerContract
     )
 
 
-def _style_assignment(contract: VisualStyleLayerContract, *, ip_profile: IPProfile | None, ip_present: bool) -> str:
+def _style_assignment(
+    contract: VisualStyleLayerContract,
+    *,
+    ip_profile: IPProfile | None,
+    ip_present: bool,
+    frame_context: Mapping[str, Any] | None = None,
+    frame_plan: Any = None,
+) -> str:
     exclusive_photoreal_layers = [
         layer
         for layer in contract.layers
         if layer.exclusive and layer.rendering_style == VisualRenderingStyle.PHOTOREALISTIC_HUMAN
     ]
+    source_subjects = _source_subjects_clause(frame_context or {}, frame_plan)
+    source_subject_rule = (
+        f"Source subjects remain the narrative focus: {source_subjects}. "
+        "The IP character must not replace, merge with, cosplay, or transform into these source subjects. "
+        if source_subjects
+        else ""
+    )
     if ip_profile is not None and ip_present and exclusive_photoreal_layers:
         return (
-            "The IP human character is the only photorealistic element in the image. "
-            "All non-human elements, including animals, teaching boards, books, tools, furniture, props, and background, "
-            "must remain in the world layer style."
+            f"{source_subject_rule}"
+            "The IP character belongs only to the character layer and is the only photorealistic element when its rendering style is photorealistic. "
+            "All non-IP world elements, including source subjects, animals, teaching boards, books, tools, furniture, props, and background, must remain in their assigned world/source style."
         )
     return (
-        "Apply visual styles by layer and target. Preserve clear boundaries between character layer, world layer, props, and background."
+        f"{source_subject_rule}"
+        "Apply visual styles by layer and target. The IP character may be a scene-integrated supporting role, but the source subjects remain the main content. "
+        "Preserve clear boundaries between IP character layer, source subjects, world layer, props, and background."
     )
 
 
@@ -177,12 +195,13 @@ def _character_layer_style(
         return "No dedicated IP character layer is present; preserve any characters from the scene without adding a new IP character."
     ip_layer_clause = contract.prompt_layer_clause(VisualLayerTarget.IP_CHARACTER, VisualLayerTarget.HUMAN_CHARACTER)
     appearance = _read_value(ip_adaptation, "appearance_description") or _read_value(ip_adaptation, "visual_identity")
-    role_slot = _read_value(ip_adaptation, "role_slot")
     return _sentence(
         ip_layer_clause,
         appearance,
-        f"role slot: {role_slot}" if role_slot else "",
-        "naturally integrated into the scene as an existing role, not pasted on top",
+        "scene-integrated supporting character",
+        "shares the same ground plane, scale, perspective, lighting, and atmosphere as the source scene",
+        "not isolated, not floating, not a sticker, not pasted on top",
+        "coexists with the source subjects without replacing them",
     )
 
 
@@ -261,6 +280,17 @@ def _read_sequence(container: Any, key: str) -> tuple[str, ...]:
     if isinstance(value, Sequence):
         return tuple(str(item).strip() for item in value if str(item).strip())
     return ()
+
+
+def _source_subjects_clause(frame_context: Mapping[str, Any], frame_plan: Any = None) -> str:
+    values: list[str] = []
+    for key in ("primary_subject", "secondary_subjects", "continuity_anchors"):
+        values.extend(_read_sequence(frame_context, key))
+    if not values:
+        for key in ("primary_subject", "secondary_subjects", "continuity_anchors"):
+            values.extend(_read_sequence(frame_plan, key))
+    # Keep this concise for downstream image models. Do not use source_text here; it is often a full sentence.
+    return "、".join(_dedupe(values[:4]))
 
 
 def _sentence(*values: Any) -> str:

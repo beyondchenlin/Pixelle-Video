@@ -50,6 +50,20 @@ class ZImagePromptRenderer(PositiveOnlyPromptRenderer):
     renderer_id: str = "z_image_positive_only_contract_renderer"
     renderer_version: str = "v1"
 
+    def render(self, contract: FinalVisualPromptContract, *, capabilities: Any = None) -> RenderedMediaPrompt:
+        prompt = _render_compact_contract_prompt(contract, rendering_requirements=contract.negative_rules)
+        return RenderedMediaPrompt(
+            prompt=prompt,
+            negative_prompt=None,
+            prompt_contract=contract,
+            renderer_id=self.renderer_id,
+            renderer_version=self.renderer_version,
+            metadata={
+                "supports_negative_prompt": False,
+                "provider_prompt_mode": "compact_z_image",
+            },
+        )
+
 
 def select_model_prompt_renderer(*, workflow: str | None = None, capabilities: Any = None) -> ModelPromptRenderer:
     workflow_text = (workflow or "").lower()
@@ -81,6 +95,27 @@ def _join_rules(rules) -> str | None:
         seen.add(key)
         normalized.append(text)
     return ", ".join(normalized) if normalized else None
+
+
+def _render_compact_contract_prompt(contract: FinalVisualPromptContract, *, rendering_requirements) -> str:
+    """Render a shorter provider prompt for z-image.
+
+    The full six-section contract remains stored in PromptPlan for audit, but z-image
+    is more stable with a compact natural-language prompt than with long bracketed
+    contract headings and internal role terminology.
+    """
+    parts = [
+        contract.scene,
+        contract.composition,
+        contract.style_assignment,
+        contract.character_layer_style,
+        contract.world_layer_style,
+        contract.integration_priority,
+    ]
+    requirements = _join_rules(rendering_requirements)
+    if requirements:
+        parts.append(f"Rendering requirements: {requirements}")
+    return _clean_prompt(" ".join(str(part).strip() for part in parts if str(part or "").strip()))
 
 
 def _clean_prompt(prompt: str) -> str:
