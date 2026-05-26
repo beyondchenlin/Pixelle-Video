@@ -105,17 +105,77 @@ def _render_compact_contract_prompt(contract: FinalVisualPromptContract, *, rend
     contract headings and internal role terminology.
     """
     parts = [
-        contract.scene,
-        contract.composition,
-        contract.style_assignment,
-        contract.character_layer_style,
-        contract.world_layer_style,
-        contract.integration_priority,
+        _image_facing_text(contract.scene),
+        _image_facing_text(contract.composition),
+        _image_facing_relationship_clause(contract),
+        _image_facing_text(contract.character_layer_style),
+        _image_facing_text(contract.world_layer_style),
     ]
-    requirements = _join_rules(rendering_requirements)
+    requirements = _join_rules(_image_facing_requirements(rendering_requirements))
     if requirements:
         parts.append(f"Rendering requirements: {requirements}")
     return _clean_prompt(" ".join(str(part).strip() for part in parts if str(part or "").strip()))
+
+
+def _image_facing_relationship_clause(contract: FinalVisualPromptContract) -> str:
+    if not contract.metadata.get("ip_present"):
+        return ""
+    return (
+        "IP角色作为画面中的协调配角融入同一场景，与主要角色共享空间、比例、透视和光线，"
+        "有明确支撑点，比如站在地面、楼顶、桌边、电视旁、人群边缘、标牌旁或车辆旁，"
+        "身体或脚与场景物体有接触或遮挡关系，不抢占画面主体，不像贴纸或独立吉祥物。"
+    )
+
+
+def _image_facing_text(value: str) -> str:
+    text = str(value or "").strip()
+    replacements = {
+        "Apply visual styles by layer and target.": "",
+        "Preserve clear boundaries between IP character layer, source subjects, world layer, props, and background.": "",
+        "The IP character may be a scene-integrated supporting role, but the source subjects remain the main content.": "",
+        "IP character layer": "IP角色",
+        "human character layer": "角色",
+        "source subjects": "文案主体",
+        "non-IP world layer": "背景环境",
+        "non-IP animals, props, background, and environment": "非IP动物、道具、背景和环境",
+        "scene-integrated supporting character": "作为协调配角融入画面",
+        "shares the same ground plane, scale, perspective, lighting, and atmosphere as the source scene": "与场景共享同一地面、比例、透视、光线和氛围",
+        "not isolated, not floating, not a sticker, not pasted on top": "不是孤立漂浮的贴纸式元素",
+        "coexists with the source subjects without replacing them": "与文案主体共处但不替代他们",
+        "has a concrete physical placement anchor in the scene, such as standing on the ground, sitting beside a screen, standing on a rooftop, leaning near a board, or staying at the edge of a crowd": "有明确支撑点，如地面、楼顶、电视旁、讲解板旁或人群边缘",
+        "the IP body or feet visibly contact a ground plane, surface, object, rooftop, table edge, signboard, or another physical support": "身体或脚与地面、物体或支撑面有可见接触",
+        "if the source subject is flying, the IP remains grounded on a visible support unless the script explicitly says the IP is flying": "当主体在空中飞行时，IP默认站在地面、楼顶或前景支撑面上观看，除非文案明确要求IP飞行",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    return " ".join(text.split())
+
+
+def _image_facing_requirements(rules) -> tuple[str, ...]:
+    result: list[str] = []
+    for rule in rules or ():
+        text = str(rule or "").strip()
+        if not text:
+            continue
+        lowered = text.lower()
+        if any(
+            marker in lowered
+            for marker in (
+                "role slot",
+                "not pasted",
+                "not a sticker",
+                "replace source",
+                "source subjects remain",
+            )
+        ):
+            continue
+        if "不能变成蓝色兔子" in text or "blue rabbit" in lowered:
+            result.append("科技兔子保持白色身体，只有蓝色领结作为身份锚点")
+            continue
+        if "不能替代" in text:
+            continue
+        result.append(_image_facing_text(text))
+    return tuple(result)
 
 
 def _clean_prompt(prompt: str) -> str:

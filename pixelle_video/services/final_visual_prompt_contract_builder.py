@@ -13,6 +13,7 @@ from pixelle_video.models.visual_style_contract import (
     VisualStyleLayerContract,
     default_mixed_style_world_contract,
 )
+from pixelle_video.services.source_subject_identity import source_subject_identity_prompt
 
 
 @dataclass(frozen=True)
@@ -36,11 +37,18 @@ class FinalVisualPromptContractBuilder:
             ip_profile=ip_profile,
         )
         ip_present = _ip_present(ip_adaptation)
+        source_identity_hints = source_subject_identity_prompt(
+            base_prompt=base_prompt,
+            frame_context=frame_context,
+            frame_plan=frame_plan,
+            generation_world_profile=generation_world_profile,
+        )
 
         scene = _sentence(
             base_prompt,
             _read_value(frame_context, "visual_goal"),
             _read_nested_value(frame_context, ("metadata", "focus_detail")),
+            source_identity_hints,
         )
         composition = _sentence(
             _read_value(frame_context, "shot_type") or _read_value(frame_plan, "shot_type"),
@@ -55,6 +63,7 @@ class FinalVisualPromptContractBuilder:
             ip_present=ip_present,
             frame_context=frame_context,
             frame_plan=frame_plan,
+            source_identity_hints=source_identity_hints,
         )
         character_layer_style = _character_layer_style(
             visual_style_contract,
@@ -158,6 +167,7 @@ def _style_assignment(
     ip_present: bool,
     frame_context: Mapping[str, Any] | None = None,
     frame_plan: Any = None,
+    source_identity_hints: str = "",
 ) -> str:
     exclusive_photoreal_layers = [
         layer
@@ -171,14 +181,21 @@ def _style_assignment(
         if source_subjects
         else ""
     )
+    source_identity_rule = (
+        f"Keep source subjects visually distinct: {source_identity_hints}. "
+        if source_identity_hints
+        else ""
+    )
     if ip_profile is not None and ip_present and exclusive_photoreal_layers:
         return (
             f"{source_subject_rule}"
+            f"{source_identity_rule}"
             "The IP character belongs only to the character layer and is the only photorealistic element when its rendering style is photorealistic. "
             "All non-IP world elements, including source subjects, animals, teaching boards, books, tools, furniture, props, and background, must remain in their assigned world/source style."
         )
     return (
         f"{source_subject_rule}"
+        f"{source_identity_rule}"
         "Apply visual styles by layer and target. The IP character may be a scene-integrated supporting role, but the source subjects remain the main content. "
         "Preserve clear boundaries between IP character layer, source subjects, world layer, props, and background."
     )
@@ -200,6 +217,9 @@ def _character_layer_style(
         appearance,
         "scene-integrated supporting character",
         "shares the same ground plane, scale, perspective, lighting, and atmosphere as the source scene",
+        "has a concrete physical placement anchor in the scene, such as standing on the ground, sitting beside a screen, standing on a rooftop, leaning near a board, or staying at the edge of a crowd",
+        "the IP body or feet visibly contact a ground plane, surface, object, rooftop, table edge, signboard, or another physical support",
+        "if the source subject is flying, the IP remains grounded on a visible support unless the script explicitly says the IP is flying",
         "not isolated, not floating, not a sticker, not pasted on top",
         "coexists with the source subjects without replacing them",
     )

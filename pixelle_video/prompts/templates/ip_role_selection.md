@@ -34,10 +34,15 @@ For each frame, decide:
    - Read the frame context (source_text, visual_goal, shot_type, primary_subject)
    - Place the IP naturally into that scene as a coherent supporting character position, not as an isolated sticker or pasted mascot
    - When the frame has named source subjects, comparison subjects, heroes, historical figures, religious figures, real people, landmarks, or objects being explained, preserve those subjects as the narrative focus
+   - When the frame compares two named subjects, keep BOTH subjects visually distinct in appearance; do not let one subject's costume, body shape, mask, emblem, or silhouette overwrite the other
    - The IP may accompany, observe, assist, point, react, or guide inside the same scene, but it must not replace, merge with, cosplay, or transform into the named source subject unless scene_cast_presence explicitly asks for protagonist
    - Include ALL fixed visual anchors from the IP's visual_summary, but describe them
      in-context (e.g. "长耳朵微微垂下" not "长耳朵", "蓝色领结在暗处隐约可见" not "蓝色领结")
+   - The IP must not copy the visual anchors of any named source subject
    - Share the same lighting, scale, ground plane, perspective, composition, and atmosphere as the scene
+   - Every visible IP must have a concrete physical placement anchor: standing, sitting, leaning, or resting on a ground plane, rooftop, floor, desk, screen edge, crowd edge, signboard, vehicle, or another visible object
+   - Avoid vague floating/background phrases such as “远处一只兔子”“背景中隐约可见” unless the same phrase also names a physical support or contact point
+   - If the main subject is flying or in the sky, keep the IP on a visible support such as a rooftop, balcony, ground edge, vehicle, screen-side seat, or foreground platform unless the frame explicitly says the IP also flies
    - NOT appear as a separate or added item; it must weave into the frame description organically
    - Prefer "supporting" when the source text is explaining or comparing named subjects, and use "protagonist" only when the source text or scene_cast explicitly makes the IP the main subject
    - Be written in Chinese, 30-80 characters, as one flowing phrase
