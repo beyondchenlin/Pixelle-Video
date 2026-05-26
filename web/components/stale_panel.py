@@ -4,6 +4,8 @@ from typing import Any, Callable
 
 import streamlit as st
 
+from web.utils.streamlit_helpers import list_of_dicts
+
 Translate = Callable[..., str]
 
 _PRIVATE_FIELDS = {
@@ -41,12 +43,12 @@ def render_stale_target_panel(
         _render_upstream_refs(
             ui,
             t=t,
-            upstream_refs=_list_of_dicts(stale_summary.get("upstream_refs")),
+            upstream_refs=list_of_dicts(stale_summary.get("upstream_refs")),
         )
         _render_stale_marks(
             ui,
             t=t,
-            stale_marks=_list_of_dicts(stale_summary.get("stale_marks")),
+            stale_marks=list_of_dicts(stale_summary.get("stale_marks")),
         )
 
 
@@ -122,9 +124,7 @@ def _metadata_text(value: dict[str, Any], key: str) -> str:
 
 
 def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
+    return list_of_dicts(value)
 
 
 def _as_text_list(value: Any) -> list[str]:

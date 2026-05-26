@@ -14,7 +14,7 @@ from web.components.ip_prompt_chain_controls import (
 )
 from web.i18n import tr
 from web.utils.content_api import generate_world_hint_draft
-from web.utils.streamlit_helpers import safe_rerun
+from web.utils.streamlit_helpers import first_text, safe_rerun
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def render_content_ip_world_controls(
         )
 
         ip_default_world_hint = (
-            _first_text(ip_payload.get("ip_profile_world_hint"))
+            first_text(ip_payload.get("ip_profile_world_hint"))
             if ip_payload.get("ip_enabled")
             else ""
         )
@@ -149,7 +149,7 @@ def _load_content_ip_asset_bibles(
 
 
 def _sync_ip_profile_world_hint(session_state, ip_profile_world_hint: str) -> None:
-    hint = _first_text(ip_profile_world_hint)
+    hint = first_text(ip_profile_world_hint)
     if hint:
         session_state[CONTENT_IP_PROFILE_WORLD_HINT_KEY] = hint
         return
@@ -157,9 +157,9 @@ def _sync_ip_profile_world_hint(session_state, ip_profile_world_hint: str) -> No
 
 
 def _mark_world_hint_manual_if_user_edited(session_state, current_hint: str) -> None:
-    current = _first_text(current_hint)
-    source = _first_text(session_state.get(CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY))
-    last = _first_text(session_state.get(CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY))
+    current = first_text(current_hint)
+    source = first_text(session_state.get(CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY))
+    last = first_text(session_state.get(CONTENT_GENERATION_WORLD_HINT_LAST_VALUE_KEY))
     if source in {"generated_from_script", "ip_default"} and last and current != last:
         session_state[CONTENT_GENERATION_WORLD_HINT_SOURCE_KEY] = "manual"
     if current:
@@ -173,7 +173,7 @@ def _handle_use_ip_default_world_hint(
     translate: Translate,
     ip_default_world_hint: str,
 ) -> None:
-    hint = _first_text(ip_default_world_hint)
+    hint = first_text(ip_default_world_hint)
     if not hint:
         ui.warning(translate("content.ip_world.missing_ip_default"))
         return
@@ -195,24 +195,24 @@ def _handle_generate_world_hint_from_content(
     world_hint_draft_generator: Callable[..., Mapping[str, Any]],
 ) -> None:
     context = dict(content_context or {})
-    source_text = _first_text(context.get("text"))
+    source_text = first_text(context.get("text"))
     if not source_text:
         ui.warning(translate("content.ip_world.missing_content"))
         return
     try:
         response = world_hint_draft_generator(
             source_text=source_text,
-            title=_first_text(context.get("title")) or None,
+            title=first_text(context.get("title")) or None,
             world_preset_id=world_preset_id,
             storyboard_prompt_language=storyboard_prompt_language,
-            ip_default_world_hint=_first_text(ip_default_world_hint) or None,
+            ip_default_world_hint=first_text(ip_default_world_hint) or None,
         )
     except Exception:
         logger.exception("failed to generate content world hint draft")
         ui.warning(translate("content.ip_world.generate_failed"))
         return
     hint = (
-        _first_text(response.get("world_hint_draft"))
+        first_text(response.get("world_hint_draft"))
         if isinstance(response, Mapping)
         else ""
     )
@@ -225,14 +225,8 @@ def _handle_generate_world_hint_from_content(
     safe_rerun()
 
 
-def _first_text(*values: Any) -> str:
-    for value in values:
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
+def first_text(*values: Any) -> str:
+    return first_text(*values)
 
 
 __all__ = [

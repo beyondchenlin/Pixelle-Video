@@ -11,6 +11,7 @@ from web.components.stage2_projection_state import (
     clear_projection_scene_cast_selection,
 )
 from web.utils.asset_bible_api import create_asset_bible, create_scene_cast
+from web.utils.streamlit_helpers import list_of_dicts, split_csv
 
 Translate = Callable[..., str]
 
@@ -99,7 +100,7 @@ def _render_asset_bible_create_form(
                     {
                         "ip_profile_id": ip_profile_id,
                         "name": ip_name,
-                        "identity_lock": _split_csv(identity_lock),
+                        "identity_lock": split_csv(identity_lock),
                     }
                 ],
             },
@@ -214,9 +215,9 @@ def _render_scene_cast_create_form(
             scene_cast_id=scene_cast_id,
             storyboard_plan_id=storyboard_plan_id,
             frame_id=frame_id,
-            character_ids=_split_csv(character_ids),
+            character_ids=split_csv(character_ids),
             scene_id=scene_id,
-            prop_ids=_split_csv(prop_ids),
+            prop_ids=split_csv(prop_ids),
             style_id=style_id,
         )
     except httpx.HTTPStatusError as exc:
@@ -272,7 +273,7 @@ def _stage_asset_bible(
     ui.session_state["projection_asset_bible_id"] = asset_bible_id
     ui.session_state["projection_asset_bible_select"] = asset_bible_id
     ui.session_state["projection_asset_bibles"] = _upsert_by_id(
-        _list_of_dicts(ui.session_state.get("projection_asset_bibles")),
+        list_of_dicts(ui.session_state.get("projection_asset_bibles")),
         asset_bible,
         "asset_bible_id",
     )
@@ -298,7 +299,7 @@ def _stage_scene_cast(
     ui.session_state["projection_frame_id"] = scene_cast_ids["frame_id"]
     ui.session_state["projection_scene_cast_asset_bible_id"] = scene_cast_ids["asset_bible_id"]
     ui.session_state["projection_scene_casts"] = _upsert_by_id(
-        _list_of_dicts(ui.session_state.get("projection_scene_casts")),
+        list_of_dicts(ui.session_state.get("projection_scene_casts")),
         scene_cast,
         "scene_cast_id",
     )
@@ -312,7 +313,7 @@ def _text_input(ui, label: str, *, key: str, value: str = "") -> str:
 
 
 def _split_csv(value: str) -> list[str]:
-    return [item.strip() for item in value.split(",") if item.strip()]
+    return split_csv(value)
 
 
 def _missing(*values: str) -> bool:
@@ -341,9 +342,7 @@ def _required_response_id(item: dict[str, Any], field_name: str) -> str:
 
 
 def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
+    return list_of_dicts(value)
 
 
 def _upsert_by_id(

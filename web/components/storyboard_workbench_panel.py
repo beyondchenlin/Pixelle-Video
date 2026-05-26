@@ -7,6 +7,7 @@ import streamlit as st
 
 from pixelle_video.platform_context import DEFAULT_WORKSPACE_ID, first_explicit_text
 from web.i18n import tr
+from web.utils.streamlit_helpers import first_text, list_of_dicts
 
 Translate = Callable[..., str]
 
@@ -47,7 +48,7 @@ def render_storyboard_workbench_panel(
         ui.caption(translate("workbench.panel.unavailable"))
         return
 
-    candidates = _list_of_dicts(response.get("candidates"))
+    candidates = list_of_dicts(response.get("candidates"))
     if not candidates:
         ui.caption(translate("workbench.panel.empty"))
     else:
@@ -80,7 +81,7 @@ def render_storyboard_workbench_panel(
         if result.get("success") is False:
             ui.error(translate("workbench.panel.regenerate_failed"))
             return
-        task_id = _first_text(result.get("task_id"))
+        task_id = first_text(result.get("task_id"))
         if task_id:
             _remember_last_task(ui.session_state, frame_id=context["frame_id"], task_id=task_id)
         ui.info(translate("workbench.panel.regenerate_started"))
@@ -98,7 +99,7 @@ def _render_candidate_grid(
 ) -> None:
     columns = ui.columns(min(3, max(1, len(candidates))))
     for index, candidate in enumerate(candidates):
-        version_id = _first_text(candidate.get("version_id"))
+        version_id = first_text(candidate.get("version_id"))
         with columns[index % len(columns)]:
             with ui.container(border=True):
                 _render_candidate_image(candidate, version_id=version_id, ui=ui)
@@ -128,8 +129,8 @@ def _render_candidate_image(
 ) -> None:
     image_display = candidate.get("image_display")
     if isinstance(image_display, Mapping):
-        if image_display.get("kind") == "url" and _first_text(image_display.get("url")):
-            ui.image(_first_text(image_display.get("url")), caption=version_id, width="stretch")
+        if image_display.get("kind") == "url" and first_text(image_display.get("url")):
+            ui.image(first_text(image_display.get("url")), caption=version_id, width="stretch")
             return
         if image_display.get("kind") == "bytes" and isinstance(image_display.get("data"), bytes):
             ui.image(image_display["data"], caption=version_id, width="stretch")
@@ -145,9 +146,9 @@ def _render_candidate_summary(
     translate: Translate,
     ui,
 ) -> None:
-    status = _first_text(candidate.get("status"))
-    provider = _first_text(candidate.get("provider"))
-    trace_event_id = _first_text(candidate.get("trace_event_id"))
+    status = first_text(candidate.get("status"))
+    provider = first_text(candidate.get("provider"))
+    trace_event_id = first_text(candidate.get("trace_event_id"))
     badge = f" - {translate('workbench.panel.selected_badge')}" if version_id == selected_version_id else ""
     ui.markdown(f"**{version_id}**{badge}")
     if status or provider:
@@ -176,7 +177,7 @@ def _render_select_button(
         result = workbench_client.select_image_candidate(
             **context,
             version_id=version_id,
-            actor_id=_first_text(actor_id),
+            actor_id=first_text(actor_id),
         )
     except Exception:
         ui.error(translate("workbench.panel.select_failed"))
@@ -184,7 +185,7 @@ def _render_select_button(
 
     state = result.get("state")
     if isinstance(state, Mapping):
-        selected = _first_text(state.get("selected_image_version_id"))
+        selected = first_text(state.get("selected_image_version_id"))
         if selected:
             _remember_selected_version(
                 ui.session_state,
@@ -242,10 +243,10 @@ def _resolve_selected_version_id(
 ) -> str:
     selected_versions = session_state.get("workbench_selected_versions")
     if isinstance(selected_versions, Mapping):
-        selected = _first_text(selected_versions.get(frame_id))
+        selected = first_text(selected_versions.get(frame_id))
         if selected:
             return selected
-    return _first_text(fallback)
+    return first_text(fallback)
 
 
 def _remember_selected_version(session_state: dict[str, Any], *, frame_id: str, version_id: str) -> None:
@@ -261,19 +262,11 @@ def _remember_last_task(session_state: dict[str, Any], *, frame_id: str, task_id
 
 
 def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
+    return list_of_dicts(value)
 
 
 def _first_text(*values: Any) -> str:
-    for value in values:
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
+    return first_text(*values)
 
 
 __all__ = ["render_storyboard_workbench_panel"]

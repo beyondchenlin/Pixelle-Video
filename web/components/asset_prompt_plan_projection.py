@@ -20,6 +20,7 @@ from web.utils.asset_bible_api import (
     list_scene_casts,
     preview_prompt_plan_projection,
 )
+from web.utils.streamlit_helpers import list_of_dicts, find_item
 
 Translate = Callable[..., str]
 
@@ -133,7 +134,7 @@ def render_asset_prompt_plan_projection_preview(
         translate=t,
     )
 
-    asset_bibles = _list_of_dicts(ui.session_state.get("projection_asset_bibles"))
+    asset_bibles = list_of_dicts(ui.session_state.get("projection_asset_bibles"))
     asset_bible_id = _render_asset_bible_selector(ui, asset_bibles)
     if not asset_bible_id:
         asset_bible_id = _existing_projection_id(ui.session_state, "projection_asset_bible_id")
@@ -151,7 +152,7 @@ def render_asset_prompt_plan_projection_preview(
             asset_bible_id=asset_bible_id,
         )
 
-    scene_casts = _list_of_dicts(ui.session_state.get("projection_scene_casts"))
+    scene_casts = list_of_dicts(ui.session_state.get("projection_scene_casts"))
     scene_cast_id = _render_scene_cast_selector(ui, scene_casts)
     if not scene_cast_id:
         scene_cast_id = _existing_projection_id(ui.session_state, "projection_scene_cast_id")
@@ -169,7 +170,7 @@ def render_asset_prompt_plan_projection_preview(
                 "手动 ID 只保留在 Advanced Debug 中。"
             )
 
-    selected_scene_cast = _find_item(scene_casts, "scene_cast_id", scene_cast_id)
+    selected_scene_cast = find_item(scene_casts, "scene_cast_id", scene_cast_id) or {}
     frame_status, _frame_ready = _frame_status_for_scene_cast(
         selected_scene_cast,
         storyboard_plan_id=_existing_projection_id(
@@ -347,7 +348,7 @@ def _load_scene_cast_context(
     if not scene_cast_id:
         ui.caption("当前 AssetBible 下没有 SceneCast 草稿；仍可手动输入 ID 调试。")
         return
-    _sync_scene_cast_selection(ui, _find_item(scene_casts, "scene_cast_id", scene_cast_id))
+    _sync_scene_cast_selection(ui, find_item(scene_casts, "scene_cast_id", scene_cast_id) or {})
 
 
 def _render_asset_bible_selector(ui, asset_bibles: list[dict[str, Any]]) -> str:
@@ -360,13 +361,13 @@ def _render_asset_bible_selector(ui, asset_bibles: list[dict[str, Any]]) -> str:
         index=_selected_index(options, ui.session_state.get("projection_asset_bible_id")),
         key="projection_asset_bible_select",
         format_func=lambda item_id: _format_asset_bible_option(
-            _find_item(asset_bibles, "asset_bible_id", item_id)
+            find_item(asset_bibles, "asset_bible_id", item_id) or {}
         ),
     )
     if not selected_id:
         return ""
     ui.session_state["projection_asset_bible_id"] = selected_id
-    selected = _find_item(asset_bibles, "asset_bible_id", selected_id)
+    selected = find_item(asset_bibles, "asset_bible_id", selected_id) or {}
     ui.caption(_format_asset_bible_summary(selected))
     return selected_id
 
@@ -383,12 +384,12 @@ def _render_scene_cast_selector(ui, scene_casts: list[dict[str, Any]]) -> str:
         index=_selected_index(options, ui.session_state.get("projection_scene_cast_id")),
         key="projection_scene_cast_select",
         format_func=lambda item_id: _format_scene_cast_option(
-            _find_item(scene_casts, "scene_cast_id", item_id)
+            find_item(scene_casts, "scene_cast_id", item_id) or {}
         ),
     )
     if not selected_id:
         return ""
-    selected = _find_item(scene_casts, "scene_cast_id", selected_id)
+    selected = find_item(scene_casts, "scene_cast_id", selected_id) or {}
     _sync_scene_cast_selection(
         ui,
         selected,
@@ -670,9 +671,7 @@ def _as_dict(value: Any) -> dict[str, Any]:
 
 
 def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
+    return list_of_dicts(value)
 
 
 def _format_list(value: Any) -> str:
@@ -723,10 +722,7 @@ def _find_item(
     id_field: str,
     item_id: str,
 ) -> dict[str, Any]:
-    for item in items:
-        if item.get(id_field) == item_id:
-            return item
-    return {}
+    return find_item(items, id_field, item_id) or {}
 
 
 def _sync_scene_cast_selection(
@@ -762,10 +758,10 @@ def _format_asset_bible_option(asset_bible: dict[str, Any]) -> str:
 def _format_asset_bible_summary(asset_bible: dict[str, Any]) -> str:
     return (
         "AssetBible 摘要: "
-        f"characters={len(_list_of_dicts(asset_bible.get('character_profiles')))}, "
-        f"scenes={len(_list_of_dicts(asset_bible.get('scene_assets')))}, "
-        f"props={len(_list_of_dicts(asset_bible.get('prop_assets')))}, "
-        f"styles={len(_list_of_dicts(asset_bible.get('style_profiles')))}"
+        f"characters={len(list_of_dicts(asset_bible.get('character_profiles')))}, "
+        f"scenes={len(list_of_dicts(asset_bible.get('scene_assets')))}, "
+        f"props={len(list_of_dicts(asset_bible.get('prop_assets')))}, "
+        f"styles={len(list_of_dicts(asset_bible.get('style_profiles')))}"
     )
 
 
@@ -789,7 +785,7 @@ def _format_scene_cast_summary(scene_cast: dict[str, Any]) -> str:
 
 
 def _first_ip_name(asset_bible: dict[str, Any]) -> str:
-    ip_profiles = _list_of_dicts(asset_bible.get("ip_profiles"))
+    ip_profiles = list_of_dicts(asset_bible.get("ip_profiles"))
     if not ip_profiles:
         return ""
     name = ip_profiles[0].get("name")

@@ -11,6 +11,7 @@ from pixelle_video.platform_context import (
     first_explicit_text,
 )
 from web.i18n import tr
+from web.utils.streamlit_helpers import first_text, list_of_dicts, find_item, text_list
 
 Translate = Callable[..., str]
 
@@ -52,7 +53,7 @@ def render_ip_workbench_panel(
         ui.caption(translate("ip_workbench.panel.unavailable"))
         return
 
-    asset_bibles = _list_of_dicts(asset_response.get("asset_bibles"))
+    asset_bibles = list_of_dicts(asset_response.get("asset_bibles"))
     if not asset_bibles:
         ui.caption(translate("ip_workbench.panel.empty_asset_bibles"))
         return
@@ -61,7 +62,7 @@ def render_ip_workbench_panel(
     if not asset_bible_id:
         ui.caption(translate("ip_workbench.panel.empty_asset_bibles"))
         return
-    selected_asset_bible = _find_item(asset_bibles, "asset_bible_id", asset_bible_id) or {}
+    selected_asset_bible = find_item(asset_bibles, "asset_bible_id", asset_bible_id) or {}
 
     try:
         scene_response = ip_workbench_client.list_scene_casts(
@@ -72,7 +73,7 @@ def render_ip_workbench_panel(
     except Exception:
         ui.caption(translate("ip_workbench.panel.unavailable"))
         return
-    scene_casts = _list_of_dicts(scene_response.get("scene_casts"))
+    scene_casts = list_of_dicts(scene_response.get("scene_casts"))
     if not scene_casts:
         ui.caption(translate("ip_workbench.panel.empty_scene_casts"))
         return
@@ -84,13 +85,13 @@ def render_ip_workbench_panel(
         ui=ui,
         translate=translate,
     )
-    selected_scene_cast = _find_item(scene_casts, "scene_cast_id", scene_cast_id) or {}
+    selected_scene_cast = find_item(scene_casts, "scene_cast_id", scene_cast_id) or {}
     _render_asset_summary(selected_asset_bible, ui=ui)
     _render_scene_cast_summary(selected_scene_cast, ui=ui)
 
     matches_frame = (
-        _first_text(selected_scene_cast.get("storyboard_plan_id")) == context["storyboard_plan_id"]
-        and _first_text(selected_scene_cast.get("frame_id")) == context["frame_id"]
+        first_text(selected_scene_cast.get("storyboard_plan_id")) == context["storyboard_plan_id"]
+        and first_text(selected_scene_cast.get("frame_id")) == context["frame_id"]
     )
     if not matches_frame:
         ui.caption(translate("ip_workbench.panel.frame_mismatch"))
@@ -110,7 +111,7 @@ def render_ip_workbench_panel(
             scene_cast_id=scene_cast_id,
             storyboard_plan_id=context["storyboard_plan_id"],
             frame_id=context["frame_id"],
-            actor_id=_first_text(actor_id) or None,
+            actor_id=first_text(actor_id) or None,
         )
     except Exception:
         ui.error(translate("ip_workbench.panel.apply_failed"))
@@ -157,14 +158,14 @@ def _select_asset_bible(
     ui,
     translate: Translate,
 ) -> str:
-    options = [_first_text(item.get("asset_bible_id")) for item in asset_bibles]
+    options = [first_text(item.get("asset_bible_id")) for item in asset_bibles]
     options = [option for option in options if option]
     selected = ui.selectbox(
         translate("ip_workbench.panel.asset_bible"),
         options,
         key=f"ip_workbench_asset_bible_select_{frame_id}",
     )
-    return _first_text(selected)
+    return first_text(selected)
 
 
 def _select_scene_cast(
@@ -175,13 +176,13 @@ def _select_scene_cast(
     ui,
     translate: Translate,
 ) -> str:
-    options = [_first_text(item.get("scene_cast_id")) for item in scene_casts]
+    options = [first_text(item.get("scene_cast_id")) for item in scene_casts]
     options = [option for option in options if option]
     preferred_index = 0
     for index, item in enumerate(scene_casts):
         if (
-            _first_text(item.get("storyboard_plan_id")) == storyboard_plan_id
-            and _first_text(item.get("frame_id")) == frame_id
+            first_text(item.get("storyboard_plan_id")) == storyboard_plan_id
+            and first_text(item.get("frame_id")) == frame_id
         ):
             preferred_index = index
             break
@@ -191,14 +192,14 @@ def _select_scene_cast(
         index=min(preferred_index, max(0, len(options) - 1)),
         key=f"ip_workbench_scene_cast_select_{frame_id}",
     )
-    return _first_text(selected)
+    return first_text(selected)
 
 
 def _render_asset_summary(asset_bible: Mapping[str, Any], *, ui) -> None:
-    asset_bible_id = _first_text(asset_bible.get("asset_bible_id"))
+    asset_bible_id = first_text(asset_bible.get("asset_bible_id"))
     ip_names = [
-        _first_text(profile.get("name"))
-        for profile in _list_of_dicts(asset_bible.get("ip_profiles"))
+        first_text(profile.get("name"))
+        for profile in list_of_dicts(asset_bible.get("ip_profiles"))
     ]
     summary = " / ".join(item for item in (asset_bible_id, *ip_names) if item)
     if summary:
@@ -207,11 +208,11 @@ def _render_asset_summary(asset_bible: Mapping[str, Any], *, ui) -> None:
 
 def _render_scene_cast_summary(scene_cast: Mapping[str, Any], *, ui) -> None:
     lines = [
-        _first_text(scene_cast.get("scene_cast_id")),
-        "characters: " + ", ".join(_text_list(scene_cast.get("character_ids"))),
-        "scene: " + _first_text(scene_cast.get("scene_id")),
-        "props: " + ", ".join(_text_list(scene_cast.get("prop_ids"))),
-        "style: " + _first_text(scene_cast.get("style_id")),
+        first_text(scene_cast.get("scene_cast_id")),
+        "characters: " + ", ".join(text_list(scene_cast.get("character_ids"))),
+        "scene: " + first_text(scene_cast.get("scene_id")),
+        "props: " + ", ".join(text_list(scene_cast.get("prop_ids"))),
+        "style: " + first_text(scene_cast.get("style_id")),
     ]
     for line in lines:
         if line and not line.endswith(": "):
@@ -219,32 +220,19 @@ def _render_scene_cast_summary(scene_cast: Mapping[str, Any], *, ui) -> None:
 
 
 def _find_item(items: list[dict[str, Any]], field_name: str, value: str) -> dict[str, Any] | None:
-    for item in items:
-        if _first_text(item.get(field_name)) == value:
-            return item
-    return None
+    return find_item(items, field_name, value)
 
 
 def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
+    return list_of_dicts(value)
 
 
 def _text_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [_first_text(item) for item in value if _first_text(item)]
+    return text_list(value)
 
 
 def _first_text(*values: Any) -> str:
-    for value in values:
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
+    return first_text(*values)
 
 
 __all__ = ["render_ip_workbench_panel"]
