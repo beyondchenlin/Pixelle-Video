@@ -291,6 +291,14 @@ class InMemoryAssetBibleRepository:
             and payload.get("asset_bible_id") == asset_bible_id
         ]
 
+    async def delete_scene_cast(
+        self,
+        workspace_id: str,
+        asset_bible_id: str,
+        scene_cast_id: str,
+    ) -> None:
+        self.scene_casts.pop((workspace_id, scene_cast_id), None)
+
 
 @dataclass
 class InMemoryDependencyEdgeRepository:
@@ -778,6 +786,19 @@ class FilesystemDevAssetBibleRepository:
             and payload.get("project_id") == project_id
             and payload.get("asset_bible_id") == asset_bible_id
         ]
+
+    async def delete_scene_cast(
+        self,
+        workspace_id: str,
+        asset_bible_id: str,
+        scene_cast_id: str,
+    ) -> None:
+        def updater(index: dict[str, Any]) -> None:
+            _payload_map(index, "scene_casts").pop(
+                _scene_cast_key(workspace_id, scene_cast_id), None
+            )
+
+        self._store.update("assets.json", {}, updater)
 
 
 @dataclass

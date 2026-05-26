@@ -73,6 +73,7 @@ class ListPresetsResponse(BaseModel):
 
 class ImportPresetResponse(TypedResponse):
     asset_bible_id: str = ""
+    asset_bible: dict[str, Any] = {}
 
 
 class IPProfileDraft(BaseModel):

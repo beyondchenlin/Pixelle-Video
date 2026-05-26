@@ -27,7 +27,7 @@ def test_http_ip_design_client_wraps_asset_bible_helpers():
 
     def save_asset_bible(**kwargs):
         calls.append(("save_asset_bible", kwargs))
-        return {"asset_bible": {"asset_bible_id": kwargs["asset_bible_id"]}}
+        return {"success": True, "asset_bible": {"asset_bible_id": kwargs["asset_bible_id"]}}
 
     def list_scene_casts(**kwargs):
         calls.append(("list_scene_casts", kwargs))
@@ -39,7 +39,7 @@ def test_http_ip_design_client_wraps_asset_bible_helpers():
 
     def save_scene_cast(**kwargs):
         calls.append(("save_scene_cast", kwargs))
-        return {"scene_cast": {"scene_cast_id": kwargs["scene_cast_id"]}}
+        return {"success": True, "scene_cast": {"scene_cast_id": kwargs["scene_cast_id"]}}
 
     client = HttpIPDesignClient(
         api_base_url="http://localhost:8888/api/",
@@ -53,45 +53,54 @@ def test_http_ip_design_client_wraps_asset_bible_helpers():
         scene_cast_saver=save_scene_cast,
     )
 
-    assert client.list_asset_bible_presets() == [{"preset_id": "builtin_asset_bible_demo"}]
-    assert client.import_asset_bible_preset(
+    preset_resp = client.list_asset_bible_presets()
+    assert len(preset_resp.presets) == 1
+    assert preset_resp.presets[0].preset_id == "builtin_asset_bible_demo"
+    import_resp = client.import_asset_bible_preset(
         workspace_id="workspace_1",
         project_id="project_1",
         preset_id="builtin_asset_bible_demo",
         asset_bible_id="demo_bible",
-    )["asset_bible"]["asset_bible_id"] == "demo_bible"
-    assert client.list_asset_bibles(workspace_id="workspace_1", project_id="project_1")[
-        "asset_bibles"
-    ] == [{"asset_bible_id": "bible_demo"}]
-    assert client.load_asset_bible(
+    )
+    assert import_resp.asset_bible_id == "demo_bible"
+    list_resp = client.list_asset_bibles(workspace_id="workspace_1", project_id="project_1")
+    assert len(list_resp.asset_bibles) == 1
+    assert list_resp.asset_bibles[0].asset_bible_id == "bible_demo"
+    load_resp = client.load_asset_bible(
         workspace_id="workspace_1",
         project_id="project_1",
         asset_bible_id="bible_demo",
-    )["asset_bible"]["asset_bible_id"] == "bible_demo"
-    assert client.save_asset_bible(
+    )
+    assert load_resp["asset_bible"]["asset_bible_id"] == "bible_demo"
+    save_resp = client.save_asset_bible(
         workspace_id="workspace_1",
         project_id="project_1",
         asset_bible_id="bible_demo",
         payload={"ip_profiles": [{"ip_profile_id": "ip_main", "name": "Demo IP"}]},
-    )["asset_bible"]["asset_bible_id"] == "bible_demo"
-    assert client.list_scene_casts(
+    )
+    assert save_resp.success is True
+    sc_list_resp = client.list_scene_casts(
         workspace_id="workspace_1",
         project_id="project_1",
         asset_bible_id="bible_demo",
-    )["scene_casts"] == [{"scene_cast_id": "cast_frame_1"}]
-    assert client.load_scene_cast(
+    )
+    assert len(sc_list_resp.scene_casts) == 1
+    assert sc_list_resp.scene_casts[0]["scene_cast_id"] == "cast_frame_1"
+    sc_load_resp = client.load_scene_cast(
         workspace_id="workspace_1",
         project_id="project_1",
         asset_bible_id="bible_demo",
         scene_cast_id="cast_frame_1",
-    )["scene_cast"]["scene_cast_id"] == "cast_frame_1"
-    assert client.save_scene_cast(
+    )
+    assert sc_load_resp["scene_cast"]["scene_cast_id"] == "cast_frame_1"
+    sc_save_resp = client.save_scene_cast(
         workspace_id="workspace_1",
         project_id="project_1",
         asset_bible_id="bible_demo",
         scene_cast_id="cast_frame_1",
         payload={"frame_id": "frame_0001"},
-    )["scene_cast"]["scene_cast_id"] == "cast_frame_1"
+    )
+    assert sc_save_resp.success is True
     assert [name for name, _ in calls] == [
         "list_asset_bible_presets",
         "import_asset_bible_preset",
@@ -190,22 +199,21 @@ def test_inprocess_ip_design_client_uses_asset_repository_without_http():
             ],
         },
     )
-    assert saved_asset["asset_bible"]["asset_bible_id"] == "bible_demo"
-    assert saved_asset["asset_bible"]["ip_profiles"][0].get("forbidden_elements") == ["private"]
-    assert client.list_asset_bibles(
+    assert saved_asset.success is True
+    stored = repository.asset_bibles[("workspace_1", "bible_demo")]
+    assert stored["ip_profiles"][0].get("forbidden_elements") == ["private"]
+    list_resp = client.list_asset_bibles(
         workspace_id="workspace_1",
         project_id="project_1",
-    )["asset_bibles"][0]["ip_profiles"][0]["name"] == "Demo IP"
-    listed_asset = client.list_asset_bibles(
-        workspace_id="workspace_1",
-        project_id="project_1",
-    )["asset_bibles"][0]
+    )
+    assert list_resp.asset_bibles[0].ip_profiles[0]["name"] == "Demo IP"
+    listed_summary = list_resp.asset_bibles[0]
     loaded_asset = client.load_asset_bible(
         workspace_id="workspace_1",
         project_id="project_1",
         asset_bible_id="bible_demo",
     )["asset_bible"]
-    assert listed_asset["ip_profiles"][0].get("forbidden_elements") == ["private"]
+    assert listed_summary.ip_profiles[0].get("forbidden_elements") == ["private"]
     assert loaded_asset["ip_profiles"][0].get("forbidden_elements") == ["private"]
 
     saved_cast = client.save_scene_cast(
@@ -222,12 +230,13 @@ def test_inprocess_ip_design_client_uses_asset_repository_without_http():
             "style_id": "style_warm_comic",
         },
     )
-    assert saved_cast["scene_cast"]["asset_bible_id"] == "bible_demo"
-    assert client.list_scene_casts(
+    assert saved_cast.success is True
+    sc_list_resp = client.list_scene_casts(
         workspace_id="workspace_1",
         project_id="project_1",
         asset_bible_id="bible_demo",
-    )["scene_casts"][0]["scene_cast_id"] == "cast_frame_1"
+    )
+    assert sc_list_resp.scene_casts[0]["scene_cast_id"] == "cast_frame_1"
 
 
 def test_inprocess_ip_design_client_save_marks_imported_asset_bible_customized():
@@ -296,8 +305,8 @@ def test_inprocess_ip_design_client_save_marks_imported_asset_bible_customized()
         "imported_at": "2026-05-04T00:00:00Z",
         "customized": True,
     }
-    assert response["asset_bible"]["metadata"] == saved["metadata"]
-    assert response["asset_bible"]["ip_profiles"][0].get("forbidden_elements") == []
+    assert response.success is True
+    assert saved["ip_profiles"][0].get("forbidden_elements") == []
 
 
 def test_inprocess_ip_design_client_imports_builtin_asset_bible_without_leaking_private_fields():
@@ -366,19 +375,19 @@ def test_inprocess_ip_design_client_imports_builtin_asset_bible_without_leaking_
     )()
     client = InProcessIPDesignClient(pixelle_video=core, async_runner=asyncio.run)
 
-    assert client.list_asset_bible_presets() == [
-        {"preset_id": "builtin_asset_bible_demo", "display_name": "Demo IP"}
-    ]
+    preset_resp = client.list_asset_bible_presets()
+    assert len(preset_resp.presets) == 1
+    assert preset_resp.presets[0].preset_id == "builtin_asset_bible_demo"
 
-    response = client.import_asset_bible_preset(
+    import_resp = client.import_asset_bible_preset(
         workspace_id="workspace_1",
         project_id="project_1",
         preset_id="builtin_asset_bible_demo",
         asset_bible_id="demo_bible",
     )
 
-    assert response["asset_bible"]["asset_bible_id"] == "demo_bible"
-    assert response["asset_bible"]["ip_profiles"][0].get("forbidden_elements") == ["private"]
+    assert import_resp.asset_bible_id == "demo_bible"
+    assert import_resp.asset_bible["ip_profiles"][0].get("forbidden_elements") == ["private"]
     assert repository.load_calls == [("workspace_1", "demo_bible")]
     assert repository.saved[0][0] == "workspace_1"
 

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from web.utils.asset_bible_api import (
+    delete_scene_cast,
     import_asset_bible_preset,
     list_asset_bible_presets,
     list_asset_bibles,
@@ -15,8 +16,12 @@ from web.utils.asset_bible_api import (
 )
 
 from .models import (
+    DeleteResponse,
+    ImportPresetResponse,
     ListAssetBiblesResponse,
+    ListPresetsResponse,
     ListSceneCastsResponse,
+    PresetSummary,
     SaveResponse,
 )
 
@@ -38,6 +43,7 @@ class HttpIPDesignClient:
         scene_cast_loader: Callable[..., list[dict[str, Any]]] = list_scene_casts,
         scene_cast_getter: Callable[..., dict[str, Any]] = load_scene_cast,
         scene_cast_saver: Callable[..., dict[str, Any]] = save_scene_cast,
+        scene_cast_deleter: Callable[..., dict[str, Any]] = delete_scene_cast,
     ) -> None:
         self.api_base_url = api_base_url.rstrip("/")
         self._asset_bible_loader = asset_bible_loader
@@ -48,9 +54,14 @@ class HttpIPDesignClient:
         self._scene_cast_loader = scene_cast_loader
         self._scene_cast_getter = scene_cast_getter
         self._scene_cast_saver = scene_cast_saver
+        self._scene_cast_deleter = scene_cast_deleter
 
-    def list_asset_bible_presets(self) -> list[dict[str, Any]]:
-        return self._asset_bible_preset_loader(api_base_url=self.api_base_url)
+    def list_asset_bible_presets(self) -> ListPresetsResponse:
+        raw = self._asset_bible_preset_loader(api_base_url=self.api_base_url)
+        return ListPresetsResponse(
+            success=True,
+            presets=[PresetSummary(**item) for item in raw],
+        )
 
     def import_asset_bible_preset(
         self,
@@ -59,13 +70,19 @@ class HttpIPDesignClient:
         project_id: str,
         preset_id: str,
         asset_bible_id: str | None = None,
-    ) -> dict[str, Any]:
-        return self._asset_bible_preset_importer(
+    ) -> ImportPresetResponse:
+        raw = self._asset_bible_preset_importer(
             api_base_url=self.api_base_url,
             workspace_id=workspace_id,
             project_id=project_id,
             preset_id=preset_id,
             asset_bible_id=asset_bible_id,
+        )
+        asset_bible = raw.get("asset_bible", {})
+        return ImportPresetResponse(
+            success=raw.get("success", True),
+            asset_bible_id=asset_bible.get("asset_bible_id", ""),
+            asset_bible=asset_bible,
         )
 
     def list_asset_bibles(
@@ -165,6 +182,24 @@ class HttpIPDesignClient:
                 asset_bible_id=asset_bible_id,
                 scene_cast_id=scene_cast_id,
                 payload=payload,
+            )
+        )
+
+    def delete_scene_cast(
+        self,
+        *,
+        workspace_id: str,
+        project_id: str,
+        asset_bible_id: str,
+        scene_cast_id: str,
+    ) -> DeleteResponse:
+        return DeleteResponse(
+            **self._scene_cast_deleter(
+                api_base_url=self.api_base_url,
+                workspace_id=workspace_id,
+                project_id=project_id,
+                asset_bible_id=asset_bible_id,
+                scene_cast_id=scene_cast_id,
             )
         )
 

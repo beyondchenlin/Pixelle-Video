@@ -14,6 +14,8 @@
 Streamlit helper functions
 """
 
+import json
+import typing
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -149,7 +151,6 @@ def populate_form_from_model(model: BaseModel, key_group) -> None:
 
 
 def build_model_from_form(model_cls: type[BaseModel], key_group) -> BaseModel:
-    import typing
     ss = st.session_state
     data: dict[str, Any] = {}
     for field_name, field_info in model_cls.model_fields.items():
@@ -162,7 +163,6 @@ def build_model_from_form(model_cls: type[BaseModel], key_group) -> BaseModel:
 
 
 def _deserialize_field(raw: Any, field_info) -> Any:
-    import typing
     origin = typing.get_origin(field_info.annotation)
     if origin is list:
         return split_csv(str(raw)) if raw else []
@@ -172,7 +172,6 @@ def _deserialize_field(raw: Any, field_info) -> Any:
 
 
 def _parse_json_dict(value: str) -> dict[str, Any]:
-    import json
     try:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):

@@ -3,8 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from .models import (
+    DeleteResponse,
+    ImportPresetResponse,
     ListAssetBiblesResponse,
+    ListPresetsResponse,
     ListSceneCastsResponse,
+    PresetSummary,
     SaveResponse,
 )
 
@@ -24,9 +28,13 @@ class InProcessIPDesignClient:
         self.pixelle_video = pixelle_video
         self._async_runner = async_runner
 
-    def list_asset_bible_presets(self) -> list[dict[str, Any]]:
+    def list_asset_bible_presets(self) -> ListPresetsResponse:
         registry = self._require_attr("asset_bible_preset_registry")
-        return list(registry.list_summaries())
+        raw = list(registry.list_summaries())
+        return ListPresetsResponse(
+            success=True,
+            presets=[PresetSummary(**item) for item in raw],
+        )
 
     def import_asset_bible_preset(
         self,
@@ -36,7 +44,7 @@ class InProcessIPDesignClient:
         preset_id: str,
         asset_bible_id: str | None = None,
         conflict_policy: str = "overwrite",
-    ) -> dict[str, Any]:
+    ) -> ImportPresetResponse:
         workspace_id = validate_public_reference_id("workspace_id", workspace_id)
         project_id = validate_public_reference_id("project_id", project_id)
         preset_id = validate_public_reference_id("preset_id", preset_id)
@@ -63,14 +71,16 @@ class InProcessIPDesignClient:
         if existing is not None and conflict_policy != "overwrite":
             raise ValueError("asset bible already exists; choose a different asset_bible_id")
         saved = self._run_async(repository.save_asset_bible(workspace_id, asset_bible_payload))
-        return {
-            "success": True,
-            "asset_bible": asset_bible_response_payload(
-                saved,
-                project_id=project_id,
-                asset_bible_id=imported_asset_bible_id,
-            ),
-        }
+        asset_bible = asset_bible_response_payload(
+            saved,
+            project_id=project_id,
+            asset_bible_id=imported_asset_bible_id,
+        )
+        return ImportPresetResponse(
+            success=True,
+            asset_bible_id=imported_asset_bible_id,
+            asset_bible=asset_bible,
+        )
 
     def list_asset_bibles(
         self,
@@ -205,6 +215,20 @@ class InProcessIPDesignClient:
             )
         )
         return SaveResponse(success=True)
+
+    def delete_scene_cast(
+        self,
+        *,
+        workspace_id: str,
+        project_id: str,
+        asset_bible_id: str,
+        scene_cast_id: str,
+    ) -> DeleteResponse:
+        repository = self._require_attr("asset_bible_repository")
+        self._run_async(
+            repository.delete_scene_cast(workspace_id, asset_bible_id, scene_cast_id)
+        )
+        return DeleteResponse(success=True)
 
     def _require_attr(self, name: str) -> Any:
         value = getattr(self.pixelle_video, name, None)

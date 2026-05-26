@@ -28,6 +28,7 @@ from web.ip_design.session_keys import IPSessionKeys
 from web.utils.asset_bible_payloads import (
     build_asset_bible_draft_payload_from_response,
     upsert_ip_profile_draft,
+    _to_ip_profile_draft,
 )
 from web.utils.streamlit_helpers import (
     build_model_from_form,
@@ -885,7 +886,6 @@ def _render_select_or_custom(
 
 
 def _dict_to_ip_profile_draft(data: dict[str, Any]) -> IPProfileDraft:
-    from web.ip_design.asset_bible_payloads import _to_ip_profile_draft
     return _to_ip_profile_draft(data)
 
 

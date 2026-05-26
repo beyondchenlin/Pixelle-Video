@@ -548,3 +548,29 @@ def _validate_optional_id_list(field_name: str, values: list[str]) -> list[str]:
 
 def _validate_public_reference_id(field_name: str, value: str) -> str:
     return validate_public_reference_id(field_name, value)
+
+
+def delete_scene_cast(
+    *,
+    api_base_url: str,
+    project_id: str,
+    workspace_id: str,
+    asset_bible_id: str,
+    scene_cast_id: str,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    endpoint = build_scene_cast_detail_endpoint(
+        api_base_url=api_base_url,
+        project_id=project_id,
+        asset_bible_id=asset_bible_id,
+        scene_cast_id=scene_cast_id,
+    )
+    params = {
+        "workspace_id": _validate_public_reference_id("workspace_id", workspace_id),
+    }
+    response = httpx.delete(endpoint, params=params, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("scene cast delete response must be a JSON object")
+    return data
