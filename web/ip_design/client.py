@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from .models import (
+    ListAssetBiblesResponse,
+    ListSceneCastsResponse,
+    SaveResponse,
+)
+
 
 class IPDesignClientError(RuntimeError):
     """Raised when the IP design client cannot satisfy a requested operation."""
@@ -24,7 +30,7 @@ class IPDesignClient(Protocol):
         *,
         workspace_id: str,
         project_id: str,
-    ) -> dict[str, Any]: ...
+    ) -> ListAssetBiblesResponse: ...
 
     def load_asset_bible(
         self,
@@ -41,7 +47,7 @@ class IPDesignClient(Protocol):
         project_id: str,
         asset_bible_id: str,
         payload: dict[str, Any],
-    ) -> dict[str, Any]: ...
+    ) -> SaveResponse: ...
 
     def list_scene_casts(
         self,
@@ -49,7 +55,7 @@ class IPDesignClient(Protocol):
         workspace_id: str,
         project_id: str,
         asset_bible_id: str,
-    ) -> dict[str, Any]: ...
+    ) -> ListSceneCastsResponse: ...
 
     def load_scene_cast(
         self,
@@ -68,7 +74,7 @@ class IPDesignClient(Protocol):
         asset_bible_id: str,
         scene_cast_id: str,
         payload: dict[str, Any],
-    ) -> dict[str, Any]: ...
+    ) -> SaveResponse: ...
 
 
 __all__ = ["IPDesignClient", "IPDesignClientError"]

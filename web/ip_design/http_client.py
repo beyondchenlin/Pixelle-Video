@@ -14,6 +14,12 @@ from web.utils.asset_bible_api import (
     save_scene_cast,
 )
 
+from .models import (
+    ListAssetBiblesResponse,
+    ListSceneCastsResponse,
+    SaveResponse,
+)
+
 
 class HttpIPDesignClient:
     def __init__(
@@ -67,15 +73,15 @@ class HttpIPDesignClient:
         *,
         workspace_id: str,
         project_id: str,
-    ) -> dict[str, Any]:
-        return {
-            "success": True,
-            "asset_bibles": self._asset_bible_loader(
+    ) -> ListAssetBiblesResponse:
+        return ListAssetBiblesResponse(
+            success=True,
+            asset_bibles=self._asset_bible_loader(
                 api_base_url=self.api_base_url,
                 workspace_id=workspace_id,
                 project_id=project_id,
             ),
-        }
+        )
 
     def load_asset_bible(
         self,
@@ -98,13 +104,15 @@ class HttpIPDesignClient:
         project_id: str,
         asset_bible_id: str,
         payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        return self._asset_bible_saver(
-            api_base_url=self.api_base_url,
-            workspace_id=workspace_id,
-            project_id=project_id,
-            asset_bible_id=asset_bible_id,
-            payload=payload,
+    ) -> SaveResponse:
+        return SaveResponse(
+            **self._asset_bible_saver(
+                api_base_url=self.api_base_url,
+                workspace_id=workspace_id,
+                project_id=project_id,
+                asset_bible_id=asset_bible_id,
+                payload=payload,
+            )
         )
 
     def list_scene_casts(
@@ -113,16 +121,16 @@ class HttpIPDesignClient:
         workspace_id: str,
         project_id: str,
         asset_bible_id: str,
-    ) -> dict[str, Any]:
-        return {
-            "success": True,
-            "scene_casts": self._scene_cast_loader(
+    ) -> ListSceneCastsResponse:
+        return ListSceneCastsResponse(
+            success=True,
+            scene_casts=self._scene_cast_loader(
                 api_base_url=self.api_base_url,
                 workspace_id=workspace_id,
                 project_id=project_id,
                 asset_bible_id=asset_bible_id,
             ),
-        }
+        )
 
     def load_scene_cast(
         self,
@@ -148,14 +156,16 @@ class HttpIPDesignClient:
         asset_bible_id: str,
         scene_cast_id: str,
         payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        return self._scene_cast_saver(
-            api_base_url=self.api_base_url,
-            workspace_id=workspace_id,
-            project_id=project_id,
-            asset_bible_id=asset_bible_id,
-            scene_cast_id=scene_cast_id,
-            payload=payload,
+    ) -> SaveResponse:
+        return SaveResponse(
+            **self._scene_cast_saver(
+                api_base_url=self.api_base_url,
+                workspace_id=workspace_id,
+                project_id=project_id,
+                asset_bible_id=asset_bible_id,
+                scene_cast_id=scene_cast_id,
+                payload=payload,
+            )
         )
 
 

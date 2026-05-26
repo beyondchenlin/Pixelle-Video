@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from .models import (
+    ListAssetBiblesResponse,
+    ListSceneCastsResponse,
+    SaveResponse,
+)
+
 from api.asset_bible_responses import asset_bible_response_payload
 from api.schemas.asset_bible import AssetBibleDraftRequest, SceneCastDraftRequest
 from api.schemas.storyboard_workbench import validate_public_reference_id
@@ -71,16 +77,16 @@ class InProcessIPDesignClient:
         *,
         workspace_id: str,
         project_id: str,
-    ) -> dict[str, Any]:
+    ) -> ListAssetBiblesResponse:
         repository = self._require_attr("asset_bible_repository")
         asset_bibles = self._run_async(repository.list_asset_bibles(workspace_id, project_id))
-        return {
-            "success": True,
-            "asset_bibles": [
+        return ListAssetBiblesResponse(
+            success=True,
+            asset_bibles=[
                 asset_bible_response_payload(item, project_id=project_id)
                 for item in asset_bibles
             ],
-        }
+        )
 
     def load_asset_bible(
         self,
@@ -109,7 +115,7 @@ class InProcessIPDesignClient:
         project_id: str,
         asset_bible_id: str,
         payload: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> SaveResponse:
         repository = self._require_attr("asset_bible_repository")
         request = AssetBibleDraftRequest(
             **{
@@ -123,20 +129,13 @@ class InProcessIPDesignClient:
             request.to_model(project_id=project_id).to_dict(),
             existing,
         )
-        saved = self._run_async(
+        self._run_async(
             repository.save_asset_bible(
                 workspace_id,
                 AssetBible.from_dict(asset_bible_payload).to_dict(),
             )
         )
-        return {
-            "success": True,
-            "asset_bible": asset_bible_response_payload(
-                saved,
-                project_id=project_id,
-                asset_bible_id=asset_bible_id,
-            ),
-        }
+        return SaveResponse(success=True)
 
     def list_scene_casts(
         self,
@@ -144,12 +143,12 @@ class InProcessIPDesignClient:
         workspace_id: str,
         project_id: str,
         asset_bible_id: str,
-    ) -> dict[str, Any]:
+    ) -> ListSceneCastsResponse:
         repository = self._require_attr("asset_bible_repository")
         scene_casts = self._run_async(
             repository.list_scene_casts(workspace_id, project_id, asset_bible_id)
         )
-        return {"success": True, "scene_casts": list(scene_casts)}
+        return ListSceneCastsResponse(success=True, scene_casts=list(scene_casts))
 
     def load_scene_cast(
         self,
@@ -177,7 +176,7 @@ class InProcessIPDesignClient:
         asset_bible_id: str,
         scene_cast_id: str,
         payload: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> SaveResponse:
         repository = self._require_attr("asset_bible_repository")
         loaded_asset_bible = self._run_async(
             repository.load_asset_bible(workspace_id, asset_bible_id)
@@ -199,13 +198,13 @@ class InProcessIPDesignClient:
             asset_bible_id=asset_bible_id,
         )
         validate_scene_cast(scene_cast, asset_bible)
-        saved = self._run_async(
+        self._run_async(
             repository.save_scene_cast(
                 workspace_id,
                 scene_cast.to_dict(),
             )
         )
-        return {"success": True, "scene_cast": dict(saved)}
+        return SaveResponse(success=True)
 
     def _require_attr(self, name: str) -> Any:
         value = getattr(self.pixelle_video, name, None)
