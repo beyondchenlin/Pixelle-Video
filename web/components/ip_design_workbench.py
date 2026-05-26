@@ -877,7 +877,7 @@ def _render_select_or_custom(
     selected = ui.selectbox(label, all_options, key=f"{key}_select", index=select_index)
 
     if selected == custom_value:
-        return keyed_text_input(ui, "", key=key, value=current_value if current_value not in options else "")
+        return keyed_text_input(ui, label, key=key, value=current_value if current_value not in options else "")
     st.session_state[key] = selected
     return selected
 
