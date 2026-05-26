@@ -244,7 +244,7 @@ def _target_prompt_label(target: VisualLayerTarget) -> str:
         VisualLayerTarget.BACKGROUND: "background",
         VisualLayerTarget.GLOBAL: "whole image",
     }
-    return labels[target]
+    return labels.get(target, target.value.replace("_", " "))
 
 
 def _rendering_style_prompt_label(style: VisualRenderingStyle) -> str:
@@ -256,7 +256,7 @@ def _rendering_style_prompt_label(style: VisualRenderingStyle) -> str:
         VisualRenderingStyle.CINEMATIC_REALISM: "cinematic realism",
         VisualRenderingStyle.STYLIZED_CHARACTER: "stylized character style",
     }
-    return labels[style]
+    return labels.get(style, style.value.replace("_", " "))
 
 
 def _normalize_targets(values: Sequence[Any]) -> tuple[VisualLayerTarget, ...]:
