@@ -19,6 +19,7 @@ Automatically detects output type based on ExecuteResult.
 
 import os
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any, Optional
 
 from loguru import logger
@@ -27,6 +28,11 @@ from pixelle_video.models.media import MediaResult
 from pixelle_video.runninghub_workflow_contracts import (
     RUNNINGHUB_SOURCE,
     runninghub_registry_root,
+)
+from pixelle_video.utils.os_util import (
+    get_resource_path,
+    list_resource_dirs,
+    list_resource_files,
 )
 from pixelle_video.services.comfy_base_service import ComfyBaseService
 from pixelle_video.services.comfyui_errors import looks_like_memory_exhaustion
@@ -179,14 +185,9 @@ class MediaService(ComfyBaseService):
         
         Override parent method to support multiple prefixes
         """
-        from pathlib import Path
+        if self._workflows_cache is not None:
+            return self._workflows_cache
 
-        from pixelle_video.utils.os_util import (
-            get_resource_path,
-            list_resource_dirs,
-            list_resource_files,
-        )
-        
         workflows = []
         
         # Get all workflow source directories
@@ -245,7 +246,8 @@ class MediaService(ComfyBaseService):
                     logger.error(f"Failed to parse workflow {source_name}/{filename}: {e}")
         
         # Sort by key (source/name)
-        return sorted(workflows, key=lambda w: w["key"])
+        self._workflows_cache = sorted(workflows, key=lambda w: w["key"])
+        return self._workflows_cache
 
     def resolve_workflow_key(
         self,

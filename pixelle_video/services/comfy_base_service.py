@@ -35,7 +35,12 @@ from pixelle_video.runninghub_workflow_contracts import (
     runninghub_registry_root,
     validate_runninghub_descriptor_contract,
 )
-from pixelle_video.utils.os_util import get_resource_path, list_resource_dirs, list_resource_files
+from pixelle_video.utils.os_util import (
+    clear_resource_cache,
+    get_resource_path,
+    list_resource_dirs,
+    list_resource_files,
+)
 from pixelle_video.workflow_content_contracts import (
     build_workflow_file_trace,
     workflow_content_contract,
@@ -127,7 +132,7 @@ class ComfyBaseService:
         self.global_config = comfyui_config
         
         self.service_name = service_name
-        self._workflows_cache: Optional[List[str]] = None
+        self._workflows_cache: Optional[List[Dict[str, Any]]] = None
         
         # Reference to core (for accessing shared ComfyKit)
         self.core = core
@@ -156,6 +161,9 @@ class ComfyBaseService:
                 }
             ]
         """
+        if self._workflows_cache is not None:
+            return self._workflows_cache
+
         workflows = []
         
         # Get all workflow source directories (merged from workflows/ and data/workflows/)
@@ -163,6 +171,7 @@ class ComfyBaseService:
         
         if not source_dirs:
             logger.warning("No workflow source directories found")
+            self._workflows_cache = workflows
             return workflows
         
         # Scan each source directory for workflow files
@@ -193,7 +202,13 @@ class ComfyBaseService:
                     logger.error(f"Failed to parse workflow {source_name}/{filename}: {e}")
         
         # Sort by key (source/name)
-        return sorted(workflows, key=lambda w: w["key"])
+        self._workflows_cache = sorted(workflows, key=lambda w: w["key"])
+        return self._workflows_cache
+
+    def clear_workflows_cache(self):
+        """Clear cached workflow scan results so the next call rescans from disk."""
+        self._workflows_cache = None
+        clear_resource_cache()
 
     def _workflow_file_paths_for_source(self, source_name: str) -> list[Path]:
         if str(source_name).strip().lower() == RUNNINGHUB_SOURCE:

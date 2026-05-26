@@ -14,13 +14,16 @@
 Template utility functions for size parsing and template management
 """
 
+import functools
 import logging
+from collections import defaultdict
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
 from pixelle_video.utils.os_util import (
+    clear_resource_cache,
     get_pixelle_video_root_path,
     get_resource_path,
     list_resource_dirs,
@@ -362,6 +365,7 @@ def format_template_display_info(template_name: str, size: str) -> TemplateDispl
     )
 
 
+@functools.lru_cache(maxsize=1)
 def get_all_templates_with_info() -> List[TemplateInfo]:
     """
     Get all templates with their display information
@@ -392,6 +396,12 @@ def get_all_templates_with_info() -> List[TemplateInfo]:
     return result
 
 
+def clear_template_cache():
+    """Clear cached template scan results so the next call rescans from disk."""
+    get_all_templates_with_info.cache_clear()
+    clear_resource_cache()
+
+
 def get_templates_grouped_by_size() -> dict:
     """
     Get templates grouped by size
@@ -407,8 +417,6 @@ def get_templates_grouped_by_size() -> dict:
         ...     for t in templates:
         ...         print(f"  - {t.display_info.name}")
     """
-    from collections import defaultdict
-    
     templates = get_all_templates_with_info()
     grouped = defaultdict(list)
     
@@ -589,8 +597,6 @@ def get_templates_grouped_by_size_and_type(
         >>> # Get only image templates
         >>> image_grouped = get_templates_grouped_by_size_and_type('image')
     """
-    from collections import defaultdict
-    
     templates = get_all_templates_with_info()
     
     # Filter by type if specified

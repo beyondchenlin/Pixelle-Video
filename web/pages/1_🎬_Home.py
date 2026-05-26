@@ -32,6 +32,9 @@ from web.components.faq import render_faq_sidebar
 from web.components.header import render_header
 from web.components.settings import render_advanced_settings
 
+# Import pipeline registry
+from web.pipelines import get_all_pipeline_uis
+
 # Import state management
 from web.state.session import get_pixelle_video, init_i18n, init_session_state
 
@@ -65,7 +68,6 @@ def main():
     # ========================================================================
     # Pipeline Selection & Delegation
     # ========================================================================
-    from web.pipelines import get_all_pipeline_uis
     
     # Get all registered pipelines
     pipelines = get_all_pipeline_uis()

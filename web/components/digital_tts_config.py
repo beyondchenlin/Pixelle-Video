@@ -21,6 +21,7 @@ from loguru import logger
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.workflow_defaults import DEFAULT_TTS_WORKFLOW
+from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
 from web.components.selfhost_workflow_notice import render_selfhost_workflow_notice
 from web.components.tts_voice_profile_controls import render_tts_voice_profile_controls
 from web.i18n import get_language, tr
@@ -72,9 +73,6 @@ def render_style_config(pixelle_video):
         # Local Mode UI
         # ================================================================
         if tts_mode == "local":
-            # Import voice configuration
-            from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
-            
             # Get saved voice from config
             local_config = tts_config.get("local", {})
             saved_voice = local_config.get("voice", "zh-CN-YunjianNeural")
