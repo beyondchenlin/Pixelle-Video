@@ -17,7 +17,7 @@ from pixelle_video.services.visual_anchor_placement_planner import VisualAnchorP
 
 @dataclass(frozen=True)
 class VisualAnchorIntegrationPlanner:
-    """LLM-first visual anchor integration planner with deterministic fallback."""
+    """LLM-first visual anchor integration planner with deterministic fail-closed fallback."""
 
     llm_service: Any | None = None
 
@@ -84,11 +84,12 @@ def _anchor_profile_payload(anchor_profile: IPProfile) -> dict[str, Any]:
         "style_hint": anchor_profile.style_hint,
         "negative_constraints": list(anchor_profile.negative_constraints),
         "guidance": [
-            "The anchor is a recurring channel signature, not a default protagonist.",
-            "Prefer in-world mark, sticker, label, icon, figurine, wall art, or minor background detail when main subjects are clear.",
-            "Preserve only the identity kernel needed for recognition.",
+            "The signature is a recurring channel visual motif, not a default protagonist.",
+            "Prefer material integration: bookplate, stamp, embossing, engraving, mural, map legend, prop detail, wearable symbol, or a small physical prop resting on an existing support.",
+            "Preserve only the smallest identity kernel needed for recognition.",
             "Never replace named source subjects or key props.",
-            "Do not use a canvas corner logo or floating watermark.",
+            "When no natural scene carrier exists, select suppressed.",
+            "Canvas corner marks, watermarks, floating stickers, UI badges, and logo overlays are invalid.",
         ],
     }
 
