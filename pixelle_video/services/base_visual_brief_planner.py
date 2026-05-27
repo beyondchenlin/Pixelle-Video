@@ -7,11 +7,16 @@ from typing import Any
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.visual_style_contract import VisualLayerTarget, VisualStyleLayerContract
 from pixelle_video.services.source_subject_identity import source_subject_identity_prompt
+from pixelle_video.services.visual_anchor_policy import infer_scene_anchor_affordances
 
 
 @dataclass(frozen=True)
 class BaseVisualBriefPlanner:
-    """Build subject-first visual briefs from anchor-free base prompts."""
+    """Build subject-first visual briefs from anchor-free base prompts.
+
+    This planner also extracts scene affordances for later visual-signature integration.
+    It does not insert the recurring anchor; it only describes safe physical carriers.
+    """
 
     def plan_batch(
         self,
@@ -61,6 +66,12 @@ class BaseVisualBriefPlanner:
             *_read_sequence(frame_plan, "primary_subject"),
             *_read_sequence(frame_plan, "secondary_subjects"),
         ])
+        key_props_symbols = tuple(_read_sequence(frame_context, "world_elements") or _read_sequence(frame_plan, "world_elements"))
+        anchor_affordances = infer_scene_anchor_affordances(
+            base_prompt=str(base_prompt or ""),
+            main_subjects=tuple(main_subjects),
+            key_props=key_props_symbols,
+        )
         camera_plan = _sentence(
             _read_value(frame_context, "shot_type") or _read_value(frame_plan, "shot_type"),
             _read_value(frame_context, "shot_purpose") or _read_value(frame_plan, "shot_purpose"),
@@ -86,8 +97,11 @@ class BaseVisualBriefPlanner:
                 world_preset=world_preset,
                 base_prompt=base_prompt,
             ),
-            key_props_symbols=tuple(_read_sequence(frame_context, "world_elements") or _read_sequence(frame_plan, "world_elements")),
+            key_props_symbols=key_props_symbols,
             readability_constraints=tuple(_readability_constraints(main_subjects, subject_anchors)),
+            anchor_affordances=anchor_affordances.carriers,
+            anchor_forbidden_zones=anchor_affordances.forbidden_zones,
+            anchor_integration_notes=anchor_affordances.notes,
             base_image_prompt=str(base_prompt or "").strip(),
             metadata={"planner": "BaseVisualBriefPlanner", "uses_visual_anchor": False},
         )
@@ -164,7 +178,7 @@ def _style_surface(*, visual_style_contract: VisualStyleLayerContract | None, wo
 
 
 def _readability_constraints(subjects: Sequence[str], subject_anchors: Sequence[str]) -> list[str]:
-    constraints = ["主体轮廓清楚", "关键标志不被遮挡", "背景不抢主体"]
+    constraints = ["主体轮廓清楚", "关键标志清晰可见", "背景服务主体"]
     if len(subjects) >= 2:
         constraints.append("多个主体外观必须清楚区分")
     constraints.extend(subject_anchors)
