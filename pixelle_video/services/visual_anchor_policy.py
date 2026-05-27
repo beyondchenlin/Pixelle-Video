@@ -111,6 +111,35 @@ IN_WORLD_CARRIER_TERMS: tuple[str, ...] = (
     "fabric",
 )
 
+MATERIAL_BINDING_TERMS: tuple[str, ...] = (
+    "表面",
+    "纸面",
+    "木纹",
+    "墙面",
+    "刺绣",
+    "雕刻",
+    "压印",
+    "印刷",
+    "印在",
+    "刻在",
+    "绣在",
+    "画在",
+    "放在",
+    "挂在",
+    "嵌入",
+    "贴合",
+    "融入",
+    "接触",
+    "resting",
+    "attached",
+    "mounted",
+    "painted",
+    "engraved",
+    "printed",
+    "embossed",
+    "embroidered",
+)
+
 ANCHOR_INTERNAL_TERMS: tuple[str, ...] = (
     "视觉锚点",
     "visual anchor",
@@ -242,7 +271,7 @@ def is_scene_bound_anchor_candidate(
         return False
     if _has_any(combined, ("漂浮", "悬浮", "浮在", "floating")):
         return False
-    if not _has_any(combined, ("表面", "纸面", "木纹", "墙面", "刺绣", "雕刻", "压印", "印刷", "放在", "挂在", "嵌入", "贴合", "resting", "engraved", "printed", "embossed")):
+    if not _has_any(combined, MATERIAL_BINDING_TERMS):
         return False
     return True
 
