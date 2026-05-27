@@ -8,6 +8,11 @@ from typing import Any
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.final_visual_prompt_contract import FinalVisualPromptContract, RenderedMediaPrompt
 from pixelle_video.models.visual_anchor_planning import VisualAnchorPlacementPlan
+from pixelle_video.services.visual_anchor_policy import (
+    contains_forbidden_overlay_language,
+    is_scene_bound_anchor_candidate,
+    sanitize_provider_anchor_clause,
+)
 
 
 _FORBIDDEN_PROVIDER_TERMS = (
@@ -36,7 +41,7 @@ _FORBIDDEN_PROVIDER_TERMS = (
 @dataclass(frozen=True)
 class ProviderPromptProjector:
     renderer_id: str = "provider_prompt_projector_z_image"
-    renderer_version: str = "v3_anchor_prominence"
+    renderer_version: str = "v3_1_scene_bound_anchor"
 
     def project(
         self,
@@ -47,9 +52,11 @@ class ProviderPromptProjector:
         capabilities: Any = None,
         workflow: str | None = None,
     ) -> RenderedMediaPrompt:
+        anchor_clause = _safe_visual_anchor_clause(visual_anchor_plan)
         prompt = self._build_prompt(
             base_visual_brief=base_visual_brief,
             visual_anchor_plan=visual_anchor_plan,
+            visual_anchor_clause=anchor_clause,
             negative_rules=negative_rules if _is_positive_only(workflow, capabilities) else (),
         )
         negative_prompt = None if _is_positive_only(workflow, capabilities) else _join_rules(negative_rules)
@@ -61,7 +68,7 @@ class ProviderPromptProjector:
                 base_visual_brief.composition_rules,
             ) or "主体画面构图清晰",
             style_assignment=_join_non_empty(*base_visual_brief.subject_identity_anchors) or "主体视觉特征清楚",
-            character_layer_style=visual_anchor_plan.image_prompt_clause if visual_anchor_plan and visual_anchor_plan.visible else "无额外频道视觉元素",
+            character_layer_style=anchor_clause or "无额外频道视觉元素",
             world_layer_style=base_visual_brief.style_surface or "画面风格与主体表达一致",
             integration_priority=_join_non_empty(*base_visual_brief.readability_constraints) or "画面可读性优先",
             negative_rules=tuple(negative_rules),
@@ -70,7 +77,8 @@ class ProviderPromptProjector:
                 "visual_anchor_plan_version": visual_anchor_plan.version if visual_anchor_plan else None,
                 "anchor_prominence": visual_anchor_plan.anchor_prominence.value if visual_anchor_plan else None,
                 "provider_prompt_projector": self.renderer_id,
-                "ip_present": bool(visual_anchor_plan and visual_anchor_plan.visible),
+                "ip_present": bool(anchor_clause),
+                "scene_bound_anchor_gate": "passed" if anchor_clause else "absent_or_rejected",
             },
         )
         return RenderedMediaPrompt(
@@ -79,7 +87,7 @@ class ProviderPromptProjector:
             prompt_contract=contract,
             renderer_id=self.renderer_id,
             renderer_version=self.renderer_version,
-            metadata={"provider_prompt_mode": "image_facing_structured_projection_v3_anchor_prominence"},
+            metadata={"provider_prompt_mode": "image_facing_structured_projection_v3_1_scene_bound_anchor"},
         )
 
     def _build_prompt(
@@ -87,6 +95,7 @@ class ProviderPromptProjector:
         *,
         base_visual_brief: BaseVisualBrief,
         visual_anchor_plan: VisualAnchorPlacementPlan | None,
+        visual_anchor_clause: str,
         negative_rules: Sequence[str],
     ) -> str:
         base_prompt = _strip_anchor_mentions_from_base_prompt(
@@ -95,12 +104,29 @@ class ProviderPromptProjector:
         )
         parts = [
             base_prompt,
-            visual_anchor_plan.image_prompt_clause if visual_anchor_plan and visual_anchor_plan.visible else "",
+            visual_anchor_clause,
             _image_facing_style_surface(base_visual_brief.style_surface, base_prompt=base_prompt),
             _positive_readability_text(base_visual_brief.readability_constraints),
             _positive_requirements(negative_rules),
         ]
         return _sanitize_provider_prompt(" ".join(part.strip() for part in parts if part and part.strip()))
+
+
+def _safe_visual_anchor_clause(visual_anchor_plan: VisualAnchorPlacementPlan | None) -> str:
+    if not visual_anchor_plan or not visual_anchor_plan.visible:
+        return ""
+    clause = sanitize_provider_anchor_clause(visual_anchor_plan.image_prompt_clause)
+    if not clause or contains_forbidden_overlay_language(clause):
+        return ""
+    if not is_scene_bound_anchor_candidate(
+        image_prompt_clause=clause,
+        support_anchor=visual_anchor_plan.support_anchor,
+        placement=visual_anchor_plan.placement_zone,
+        contact_relation=visual_anchor_plan.contact_relation,
+        carrier_type=visual_anchor_plan.anchor_carrier_type,
+    ):
+        return ""
+    return clause
 
 
 def _strip_anchor_mentions_from_base_prompt(
@@ -144,7 +170,7 @@ def _strip_anchor_mentions_from_base_prompt(
 def _anchor_markers(anchor_text: str) -> tuple[str, ...]:
     markers: list[str] = []
     if "兔" in anchor_text:
-        markers.extend(("白色科技兔子", "白色卡通兔子", "科技兔子", "卡通兔子", "蓝色领结", "长耳朵", "圆润脸型"))
+        markers.extend(("白色科技兔子", "白色卡通兔子", "科技兔子", "卡通兔子", "蓝色领结", "蓝领结", "长耳朵", "圆润脸型"))
     if "麻雀" in anchor_text:
         markers.extend(("红嘴麻雀", "麻雀"))
     return tuple(_dedupe(markers))
@@ -221,7 +247,7 @@ def _negative_rule_to_positive_visual_requirement(text: str) -> str:
     if "不能变成蓝色兔子" in text or "blue rabbit" in lowered:
         return "白色科技兔子保持白色身体，蓝色领结只是小面积识别点"
     if any(token in text for token in ("不能替代", "不要替代")) or "replace source" in lowered or "source subjects" in lowered:
-        return "主要画面主体保持清晰可见，频道视觉元素不遮挡主体"
+        return "主要画面主体保持清晰可见，频道视觉元素贴合场景内物体表面"
     if "不要给奥特曼添加红色披风" in text:
         return "奥特曼保持无披风的银红外星英雄造型"
     if "不要画成蓝色紧身衣人类英雄" in text:
