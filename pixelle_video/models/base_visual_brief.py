@@ -23,9 +23,12 @@ class BaseVisualBrief:
     style_surface: str = ""
     key_props_symbols: tuple[str, ...] = ()
     readability_constraints: tuple[str, ...] = ()
+    anchor_affordances: tuple[str, ...] = ()
+    anchor_forbidden_zones: tuple[str, ...] = ()
+    anchor_integration_notes: tuple[str, ...] = ()
     base_image_prompt: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
-    version: str = "base_visual_brief.v1"
+    version: str = "base_visual_brief.v2_scene_affordances"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_id", _require_non_empty("frame_id", self.frame_id))
@@ -36,6 +39,9 @@ class BaseVisualBrief:
             "subject_identity_anchors",
             "key_props_symbols",
             "readability_constraints",
+            "anchor_affordances",
+            "anchor_forbidden_zones",
+            "anchor_integration_notes",
         ):
             object.__setattr__(self, field_name, _normalize_text_tuple(field_name, getattr(self, field_name)))
         for field_name in (
@@ -71,6 +77,9 @@ class BaseVisualBrief:
             "style_surface": self.style_surface,
             "key_props_symbols": list(self.key_props_symbols),
             "readability_constraints": list(self.readability_constraints),
+            "anchor_affordances": list(self.anchor_affordances),
+            "anchor_forbidden_zones": list(self.anchor_forbidden_zones),
+            "anchor_integration_notes": list(self.anchor_integration_notes),
             "base_image_prompt": self.base_image_prompt,
             "metadata": dict(self.metadata),
         }
