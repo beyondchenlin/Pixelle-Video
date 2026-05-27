@@ -12,7 +12,7 @@ from pixelle_video.models.visual_anchor_planning import VisualAnchorPlacementPla
 from pixelle_video.models.visual_style_contract import VisualStyleLayerContract
 from pixelle_video.services.base_visual_brief_planner import BaseVisualBriefPlanner
 from pixelle_video.services.provider_prompt_projector import ProviderPromptProjector
-from pixelle_video.services.visual_anchor_placement_planner import VisualAnchorPlacementPlanner
+from pixelle_video.services.visual_anchor_integration_planner import VisualAnchorIntegrationPlanner
 
 
 @dataclass(frozen=True)
@@ -31,9 +31,9 @@ class VisualPromptPlanningResult:
 
 @dataclass(frozen=True)
 class VisualPromptPlanningService:
-    """Subject-first visual prompt planning pipeline."""
+    """Subject-first visual planning with LLM-based visual anchor integration."""
 
-    def plan_image_prompts(
+    async def plan_image_prompts(
         self,
         *,
         base_prompts: Sequence[str],
@@ -48,6 +48,9 @@ class VisualPromptPlanningService:
         workflow: str | None = None,
         capabilities: Any = None,
         extra_negative_rules: Sequence[str] = (),
+        llm_service: Any | None = None,
+        trace_context: Any = None,
+        trace_recorder: Any = None,
     ) -> VisualPromptPlanningResult:
         base_visual_briefs = BaseVisualBriefPlanner().plan_batch(
             base_prompts=base_prompts,
@@ -58,12 +61,14 @@ class VisualPromptPlanningService:
             world_preset=world_preset,
         )
         visual_anchor_plans = (
-            VisualAnchorPlacementPlanner().plan_batch(
+            await VisualAnchorIntegrationPlanner(llm_service=llm_service).plan_batch(
                 base_visual_briefs=base_visual_briefs,
                 anchor_profile=anchor_profile,
                 base_packages=base_anchor_packages,
                 frame_contexts=frame_contexts,
                 frame_plans=frame_plans,
+                trace_context=trace_context,
+                trace_recorder=trace_recorder,
             )
             if visual_anchor_enabled and anchor_profile is not None
             else tuple()

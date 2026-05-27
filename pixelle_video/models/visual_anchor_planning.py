@@ -69,7 +69,7 @@ class VisualAnchorPlacementPlan:
     anchor_prominence: AnchorProminence = AnchorProminence.TINY_PROP
     visual_weight_clause: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
-    version: str = "visual_anchor_placement_plan.v2"
+    version: str = "visual_anchor_placement_plan.v3"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_id", _require_non_empty("frame_id", self.frame_id))
@@ -127,7 +127,7 @@ class VisualAnchorPlacementPlan:
                 frame_id=base_package.frame_id,
                 ip_presence_type=IPPresenceType.ABSENT,
                 presence_mode="absent",
-                semantic_reason="visual anchor placement suppressed for this frame",
+                semantic_reason="visual anchor integration suppressed for this frame",
                 must_not_replace=base_package.must_not_replace,
                 identity_anchors_visible=(),
                 identity_anchors_suppressed=base_package.identity_anchors_visible + base_package.identity_anchors_suppressed,
@@ -143,7 +143,7 @@ class VisualAnchorPlacementPlan:
             frame_id=base_package.frame_id,
             ip_presence_type=base_package.ip_presence_type,
             presence_mode=base_package.presence_mode,
-            semantic_reason=f"visual anchor carrier: {self.anchor_carrier_type.value}, prominence: {self.anchor_prominence.value}",
+            semantic_reason=f"visual anchor integration: {self.anchor_carrier_type.value}, prominence: {self.anchor_prominence.value}",
             must_not_replace=base_package.must_not_replace,
             identity_anchors_visible=base_package.identity_anchors_visible,
             identity_anchors_suppressed=base_package.identity_anchors_suppressed,

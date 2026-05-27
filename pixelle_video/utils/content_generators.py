@@ -1660,7 +1660,7 @@ async def generate_styled_image_prompt_batch(
         native_hints=native_hints,
     )
     if media_type == "image":
-        visual_planning_result = VisualPromptPlanningService().plan_image_prompts(
+        visual_planning_result = await VisualPromptPlanningService().plan_image_prompts(
             base_prompts=base_prompts,
             frame_contexts=frame_contexts_for_contract,
             frame_plans=frame_plans,
