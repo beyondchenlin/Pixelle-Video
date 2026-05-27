@@ -32,17 +32,11 @@ All final image prompt strings must be written in English.
 - Use each frame's `frame_source_text`, `visual_goal`, `prompt_intent`, and `focus_detail` together; do not infer the image from an isolated text fragment alone.
 - Preserve continuity across frames by respecting shared subjects, world elements, and any `locked_fields` in the matching prompt_context.
 - When `plan_context.generation_world_profile` exists, use generation_world_profile as the script world profile; it refines world_preset and must preserve any protected original source subject.
-- Use `story_constraints` to protect original landmarks, buildings, people, and other protected subjects, and use `ip_integration_guidance` to decide how the IP belongs in the scene.
-# IP 角色融入（IP Character Integration）
-- 当某帧的 `ip_scene_description` 非空时，它描述的是**画面中已经存在的一个角色**——IP 角色替换了该帧场景中的某个角色位置（主角、配角或路人）。
-- IP 不是额外追加的独立元素。将 ip_scene_description 中的 IP 视觉描述自然地织入场景主描述中，共享同样的光线、构图和氛围。
-- Weave `ip_scene_description` into the main scene as a character already present in the composition; do not overlay it, append it as an extra object, or place it in a separate sentence at the end.
-- 正确做法：将 IP 描述融入场景叙事的同一句话或同一段落内，不要用单独的句子追加在末尾。
-  例如场景是"一对情侣在咖啡馆"，ip_scene_description 是"白色卡通兔子坐在邻桌，蓝色领结在暗处隐约可见"
-  → 正确："一对情侣在咖啡馆，邻桌坐着一只戴着蓝色领结的白色卡通兔子"
-  → 错误："一对情侣在咖啡馆。角落里还有一只白色卡通兔子。"  ← IP 被当成了独立元素追加
-- ip_scene_description 中的 IP 视觉锚点（蓝色领结、长耳朵等）必须全部携带，但要以画面状态描述而非名词罗列（如"蓝色领结在暗处隐约可见"而非"蓝色领结"）。
-- 当 `plan_context.generation_world_profile` 存在时，使用其中的 story_constraints 保护原始主体（地标、历史建筑、宗教人物等），使用 ip_integration_guidance 决定 IP 的融入方式。
+- Use `story_constraints` to protect original landmarks, buildings, people, and other protected subjects.
+# Base Image Boundary
+- This stage generates the subject-first base image prompt only.
+- Do not add recurring channel mascots, IP characters, visual anchors, logos, signature props, rabbits, sparrows, chairs, stones, planes, or other recurring anchor elements unless they are the explicit source subject of the frame.
+- The recurring visual anchor, if enabled, will be placed by a separate downstream visual_anchor_placement stage after this base scene is already formed.
 
 # Output Requirements
 

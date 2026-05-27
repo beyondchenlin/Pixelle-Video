@@ -1,4 +1,4 @@
-﻿# Copyright (C) 2025 AIDC-AI
+# Copyright (C) 2025 AIDC-AI
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -62,6 +62,7 @@ from pixelle_video.services.ip_profile_readiness import (
 )
 from pixelle_video.services.model_prompt_renderer import select_model_prompt_renderer
 from pixelle_video.services.visual_style_contract_resolver import VisualStyleContractResolver
+from pixelle_video.services.visual_prompt_planning_service import VisualPromptPlanningService
 from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
 from pixelle_video.services.llm_interaction_recorder import LLMInteractionRecorder
 from pixelle_video.services.llm_trace_refs import (
@@ -1429,11 +1430,11 @@ async def generate_styled_image_prompt_batch(
         generation_world_profile=generation_world_profile,
     )
 
-    prompt_contexts_for_generation = (
-        normalized_prompt_contexts
-        if ip_prompt_chain_enabled
-        else _strip_ip_prompt_context_fields(normalized_prompt_contexts)
-    )
+    # Base prompt generation is intentionally anchor-free. The recurring visual
+    # anchor is placed only after the subject-first base scene exists.
+    style_context = None
+    ip_adaptation_packages = []
+    prompt_contexts_for_generation = _strip_ip_prompt_context_fields(normalized_prompt_contexts)
     if ip_prompt_chain_enabled:
         style_context = _style_context_payload(
             resolved_style=resolved_style,
@@ -1449,14 +1450,8 @@ async def generate_styled_image_prompt_batch(
             trace_context=trace_context,
             trace_recorder=active_trace_recorder,
         )
-        prompt_contexts_for_generation = _enrich_prompt_contexts_with_ip(
-            normalized_prompt_contexts,
-            expected_count=len(narrations),
-            packages=ip_adaptation_packages,
-            style_context=style_context,
-        )
         planning_snapshot = dict(planning_snapshot or {})
-        planning_snapshot["ip_adaptations_by_frame"] = _ip_adaptations_by_frame(
+        planning_snapshot["initial_ip_adaptations_by_frame"] = _ip_adaptations_by_frame(
             packages=ip_adaptation_packages,
             storyboard_plan=storyboard_plan,
         )
@@ -1559,28 +1554,35 @@ async def generate_styled_image_prompt_batch(
         active_style_item=active_style_item,
         fallback_to_default_world=True,
     )
-    prompt_renderer = select_model_prompt_renderer(
+    visual_planning_result = VisualPromptPlanningService().plan_image_prompts(
+        base_prompts=base_prompts,
+        frame_contexts=frame_contexts_for_contract,
+        frame_plans=frame_plans,
+        visual_style_contract=visual_style_contract,
+        generation_world_profile=generation_world_profile,
+        world_preset=world_preset,
+        visual_anchor_enabled=ip_prompt_chain_enabled,
+        anchor_profile=ip_profile if ip_prompt_chain_enabled else None,
+        base_anchor_packages=tuple(ip_adaptation_packages),
         workflow=workflow,
         capabilities=capabilities,
+        extra_negative_rules=[],
     )
-    prompt_contract_builder = FinalVisualPromptContractBuilder()
-    rendered_media_prompts: list[RenderedMediaPrompt] = []
-    for index, base_prompt in enumerate(base_prompts):
-        frame_context = frame_contexts_for_contract[index]
-        frame_plan = frame_plans[index] if index < len(frame_plans) else None
-        ip_adaptation = frame_context.get("ip_adaptation") if isinstance(frame_context, Mapping) else None
-        contract = prompt_contract_builder.build(
-            base_prompt=base_prompt,
-            frame_context=frame_context,
-            frame_plan=frame_plan,
-            ip_profile=ip_profile if ip_prompt_chain_enabled else None,
-            ip_adaptation=ip_adaptation if isinstance(ip_adaptation, Mapping) else None,
-            visual_style_contract=visual_style_contract,
-            generation_world_profile=generation_world_profile,
-            world_preset=world_preset,
-        )
-        rendered_media_prompts.append(prompt_renderer.render(contract, capabilities=capabilities))
+    rendered_media_prompts = list(visual_planning_result.rendered_prompts)
     final_prompts = [rendered.prompt for rendered in rendered_media_prompts]
+    planning_snapshot = dict(planning_snapshot or {})
+    planning_snapshot.update(visual_planning_result.planning_snapshot())
+    if ip_prompt_chain_enabled and visual_planning_result.anchor_packages:
+        prompt_contexts_for_generation = _enrich_prompt_contexts_with_ip(
+            normalized_prompt_contexts,
+            expected_count=len(narrations),
+            packages=visual_planning_result.anchor_packages,
+            style_context=style_context or {},
+        )
+        planning_snapshot["ip_adaptations_by_frame"] = _ip_adaptations_by_frame(
+            packages=visual_planning_result.anchor_packages,
+            storyboard_plan=storyboard_plan,
+        )
 
     if native_hints:
         final_prompts = [

@@ -1,0 +1,23 @@
+from __future__ import annotations
+
+import json
+from typing import Any, Sequence
+
+from pixelle_video.prompts.template_loader import RenderedPrompt, render_prompt_template
+
+
+def render_visual_anchor_placement_prompt(
+    *,
+    base_visual_briefs_json: Sequence[dict[str, Any]],
+    anchor_profile_json: dict[str, Any],
+) -> RenderedPrompt:
+    return render_prompt_template(
+        "visual_anchor_placement",
+        {
+            "base_visual_briefs_json": json.dumps(list(base_visual_briefs_json), ensure_ascii=False, indent=2),
+            "anchor_profile_json": json.dumps(anchor_profile_json, ensure_ascii=False, indent=2),
+        },
+    )
+
+
+__all__ = ["render_visual_anchor_placement_prompt"]
