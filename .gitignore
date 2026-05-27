@@ -64,8 +64,11 @@ test_outputs/
 *.mp3
 *.wav
 *.bak
-test_*.py
+# Ignore ad-hoc root-level test scripts, but keep the real pytest suite.
+/test_*.py
+!tests/
 !tests/test_*.py
+!tests/**/*.py
 
 !bgm/default.mp3
 
