@@ -1673,6 +1673,9 @@ async def generate_styled_image_prompt_batch(
             workflow=workflow,
             capabilities=capabilities,
             extra_negative_rules=provider_negative_rules,
+            llm_service=llm_service,
+            trace_context=trace_context,
+            trace_recorder=active_trace_recorder,
         )
         rendered_media_prompts = list(visual_planning_result.rendered_prompts)
         final_prompts = [rendered.prompt for rendered in rendered_media_prompts]
