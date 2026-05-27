@@ -11,6 +11,11 @@ from pixelle_video.models.visual_anchor_planning import (
     AnchorStyleRelation,
     VisualAnchorPlacementPlan,
 )
+from pixelle_video.services.visual_anchor_policy import (
+    contains_forbidden_overlay_language,
+    is_scene_bound_anchor_candidate,
+    sanitize_provider_anchor_clause,
+)
 
 
 class VisualAnchorAffordanceResponse(BaseModel):
@@ -21,12 +26,17 @@ class VisualAnchorAffordanceResponse(BaseModel):
     safe_edges: list[str] = Field(default_factory=list)
     forbidden_zones: list[str] = Field(default_factory=list)
 
+    @field_validator("safe_edges")
+    @classmethod
+    def _reject_canvas_edges(cls, values: list[str]) -> list[str]:
+        return [value for value in values if not contains_forbidden_overlay_language(value)]
+
 
 class VisualAnchorIntegrationCandidateResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    carrier_type: AnchorCarrierType = AnchorCarrierType.EMBEDDED_MARK
-    anchor_function: AnchorFunction = AnchorFunction.EMBEDDED_MARK
+    carrier_type: AnchorCarrierType = AnchorCarrierType.BOOKPLATE_OR_STAMP
+    anchor_function: AnchorFunction = AnchorFunction.MATERIAL_SIGNATURE
     prominence: AnchorProminence = AnchorProminence.EMBEDDED_MARK
     style_relation: AnchorStyleRelation = AnchorStyleRelation.BLENDED
     placement: str = ""
@@ -48,6 +58,28 @@ class VisualAnchorIntegrationCandidateResponse(BaseModel):
         object.__setattr__(self, "identity_preservation_score", _clamp_score(self.identity_preservation_score))
         return self
 
+    @model_validator(mode="after")
+    def _validate_visible_candidate(self) -> "VisualAnchorIntegrationCandidateResponse":
+        if self.carrier_type is AnchorCarrierType.SUPPRESSED or self.prominence is AnchorProminence.HIDDEN:
+            return self
+
+        clause = sanitize_provider_anchor_clause(self.image_prompt_clause)
+        if not is_scene_bound_anchor_candidate(
+            image_prompt_clause=clause,
+            support_anchor=self.support_anchor,
+            placement=self.placement,
+            contact_relation=self.contact_relation,
+            carrier_type=self.carrier_type,
+        ):
+            raise ValueError("visible visual anchor candidate must be scene-bound and non-overlay")
+
+        object.__setattr__(self, "image_prompt_clause", clause)
+        return self
+
+    @property
+    def is_suppressed(self) -> bool:
+        return self.carrier_type is AnchorCarrierType.SUPPRESSED or self.prominence is AnchorProminence.HIDDEN
+
 
 class VisualAnchorIntegrationPlanResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -66,22 +98,47 @@ class VisualAnchorIntegrationPlanResponse(BaseModel):
         return text
 
     def selected_candidate(self) -> VisualAnchorIntegrationCandidateResponse | None:
-        if not self.candidates:
+        valid_candidates = [candidate for candidate in self.candidates if _candidate_is_usable(candidate)]
+        if not valid_candidates:
             return None
-        index = min(max(int(self.selected_index or 0), 0), len(self.candidates) - 1)
-        return self.candidates[index]
+
+        if self.candidates:
+            index = min(max(int(self.selected_index or 0), 0), len(self.candidates) - 1)
+            selected = self.candidates[index]
+            if _candidate_is_usable(selected):
+                return selected
+
+        return sorted(
+            valid_candidates,
+            key=lambda candidate: (
+                candidate.is_suppressed,
+                candidate.disruption_risk,
+                -candidate.scene_coherence_score,
+                -candidate.identity_preservation_score,
+            ),
+        )[0]
 
     def to_placement_plan(self, fallback: VisualAnchorPlacementPlan | None = None) -> VisualAnchorPlacementPlan:
         candidate = self.selected_candidate()
-        if candidate is None or not str(candidate.image_prompt_clause or "").strip():
+        if candidate is None:
             if fallback is not None:
                 return fallback
-            return _hidden_plan(self.frame_id, reason="llm_empty_candidate")
+            return _hidden_plan(self.frame_id, reason="llm_no_usable_candidate")
 
-        # Reject obvious overlay/logo-corner candidates. Fall back to deterministic in-world placement.
-        if _looks_like_canvas_overlay(candidate.image_prompt_clause, candidate.support_anchor, candidate.placement):
+        if candidate.is_suppressed:
+            return _hidden_plan(self.frame_id, reason=candidate.reason or "llm_selected_suppressed")
+
+        clause = sanitize_provider_anchor_clause(candidate.image_prompt_clause)
+        if contains_forbidden_overlay_language(clause) or not is_scene_bound_anchor_candidate(
+            image_prompt_clause=clause,
+            support_anchor=candidate.support_anchor,
+            placement=candidate.placement,
+            contact_relation=candidate.contact_relation,
+            carrier_type=candidate.carrier_type,
+        ):
             if fallback is not None:
                 return fallback
+            return _hidden_plan(self.frame_id, reason="llm_candidate_rejected_by_scene_bound_gate")
 
         return VisualAnchorPlacementPlan(
             frame_id=self.frame_id,
@@ -92,14 +149,15 @@ class VisualAnchorIntegrationPlanResponse(BaseModel):
             placement_zone=candidate.placement,
             support_anchor=candidate.support_anchor,
             scale_ratio=candidate.visual_weight_clause,
-            depth_layer=_depth_layer_from_placement(candidate.placement),
+            depth_layer=_depth_layer_from_placement(candidate.placement, candidate.support_anchor),
             contact_relation=candidate.contact_relation,
             interaction_target=candidate.interaction_target,
             occlusion_relation=candidate.occlusion_relation,
             style_relation=candidate.style_relation,
-            image_prompt_clause=candidate.image_prompt_clause,
+            image_prompt_clause=clause,
             metadata={
                 "source": "llm_visual_anchor_integration",
+                "policy": "v3_1_scene_bound_no_overlay",
                 "scene_coherence_score": candidate.scene_coherence_score,
                 "disruption_risk": candidate.disruption_risk,
                 "identity_preservation_score": candidate.identity_preservation_score,
@@ -114,6 +172,18 @@ class VisualAnchorIntegrationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     visual_anchor_integration_plans: list[VisualAnchorIntegrationPlanResponse]
+
+
+def _candidate_is_usable(candidate: VisualAnchorIntegrationCandidateResponse) -> bool:
+    if candidate.is_suppressed:
+        return True
+    return is_scene_bound_anchor_candidate(
+        image_prompt_clause=sanitize_provider_anchor_clause(candidate.image_prompt_clause),
+        support_anchor=candidate.support_anchor,
+        placement=candidate.placement,
+        contact_relation=candidate.contact_relation,
+        carrier_type=candidate.carrier_type,
+    )
 
 
 def _hidden_plan(frame_id: str, *, reason: str) -> VisualAnchorPlacementPlan:
@@ -132,17 +202,8 @@ def _hidden_plan(frame_id: str, *, reason: str) -> VisualAnchorPlacementPlan:
         occlusion_relation="",
         style_relation=AnchorStyleRelation.BLENDED,
         image_prompt_clause="",
-        metadata={"source": reason},
+        metadata={"source": reason, "policy": "v3_1_fail_closed"},
     )
-
-
-def _looks_like_canvas_overlay(clause: str, support_anchor: str, placement: str) -> bool:
-    text = f"{clause} {support_anchor} {placement}"
-    overlay_words = ("画面角落", "右上角", "左上角", "右下角", "左下角", "角标", "logo", "水印")
-    material_words = ("书页", "屏幕", "黑板", "讲解板", "墙面", "相框", "桌面", "衣服", "纸张", "地图", "迷宫", "边框", "木板")
-    if any(word in text for word in overlay_words) and not any(word in text for word in material_words):
-        return True
-    return False
 
 
 def _clamp_score(value: Any) -> int:
@@ -153,13 +214,13 @@ def _clamp_score(value: Any) -> int:
     return min(max(score, 1), 10)
 
 
-def _depth_layer_from_placement(value: str) -> str:
-    text = str(value or "")
-    if any(token in text for token in ("前景", "下方", "桌面", "纸面", "书页")):
-        return "前景或画面边缘"
-    if any(token in text for token in ("背景", "远处", "墙面", "窗边")):
-        return "背景边缘"
-    return "画面边缘层"
+def _depth_layer_from_placement(placement: str, support_anchor: str = "") -> str:
+    text = f"{placement} {support_anchor}"
+    if any(token in text for token in ("书页", "纸面", "卡片", "文件", "桌面", "书签")):
+        return "附着在前景或中景实物表面"
+    if any(token in text for token in ("背景", "远处", "墙面", "窗边", "路牌", "招牌")):
+        return "附着在背景环境实物表面"
+    return "附着在场景内实物表面"
 
 
 __all__ = [
