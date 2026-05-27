@@ -12,8 +12,10 @@ class SourceSubjectIdentityHint:
     positive_visual_anchors: tuple[str, ...]
     separation_rules: tuple[str, ...] = ()
 
-    def prompt_clause(self) -> str:
+    def prompt_clause(self, *, include_separation_rules: bool = False) -> str:
         anchors = "，".join(self.positive_visual_anchors)
+        if not include_separation_rules:
+            return f"{self.subject_id}视觉锚点：{anchors}"
         rules = "，".join(self.separation_rules)
         if rules:
             return f"{self.subject_id}视觉锚点：{anchors}；区分规则：{rules}"

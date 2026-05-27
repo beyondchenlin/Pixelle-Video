@@ -40,6 +40,7 @@ from pixelle_video.models.llm_interaction_trace import (
 from pixelle_video.models.native_prompt import NativePromptHint
 from pixelle_video.models.progress import ProgressI18nMessage
 from pixelle_video.models.final_visual_prompt_contract import (
+    FinalVisualPromptContract,
     RenderedMediaPrompt,
     join_rendered_negative_prompts,
 )
@@ -121,6 +122,103 @@ def _resolve_llm_prompt_batch_concurrency(max_concurrency: Optional[int]) -> int
     if max_concurrency is not None:
         return max(1, int(max_concurrency))
     return DEFAULT_PROMPT_BATCH_CONCURRENT_LIMIT
+
+
+def _provider_negative_rules_for_projection(
+    *,
+    resolved_style: Any = None,
+    style_profile: Mapping[str, Any] | None = None,
+    text_rendering_settings: Any = None,
+    resolved_text_policy: Any = None,
+    native_hints: Mapping[int, Sequence[Any]] | None = None,
+) -> list[str]:
+    rules: list[str] = []
+
+    negative_prompt = getattr(resolved_style, "negative_prompt", "") if resolved_style is not None else ""
+    _extend_prompt_rules(rules, negative_prompt)
+
+    if isinstance(style_profile, Mapping):
+        _extend_prompt_rules(rules, style_profile.get("negative_rules"))
+
+    has_any_native_hints = any(native_hints.values()) if isinstance(native_hints, Mapping) else False
+    native_text_allowed = bool(getattr(resolved_text_policy, "allow_native_text_in_image", False))
+    if has_any_native_hints and native_text_allowed and resolved_text_policy is not None:
+        _extend_prompt_rules(
+            rules,
+            select_negative_text_rules(
+                policy=resolved_text_policy,
+                has_native_hints=True,
+            ),
+        )
+    elif text_rendering_settings is not None:
+        _extend_prompt_rules(
+            rules,
+            select_image_text_negative_prompt(text_rendering_settings.image_text),
+        )
+
+    return _dedupe_prompt_rules(rules)
+
+
+def _extend_prompt_rules(target: list[str], value: Any) -> None:
+    if value is None:
+        return
+    if isinstance(value, str):
+        for part in value.replace("；", ",").split(","):
+            text = part.strip()
+            if text:
+                target.append(text)
+        return
+    if isinstance(value, Sequence):
+        for item in value:
+            text = str(item or "").strip()
+            if text:
+                target.append(text)
+
+
+def _dedupe_prompt_rules(values: Sequence[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return result
+
+
+def _passthrough_rendered_media_prompt(
+    prompt: str,
+    *,
+    media_type: str,
+    frame_index: int,
+    negative_rules: Sequence[str] = (),
+) -> RenderedMediaPrompt:
+    contract = FinalVisualPromptContract(
+        scene=str(prompt or "").strip() or "media prompt",
+        composition=f"{media_type} prompt passthrough",
+        style_assignment="preserve generated media prompt semantics",
+        character_layer_style="no image visual anchor projection applied",
+        world_layer_style="preserve generated media prompt style",
+        integration_priority="preserve prompt content for downstream media workflow",
+        negative_rules=tuple(negative_rules),
+        metadata={
+            "provider_prompt_mode": "passthrough_non_image_media",
+            "frame_index": frame_index,
+            "media_type": media_type,
+        },
+    )
+    return RenderedMediaPrompt(
+        prompt=contract.scene,
+        negative_prompt=", ".join(negative_rules) if negative_rules else None,
+        prompt_contract=contract,
+        renderer_id=f"{media_type}_passthrough_prompt_renderer",
+        renderer_version="v1",
+        metadata={"provider_prompt_mode": "passthrough_non_image_media"},
+    )
 
 
 def _serialize_storyboard_frame_plan(frame_plan: Any) -> dict[str, Any]:
@@ -1554,35 +1652,54 @@ async def generate_styled_image_prompt_batch(
         active_style_item=active_style_item,
         fallback_to_default_world=True,
     )
-    visual_planning_result = VisualPromptPlanningService().plan_image_prompts(
-        base_prompts=base_prompts,
-        frame_contexts=frame_contexts_for_contract,
-        frame_plans=frame_plans,
-        visual_style_contract=visual_style_contract,
-        generation_world_profile=generation_world_profile,
-        world_preset=world_preset,
-        visual_anchor_enabled=ip_prompt_chain_enabled,
-        anchor_profile=ip_profile if ip_prompt_chain_enabled else None,
-        base_anchor_packages=tuple(ip_adaptation_packages),
-        workflow=workflow,
-        capabilities=capabilities,
-        extra_negative_rules=[],
+    provider_negative_rules = _provider_negative_rules_for_projection(
+        resolved_style=resolved_style,
+        style_profile=style_profile,
+        text_rendering_settings=text_rendering_settings,
+        resolved_text_policy=resolved_text_policy,
+        native_hints=native_hints,
     )
-    rendered_media_prompts = list(visual_planning_result.rendered_prompts)
-    final_prompts = [rendered.prompt for rendered in rendered_media_prompts]
-    planning_snapshot = dict(planning_snapshot or {})
-    planning_snapshot.update(visual_planning_result.planning_snapshot())
-    if ip_prompt_chain_enabled and visual_planning_result.anchor_packages:
-        prompt_contexts_for_generation = _enrich_prompt_contexts_with_ip(
-            normalized_prompt_contexts,
-            expected_count=len(narrations),
-            packages=visual_planning_result.anchor_packages,
-            style_context=style_context or {},
+    if media_type == "image":
+        visual_planning_result = VisualPromptPlanningService().plan_image_prompts(
+            base_prompts=base_prompts,
+            frame_contexts=frame_contexts_for_contract,
+            frame_plans=frame_plans,
+            visual_style_contract=visual_style_contract,
+            generation_world_profile=generation_world_profile,
+            world_preset=world_preset,
+            visual_anchor_enabled=ip_prompt_chain_enabled,
+            anchor_profile=ip_profile if ip_prompt_chain_enabled else None,
+            base_anchor_packages=tuple(ip_adaptation_packages),
+            workflow=workflow,
+            capabilities=capabilities,
+            extra_negative_rules=provider_negative_rules,
         )
-        planning_snapshot["ip_adaptations_by_frame"] = _ip_adaptations_by_frame(
-            packages=visual_planning_result.anchor_packages,
-            storyboard_plan=storyboard_plan,
-        )
+        rendered_media_prompts = list(visual_planning_result.rendered_prompts)
+        final_prompts = [rendered.prompt for rendered in rendered_media_prompts]
+        planning_snapshot = dict(planning_snapshot or {})
+        planning_snapshot.update(visual_planning_result.planning_snapshot())
+        if ip_prompt_chain_enabled and visual_planning_result.anchor_packages:
+            prompt_contexts_for_generation = _enrich_prompt_contexts_with_ip(
+                normalized_prompt_contexts,
+                expected_count=len(narrations),
+                packages=visual_planning_result.anchor_packages,
+                style_context=style_context or {},
+            )
+            planning_snapshot["ip_adaptations_by_frame"] = _ip_adaptations_by_frame(
+                packages=visual_planning_result.anchor_packages,
+                storyboard_plan=storyboard_plan,
+            )
+    else:
+        rendered_media_prompts = [
+            _passthrough_rendered_media_prompt(
+                prompt,
+                media_type=media_type,
+                frame_index=index,
+                negative_rules=provider_negative_rules,
+            )
+            for index, prompt in enumerate(base_prompts)
+        ]
+        final_prompts = [rendered.prompt for rendered in rendered_media_prompts]
 
     if native_hints:
         final_prompts = [

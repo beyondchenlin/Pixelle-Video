@@ -83,10 +83,25 @@ class ProviderPromptProjector:
             base_visual_brief.base_image_prompt,
             visual_anchor_plan.image_prompt_clause if visual_anchor_plan and visual_anchor_plan.visible else "",
             base_visual_brief.style_surface,
-            _join_non_empty(*base_visual_brief.readability_constraints),
+            _positive_readability_text(base_visual_brief.readability_constraints),
             _positive_requirements(negative_rules),
         ]
         return _sanitize_provider_prompt(" ".join(part.strip() for part in parts if part and part.strip()))
+
+
+def _positive_readability_text(rules: Sequence[str]) -> str:
+    positive_rules: list[str] = []
+    for rule in rules:
+        text = str(rule or "").strip()
+        if not text:
+            continue
+        if _looks_like_negative_rule(text):
+            converted = _negative_rule_to_positive_visual_requirement(text)
+            if converted:
+                positive_rules.append(converted)
+            continue
+        positive_rules.append(text)
+    return "；".join(_dedupe(positive_rules))
 
 
 def _positive_requirements(rules: Sequence[str]) -> str:
@@ -97,14 +112,49 @@ def _positive_requirements(rules: Sequence[str]) -> str:
         text = str(rule or "").strip()
         if not text:
             continue
-        if "不能变成蓝色兔子" in text or "blue rabbit" in text.lower():
-            converted.append("白色科技兔子保持白色身体，蓝色领结只是小面积识别点")
+        positive = _negative_rule_to_positive_visual_requirement(text)
+        if positive:
+            converted.append(positive)
             continue
-        if any(token in text for token in ("不能替代", "不要替代", "source subjects", "replace source")):
-            converted.append("主要画面主体保持清晰可见，频道视觉元素不遮挡主体")
+        if _looks_like_negative_rule(text):
             continue
         converted.append(text)
     return "；".join(_dedupe(converted))
+
+
+def _looks_like_negative_rule(text: str) -> bool:
+    lowered = text.lower()
+    return any(
+        token in lowered
+        for token in (
+            "不要",
+            "不能",
+            "避免",
+            "禁止",
+            "do not",
+            "don't",
+            "not ",
+            "no ",
+            "negative",
+            "replace source",
+            "source subjects",
+        )
+    )
+
+
+def _negative_rule_to_positive_visual_requirement(text: str) -> str:
+    lowered = text.lower()
+    if "不能变成蓝色兔子" in text or "blue rabbit" in lowered:
+        return "白色科技兔子保持白色身体，蓝色领结只是小面积识别点"
+    if any(token in text for token in ("不能替代", "不要替代")) or "replace source" in lowered or "source subjects" in lowered:
+        return "主要画面主体保持清晰可见，频道视觉元素不遮挡主体"
+    if "不要给奥特曼添加红色披风" in text:
+        return "奥特曼保持无披风的银红外星英雄造型"
+    if "不要画成蓝色紧身衣人类英雄" in text:
+        return "奥特曼保持银红外星英雄造型、椭圆黄色眼睛和胸前能量计时器"
+    if "不要画成银色外星面具" in text or "不要画成奥特曼盔甲" in text or "不要使用椭圆黄色发光眼睛" in text:
+        return "超人保持人类男性超级英雄造型、蓝色战衣、红色披风、胸前S标志和黑发"
+    return ""
 
 
 def _sanitize_provider_prompt(prompt: str) -> str:
