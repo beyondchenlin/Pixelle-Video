@@ -43,6 +43,15 @@ class AnchorStyleRelation(str, Enum):
     INDEPENDENT = "independent"
 
 
+class AnchorProminence(str, Enum):
+    HIDDEN = "hidden"
+    EMBEDDED_MARK = "embedded_mark"
+    TINY_PROP = "tiny_prop"
+    MICRO_CAMEO = "micro_cameo"
+    SMALL_SIDE_CHARACTER = "small_side_character"
+    PRIMARY_CARRIER = "primary_carrier"
+
+
 @dataclass(frozen=True)
 class VisualAnchorPlacementPlan:
     frame_id: str
@@ -57,14 +66,17 @@ class VisualAnchorPlacementPlan:
     occlusion_relation: str
     style_relation: AnchorStyleRelation
     image_prompt_clause: str
+    anchor_prominence: AnchorProminence = AnchorProminence.TINY_PROP
+    visual_weight_clause: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
-    version: str = "visual_anchor_placement_plan.v1"
+    version: str = "visual_anchor_placement_plan.v2"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_id", _require_non_empty("frame_id", self.frame_id))
         object.__setattr__(self, "anchor_function", AnchorFunction(self.anchor_function))
         object.__setattr__(self, "anchor_carrier_type", AnchorCarrierType(self.anchor_carrier_type))
         object.__setattr__(self, "style_relation", AnchorStyleRelation(self.style_relation))
+        object.__setattr__(self, "anchor_prominence", AnchorProminence(self.anchor_prominence))
         for field_name in (
             "placement_zone",
             "support_anchor",
@@ -74,6 +86,7 @@ class VisualAnchorPlacementPlan:
             "interaction_target",
             "occlusion_relation",
             "image_prompt_clause",
+            "visual_weight_clause",
         ):
             object.__setattr__(self, field_name, _optional_text(getattr(self, field_name)))
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
@@ -84,6 +97,7 @@ class VisualAnchorPlacementPlan:
         return (
             self.anchor_function is not AnchorFunction.SUPPRESSED
             and self.anchor_carrier_type is not AnchorCarrierType.SUPPRESSED
+            and self.anchor_prominence is not AnchorProminence.HIDDEN
             and bool(self.image_prompt_clause)
         )
 
@@ -93,6 +107,8 @@ class VisualAnchorPlacementPlan:
             "frame_id": self.frame_id,
             "anchor_function": self.anchor_function.value,
             "anchor_carrier_type": self.anchor_carrier_type.value,
+            "anchor_prominence": self.anchor_prominence.value,
+            "visual_weight_clause": self.visual_weight_clause,
             "placement_zone": self.placement_zone,
             "support_anchor": self.support_anchor,
             "scale_ratio": self.scale_ratio,
@@ -127,7 +143,7 @@ class VisualAnchorPlacementPlan:
             frame_id=base_package.frame_id,
             ip_presence_type=base_package.ip_presence_type,
             presence_mode=base_package.presence_mode,
-            semantic_reason=f"visual anchor carrier: {self.anchor_carrier_type.value}",
+            semantic_reason=f"visual anchor carrier: {self.anchor_carrier_type.value}, prominence: {self.anchor_prominence.value}",
             must_not_replace=base_package.must_not_replace,
             identity_anchors_visible=base_package.identity_anchors_visible,
             identity_anchors_suppressed=base_package.identity_anchors_suppressed,
@@ -179,6 +195,7 @@ def _optional_text(value: Any) -> str:
 __all__ = [
     "AnchorCarrierType",
     "AnchorFunction",
+    "AnchorProminence",
     "AnchorStyleRelation",
     "VisualAnchorPlacementPlan",
 ]

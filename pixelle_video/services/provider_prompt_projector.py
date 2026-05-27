@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -25,13 +26,17 @@ _FORBIDDEN_PROVIDER_TERMS = (
     "style_relation",
     "Priority",
     "priority",
+    "scale_ratio",
+    "non-IP",
+    "non ip",
+    "history-teaching",
 )
 
 
 @dataclass(frozen=True)
 class ProviderPromptProjector:
     renderer_id: str = "provider_prompt_projector_z_image"
-    renderer_version: str = "v1"
+    renderer_version: str = "v3_anchor_prominence"
 
     def project(
         self,
@@ -50,15 +55,20 @@ class ProviderPromptProjector:
         negative_prompt = None if _is_positive_only(workflow, capabilities) else _join_rules(negative_rules)
         contract = FinalVisualPromptContract(
             scene=base_visual_brief.base_image_prompt,
-            composition=_join_non_empty(base_visual_brief.spatial_layout, base_visual_brief.camera_plan, base_visual_brief.composition_rules) or "主体画面构图清晰",
+            composition=_join_non_empty(
+                base_visual_brief.spatial_layout,
+                base_visual_brief.camera_plan,
+                base_visual_brief.composition_rules,
+            ) or "主体画面构图清晰",
             style_assignment=_join_non_empty(*base_visual_brief.subject_identity_anchors) or "主体视觉特征清楚",
-            character_layer_style=visual_anchor_plan.image_prompt_clause if visual_anchor_plan and visual_anchor_plan.visible else "无额外频道视觉锚点",
+            character_layer_style=visual_anchor_plan.image_prompt_clause if visual_anchor_plan and visual_anchor_plan.visible else "无额外频道视觉元素",
             world_layer_style=base_visual_brief.style_surface or "画面风格与主体表达一致",
             integration_priority=_join_non_empty(*base_visual_brief.readability_constraints) or "画面可读性优先",
             negative_rules=tuple(negative_rules),
             metadata={
                 "base_visual_brief_version": base_visual_brief.version,
                 "visual_anchor_plan_version": visual_anchor_plan.version if visual_anchor_plan else None,
+                "anchor_prominence": visual_anchor_plan.anchor_prominence.value if visual_anchor_plan else None,
                 "provider_prompt_projector": self.renderer_id,
                 "ip_present": bool(visual_anchor_plan and visual_anchor_plan.visible),
             },
@@ -69,7 +79,7 @@ class ProviderPromptProjector:
             prompt_contract=contract,
             renderer_id=self.renderer_id,
             renderer_version=self.renderer_version,
-            metadata={"provider_prompt_mode": "image_facing_structured_projection"},
+            metadata={"provider_prompt_mode": "image_facing_structured_projection_v3_anchor_prominence"},
         )
 
     def _build_prompt(
@@ -79,14 +89,77 @@ class ProviderPromptProjector:
         visual_anchor_plan: VisualAnchorPlacementPlan | None,
         negative_rules: Sequence[str],
     ) -> str:
-        parts = [
+        base_prompt = _strip_anchor_mentions_from_base_prompt(
             base_visual_brief.base_image_prompt,
+            visual_anchor_plan=visual_anchor_plan,
+        )
+        parts = [
+            base_prompt,
             visual_anchor_plan.image_prompt_clause if visual_anchor_plan and visual_anchor_plan.visible else "",
-            base_visual_brief.style_surface,
+            _image_facing_style_surface(base_visual_brief.style_surface, base_prompt=base_prompt),
             _positive_readability_text(base_visual_brief.readability_constraints),
             _positive_requirements(negative_rules),
         ]
         return _sanitize_provider_prompt(" ".join(part.strip() for part in parts if part and part.strip()))
+
+
+def _strip_anchor_mentions_from_base_prompt(
+    base_prompt: str,
+    *,
+    visual_anchor_plan: VisualAnchorPlacementPlan | None,
+) -> str:
+    if not visual_anchor_plan or not visual_anchor_plan.visible:
+        return str(base_prompt or "").strip()
+
+    anchor_markers = _anchor_markers(visual_anchor_plan.image_prompt_clause)
+    if not anchor_markers:
+        return str(base_prompt or "").strip()
+
+    chunks = re.split(r"([。；;!?！？])", str(base_prompt or ""))
+    rebuilt: list[str] = []
+    index = 0
+    while index < len(chunks):
+        chunk = chunks[index]
+        punct = chunks[index + 1] if index + 1 < len(chunks) else ""
+        sentence = chunk + punct
+        if not _contains_any(sentence, anchor_markers):
+            rebuilt.append(sentence)
+        index += 2
+    cleaned = "".join(rebuilt).strip()
+    if cleaned:
+        return cleaned
+
+    clauses = re.split(r"([，,])", str(base_prompt or ""))
+    rebuilt_clauses: list[str] = []
+    index = 0
+    while index < len(clauses):
+        clause = clauses[index]
+        sep = clauses[index + 1] if index + 1 < len(clauses) else ""
+        if not _contains_any(clause, anchor_markers):
+            rebuilt_clauses.append(clause + sep)
+        index += 2
+    return "".join(rebuilt_clauses).strip() or str(base_prompt or "").strip()
+
+
+def _anchor_markers(anchor_text: str) -> tuple[str, ...]:
+    markers: list[str] = []
+    if "兔" in anchor_text:
+        markers.extend(("白色科技兔子", "白色卡通兔子", "科技兔子", "卡通兔子", "蓝色领结", "长耳朵", "圆润脸型"))
+    if "麻雀" in anchor_text:
+        markers.extend(("红嘴麻雀", "麻雀"))
+    return tuple(_dedupe(markers))
+
+
+def _image_facing_style_surface(style_surface: str, *, base_prompt: str = "") -> str:
+    text = f"{style_surface or ''} {base_prompt or ''}".lower()
+    clauses: list[str] = []
+    if any(token in text for token in ("flat monochrome", "monochrome", "black-and-white", "黑白", "单色", "灰", "line art", "线条", "扁平")):
+        clauses.append("黑白灰扁平插画，线条简洁，二维无纹理，背景简洁")
+    elif any(token in text for token in ("storybook", "hand-painted", "插画", "绘本")):
+        clauses.append("柔和插画风格，光线自然，构图清晰")
+    if any(token in text for token in ("minimal", "negative space", "简洁", "留白")):
+        clauses.append("画面保留留白，避免杂乱细节")
+    return "，".join(_dedupe(clauses))
 
 
 def _positive_readability_text(rules: Sequence[str]) -> str:
@@ -135,6 +208,7 @@ def _looks_like_negative_rule(text: str) -> bool:
             "don't",
             "not ",
             "no ",
+            "avoid",
             "negative",
             "replace source",
             "source subjects",
@@ -154,6 +228,8 @@ def _negative_rule_to_positive_visual_requirement(text: str) -> str:
         return "奥特曼保持银红外星英雄造型、椭圆黄色眼睛和胸前能量计时器"
     if "不要画成银色外星面具" in text or "不要画成奥特曼盔甲" in text or "不要使用椭圆黄色发光眼睛" in text:
         return "超人保持人类男性超级英雄造型、蓝色战衣、红色披风、胸前S标志和黑发"
+    if "avoid complex textures" in lowered or "gradients" in lowered or "detailed backgrounds" in lowered:
+        return "画面保持简洁背景、平面线条和低细节质感"
     return ""
 
 
@@ -170,6 +246,10 @@ def _sanitize_provider_prompt(prompt: str) -> str:
         cleaned = cleaned.replace(source, target)
     for term in _FORBIDDEN_PROVIDER_TERMS:
         cleaned = cleaned.replace(term, "")
+    cleaned = re.sub(r"\bhistory-teaching[^，。;；]*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bnon[- ]?IP[^，。;；]*", "", cleaned, flags=re.IGNORECASE)
+    # Numeric percentages are not reliable in text-to-image prompts; remove leftovers if upstream injected any.
+    cleaned = re.sub(r"\d+\s*%\s*(到|至|-|~)?\s*\d*\s*%?", "", cleaned)
     return " ".join(cleaned.split()).strip()
 
 
@@ -187,6 +267,10 @@ def _join_rules(rules: Sequence[str]) -> str | None:
 
 def _join_non_empty(*values: str) -> str:
     return "，".join(_dedupe(str(value).strip() for value in values if str(value or "").strip()))
+
+
+def _contains_any(text: str, values: Sequence[str]) -> bool:
+    return any(value and value in text for value in values)
 
 
 def _dedupe(values: Sequence[str]) -> list[str]:
