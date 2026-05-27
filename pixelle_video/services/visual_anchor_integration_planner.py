@@ -85,9 +85,10 @@ def _anchor_profile_payload(anchor_profile: IPProfile) -> dict[str, Any]:
         "negative_constraints": list(anchor_profile.negative_constraints),
         "guidance": [
             "The anchor is a recurring channel signature, not a default protagonist.",
-            "Prefer mark, sticker, label, icon, figurine, wall art, or minor background detail when main subjects are clear.",
+            "Prefer in-world mark, sticker, label, icon, figurine, wall art, or minor background detail when main subjects are clear.",
             "Preserve only the identity kernel needed for recognition.",
             "Never replace named source subjects or key props.",
+            "Do not use a canvas corner logo or floating watermark.",
         ],
     }
 

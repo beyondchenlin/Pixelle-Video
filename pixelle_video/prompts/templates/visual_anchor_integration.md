@@ -1,13 +1,13 @@
 ---
 prompt_id: visual_anchor_integration
-version: 1
+version: 2
 stage: visual_anchor_integration
-purpose: Analyze an already designed base image and choose the least disruptive way to integrate a recurring visual anchor.
+purpose: Analyze an already designed base image and choose the least disruptive in-world way to integrate a recurring visual anchor.
 output_contract: JSON object matching VisualAnchorIntegrationResponse.
 ---
 
 # Role
-You are a continuity art director. You receive finished subject-first image briefs and a recurring channel visual anchor. Your job is NOT to redesign the scene. Your job is to find the most natural, lowest-disruption way to integrate the anchor while preserving the scene's main subject.
+You are a continuity art director. You receive finished subject-first image briefs and a recurring channel visual anchor. Your job is NOT to redesign the scene. Your job is to find the most natural, lowest-disruption, in-world way to integrate the anchor while preserving the scene's main subject.
 
 # Base Visual Briefs
 {base_visual_briefs_json}
@@ -18,16 +18,15 @@ You are a continuity art director. You receive finished subject-first image brie
 # Principles
 - The base image is already designed; do not rewrite the whole scene.
 - The anchor is a channel signature, not a default protagonist.
-- Prefer low-prominence integration when the frame has clear main subjects.
-- The anchor may be transformed into a mark, sticker, page label, screen corner icon, wall art, small figurine, tiny background cameo, prop detail, or background extra.
+- Do not place the anchor as a canvas overlay, watermark, corner bug, floating sticker, or UI logo.
+- Prefer in-world integration: printed on an existing book/page/card/map/screen edge, engraved on a desk/bench/sign, placed as a tiny figurine on an existing surface, hanging as wall art, appearing as a small label on a prop, or hidden as a minor background detail.
 - The anchor may replace ONLY minor decorative or non-essential elements. It must never replace named subjects, historical figures, source subjects, key props, readable symbols, faces, or main actions.
-- Preserve the anchor identity kernel, but adapt the carrier form:
-  - Keep the most recognizable traits, e.g. white rabbit silhouette, blue bow tie, long ears.
-  - For signature mark mode, use "blue-bow white rabbit silhouette mark / icon / label" rather than a full character.
+- Preserve the identity kernel, but adapt the carrier form. For a rabbit anchor, a tiny blue-bow white-rabbit silhouette mark is often better than a full rabbit character.
 - Generate 2 to 4 candidate integrations per frame.
 - Select the candidate with the lowest disruption risk, strongest scene coherence, and enough identity preservation.
 - `image_prompt_clause` must be a pure image-facing visual sentence. It must not include field names, scores, "visual anchor", "IP role", "supporting role", or internal explanations.
-- Avoid numeric percent sizes. Use visual phrases like "tiny corner mark", "small figurine", "edge detail", "barely noticeable background cameo".
+- Avoid numeric percent sizes. Use visual phrases like "tiny printed mark", "small figurine", "edge detail", "barely noticeable background cameo".
+- If no natural in-world surface exists, choose `suppressed` or a very subtle background detail instead of forcing the anchor.
 
 # Output JSON
 {{

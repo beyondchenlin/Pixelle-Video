@@ -76,23 +76,13 @@ class VisualAnchorIntegrationPlanResponse(BaseModel):
         if candidate is None or not str(candidate.image_prompt_clause or "").strip():
             if fallback is not None:
                 return fallback
-            return VisualAnchorPlacementPlan(
-                frame_id=self.frame_id,
-                anchor_function=AnchorFunction.SUPPRESSED,
-                anchor_carrier_type=AnchorCarrierType.SUPPRESSED,
-                anchor_prominence=AnchorProminence.HIDDEN,
-                visual_weight_clause="",
-                placement_zone="",
-                support_anchor="",
-                scale_ratio="",
-                depth_layer="",
-                contact_relation="",
-                interaction_target="",
-                occlusion_relation="",
-                style_relation=AnchorStyleRelation.BLENDED,
-                image_prompt_clause="",
-                metadata={"source": "llm_empty_candidate"},
-            )
+            return _hidden_plan(self.frame_id, reason="llm_empty_candidate")
+
+        # Reject obvious overlay/logo-corner candidates. Fall back to deterministic in-world placement.
+        if _looks_like_canvas_overlay(candidate.image_prompt_clause, candidate.support_anchor, candidate.placement):
+            if fallback is not None:
+                return fallback
+
         return VisualAnchorPlacementPlan(
             frame_id=self.frame_id,
             anchor_function=candidate.anchor_function,
@@ -126,6 +116,35 @@ class VisualAnchorIntegrationResponse(BaseModel):
     visual_anchor_integration_plans: list[VisualAnchorIntegrationPlanResponse]
 
 
+def _hidden_plan(frame_id: str, *, reason: str) -> VisualAnchorPlacementPlan:
+    return VisualAnchorPlacementPlan(
+        frame_id=frame_id,
+        anchor_function=AnchorFunction.SUPPRESSED,
+        anchor_carrier_type=AnchorCarrierType.SUPPRESSED,
+        anchor_prominence=AnchorProminence.HIDDEN,
+        visual_weight_clause="",
+        placement_zone="",
+        support_anchor="",
+        scale_ratio="",
+        depth_layer="",
+        contact_relation="",
+        interaction_target="",
+        occlusion_relation="",
+        style_relation=AnchorStyleRelation.BLENDED,
+        image_prompt_clause="",
+        metadata={"source": reason},
+    )
+
+
+def _looks_like_canvas_overlay(clause: str, support_anchor: str, placement: str) -> bool:
+    text = f"{clause} {support_anchor} {placement}"
+    overlay_words = ("画面角落", "右上角", "左上角", "右下角", "左下角", "角标", "logo", "水印")
+    material_words = ("书页", "屏幕", "黑板", "讲解板", "墙面", "相框", "桌面", "衣服", "纸张", "地图", "迷宫", "边框", "木板")
+    if any(word in text for word in overlay_words) and not any(word in text for word in material_words):
+        return True
+    return False
+
+
 def _clamp_score(value: Any) -> int:
     try:
         score = int(value)
@@ -136,7 +155,7 @@ def _clamp_score(value: Any) -> int:
 
 def _depth_layer_from_placement(value: str) -> str:
     text = str(value or "")
-    if any(token in text for token in ("前景", "下方", "角落", "桌面")):
+    if any(token in text for token in ("前景", "下方", "桌面", "纸面", "书页")):
         return "前景或画面边缘"
     if any(token in text for token in ("背景", "远处", "墙面", "窗边")):
         return "背景边缘"
