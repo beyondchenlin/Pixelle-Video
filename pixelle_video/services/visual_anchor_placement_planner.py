@@ -14,11 +14,17 @@ from pixelle_video.models.visual_anchor_planning import (
     AnchorStyleRelation,
     VisualAnchorPlacementPlan,
 )
+from pixelle_video.services.visual_anchor_policy import (
+    anchor_identity_from_profile,
+    infer_scene_anchor_affordances,
+    is_scene_bound_anchor_candidate,
+    sanitize_provider_anchor_clause,
+)
 
 
 @dataclass(frozen=True)
 class VisualAnchorPlacementPlanner:
-    """Deterministic fallback planner using low-prominence anchor defaults."""
+    """Deterministic fallback planner that fails closed and never emits canvas-corner anchors."""
 
     def plan_batch(
         self,
@@ -53,22 +59,41 @@ class VisualAnchorPlacementPlanner:
     ) -> VisualAnchorPlacementPlan:
         if base_package is not None and base_package.role_slot is IPRoleSlot.ABSENT:
             return _suppressed_plan(base_visual_brief.frame_id, reason="base package absent")
-        anchor_identity = _anchor_identity(anchor_profile)
-        prominence = _choose_anchor_prominence(base_visual_brief=base_visual_brief, base_package=base_package)
-        anchor_function, carrier_type = _function_and_carrier_for_prominence(prominence)
+
+        support_anchor = _choose_support_anchor(base_visual_brief)
+        prominence = _choose_anchor_prominence(
+            base_visual_brief=base_visual_brief,
+            base_package=base_package,
+            support_anchor=support_anchor,
+        )
         if prominence is AnchorProminence.HIDDEN:
-            return _suppressed_plan(base_visual_brief.frame_id, reason="hidden by prominence budget")
-        placement_zone = _choose_placement_zone(base_visual_brief, prominence=prominence)
-        support_anchor = _choose_support_anchor(base_visual_brief, prominence=prominence)
+            return _suppressed_plan(base_visual_brief.frame_id, reason="no safe scene-bound carrier")
+
+        anchor_identity = anchor_identity_from_profile(anchor_profile)
+        anchor_function, carrier_type = _function_and_carrier_for_prominence(
+            prominence,
+            support_anchor=support_anchor,
+        )
+        placement_zone = _choose_placement_zone(base_visual_brief, support_anchor=support_anchor)
         visual_weight_clause = _visual_weight_clause(prominence)
+        contact_relation = _contact_relation_for_prominence(prominence, support_anchor=support_anchor)
         image_prompt_clause = _build_image_prompt_clause(
             anchor_identity=anchor_identity,
             prominence=prominence,
-            placement_zone=placement_zone,
             support_anchor=support_anchor,
             visual_weight_clause=visual_weight_clause,
-            interaction_target=_choose_interaction_target(base_visual_brief),
+            contact_relation=contact_relation,
         )
+        image_prompt_clause = sanitize_provider_anchor_clause(image_prompt_clause)
+        if not is_scene_bound_anchor_candidate(
+            image_prompt_clause=image_prompt_clause,
+            support_anchor=support_anchor,
+            placement=placement_zone,
+            contact_relation=contact_relation,
+            carrier_type=carrier_type,
+        ):
+            return _suppressed_plan(base_visual_brief.frame_id, reason="fallback clause rejected by scene-bound policy")
+
         return VisualAnchorPlacementPlan(
             frame_id=base_visual_brief.frame_id,
             anchor_function=anchor_function,
@@ -78,13 +103,13 @@ class VisualAnchorPlacementPlanner:
             placement_zone=placement_zone,
             support_anchor=support_anchor,
             scale_ratio=visual_weight_clause,
-            depth_layer=_depth_layer_for_prominence(prominence),
-            contact_relation=_contact_relation_for_prominence(prominence),
+            depth_layer=_depth_layer_for_prominence(prominence, support_anchor=support_anchor),
+            contact_relation=contact_relation,
             interaction_target=_choose_interaction_target(base_visual_brief),
-            occlusion_relation="不遮挡主体脸部、标志、关键动作或阅读重点",
+            occlusion_relation="主体脸部、关键标志和主要动作区域保持清晰可见",
             style_relation=AnchorStyleRelation.BLENDED if prominence in {AnchorProminence.EMBEDDED_MARK, AnchorProminence.MICRO_CAMEO} else AnchorStyleRelation.ACCENTED,
             image_prompt_clause=image_prompt_clause,
-            metadata={"planner": "VisualAnchorPlacementPlanner", "fallback": True},
+            metadata={"planner": "VisualAnchorPlacementPlanner", "fallback": True, "policy": "v3_1_scene_bound_no_corner"},
         )
 
 
@@ -104,7 +129,7 @@ def _suppressed_plan(frame_id: str, *, reason: str) -> VisualAnchorPlacementPlan
         occlusion_relation="",
         style_relation=AnchorStyleRelation.BLENDED,
         image_prompt_clause="",
-        metadata={"reason": reason, "fallback": True},
+        metadata={"reason": reason, "fallback": True, "policy": "v3_1_fail_closed"},
     )
 
 
@@ -112,6 +137,7 @@ def _choose_anchor_prominence(
     *,
     base_visual_brief: BaseVisualBrief,
     base_package: IPFrameAdaptationPackage | None,
+    support_anchor: str,
 ) -> AnchorProminence:
     text = " ".join(
         [
@@ -123,122 +149,97 @@ def _choose_anchor_prominence(
         ]
     )
     has_named_subject = bool(base_visual_brief.main_subjects)
+
     if base_package is not None and base_package.role_slot is IPRoleSlot.PROTAGONIST and not has_named_subject:
         return AnchorProminence.PRIMARY_CARRIER
+
+    if not support_anchor:
+        return AnchorProminence.HIDDEN
+
     if any(word in text for word in ("严肃", "纪实", "宗教", "真实人物", "悼念", "灾难")):
         return AnchorProminence.EMBEDDED_MARK
-    if any(word in text for word in ("特写", "近景", "细节", "书页", "卡片", "徽章", "图表", "地图", "迷宫")):
+    if any(word in text for word in ("特写", "近景", "细节", "书页", "卡片", "徽章", "图表", "地图", "迷宫", "文件")):
         return AnchorProminence.EMBEDDED_MARK
     if has_named_subject and len(base_visual_brief.main_subjects) >= 2:
         return AnchorProminence.EMBEDDED_MARK
-    if any(word in text for word in ("课堂", "教室", "讲解板", "电视", "孩子", "观看", "学习", "桌")):
+    if any(word in support_anchor for word in ("桌面", "书签", "小摆件", "徽章")):
         return AnchorProminence.TINY_PROP
-    if any(word in text for word in ("城市", "街道", "战斗", "对峙", "人群", "广场", "高楼")):
+    if any(word in text for word in ("城市", "街道", "人群", "广场", "高楼")):
         return AnchorProminence.MICRO_CAMEO
     if not has_named_subject and any(word in text for word in ("勇气", "选择", "成长", "孤独", "责任", "梦想")):
-        return AnchorProminence.PRIMARY_CARRIER
+        return AnchorProminence.TINY_PROP
     return AnchorProminence.EMBEDDED_MARK
 
 
-def _function_and_carrier_for_prominence(prominence: AnchorProminence) -> tuple[AnchorFunction, AnchorCarrierType]:
+def _function_and_carrier_for_prominence(
+    prominence: AnchorProminence,
+    *,
+    support_anchor: str,
+) -> tuple[AnchorFunction, AnchorCarrierType]:
     if prominence is AnchorProminence.HIDDEN:
         return AnchorFunction.SUPPRESSED, AnchorCarrierType.SUPPRESSED
-    if prominence is AnchorProminence.EMBEDDED_MARK:
-        return AnchorFunction.EMBEDDED_MARK, AnchorCarrierType.EMBEDDED_MARK
-    if prominence is AnchorProminence.TINY_PROP:
-        return AnchorFunction.ENVIRONMENTAL_SIGNATURE, AnchorCarrierType.FIGURINE
-    if prominence is AnchorProminence.MICRO_CAMEO:
-        return AnchorFunction.MICRO_CAMEO, AnchorCarrierType.BACKGROUND_EXTRA
-    if prominence is AnchorProminence.SMALL_SIDE_CHARACTER:
-        return AnchorFunction.CO_PRESENT_SUPPORT, AnchorCarrierType.LIVING_CHARACTER
     if prominence is AnchorProminence.PRIMARY_CARRIER:
         return AnchorFunction.PRIMARY_CARRIER, AnchorCarrierType.LIVING_CHARACTER
-    return AnchorFunction.EMBEDDED_MARK, AnchorCarrierType.EMBEDDED_MARK
-
-
-def _anchor_identity(anchor_profile: IPProfile) -> str:
-    raw_parts = [
-        anchor_profile.name,
-        anchor_profile.visual_summary,
-        *anchor_profile.identity_lock,
-        *anchor_profile.minimal_traits,
-        *anchor_profile.identity_anchors,
-    ]
-    raw = "，".join(str(part or "").strip() for part in raw_parts if str(part or "").strip())
-    if "兔" in raw:
-        return "蓝领结白兔剪影"
-    if "麻雀" in raw:
-        return "红嘴小麻雀剪影"
-    return "频道签名小标记"
-
-
-def _choose_placement_zone(brief: BaseVisualBrief, *, prominence: AnchorProminence) -> str:
-    text = brief.base_image_prompt
-    if prominence is AnchorProminence.EMBEDDED_MARK:
-        if any(word in text for word in ("书页", "卡片", "地图", "迷宫")):
-            return "纸面右下角"
-        if any(word in text for word in ("屏幕", "电视")):
-            return "屏幕边角"
-        if any(word in text for word in ("讲解板", "黑板", "图表")):
-            return "讲解板边角"
-        return "画面角落"
     if prominence is AnchorProminence.TINY_PROP:
-        return "前景侧边或已有道具旁"
+        return AnchorFunction.SCENE_BOUND_PROP, AnchorCarrierType.SMALL_SUPPORTING_PROP
     if prominence is AnchorProminence.MICRO_CAMEO:
-        return "画面边缘、人群边缘或窗边背景处"
-    if prominence is AnchorProminence.PRIMARY_CARRIER:
-        return "画面视觉中心"
-    return "画面边缘"
+        return AnchorFunction.MATERIAL_SIGNATURE, AnchorCarrierType.SURFACE_GRAPHIC
+    if any(word in support_anchor for word in ("书页", "书封", "书签", "藏书票", "纸面", "卡片", "文件")):
+        return AnchorFunction.MATERIAL_SIGNATURE, AnchorCarrierType.BOOKPLATE_OR_STAMP
+    if any(word in support_anchor for word in ("木", "长椅", "相框", "桌面")):
+        return AnchorFunction.MATERIAL_SIGNATURE, AnchorCarrierType.ENGRAVED_MARK
+    if any(word in support_anchor for word in ("墙", "海报", "路牌", "招牌", "讲解板", "黑板")):
+        return AnchorFunction.MATERIAL_SIGNATURE, AnchorCarrierType.SURFACE_GRAPHIC
+    return AnchorFunction.MATERIAL_SIGNATURE, AnchorCarrierType.PRINTED_MARK
 
 
-def _choose_support_anchor(brief: BaseVisualBrief, *, prominence: AnchorProminence) -> str:
-    text = brief.base_image_prompt
-    if prominence is AnchorProminence.EMBEDDED_MARK:
-        if "书页" in text:
-            return "书页角落"
-        if "地图" in text or "迷宫" in text:
-            return "地图或迷宫图角落"
-        if "屏幕" in text or "电视" in text:
-            return "屏幕边框"
-        if "讲解板" in text or "黑板" in text:
-            return "讲解板边框"
-        return "已有平面边角"
-    if "桌" in text:
-        return "桌面边缘"
-    if "电视" in text:
-        return "电视柜边缘"
-    if "街道" in text or "城市" in text:
-        return "街道路面边缘"
-    return "已有物体边缘"
+def _choose_placement_zone(brief: BaseVisualBrief, *, support_anchor: str) -> str:
+    if support_anchor:
+        return f"附着在{support_anchor}"
+    return "本帧隐藏"
+
+
+def _choose_support_anchor(brief: BaseVisualBrief) -> str:
+    affordances = tuple(getattr(brief, "anchor_affordances", ()) or ())
+    if not affordances:
+        inferred = infer_scene_anchor_affordances(
+            base_prompt=brief.base_image_prompt,
+            main_subjects=brief.main_subjects,
+            key_props=brief.key_props_symbols,
+        )
+        affordances = inferred.carriers
+    return affordances[0] if affordances else ""
 
 
 def _visual_weight_clause(prominence: AnchorProminence) -> str:
     labels = {
         AnchorProminence.HIDDEN: "",
-        AnchorProminence.EMBEDDED_MARK: "像角落标签一样小，只作为识别细节",
-        AnchorProminence.TINY_PROP: "小摆件大小，观众仔细看才会注意到",
-        AnchorProminence.MICRO_CAMEO: "画面边缘的小细节，远小于主角，不吸引第一眼注意",
-        AnchorProminence.SMALL_SIDE_CHARACTER: "明显小于主角，存在感低于主要配角",
+        AnchorProminence.EMBEDDED_MARK: "低对比、低存在感，作为材质细节融入原物体",
+        AnchorProminence.TINY_PROP: "小道具级存在感，低于所有主要主体",
+        AnchorProminence.MICRO_CAMEO: "背景环境细节级存在感，只服务系列识别",
+        AnchorProminence.SMALL_SIDE_CHARACTER: "明显低于主要配角，作为弱存在感陪衬",
         AnchorProminence.PRIMARY_CARRIER: "作为本帧主要视觉载体",
     }
     return labels[prominence]
 
 
-def _depth_layer_for_prominence(prominence: AnchorProminence) -> str:
-    if prominence in {AnchorProminence.EMBEDDED_MARK, AnchorProminence.MICRO_CAMEO}:
-        return "画面边缘层"
+def _depth_layer_for_prominence(prominence: AnchorProminence, *, support_anchor: str) -> str:
+    if prominence is AnchorProminence.EMBEDDED_MARK:
+        return "附着在已有物体表面"
+    if prominence is AnchorProminence.MICRO_CAMEO:
+        return "附着在背景环境表面"
     if prominence is AnchorProminence.TINY_PROP:
-        return "前景低位"
+        return "放置在已有支撑面上"
     return "主体层"
 
 
-def _contact_relation_for_prominence(prominence: AnchorProminence) -> str:
+def _contact_relation_for_prominence(prominence: AnchorProminence, *, support_anchor: str) -> str:
     if prominence is AnchorProminence.EMBEDDED_MARK:
-        return "贴合已有平面或边框"
+        return f"作为{support_anchor}的印刷、压印、雕刻或纹理细节"
     if prominence is AnchorProminence.TINY_PROP:
-        return "与已有道具或支撑面接触"
+        return f"实体小物件放在{support_anchor}上并与支撑面接触"
     if prominence is AnchorProminence.MICRO_CAMEO:
-        return "与边缘环境相邻"
+        return f"作为{support_anchor}的一部分融入背景材质"
     return "与场景空间自然接触"
 
 
@@ -247,6 +248,8 @@ def _choose_interaction_target(brief: BaseVisualBrief) -> str:
         return brief.key_props_symbols[0]
     if brief.main_subjects:
         return "、".join(brief.main_subjects[:2])
+    if brief.anchor_affordances:
+        return brief.anchor_affordances[0]
     return "最近的场景道具"
 
 
@@ -254,19 +257,18 @@ def _build_image_prompt_clause(
     *,
     anchor_identity: str,
     prominence: AnchorProminence,
-    placement_zone: str,
     support_anchor: str,
     visual_weight_clause: str,
-    interaction_target: str,
+    contact_relation: str,
 ) -> str:
     if prominence is AnchorProminence.EMBEDDED_MARK:
-        return f"{support_anchor}印着一个极小的{anchor_identity}角标，{visual_weight_clause}，贴合画面材质，不影响主体内容。"
+        return f"{support_anchor}上有一个低对比的{anchor_identity}浅压印纹章，{contact_relation}，{visual_weight_clause}。"
     if prominence is AnchorProminence.TINY_PROP:
-        return f"{placement_zone}的{support_anchor}放着一个很小的{anchor_identity}摆件，{visual_weight_clause}，不遮挡主体内容。"
+        return f"{support_anchor}呈现为一个低存在感的{anchor_identity}造型小道具，实体接触支撑面，{visual_weight_clause}。"
     if prominence is AnchorProminence.MICRO_CAMEO:
-        return f"{placement_zone}有一个很小的{anchor_identity}轮廓，{visual_weight_clause}，不参与主要叙事。"
+        return f"{support_anchor}中融入一个低对比的{anchor_identity}墙绘或纹章细节，{contact_relation}，{visual_weight_clause}。"
     if prominence is AnchorProminence.PRIMARY_CARRIER:
-        return f"一个{anchor_identity}位于{placement_zone}，作为画面核心承载主题。"
+        return f"一个{anchor_identity}位于主体层，作为画面核心承载主题。"
     return ""
 
 
