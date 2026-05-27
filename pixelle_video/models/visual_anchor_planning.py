@@ -18,6 +18,8 @@ class AnchorFunction(str, Enum):
     EXPLAINER_POINTER = "explainer_pointer"
     ENVIRONMENTAL_SIGNATURE = "environmental_signature"
     EMBEDDED_MARK = "embedded_mark"
+    MATERIAL_SIGNATURE = "material_signature"
+    SCENE_BOUND_PROP = "scene_bound_prop"
     MICRO_CAMEO = "micro_cameo"
     SUPPRESSED = "suppressed"
 
@@ -33,6 +35,15 @@ class AnchorCarrierType(str, Enum):
     PAGE_MARK = "page_mark"
     ENVIRONMENT_DETAIL = "environment_detail"
     PARTIAL_DETAIL = "partial_detail"
+    PRINTED_MARK = "printed_mark"
+    BOOKPLATE_OR_STAMP = "bookplate_or_stamp"
+    EMBOSSED_MARK = "embossed_mark"
+    ENGRAVED_MARK = "engraved_mark"
+    SURFACE_GRAPHIC = "surface_graphic"
+    DECORATIVE_OBJECT = "decorative_object"
+    WEARABLE_SYMBOL = "wearable_symbol"
+    SMALL_SUPPORTING_PROP = "small_supporting_prop"
+    MINOR_SUPPORTING_CHARACTER = "minor_supporting_character"
     SUPPRESSED = "suppressed"
 
 
@@ -69,7 +80,7 @@ class VisualAnchorPlacementPlan:
     anchor_prominence: AnchorProminence = AnchorProminence.TINY_PROP
     visual_weight_clause: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
-    version: str = "visual_anchor_placement_plan.v3"
+    version: str = "visual_anchor_placement_plan.v3_1_scene_bound"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_id", _require_non_empty("frame_id", self.frame_id))
@@ -163,7 +174,7 @@ class VisualAnchorPlacementPlan:
             role_slot=_role_slot_for_anchor_function(self.anchor_function),
             shot_fit_notes=self.occlusion_relation or base_package.shot_fit_notes,
             image_text_plan=base_package.image_text_plan,
-            prompt_weight=base_package.prompt_weight,
+            prompt_weight=_clamped_prompt_weight(base_package.prompt_weight),
             negative_constraints=base_package.negative_constraints,
         )
 
@@ -171,11 +182,23 @@ class VisualAnchorPlacementPlan:
 def _role_slot_for_anchor_function(anchor_function: AnchorFunction) -> IPRoleSlot:
     if anchor_function is AnchorFunction.PRIMARY_CARRIER:
         return IPRoleSlot.PROTAGONIST
-    if anchor_function in {AnchorFunction.CO_PRESENT_SUPPORT, AnchorFunction.EXPLAINER_POINTER}:
+    if anchor_function in {AnchorFunction.CO_PRESENT_SUPPORT, AnchorFunction.EXPLAINER_POINTER, AnchorFunction.SCENE_BOUND_PROP}:
         return IPRoleSlot.SUPPORTING
-    if anchor_function in {AnchorFunction.ENVIRONMENTAL_SIGNATURE, AnchorFunction.EMBEDDED_MARK, AnchorFunction.MICRO_CAMEO}:
+    if anchor_function in {
+        AnchorFunction.ENVIRONMENTAL_SIGNATURE,
+        AnchorFunction.EMBEDDED_MARK,
+        AnchorFunction.MATERIAL_SIGNATURE,
+        AnchorFunction.MICRO_CAMEO,
+    }:
         return IPRoleSlot.PASSERBY
     return IPRoleSlot.ABSENT
+
+
+def _clamped_prompt_weight(value: Any) -> float:
+    try:
+        return min(float(value or 0.0), 0.35)
+    except (TypeError, ValueError):
+        return 0.25
 
 
 def _require_non_empty(field_name: str, value: Any) -> str:
