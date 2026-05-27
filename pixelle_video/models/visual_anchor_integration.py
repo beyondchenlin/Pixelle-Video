@@ -52,28 +52,11 @@ class VisualAnchorIntegrationCandidateResponse(BaseModel):
     reason: str = ""
 
     @model_validator(mode="after")
-    def _normalize_scores(self) -> "VisualAnchorIntegrationCandidateResponse":
+    def _normalize_fields(self) -> "VisualAnchorIntegrationCandidateResponse":
         object.__setattr__(self, "scene_coherence_score", _clamp_score(self.scene_coherence_score))
         object.__setattr__(self, "disruption_risk", _clamp_score(self.disruption_risk))
         object.__setattr__(self, "identity_preservation_score", _clamp_score(self.identity_preservation_score))
-        return self
-
-    @model_validator(mode="after")
-    def _validate_visible_candidate(self) -> "VisualAnchorIntegrationCandidateResponse":
-        if self.carrier_type is AnchorCarrierType.SUPPRESSED or self.prominence is AnchorProminence.HIDDEN:
-            return self
-
-        clause = sanitize_provider_anchor_clause(self.image_prompt_clause)
-        if not is_scene_bound_anchor_candidate(
-            image_prompt_clause=clause,
-            support_anchor=self.support_anchor,
-            placement=self.placement,
-            contact_relation=self.contact_relation,
-            carrier_type=self.carrier_type,
-        ):
-            raise ValueError("visible visual anchor candidate must be scene-bound and non-overlay")
-
-        object.__setattr__(self, "image_prompt_clause", clause)
+        object.__setattr__(self, "image_prompt_clause", sanitize_provider_anchor_clause(self.image_prompt_clause))
         return self
 
     @property
