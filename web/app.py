@@ -70,7 +70,7 @@ def build_navigation_pages(page_factory=st.Page):
 
     ip_design_page = page_factory(
         "pages/3_IP_Design_Workbench.py",
-        title="IP Design",
+        title="Visual Signature",
         icon="🎭",
     )
 

@@ -32,7 +32,7 @@ def build_content_ip_world_payload(
     ip_payload: Mapping[str, Any] | None = None,
     generation_world_hint: str | None = None,
 ) -> dict[str, Any]:
-    """Build the formal content IP/world payload for request submission."""
+    """Build the formal visual-signature/world payload for request submission."""
     source = dict(ip_payload or {})
     source["generation_world_hint"] = generation_world_hint
     return build_formal_content_ip_world_payload(source)
@@ -49,7 +49,7 @@ def render_content_ip_world_controls(
     asset_bible_loader: Callable[[], Sequence[Mapping[str, Any]]] | None = None,
     world_hint_draft_generator: Callable[..., Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Render left-column IP character and request world-hint controls."""
+    """Render the single left-column visual-signature and world-hint controls."""
     session_state = ui.session_state
     with ui.expander(translate("content.ip_world.section_title"), expanded=True):
         resolved_asset_bible_loader = asset_bible_loader

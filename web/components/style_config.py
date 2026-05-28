@@ -2497,69 +2497,6 @@ def _render_image_prompt_prefix_library(
 
     return effective_prefix
 
-
-
-def render_ip_prompt_chain_controls() -> dict:
-    """Render request-scoped IP role integration controls.
-
-    This is intentionally part of style_params because StandardPipelineUI merges
-    style_params into video_params before calling render_output_preview().
-    output_preview.copy_ip_prompt_chain_options() then forwards these fields into
-    the final generate_video request.
-    """
-    # Keep widget keys identical to IPControlsContract field names so the UI,
-    # request builder, and tests cannot drift apart again.
-    st.session_state.setdefault("ip_enabled", False)
-    st.session_state.setdefault("ip_asset_bible_id", "")
-    st.session_state.setdefault("ip_profile_id", "")
-
-    with render_middle_column_collapsible_section(
-        "IP 角色融入",
-        expanded=False,
-    ):
-        enabled = bool(
-            st.toggle(
-                "启用 IP",
-                key="ip_enabled",
-                help="开启后，会把 AssetBible 与 IP 形象字段传递到最终生成请求。",
-            )
-        )
-
-        asset_bible_id = st.text_input(
-            "AssetBible ID",
-            key="ip_asset_bible_id",
-            disabled=not enabled,
-            placeholder="例如：default_asset_bible / xiongge_asset_bible",
-            help="必须填写已经存在的 AssetBible ID。",
-        )
-
-        ip_profile_id = st.text_input(
-            "IP 形象 ID",
-            key="ip_profile_id",
-            disabled=not enabled,
-            placeholder="例如：ip_main / bear_host",
-            help="必须填写 AssetBible 中存在的 ip_profile_id。",
-        )
-
-        if enabled and (not str(asset_bible_id).strip() or not str(ip_profile_id).strip()):
-            st.warning("启用 IP 后，需要同时填写 AssetBible ID 和 IP 形象 ID，否则后端无法应用 IP。")
-
-        if enabled:
-            st.caption(
-                "本次生成会传递："
-                f"ip_enabled=True, "
-                f"ip_asset_bible_id={str(asset_bible_id).strip() or '-'}, "
-                f"ip_profile_id={str(ip_profile_id).strip() or '-'}"
-            )
-        else:
-            st.caption("IP 未启用：本次生成不会传递 IP 角色融入参数。")
-
-    return {
-        "ip_enabled": enabled,
-        "ip_asset_bible_id": str(asset_bible_id).strip() or None,
-        "ip_profile_id": str(ip_profile_id).strip() or None,
-    }
-
 def render_style_config(
     pixelle_video,
     storyboard_default_enabled: bool = False,
@@ -2788,7 +2725,6 @@ def render_style_config(
         tts_split_settings = render_tts_split_settings()
 
     element_animation_settings = render_element_animation_controls()
-    ip_prompt_chain_settings = render_ip_prompt_chain_controls()
 
     # ====================================================================
     # Storyboard Template Section
@@ -3420,7 +3356,6 @@ def render_style_config(
         ),
         "selected_template_preset_id": selected_template_preset_id,
         **element_animation_settings,
-        **ip_prompt_chain_settings,
     }
     if text_rendering:
         result["text_rendering"] = text_rendering

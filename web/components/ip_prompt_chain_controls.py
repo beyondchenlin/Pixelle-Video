@@ -22,7 +22,7 @@ def render_ip_prompt_chain_controls(
     state_key_prefix: str = "style_ip",
     label_key_prefix: str = "style.ip_prompt_chain",
 ) -> dict[str, Any]:
-    """Render standard-generation controls for applying a designed IP profile."""
+    """Render standard-generation controls for applying a designed visual signature profile."""
     enabled_key = _state_key(state_key_prefix, "enabled")
     asset_bible_key = _state_key(state_key_prefix, "asset_bible_id")
     profile_key = _state_key(state_key_prefix, "profile_id")
@@ -174,7 +174,7 @@ def _render_ip_capability_preview(
     ui,
     translate: Translate,
 ) -> None:
-    """Render a read-only preview of the selected IP profile's capabilities."""
+    """Render a read-only preview of the selected visual signature profile capabilities."""
     if not selected_profile:
         return
     with ui.container(border=True):
