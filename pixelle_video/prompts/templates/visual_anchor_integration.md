@@ -108,6 +108,17 @@ When in doubt, select `suppressed`.
 
 # Output JSON
 
+# Strict schema guards
+
+The response must be one JSON object. Never return a shorthand table, YAML, prose, or field-name list.
+
+For each item in `visual_anchor_integration_plans`:
+
+- `affordance` must be an object. Use an empty object when there is no affordance. Never use `null`.
+- `candidates` must be an array of candidate objects. Never use a string such as `"selected_index"`.
+- `selected_index` must be an integer. Use `0` when only one candidate is returned.
+- If a frame is hidden, still return one candidate object with `carrier_type: "suppressed"`, `anchor_function: "suppressed"`, and `prominence: "hidden"`.
+
 {{
   "visual_anchor_integration_plans": [
     {{
