@@ -44,30 +44,44 @@ class ValidSceneBoundLLM:
 
 class RejectedOverlayLLM:
     async def __call__(self, **kwargs):
-        return VisualAnchorIntegrationResponse(
-            visual_anchor_integration_plans=[
-                VisualAnchorIntegrationPlanResponse(
-                    frame_id="f1",
-                    candidates=[
-                        VisualAnchorIntegrationCandidateResponse(
-                            carrier_type="printed_mark",
-                            anchor_function="material_signature",
-                            prominence="embedded_mark",
-                            style_relation="blended",
-                            placement="画面右下角",
-                            support_anchor="画面角落",
-                            contact_relation="悬浮在画面上",
-                            image_prompt_clause="右下角蓝领结白兔logo角标",
-                            scene_coherence_score=10,
-                            disruption_risk=1,
-                            identity_preservation_score=9,
-                            reason="bad overlay",
-                        )
+        return {
+            "visual_anchor_integration_plans": [
+                {
+                    "frame_id": "f1",
+                    "candidates": [
+                        {
+                            "carrier_type": "printed_mark",
+                            "anchor_function": "material_signature",
+                            "prominence": "embedded_mark",
+                            "style_relation": "blended",
+                            "placement": "画面右下角",
+                            "support_anchor": "画面角落",
+                            "contact_relation": "悬浮在画面上",
+                            "image_prompt_clause": "右下角蓝领结白兔logo角标",
+                            "scene_coherence_score": 10,
+                            "disruption_risk": 1,
+                            "identity_preservation_score": 9,
+                            "reason": "bad overlay",
+                        }
                     ],
-                    selected_index=0,
-                )
+                    "selected_index": 0,
+                }
             ]
-        )
+        }
+
+
+class MalformedButJsonLLM:
+    async def __call__(self, **kwargs):
+        return {
+            "visual_anchor_integration_plans": [
+                {
+                    "frame_id": "f1",
+                    "affordance": None,
+                    "candidates": "selected_index",
+                    "selected_index": "0",
+                }
+            ]
+        }
 
 
 def _profile() -> IPProfile:
@@ -119,3 +133,15 @@ def test_visual_anchor_integration_planner_rejects_overlay_candidate_fail_closed
 
     assert not plans[0].visible
     assert plans[0].metadata["source"] == "llm_no_usable_candidate"
+
+
+def test_visual_anchor_integration_planner_repairs_malformed_json_fail_closed():
+    plans = asyncio.run(
+        VisualAnchorIntegrationPlanner(llm_service=MalformedButJsonLLM()).plan_batch(
+            base_visual_briefs=(_book_brief(),),
+            anchor_profile=_profile(),
+        )
+    )
+
+    assert not plans[0].visible
+    assert plans[0].metadata["source"] == "malformed_or_missing_candidates"

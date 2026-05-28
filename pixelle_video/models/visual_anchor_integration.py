@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -195,6 +196,26 @@ class VisualAnchorIntegrationResponse(BaseModel):
 
     visual_anchor_integration_plans: list[VisualAnchorIntegrationPlanResponse]
 
+    @classmethod
+    def from_untrusted_payload(
+        cls,
+        payload: Any,
+        *,
+        frame_ids: Sequence[str] = (),
+    ) -> "VisualAnchorIntegrationResponse":
+        """Repair loose LLM JSON before strict model validation.
+
+        Image-planning LLMs may return almost-correct JSON such as
+        ``{"affordance": null, "candidates": "selected_index"}``. The runtime policy is
+        fail-closed, so malformed plans are repaired into explicit suppressed candidates
+        instead of raising a large Pydantic validation error and polluting logs.
+        """
+
+        if isinstance(payload, cls):
+            return payload
+        normalized = _normalize_response_payload(payload, frame_ids=tuple(frame_ids))
+        return cls.model_validate(normalized)
+
 
 def _candidate_is_usable(
     candidate: VisualAnchorIntegrationCandidateResponse,
@@ -239,6 +260,196 @@ def _hidden_plan(frame_id: str, *, reason: str) -> VisualAnchorPlacementPlan:
         image_prompt_clause="",
         metadata={"source": reason, "policy": "visual_signature_fail_closed"},
     )
+
+
+def _normalize_response_payload(payload: Any, *, frame_ids: tuple[str, ...]) -> dict[str, Any]:
+    if isinstance(payload, Mapping):
+        raw_plans = (
+            payload.get("visual_anchor_integration_plans")
+            or payload.get("plans")
+            or payload.get("frames")
+            or payload.get("items")
+            or []
+        )
+    elif _is_sequence(payload):
+        raw_plans = payload
+    else:
+        raw_plans = []
+
+    if isinstance(raw_plans, Mapping):
+        raw_plans = list(raw_plans.values())
+    if not _is_sequence(raw_plans):
+        raw_plans = []
+
+    raw_plan_list = list(raw_plans)
+    target_count = max(len(raw_plan_list), len(frame_ids))
+    plans = []
+    for index in range(target_count):
+        raw_plan = raw_plan_list[index] if index < len(raw_plan_list) else {}
+        fallback_frame_id = frame_ids[index] if index < len(frame_ids) else f"frame_{index + 1:04d}"
+        plans.append(_normalize_plan_payload(raw_plan, fallback_frame_id=fallback_frame_id))
+    return {"visual_anchor_integration_plans": plans}
+
+
+def _normalize_plan_payload(raw_plan: Any, *, fallback_frame_id: str) -> dict[str, Any]:
+    plan = dict(raw_plan) if isinstance(raw_plan, Mapping) else {}
+    frame_id = _first_text(
+        plan.get("frame_id"),
+        plan.get("scene_id"),
+        plan.get("id"),
+        fallback_frame_id,
+    )
+    affordance = plan.get("affordance")
+    if not isinstance(affordance, Mapping):
+        affordance = {}
+
+    raw_candidates = plan.get("candidates")
+    if isinstance(raw_candidates, Mapping):
+        candidate_items = [raw_candidates]
+    elif _is_sequence(raw_candidates):
+        candidate_items = list(raw_candidates)
+    elif _plan_has_flat_candidate_fields(plan):
+        candidate_items = [plan]
+    else:
+        candidate_items = [_suppressed_candidate_payload("malformed_or_missing_candidates")]
+
+    candidates = [_normalize_candidate_payload(item) for item in candidate_items]
+    if not candidates:
+        candidates = [_suppressed_candidate_payload("empty_candidates")]
+
+    return {
+        "frame_id": frame_id,
+        "affordance": dict(affordance),
+        "candidates": candidates,
+        "selected_index": _safe_int(plan.get("selected_index"), 0),
+    }
+
+
+def _normalize_candidate_payload(raw_candidate: Any) -> dict[str, Any]:
+    if not isinstance(raw_candidate, Mapping):
+        return _suppressed_candidate_payload("malformed_candidate")
+
+    candidate = dict(raw_candidate)
+    carrier_type = _enum_value(
+        candidate.get("carrier_type"),
+        AnchorCarrierType,
+        default=AnchorCarrierType.SUPPRESSED.value,
+        aliases={
+            "none": AnchorCarrierType.SUPPRESSED.value,
+            "not_present": AnchorCarrierType.SUPPRESSED.value,
+            "hidden": AnchorCarrierType.SUPPRESSED.value,
+            "absent": AnchorCarrierType.SUPPRESSED.value,
+            "suppress": AnchorCarrierType.SUPPRESSED.value,
+        },
+    )
+    suppressed = carrier_type == AnchorCarrierType.SUPPRESSED.value
+    return {
+        "carrier_type": carrier_type,
+        "anchor_function": _enum_value(
+            candidate.get("anchor_function"),
+            AnchorFunction,
+            default=AnchorFunction.SUPPRESSED.value if suppressed else AnchorFunction.MATERIAL_SIGNATURE.value,
+            aliases={"not_present": AnchorFunction.SUPPRESSED.value, "hidden": AnchorFunction.SUPPRESSED.value},
+        ),
+        "prominence": _enum_value(
+            candidate.get("prominence"),
+            AnchorProminence,
+            default=AnchorProminence.HIDDEN.value if suppressed else AnchorProminence.EMBEDDED_MARK.value,
+            aliases={"suppressed": AnchorProminence.HIDDEN.value, "not_present": AnchorProminence.HIDDEN.value},
+        ),
+        "style_relation": _enum_value(
+            candidate.get("style_relation"),
+            AnchorStyleRelation,
+            default=AnchorStyleRelation.BLENDED.value,
+        ),
+        "placement": _first_text(candidate.get("placement")),
+        "support_anchor": _first_text(candidate.get("support_anchor")),
+        "contact_relation": _first_text(candidate.get("contact_relation")),
+        "interaction_target": _first_text(candidate.get("interaction_target")),
+        "occlusion_relation": _first_text(candidate.get("occlusion_relation")),
+        "visual_weight_clause": _first_text(candidate.get("visual_weight_clause")),
+        "image_prompt_clause": _first_text(candidate.get("image_prompt_clause")),
+        "scene_coherence_score": _safe_int(candidate.get("scene_coherence_score"), 5),
+        "disruption_risk": _safe_int(candidate.get("disruption_risk"), 5),
+        "identity_preservation_score": _safe_int(candidate.get("identity_preservation_score"), 5),
+        "reason": _first_text(candidate.get("reason")) or ("suppressed malformed candidate" if suppressed else ""),
+    }
+
+
+def _suppressed_candidate_payload(reason: str) -> dict[str, Any]:
+    return {
+        "carrier_type": AnchorCarrierType.SUPPRESSED.value,
+        "anchor_function": AnchorFunction.SUPPRESSED.value,
+        "prominence": AnchorProminence.HIDDEN.value,
+        "style_relation": AnchorStyleRelation.BLENDED.value,
+        "placement": "",
+        "support_anchor": "",
+        "contact_relation": "",
+        "interaction_target": "",
+        "occlusion_relation": "",
+        "visual_weight_clause": "",
+        "image_prompt_clause": "",
+        "scene_coherence_score": 5,
+        "disruption_risk": 1,
+        "identity_preservation_score": 1,
+        "reason": reason,
+    }
+
+
+def _plan_has_flat_candidate_fields(plan: Mapping[str, Any]) -> bool:
+    return any(
+        key in plan
+        for key in (
+            "carrier_type",
+            "anchor_function",
+            "prominence",
+            "support_anchor",
+            "image_prompt_clause",
+        )
+    )
+
+
+def _enum_value(
+    value: Any,
+    enum_cls: Any,
+    *,
+    default: str,
+    aliases: Mapping[str, str] | None = None,
+) -> str:
+    text = _first_text(value)
+    if not text:
+        return default
+    lowered = text.lower()
+    if aliases and lowered in aliases:
+        return aliases[lowered]
+    try:
+        return enum_cls(text).value
+    except ValueError:
+        return default
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str):
+            text = value.strip()
+        else:
+            text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _is_sequence(value: Any) -> bool:
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _clamp_score(value: Any) -> int:

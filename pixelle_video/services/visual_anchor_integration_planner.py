@@ -81,13 +81,17 @@ class VisualAnchorIntegrationPlanner:
             cadence_plan_json=[decision.to_dict() for decision in cadence],
         )
         try:
-            response: VisualAnchorIntegrationResponse = await self.llm_service(
+            raw_response = await self.llm_service(
                 prompt=rendered_prompt.text,
-                response_type=VisualAnchorIntegrationResponse,
+                response_type=dict,
                 temperature=0.2,
                 max_tokens=4000,
                 trace_context=trace_context,
                 trace_recorder=trace_recorder,
+            )
+            response = VisualAnchorIntegrationResponse.from_untrusted_payload(
+                raw_response,
+                frame_ids=[brief.frame_id for brief in briefs],
             )
         except Exception as exc:
             logger.warning("visual signature integration planning failed: {}", exc)
