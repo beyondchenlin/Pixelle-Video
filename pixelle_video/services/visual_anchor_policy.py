@@ -4,6 +4,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
+from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
+
 
 CANVAS_OVERLAY_TERMS: tuple[str, ...] = (
     "画面角落",
@@ -263,6 +266,7 @@ def is_scene_bound_anchor_candidate(
     placement: str = "",
     contact_relation: str = "",
     carrier_type: Any = "",
+    policy: VisualSignaturePolicy | None = None,
 ) -> bool:
     """Hard gate for visible anchor candidates.
 
@@ -270,6 +274,7 @@ def is_scene_bound_anchor_candidate(
     stickers, watermarks, corner bugs, and unsupported floating marks fail closed.
     """
 
+    policy = policy or load_visual_signature_policy()
     clause = str(image_prompt_clause or "").strip()
     support = str(support_anchor or "").strip()
     placement_text = str(placement or "").strip()
@@ -280,7 +285,9 @@ def is_scene_bound_anchor_candidate(
         return False
     combined = " ".join([clause, support, placement_text, contact, carrier_text])
 
-    if contains_forbidden_overlay_language(combined):
+    if contains_forbidden_overlay_language(combined, policy=policy):
+        return False
+    if not policy.carrier_type_allowed(carrier_type):
         return False
     if _looks_like_canvas_only_support(support):
         return False
@@ -295,13 +302,18 @@ def is_scene_bound_anchor_candidate(
     return True
 
 
-def contains_forbidden_overlay_language(text: str) -> bool:
+def contains_forbidden_overlay_language(
+    text: str,
+    *,
+    policy: VisualSignaturePolicy | None = None,
+) -> bool:
     value = str(text or "")
-    lowered = value.lower()
-    for term in CANVAS_OVERLAY_TERMS:
-        if term.lower() in lowered:
-            return True
-    return False
+    local_terms = CANVAS_OVERLAY_TERMS
+    if _has_any(value, local_terms):
+        return True
+    if policy is None:
+        policy = load_visual_signature_policy()
+    return policy.contains_forbidden_overlay_text(value)
 
 
 def sanitize_provider_anchor_clause(text: str) -> str:
@@ -359,7 +371,6 @@ def _dedupe(values: Sequence[str]) -> list[str]:
 
 
 __all__ = [
-    "CANVAS_OVERLAY_TERMS",
     "SceneAnchorAffordances",
     "anchor_identity_from_profile",
     "contains_forbidden_overlay_language",

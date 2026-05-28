@@ -8,11 +8,13 @@ from typing import Any
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.final_visual_prompt_contract import FinalVisualPromptContract, RenderedMediaPrompt
 from pixelle_video.models.visual_anchor_planning import VisualAnchorPlacementPlan
+from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.services.visual_anchor_policy import (
     contains_forbidden_overlay_language,
     is_scene_bound_anchor_candidate,
-    sanitize_provider_anchor_clause,
 )
+from pixelle_video.services.visual_signature_clause_renderer import render_visual_anchor_plan_clause
+from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
 
 
 _FORBIDDEN_PROVIDER_TERMS = (
@@ -41,7 +43,7 @@ _FORBIDDEN_PROVIDER_TERMS = (
 @dataclass(frozen=True)
 class ProviderPromptProjector:
     renderer_id: str = "provider_prompt_projector_z_image"
-    renderer_version: str = "v3_1_scene_bound_anchor"
+    renderer_version: str = "v3_2_visual_signature_scene_bound"
 
     def project(
         self,
@@ -51,13 +53,16 @@ class ProviderPromptProjector:
         negative_rules: Sequence[str] = (),
         capabilities: Any = None,
         workflow: str | None = None,
+        visual_signature_policy: VisualSignaturePolicy | None = None,
     ) -> RenderedMediaPrompt:
-        anchor_clause = _safe_visual_anchor_clause(visual_anchor_plan)
+        policy = visual_signature_policy or load_visual_signature_policy()
+        anchor_clause = _safe_visual_anchor_clause(visual_anchor_plan, policy=policy)
         prompt = self._build_prompt(
             base_visual_brief=base_visual_brief,
             visual_anchor_plan=visual_anchor_plan,
             visual_anchor_clause=anchor_clause,
             negative_rules=negative_rules if _is_positive_only(workflow, capabilities) else (),
+            policy=policy,
         )
         negative_prompt = None if _is_positive_only(workflow, capabilities) else _join_rules(negative_rules)
         contract = FinalVisualPromptContract(
@@ -66,11 +71,14 @@ class ProviderPromptProjector:
                 base_visual_brief.spatial_layout,
                 base_visual_brief.camera_plan,
                 base_visual_brief.composition_rules,
-            ) or "主体画面构图清晰",
-            style_assignment=_join_non_empty(*base_visual_brief.subject_identity_anchors) or "主体视觉特征清楚",
+            )
+            or "主体画面构图清晰",
+            style_assignment=_join_non_empty(*base_visual_brief.subject_identity_anchors)
+            or "主体视觉特征清楚",
             character_layer_style=anchor_clause or "无额外频道视觉元素",
             world_layer_style=base_visual_brief.style_surface or "画面风格与主体表达一致",
-            integration_priority=_join_non_empty(*base_visual_brief.readability_constraints) or "画面可读性优先",
+            integration_priority=_join_non_empty(*base_visual_brief.readability_constraints)
+            or "画面可读性优先",
             negative_rules=tuple(negative_rules),
             metadata={
                 "base_visual_brief_version": base_visual_brief.version,
@@ -79,6 +87,7 @@ class ProviderPromptProjector:
                 "provider_prompt_projector": self.renderer_id,
                 "ip_present": bool(anchor_clause),
                 "scene_bound_anchor_gate": "passed" if anchor_clause else "absent_or_rejected",
+                "visual_signature_policy": policy.version,
             },
         )
         return RenderedMediaPrompt(
@@ -87,7 +96,7 @@ class ProviderPromptProjector:
             prompt_contract=contract,
             renderer_id=self.renderer_id,
             renderer_version=self.renderer_version,
-            metadata={"provider_prompt_mode": "image_facing_structured_projection_v3_1_scene_bound_anchor"},
+            metadata={"provider_prompt_mode": "image_facing_visual_signature_projection_v3_2"},
         )
 
     def _build_prompt(
@@ -97,26 +106,38 @@ class ProviderPromptProjector:
         visual_anchor_plan: VisualAnchorPlacementPlan | None,
         visual_anchor_clause: str,
         negative_rules: Sequence[str],
+        policy: VisualSignaturePolicy,
     ) -> str:
         base_prompt = _strip_anchor_mentions_from_base_prompt(
             base_visual_brief.base_image_prompt,
             visual_anchor_plan=visual_anchor_plan,
         )
+        prompt_guards = policy.positive_prompt_guards if visual_anchor_clause else ()
         parts = [
             base_prompt,
             visual_anchor_clause,
             _image_facing_style_surface(base_visual_brief.style_surface, base_prompt=base_prompt),
             _positive_readability_text(base_visual_brief.readability_constraints),
             _positive_requirements(negative_rules),
+            "；".join(prompt_guards),
         ]
-        return _sanitize_provider_prompt(" ".join(part.strip() for part in parts if part and part.strip()))
+        return _sanitize_provider_prompt(
+            " ".join(part.strip() for part in parts if part and part.strip()),
+            policy=policy,
+        )
 
 
-def _safe_visual_anchor_clause(visual_anchor_plan: VisualAnchorPlacementPlan | None) -> str:
+def _safe_visual_anchor_clause(
+    visual_anchor_plan: VisualAnchorPlacementPlan | None,
+    *,
+    policy: VisualSignaturePolicy,
+) -> str:
     if not visual_anchor_plan or not visual_anchor_plan.visible:
         return ""
-    clause = sanitize_provider_anchor_clause(visual_anchor_plan.image_prompt_clause)
-    if not clause or contains_forbidden_overlay_language(clause):
+    clause = render_visual_anchor_plan_clause(visual_anchor_plan, policy=policy)
+    if not clause or contains_forbidden_overlay_language(clause, policy=policy):
+        return ""
+    if policy.contains_forbidden_final_prompt_text(clause):
         return ""
     if not is_scene_bound_anchor_candidate(
         image_prompt_clause=clause,
@@ -124,6 +145,7 @@ def _safe_visual_anchor_clause(visual_anchor_plan: VisualAnchorPlacementPlan | N
         placement=visual_anchor_plan.placement_zone,
         contact_relation=visual_anchor_plan.contact_relation,
         carrier_type=visual_anchor_plan.anchor_carrier_type,
+        policy=policy,
     ):
         return ""
     return clause
@@ -256,10 +278,12 @@ def _negative_rule_to_positive_visual_requirement(text: str) -> str:
         return "超人保持人类男性超级英雄造型、蓝色战衣、红色披风、胸前S标志和黑发"
     if "avoid complex textures" in lowered or "gradients" in lowered or "detailed backgrounds" in lowered:
         return "画面保持简洁背景、平面线条和低细节质感"
+    if "no visible text" in lowered or "no chinese characters" in lowered or "no english letters" in lowered:
+        return "画面通过物体、构图和符号表达内容，表面保持干净完整"
     return ""
 
 
-def _sanitize_provider_prompt(prompt: str) -> str:
+def _sanitize_provider_prompt(prompt: str, *, policy: VisualSignaturePolicy) -> str:
     cleaned = " ".join(str(prompt or "").split())
     replacements = {
         "IP角色": "频道标志物",
@@ -274,9 +298,28 @@ def _sanitize_provider_prompt(prompt: str) -> str:
         cleaned = cleaned.replace(term, "")
     cleaned = re.sub(r"\bhistory-teaching[^，。;；]*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bnon[- ]?IP[^，。;；]*", "", cleaned, flags=re.IGNORECASE)
-    # Numeric percentages are not reliable in text-to-image prompts; remove leftovers if upstream injected any.
     cleaned = re.sub(r"\d+\s*%\s*(到|至|-|~)?\s*\d*\s*%?", "", cleaned)
-    return " ".join(cleaned.split()).strip()
+    cleaned = " ".join(cleaned.split()).strip()
+    if policy.contains_forbidden_final_prompt_text(cleaned):
+        # Do not try to surgically remove policy-forbidden text from the whole base prompt.
+        # The visual-signature clause is already gated before this point; returning the
+        # cleaned base prompt preserves source intent without reintroducing an overlay.
+        cleaned = _remove_sentences_with_forbidden_terms(cleaned, policy=policy)
+    return cleaned
+
+
+def _remove_sentences_with_forbidden_terms(text: str, *, policy: VisualSignaturePolicy) -> str:
+    sentences = re.split(r"([。；;!?！？])", text)
+    kept: list[str] = []
+    index = 0
+    while index < len(sentences):
+        sentence = sentences[index]
+        punct = sentences[index + 1] if index + 1 < len(sentences) else ""
+        combined = sentence + punct
+        if combined.strip() and not policy.contains_forbidden_final_prompt_text(combined):
+            kept.append(combined)
+        index += 2
+    return "".join(kept).strip() or text
 
 
 def _is_positive_only(workflow: str | None, capabilities: Any) -> bool:

@@ -79,7 +79,7 @@ def test_provider_prompt_projector_converts_negative_subject_rules_to_positive()
     assert "奥特曼保持无披风" in rendered.prompt or "超人保持人类男性" in rendered.prompt
 
 
-def test_provider_prompt_projector_avoids_percent_scale_language():
+def test_provider_prompt_projector_avoids_percent_scale_language_and_overlay_terms():
     rendered = ProviderPromptProjector().project(
         base_visual_brief=_brief(),
         visual_anchor_plan=_anchor(),
@@ -87,12 +87,14 @@ def test_provider_prompt_projector_avoids_percent_scale_language():
     )
     assert "%" not in rendered.prompt
     assert "约为主要主体高度" not in rendered.prompt
-    assert "小摆件" in rendered.prompt or "浅压印纹章" in rendered.prompt or "墙绘或纹章细节" in rendered.prompt
+    assert "小物件" in rendered.prompt or "浅压印纹章" in rendered.prompt or "装饰纹样" in rendered.prompt
     assert "角落标签" not in rendered.prompt
     assert "角标" not in rendered.prompt
+    assert "水印" not in rendered.prompt
+    assert "logo" not in rendered.prompt.lower()
 
 
-def test_planner_defaults_named_subjects_to_low_prominence():
+def test_planner_suppresses_named_comparison_subjects_by_default():
     profile = IPProfile(
         ip_profile_id="rabbit",
         workspace_id="ws",
@@ -102,5 +104,4 @@ def test_planner_defaults_named_subjects_to_low_prominence():
         visual_summary="一只白色科技兔子，蓝色领结，长耳朵，圆润脸型",
     )
     plan = VisualAnchorPlacementPlanner().plan_frame(base_visual_brief=_brief(), anchor_profile=profile)
-    assert plan.anchor_prominence in {AnchorProminence.TINY_PROP, AnchorProminence.EMBEDDED_MARK, AnchorProminence.MICRO_CAMEO}
-    assert "%" not in plan.image_prompt_clause
+    assert not plan.visible

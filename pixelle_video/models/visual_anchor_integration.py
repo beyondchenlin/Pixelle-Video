@@ -11,11 +11,16 @@ from pixelle_video.models.visual_anchor_planning import (
     AnchorStyleRelation,
     VisualAnchorPlacementPlan,
 )
+from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.services.visual_anchor_policy import (
     contains_forbidden_overlay_language,
     is_scene_bound_anchor_candidate,
     sanitize_provider_anchor_clause,
 )
+from pixelle_video.services.visual_signature_clause_renderer import (
+    render_visual_signature_candidate_clause,
+)
+from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
 
 
 class VisualAnchorAffordanceResponse(BaseModel):
@@ -29,7 +34,12 @@ class VisualAnchorAffordanceResponse(BaseModel):
     @field_validator("safe_edges")
     @classmethod
     def _reject_canvas_edges(cls, values: list[str]) -> list[str]:
-        return [value for value in values if not contains_forbidden_overlay_language(value)]
+        policy = load_visual_signature_policy()
+        return [
+            value
+            for value in values
+            if not contains_forbidden_overlay_language(value, policy=policy)
+        ]
 
 
 class VisualAnchorIntegrationCandidateResponse(BaseModel):
@@ -55,7 +65,9 @@ class VisualAnchorIntegrationCandidateResponse(BaseModel):
     def _normalize_fields(self) -> "VisualAnchorIntegrationCandidateResponse":
         object.__setattr__(self, "scene_coherence_score", _clamp_score(self.scene_coherence_score))
         object.__setattr__(self, "disruption_risk", _clamp_score(self.disruption_risk))
-        object.__setattr__(self, "identity_preservation_score", _clamp_score(self.identity_preservation_score))
+        object.__setattr__(
+            self, "identity_preservation_score", _clamp_score(self.identity_preservation_score)
+        )
         object.__setattr__(self, "image_prompt_clause", sanitize_provider_anchor_clause(self.image_prompt_clause))
         return self
 
@@ -80,16 +92,28 @@ class VisualAnchorIntegrationPlanResponse(BaseModel):
             raise ValueError("frame_id must not be empty")
         return text
 
-    def selected_candidate(self) -> VisualAnchorIntegrationCandidateResponse | None:
-        valid_candidates = [candidate for candidate in self.candidates if _candidate_is_usable(candidate)]
+    def selected_candidate(
+        self,
+        *,
+        policy: VisualSignaturePolicy | None = None,
+    ) -> VisualAnchorIntegrationCandidateResponse | None:
+        policy = policy or load_visual_signature_policy()
+        valid_candidates = [
+            candidate for candidate in self.candidates if _candidate_is_usable(candidate, policy=policy)
+        ]
         if not valid_candidates:
             return None
 
         if self.candidates:
             index = min(max(int(self.selected_index or 0), 0), len(self.candidates) - 1)
             selected = self.candidates[index]
-            if _candidate_is_usable(selected):
+            if _candidate_is_usable(selected, policy=policy):
                 return selected
+
+        if policy.prefer_suppressed_when_uncertain:
+            suppressed = [candidate for candidate in valid_candidates if candidate.is_suppressed]
+            if suppressed:
+                return sorted(suppressed, key=lambda candidate: -candidate.scene_coherence_score)[0]
 
         return sorted(
             valid_candidates,
@@ -101,25 +125,39 @@ class VisualAnchorIntegrationPlanResponse(BaseModel):
             ),
         )[0]
 
-    def to_placement_plan(self, fallback: VisualAnchorPlacementPlan | None = None) -> VisualAnchorPlacementPlan:
-        candidate = self.selected_candidate()
+    def to_placement_plan(
+        self,
+        fallback: VisualAnchorPlacementPlan | None = None,
+        *,
+        policy: VisualSignaturePolicy | None = None,
+    ) -> VisualAnchorPlacementPlan:
+        policy = policy or load_visual_signature_policy()
+        candidate = self.selected_candidate(policy=policy)
         if candidate is None:
-            if fallback is not None:
+            if fallback is not None and fallback.visible and not policy.fail_closed_on_rejected_candidate:
                 return fallback
             return _hidden_plan(self.frame_id, reason="llm_no_usable_candidate")
 
         if candidate.is_suppressed:
             return _hidden_plan(self.frame_id, reason=candidate.reason or "llm_selected_suppressed")
 
-        clause = sanitize_provider_anchor_clause(candidate.image_prompt_clause)
-        if contains_forbidden_overlay_language(clause) or not is_scene_bound_anchor_candidate(
+        clause = render_visual_signature_candidate_clause(
+            carrier_type=candidate.carrier_type,
+            support_anchor=candidate.support_anchor,
+            contact_relation=candidate.contact_relation,
+            placement=candidate.placement,
+            source_text=candidate.image_prompt_clause,
+            policy=policy,
+        )
+        if contains_forbidden_overlay_language(clause, policy=policy) or not is_scene_bound_anchor_candidate(
             image_prompt_clause=clause,
             support_anchor=candidate.support_anchor,
             placement=candidate.placement,
             contact_relation=candidate.contact_relation,
             carrier_type=candidate.carrier_type,
+            policy=policy,
         ):
-            if fallback is not None:
+            if fallback is not None and fallback.visible and not policy.fail_closed_on_rejected_candidate:
                 return fallback
             return _hidden_plan(self.frame_id, reason="llm_candidate_rejected_by_scene_bound_gate")
 
@@ -140,13 +178,14 @@ class VisualAnchorIntegrationPlanResponse(BaseModel):
             image_prompt_clause=clause,
             metadata={
                 "source": "llm_visual_anchor_integration",
-                "policy": "v3_1_scene_bound_no_overlay",
+                "policy": policy.version,
                 "scene_coherence_score": candidate.scene_coherence_score,
                 "disruption_risk": candidate.disruption_risk,
                 "identity_preservation_score": candidate.identity_preservation_score,
                 "reason": candidate.reason,
                 "affordance": self.affordance.model_dump(),
                 "candidate_count": len(self.candidates),
+                "projection": "deterministic_visual_signature_clause_renderer",
             },
         )
 
@@ -157,15 +196,28 @@ class VisualAnchorIntegrationResponse(BaseModel):
     visual_anchor_integration_plans: list[VisualAnchorIntegrationPlanResponse]
 
 
-def _candidate_is_usable(candidate: VisualAnchorIntegrationCandidateResponse) -> bool:
+def _candidate_is_usable(
+    candidate: VisualAnchorIntegrationCandidateResponse,
+    *,
+    policy: VisualSignaturePolicy,
+) -> bool:
     if candidate.is_suppressed:
         return True
+    clause = render_visual_signature_candidate_clause(
+        carrier_type=candidate.carrier_type,
+        support_anchor=candidate.support_anchor,
+        contact_relation=candidate.contact_relation,
+        placement=candidate.placement,
+        source_text=candidate.image_prompt_clause,
+        policy=policy,
+    )
     return is_scene_bound_anchor_candidate(
-        image_prompt_clause=sanitize_provider_anchor_clause(candidate.image_prompt_clause),
+        image_prompt_clause=clause,
         support_anchor=candidate.support_anchor,
         placement=candidate.placement,
         contact_relation=candidate.contact_relation,
         carrier_type=candidate.carrier_type,
+        policy=policy,
     )
 
 
@@ -185,7 +237,7 @@ def _hidden_plan(frame_id: str, *, reason: str) -> VisualAnchorPlacementPlan:
         occlusion_relation="",
         style_relation=AnchorStyleRelation.BLENDED,
         image_prompt_clause="",
-        metadata={"source": reason, "policy": "v3_1_fail_closed"},
+        metadata={"source": reason, "policy": "visual_signature_fail_closed"},
     )
 
 

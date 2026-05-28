@@ -9,10 +9,12 @@ from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPrompt
 from pixelle_video.models.ip_prompt_planning import IPFrameAdaptationPackage
 from pixelle_video.models.visual_anchor_planning import VisualAnchorPlacementPlan
+from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.models.visual_style_contract import VisualStyleLayerContract
 from pixelle_video.services.base_visual_brief_planner import BaseVisualBriefPlanner
 from pixelle_video.services.provider_prompt_projector import ProviderPromptProjector
 from pixelle_video.services.visual_anchor_integration_planner import VisualAnchorIntegrationPlanner
+from pixelle_video.services.visual_signature_policy_loader import load_visual_signature_policy
 
 
 @dataclass(frozen=True)
@@ -31,7 +33,7 @@ class VisualPromptPlanningResult:
 
 @dataclass(frozen=True)
 class VisualPromptPlanningService:
-    """Subject-first visual planning with LLM-based visual anchor integration."""
+    """Subject-first visual planning with sparse scene-bound visual signature integration."""
 
     async def plan_image_prompts(
         self,
@@ -51,7 +53,9 @@ class VisualPromptPlanningService:
         llm_service: Any | None = None,
         trace_context: Any = None,
         trace_recorder: Any = None,
+        visual_signature_policy: VisualSignaturePolicy | None = None,
     ) -> VisualPromptPlanningResult:
+        policy = visual_signature_policy or load_visual_signature_policy()
         base_visual_briefs = BaseVisualBriefPlanner().plan_batch(
             base_prompts=base_prompts,
             frame_contexts=frame_contexts,
@@ -61,7 +65,7 @@ class VisualPromptPlanningService:
             world_preset=world_preset,
         )
         visual_anchor_plans = (
-            await VisualAnchorIntegrationPlanner(llm_service=llm_service).plan_batch(
+            await VisualAnchorIntegrationPlanner(llm_service=llm_service, policy=policy).plan_batch(
                 base_visual_briefs=base_visual_briefs,
                 anchor_profile=anchor_profile,
                 base_packages=base_anchor_packages,
@@ -86,6 +90,7 @@ class VisualPromptPlanningService:
                 negative_rules=extra_negative_rules,
                 capabilities=capabilities,
                 workflow=workflow,
+                visual_signature_policy=policy,
             )
             for index, brief in enumerate(base_visual_briefs)
         )
