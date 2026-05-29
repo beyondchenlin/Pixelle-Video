@@ -23,6 +23,7 @@ from pixelle_video.prompt_language import (
     normalize_prompt_language,
 )
 from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
+from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
 
 LEGACY_STANDARD_STORYBOARD_PARAMS = frozenset(
     {
@@ -91,6 +92,8 @@ IP_PROMPT_CHAIN_OPTION_KEYS = (
     "ip_enabled",
     "ip_asset_bible_id",
     "ip_profile_id",
+    "visual_role_mode",
+    "visual_consistency_mode",
 )
 
 
@@ -101,24 +104,30 @@ def _normalize_optional_contract_string(value: Any) -> str | None:
     return normalized or None
 
 
+
 @dataclass(frozen=True)
 class IPControlsContract:
     ip_enabled: bool = False
     ip_asset_bible_id: str | None = None
     ip_profile_id: str | None = None
+    visual_role_mode: str = "auto"
+    visual_consistency_mode: str = "off"
+    effective_visual_role_mode: str = "auto"
 
     @classmethod
     def from_mapping(cls, params: Mapping[str, Any] | None) -> "IPControlsContract":
         mapping = params or {}
         ip_enabled = bool(mapping.get("ip_enabled", False))
-        ip_asset_bible_id = _normalize_optional_contract_string(
-            mapping.get("ip_asset_bible_id")
-        )
+        ip_asset_bible_id = _normalize_optional_contract_string(mapping.get("ip_asset_bible_id"))
         ip_profile_id = _normalize_optional_contract_string(mapping.get("ip_profile_id"))
+        role_strategy = VisualRoleStrategyControls.from_mapping(mapping)
         return cls(
             ip_enabled=ip_enabled,
             ip_asset_bible_id=ip_asset_bible_id,
             ip_profile_id=ip_profile_id,
+            visual_role_mode=role_strategy.role_mode.value,
+            visual_consistency_mode=role_strategy.consistency_mode.value,
+            effective_visual_role_mode=role_strategy.effective_role_mode.value,
         )
 
     def validate(self) -> None:
@@ -131,10 +140,15 @@ class IPControlsContract:
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"ip_enabled": self.ip_enabled}
+        if not self.ip_enabled:
+            return payload
         if self.ip_asset_bible_id is not None:
             payload["ip_asset_bible_id"] = self.ip_asset_bible_id
         if self.ip_profile_id is not None:
             payload["ip_profile_id"] = self.ip_profile_id
+        payload["visual_role_mode"] = self.visual_role_mode
+        payload["visual_consistency_mode"] = self.visual_consistency_mode
+        payload["effective_visual_role_mode"] = self.effective_visual_role_mode
         return payload
 
 
