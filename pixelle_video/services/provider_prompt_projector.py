@@ -8,6 +8,7 @@ from typing import Any
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.final_visual_prompt_contract import FinalVisualPromptContract, RenderedMediaPrompt
 from pixelle_video.models.visual_anchor_planning import VisualAnchorPlacementPlan
+from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.services.visual_anchor_policy import (
     contains_forbidden_overlay_language,
@@ -54,6 +55,7 @@ class ProviderPromptProjector:
         capabilities: Any = None,
         workflow: str | None = None,
         visual_signature_policy: VisualSignaturePolicy | None = None,
+        visual_role_strategy: VisualRoleStrategyControls | None = None,
     ) -> RenderedMediaPrompt:
         policy = visual_signature_policy or load_visual_signature_policy()
         anchor_clause = _safe_visual_anchor_clause(visual_anchor_plan, policy=policy)
@@ -65,6 +67,18 @@ class ProviderPromptProjector:
             policy=policy,
         )
         negative_prompt = None if _is_positive_only(workflow, capabilities) else _join_rules(negative_rules)
+        contract_metadata = {
+            "base_visual_brief_version": base_visual_brief.version,
+            "visual_anchor_plan_version": visual_anchor_plan.version if visual_anchor_plan else None,
+            "anchor_prominence": visual_anchor_plan.anchor_prominence.value if visual_anchor_plan else None,
+            "provider_prompt_projector": self.renderer_id,
+            "ip_present": bool(anchor_clause),
+            "scene_bound_anchor_gate": "passed" if anchor_clause else "absent_or_rejected",
+            "visual_signature_policy": policy.version,
+        }
+        if visual_role_strategy is not None:
+            contract_metadata["visual_role_strategy"] = visual_role_strategy.to_dict()
+
         contract = FinalVisualPromptContract(
             scene=base_visual_brief.base_image_prompt,
             composition=_join_non_empty(
@@ -80,15 +94,7 @@ class ProviderPromptProjector:
             integration_priority=_join_non_empty(*base_visual_brief.readability_constraints)
             or "画面可读性优先",
             negative_rules=tuple(negative_rules),
-            metadata={
-                "base_visual_brief_version": base_visual_brief.version,
-                "visual_anchor_plan_version": visual_anchor_plan.version if visual_anchor_plan else None,
-                "anchor_prominence": visual_anchor_plan.anchor_prominence.value if visual_anchor_plan else None,
-                "provider_prompt_projector": self.renderer_id,
-                "ip_present": bool(anchor_clause),
-                "scene_bound_anchor_gate": "passed" if anchor_clause else "absent_or_rejected",
-                "visual_signature_policy": policy.version,
-            },
+            metadata=contract_metadata,
         )
         return RenderedMediaPrompt(
             prompt=prompt,

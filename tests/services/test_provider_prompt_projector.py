@@ -7,6 +7,7 @@ from pixelle_video.models.visual_anchor_planning import (
     AnchorStyleRelation,
     VisualAnchorPlacementPlan,
 )
+from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
 from pixelle_video.services.provider_prompt_projector import ProviderPromptProjector
 from pixelle_video.services.visual_anchor_placement_planner import VisualAnchorPlacementPlanner
 
@@ -92,6 +93,25 @@ def test_provider_prompt_projector_avoids_percent_scale_language_and_overlay_ter
     assert "角标" not in rendered.prompt
     assert "水印" not in rendered.prompt
     assert "logo" not in rendered.prompt.lower()
+
+
+def test_visual_prompt_planning_projector_accepts_visual_role_strategy_argument():
+    role_strategy = VisualRoleStrategyControls.from_mapping(
+        {
+            "visual_role_mode": "subject_replacement",
+            "visual_consistency_mode": "primary_character",
+        }
+    )
+
+    rendered = ProviderPromptProjector().project(
+        base_visual_brief=_brief(),
+        visual_anchor_plan=_anchor(),
+        workflow="selfhost/image_z_image_turbo_gguf.json",
+        visual_role_strategy=role_strategy,
+    )
+
+    assert rendered.prompt
+    assert rendered.prompt_contract.metadata["visual_role_strategy"] == role_strategy.to_dict()
 
 
 def test_planner_suppresses_named_comparison_subjects_by_default():
