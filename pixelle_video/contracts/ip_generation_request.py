@@ -3,12 +3,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
+
+
 FORMAL_CONTENT_IP_WORLD_FIELDS = frozenset(
     {
         "ip_enabled",
         "ip_asset_bible_id",
         "ip_profile_id",
         "generation_world_hint",
+        "visual_role_mode",
+        "visual_consistency_mode",
     }
 )
 HELPER_ONLY_CONTENT_IP_WORLD_FIELDS = frozenset(
@@ -37,6 +42,7 @@ def build_formal_content_ip_world_payload(source: Mapping[str, Any] | None) -> d
             payload["ip_asset_bible_id"] = asset_bible_id
         if profile_id:
             payload["ip_profile_id"] = profile_id
+        payload.update(VisualRoleStrategyControls.from_mapping(values).to_dict())
     world_hint = _first_text(values.get("generation_world_hint"))
     if world_hint:
         payload["generation_world_hint"] = world_hint
