@@ -6,6 +6,7 @@ from typing import Any
 import streamlit as st
 
 from pixelle_video.platform_context import resolve_business_context
+from pixelle_video.models.visual_role_strategy import VisualConsistencyMode, VisualRoleMode
 from web.i18n import tr
 from web.state.ip_design_client import resolve_ip_design_client
 from web.utils.streamlit_helpers import first_text, list_of_dicts, text_list
@@ -100,10 +101,29 @@ def render_ip_prompt_chain_controls(
 
     _render_ip_capability_preview(selected_profile, ui=ui, translate=translate)
 
+    visual_role_mode = _select_valid_option(
+        ui=ui,
+        label=translate(f"{normalized_label_prefix}.visual_role_mode"),
+        key=_state_key(state_key_prefix, "visual_role_mode"),
+        options=[item.value for item in VisualRoleMode],
+        format_func=lambda value: translate(f"{normalized_label_prefix}.visual_role_mode.option.{value}"),
+    )
+    visual_consistency_mode = _select_valid_option(
+        ui=ui,
+        label=translate(f"{normalized_label_prefix}.visual_consistency_mode"),
+        key=_state_key(state_key_prefix, "visual_consistency_mode"),
+        options=[item.value for item in VisualConsistencyMode],
+        format_func=lambda value: translate(f"{normalized_label_prefix}.visual_consistency_mode.option.{value}"),
+    )
+    ui.caption(translate(f"{normalized_label_prefix}.visual_role_mode_help"))
+    ui.caption(translate(f"{normalized_label_prefix}.visual_consistency_mode_help"))
+
     payload = {
         "ip_enabled": True,
         "ip_asset_bible_id": asset_bible_id,
         "ip_profile_id": ip_profile_id,
+        "visual_role_mode": visual_role_mode,
+        "visual_consistency_mode": visual_consistency_mode,
     }
     ip_profile_world_hint = first_text(selected_profile.get("world_hint"))
     if ip_profile_world_hint:

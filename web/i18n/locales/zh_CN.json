@@ -1227,6 +1227,26 @@
     "history.detail.text_layer": "文字层",
     "history.detail.text_layer_summary": "渲染器：{renderer}；Cue 数量：{cue_count}；原生提示：{native_count}",
     "history.detail.image_text_policy": "画面文字策略",
-    "history.detail.image_text_policy_summary": "状态：{status}；抑制嵌入文字：{suppress_embedded_text}"
+    "history.detail.image_text_policy_summary": "状态：{status}；抑制嵌入文字：{suppress_embedded_text}",
+    "content.ip_world.visual_role_mode": "融入模式",
+    "content.ip_world.visual_role_mode_help": "决定视觉签名在本次画面中作为主角、辅助元素，还是由系统自动选择。",
+    "content.ip_world.visual_role_mode.option.auto": "自动融合",
+    "content.ip_world.visual_role_mode.option.subject_replacement": "主体代替",
+    "content.ip_world.visual_role_mode.option.supporting_integration": "辅助融入",
+    "content.ip_world.visual_consistency_mode": "角色一致性",
+    "content.ip_world.visual_consistency_mode_help": "决定视觉签名是否跨分镜保持固定主角或固定辅助角色身份。",
+    "content.ip_world.visual_consistency_mode.option.off": "关闭",
+    "content.ip_world.visual_consistency_mode.option.supporting_character": "辅助角色一致",
+    "content.ip_world.visual_consistency_mode.option.primary_character": "主角一致",
+    "style.ip_prompt_chain.visual_role_mode": "融入模式",
+    "style.ip_prompt_chain.visual_role_mode_help": "决定视觉签名在本次画面中作为主角、辅助元素，还是由系统自动选择。",
+    "style.ip_prompt_chain.visual_role_mode.option.auto": "自动融合",
+    "style.ip_prompt_chain.visual_role_mode.option.subject_replacement": "主体代替",
+    "style.ip_prompt_chain.visual_role_mode.option.supporting_integration": "辅助融入",
+    "style.ip_prompt_chain.visual_consistency_mode": "角色一致性",
+    "style.ip_prompt_chain.visual_consistency_mode_help": "决定视觉签名是否跨分镜保持固定主角或固定辅助角色身份。",
+    "style.ip_prompt_chain.visual_consistency_mode.option.off": "关闭",
+    "style.ip_prompt_chain.visual_consistency_mode.option.supporting_character": "辅助角色一致",
+    "style.ip_prompt_chain.visual_consistency_mode.option.primary_character": "主角一致"
   }
 }

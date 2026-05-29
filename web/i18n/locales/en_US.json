@@ -1227,6 +1227,26 @@
     "history.detail.text_layer": "Text Layer",
     "history.detail.text_layer_summary": "Renderer: {renderer}; cues: {cue_count}; native hints: {native_count}",
     "history.detail.image_text_policy": "Image Text Policy",
-    "history.detail.image_text_policy_summary": "Status: {status}; suppress embedded text: {suppress_embedded_text}"
+    "history.detail.image_text_policy_summary": "Status: {status}; suppress embedded text: {suppress_embedded_text}",
+    "content.ip_world.visual_role_mode": "Integration Mode",
+    "content.ip_world.visual_role_mode_help": "Decide whether the visual signature becomes the subject, appears as a supporting element, or is chosen automatically.",
+    "content.ip_world.visual_role_mode.option.auto": "Auto Integration",
+    "content.ip_world.visual_role_mode.option.subject_replacement": "Subject Replacement",
+    "content.ip_world.visual_role_mode.option.supporting_integration": "Supporting Integration",
+    "content.ip_world.visual_consistency_mode": "Character Consistency",
+    "content.ip_world.visual_consistency_mode_help": "Decide whether the visual signature stays consistent as a primary or supporting character across frames.",
+    "content.ip_world.visual_consistency_mode.option.off": "Off",
+    "content.ip_world.visual_consistency_mode.option.supporting_character": "Supporting Character",
+    "content.ip_world.visual_consistency_mode.option.primary_character": "Primary Character",
+    "style.ip_prompt_chain.visual_role_mode": "Integration Mode",
+    "style.ip_prompt_chain.visual_role_mode_help": "Decide whether the visual signature becomes the subject, appears as a supporting element, or is chosen automatically.",
+    "style.ip_prompt_chain.visual_role_mode.option.auto": "Auto Integration",
+    "style.ip_prompt_chain.visual_role_mode.option.subject_replacement": "Subject Replacement",
+    "style.ip_prompt_chain.visual_role_mode.option.supporting_integration": "Supporting Integration",
+    "style.ip_prompt_chain.visual_consistency_mode": "Character Consistency",
+    "style.ip_prompt_chain.visual_consistency_mode_help": "Decide whether the visual signature stays consistent as a primary or supporting character across frames.",
+    "style.ip_prompt_chain.visual_consistency_mode.option.off": "Off",
+    "style.ip_prompt_chain.visual_consistency_mode.option.supporting_character": "Supporting Character",
+    "style.ip_prompt_chain.visual_consistency_mode.option.primary_character": "Primary Character"
   }
 }
