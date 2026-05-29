@@ -10,6 +10,7 @@ from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPromp
 from pixelle_video.models.ip_prompt_planning import IPFrameAdaptationPackage
 from pixelle_video.models.visual_anchor_planning import VisualAnchorPlacementPlan
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
+from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
 from pixelle_video.models.visual_style_contract import VisualStyleLayerContract
 from pixelle_video.services.base_visual_brief_planner import BaseVisualBriefPlanner
 from pixelle_video.services.provider_prompt_projector import ProviderPromptProjector
@@ -54,8 +55,14 @@ class VisualPromptPlanningService:
         trace_context: Any = None,
         trace_recorder: Any = None,
         visual_signature_policy: VisualSignaturePolicy | None = None,
+        visual_role_mode: str | None = None,
+        visual_consistency_mode: str | None = None,
     ) -> VisualPromptPlanningResult:
         policy = visual_signature_policy or load_visual_signature_policy()
+        role_strategy = VisualRoleStrategyControls.from_mapping({
+            "visual_role_mode": visual_role_mode,
+            "visual_consistency_mode": visual_consistency_mode,
+        })
         base_visual_briefs = BaseVisualBriefPlanner().plan_batch(
             base_prompts=base_prompts,
             frame_contexts=frame_contexts,
@@ -65,7 +72,7 @@ class VisualPromptPlanningService:
             world_preset=world_preset,
         )
         visual_anchor_plans = (
-            await VisualAnchorIntegrationPlanner(llm_service=llm_service, policy=policy).plan_batch(
+            await VisualAnchorIntegrationPlanner(llm_service=llm_service, policy=policy, visual_role_strategy=role_strategy).plan_batch(
                 base_visual_briefs=base_visual_briefs,
                 anchor_profile=anchor_profile,
                 base_packages=base_anchor_packages,
@@ -91,6 +98,7 @@ class VisualPromptPlanningService:
                 capabilities=capabilities,
                 workflow=workflow,
                 visual_signature_policy=policy,
+                visual_role_strategy=role_strategy,
             )
             for index, brief in enumerate(base_visual_briefs)
         )
