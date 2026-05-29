@@ -1266,6 +1266,8 @@ async def generate_styled_image_prompt_batch(
     *,
     trace_context: LLMTraceContext | None = None,
     trace_recorder: LLMInteractionRecorder | None = None,
+    visual_role_mode: str | None = None,
+    visual_consistency_mode: str | None = None,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
@@ -1676,6 +1678,8 @@ async def generate_styled_image_prompt_batch(
             llm_service=llm_service,
             trace_context=trace_context,
             trace_recorder=active_trace_recorder,
+            visual_role_mode=visual_role_mode,
+            visual_consistency_mode=visual_consistency_mode,
         )
         rendered_media_prompts = list(visual_planning_result.rendered_prompts)
         final_prompts = [rendered.prompt for rendered in rendered_media_prompts]
