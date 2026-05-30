@@ -10,6 +10,8 @@ from pixelle_video.models.prompt_context import PromptContextEnvelope
 from pixelle_video.models.storyboard_plan import StoryboardPlan
 from pixelle_video.models.style_resolution import StyledImagePromptBatch
 from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
+from pixelle_video.models.visual_role_profile import VisualRoleProfile
+from pixelle_video.models.visual_role_request import VisualRoleRequest
 from pixelle_video.models.video_generation_contract import (
     PLAN_FRAME_OVERRIDE_VALUE_FIELDS,
     normalize_plan_frame_overrides,
@@ -56,6 +58,9 @@ class ImagePromptComposer:
         native_prompt_hints_by_frame: Optional[Mapping[int, Sequence[NativePromptHint | str]]] = None,
         ip_enabled: bool = False,
         ip_profile=None,
+        visual_expression_mode: str | None = None,
+        visual_role_request: VisualRoleRequest | None = None,
+        visual_role_profile: VisualRoleProfile | None = None,
         visual_role_mode: str | None = None,
         visual_consistency_mode: str | None = None,
         scene_casts_by_frame=None,
@@ -104,6 +109,9 @@ class ImagePromptComposer:
             native_prompt_hints_by_frame=native_prompt_hints_by_frame,
             ip_enabled=ip_enabled,
             ip_profile=ip_profile,
+            visual_expression_mode=visual_expression_mode,
+            visual_role_request=visual_role_request,
+            visual_role_profile=visual_role_profile,
             visual_role_mode=visual_role_mode,
             visual_consistency_mode=visual_consistency_mode,
             scene_casts_by_frame=scene_casts_by_frame,

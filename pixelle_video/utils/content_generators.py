@@ -44,6 +44,8 @@ from pixelle_video.models.final_visual_prompt_contract import (
     RenderedMediaPrompt,
     join_rendered_negative_prompts,
 )
+from pixelle_video.models.visual_role_profile import VisualRoleProfile
+from pixelle_video.models.visual_role_request import VisualRoleRequest
 from pixelle_video.models.prompt_context import (
     PromptContextEnvelope,
     PromptContextInput,
@@ -62,6 +64,7 @@ from pixelle_video.services.ip_profile_readiness import (
     ensure_ip_profile_ready_for_generation,
 )
 from pixelle_video.services.model_prompt_renderer import select_model_prompt_renderer
+from pixelle_video.services.visual_role_profile_builder import VisualRoleProfileBuilder
 from pixelle_video.services.visual_style_contract_resolver import VisualStyleContractResolver
 from pixelle_video.services.visual_prompt_planning_service import VisualPromptPlanningService
 from pixelle_video.services.ip_usage_planner import IPFrameAppearancePlanner
@@ -1260,23 +1263,39 @@ async def generate_styled_image_prompt_batch(
     storyboard_plan=None,
     ip_enabled: bool = False,
     ip_profile=None,
+    visual_role_profile: VisualRoleProfile | None = None,
     scene_casts_by_frame=None,
     stage_callback: Optional[Callable[[dict[str, Any]], None]] = None,
     upstream_llm_trace_refs: Optional[Sequence[Mapping[str, str]]] = None,
     *,
     trace_context: LLMTraceContext | None = None,
     trace_recorder: LLMInteractionRecorder | None = None,
+    visual_expression_mode: str | None = None,
+    visual_role_request: VisualRoleRequest | None = None,
     visual_role_mode: str | None = None,
     visual_consistency_mode: str | None = None,
 ) -> StyledImagePromptBatch:
     start_time = perf_counter()
     progress_total = max(len(narrations), 1)
     normalized_prompt_contexts = _normalize_prompt_contexts(prompt_contexts, len(narrations))
-    ip_prompt_chain_enabled = ip_enabled and media_type == "image"
+    resolved_visual_role_request = visual_role_request or VisualRoleRequest.from_mapping(
+        {
+            "ip_enabled": ip_enabled,
+            "visual_expression_mode": visual_expression_mode,
+            "visual_role_mode": visual_role_mode,
+            "visual_consistency_mode": visual_consistency_mode,
+        },
+        profile_id=getattr(ip_profile, "ip_profile_id", None),
+        generation_world_hint=generation_world_hint,
+    )
+    ip_prompt_chain_enabled = resolved_visual_role_request.enabled and media_type == "image"
+    resolved_visual_role_profile = visual_role_profile
     if ip_prompt_chain_enabled and storyboard_plan is None:
         raise ValueError("storyboard_plan is required when ip_enabled=True")
     if ip_prompt_chain_enabled:
         ensure_ip_profile_ready_for_generation(ip_profile)
+        if resolved_visual_role_profile is None:
+            resolved_visual_role_profile = VisualRoleProfileBuilder().build(ip_profile)
     text_rendering_settings = build_text_rendering_settings(text_rendering)
     image_text_payload = (
         text_rendering.get("image_text")
@@ -1678,6 +1697,9 @@ async def generate_styled_image_prompt_batch(
             llm_service=llm_service,
             trace_context=trace_context,
             trace_recorder=active_trace_recorder,
+            visual_expression_mode=visual_expression_mode or resolved_visual_role_request.expression_mode.value,
+            visual_role_request=resolved_visual_role_request if ip_prompt_chain_enabled else None,
+            visual_role_profile=resolved_visual_role_profile,
             visual_role_mode=visual_role_mode,
             visual_consistency_mode=visual_consistency_mode,
         )

@@ -73,6 +73,7 @@ from pixelle_video.models.storyboard import (
 )
 from pixelle_video.models.text_overlay import project_prompt_text_rendering_request
 from pixelle_video.models.text_style import DEFAULT_TITLE_STYLE_ID
+from pixelle_video.models.visual_role_request import VisualRoleRequest
 from pixelle_video.models.video_generation_contract import (
     IPControlsContract,
     StoryboardControlsContract,
@@ -667,6 +668,12 @@ class StandardPipeline(LinearVideoPipeline):
             if ctx.storyboard_plan is None:
                 raise ValueError("storyboard_plan must be generated before visual planning")
             ip_profile, scene_casts_by_frame = await self._resolve_ip_prompt_chain_inputs(ctx)
+            ip_controls = IPControlsContract.from_mapping(ctx.params)
+            visual_role_request = VisualRoleRequest.from_mapping(
+                ctx.params,
+                profile_id=getattr(ip_profile, "ip_profile_id", None) or ip_controls.ip_profile_id,
+                generation_world_hint=storyboard_contract.generation_world_hint,
+            )
 
             styled_batch = await ImagePromptComposer().compose(
                 llm_service=self.llm,
@@ -693,8 +700,12 @@ class StandardPipeline(LinearVideoPipeline):
                 frame_overrides=list(storyboard_contract.frame_overrides),
                 text_rendering=self._prompt_text_rendering_request(ctx),
                 native_prompt_hints_by_frame=native_hints,
-                ip_enabled=IPControlsContract.from_mapping(ctx.params).ip_enabled,
+                ip_enabled=ip_controls.ip_enabled,
                 ip_profile=ip_profile,
+                visual_expression_mode=visual_role_request.expression_mode.value,
+                visual_role_mode=visual_role_request.strategy.role_mode.value,
+                visual_consistency_mode=visual_role_request.strategy.consistency_mode.value,
+                visual_role_request=visual_role_request,
                 scene_casts_by_frame=scene_casts_by_frame,
                 stage_callback=stage_callback,
                 upstream_llm_trace_refs=ctx.llm_trace_refs,
@@ -848,6 +859,7 @@ class StandardPipeline(LinearVideoPipeline):
             ctx.storyboard.frames.append(frame)
 
         self._write_final_prompt_trace_artifact(ctx)
+        self._write_visual_role_trace_artifacts(ctx)
 
         effective_max_sentences, effective_max_chars, normalize_block_text_for_tts, single_audio_block = (
             self._resolve_effective_timing_plan_settings(ctx.config)
@@ -958,6 +970,53 @@ class StandardPipeline(LinearVideoPipeline):
                 },
             }
 
+
+    def _write_visual_role_trace_artifacts(self, ctx: PipelineContext) -> None:
+        if not ctx.task_dir or not ctx.planning_snapshot:
+            return
+        snapshot = dict(ctx.planning_snapshot or {})
+        request = snapshot.get("visual_role_request")
+        profile = snapshot.get("visual_role_profile")
+        plans = snapshot.get("visual_role_plan_by_frame") or {}
+        critiques = snapshot.get("visual_role_critique_by_frame") or {}
+        decisions = snapshot.get("visual_expression_decision_by_frame") or {}
+        repair_attempts = snapshot.get("visual_role_repair_attempts") or {}
+        if not request and not plans:
+            return
+
+        artifact_dir = Path(ctx.task_dir) / "prompt_traces" / "visual_role"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        artifacts: dict[str, str] = {}
+        artifacts["visual_role_request"] = self._write_json_artifact(artifact_dir / "visual_role_request.json", request or {}, root=Path(ctx.task_dir))
+        artifacts["visual_role_profile"] = self._write_json_artifact(artifact_dir / "visual_role_profile.json", profile or {}, root=Path(ctx.task_dir))
+        artifacts["visual_role_repair_attempts"] = self._write_json_artifact(artifact_dir / "visual_role_repair_attempts.json", repair_attempts, root=Path(ctx.task_dir))
+
+        frame_artifacts: dict[str, dict[str, str]] = {}
+        frame_ids = sorted(set(decisions) | set(plans) | set(critiques))
+        for index, frame_id in enumerate(frame_ids, start=1):
+            prefix = f"frame_{index:03d}"
+            frame_artifacts[frame_id] = {
+                "visual_expression_decision": self._write_json_artifact(artifact_dir / f"visual_expression_decision_{prefix}.json", decisions.get(frame_id) or {}, root=Path(ctx.task_dir)),
+                "visual_role_plan": self._write_json_artifact(artifact_dir / f"visual_role_plan_{prefix}.json", plans.get(frame_id) or {}, root=Path(ctx.task_dir)),
+                "visual_role_critique": self._write_json_artifact(artifact_dir / f"visual_role_critique_{prefix}.json", critiques.get(frame_id) or {}, root=Path(ctx.task_dir)),
+            }
+            integrated_prompt = str((plans.get(frame_id) or {}).get("integrated_scene_prompt") or "")
+            prompt_path = artifact_dir / f"final_integrated_prompt_{prefix}.txt"
+            prompt_path.write_text(integrated_prompt, encoding="utf-8")
+            frame_artifacts[frame_id]["final_integrated_prompt"] = str(prompt_path.relative_to(Path(ctx.task_dir)))
+
+        record = {"directory": str(artifact_dir.relative_to(Path(ctx.task_dir))), "artifacts": artifacts, "frames": frame_artifacts}
+        ctx.observability.setdefault("prompt_traces", {})["visual_role"] = record
+        ctx.planning_snapshot["visual_role_artifacts"] = record
+        if ctx.storyboard is not None:
+            ctx.storyboard.planning_snapshot = dict(ctx.storyboard.planning_snapshot or {})
+            ctx.storyboard.planning_snapshot["visual_role_artifacts"] = record
+
+    @staticmethod
+    def _write_json_artifact(path: Path, payload: Mapping[str, Any] | dict[str, Any], *, root: Path) -> str:
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        return str(path.relative_to(root))
     def _final_prompt_generation_context(
         self,
         ctx: PipelineContext,
@@ -982,7 +1041,13 @@ class StandardPipeline(LinearVideoPipeline):
             if ctx.prompt_plan_bundle is not None
             else None
         )
-        ip_controls = IPControlsContract.from_mapping(ctx.params).to_dict()
+        ip_controls_contract = IPControlsContract.from_mapping(ctx.params)
+        ip_controls = ip_controls_contract.to_dict()
+        visual_role_request = VisualRoleRequest.from_mapping(
+            ctx.params,
+            profile_id=ip_controls_contract.ip_profile_id,
+            generation_world_hint=ctx.params.get("generation_world_hint"),
+        )
         storyboard_contract = StoryboardControlsContract.from_mapping(ctx.params)
         storyboard_controls = {
             **storyboard_contract.to_generation_dict(),
@@ -1032,6 +1097,7 @@ class StandardPipeline(LinearVideoPipeline):
                 "prompt_prefix": ctx.params.get("prompt_prefix"),
                 "ip_controls": ip_controls,
                 "storyboard_controls": storyboard_controls,
+                "visual_role_request": visual_role_request.to_dict(),
             },
             "resolved_style": resolved_style,
             "planning_snapshot": ctx.planning_snapshot or {},

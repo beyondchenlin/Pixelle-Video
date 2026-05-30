@@ -24,6 +24,10 @@ from pixelle_video.prompt_language import (
 )
 from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
 from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
+from pixelle_video.models.visual_role_request import (
+    VisualRoleControlsContract,
+    VisualRoleRequest,
+)
 
 LEGACY_STANDARD_STORYBOARD_PARAMS = frozenset(
     {
@@ -92,6 +96,7 @@ IP_PROMPT_CHAIN_OPTION_KEYS = (
     "ip_enabled",
     "ip_asset_bible_id",
     "ip_profile_id",
+    "visual_expression_mode",
     "visual_role_mode",
     "visual_consistency_mode",
 )
@@ -274,6 +279,7 @@ def normalize_standard_video_generation_params(
         default_prompt_language=default_prompt_language,
     )
     ip_contract = IPControlsContract.from_mapping(normalized)
+    visual_role_contract = VisualRoleControlsContract.from_mapping(normalized)
     for key in (*STORYBOARD_GENERATION_OPTION_KEYS, *STORYBOARD_PLANNING_OPTION_KEYS):
         normalized.pop(key, None)
     for key in IP_PROMPT_CHAIN_OPTION_KEYS:
@@ -281,6 +287,7 @@ def normalize_standard_video_generation_params(
     normalized.update(storyboard_contract.to_generation_dict())
     normalized.update(storyboard_contract.to_planning_dict(include_prompt_language=True))
     normalized.update(ip_contract.to_dict())
+    normalized.update(visual_role_contract.to_generation_dict())
     return normalized
 
 
@@ -389,6 +396,7 @@ def validate_standard_video_generation_params(
 
     validate_plan_frame_override_payloads(params.get("frame_overrides"))
     IPControlsContract.from_mapping(params).validate()
+    VisualRoleRequest.from_mapping(params).validate()
 
 
 def is_plan_frame_override_payload(override: Mapping[str, Any]) -> bool:
