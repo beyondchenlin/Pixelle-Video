@@ -148,6 +148,17 @@ def build_video_generation_params(
         "request_id": request_id,
     }
 
+    for key in (
+        "visual_expression_mode",
+        "visual_structure_mode",
+        "visual_participation_mode",
+        "visual_role_mode",
+        "visual_consistency_mode",
+    ):
+        value = getattr(request_body, key)
+        if value is not None:
+            video_params[key] = value
+
     if api_task_id is not None:
         video_params["api_task_id"] = api_task_id
 

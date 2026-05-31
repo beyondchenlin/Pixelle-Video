@@ -249,6 +249,26 @@ class VideoGenerateRequest(BaseModel):
         None,
         description="IP profile ID inside the selected asset bible.",
     )
+    visual_expression_mode: Optional[str] = Field(
+        None,
+        description="V4 visual-role expression mode.",
+    )
+    visual_structure_mode: Optional[str] = Field(
+        None,
+        description="V4 visual-role structure mode.",
+    )
+    visual_participation_mode: Optional[str] = Field(
+        None,
+        description="V4 visual-role participation mode.",
+    )
+    visual_role_mode: Optional[str] = Field(
+        None,
+        description="V4 visual-role strategy mode.",
+    )
+    visual_consistency_mode: Optional[str] = Field(
+        None,
+        description="V4 visual-role consistency mode.",
+    )
     tts_audio_strategy: Optional[StandardTtsAudioStrategy] = Field(
         None,
         description="Standard video TTS audio strategy. Per-frame audio is not supported.",

@@ -97,6 +97,8 @@ IP_PROMPT_CHAIN_OPTION_KEYS = (
     "ip_asset_bible_id",
     "ip_profile_id",
     "visual_expression_mode",
+    "visual_structure_mode",
+    "visual_participation_mode",
     "visual_role_mode",
     "visual_consistency_mode",
 )
@@ -115,6 +117,9 @@ class IPControlsContract:
     ip_enabled: bool = False
     ip_asset_bible_id: str | None = None
     ip_profile_id: str | None = None
+    visual_expression_mode: str = "auto"
+    visual_structure_mode: str = "auto"
+    visual_participation_mode: str = "auto"
     visual_role_mode: str = "auto"
     visual_consistency_mode: str = "off"
     effective_visual_role_mode: str = "auto"
@@ -125,14 +130,17 @@ class IPControlsContract:
         ip_enabled = bool(mapping.get("ip_enabled", False))
         ip_asset_bible_id = _normalize_optional_contract_string(mapping.get("ip_asset_bible_id"))
         ip_profile_id = _normalize_optional_contract_string(mapping.get("ip_profile_id"))
-        role_strategy = VisualRoleStrategyControls.from_mapping(mapping)
+        visual_controls = VisualRoleControlsContract.from_mapping(mapping)
         return cls(
             ip_enabled=ip_enabled,
             ip_asset_bible_id=ip_asset_bible_id,
             ip_profile_id=ip_profile_id,
-            visual_role_mode=role_strategy.role_mode.value,
-            visual_consistency_mode=role_strategy.consistency_mode.value,
-            effective_visual_role_mode=role_strategy.effective_role_mode.value,
+            visual_expression_mode=visual_controls.expression_mode.value,
+            visual_structure_mode=visual_controls.structure_mode.value,
+            visual_participation_mode=visual_controls.participation_mode.value,
+            visual_role_mode=visual_controls.strategy.role_mode.value,
+            visual_consistency_mode=visual_controls.strategy.consistency_mode.value,
+            effective_visual_role_mode=visual_controls.strategy.effective_role_mode.value,
         )
 
     def validate(self) -> None:
@@ -151,6 +159,9 @@ class IPControlsContract:
             payload["ip_asset_bible_id"] = self.ip_asset_bible_id
         if self.ip_profile_id is not None:
             payload["ip_profile_id"] = self.ip_profile_id
+        payload["visual_expression_mode"] = self.visual_expression_mode
+        payload["visual_structure_mode"] = self.visual_structure_mode
+        payload["visual_participation_mode"] = self.visual_participation_mode
         payload["visual_role_mode"] = self.visual_role_mode
         payload["visual_consistency_mode"] = self.visual_consistency_mode
         payload["effective_visual_role_mode"] = self.effective_visual_role_mode

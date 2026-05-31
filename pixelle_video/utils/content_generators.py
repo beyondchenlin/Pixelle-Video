@@ -1271,6 +1271,8 @@ async def generate_styled_image_prompt_batch(
     trace_context: LLMTraceContext | None = None,
     trace_recorder: LLMInteractionRecorder | None = None,
     visual_expression_mode: str | None = None,
+    visual_structure_mode: str | None = None,
+    visual_participation_mode: str | None = None,
     visual_role_request: VisualRoleRequest | None = None,
     visual_role_mode: str | None = None,
     visual_consistency_mode: str | None = None,
@@ -1282,6 +1284,8 @@ async def generate_styled_image_prompt_batch(
         {
             "ip_enabled": ip_enabled,
             "visual_expression_mode": visual_expression_mode,
+            "visual_structure_mode": visual_structure_mode,
+            "visual_participation_mode": visual_participation_mode,
             "visual_role_mode": visual_role_mode,
             "visual_consistency_mode": visual_consistency_mode,
         },
@@ -1698,6 +1702,8 @@ async def generate_styled_image_prompt_batch(
             trace_context=trace_context,
             trace_recorder=active_trace_recorder,
             visual_expression_mode=visual_expression_mode or resolved_visual_role_request.expression_mode.value,
+            visual_structure_mode=visual_structure_mode or resolved_visual_role_request.structure_mode.value,
+            visual_participation_mode=visual_participation_mode or resolved_visual_role_request.participation_mode.value,
             visual_role_request=resolved_visual_role_request if ip_prompt_chain_enabled else None,
             visual_role_profile=resolved_visual_role_profile,
             visual_role_mode=visual_role_mode,
@@ -2082,5 +2088,4 @@ async def generate_video_prompts(
         f"鉁?Generated {len(batch_result.outputs)} video prompts in {perf_counter() - start_time:.2f}s"
     )
     return batch_result.outputs
-
 
