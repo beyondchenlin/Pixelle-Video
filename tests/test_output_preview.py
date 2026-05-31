@@ -261,6 +261,9 @@ def test_build_single_generation_request_includes_ip_prompt_chain_controls():
             "ip_enabled": True,
             "ip_asset_bible_id": "bible_demo",
             "ip_profile_id": "ip_main",
+            "visual_expression_mode": "explanatory_diagram",
+            "visual_structure_mode": "workflow",
+            "visual_participation_mode": "guide_explainer",
         },
         progress_callback=_progress,
         session_state={},
@@ -269,6 +272,9 @@ def test_build_single_generation_request_includes_ip_prompt_chain_controls():
     assert request["ip_enabled"] is True
     assert request["ip_asset_bible_id"] == "bible_demo"
     assert request["ip_profile_id"] == "ip_main"
+    assert request["visual_expression_mode"] == "explanatory_diagram"
+    assert request["visual_structure_mode"] == "workflow"
+    assert request["visual_participation_mode"] == "guide_explainer"
 
 
 def test_build_single_generation_request_includes_generation_world_hint():

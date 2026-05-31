@@ -59,10 +59,20 @@ def test_style_config_renders_ip_enable_toggle_and_profile_selectors():
         "ip_enabled": True,
         "ip_asset_bible_id": "bible_demo",
         "ip_profile_id": "ip_main",
+        "visual_expression_mode": "auto",
+        "visual_structure_mode": "auto",
+        "visual_participation_mode": "auto",
+        "visual_role_mode": "auto",
+        "visual_consistency_mode": "off",
     }
     assert [call["key"] for call in fake_ui.selectbox_calls] == [
         "style_ip_asset_bible_id",
         "style_ip_profile_id",
+        "style_ip_visual_expression_mode",
+        "style_ip_visual_structure_mode",
+        "style_ip_visual_participation_mode",
+        "style_ip_visual_role_mode",
+        "style_ip_visual_consistency_mode",
     ]
 
 
@@ -144,12 +154,22 @@ def test_render_ip_prompt_chain_controls_supports_content_state_prefix():
         "ip_enabled": True,
         "ip_asset_bible_id": "bible_demo",
         "ip_profile_id": "ip_main",
+        "visual_expression_mode": "auto",
+        "visual_structure_mode": "auto",
+        "visual_participation_mode": "auto",
+        "visual_role_mode": "auto",
+        "visual_consistency_mode": "off",
         "ip_profile_world_hint": "Friendly guide world.",
     }
     assert fake_ui.toggle_calls[0]["key"] == "content_ip_enabled"
     assert [call["key"] for call in fake_ui.selectbox_calls] == [
         "content_ip_asset_bible_id",
         "content_ip_profile_id",
+        "content_ip_visual_expression_mode",
+        "content_ip_visual_structure_mode",
+        "content_ip_visual_participation_mode",
+        "content_ip_visual_role_mode",
+        "content_ip_visual_consistency_mode",
     ]
 
 
@@ -231,4 +251,9 @@ def test_style_config_loads_ip_assets_after_enable_toggle():
         "ip_enabled": True,
         "ip_asset_bible_id": "bible_demo",
         "ip_profile_id": "ip_main",
+        "visual_expression_mode": "auto",
+        "visual_structure_mode": "auto",
+        "visual_participation_mode": "auto",
+        "visual_role_mode": "auto",
+        "visual_consistency_mode": "off",
     }

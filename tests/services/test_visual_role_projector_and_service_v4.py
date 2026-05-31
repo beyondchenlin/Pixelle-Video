@@ -1,6 +1,11 @@
+from dataclasses import replace
+
 import pytest
 
-from pixelle_video.models.visual_role_request import VisualRoleRequest
+from pixelle_video.models.visual_role_request import (
+    VISUAL_ROLE_LEGACY_PIPELINE_VERSION,
+    VisualRoleRequest,
+)
 from pixelle_video.models.visual_role_profile import VisualRoleProfile
 from pixelle_video.services.visual_prompt_planning_service import VisualPromptPlanningService
 from pixelle_video.services.visual_role_prompt_projector import VisualRolePromptProjectionError, VisualRolePromptProjector
@@ -16,6 +21,8 @@ def _request():
         "ip_asset_bible_id": "asset",
         "ip_profile_id": "sparrow",
         "visual_expression_mode": "explanatory_diagram",
+        "visual_structure_mode": "workflow",
+        "visual_participation_mode": "guide_explainer",
         "visual_role_mode": "supporting_integration",
     })
 
@@ -45,10 +52,30 @@ async def test_visual_prompt_planning_routes_v4_to_visual_role_projector():
     assert len(result.rendered_prompts) == 1
     assert result.visual_role_plans
     assert result.visual_role_critiques[0].passed
+    assert result.visual_role_plans[0].structure_mode.value == "workflow"
+    assert result.visual_role_plans[0].participation_mode.value == "guide_explainer"
+    assert result.visual_role_plans[0].structure_decision
+    assert result.visual_role_plans[0].participation_decision
     assert "红嘴麻雀" in result.rendered_prompts[0].prompt
     snapshot = result.planning_snapshot()
     assert "visual_role_request" in snapshot
     assert "visual_role_plan_by_frame" in snapshot
+
+
+@pytest.mark.asyncio
+async def test_visual_prompt_planning_keeps_legacy_pipeline_version_on_v4_route():
+    result = await VisualPromptPlanningService().plan_image_prompts(
+        base_prompts=("legacy visual role route",),
+        frame_contexts=({"frame_id": "f1", "source_text": "legacy request"},),
+        visual_role_request=replace(
+            _request(),
+            pipeline_version=VISUAL_ROLE_LEGACY_PIPELINE_VERSION,
+        ),
+        visual_role_profile=_profile(),
+    )
+
+    assert result.visual_role_plans
+    assert result.rendered_prompts[0].renderer_id == "visual_role_prompt_projector"
 
 
 def test_v4_projector_raises_when_critic_not_passed():

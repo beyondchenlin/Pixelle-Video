@@ -167,6 +167,12 @@ def test_render_content_ip_world_controls_returns_selected_ip_payload_without_he
         "ip_enabled": True,
         "ip_asset_bible_id": "bible_demo",
         "ip_profile_id": "ip_main",
+        "visual_expression_mode": "auto",
+        "visual_structure_mode": "auto",
+        "visual_participation_mode": "auto",
+        "visual_role_mode": "auto",
+        "visual_consistency_mode": "off",
+        "effective_visual_role_mode": "auto",
         "generation_world_hint": "Manual request world.",
     }
     assert fake_ui.session_state["content_ip_profile_world_hint"] == "Friendly guide world."
@@ -483,6 +489,12 @@ def test_build_content_ip_world_payload_uses_formal_contract_only():
         "ip_enabled": True,
         "ip_asset_bible_id": "bible_demo",
         "ip_profile_id": "ip_main",
+        "visual_expression_mode": "auto",
+        "visual_structure_mode": "auto",
+        "visual_participation_mode": "auto",
+        "visual_role_mode": "auto",
+        "visual_consistency_mode": "off",
+        "effective_visual_role_mode": "auto",
         "generation_world_hint": "script world",
     }
 

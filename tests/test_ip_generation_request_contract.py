@@ -13,6 +13,11 @@ def test_formal_field_set_is_narrow():
         "ip_asset_bible_id",
         "ip_profile_id",
         "generation_world_hint",
+        "visual_expression_mode",
+        "visual_structure_mode",
+        "visual_participation_mode",
+        "visual_role_mode",
+        "visual_consistency_mode",
     }
 
 
@@ -33,6 +38,9 @@ def test_build_formal_payload_drops_helper_and_removed_fields():
             "ip_asset_bible_id": "bible_demo",
             "ip_profile_id": "ip_main",
             "generation_world_hint": "script world",
+            "visual_expression_mode": "explanatory_diagram",
+            "visual_structure_mode": "workflow",
+            "visual_participation_mode": "guide_explainer",
             "ip_profile_world_hint": "asset helper",
             "generation_world_hint_source": "ip_default",
             "generation_notes": "old notes",
@@ -47,6 +55,12 @@ def test_build_formal_payload_drops_helper_and_removed_fields():
         "ip_asset_bible_id": "bible_demo",
         "ip_profile_id": "ip_main",
         "generation_world_hint": "script world",
+        "visual_expression_mode": "explanatory_diagram",
+        "visual_structure_mode": "workflow",
+        "visual_participation_mode": "guide_explainer",
+        "visual_role_mode": "auto",
+        "visual_consistency_mode": "off",
+        "effective_visual_role_mode": "auto",
     }
     assert "unknown" not in payload
 
@@ -61,6 +75,12 @@ def test_enabled_ip_omits_blank_ids_but_preserves_world_hint():
         }
     ) == {
         "ip_enabled": True,
+        "visual_expression_mode": "auto",
+        "visual_structure_mode": "auto",
+        "visual_participation_mode": "auto",
+        "visual_role_mode": "auto",
+        "visual_consistency_mode": "off",
+        "effective_visual_role_mode": "auto",
         "generation_world_hint": "request world",
     }
 

@@ -6,9 +6,11 @@ from pixelle_video.models.video_generation_contract import (
 )
 from pixelle_video.models.visual_expression import VisualExpressionMode
 from pixelle_video.models.visual_role_request import (
+    VISUAL_ROLE_LEGACY_PIPELINE_VERSION,
     VISUAL_ROLE_PIPELINE_VERSION,
     VisualRoleControlsContract,
     VisualRoleRequest,
+    is_supported_visual_role_pipeline_version,
 )
 from pixelle_video.models.visual_role_strategy import VisualRoleMode
 
@@ -19,6 +21,8 @@ def _enabled_params(**overrides):
         "ip_asset_bible_id": "asset_bible_1",
         "ip_profile_id": "rabbit_host",
         "visual_expression_mode": "infographic_layout",
+        "visual_structure_mode": "workflow",
+        "visual_participation_mode": "operator_demonstrator",
         "visual_role_mode": "supporting_integration",
         "visual_consistency_mode": "supporting_character",
     }
@@ -33,10 +37,14 @@ def test_visual_role_controls_accepts_v4_fields():
     assert controls.asset_bible_id == "asset_bible_1"
     assert controls.profile_id == "rabbit_host"
     assert controls.expression_mode is VisualExpressionMode.INFOGRAPHIC_LAYOUT
+    assert controls.structure_mode.value == "workflow"
+    assert controls.participation_mode.value == "operator_demonstrator"
     assert controls.strategy.role_mode.value == "supporting_integration"
     assert controls.strategy.consistency_mode.value == "supporting_character"
     assert controls.to_generation_dict() == {
         "visual_expression_mode": "infographic_layout",
+        "visual_structure_mode": "workflow",
+        "visual_participation_mode": "operator_demonstrator",
         "visual_role_mode": "supporting_integration",
         "visual_consistency_mode": "supporting_character",
         "effective_visual_role_mode": "supporting_integration",
@@ -68,7 +76,13 @@ def test_visual_role_request_disabled_does_not_trigger_v4():
 
     assert request.enabled is False
     assert request.pipeline_version == VISUAL_ROLE_PIPELINE_VERSION
+    assert request.pipeline_version == "v4_2_identity_contract"
     request.validate()
+
+
+def test_visual_role_pipeline_version_keeps_legacy_route_supported():
+    assert is_supported_visual_role_pipeline_version(VISUAL_ROLE_PIPELINE_VERSION)
+    assert is_supported_visual_role_pipeline_version(VISUAL_ROLE_LEGACY_PIPELINE_VERSION)
 
 
 def test_visual_role_request_requires_asset_when_enabled():
@@ -102,6 +116,8 @@ def test_normalize_standard_video_generation_params_preserves_v4_fields():
     assert normalized["ip_asset_bible_id"] == "asset_bible_1"
     assert normalized["ip_profile_id"] == "rabbit_host"
     assert normalized["visual_expression_mode"] == "infographic_layout"
+    assert normalized["visual_structure_mode"] == "workflow"
+    assert normalized["visual_participation_mode"] == "operator_demonstrator"
     assert normalized["visual_role_mode"] == "supporting_integration"
     assert normalized["visual_consistency_mode"] == "supporting_character"
     assert normalized["effective_visual_role_mode"] == "supporting_integration"
