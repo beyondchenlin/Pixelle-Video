@@ -703,6 +703,8 @@ class StandardPipeline(LinearVideoPipeline):
                 ip_enabled=ip_controls.ip_enabled,
                 ip_profile=ip_profile,
                 visual_expression_mode=visual_role_request.expression_mode.value,
+                visual_structure_mode=visual_role_request.structure_mode.value,
+                visual_participation_mode=visual_role_request.participation_mode.value,
                 visual_role_mode=visual_role_request.strategy.role_mode.value,
                 visual_consistency_mode=visual_role_request.strategy.consistency_mode.value,
                 visual_role_request=visual_role_request,
@@ -977,9 +979,13 @@ class StandardPipeline(LinearVideoPipeline):
         snapshot = dict(ctx.planning_snapshot or {})
         request = snapshot.get("visual_role_request")
         profile = snapshot.get("visual_role_profile")
+        identity_contract = snapshot.get("visual_role_identity_contract") or (
+            (profile or {}).get("identity_contract") if isinstance(profile, Mapping) else None
+        )
         plans = snapshot.get("visual_role_plan_by_frame") or {}
         critiques = snapshot.get("visual_role_critique_by_frame") or {}
         decisions = snapshot.get("visual_expression_decision_by_frame") or {}
+        projected_parts = snapshot.get("visual_role_projected_prompt_parts_by_frame") or {}
         repair_attempts = snapshot.get("visual_role_repair_attempts") or {}
         if not request and not plans:
             return
@@ -990,18 +996,23 @@ class StandardPipeline(LinearVideoPipeline):
         artifacts: dict[str, str] = {}
         artifacts["visual_role_request"] = self._write_json_artifact(artifact_dir / "visual_role_request.json", request or {}, root=Path(ctx.task_dir))
         artifacts["visual_role_profile"] = self._write_json_artifact(artifact_dir / "visual_role_profile.json", profile or {}, root=Path(ctx.task_dir))
+        artifacts["visual_role_identity_contract"] = self._write_json_artifact(artifact_dir / "visual_role_identity_contract.json", identity_contract or {}, root=Path(ctx.task_dir))
         artifacts["visual_role_repair_attempts"] = self._write_json_artifact(artifact_dir / "visual_role_repair_attempts.json", repair_attempts, root=Path(ctx.task_dir))
 
         frame_artifacts: dict[str, dict[str, str]] = {}
         frame_ids = sorted(set(decisions) | set(plans) | set(critiques))
         for index, frame_id in enumerate(frame_ids, start=1):
             prefix = f"frame_{index:03d}"
+            plan_payload = plans.get(frame_id) or {}
             frame_artifacts[frame_id] = {
                 "visual_expression_decision": self._write_json_artifact(artifact_dir / f"visual_expression_decision_{prefix}.json", decisions.get(frame_id) or {}, root=Path(ctx.task_dir)),
-                "visual_role_plan": self._write_json_artifact(artifact_dir / f"visual_role_plan_{prefix}.json", plans.get(frame_id) or {}, root=Path(ctx.task_dir)),
+                "visual_role_plan": self._write_json_artifact(artifact_dir / f"visual_role_plan_{prefix}.json", plan_payload, root=Path(ctx.task_dir)),
+                "visual_role_structure_decision": self._write_json_artifact(artifact_dir / f"visual_role_structure_decision_{prefix}.json", self._visual_role_structure_decision_payload(frame_id, plan_payload), root=Path(ctx.task_dir)),
+                "visual_role_participation_decision": self._write_json_artifact(artifact_dir / f"visual_role_participation_decision_{prefix}.json", self._visual_role_participation_decision_payload(frame_id, plan_payload), root=Path(ctx.task_dir)),
                 "visual_role_critique": self._write_json_artifact(artifact_dir / f"visual_role_critique_{prefix}.json", critiques.get(frame_id) or {}, root=Path(ctx.task_dir)),
+                "visual_role_projected_prompt_parts": self._write_json_artifact(artifact_dir / f"visual_role_projected_prompt_parts_{prefix}.json", projected_parts.get(frame_id) or {}, root=Path(ctx.task_dir)),
             }
-            integrated_prompt = str((plans.get(frame_id) or {}).get("integrated_scene_prompt") or "")
+            integrated_prompt = str(plan_payload.get("integrated_scene_prompt") or "")
             prompt_path = artifact_dir / f"final_integrated_prompt_{prefix}.txt"
             prompt_path.write_text(integrated_prompt, encoding="utf-8")
             frame_artifacts[frame_id]["final_integrated_prompt"] = str(prompt_path.relative_to(Path(ctx.task_dir)))
@@ -1017,6 +1028,25 @@ class StandardPipeline(LinearVideoPipeline):
     def _write_json_artifact(path: Path, payload: Mapping[str, Any] | dict[str, Any], *, root: Path) -> str:
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
         return str(path.relative_to(root))
+
+    @staticmethod
+    def _visual_role_structure_decision_payload(frame_id: str, plan: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "frame_id": frame_id,
+            "visual_structure_mode": plan.get("structure_mode"),
+            "structure_decision": plan.get("structure_decision"),
+            "plan_version": plan.get("version"),
+        }
+
+    @staticmethod
+    def _visual_role_participation_decision_payload(frame_id: str, plan: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "frame_id": frame_id,
+            "visual_participation_mode": plan.get("participation_mode"),
+            "participation_decision": plan.get("participation_decision"),
+            "plan_version": plan.get("version"),
+        }
+
     def _final_prompt_generation_context(
         self,
         ctx: PipelineContext,

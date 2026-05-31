@@ -7,6 +7,10 @@ from typing import Any
 
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.visual_expression import VisualExpressionDecision, VisualExpressionMode
+from pixelle_video.models.visual_role_identity import (
+    VisualRoleParticipationMode,
+    VisualRoleStructureMode,
+)
 from pixelle_video.models.visual_role_planning import VisualRoleIntegratedPromptPlan
 from pixelle_video.models.visual_role_profile import VisualRoleProfile
 from pixelle_video.models.visual_role_request import VisualRoleRequest
@@ -150,7 +154,7 @@ def _plan_from_payload(
     if not isinstance(payload, Mapping):
         raise VisualRolePlanningError("visual role planner response must be a mapping")
     role_mode = _effective_role_mode(visual_role_request, expression_decision)
-    identity = "、".join(visual_role_profile.identity_kernel[:4])
+    identity = "; ".join(visual_role_profile.identity_contract.required_identity_traits)
     original_intent = _original_intent(base_visual_brief, frame_context)
     role_action = _text(payload.get("role_action")) or _select_action(visual_role_profile, role_mode=role_mode)
     role_manifestation = _text(payload.get("role_manifestation")) or _select_manifestation(visual_role_profile, role_mode=role_mode)
@@ -160,6 +164,18 @@ def _plan_from_payload(
         "recompose_subject" if role_mode is VisualRoleMode.SUBJECT_REPLACEMENT else "supporting_in_scene_rewrite"
     )
     integration_strategy = _text(payload.get("integration_strategy")) or _integration_strategy(expression_decision.expression_mode, role_mode)
+    structure_mode = visual_role_request.structure_mode
+    participation_mode = visual_role_request.participation_mode
+    structure_decision = _text(payload.get("structure_decision")) or _structure_decision(
+        structure_mode,
+        expression_decision.expression_mode,
+        base_visual_brief,
+    )
+    participation_decision = _text(payload.get("participation_decision")) or _participation_decision(
+        participation_mode,
+        role_mode,
+        visual_role_profile,
+    )
 
     integrated_prompt = _text(payload.get("integrated_scene_prompt"))
     if require_integrated_prompt and not integrated_prompt:
@@ -172,6 +188,8 @@ def _plan_from_payload(
             role_action=role_action,
             role_manifestation=role_manifestation,
             role_location=role_location,
+            structure_decision=structure_decision,
+            participation_decision=participation_decision,
             base_visual_brief=base_visual_brief,
         )
 
@@ -180,7 +198,7 @@ def _plan_from_payload(
     )
     metadata = {
         "planner": "VisualRoleScenePlanner",
-        "planner_version": "v4_1_llm_first",
+        "planner_version": "v4_2_identity_contract",
         "planner_source": planner_source,
         "expression_decision": expression_decision.to_dict(),
         "visual_role_request": visual_role_request.to_dict(),
@@ -204,6 +222,10 @@ def _plan_from_payload(
         role_manifestation=role_manifestation,
         role_location=role_location,
         integrated_scene_prompt=integrated_prompt,
+        structure_mode=structure_mode,
+        participation_mode=participation_mode,
+        structure_decision=structure_decision,
+        participation_decision=participation_decision,
         quality_notes=_normalize_text_tuple(payload.get("quality_notes"))
         or (
             "视觉角色必须参与表达",
@@ -245,6 +267,8 @@ def _render_planner_prompt(
             "role_action",
             "role_manifestation",
             "role_location",
+            "structure_decision",
+            "participation_decision",
             "integrated_scene_prompt",
             "quality_notes",
         ],
@@ -266,6 +290,8 @@ def _rule_integrated_prompt(
     role_action: str,
     role_manifestation: str,
     role_location: str,
+    structure_decision: str,
+    participation_decision: str,
     base_visual_brief: BaseVisualBrief,
 ) -> str:
     if role_mode is VisualRoleMode.SUBJECT_REPLACEMENT:
@@ -273,6 +299,7 @@ def _rule_integrated_prompt(
             f"以{identity}作为画面核心主体和主要行动者，{role_action}当前主题；"
             f"保留原始意图：{original_intent}；"
             f"画面构图围绕{identity}展开，{role_manifestation}，位置：{role_location}；"
+            f"结构决策：{structure_decision}；参与决策：{participation_decision}；"
             f"风格与原始画面保持一致：{base_visual_brief.style_surface or '清晰统一的视觉风格'}。"
         )
     main_subjects = "、".join(base_visual_brief.main_subjects) or "原始画面主体"
@@ -280,6 +307,7 @@ def _rule_integrated_prompt(
         f"保留原始主体：{main_subjects}；保留原始意图：{original_intent}；"
         f"让{identity}作为真实场景内的辅助视觉角色出现，承担{role_action}职责，"
         f"{role_manifestation}，位置：{role_location}；"
+        f"结构决策：{structure_decision}；参与决策：{participation_decision}；"
         f"{identity}必须以真实场景内角色或载体参与画面表达，具有明确动作和场景职责。"
     )
 
@@ -327,6 +355,32 @@ def _role_location(expression_mode: VisualExpressionMode, role_mode: VisualRoleM
         VisualExpressionMode.ENVIRONMENT_BRANDING: "环境空间中的品牌化装置位置",
     }
     return mapping.get(expression_mode, "主体附近的真实场景位置")
+
+
+def _structure_decision(
+    mode: VisualRoleStructureMode,
+    expression_mode: VisualExpressionMode,
+    brief: BaseVisualBrief,
+) -> str:
+    if mode is VisualRoleStructureMode.AUTO:
+        return (
+            f"Use the {expression_mode.value} structure that best preserves "
+            f"the frame intent: {brief.core_message or brief.visual_moment}."
+        )
+    return f"Use the configured {mode.value} visual structure for this frame."
+
+
+def _participation_decision(
+    mode: VisualRoleParticipationMode,
+    role_mode: VisualRoleMode,
+    profile: VisualRoleProfile,
+) -> str:
+    if mode is VisualRoleParticipationMode.AUTO:
+        return (
+            f"Let {profile.display_name} participate as {role_mode.value} "
+            "with a visible in-scene responsibility."
+        )
+    return f"Let {profile.display_name} participate through {mode.value}."
 
 
 def _integration_strategy(expression_mode: VisualExpressionMode, role_mode: VisualRoleMode) -> str:

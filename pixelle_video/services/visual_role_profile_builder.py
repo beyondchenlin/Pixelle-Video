@@ -7,6 +7,9 @@ from typing import Any
 
 from pixelle_video.models.asset_bible import IPProfile
 from pixelle_video.models.visual_role_profile import VisualRoleProfile
+from pixelle_video.services.visual_role_identity_contract_builder import (
+    VisualRoleIdentityContractBuilder,
+)
 
 
 class VisualRoleProfileError(ValueError):
@@ -52,6 +55,7 @@ class VisualRoleProfileBuilder:
             raise VisualRoleProfileError("identity kernel is required")
 
         ip_kind = _infer_ip_kind(ip_profile)
+        identity_contract = VisualRoleIdentityContractBuilder().build(ip_profile)
         return VisualRoleProfile(
             profile_id=ip_profile.ip_profile_id,
             display_name=ip_profile.name,
@@ -62,12 +66,14 @@ class VisualRoleProfileBuilder:
             supporting_role_affordances=_supporting_role_affordances(ip_profile),
             forbidden_role_forms=_forbidden_role_forms(ip_profile),
             reference_assets=_reference_assets(ip_profile),
+            identity_contract=identity_contract,
             metadata={
                 "source": "IPProfile",
                 "ip_type": ip_profile.ip_type,
                 "inferred_ip_kind": ip_kind,
-                "builder_version": "visual_role_profile_builder.v4_1",
+                "builder_version": "visual_role_profile_builder.v4_2",
             },
+            version="visual_role_profile.v4_2",
         )
 
 

@@ -4,6 +4,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from pixelle_video.models.visual_role_identity import VisualRoleIdentityContract
+
 
 @dataclass(frozen=True)
 class VisualRoleProfile:
@@ -16,6 +18,7 @@ class VisualRoleProfile:
     supporting_role_affordances: tuple[str, ...]
     forbidden_role_forms: tuple[str, ...]
     reference_assets: tuple[str, ...] = ()
+    identity_contract: VisualRoleIdentityContract | Mapping[str, Any] | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
     version: str = "visual_role_profile.v4_1"
 
@@ -34,7 +37,20 @@ class VisualRoleProfile:
             object.__setattr__(self, field_name, _normalize_text_tuple(getattr(self, field_name)))
         if not self.identity_kernel:
             raise ValueError("identity_kernel must not be empty")
-        object.__setattr__(self, "metadata", dict(self.metadata or {}))
+        metadata = dict(self.metadata or {})
+        object.__setattr__(self, "metadata", metadata)
+        object.__setattr__(
+            self,
+            "identity_contract",
+            _resolve_identity_contract(
+                identity_contract=self.identity_contract,
+                metadata=metadata,
+                display_name=self.display_name,
+                identity_kernel=self.identity_kernel,
+                forbidden_role_forms=self.forbidden_role_forms,
+                reference_assets=self.reference_assets,
+            ),
+        )
         object.__setattr__(self, "version", _require_text("version", self.version))
 
     def to_dict(self) -> dict[str, Any]:
@@ -49,6 +65,7 @@ class VisualRoleProfile:
             "supporting_role_affordances": list(self.supporting_role_affordances),
             "forbidden_role_forms": list(self.forbidden_role_forms),
             "reference_assets": list(self.reference_assets),
+            "identity_contract": self.identity_contract.to_dict(),
             "metadata": dict(self.metadata),
         }
 
@@ -77,6 +94,32 @@ def _normalize_text_tuple(values: Sequence[str] | None) -> tuple[str, ...]:
         seen.add(key)
         result.append(text)
     return tuple(result)
+
+
+def _resolve_identity_contract(
+    *,
+    identity_contract: VisualRoleIdentityContract | Mapping[str, Any] | None,
+    metadata: Mapping[str, Any],
+    display_name: str,
+    identity_kernel: Sequence[str],
+    forbidden_role_forms: Sequence[str],
+    reference_assets: Sequence[str],
+) -> VisualRoleIdentityContract:
+    if isinstance(identity_contract, VisualRoleIdentityContract):
+        return identity_contract
+    if isinstance(identity_contract, Mapping):
+        return VisualRoleIdentityContract.from_dict(identity_contract)
+    metadata_contract = metadata.get("identity_contract")
+    if isinstance(metadata_contract, VisualRoleIdentityContract):
+        return metadata_contract
+    if isinstance(metadata_contract, Mapping):
+        return VisualRoleIdentityContract.from_dict(metadata_contract)
+    return VisualRoleIdentityContract.fallback(
+        canonical_identity_name=display_name,
+        identity_kernel=identity_kernel,
+        forbidden_role_forms=forbidden_role_forms,
+        reference_assets=reference_assets,
+    )
 
 
 __all__ = ["VisualRoleProfile"]

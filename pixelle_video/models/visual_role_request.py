@@ -5,15 +5,28 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pixelle_video.models.visual_expression import VisualExpressionMode
+from pixelle_video.models.visual_role_identity import (
+    VisualRoleParticipationMode,
+    VisualRoleStructureMode,
+)
 from pixelle_video.models.visual_role_strategy import VisualRoleMode, VisualRoleStrategyControls
 
-VISUAL_ROLE_PIPELINE_VERSION = "v4_expression"
+VISUAL_ROLE_LEGACY_PIPELINE_VERSION = "v4_expression"
+VISUAL_ROLE_PIPELINE_VERSION = "v4_2_identity_contract"
+SUPPORTED_VISUAL_ROLE_PIPELINE_VERSIONS = frozenset(
+    {
+        VISUAL_ROLE_LEGACY_PIPELINE_VERSION,
+        VISUAL_ROLE_PIPELINE_VERSION,
+    }
+)
 VISUAL_ROLE_CONTROL_OPTION_KEYS = frozenset(
     {
         "ip_enabled",
         "ip_asset_bible_id",
         "ip_profile_id",
         "visual_expression_mode",
+        "visual_structure_mode",
+        "visual_participation_mode",
         "visual_role_mode",
         "visual_consistency_mode",
         "generation_world_hint",
@@ -22,6 +35,8 @@ VISUAL_ROLE_CONTROL_OPTION_KEYS = frozenset(
 _VISUAL_ROLE_V4_OPTION_KEYS = frozenset(
     {
         "visual_expression_mode",
+        "visual_structure_mode",
+        "visual_participation_mode",
         "visual_role_mode",
         "visual_consistency_mode",
     }
@@ -34,6 +49,8 @@ class VisualRoleControlsContract:
     asset_bible_id: str | None = None
     profile_id: str | None = None
     expression_mode: VisualExpressionMode = VisualExpressionMode.AUTO
+    structure_mode: VisualRoleStructureMode = VisualRoleStructureMode.AUTO
+    participation_mode: VisualRoleParticipationMode = VisualRoleParticipationMode.AUTO
     strategy: VisualRoleStrategyControls = field(default_factory=VisualRoleStrategyControls)
     generation_world_hint: str | None = None
     explicit_fields: tuple[str, ...] = ()
@@ -51,6 +68,10 @@ class VisualRoleControlsContract:
             asset_bible_id=_normalize_optional_string(mapping.get("ip_asset_bible_id")),
             profile_id=_normalize_optional_string(mapping.get("ip_profile_id")),
             expression_mode=VisualExpressionMode.from_value(mapping.get("visual_expression_mode")),
+            structure_mode=VisualRoleStructureMode.from_value(mapping.get("visual_structure_mode")),
+            participation_mode=VisualRoleParticipationMode.from_value(
+                mapping.get("visual_participation_mode")
+            ),
             strategy=VisualRoleStrategyControls.from_mapping(mapping),
             generation_world_hint=_normalize_optional_string(mapping.get("generation_world_hint")),
             explicit_fields=explicit_fields,
@@ -69,6 +90,8 @@ class VisualRoleControlsContract:
             return {}
         return {
             "visual_expression_mode": self.expression_mode.value,
+            "visual_structure_mode": self.structure_mode.value,
+            "visual_participation_mode": self.participation_mode.value,
             **self.strategy.to_dict(),
         }
 
@@ -81,6 +104,8 @@ class VisualRoleControlsContract:
             "asset_bible_id": self.asset_bible_id,
             "profile_id": self.profile_id,
             "visual_expression_mode": self.expression_mode.value,
+            "visual_structure_mode": self.structure_mode.value,
+            "visual_participation_mode": self.participation_mode.value,
             **self.strategy.to_dict(),
             "generation_world_hint": self.generation_world_hint,
             "explicit_fields": list(self.explicit_fields),
@@ -94,6 +119,8 @@ class VisualRoleRequest:
     profile_id: str | None = None
     strategy: VisualRoleStrategyControls = field(default_factory=VisualRoleStrategyControls)
     expression_mode: VisualExpressionMode = VisualExpressionMode.AUTO
+    structure_mode: VisualRoleStructureMode = VisualRoleStructureMode.AUTO
+    participation_mode: VisualRoleParticipationMode = VisualRoleParticipationMode.AUTO
     generation_world_hint: str | None = None
     pipeline_version: str = VISUAL_ROLE_PIPELINE_VERSION
 
@@ -117,6 +144,8 @@ class VisualRoleRequest:
             profile_id=profile_id or controls.profile_id,
             strategy=controls.strategy,
             expression_mode=controls.expression_mode,
+            structure_mode=controls.structure_mode,
+            participation_mode=controls.participation_mode,
             generation_world_hint=generation_world_hint or controls.generation_world_hint,
             pipeline_version=VISUAL_ROLE_PIPELINE_VERSION,
         )
@@ -145,6 +174,8 @@ class VisualRoleRequest:
             profile_id=controls.profile_id,
             strategy=controls.strategy,
             expression_mode=controls.expression_mode,
+            structure_mode=controls.structure_mode,
+            participation_mode=controls.participation_mode,
             generation_world_hint=controls.generation_world_hint,
             pipeline_version=VISUAL_ROLE_PIPELINE_VERSION,
         )
@@ -166,6 +197,8 @@ class VisualRoleRequest:
             "enabled": self.enabled,
             "pipeline_version": self.pipeline_version,
             "visual_expression_mode": self.expression_mode.value,
+            "visual_structure_mode": self.structure_mode.value,
+            "visual_participation_mode": self.participation_mode.value,
             **self.strategy.to_dict(),
         }
         if self.asset_bible_id is not None:
@@ -184,13 +217,20 @@ def _normalize_optional_string(value: Any) -> str | None:
     return normalized or None
 
 
+def is_supported_visual_role_pipeline_version(value: Any) -> bool:
+    return str(value or "").strip() in SUPPORTED_VISUAL_ROLE_PIPELINE_VERSIONS
+
+
 VisualRoleRequestContract = VisualRoleControlsContract
 
 
 __all__ = [
+    "SUPPORTED_VISUAL_ROLE_PIPELINE_VERSIONS",
+    "VISUAL_ROLE_LEGACY_PIPELINE_VERSION",
     "VISUAL_ROLE_CONTROL_OPTION_KEYS",
     "VISUAL_ROLE_PIPELINE_VERSION",
     "VisualRoleControlsContract",
     "VisualRoleRequest",
     "VisualRoleRequestContract",
+    "is_supported_visual_role_pipeline_version",
 ]

@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pixelle_video.models.visual_expression import VisualExpressionMode
+from pixelle_video.models.visual_role_identity import (
+    VisualRoleParticipationMode,
+    VisualRoleStructureMode,
+)
 from pixelle_video.models.visual_role_strategy import VisualConsistencyMode, VisualRoleMode
 
 
@@ -24,15 +28,29 @@ class VisualRoleIntegratedPromptPlan:
     role_manifestation: str
     role_location: str
     integrated_scene_prompt: str
+    structure_mode: VisualRoleStructureMode = VisualRoleStructureMode.AUTO
+    participation_mode: VisualRoleParticipationMode = VisualRoleParticipationMode.AUTO
+    structure_decision: str = ""
+    participation_decision: str = ""
     quality_notes: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
-    version: str = "visual_role_integrated_prompt_plan.v4_1"
+    version: str = "visual_role_integrated_prompt_plan.v4_2"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "frame_id", _require_text("frame_id", self.frame_id))
         object.__setattr__(self, "expression_mode", VisualExpressionMode(self.expression_mode))
         object.__setattr__(self, "role_mode", VisualRoleMode(self.role_mode))
         object.__setattr__(self, "consistency_mode", VisualConsistencyMode(self.consistency_mode))
+        object.__setattr__(
+            self,
+            "structure_mode",
+            VisualRoleStructureMode.from_value(self.structure_mode),
+        )
+        object.__setattr__(
+            self,
+            "participation_mode",
+            VisualRoleParticipationMode.from_value(self.participation_mode),
+        )
         for field_name in (
             "role_assignment",
             "scene_rewrite_level",
@@ -45,6 +63,18 @@ class VisualRoleIntegratedPromptPlan:
             "integrated_scene_prompt",
         ):
             object.__setattr__(self, field_name, _require_text(field_name, getattr(self, field_name)))
+        object.__setattr__(
+            self,
+            "structure_decision",
+            _optional_text(self.structure_decision)
+            or f"structure_mode={self.structure_mode.value}",
+        )
+        object.__setattr__(
+            self,
+            "participation_decision",
+            _optional_text(self.participation_decision)
+            or f"participation_mode={self.participation_mode.value}",
+        )
         object.__setattr__(self, "retained_intent", _normalize_tuple(self.retained_intent))
         object.__setattr__(self, "quality_notes", _normalize_tuple(self.quality_notes))
         object.__setattr__(self, "metadata", dict(self.metadata or {}))
@@ -67,6 +97,10 @@ class VisualRoleIntegratedPromptPlan:
             "role_manifestation": self.role_manifestation,
             "role_location": self.role_location,
             "integrated_scene_prompt": self.integrated_scene_prompt,
+            "structure_mode": self.structure_mode.value,
+            "participation_mode": self.participation_mode.value,
+            "structure_decision": self.structure_decision,
+            "participation_decision": self.participation_decision,
             "quality_notes": list(self.quality_notes),
             "metadata": dict(self.metadata),
         }
@@ -120,6 +154,10 @@ def _require_text(field_name: str, value: Any) -> str:
     if not text:
         raise ValueError(f"{field_name} must not be empty")
     return text
+
+
+def _optional_text(value: Any) -> str:
+    return str(value or "").strip()
 
 
 def _normalize_tuple(values: Sequence[str] | None) -> tuple[str, ...]:

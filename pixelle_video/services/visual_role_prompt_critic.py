@@ -102,6 +102,19 @@ class VisualRolePromptCritic:
             issues.append(_issue("integrated_prompt_empty", "integrated_scene_prompt 不能为空", "重写并输出完整 integrated_scene_prompt。"))
         if any(term.lower() in prompt_lower for term in _FORBIDDEN_TERMS):
             issues.append(_issue("forbidden_visual_form", "prompt 包含 forbidden visual form", "移除角标、水印、贴纸、logo、overlay、hidden、suppressed、fallback 等语义。"))
+        missing_required_traits = _missing_required_identity_traits(
+            prompt,
+            visual_role_profile.identity_contract.required_identity_traits,
+        )
+        if missing_required_traits:
+            issues.append(
+                _issue(
+                    "required_identity_trait_missing",
+                    "prompt is missing required IP identity traits: "
+                    + ", ".join(missing_required_traits),
+                    "Rewrite integrated_scene_prompt so every required_identity_trait appears naturally in the scene responsibility.",
+                )
+            )
         if not _contains_identity(prompt, visual_role_profile.identity_kernel):
             issues.append(_issue("identity_kernel_missing", "prompt 未包含视觉角色身份核", "把 identity_kernel 自然写入画面职责中。"))
         if plan.role_mode is VisualRoleMode.SUBJECT_REPLACEMENT and not _looks_primary(plan, prompt):
@@ -155,6 +168,19 @@ def _issue(code: str, message: str, repair_instruction: str) -> VisualRolePrompt
 def _contains_identity(prompt: str, identity_kernel: tuple[str, ...]) -> bool:
     lowered = prompt.lower()
     return any(token and token.lower() in lowered for token in identity_kernel)
+
+
+def _missing_required_identity_traits(
+    prompt: str,
+    required_identity_traits: Sequence[str],
+) -> tuple[str, ...]:
+    lowered = prompt.lower()
+    missing: list[str] = []
+    for trait in required_identity_traits:
+        text = str(trait or "").strip()
+        if text and text.lower() not in lowered:
+            missing.append(text)
+    return tuple(missing)
 
 
 def _looks_primary(plan: VisualRoleIntegratedPromptPlan, prompt: str) -> bool:

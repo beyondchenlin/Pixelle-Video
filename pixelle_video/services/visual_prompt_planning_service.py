@@ -10,7 +10,10 @@ from pixelle_video.models.final_visual_prompt_contract import RenderedMediaPromp
 from pixelle_video.models.ip_prompt_planning import IPFrameAdaptationPackage
 from pixelle_video.models.visual_anchor_planning import VisualAnchorPlacementPlan
 from pixelle_video.models.visual_role_profile import VisualRoleProfile
-from pixelle_video.models.visual_role_request import VISUAL_ROLE_PIPELINE_VERSION, VisualRoleRequest
+from pixelle_video.models.visual_role_request import (
+    VisualRoleRequest,
+    is_supported_visual_role_pipeline_version,
+)
 from pixelle_video.models.visual_signature_policy import VisualSignaturePolicy
 from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
 from pixelle_video.models.visual_style_contract import VisualStyleLayerContract
@@ -47,12 +50,28 @@ class VisualPromptPlanningResult:
             snapshot["visual_role_request"] = self.visual_role_request.to_dict()
         if self.visual_role_profile is not None:
             snapshot["visual_role_profile"] = self.visual_role_profile.to_dict()
+            snapshot["visual_role_identity_contract"] = (
+                self.visual_role_profile.identity_contract.to_dict()
+            )
         if self.visual_expression_decisions:
             snapshot["visual_expression_decision_by_frame"] = {decision.frame_id: decision.to_dict() for decision in self.visual_expression_decisions}
         if self.visual_role_plans:
             snapshot["visual_role_plan_by_frame"] = {plan.frame_id: plan.to_dict() for plan in self.visual_role_plans}
         if self.visual_role_critiques:
             snapshot["visual_role_critique_by_frame"] = {critique.frame_id: critique.to_dict() for critique in self.visual_role_critiques}
+        projected_parts_by_frame: dict[str, Any] = {}
+        for index, rendered in enumerate(self.rendered_prompts):
+            parts = dict(rendered.metadata or {}).get("projected_prompt_parts")
+            if parts is None:
+                continue
+            frame_id = (
+                self.base_visual_briefs[index].frame_id
+                if index < len(self.base_visual_briefs)
+                else str(index)
+            )
+            projected_parts_by_frame[frame_id] = parts
+        if projected_parts_by_frame:
+            snapshot["visual_role_projected_prompt_parts_by_frame"] = projected_parts_by_frame
         if self.visual_role_repair_attempts:
             snapshot["visual_role_repair_attempts"] = dict(self.visual_role_repair_attempts)
         return snapshot
@@ -82,6 +101,8 @@ class VisualPromptPlanningService:
         trace_recorder: Any = None,
         visual_signature_policy: VisualSignaturePolicy | None = None,
         visual_expression_mode: str | None = None,
+        visual_structure_mode: str | None = None,
+        visual_participation_mode: str | None = None,
         visual_role_request: VisualRoleRequest | None = None,
         visual_role_profile: VisualRoleProfile | None = None,
         visual_role_mode: str | None = None,
@@ -101,7 +122,11 @@ class VisualPromptPlanningService:
             world_preset=world_preset,
         )
 
-        if visual_role_request is not None and visual_role_request.enabled and visual_role_request.pipeline_version == VISUAL_ROLE_PIPELINE_VERSION:
+        if (
+            visual_role_request is not None
+            and visual_role_request.enabled
+            and is_supported_visual_role_pipeline_version(visual_role_request.pipeline_version)
+        ):
             if visual_role_profile is None:
                 raise ValueError("visual_role_profile is required when V4 visual role is enabled")
             decisions = VisualExpressionClassifier().classify_batch(
