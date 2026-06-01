@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
-import re
 
 
 class VisualRoleMode(str, Enum):
@@ -36,6 +36,8 @@ class VisualRoleStrategyControls:
     def effective_role_mode(self) -> VisualRoleMode:
         if self.consistency_mode is VisualConsistencyMode.PRIMARY_CHARACTER:
             return VisualRoleMode.SUBJECT_REPLACEMENT
+        if self.consistency_mode is VisualConsistencyMode.SUPPORTING_CHARACTER:
+            return VisualRoleMode.SUPPORTING_INTEGRATION
         return self.role_mode
 
     @property
@@ -68,7 +70,7 @@ class VisualRoleStrategyControls:
         elif self.requires_supporting_integration:
             guidance.append("The visual identity must not replace the source subject; it must appear as a real in-scene supporting element.")
         else:
-            guidance.append("Choose primary replacement only when it preserves the source intent; otherwise use visible supporting integration.")
+            guidance.append("Use visible supporting integration by default; primary replacement requires an explicit primary role setting.")
         return guidance
 
 

@@ -2,10 +2,15 @@ import pytest
 
 from pixelle_video.models.base_visual_brief import BaseVisualBrief
 from pixelle_video.models.visual_expression import VisualExpressionDecision, VisualExpressionMode
+from pixelle_video.models.visual_role_identity import VisualRoleIdentityContract
 from pixelle_video.models.visual_role_profile import VisualRoleProfile
 from pixelle_video.models.visual_role_request import VisualRoleRequest
+from pixelle_video.models.visual_role_strategy import VisualRoleMode
 from pixelle_video.services.visual_role_prompt_critic import VisualRolePromptCritic
-from pixelle_video.services.visual_role_repair_loop import VisualRoleRepairFailedError, VisualRoleRepairLoop
+from pixelle_video.services.visual_role_repair_loop import (
+    VisualRoleRepairFailedError,
+    VisualRoleRepairLoop,
+)
 from pixelle_video.services.visual_role_scene_planner import VisualRoleScenePlanner
 
 
@@ -137,3 +142,111 @@ async def test_repair_loop_retries_planner_exceptions_without_silent_success():
     assert "planner_error" in attempts["attempt_1"]
     assert critiques[0].passed
     assert "红嘴麻雀" in plans[0].integrated_scene_prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "expression_mode",
+    (
+        VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+        VisualExpressionMode.PRODUCT_OR_OBJECT_SCENE,
+    ),
+)
+async def test_auto_role_mode_stays_supporting_for_portrait_and_product_expression(expression_mode):
+    request = _request(
+        visual_expression_mode="auto",
+        visual_role_mode="auto",
+        visual_consistency_mode="off",
+    )
+
+    plans = await VisualRoleScenePlanner().plan_batch(
+        base_visual_briefs=(_brief(),),
+        visual_role_request=request,
+        visual_role_profile=_profile(),
+        expression_decisions=(VisualExpressionDecision(frame_id="f1", expression_mode=expression_mode),),
+    )
+
+    assert plans[0].role_mode is VisualRoleMode.SUPPORTING_INTEGRATION
+    critique = await VisualRolePromptCritic().critique(
+        plan=plans[0],
+        visual_role_profile=_profile(),
+        visual_role_request=request,
+        base_visual_brief=_brief(),
+    )
+    assert "subject_replacement_not_primary" not in {issue.code for issue in critique.issues}
+
+
+@pytest.mark.asyncio
+async def test_explicit_subject_replacement_still_requires_primary_role():
+    request = _request(
+        visual_role_mode="subject_replacement",
+        visual_consistency_mode="off",
+    )
+
+    plans = await VisualRoleScenePlanner().plan_batch(
+        base_visual_briefs=(_brief(),),
+        visual_role_request=request,
+        visual_role_profile=_profile(),
+        expression_decisions=(
+            VisualExpressionDecision(
+                frame_id="f1",
+                expression_mode=VisualExpressionMode.PORTRAIT_OR_HOST_SCENE,
+            ),
+        ),
+    )
+
+    assert plans[0].role_mode is VisualRoleMode.SUBJECT_REPLACEMENT
+
+
+@pytest.mark.asyncio
+async def test_llm_planner_preserves_required_identity_terms_before_critique():
+    async def llm_service(**_kwargs):
+        return {
+            "integrated_scene_prompt": "An engineer explains the solar workflow with a visible guide beside the panel.",
+            "role_action": "guide the viewer through the solar workflow",
+            "role_manifestation": "in-scene guide",
+        }
+
+    profile = VisualRoleProfile(
+        profile_id="dog_1",
+        display_name="Dalmatian guide",
+        identity_kernel=("dalmatian in black sunglasses",),
+        appearance_traits=("black sunglasses", "dalmatian spots"),
+        action_affordances=("guide",),
+        primary_role_affordances=("protagonist",),
+        supporting_role_affordances=("guide",),
+        forbidden_role_forms=("corner badge", "watermark", "overlay"),
+        identity_contract=VisualRoleIdentityContract(
+            canonical_identity_name="Dalmatian guide",
+            required_identity_traits=("black sunglasses", "dalmatian"),
+        ),
+    )
+    request = _request(
+        visual_expression_mode="auto",
+        visual_role_mode="auto",
+        visual_consistency_mode="off",
+    )
+
+    plans = await VisualRoleScenePlanner(llm_service=llm_service).plan_batch(
+        base_visual_briefs=(_brief(),),
+        visual_role_request=request,
+        visual_role_profile=profile,
+        expression_decisions=(
+            VisualExpressionDecision(
+                frame_id="f1",
+                expression_mode=VisualExpressionMode.EXPLANATORY_DIAGRAM,
+            ),
+        ),
+    )
+
+    prompt = plans[0].integrated_scene_prompt
+    assert "Fixed IP identity: Dalmatian guide" in prompt
+    assert "black sunglasses" in prompt
+    assert "dalmatian" in prompt
+    assert "dalmatian in black sunglasses" in prompt
+    critique = await VisualRolePromptCritic().critique(
+        plan=plans[0],
+        visual_role_profile=profile,
+        visual_role_request=request,
+    )
+    assert critique.passed

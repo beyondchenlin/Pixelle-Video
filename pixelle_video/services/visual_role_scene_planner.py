@@ -153,7 +153,7 @@ def _plan_from_payload(
 ) -> VisualRoleIntegratedPromptPlan:
     if not isinstance(payload, Mapping):
         raise VisualRolePlanningError("visual role planner response must be a mapping")
-    role_mode = _effective_role_mode(visual_role_request, expression_decision)
+    role_mode = _effective_role_mode(visual_role_request)
     identity = "; ".join(visual_role_profile.identity_contract.required_identity_traits)
     original_intent = _original_intent(base_visual_brief, frame_context)
     role_action = _text(payload.get("role_action")) or _select_action(visual_role_profile, role_mode=role_mode)
@@ -192,6 +192,10 @@ def _plan_from_payload(
             participation_decision=participation_decision,
             base_visual_brief=base_visual_brief,
         )
+    integrated_prompt = _ensure_identity_contract_in_prompt(
+        integrated_prompt,
+        visual_role_profile,
+    )
 
     role_assignment = _text(payload.get("role_assignment")) or (
         "primary visual role" if role_mode is VisualRoleMode.SUBJECT_REPLACEMENT else "supporting visual role"
@@ -312,14 +316,64 @@ def _rule_integrated_prompt(
     )
 
 
-def _effective_role_mode(request: VisualRoleRequest, decision: VisualExpressionDecision) -> VisualRoleMode:
+def _effective_role_mode(request: VisualRoleRequest) -> VisualRoleMode:
     if request.strategy.effective_role_mode is VisualRoleMode.SUBJECT_REPLACEMENT:
         return VisualRoleMode.SUBJECT_REPLACEMENT
     if request.strategy.effective_role_mode is VisualRoleMode.SUPPORTING_INTEGRATION:
         return VisualRoleMode.SUPPORTING_INTEGRATION
-    if decision.expression_mode in {VisualExpressionMode.PORTRAIT_OR_HOST_SCENE, VisualExpressionMode.PRODUCT_OR_OBJECT_SCENE}:
-        return VisualRoleMode.SUBJECT_REPLACEMENT
     return VisualRoleMode.SUPPORTING_INTEGRATION
+
+
+def _ensure_identity_contract_in_prompt(
+    prompt: str,
+    profile: VisualRoleProfile,
+) -> str:
+    missing_required = _missing_terms(
+        prompt,
+        profile.identity_contract.required_identity_traits,
+    )
+    identity_kernel_present = _contains_any(prompt, profile.identity_kernel)
+    if not missing_required and identity_kernel_present:
+        return prompt
+
+    identity_clause = _identity_contract_scene_clause(
+        profile,
+        include_identity_kernel=not identity_kernel_present,
+    )
+    if not identity_clause:
+        return prompt
+    if prompt.endswith((".", "。", "!", "！", "?", "？")):
+        return f"{prompt} {identity_clause}"
+    return f"{prompt}. {identity_clause}"
+
+
+def _identity_contract_scene_clause(
+    profile: VisualRoleProfile,
+    *,
+    include_identity_kernel: bool,
+) -> str:
+    parts = [_text(profile.identity_contract.fixed_identity_clause)]
+    if include_identity_kernel:
+        identity_kernel = ", ".join(_dedupe(profile.identity_kernel))
+        if identity_kernel:
+            parts.append(f"Identity kernel: {identity_kernel}.")
+    parts.append("Scene responsibility: show these identity signals through visible in-scene action.")
+    return " ".join(part for part in parts if part)
+
+
+def _missing_terms(prompt: str, required_terms: Sequence[str]) -> tuple[str, ...]:
+    lowered = prompt.lower()
+    missing: list[str] = []
+    for term in required_terms:
+        text = str(term or "").strip()
+        if text and text.lower() not in lowered:
+            missing.append(text)
+    return tuple(missing)
+
+
+def _contains_any(prompt: str, terms: Sequence[str]) -> bool:
+    lowered = prompt.lower()
+    return any(term and term.lower() in lowered for term in terms)
 
 
 def _original_intent(brief: BaseVisualBrief, frame_context: Mapping[str, Any] | None) -> str:

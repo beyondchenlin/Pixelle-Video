@@ -71,6 +71,18 @@ def test_primary_character_forces_subject_replacement():
     assert request.strategy.to_dict()["effective_visual_role_mode"] == "subject_replacement"
 
 
+def test_supporting_character_forces_supporting_integration():
+    request = VisualRoleRequest.from_mapping(
+        _enabled_params(
+            visual_role_mode="subject_replacement",
+            visual_consistency_mode="supporting_character",
+        )
+    )
+
+    assert request.effective_role_mode is VisualRoleMode.SUPPORTING_INTEGRATION
+    assert request.strategy.to_dict()["effective_visual_role_mode"] == "supporting_integration"
+
+
 def test_visual_role_request_disabled_does_not_trigger_v4():
     request = VisualRoleRequest.from_mapping({})
 
