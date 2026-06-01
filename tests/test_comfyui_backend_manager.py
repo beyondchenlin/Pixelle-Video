@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -169,3 +170,76 @@ def test_managed_backend_passes_optional_profile_script_arguments(tmp_path):
     assert str(frontend_root) in args
     assert "-ExtraModelsConfig" in args
     assert str(extra_models_config) in args
+
+
+@pytest.mark.asyncio
+async def test_managed_backend_reads_script_output_from_files(monkeypatch, tmp_path):
+    scripts_dir = tmp_path / "scripts" / "comfyui"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "start_backend.ps1").write_text("# test", encoding="utf-8")
+    backend = ManagedComfyUIBackend(
+        repo_root=tmp_path,
+        comfyui_url="http://127.0.0.1:8001",
+        profile=ComfyUIBackendProfile(
+            url="http://127.0.0.1:8001",
+            data_root=str(tmp_path / "data"),
+            runtime_dir=str(tmp_path / "runtime"),
+            logs_dir=str(tmp_path / "logs"),
+        ),
+        management_mode="required",
+    )
+
+    def fake_run(command, **kwargs):
+        assert kwargs.get("capture_output") is not True
+        assert kwargs["stdout"] is not subprocess.PIPE
+        assert kwargs["stderr"] is not subprocess.PIPE
+        kwargs["stdout"].write('{"started":true,"pid":1234}')
+        kwargs["stdout"].flush()
+        kwargs["stderr"].write("backend warning")
+        kwargs["stderr"].flush()
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(
+        "pixelle_video.services.comfyui_backend_manager.subprocess.run",
+        fake_run,
+    )
+
+    result = await backend.start(reason="test-start")
+
+    assert result.returncode == 0
+    assert result.payload == {"started": True, "pid": 1234}
+    assert result.stderr == "backend warning"
+
+
+@pytest.mark.asyncio
+async def test_managed_backend_script_timeout_reports_context(monkeypatch, tmp_path):
+    scripts_dir = tmp_path / "scripts" / "comfyui"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "stop_backend.ps1").write_text("# test", encoding="utf-8")
+    backend = ManagedComfyUIBackend(
+        repo_root=tmp_path,
+        comfyui_url="http://127.0.0.1:8001",
+        profile=ComfyUIBackendProfile(
+            url="http://127.0.0.1:8001",
+            data_root=str(tmp_path / "data"),
+            runtime_dir=str(tmp_path / "runtime"),
+            logs_dir=str(tmp_path / "logs"),
+        ),
+        management_mode="required",
+    )
+
+    def fake_run(command, **kwargs):
+        assert kwargs["timeout"] > 0
+        kwargs["stdout"].write('{"stopped":false}')
+        kwargs["stdout"].flush()
+        kwargs["stderr"].write("still waiting")
+        kwargs["stderr"].flush()
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(
+        "pixelle_video.services.comfyui_backend_manager.subprocess.run",
+        fake_run,
+    )
+
+    with pytest.raises(RuntimeError, match="ComfyUI backend stop command timed out"):
+        await backend.stop(reason="test-stop")

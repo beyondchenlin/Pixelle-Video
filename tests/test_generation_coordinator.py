@@ -4272,6 +4272,44 @@ async def test_restart_managed_comfyui_backend_closes_old_comfykit(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_restart_managed_comfyui_backend_does_not_hang_on_stale_comfykit_close(
+    monkeypatch,
+):
+    core = PixelleVideoCore()
+    core._comfykit_close_timeout_seconds = 0.01
+
+    class _HangingExecutor:
+        async def close(self):
+            await asyncio.Event().wait()
+
+    class _ComfyKit:
+        _runninghub_executor = object()
+        _http_executor = _HangingExecutor()
+        _websocket_executor = object()
+
+    class _Backend:
+        async def restart(self, *, reason):
+            return True
+
+    core._comfykit_by_backend["default"] = _ComfyKit()
+    core._comfykit_config_hash_by_backend["default"] = "configured"
+    monkeypatch.setattr(
+        core,
+        "_get_managed_comfyui_backend",
+        lambda backend_role="default": _Backend(),
+    )
+
+    restarted = await asyncio.wait_for(
+        core.restart_managed_comfyui_backend("post_gguf_workflow"),
+        timeout=0.5,
+    )
+
+    assert restarted is True
+    assert core._comfykit_by_backend == {}
+    assert core._comfykit_config_hash_by_backend == {}
+
+
+@pytest.mark.asyncio
 async def test_core_execute_workflow_file_resolves_runninghub_and_selfhost_inputs(
     monkeypatch,
     tmp_path,

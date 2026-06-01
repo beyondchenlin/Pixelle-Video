@@ -18,6 +18,7 @@ Provides unified access to all capabilities (LLM, TTS, Image, etc.)
 
 import asyncio
 import hashlib
+import inspect
 import json
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
@@ -1317,6 +1318,7 @@ class PixelleVideoCore:
         # recreated on config change)
         self._comfykit_by_backend: dict[str, ComfyKit] = {}
         self._comfykit_config_hash_by_backend: dict[str, str] = {}
+        self._comfykit_close_timeout_seconds = 5.0
         
         # Core services (initialized in initialize())
         self.llm: Optional[LLMService] = None
@@ -1548,12 +1550,7 @@ class PixelleVideoCore:
             # Close old instance if exists
             if existing_kit is not None:
                 logger.info("🔄 ComfyUI configuration changed, recreating ComfyKit instance...")
-                try:
-                    await existing_kit.close()
-                except Exception as e:
-                    logger.warning(f"Failed to close old ComfyKit instance: {e}")
-                self._comfykit_by_backend.pop(role, None)
-                self._comfykit_config_hash_by_backend.pop(role, None)
+                await self._close_comfykit_instance(role)
             
             # Create new instance with current config
             logger.info("✨ Creating ComfyKit instance...")
@@ -1636,16 +1633,38 @@ class PixelleVideoCore:
             roles = [role] if role in self._comfykit_by_backend else []
 
         for role in roles:
-            kit = self._comfykit_by_backend.get(role)
+            kit = self._comfykit_by_backend.pop(role, None)
+            self._comfykit_config_hash_by_backend.pop(role, None)
             if kit is None:
                 continue
             for attr_name in ("_runninghub_executor", "_http_executor", "_websocket_executor"):
                 executor = getattr(kit, attr_name, None)
-                close = getattr(executor, "close", None)
-                if callable(close):
-                    await close()
-            self._comfykit_by_backend.pop(role, None)
-            self._comfykit_config_hash_by_backend.pop(role, None)
+                await self._close_comfykit_executor(role, attr_name, executor)
+
+    async def _close_comfykit_executor(self, role: str, attr_name: str, executor) -> None:
+        if executor is None:
+            return
+        close = getattr(executor, "close", None)
+        if not callable(close):
+            return
+        try:
+            close_result = close()
+            if inspect.isawaitable(close_result):
+                await asyncio.wait_for(
+                    close_result,
+                    timeout=self._comfykit_close_timeout_seconds,
+                )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Timed out closing stale ComfyKit executor "
+                f"{attr_name} for backend role '{role}' after "
+                f"{self._comfykit_close_timeout_seconds} seconds"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to close stale ComfyKit executor {attr_name} "
+                f"for backend role '{role}': {e}"
+            )
 
     def _get_comfyui_maintenance_client(
         self,
@@ -1708,6 +1727,10 @@ class PixelleVideoCore:
             return False
         restarted = await backend.restart(reason=reason)
         if restarted:
+            logger.info(
+                f"Pixelle-managed ComfyUI backend '{role}' restarted; "
+                "closing stale ComfyKit executors"
+            )
             await self._close_comfykit_instance(role)
         return restarted
 

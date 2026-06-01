@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,6 +36,7 @@ class ManagedComfyUIBackend:
         profile: ComfyUIBackendProfile | None = None,
         management_mode: str = "auto",
         ready_timeout_seconds: int = 90,
+        command_timeout_seconds: int | None = None,
     ) -> None:
         self.repo_root = Path(repo_root) if repo_root else Path.cwd()
         self.profile_name = (profile_name or "default").strip() or "default"
@@ -41,6 +44,7 @@ class ManagedComfyUIBackend:
         self.comfyui_url = str(self.profile.url or comfyui_url or "").strip()
         self.management_mode = (management_mode or "auto").strip().lower()
         self.ready_timeout_seconds = ready_timeout_seconds
+        self.command_timeout_seconds = command_timeout_seconds
 
     @property
     def scripts_dir(self) -> Path:
@@ -126,20 +130,48 @@ class ManagedComfyUIBackend:
         if extra_args:
             command.extend(extra_args)
 
-        process = await asyncio.to_thread(
-            subprocess.run,
-            command,
-            cwd=str(self.repo_root),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        payload = self._parse_payload(process.stdout)
+        timeout_seconds = self._command_timeout_seconds(action)
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"pixelle-comfyui-{action}-"))
+        stdout_path = temp_dir / "stdout.txt"
+        stderr_path = temp_dir / "stderr.txt"
+        try:
+            try:
+                process = await asyncio.to_thread(
+                    self._run_command_to_files,
+                    command,
+                    stdout_path,
+                    stderr_path,
+                    timeout_seconds,
+                )
+            except subprocess.TimeoutExpired as exc:
+                stdout = self._read_script_output(stdout_path)
+                stderr = self._read_script_output(stderr_path)
+                payload = self._parse_payload(stdout)
+                logger.bind(
+                    channel="runtime",
+                    event="comfyui_backend_management_timeout",
+                    action=action,
+                    reason=reason,
+                    timeout_seconds=timeout_seconds,
+                    payload=payload,
+                    stderr=stderr,
+                ).error(f"ComfyUI backend {action} command timed out")
+                detail = stderr or stdout or str(exc)
+                raise RuntimeError(
+                    f"ComfyUI backend {action} command timed out after "
+                    f"{timeout_seconds} seconds: {detail}"
+                ) from exc
+            stdout = self._read_script_output(stdout_path)
+            stderr = self._read_script_output(stderr_path)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+        payload = self._parse_payload(stdout)
         result = ComfyUIBackendCommandResult(
             action=action,
             returncode=process.returncode,
-            stdout=process.stdout,
-            stderr=process.stderr,
+            stdout=stdout,
+            stderr=stderr,
             payload=payload,
         )
         logger.bind(
@@ -149,14 +181,47 @@ class ManagedComfyUIBackend:
             reason=reason,
             returncode=result.returncode,
             payload=payload,
-            stderr=process.stderr,
+            stderr=stderr,
         ).info(f"ComfyUI backend {action} command completed")
         if process.returncode != 0:
             raise RuntimeError(
                 f"ComfyUI backend {action} command failed with exit code "
-                f"{process.returncode}: {process.stderr or process.stdout}"
+                f"{process.returncode}: {stderr or stdout}"
             )
         return result
+
+    def _run_command_to_files(
+        self,
+        command: list[str],
+        stdout_path: Path,
+        stderr_path: Path,
+        timeout_seconds: int,
+    ) -> subprocess.CompletedProcess:
+        stdout_path.parent.mkdir(parents=True, exist_ok=True)
+        with stdout_path.open("w", encoding="utf-8", errors="replace") as stdout_file:
+            with stderr_path.open("w", encoding="utf-8", errors="replace") as stderr_file:
+                return subprocess.run(
+                    command,
+                    cwd=str(self.repo_root),
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    text=True,
+                    check=False,
+                    timeout=timeout_seconds,
+                )
+
+    def _command_timeout_seconds(self, action: str) -> int:
+        if self.command_timeout_seconds is not None:
+            return max(1, int(self.command_timeout_seconds))
+        if action == "start":
+            return max(30, int(self.ready_timeout_seconds) + 30)
+        return 60
+
+    def _read_script_output(self, path: Path) -> str:
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")
+        except FileNotFoundError:
+            return ""
 
     def _script_args(self) -> list[str]:
         parsed = urlparse(self.comfyui_url)
