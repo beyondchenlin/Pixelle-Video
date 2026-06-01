@@ -34,11 +34,11 @@ class ProjectedPromptPart:
         for field_name in ("part_id", "source_plan_type", "source_field", "content"):
             object.__setattr__(self, field_name, _require_non_empty(field_name, getattr(self, field_name)))
         object.__setattr__(self, "priority", _require_int("priority", self.priority))
-        object.__setattr__(self, "locked", _normalize_bool("locked", self.locked))
+        object.__setattr__(self, "locked", _require_bool("locked", self.locked))
         object.__setattr__(
             self,
             "critic_check_required",
-            _normalize_bool("critic_check_required", self.critic_check_required),
+            _require_bool("critic_check_required", self.critic_check_required),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -230,16 +230,10 @@ def _require_int(field_name: str, value: Any) -> int:
     return value
 
 
-def _normalize_bool(field_name: str, value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"true", "t", "yes", "y", "1", "on"}:
-            return True
-        if normalized in {"false", "f", "no", "n", "0", "off"}:
-            return False
-    raise ValueError(f"{field_name} must be a bool or accepted boolean string")
+def _require_bool(field_name: str, value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a bool")
+    return value
 
 
 def _optional_prompt(value: str) -> str | None:

@@ -36,6 +36,31 @@ def test_negative_rules_are_not_prompt_sections():
     assert "negative_rules" not in contract.prompt_sections()
 
 
+def test_final_visual_prompt_contract_to_dict_keeps_v1_shape():
+    contract = FinalVisualPromptContract(
+        scene="scene",
+        composition="composition",
+        style_assignment="style assignment",
+        character_layer_style="character layer",
+        world_layer_style="world layer",
+        integration_priority="priority",
+        negative_rules=("no blur", "no blur"),
+        metadata={"source": "legacy"},
+    )
+
+    assert contract.to_dict() == {
+        "version": "final_visual_prompt_contract.v1",
+        "scene": "scene",
+        "composition": "composition",
+        "style_assignment": "style assignment",
+        "character_layer_style": "character layer",
+        "world_layer_style": "world layer",
+        "integration_priority": "priority",
+        "negative_rules": ["no blur"],
+        "metadata": {"source": "legacy"},
+    }
+
+
 def _projected_part(**overrides):
     values = {
         "part_id": "part-1",
@@ -44,7 +69,7 @@ def _projected_part(**overrides):
         "source_field": "scene",
         "content": "a concrete visual prompt part",
         "locked": True,
-        "critic_check_required": "false",
+        "critic_check_required": False,
     }
     values.update(overrides)
     return ProjectedPromptPart(**values)
@@ -126,10 +151,19 @@ def test_projected_prompt_part_rejects_invalid_priority(priority):
         _projected_part(priority=priority)
 
 
-@pytest.mark.parametrize("field_name", ["locked", "critic_check_required"])
-def test_projected_prompt_part_rejects_invalid_bool_fields(field_name):
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("locked", "true"),
+        ("critic_check_required", "false"),
+        ("locked", 1),
+        ("critic_check_required", 0),
+        ("locked", None),
+    ],
+)
+def test_projected_prompt_part_rejects_invalid_bool_fields(field_name, value):
     with pytest.raises(ValueError, match=field_name):
-        _projected_part(**{field_name: "sometimes"})
+        _projected_part(**{field_name: value})
 
 
 def test_v44_contract_rejects_invalid_projected_prompt_parts():
