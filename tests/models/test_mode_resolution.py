@@ -85,6 +85,32 @@ def test_preflight_rejects_unknown_boolean_strings(field_name):
         ArticleVisualPlanningPreflight(**kwargs)
 
 
+@pytest.mark.parametrize(
+    ("field_name", "bad_value"),
+    [
+        ("normalized_article_mode", "not_a_mode"),
+        ("normalized_visual_mode", "not_a_mode"),
+        ("normalized_visual_role_strategy", "not_a_strategy"),
+    ],
+)
+def test_preflight_rejects_invalid_normalized_enum_facts(field_name, bad_value):
+    kwargs = {
+        "preflight_id": "preflight_v44_001",
+        "requested": ArticleVisualPlanningRequest.from_mapping({}),
+        "normalized_article_mode": "auto",
+        "normalized_visual_mode": "auto",
+        "normalized_visual_role_strategy": "auto",
+        "strict_user_mode": False,
+        "force_v44_planning": False,
+        "explicit_fields": (),
+        "legacy_fallback_candidate": True,
+    }
+    kwargs[field_name] = bad_value
+
+    with pytest.raises(ValueError, match=field_name):
+        ArticleVisualPlanningPreflight(**kwargs)
+
+
 def test_preflight_serializes_trimmed_explicit_fields_and_legacy_flag():
     request = ArticleVisualPlanningRequest.from_mapping(
         {

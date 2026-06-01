@@ -131,7 +131,7 @@ def _route_decisions_by_frame(
     decisions: Sequence[VisualPlanningRouteDecision],
 ) -> dict[str, VisualPlanningRouteDecision]:
     if not decisions:
-        return {}
+        raise ValueError("route_decisions must include one decision for each frame_id")
 
     expected = set(frames)
     decisions_by_frame: dict[str, VisualPlanningRouteDecision] = {}

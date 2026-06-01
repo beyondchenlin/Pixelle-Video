@@ -414,12 +414,14 @@ def _rendered_prompt_metadata(
     rendered_metadata = _detach_metadata(metadata)
     trace_metadata = _v44_trace_metadata(prompt_contract.metadata)
     trace_summary = trace_metadata.get("v44_contract")
+    if not trace_metadata:
+        _reject_rendered_trace_without_contract(rendered_metadata)
     for key in V44_TRACE_METADATA_KEYS:
         if key not in trace_metadata:
             continue
         if key in rendered_metadata and rendered_metadata[key] != trace_metadata[key]:
             raise ValueError(f"metadata {key} conflicts with prompt_contract v44_contract")
-        rendered_metadata.setdefault(key, trace_metadata[key])
+        rendered_metadata[key] = trace_metadata[key]
     if isinstance(rendered_metadata.get("v44_contract"), Mapping):
         for key in V44_TRACE_METADATA_KEYS:
             if key not in trace_metadata:
@@ -429,6 +431,15 @@ def _rendered_prompt_metadata(
     if isinstance(trace_summary, Mapping):
         rendered_metadata["v44_contract"] = trace_summary
     return rendered_metadata
+
+
+def _reject_rendered_trace_without_contract(metadata: Mapping[str, Any]) -> None:
+    reserved_keys = [key for key in (*V44_TRACE_METADATA_KEYS, "v44_contract") if key in metadata]
+    if reserved_keys:
+        raise ValueError(
+            "RenderedMediaPrompt V4.4 trace metadata must come from prompt_contract metadata: "
+            + ", ".join(reserved_keys)
+        )
 
 
 def _v44_trace_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:

@@ -128,31 +128,20 @@ def test_manifest_records_uniform_resolved_modes_without_first_frame_bias():
     }
 
 
-def test_manifest_uses_none_resolved_modes_without_route_decisions():
-    manifest = build_v44_prompt_trace_manifest(
-        article_id="article-1",
-        frame_ids=["frame-1"],
-        requested_modes={
-            "article_understanding_mode": "auto",
-            "visual_planning_mode": "auto",
-            "visual_role_strategy": "auto",
-        },
-        route_decisions=[],
-        critic_status="skipped",
-        repair_rounds=0,
-    )
-
-    assert manifest["resolved_modes"] == {
-        "aggregation": "none",
-        "primary_lens": None,
-        "visual_planning_mode": None,
-        "visual_role_strategy": None,
-        "mixed_fields": [],
-    }
-    assert manifest["resolved_modes_by_frame"] == {}
-    assert manifest["route_decision_ids"] == {}
-    assert manifest["fallbacks"] == []
-    assert manifest["route_decisions"] == []
+def test_manifest_rejects_empty_route_decisions_for_v44_frames():
+    with pytest.raises(ValueError, match="one decision for each frame_id"):
+        build_v44_prompt_trace_manifest(
+            article_id="article-1",
+            frame_ids=["frame-1"],
+            requested_modes={
+                "article_understanding_mode": "auto",
+                "visual_planning_mode": "auto",
+                "visual_role_strategy": "auto",
+            },
+            route_decisions=[],
+            critic_status="skipped",
+            repair_rounds=0,
+        )
 
 
 def test_manifest_detaches_requested_modes_from_input_mutation():
@@ -167,7 +156,7 @@ def test_manifest_detaches_requested_modes_from_input_mutation():
         article_id="article-1",
         frame_ids=["frame-1"],
         requested_modes=requested_modes,
-        route_decisions=[],
+        route_decisions=[_route_decision()],
         critic_status="passed",
         repair_rounds=0,
     )
@@ -282,7 +271,7 @@ def test_manifest_rejects_invalid_critic_status(critic_status):
             article_id="article-1",
             frame_ids=["frame-1"],
             requested_modes={},
-            route_decisions=[],
+            route_decisions=[_route_decision()],
             critic_status=critic_status,
             repair_rounds=0,
         )
@@ -295,7 +284,7 @@ def test_manifest_rejects_invalid_repair_rounds(repair_rounds):
             article_id="article-1",
             frame_ids=["frame-1"],
             requested_modes={},
-            route_decisions=[],
+            route_decisions=[_route_decision()],
             critic_status="passed",
             repair_rounds=repair_rounds,
         )

@@ -383,6 +383,43 @@ def test_rendered_media_prompt_metadata_rejects_conflicting_trace_keys(metadata,
         )
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"contract_id": "contract-1"},
+        {"frame_id": "frame-1"},
+        {"route_decision_id": "route-1"},
+        {
+            "v44_contract": {
+                "contract_schema_version": "final_visual_prompt_contract.v4_4",
+                "contract_id": "contract-1",
+                "frame_id": "frame-1",
+                "route_decision_id": "route-1",
+            }
+        },
+    ],
+)
+def test_rendered_media_prompt_rejects_trace_metadata_without_contract_source(metadata):
+    contract = FinalVisualPromptContract(
+        scene="scene",
+        composition="composition",
+        style_assignment="style",
+        character_layer_style="character",
+        world_layer_style="world",
+        integration_priority="priority",
+    )
+
+    with pytest.raises(ValueError, match="prompt_contract metadata"):
+        RenderedMediaPrompt(
+            prompt="rendered prompt",
+            negative_prompt=None,
+            prompt_contract=contract,
+            renderer_id="renderer",
+            renderer_version="v1",
+            metadata=metadata,
+        )
+
+
 def test_attach_v44_contract_metadata_rejects_conflicting_existing_contract():
     existing = _v44_contract(route_decision_id="route-old").to_dict()
     contract = FinalVisualPromptContract(

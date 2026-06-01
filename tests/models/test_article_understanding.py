@@ -119,6 +119,31 @@ def test_source_evidence_span_allows_omitting_optional_location_fields():
     }
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"start_char": "12"},
+        {"start_char": 12.9},
+        {"start_char": True},
+        {"start_char": -1},
+        {"end_char": "12"},
+        {"end_char": 12.9},
+        {"end_char": False},
+        {"end_char": -1},
+        {"start_char": 10, "end_char": 9},
+    ],
+)
+def test_source_evidence_span_rejects_invalid_offsets(kwargs):
+    with pytest.raises((TypeError, ValueError), match="start_char|end_char"):
+        SourceEvidenceSpan(
+            evidence_id="evidence-1",
+            source_id="article-1",
+            quote="markets reprice risk",
+            evidence_role="core_claim",
+            **kwargs,
+        )
+
+
 @pytest.mark.parametrize("value", ["", "   ", None])
 @pytest.mark.parametrize(
     "field_name",

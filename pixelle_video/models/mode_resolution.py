@@ -117,17 +117,29 @@ class ArticleVisualPlanningPreflight:
         object.__setattr__(
             self,
             "normalized_article_mode",
-            ArticleUnderstandingMode.from_value(self.normalized_article_mode),
+            _strict_enum_value(
+                self.normalized_article_mode,
+                ArticleUnderstandingMode,
+                "normalized_article_mode",
+            ),
         )
         object.__setattr__(
             self,
             "normalized_visual_mode",
-            VisualPlanningMode.from_value(self.normalized_visual_mode),
+            _strict_enum_value(
+                self.normalized_visual_mode,
+                VisualPlanningMode,
+                "normalized_visual_mode",
+            ),
         )
         object.__setattr__(
             self,
             "normalized_visual_role_strategy",
-            VisualRoleStrategy.from_value(self.normalized_visual_role_strategy),
+            _strict_enum_value(
+                self.normalized_visual_role_strategy,
+                VisualRoleStrategy,
+                "normalized_visual_role_strategy",
+            ),
         )
         object.__setattr__(
             self,

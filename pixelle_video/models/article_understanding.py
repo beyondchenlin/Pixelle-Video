@@ -66,8 +66,10 @@ class SourceEvidenceSpan:
         object.__setattr__(self, "quote", _require_text("quote", self.quote))
         object.__setattr__(self, "evidence_role", _require_text("evidence_role", self.evidence_role))
         object.__setattr__(self, "frame_id", _optional_text(self.frame_id))
-        object.__setattr__(self, "start_char", None if self.start_char is None else int(self.start_char))
-        object.__setattr__(self, "end_char", None if self.end_char is None else int(self.end_char))
+        object.__setattr__(self, "start_char", _optional_offset("start_char", self.start_char))
+        object.__setattr__(self, "end_char", _optional_offset("end_char", self.end_char))
+        if self.start_char is not None and self.end_char is not None and self.start_char > self.end_char:
+            raise ValueError("start_char must be less than or equal to end_char")
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -232,6 +234,16 @@ def _optional_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _optional_offset(field_name: str, value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{field_name} must be a non-negative integer")
+    if value < 0:
+        raise ValueError(f"{field_name} must be a non-negative integer")
+    return value
 
 
 def _optional_body_text(value: Any) -> str:
