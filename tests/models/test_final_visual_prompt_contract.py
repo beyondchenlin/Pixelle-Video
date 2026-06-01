@@ -399,6 +399,61 @@ def test_attach_v44_contract_metadata_rejects_conflicting_existing_contract():
         attach_v44_contract_metadata(contract, _v44_contract())
 
 
+@pytest.mark.parametrize(
+    ("metadata", "match"),
+    [
+        ({"v44_contract": object()}, "v44_contract"),
+        (
+            {
+                "v44_contract": {
+                    "contract_schema_version": "final_visual_prompt_contract.v4_4",
+                    "contract_id": "contract-1",
+                    "route_decision_id": "route-1",
+                }
+            },
+            "frame_id",
+        ),
+        (
+            {
+                "v44_contract": {
+                    "contract_schema_version": "wrong.schema",
+                    "contract_id": "contract-1",
+                    "frame_id": "frame-1",
+                    "route_decision_id": "route-1",
+                }
+            },
+            "contract_schema_version",
+        ),
+        (
+            {
+                "v44_contract": {
+                    "contract_schema_version": "final_visual_prompt_contract.v4_4",
+                    "contract_id": "contract-1",
+                    "frame_id": "frame-1",
+                    "route_decision_id": "route-1",
+                    "unsafe": object(),
+                }
+            },
+            "JSON-safe",
+        ),
+    ],
+)
+def test_final_visual_prompt_contract_rejects_invalid_reserved_v44_metadata(
+    metadata,
+    match,
+):
+    with pytest.raises((TypeError, ValueError), match=match):
+        FinalVisualPromptContract(
+            scene="scene",
+            composition="composition",
+            style_assignment="style",
+            character_layer_style="character",
+            world_layer_style="world",
+            integration_priority="priority",
+            metadata=metadata,
+        )
+
+
 @pytest.mark.parametrize("priority", [True, False, "1", 1.0, None])
 def test_projected_prompt_part_rejects_invalid_priority(priority):
     with pytest.raises(ValueError, match="priority"):

@@ -31,6 +31,7 @@ from api.schemas.storyboard_contract import (
     StoryboardPromptLanguage,
 )
 from api.schemas.text_rendering import TextRenderingRequest
+from pixelle_video.models.article_understanding import ArticleUnderstandingMode
 from pixelle_video.models.media_placement import MediaPlacement
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
 from pixelle_video.models.size_contract import (
@@ -50,6 +51,8 @@ from pixelle_video.models.storyboard_planning import (
     RoleStrategy,
     ShotOverridePolicy,
 )
+from pixelle_video.models.visual_planning_mode import VisualPlanningMode
+from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 from pixelle_video.render_backend import RenderBackend
 from pixelle_video.tts_split_strategy import TtsSplitMode
 from pixelle_video.utils.prompt_generation_performance import (
@@ -65,34 +68,9 @@ from pixelle_video.utils.template_util import (
 )
 
 StandardTtsAudioStrategy = Literal["auto", "master_track"]
-ArticleUnderstandingModeRequest = Literal[
-    "auto",
-    "thesis_argument",
-    "causal_mechanism",
-    "cognitive_state",
-    "process_method",
-    "relationship_structure",
-    "contrast_conflict",
-    "narrative_event",
-    "metaphor_symbolic",
-]
-VisualPlanningModeRequest = Literal[
-    "auto",
-    "scene_integration",
-    "cognitive_illustration",
-    "structural_explainer",
-    "process_walkthrough",
-    "contrast_argument",
-    "relationship_map",
-]
-VisualRoleStrategyRequest = Literal[
-    "auto",
-    "host_explainer",
-    "signature_presence",
-    "observer_guide",
-    "participant",
-    "background_signature",
-]
+ArticleUnderstandingModeRequest = ArticleUnderstandingMode
+VisualPlanningModeRequest = VisualPlanningMode
+VisualRoleStrategyRequest = VisualRoleStrategy
 VideoOrientation = Literal["landscape", "portrait", "square"]
 VideoResolutionPreset = Literal[
     "landscape_hd",

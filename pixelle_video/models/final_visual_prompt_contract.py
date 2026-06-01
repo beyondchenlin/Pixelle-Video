@@ -357,6 +357,9 @@ def _sanitize_metadata_mapping(metadata: Mapping[str, Any]) -> dict[str, Any]:
     for key, value in dict(metadata).items():
         if not isinstance(key, str):
             continue
+        if key == "v44_contract":
+            sanitized[key] = _sanitize_v44_contract_metadata(value)
+            continue
         safe_value = _sanitize_metadata_value(value)
         if safe_value is not _UNSAFE_METADATA:
             sanitized[key] = safe_value
@@ -385,6 +388,25 @@ def _sanitize_metadata_value(value: Any) -> Any:
     return _UNSAFE_METADATA
 
 
+def _sanitize_v44_contract_metadata(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError("metadata v44_contract must be a mapping")
+    payload = _thaw_json_value(_freeze_json_value("metadata v44_contract", value))
+    if not isinstance(payload, dict):
+        raise ValueError("metadata v44_contract must be a mapping")
+    for key in V44_TRACE_METADATA_KEYS:
+        item = payload.get(key)
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"metadata v44_contract.{key} must be a non-empty string")
+        payload[key] = item.strip()
+    if payload["contract_schema_version"] != FINAL_VISUAL_PROMPT_CONTRACT_V44_SCHEMA_VERSION:
+        raise ValueError(
+            "metadata v44_contract.contract_schema_version must be "
+            f"{FINAL_VISUAL_PROMPT_CONTRACT_V44_SCHEMA_VERSION}"
+        )
+    return payload
+
+
 def _rendered_prompt_metadata(
     metadata: Mapping[str, Any],
     prompt_contract: FinalVisualPromptContract,
@@ -411,21 +433,12 @@ def _rendered_prompt_metadata(
 
 def _v44_trace_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     v44_contract = metadata.get("v44_contract") if isinstance(metadata, Mapping) else None
-    if not isinstance(v44_contract, Mapping):
+    if v44_contract is None:
         return {}
-    summary = _sanitize_metadata_mapping(
-        {
-            key: v44_contract.get(key)
-            for key in V44_TRACE_METADATA_KEYS
-        }
-    )
-    trace: dict[str, Any] = {}
-    for key in V44_TRACE_METADATA_KEYS:
-        value = summary.get(key)
-        if isinstance(value, str) and value.strip():
-            trace[key] = value
-    if summary:
-        trace["v44_contract"] = summary
+    payload = _sanitize_v44_contract_metadata(v44_contract)
+    summary = {key: payload[key] for key in V44_TRACE_METADATA_KEYS}
+    trace: dict[str, Any] = dict(summary)
+    trace["v44_contract"] = summary
     return trace
 
 

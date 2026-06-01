@@ -94,6 +94,11 @@ def _normalize_frame_ids(frame_ids: Any) -> list[JSONValue]:
     frames = [_require_text("frame_ids", frame_id) for frame_id in frame_ids]
     if not frames:
         raise ValueError("frame_ids must contain at least one non-empty string")
+    duplicates = _duplicates(frames)
+    if duplicates:
+        raise ValueError(
+            "frame_ids must not contain duplicates: " + ", ".join(duplicates)
+        )
     return frames
 
 
@@ -150,6 +155,16 @@ def _route_decisions_by_frame(
         raise ValueError("route_decisions frame_id coverage must match frame_ids (" + "; ".join(details) + ")")
 
     return {frame_id: decisions_by_frame[frame_id] for frame_id in frames}
+
+
+def _duplicates(values: Sequence[str]) -> list[str]:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for value in values:
+        if value in seen and value not in duplicates:
+            duplicates.append(value)
+        seen.add(value)
+    return duplicates
 
 
 def _resolved_modes_for_decision(decision: VisualPlanningRouteDecision) -> dict[str, JSONValue]:

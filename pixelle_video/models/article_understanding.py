@@ -132,20 +132,21 @@ class ArticleUnderstandingPlan:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "article_id", _require_text("article_id", self.article_id))
-        object.__setattr__(self, "primary_lens", ArticleUnderstandingLens.from_value(self.primary_lens))
+        object.__setattr__(self, "primary_lens", _strict_lens_value(self.primary_lens, "primary_lens"))
         object.__setattr__(self, "secondary_lenses", _normalize_lens_tuple(self.secondary_lenses))
         object.__setattr__(self, "lens_confidence", _normalize_float_mapping(self.lens_confidence, "lens_confidence"))
         object.__setattr__(self, "core_claim", _optional_body_text(self.core_claim))
         object.__setattr__(self, "central_problem", _optional_body_text(self.central_problem))
         object.__setattr__(self, "main_entities", _normalize_string_tuple(self.main_entities, "main_entities"))
+        object.__setattr__(self, "source_evidence", _normalize_evidence_spans(self.source_evidence))
         object.__setattr__(self, "required_subjects", _normalize_subject_anchors(self.required_subjects))
+        _validate_subject_evidence_refs(self.required_subjects, self.source_evidence)
         object.__setattr__(self, "lens_payloads", _freeze_json_mapping(self.lens_payloads, "lens_payloads"))
         object.__setattr__(
             self,
             "unsuitable_visual_modes",
             _normalize_json_string_tuple(self.unsuitable_visual_modes, "unsuitable_visual_modes"),
         )
-        object.__setattr__(self, "source_evidence", _normalize_evidence_spans(self.source_evidence))
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -181,16 +182,17 @@ class FrameUnderstandingPlan:
         object.__setattr__(self, "source_text", _require_text("source_text", self.source_text))
         object.__setattr__(self, "frame_claim", _require_text("frame_claim", self.frame_claim))
         object.__setattr__(self, "frame_question", _require_text("frame_question", self.frame_question))
-        object.__setattr__(self, "primary_lens", ArticleUnderstandingLens.from_value(self.primary_lens))
+        object.__setattr__(self, "primary_lens", _strict_lens_value(self.primary_lens, "primary_lens"))
         object.__setattr__(self, "secondary_lenses", _normalize_lens_tuple(self.secondary_lenses))
+        object.__setattr__(self, "source_evidence", _normalize_evidence_spans(self.source_evidence))
         object.__setattr__(self, "required_subjects", _normalize_subject_anchors(self.required_subjects))
+        _validate_subject_evidence_refs(self.required_subjects, self.source_evidence)
         object.__setattr__(
             self,
             "forbidden_subject_losses",
             _normalize_string_tuple(self.forbidden_subject_losses, "forbidden_subject_losses"),
         )
         object.__setattr__(self, "visible_text_policy", VisibleTextPolicy.from_value(self.visible_text_policy))
-        object.__setattr__(self, "source_evidence", _normalize_evidence_spans(self.source_evidence))
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -245,8 +247,23 @@ def _require_label_text(field_name: str, value: Any) -> str:
     return text
 
 
+def _strict_lens_value(value: Any, field_name: str) -> ArticleUnderstandingLens:
+    if isinstance(value, ArticleUnderstandingLens):
+        return value
+    text = str(value.value if isinstance(value, Enum) else value or "").strip()
+    if not text:
+        raise ValueError(f"{field_name} must be a valid ArticleUnderstandingLens")
+    for lens in ArticleUnderstandingLens:
+        if text.lower() == lens.value.lower() or text.lower() == lens.name.lower():
+            return lens
+    raise ValueError(f"{field_name} must be a valid ArticleUnderstandingLens")
+
+
 def _normalize_lens_tuple(values: Any) -> tuple[ArticleUnderstandingLens, ...]:
-    return tuple(ArticleUnderstandingLens.from_value(value) for value in _require_sequence(values, "secondary_lenses"))
+    return tuple(
+        _strict_lens_value(value, "secondary_lenses")
+        for value in _require_sequence(values, "secondary_lenses")
+    )
 
 
 def _normalize_string_tuple(
@@ -292,7 +309,29 @@ def _normalize_evidence_spans(values: Any) -> tuple[SourceEvidenceSpan, ...]:
             evidence_spans.append(SourceEvidenceSpan(**dict(value)))
             continue
         raise TypeError("source_evidence must contain SourceEvidenceSpan values")
+    evidence_ids: set[str] = set()
+    for evidence in evidence_spans:
+        if evidence.evidence_id in evidence_ids:
+            raise ValueError(f"source_evidence contains duplicate evidence_id: {evidence.evidence_id}")
+        evidence_ids.add(evidence.evidence_id)
     return tuple(evidence_spans)
+
+
+def _validate_subject_evidence_refs(
+    subjects: Sequence[SubjectAnchor],
+    evidence_spans: Sequence[SourceEvidenceSpan],
+) -> None:
+    evidence_ids = {evidence.evidence_id for evidence in evidence_spans}
+    dangling: list[str] = []
+    for subject in subjects:
+        for evidence_span_id in subject.evidence_span_ids:
+            if evidence_span_id not in evidence_ids:
+                dangling.append(f"{subject.subject_id}:{evidence_span_id}")
+    if dangling:
+        raise ValueError(
+            "required_subjects evidence_span_ids must reference source_evidence evidence_id values: "
+            + ", ".join(dangling)
+        )
 
 
 def _require_sequence(values: Any, field_name: str) -> Sequence[Any]:

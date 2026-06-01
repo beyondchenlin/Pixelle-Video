@@ -18,6 +18,7 @@ from api.schemas.video import (
     VideoResolutionPreset,
 )
 from api.schemas.video_internal import VideoGenerateInternalRequest
+from pixelle_video.models.article_understanding import ArticleUnderstandingMode
 from pixelle_video.models.layered_template import (
     LayeredTemplateSpec,
     LayerSourceSpec,
@@ -35,6 +36,8 @@ from pixelle_video.models.video_generation_contract import (
     normalize_standard_video_generation_params,
     validate_standard_video_generation_params,
 )
+from pixelle_video.models.visual_planning_mode import VisualPlanningMode
+from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 from pixelle_video.services.resource_resolver import ResolvedResource, StaticResourceResolver
 
 
@@ -119,6 +122,24 @@ def test_api_video_preset_literals_match_size_contract():
 
 def test_api_media_preset_literals_match_size_contract():
     assert set(get_args(MediaResolutionPreset)) == set(VALID_MEDIA_RESOLUTION_PRESETS)
+
+
+def test_v44_api_planning_fields_use_model_enum_fact_sources():
+    assert video_schema_module.ArticleUnderstandingModeRequest is ArticleUnderstandingMode
+    assert video_schema_module.VisualPlanningModeRequest is VisualPlanningMode
+    assert video_schema_module.VisualRoleStrategyRequest is VisualRoleStrategy
+    assert (
+        VideoGenerateRequest.model_fields["article_understanding_mode"].annotation
+        is ArticleUnderstandingMode
+    )
+    assert (
+        VideoGenerateRequest.model_fields["visual_planning_mode"].annotation
+        is VisualPlanningMode
+    )
+    assert (
+        VideoGenerateRequest.model_fields["visual_role_strategy"].annotation
+        is VisualRoleStrategy
+    )
 
 
 def test_video_generate_request_rejects_removed_hyperframes_alias():

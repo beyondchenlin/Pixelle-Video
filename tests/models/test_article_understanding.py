@@ -204,6 +204,121 @@ def test_article_understanding_plan_rejects_non_finite_lens_confidence():
         )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "kwargs"),
+    [
+        ("primary_lens", {"primary_lens": "not_a_lens"}),
+        (
+            "secondary_lenses",
+            {"primary_lens": "cognitive_state", "secondary_lenses": ["not_a_lens"]},
+        ),
+    ],
+)
+def test_article_understanding_plan_rejects_invalid_lens_facts(field_name, kwargs):
+    with pytest.raises(ValueError, match=field_name):
+        ArticleUnderstandingPlan(article_id="article-1", **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "kwargs"),
+    [
+        ("primary_lens", {"primary_lens": "not_a_lens"}),
+        (
+            "secondary_lenses",
+            {"primary_lens": "cognitive_state", "secondary_lenses": ["not_a_lens"]},
+        ),
+    ],
+)
+def test_frame_understanding_plan_rejects_invalid_lens_facts(field_name, kwargs):
+    with pytest.raises(ValueError, match=field_name):
+        FrameUnderstandingPlan(
+            frame_id="frame-1",
+            source_text="Original article text",
+            frame_claim="A claim",
+            frame_question="A question?",
+            **kwargs,
+        )
+
+
+def test_article_understanding_plan_rejects_dangling_subject_evidence_refs():
+    with pytest.raises(ValueError, match="missing-evidence"):
+        ArticleUnderstandingPlan(
+            article_id="article-1",
+            primary_lens="cognitive_state",
+            required_subjects=[
+                SubjectAnchor(
+                    subject_id="subject-1",
+                    label="Markets",
+                    source_phrase="markets",
+                    evidence_span_ids=("missing-evidence",),
+                    importance="primary",
+                    visual_presence="required",
+                    loss_policy="forbidden",
+                )
+            ],
+            source_evidence=[
+                SourceEvidenceSpan(
+                    evidence_id="evidence-1",
+                    source_id="article-1",
+                    quote="markets reprice risk",
+                    evidence_role="core_claim",
+                )
+            ],
+        )
+
+
+def test_frame_understanding_plan_rejects_dangling_subject_evidence_refs():
+    with pytest.raises(ValueError, match="missing-evidence"):
+        FrameUnderstandingPlan(
+            frame_id="frame-1",
+            source_text="Original article text",
+            frame_claim="A claim",
+            frame_question="A question?",
+            primary_lens="cognitive_state",
+            required_subjects=[
+                SubjectAnchor(
+                    subject_id="subject-1",
+                    label="Markets",
+                    source_phrase="markets",
+                    evidence_span_ids=("missing-evidence",),
+                    importance="primary",
+                    visual_presence="required",
+                    loss_policy="forbidden",
+                )
+            ],
+            source_evidence=[
+                SourceEvidenceSpan(
+                    evidence_id="evidence-1",
+                    source_id="article-1",
+                    quote="markets reprice risk",
+                    evidence_role="core_claim",
+                )
+            ],
+        )
+
+
+def test_article_understanding_plan_rejects_duplicate_evidence_ids():
+    with pytest.raises(ValueError, match="duplicate evidence_id"):
+        ArticleUnderstandingPlan(
+            article_id="article-1",
+            primary_lens="cognitive_state",
+            source_evidence=[
+                SourceEvidenceSpan(
+                    evidence_id="evidence-1",
+                    source_id="article-1",
+                    quote="first quote",
+                    evidence_role="core_claim",
+                ),
+                SourceEvidenceSpan(
+                    evidence_id="evidence-1",
+                    source_id="article-1",
+                    quote="second quote",
+                    evidence_role="supporting_claim",
+                ),
+            ],
+        )
+
+
 def test_article_understanding_plan_rejects_nested_lens_confidence_value():
     with pytest.raises(TypeError, match="lens_confidence|finite number"):
         ArticleUnderstandingPlan(

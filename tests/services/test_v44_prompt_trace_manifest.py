@@ -263,6 +263,18 @@ def test_manifest_rejects_invalid_frame_ids(frame_ids):
         )
 
 
+def test_manifest_rejects_duplicate_frame_ids():
+    with pytest.raises(ValueError, match="duplicates: frame-1"):
+        build_v44_prompt_trace_manifest(
+            article_id="article-1",
+            frame_ids=["frame-1", "frame-1"],
+            requested_modes={},
+            route_decisions=[],
+            critic_status="passed",
+            repair_rounds=0,
+        )
+
+
 @pytest.mark.parametrize("critic_status", ["", "   ", None, False])
 def test_manifest_rejects_invalid_critic_status(critic_status):
     with pytest.raises((TypeError, ValueError), match="critic_status"):
