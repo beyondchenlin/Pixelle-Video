@@ -1916,6 +1916,10 @@ class PixelleVideoCore:
                 logger.info(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restarted successfully (extensions: {extensions})")
             else:
                 logger.warning(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restart returned False (extensions: {extensions})")
+                raise RuntimeError(
+                    f"ComfyUI {context} memory release was not confirmed for "
+                    f"backend '{backend_role}'"
+                )
             self._mark_local_comfyui_released(backend_role=backend_role)
             return True
         except Exception as e:
@@ -1954,6 +1958,10 @@ class PixelleVideoCore:
                 logger.info(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restarted successfully (post-workflow)")
             else:
                 logger.warning(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restart returned False (post-workflow)")
+                raise RuntimeError(
+                    "ComfyUI post-workflow memory release was not confirmed "
+                    f"for backend '{backend_role}'"
+                )
             self._mark_local_comfyui_released(backend_role=backend_role)
             return True
         except Exception as e:
@@ -1992,6 +2000,10 @@ class PixelleVideoCore:
                         logger.info(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restarted successfully")
                     else:
                         logger.warning(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restart returned False")
+                        raise RuntimeError(
+                            "ComfyUI post-task memory release was not confirmed "
+                            f"for backend '{backend_role}'"
+                        )
                     self._mark_local_comfyui_released(backend_role=backend_role)
                     return True
                 except Exception as e:
