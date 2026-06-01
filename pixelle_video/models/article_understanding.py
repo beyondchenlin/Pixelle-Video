@@ -194,7 +194,11 @@ class FrameUnderstandingPlan:
             "forbidden_subject_losses",
             _normalize_string_tuple(self.forbidden_subject_losses, "forbidden_subject_losses"),
         )
-        object.__setattr__(self, "visible_text_policy", VisibleTextPolicy.from_value(self.visible_text_policy))
+        object.__setattr__(
+            self,
+            "visible_text_policy",
+            _strict_visible_text_policy(self.visible_text_policy),
+        )
 
     def to_dict(self) -> dict[str, JSONValue]:
         return {
@@ -269,6 +273,18 @@ def _strict_lens_value(value: Any, field_name: str) -> ArticleUnderstandingLens:
         if text.lower() == lens.value.lower() or text.lower() == lens.name.lower():
             return lens
     raise ValueError(f"{field_name} must be a valid ArticleUnderstandingLens")
+
+
+def _strict_visible_text_policy(value: Any) -> VisibleTextPolicy:
+    if isinstance(value, VisibleTextPolicy):
+        return value
+    text = str(value.value if isinstance(value, Enum) else value or "").strip()
+    if not text:
+        raise ValueError("visible_text_policy must be a valid VisibleTextPolicy")
+    for policy in VisibleTextPolicy:
+        if text.lower() == policy.value.lower() or text.lower() == policy.name.lower():
+            return policy
+    raise ValueError("visible_text_policy must be a valid VisibleTextPolicy")
 
 
 def _normalize_lens_tuple(values: Any) -> tuple[ArticleUnderstandingLens, ...]:

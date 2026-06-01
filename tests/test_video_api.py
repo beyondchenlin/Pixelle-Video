@@ -349,18 +349,15 @@ def test_standard_video_generation_contract_normalizes_all_v44_request_fields():
     assert params["allow_mixed_lenses"] is False
 
 
-def test_standard_video_generation_contract_normalizes_invalid_v44_enum_values_to_auto():
-    params = normalize_standard_video_generation_params(
-        {
-            "article_understanding_mode": "unknown",
-            "visual_planning_mode": "unknown",
-            "visual_role_strategy": "unknown",
-        }
-    )
-
-    assert params["article_understanding_mode"] == "auto"
-    assert params["visual_planning_mode"] == "auto"
-    assert params["visual_role_strategy"] == "auto"
+@pytest.mark.parametrize(
+    "field_name",
+    ["article_understanding_mode", "visual_planning_mode", "visual_role_strategy"],
+)
+def test_standard_video_generation_contract_rejects_invalid_v44_enum_values(
+    field_name: str,
+):
+    with pytest.raises(ValueError, match=field_name):
+        normalize_standard_video_generation_params({field_name: "unknown"})
 
 
 @pytest.mark.parametrize(

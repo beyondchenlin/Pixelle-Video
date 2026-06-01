@@ -38,17 +38,29 @@ class ArticleVisualPlanningRequest:
         object.__setattr__(
             self,
             "article_understanding_mode",
-            ArticleUnderstandingMode.from_value(self.article_understanding_mode),
+            _strict_enum_value(
+                self.article_understanding_mode,
+                ArticleUnderstandingMode,
+                "article_understanding_mode",
+            ),
         )
         object.__setattr__(
             self,
             "visual_planning_mode",
-            VisualPlanningMode.from_value(self.visual_planning_mode),
+            _strict_enum_value(
+                self.visual_planning_mode,
+                VisualPlanningMode,
+                "visual_planning_mode",
+            ),
         )
         object.__setattr__(
             self,
             "visual_role_strategy",
-            VisualRoleStrategy.from_value(self.visual_role_strategy),
+            _strict_enum_value(
+                self.visual_role_strategy,
+                VisualRoleStrategy,
+                "visual_role_strategy",
+            ),
         )
         object.__setattr__(self, "user_intent_hint", _optional_text(self.user_intent_hint))
         object.__setattr__(

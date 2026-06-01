@@ -149,7 +149,7 @@ def test_attach_v44_contract_metadata_preserves_v1_fields_and_original_metadata(
     assert attached.version == original.version
     assert "v44_contract" not in original.metadata
     assert attached.metadata["existing"] == {"keep": True}
-    assert attached.metadata["v44_contract"] == v44.to_dict()
+    assert attached.to_dict()["metadata"]["v44_contract"] == v44.to_dict()
 
 
 def test_attach_v44_contract_metadata_detaches_nested_metadata_from_original():
@@ -165,8 +165,9 @@ def test_attach_v44_contract_metadata_detaches_nested_metadata_from_original():
     v44 = _v44_contract()
 
     attached = attach_v44_contract_metadata(original, v44)
-    original.metadata["existing"]["keep"] = False
 
+    with pytest.raises(TypeError):
+        original.metadata["existing"]["keep"] = False
     assert attached.metadata["existing"] == {"keep": True}
 
 
@@ -196,6 +197,50 @@ def test_final_visual_prompt_contract_to_dict_detaches_v44_metadata():
         integration_priority="priority",
         metadata={"source": "legacy"},
     ).to_dict()["metadata"] == {"source": "legacy"}
+
+
+def test_final_visual_prompt_contract_metadata_is_deep_frozen():
+    contract = FinalVisualPromptContract(
+        scene="scene",
+        composition="composition",
+        style_assignment="style",
+        character_layer_style="character",
+        world_layer_style="world",
+        integration_priority="priority",
+        metadata={"existing": {"keep": True}, "items": ["a"]},
+    )
+
+    with pytest.raises(TypeError):
+        contract.metadata["existing"]["keep"] = False
+    with pytest.raises(TypeError):
+        contract.metadata["items"][0] = "b"
+
+
+def test_rendered_media_prompt_metadata_cannot_diverge_from_contract_trace():
+    contract = attach_v44_contract_metadata(
+        FinalVisualPromptContract(
+            scene="scene",
+            composition="composition",
+            style_assignment="style",
+            character_layer_style="character",
+            world_layer_style="world",
+            integration_priority="priority",
+        ),
+        _v44_contract(),
+    )
+    rendered = RenderedMediaPrompt(
+        prompt="rendered prompt",
+        negative_prompt=None,
+        prompt_contract=contract,
+        renderer_id="renderer",
+        renderer_version="v1",
+    )
+
+    with pytest.raises(TypeError):
+        contract.metadata["v44_contract"]["route_decision_id"] = "mutated-route"
+    with pytest.raises(TypeError):
+        rendered.metadata["v44_contract"]["route_decision_id"] = "mutated-route"
+    assert rendered.metadata["route_decision_id"] == contract.metadata["v44_contract"]["route_decision_id"]
 
 
 def test_final_visual_prompt_contract_to_dict_drops_unsafe_legacy_metadata():

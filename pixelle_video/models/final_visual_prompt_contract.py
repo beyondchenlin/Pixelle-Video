@@ -157,7 +157,7 @@ class FinalVisualPromptContract:
         for field_name in FINAL_VISUAL_PROMPT_SECTION_KEYS:
             object.__setattr__(self, field_name, _require_non_empty(field_name, getattr(self, field_name)))
         object.__setattr__(self, "negative_rules", _normalize_rule_tuple(self.negative_rules))
-        object.__setattr__(self, "metadata", _detach_metadata(self.metadata or {}))
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata or {}))
         object.__setattr__(self, "version", _require_non_empty("version", self.version))
 
     def prompt_sections(self) -> dict[str, str]:
@@ -203,7 +203,7 @@ class RenderedMediaPrompt:
         object.__setattr__(
             self,
             "metadata",
-            _rendered_prompt_metadata(self.metadata or {}, self.prompt_contract),
+            _freeze_metadata(_rendered_prompt_metadata(self.metadata or {}, self.prompt_contract)),
         )
 
     def with_prompt(self, prompt: str) -> "RenderedMediaPrompt":
@@ -350,6 +350,13 @@ def _freeze_json_value(field_name: str, value: Any) -> Any:
 def _detach_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     detached = _sanitize_metadata_mapping(metadata)
     return detached if isinstance(detached, dict) else {}
+
+
+def _freeze_metadata(metadata: Mapping[str, Any]) -> Mapping[str, Any]:
+    frozen = _freeze_json_value("metadata", _detach_metadata(metadata))
+    if not isinstance(frozen, Mapping):
+        return MappingProxyType({})
+    return frozen
 
 
 def _sanitize_metadata_mapping(metadata: Mapping[str, Any]) -> dict[str, Any]:

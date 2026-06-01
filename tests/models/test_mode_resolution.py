@@ -21,11 +21,11 @@ from pixelle_video.models.visual_planning_mode import (
 from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
 
 
-def test_request_normalizes_invalid_and_visual_role_terms():
+def test_request_normalizes_known_modes_and_control_fields():
     request = ArticleVisualPlanningRequest.from_mapping(
         {
-            "article_understanding_mode": "not_a_mode",
-            "visual_planning_mode": "host_explainer",
+            "article_understanding_mode": "cognitive_state",
+            "visual_planning_mode": "cognitive_illustration",
             "visual_role_strategy": "observer_guide",
             "user_intent_hint": "  explain policy change  ",
             "allow_mixed_lenses": "false",
@@ -34,22 +34,35 @@ def test_request_normalizes_invalid_and_visual_role_terms():
         }
     )
 
-    assert request.article_understanding_mode is ArticleUnderstandingMode.AUTO
-    assert request.visual_planning_mode is VisualPlanningMode.AUTO
+    assert request.article_understanding_mode is ArticleUnderstandingMode.COGNITIVE_STATE
+    assert request.visual_planning_mode is VisualPlanningMode.COGNITIVE_ILLUSTRATION
     assert request.visual_role_strategy is VisualRoleStrategy.OBSERVER_GUIDE
     assert request.user_intent_hint == "explain policy change"
     assert request.allow_mixed_lenses is False
     assert request.strict_user_mode is True
     assert request.force_v44_planning is True
     assert request.to_dict() == {
-        "article_understanding_mode": "auto",
-        "visual_planning_mode": "auto",
+        "article_understanding_mode": "cognitive_state",
+        "visual_planning_mode": "cognitive_illustration",
         "visual_role_strategy": "observer_guide",
         "user_intent_hint": "explain policy change",
         "allow_mixed_lenses": False,
         "strict_user_mode": True,
         "force_v44_planning": True,
     }
+
+
+@pytest.mark.parametrize(
+    ("field_name", "bad_value"),
+    [
+        ("article_understanding_mode", "not_a_mode"),
+        ("visual_planning_mode", "host_explainer"),
+        ("visual_role_strategy", "not_a_strategy"),
+    ],
+)
+def test_request_rejects_invalid_provided_v44_enum_fields(field_name, bad_value):
+    with pytest.raises(ValueError, match=field_name):
+        ArticleVisualPlanningRequest.from_mapping({field_name: bad_value})
 
 
 def test_article_visual_planning_request_keys_match_serialized_contract():

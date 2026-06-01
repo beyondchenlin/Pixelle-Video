@@ -411,6 +411,18 @@ def test_frame_understanding_plan_defaults_visible_text_policy_and_serializes_it
     assert plan.to_dict()["visible_text_policy"] == "no_visible_text"
 
 
+def test_frame_understanding_plan_rejects_invalid_visible_text_policy_fact():
+    with pytest.raises(ValueError, match="visible_text_policy"):
+        FrameUnderstandingPlan(
+            frame_id="frame-1",
+            source_text="Original article text",
+            frame_claim="A claim",
+            frame_question="A question?",
+            primary_lens=ArticleUnderstandingLens.THESIS_ARGUMENT,
+            visible_text_policy="not_a_policy",
+        )
+
+
 def test_article_understanding_exports_public_contract_classes():
     assert set(article_understanding.__all__) == {
         "ArticleUnderstandingLens",
