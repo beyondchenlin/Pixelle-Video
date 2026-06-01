@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from pixelle_video.models.article_understanding import (
@@ -123,6 +125,50 @@ def test_article_understanding_plan_serializes_json_safe_values():
     assert payload["required_subjects"] == [subject.to_dict()]
     assert payload["unsuitable_visual_modes"] == ["process_walkthrough", "relationship_map"]
     assert payload["source_evidence"] == [evidence.to_dict()]
+
+
+def test_article_understanding_plan_rejects_non_finite_lens_confidence():
+    with pytest.raises(ValueError, match="JSON|finite"):
+        ArticleUnderstandingPlan(
+            article_id="article-1",
+            primary_lens="cognitive_state",
+            lens_confidence={"x": float("nan")},
+        )
+
+
+def test_article_understanding_plan_rejects_nested_non_finite_lens_payload():
+    with pytest.raises(ValueError, match="JSON|finite"):
+        ArticleUnderstandingPlan(
+            article_id="article-1",
+            primary_lens="cognitive_state",
+            lens_payloads={"x": {"score": float("inf")}},
+        )
+
+
+def test_article_understanding_plan_freezes_lens_mappings():
+    plan = ArticleUnderstandingPlan(
+        article_id="article-1",
+        primary_lens="cognitive_state",
+        lens_confidence={"cognitive_state": 0.91},
+        lens_payloads={"cognitive_state": {"score": 0.91}},
+    )
+
+    with pytest.raises(TypeError):
+        plan.lens_confidence["new"] = 1.0
+
+    with pytest.raises(TypeError):
+        plan.lens_payloads["cognitive_state"]["new"] = "x"
+
+
+def test_article_understanding_plan_to_dict_is_strict_json_serializable():
+    plan = ArticleUnderstandingPlan(
+        article_id="article-1",
+        primary_lens="cognitive_state",
+        lens_confidence={"cognitive_state": 0.91},
+        lens_payloads={"cognitive_state": {"scores": [0.7, 0.2]}},
+    )
+
+    json.dumps(plan.to_dict(), allow_nan=False)
 
 
 def test_frame_understanding_plan_defaults_visible_text_policy_and_serializes_it():

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 from typing import Any
 
 from pixelle_video.models.visual_planning_mode import VisibleTextPolicy
@@ -294,17 +296,19 @@ def _require_sequence(values: Any, field_name: str) -> Sequence[Any]:
 
 def _freeze_json_mapping(value: Mapping[Any, Any] | None, field_name: str) -> Mapping[str, FrozenJSONValue]:
     if value is None:
-        return {}
+        return MappingProxyType({})
     if not isinstance(value, Mapping):
         raise TypeError(f"{field_name} must be a mapping")
-    return {_json_string(key): _freeze_json_value(item) for key, item in value.items()}
+    return MappingProxyType({_json_string(key): _freeze_json_value(item) for key, item in value.items()})
 
 
 def _freeze_json_value(value: Any) -> FrozenJSONValue:
     if isinstance(value, Enum):
         return _json_string(value)
     if isinstance(value, Mapping):
-        return {_json_string(key): _freeze_json_value(item) for key, item in value.items()}
+        return MappingProxyType({_json_string(key): _freeze_json_value(item) for key, item in value.items()})
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("JSON values must be finite")
     if isinstance(value, str | int | float | bool) or value is None:
         return value
     if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
