@@ -12,7 +12,12 @@ from pixelle_video.models.visual_role_request import (
     VisualRoleRequest,
     is_supported_visual_role_pipeline_version,
 )
-from pixelle_video.models.visual_role_strategy import VisualRoleMode
+from pixelle_video.models.visual_role_strategy import (
+    VisualConsistencyMode,
+    VisualRoleMode,
+    VisualRoleStrategy,
+    resolve_effective_role_mode_with_v44_context,
+)
 
 
 def _enabled_params(**overrides):
@@ -137,3 +142,61 @@ def test_normalize_standard_video_generation_params_preserves_v4_fields():
 
 def test_validate_standard_video_generation_params_accepts_visual_role_controls():
     validate_standard_video_generation_params(_enabled_params())
+
+
+def test_visual_role_strategy_accepts_known_values():
+    assert VisualRoleStrategy.from_value("host_explainer") is VisualRoleStrategy.HOST_EXPLAINER
+    assert VisualRoleStrategy.from_value("observer_guide") is VisualRoleStrategy.OBSERVER_GUIDE
+    assert VisualRoleStrategy.from_value("not_a_strategy") is VisualRoleStrategy.AUTO
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        VisualRoleStrategy.SIGNATURE_PRESENCE,
+        VisualRoleStrategy.OBSERVER_GUIDE,
+        VisualRoleStrategy.BACKGROUND_SIGNATURE,
+    ],
+)
+def test_v44_context_downgrades_subject_replacement_for_observer_signature_strategies(
+    strategy,
+):
+    assert (
+        resolve_effective_role_mode_with_v44_context(
+            requested_role_mode=VisualRoleMode.SUBJECT_REPLACEMENT,
+            consistency_mode=VisualConsistencyMode.OFF,
+            visual_role_strategy=strategy,
+            subject_replacement_allowed=False,
+        )
+        is VisualRoleMode.SUPPORTING_INTEGRATION
+    )
+
+
+def test_v44_context_primary_character_replacement_requires_participant_strategy():
+    assert (
+        resolve_effective_role_mode_with_v44_context(
+            requested_role_mode=VisualRoleMode.AUTO,
+            consistency_mode=VisualConsistencyMode.PRIMARY_CHARACTER,
+            visual_role_strategy=VisualRoleStrategy.PARTICIPANT,
+            subject_replacement_allowed=True,
+        )
+        is VisualRoleMode.SUBJECT_REPLACEMENT
+    )
+    assert (
+        resolve_effective_role_mode_with_v44_context(
+            requested_role_mode=VisualRoleMode.AUTO,
+            consistency_mode=VisualConsistencyMode.PRIMARY_CHARACTER,
+            visual_role_strategy=VisualRoleStrategy.PARTICIPANT,
+            subject_replacement_allowed=False,
+        )
+        is VisualRoleMode.AUTO
+    )
+    assert (
+        resolve_effective_role_mode_with_v44_context(
+            requested_role_mode=VisualRoleMode.AUTO,
+            consistency_mode=VisualConsistencyMode.PRIMARY_CHARACTER,
+            visual_role_strategy=VisualRoleStrategy.HOST_EXPLAINER,
+            subject_replacement_allowed=True,
+        )
+        is VisualRoleMode.AUTO
+    )
