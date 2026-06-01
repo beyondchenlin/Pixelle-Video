@@ -4098,7 +4098,14 @@ class StandardPipeline(LinearVideoPipeline):
         if not registry.is_dedicated_backend(backend_role):
             return
 
-        if callable(restart_after_batch) and not restart_after_batch(backend_role):
+        if callable(restart_after_batch):
+            should_restart = bool(restart_after_batch(backend_role))
+        else:
+            should_restart = bool(
+                getattr(registry.profile(backend_role), "restart_after_batch", True)
+            )
+
+        if not should_restart:
             logger.info(
                 f"Skipping stage-boundary restart for '{backend_role}' ({reason}) — "
                 "restart_after_batch=False, keeping backend alive"

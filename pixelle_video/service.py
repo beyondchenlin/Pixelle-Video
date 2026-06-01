@@ -1335,7 +1335,12 @@ class PixelleVideoCore:
         self.pipelines = {}
         self.generation_coordinator = GenerationCoordinator()
         self._local_comfyui_execution_locks: dict[str, asyncio.Lock] = {}
-        self._comfyui_restart_tasks: dict[str, asyncio.Task] = {}
+        self._local_comfyui_accelerator_lock = asyncio.Lock()
+        self._local_comfyui_accelerator_lock_depth: ContextVar[int] = ContextVar(
+            "local_comfyui_accelerator_lock_depth",
+            default=0,
+        )
+        self._comfyui_restart_tasks: dict[str, asyncio.Task[bool]] = {}
         self._local_comfyui_workflow_session: ContextVar[_LocalComfyUIWorkflowSession | None] = (
             ContextVar("local_comfyui_workflow_session", default=None)
         )
@@ -1359,6 +1364,67 @@ class PixelleVideoCore:
             self._local_comfyui_execution_locks[role] = lock
         return lock
 
+    async def _acquire_local_comfyui_accelerator_lock(
+        self,
+        *,
+        backend_role: str,
+        reason: str,
+    ) -> tuple[bool, object]:
+        depth = self._local_comfyui_accelerator_lock_depth.get()
+        if depth > 0:
+            token = self._local_comfyui_accelerator_lock_depth.set(depth + 1)
+            return False, token
+
+        role = self._normalize_comfyui_backend_role(backend_role)
+        logger.debug(
+            f"Waiting for local ComfyUI accelerator operation lock "
+            f"(role={role}, reason={reason})"
+        )
+        await self._local_comfyui_accelerator_lock.acquire()
+        token = self._local_comfyui_accelerator_lock_depth.set(1)
+        logger.debug(
+            f"Acquired local ComfyUI accelerator operation lock "
+            f"(role={role}, reason={reason})"
+        )
+        return True, token
+
+    def _release_local_comfyui_accelerator_lock(
+        self,
+        state: tuple[bool, object],
+        *,
+        backend_role: str,
+        reason: str,
+    ) -> None:
+        acquired, token = state
+        self._local_comfyui_accelerator_lock_depth.reset(token)
+        if acquired:
+            self._local_comfyui_accelerator_lock.release()
+            role = self._normalize_comfyui_backend_role(backend_role)
+            logger.debug(
+                f"Released local ComfyUI accelerator operation lock "
+                f"(role={role}, reason={reason})"
+            )
+
+    @asynccontextmanager
+    async def _local_comfyui_accelerator_operation(
+        self,
+        *,
+        backend_role: str,
+        reason: str,
+    ):
+        state = await self._acquire_local_comfyui_accelerator_lock(
+            backend_role=backend_role,
+            reason=reason,
+        )
+        try:
+            yield
+        finally:
+            self._release_local_comfyui_accelerator_lock(
+                state,
+                backend_role=backend_role,
+                reason=reason,
+            )
+
     def _get_comfykit_config(self, backend_role: str = "default") -> dict:
         """
         Get current ComfyKit configuration from config_manager
@@ -1378,7 +1444,11 @@ class PixelleVideoCore:
             repo_root=Path(__file__).resolve().parents[1],
         )
 
-    def schedule_comfyui_backend_restart(self, backend_role: str, reason: str) -> None:
+    def schedule_comfyui_backend_restart(
+        self,
+        backend_role: str,
+        reason: str,
+    ) -> asyncio.Task[bool] | None:
         role = self._normalize_comfyui_backend_role(backend_role)
         existing_task = self._comfyui_restart_tasks.get(role)
         if existing_task is not None:
@@ -1387,19 +1457,28 @@ class PixelleVideoCore:
                     "ComfyUI backend restart already scheduled; skipping duplicate request "
                     f"for role '{role}' ({reason})"
                 )
-                return
-            if existing_task.cancelled() or existing_task.exception() is not None:
+                return existing_task
+            if existing_task.cancelled():
                 logger.warning(
-                    "ComfyUI backend restart already failed and must be awaited before a new "
-                    f"restart can be scheduled for role '{role}'"
+                    "Previous ComfyUI backend restart task was cancelled; scheduling "
+                    f"a new restart for role '{role}' ({reason})"
                 )
-                return
+            else:
+                try:
+                    existing_task.result()
+                except Exception as exc:
+                    logger.warning(
+                        "Previous ComfyUI backend restart task failed; scheduling "
+                        f"a new restart for role '{role}' ({reason}): {exc}"
+                    )
             self._comfyui_restart_tasks.pop(role, None)
 
         self._mark_local_comfyui_released(backend_role=role)
-        self._comfyui_restart_tasks[role] = asyncio.create_task(
+        task = asyncio.create_task(
             self._scheduled_backend_restart(role, reason)
         )
+        self._comfyui_restart_tasks[role] = task
+        return task
 
     async def _scheduled_backend_restart(
         self,
@@ -1407,7 +1486,12 @@ class PixelleVideoCore:
         reason: str,
     ) -> bool:
         role = self._normalize_comfyui_backend_role(backend_role)
-        restarted = await self._restart_comfyui_backend_role(role, reason)
+        async with self._local_comfyui_accelerator_operation(
+            backend_role=role,
+            reason=f"scheduled-restart:{reason}",
+        ):
+            async with self._get_backend_lock(role):
+                restarted = await self._restart_comfyui_backend_role(role, reason)
         if not restarted:
             scope = self._local_comfyui_task_scope.get()
             if scope is not None:
@@ -1726,8 +1810,11 @@ class PixelleVideoCore:
                 missing_endpoint=missing_endpoint,
             )
         except Exception as e:
+            detail = str(e).strip() or repr(e) or type(e).__name__
             raise RuntimeError(
-                f"ComfyUI {context} extension release endpoint preflight failed: {e}"
+                "ComfyUI "
+                f"{context} extension release endpoint preflight failed "
+                f"({type(e).__name__}): {detail}"
             ) from e
         self._log_comfyui_extension_release_preflight(
             context=context,
@@ -1765,7 +1852,11 @@ class PixelleVideoCore:
 
         logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' (extensions: {extensions}) to release GPU memory...")
         try:
-            restarted = await self._restart_comfyui_backend_role(backend_role, f"{context} memory release")
+            async with self._local_comfyui_accelerator_operation(
+                backend_role=backend_role,
+                reason=f"{context} memory release",
+            ):
+                restarted = await self._restart_comfyui_backend_role(backend_role, f"{context} memory release")
             if restarted:
                 logger.info(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restarted successfully (extensions: {extensions})")
             else:
@@ -1799,7 +1890,11 @@ class PixelleVideoCore:
 
         logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' (post-workflow) to release GPU memory...")
         try:
-            restarted = await self._restart_comfyui_backend_role(backend_role, "post-workflow memory release")
+            async with self._local_comfyui_accelerator_operation(
+                backend_role=backend_role,
+                reason="post-workflow memory release",
+            ):
+                restarted = await self._restart_comfyui_backend_role(backend_role, "post-workflow memory release")
             if restarted:
                 logger.info(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restarted successfully (post-workflow)")
             else:
@@ -1830,21 +1925,25 @@ class PixelleVideoCore:
             self._mark_local_comfyui_released(backend_role=backend_role)
             return True
 
-        async with self._get_backend_lock(backend_role):
-            logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' to release GPU memory...")
-            try:
-                restarted = await self._restart_comfyui_backend_role(backend_role, "post-task memory release")
-                if restarted:
-                    logger.info(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restarted successfully")
-                else:
-                    logger.warning(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restart returned False")
-                self._mark_local_comfyui_released(backend_role=backend_role)
-                return True
-            except Exception as e:
-                logger.error(f"[MEMORY_RELEASE] Failed to restart ComfyUI backend '{backend_role}': {e}")
-                raise RuntimeError(
-                    f"ComfyUI post-task memory release (restart) failed for backend '{backend_role}': {e}"
-                ) from e
+        async with self._local_comfyui_accelerator_operation(
+            backend_role=backend_role,
+            reason="post-task memory release",
+        ):
+            async with self._get_backend_lock(backend_role):
+                logger.info(f"[MEMORY_RELEASE] Restarting ComfyUI backend '{backend_role}' to release GPU memory...")
+                try:
+                    restarted = await self._restart_comfyui_backend_role(backend_role, "post-task memory release")
+                    if restarted:
+                        logger.info(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restarted successfully")
+                    else:
+                        logger.warning(f"[MEMORY_RELEASE] ComfyUI backend '{backend_role}' restart returned False")
+                    self._mark_local_comfyui_released(backend_role=backend_role)
+                    return True
+                except Exception as e:
+                    logger.error(f"[MEMORY_RELEASE] Failed to restart ComfyUI backend '{backend_role}': {e}")
+                    raise RuntimeError(
+                        f"ComfyUI post-task memory release (restart) failed for backend '{backend_role}': {e}"
+                    ) from e
 
     async def release_comfyui_after_index_tts2_workflow(
         self,
@@ -1887,18 +1986,12 @@ class PixelleVideoCore:
 
     def _workflow_extensions(self, workflow_input: Any) -> tuple[ComfyUIExtensionName, ...]:
         extensions: list[ComfyUIExtensionName] = []
-        # MARKER_v2: Debug logging added
-        logger.warning(f"[MARKER_v2] _workflow_extensions called with: {workflow_input}")
         if is_index_tts2_workflow_key(workflow_input):
             extensions.append("indextts2")
-            logger.warning("[MARKER_v2] Detected indextts2 workflow")
         if is_omnivoice_workflow_key(workflow_input):
             extensions.append("omnivoice")
-            logger.warning("[MARKER_v2] Detected omnivoice workflow")
         if self._is_gguf_workflow_key(workflow_input):
             extensions.append("gguf")
-            logger.warning("[MARKER_v2] Detected gguf workflow")
-        logger.warning(f"[MARKER_v2] Final extensions: {extensions}")
         return tuple(dict.fromkeys(extensions))
 
     def _is_gguf_workflow_key(self, workflow_input: Any) -> bool:
@@ -2227,33 +2320,38 @@ class PixelleVideoCore:
         async with session.init_lock:
             if not session.lock_acquired:
                 await self.await_comfyui_backend_ready(role)
-                await backend_lock.acquire()
-                session.lock_acquired = True
                 try:
+                    await backend_lock.acquire()
+                    session.lock_acquired = True
                     await self.prepare_comfyui_for_local_workflow(backend_role=role)
                     session.prepared = True
                     await self._register_local_comfyui_task_use(backend_role=role)
                 except Exception:
-                    session.lock_acquired = False
-                    backend_lock.release()
+                    if session.lock_acquired:
+                        session.lock_acquired = False
+                        backend_lock.release()
                     raise
 
         async with session.execute_lock:
-            extensions = self._register_workflow_extensions(
-                workflow_input,
+            async with self._local_comfyui_accelerator_operation(
                 backend_role=role,
-            )
-            if extensions:
-                await self._preflight_workflow_extensions_once(
-                    extensions,
-                    session,
+                reason="workflow-session-execute",
+            ):
+                extensions = self._register_workflow_extensions(
+                    workflow_input,
                     backend_role=role,
                 )
-            return await self._execute_local_comfykit_workflow(
-                workflow_input,
-                workflow_params,
-                backend_role=role,
-            )
+                if extensions:
+                    await self._preflight_workflow_extensions_once(
+                        extensions,
+                        session,
+                        backend_role=role,
+                    )
+                return await self._execute_local_comfykit_workflow(
+                    workflow_input,
+                    workflow_params,
+                    backend_role=role,
+                )
 
     @asynccontextmanager
     async def local_comfyui_workflow_session(
@@ -2682,45 +2780,49 @@ class PixelleVideoCore:
             )
 
         await self.await_comfyui_backend_ready(role)
-        async with self._get_backend_lock(role):
-            await self.prepare_comfyui_for_local_workflow(backend_role=role)
-            await self._register_local_comfyui_task_use(backend_role=role)
-            extensions = self._register_workflow_extensions(
-                workflow_input,
-                backend_role=role,
-            )
-            if extensions:
-                await self._preflight_workflow_extensions_once(
-                    extensions,
-                    session,
-                    backend_role=role,
-                )
-            workflow_failed = False
-            try:
-                return await self._execute_local_comfykit_workflow(
+        async with self._local_comfyui_accelerator_operation(
+            backend_role=role,
+            reason="workflow",
+        ):
+            async with self._get_backend_lock(role):
+                await self.prepare_comfyui_for_local_workflow(backend_role=role)
+                await self._register_local_comfyui_task_use(backend_role=role)
+                extensions = self._register_workflow_extensions(
                     workflow_input,
-                    workflow_params,
                     backend_role=role,
                 )
-            except BaseException:
-                workflow_failed = True
-                raise
-            finally:
-                if self._should_release_local_comfyui_after_workflow():
-                    try:
-                        await self._release_workflow_extensions(
-                            extensions,
-                            context_prefix="post",
-                            backend_role=role,
-                            missing_endpoint="required",
-                        )
-                    except Exception as exc:
-                        if not workflow_failed:
-                            raise
-                        logger.warning(
-                            "ComfyUI workflow release failed while unwinding a failed "
-                            f"workflow; preserving original error: {exc}"
-                        )
+                if extensions:
+                    await self._preflight_workflow_extensions_once(
+                        extensions,
+                        session,
+                        backend_role=role,
+                    )
+                workflow_failed = False
+                try:
+                    return await self._execute_local_comfykit_workflow(
+                        workflow_input,
+                        workflow_params,
+                        backend_role=role,
+                    )
+                except BaseException:
+                    workflow_failed = True
+                    raise
+                finally:
+                    if self._should_release_local_comfyui_after_workflow():
+                        try:
+                            await self._release_workflow_extensions(
+                                extensions,
+                                context_prefix="post",
+                                backend_role=role,
+                                missing_endpoint="required",
+                            )
+                        except Exception as exc:
+                            if not workflow_failed:
+                                raise
+                            logger.warning(
+                                "ComfyUI workflow release failed while unwinding a failed "
+                                f"workflow; preserving original error: {exc}"
+                            )
 
     def _validate_selfhost_workflow_content_contract(
         self,

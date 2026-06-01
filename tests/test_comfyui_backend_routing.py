@@ -1,9 +1,11 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
 
 from pixelle_video.config import config_manager
 from pixelle_video.config.schema import PixelleVideoConfig
+from pixelle_video.pipelines.standard import StandardPipeline
 from pixelle_video.service import PixelleVideoCore
 from pixelle_video.services.media import MediaService
 from pixelle_video.services.prompt_trace_artifacts import (
@@ -284,6 +286,114 @@ async def test_restart_is_tracked_per_backend_role(monkeypatch):
     await core.await_comfyui_backend_ready("image")
 
     assert calls == [("image", "post-image-batch")]
+
+
+@pytest.mark.asyncio
+async def test_stage_restart_waits_for_scheduled_backend_restart(monkeypatch):
+    monkeypatch.setattr(
+        config_manager,
+        "config",
+        PixelleVideoConfig.model_validate(
+            {
+                "comfyui": {
+                    "backends": {
+                        "image": {
+                            "url": "http://127.0.0.1:8001",
+                            "restart_after_batch": True,
+                        }
+                    },
+                    "workflow_routing": {"image": "image"},
+                }
+            }
+        ),
+    )
+    core = PixelleVideoCore()
+    pipeline = StandardPipeline(core)
+    restart_started = asyncio.Event()
+    release_restart = asyncio.Event()
+    events = []
+
+    async def fake_restart(role, reason):
+        events.append(("start", role, reason))
+        restart_started.set()
+        await release_restart.wait()
+        events.append(("end", role, reason))
+        return True
+
+    monkeypatch.setattr(core, "_restart_comfyui_backend_role", fake_restart)
+
+    stage_task = asyncio.create_task(
+        pipeline._schedule_stage_backend_restart_if_needed(
+            backend_role="image",
+            reason="post-image-batch",
+        )
+    )
+
+    try:
+        await asyncio.wait_for(restart_started.wait(), timeout=1)
+        assert not stage_task.done()
+    finally:
+        release_restart.set()
+        await asyncio.gather(
+            stage_task,
+            core.await_comfyui_backend_ready("image"),
+            return_exceptions=True,
+        )
+
+    assert events == [
+        ("start", "image", "post-image-batch"),
+        ("end", "image", "post-image-batch"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_local_workflow_waits_for_other_backend_restart(monkeypatch):
+    monkeypatch.setattr(config_manager, "config", _dual_backend_config())
+    core = PixelleVideoCore()
+    restart_started = asyncio.Event()
+    release_restart = asyncio.Event()
+    workflow_started = asyncio.Event()
+
+    async def fake_restart(role, reason):
+        restart_started.set()
+        await release_restart.wait()
+        return True
+
+    async def fake_prepare(*, backend_role="default"):
+        return None
+
+    async def fake_execute(workflow_input, workflow_params, *, backend_role="default"):
+        workflow_started.set()
+        return "ok"
+
+    monkeypatch.setattr(core, "_restart_comfyui_backend_role", fake_restart)
+    monkeypatch.setattr(core, "prepare_comfyui_for_local_workflow", fake_prepare)
+    monkeypatch.setattr(core, "_execute_local_comfykit_workflow", fake_execute)
+
+    core.schedule_comfyui_backend_restart("image", "post-image-batch")
+    await asyncio.wait_for(restart_started.wait(), timeout=1)
+
+    workflow_task = asyncio.create_task(
+        core._execute_comfykit_workflow_unchecked(
+            "workflows/selfhost/tts_edge.json",
+            {},
+            workflow_source="selfhost",
+            backend_role="tts",
+        )
+    )
+
+    try:
+        await asyncio.sleep(0)
+        assert not workflow_started.is_set()
+    finally:
+        release_restart.set()
+        await asyncio.gather(
+            workflow_task,
+            core.await_comfyui_backend_ready("image"),
+            return_exceptions=True,
+        )
+
+    assert workflow_task.result() == "ok"
 
 
 @pytest.mark.asyncio
