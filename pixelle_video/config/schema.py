@@ -742,6 +742,47 @@ class LoggingConfig(BaseModel):
     preview_chars: int = Field(default=120, ge=20)
 
 
+class RuntimeConfig(BaseModel):
+    """Runtime lifecycle controls."""
+
+    release_resources_after_video_generation: bool = Field(
+        default=True,
+        description=(
+            "Release per-generation Pixelle resources when the generation worker "
+            "becomes idle. This is applied in PixelleVideoCore so Web, API, batch, "
+            "and direct calls share the same lifecycle behavior."
+        ),
+    )
+    close_comfykit_after_generation: bool = Field(
+        default=True,
+        description=(
+            "Close idle ComfyKit executors after generation. The next workflow call "
+            "creates a fresh executor lazily."
+        ),
+    )
+    close_html_browser_after_generation: bool = Field(
+        default=True,
+        description=(
+            "Close the shared Playwright browser used for HTML frame rendering after "
+            "generation when the core is idle."
+        ),
+    )
+    collect_garbage_after_generation: bool = Field(
+        default=True,
+        description=(
+            "Run Python garbage collection after closing generation resources so "
+            "large temporary object graphs are released promptly."
+        ),
+    )
+    log_process_memory_after_generation: bool = Field(
+        default=True,
+        description=(
+            "Log the current process memory before and after generation resource "
+            "release when psutil is available."
+        ),
+    )
+
+
 class PixelleVideoConfig(BaseModel):
     """Pixelle-Video main configuration"""
     config_version: int = Field(default=2, ge=1, description="Runtime configuration schema version")
@@ -751,6 +792,7 @@ class PixelleVideoConfig(BaseModel):
     template: TemplateConfig = Field(default_factory=TemplateConfig)
     render: RenderConfig = Field(default_factory=RenderConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     storyboard: StoryboardSubConfig = Field(default_factory=StoryboardSubConfig, description="Storyboard planning configuration")
 
     @model_validator(mode="before")

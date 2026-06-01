@@ -227,6 +227,107 @@ async def test_core_generate_video_reuses_identical_inflight_generation():
 
 
 @pytest.mark.asyncio
+async def test_core_generate_video_releases_generation_resources_once_for_identical_inflight_generation():
+    started = asyncio.Event()
+    release = asyncio.Event()
+    release_calls = []
+
+    class _SlowPipeline:
+        def __init__(self):
+            self.calls = 0
+
+        async def __call__(self, *, text, **kwargs):
+            self.calls += 1
+            started.set()
+            await release.wait()
+            return SimpleNamespace(text=text, kwargs=kwargs)
+
+    core = PixelleVideoCore()
+    pipeline = _SlowPipeline()
+
+    async def _release_generation_resources_unlocked(*, reason):
+        release_calls.append((reason, core._active_generation_count))
+        return True
+
+    core._release_generation_resources_unlocked = _release_generation_resources_unlocked
+    core.pipelines = {"standard": pipeline}
+    core.generate_video = core._create_generate_video_wrapper()
+
+    first = asyncio.create_task(core.generate_video(text="demo", storyboard_mode="smart"))
+    await started.wait()
+    second = asyncio.create_task(core.generate_video(text="demo", storyboard_mode="smart"))
+    await asyncio.sleep(0)
+
+    release.set()
+    first_result, second_result = await asyncio.gather(first, second)
+
+    assert first_result is second_result
+    assert pipeline.calls == 1
+    assert release_calls == [("post-video-generation:standard", 0)]
+
+
+@pytest.mark.asyncio
+async def test_core_generate_video_defers_resource_release_until_concurrent_generations_finish():
+    started = {"one": asyncio.Event(), "two": asyncio.Event()}
+    release = {"one": asyncio.Event(), "two": asyncio.Event()}
+    release_calls = []
+
+    class _Pipeline:
+        async def __call__(self, *, text, **kwargs):
+            started[text].set()
+            await release[text].wait()
+            return SimpleNamespace(text=text)
+
+    core = PixelleVideoCore()
+
+    async def _release_generation_resources_unlocked(*, reason):
+        release_calls.append((reason, core._active_generation_count))
+        return True
+
+    core._release_generation_resources_unlocked = _release_generation_resources_unlocked
+    core.pipelines = {"standard": _Pipeline()}
+    core.generate_video = core._create_generate_video_wrapper()
+
+    first = asyncio.create_task(core.generate_video(text="one", storyboard_mode="smart"))
+    second = asyncio.create_task(core.generate_video(text="two", storyboard_mode="smart"))
+    await asyncio.gather(started["one"].wait(), started["two"].wait())
+
+    release["one"].set()
+    first_result = await first
+    await asyncio.sleep(0)
+
+    assert first_result.text == "one"
+    assert release_calls == []
+
+    release["two"].set()
+    second_result = await second
+
+    assert second_result.text == "two"
+    assert release_calls == [("post-video-generation:standard", 0)]
+
+
+@pytest.mark.asyncio
+async def test_core_generate_video_preserves_result_when_resource_release_fails():
+    class _Pipeline:
+        async def __call__(self, *, text, **kwargs):
+            return SimpleNamespace(text=text, ok=True)
+
+    core = PixelleVideoCore()
+
+    async def _release_generation_resources_unlocked(*, reason):
+        raise RuntimeError("release failed")
+
+    core._release_generation_resources_unlocked = _release_generation_resources_unlocked
+    core.pipelines = {"standard": _Pipeline()}
+    core.generate_video = core._create_generate_video_wrapper()
+
+    result = await core.generate_video(text="demo", storyboard_mode="smart")
+
+    assert result.ok is True
+    assert result.text == "demo"
+
+
+@pytest.mark.asyncio
 async def test_core_generate_video_releases_fingerprint_after_completion():
     class _Pipeline:
         def __init__(self):
@@ -247,6 +348,60 @@ async def test_core_generate_video_releases_fingerprint_after_completion():
     assert first.call_number == 1
     assert second.call_number == 2
     assert pipeline.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_core_runtime_config_can_disable_generation_resource_release(monkeypatch):
+    config = PixelleVideoConfig.model_validate(
+        {"runtime": {"release_resources_after_video_generation": False}}
+    )
+    monkeypatch.setattr(service_module.config_manager, "config", config)
+
+    core = PixelleVideoCore()
+
+    async def _cleanup():
+        raise AssertionError("cleanup should not run when release is disabled")
+
+    core.cleanup = _cleanup
+
+    assert await core.release_generation_resources(reason="test") is False
+
+
+@pytest.mark.asyncio
+async def test_core_release_generation_resources_closes_idle_executors_and_browser(monkeypatch):
+    from pixelle_video.services.frame_html import HTMLFrameGenerator
+
+    config = PixelleVideoConfig.model_validate(
+        {
+            "runtime": {
+                "release_resources_after_video_generation": True,
+                "close_comfykit_after_generation": True,
+                "close_html_browser_after_generation": True,
+                "collect_garbage_after_generation": False,
+                "log_process_memory_after_generation": False,
+            }
+        }
+    )
+    monkeypatch.setattr(service_module.config_manager, "config", config)
+    calls = []
+
+    core = PixelleVideoCore()
+
+    async def _cleanup():
+        calls.append("cleanup")
+
+    async def _close_browser():
+        calls.append("close_browser")
+
+    core.cleanup = _cleanup
+    monkeypatch.setattr(
+        HTMLFrameGenerator,
+        "close_browser",
+        staticmethod(_close_browser),
+    )
+
+    assert await core.release_generation_resources(reason="test") is True
+    assert calls == ["cleanup", "close_browser"]
 
 
 @pytest.mark.asyncio

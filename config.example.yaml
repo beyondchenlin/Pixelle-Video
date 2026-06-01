@@ -16,6 +16,17 @@ logging:
   ai_creation_logs_enabled: true
   preview_chars: 120
 
+# ==================== Runtime Lifecycle ====================
+runtime:
+  # Release generation-scoped Pixelle resources after the core becomes idle.
+  # This is handled inside PixelleVideoCore, so Web, API, batch, and direct calls
+  # share the same behavior without restarting the Streamlit process.
+  release_resources_after_video_generation: true
+  close_comfykit_after_generation: true
+  close_html_browser_after_generation: true
+  collect_garbage_after_generation: true
+  log_process_memory_after_generation: true
+
 # ==================== LLM Configuration ====================
 # Supports any OpenAI SDK compatible API
 llm:

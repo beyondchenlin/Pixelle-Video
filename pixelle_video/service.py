@@ -17,6 +17,7 @@ Provides unified access to all capabilities (LLM, TTS, Image, etc.)
 """
 
 import asyncio
+import gc
 import hashlib
 import inspect
 import json
@@ -1383,6 +1384,8 @@ class PixelleVideoCore:
         )
         self._local_comfyui_task_count_lock = asyncio.Lock()
         self._local_comfyui_active_task_count_by_backend: dict[str, int] = {}
+        self._generation_resource_lifecycle_lock = asyncio.Lock()
+        self._active_generation_count = 0
         
         # Default pipeline callable (for backward compatibility)
         self.generate_video = None
@@ -1656,6 +1659,171 @@ class PixelleVideoCore:
             finally:
                 self._comfykit_by_backend.clear()
                 self._comfykit_config_hash_by_backend.clear()
+
+    def _generation_resource_release_options(self) -> dict[str, bool]:
+        self.config = config_manager.config.to_dict()
+        runtime_config = self.config.get("runtime", {})
+        if not isinstance(runtime_config, Mapping):
+            runtime_config = {}
+        return {
+            "release_resources": bool(
+                runtime_config.get("release_resources_after_video_generation", True)
+            ),
+            "close_comfykit": bool(
+                runtime_config.get("close_comfykit_after_generation", True)
+            ),
+            "close_html_browser": bool(
+                runtime_config.get("close_html_browser_after_generation", True)
+            ),
+            "collect_garbage": bool(
+                runtime_config.get("collect_garbage_after_generation", True)
+            ),
+            "log_process_memory": bool(
+                runtime_config.get("log_process_memory_after_generation", True)
+            ),
+        }
+
+    @staticmethod
+    def _process_memory_snapshot() -> dict[str, int] | None:
+        try:
+            import psutil
+        except Exception:
+            return None
+
+        try:
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            try:
+                memory_full_info = process.memory_full_info()
+            except Exception:
+                memory_full_info = memory_info
+        except Exception:
+            return None
+
+        snapshot = {
+            "rss_mb": int(getattr(memory_info, "rss", 0) / (1024 * 1024)),
+            "vms_mb": int(getattr(memory_info, "vms", 0) / (1024 * 1024)),
+        }
+        private_bytes = getattr(memory_full_info, "private", None)
+        if private_bytes is None:
+            private_bytes = getattr(memory_full_info, "uss", None)
+        if private_bytes is not None:
+            snapshot["private_mb"] = int(private_bytes / (1024 * 1024))
+        return snapshot
+
+    @staticmethod
+    def _format_process_memory_snapshot(snapshot: dict[str, int] | None) -> str:
+        if not snapshot:
+            return "unavailable"
+        parts = [f"{key}={value}MB" for key, value in snapshot.items()]
+        return ", ".join(parts)
+
+    @asynccontextmanager
+    async def _generation_execution_scope(self, *, release_reason: str):
+        async with self._generation_resource_lifecycle_lock:
+            self._active_generation_count += 1
+            logger.debug(
+                "Started generation execution scope; "
+                f"active_generations={self._active_generation_count}"
+            )
+        try:
+            yield
+        finally:
+            async with self._generation_resource_lifecycle_lock:
+                self._active_generation_count = max(0, self._active_generation_count - 1)
+                active_generation_count = self._active_generation_count
+                logger.debug(
+                    "Finished generation execution scope; "
+                    f"active_generations={active_generation_count}"
+                )
+                if active_generation_count == 0:
+                    try:
+                        await self._release_generation_resources_unlocked(
+                            reason=release_reason
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Pixelle generation resource release failed after "
+                            f"generation completion ({release_reason}): {e}"
+                        )
+
+    async def release_generation_resources(
+        self,
+        *,
+        reason: str = "post-video-generation",
+    ) -> bool:
+        """
+        Release idle generation resources without destroying the PixelleVideoCore.
+
+        This is safe to call manually; it skips cleanup while a generation task is
+        active and otherwise uses the same path as the automatic post-generation
+        lifecycle hook.
+        """
+        async with self._generation_resource_lifecycle_lock:
+            if self._active_generation_count > 0:
+                logger.debug(
+                    "Skipping Pixelle generation resource release "
+                    f"({reason}); active_generations={self._active_generation_count}"
+                )
+                return False
+            return await self._release_generation_resources_unlocked(reason=reason)
+
+    async def _release_generation_resources_unlocked(
+        self,
+        *,
+        reason: str,
+    ) -> bool:
+        options = self._generation_resource_release_options()
+        if not options["release_resources"]:
+            logger.debug(f"Skipping Pixelle generation resource release ({reason}); disabled")
+            return False
+
+        before_memory = (
+            self._process_memory_snapshot()
+            if options["log_process_memory"]
+            else None
+        )
+        released: list[str] = []
+        errors: list[str] = []
+
+        if options["close_comfykit"]:
+            try:
+                await self.cleanup()
+                released.append("comfykit")
+            except Exception as e:
+                errors.append(f"comfykit={e}")
+
+        if options["close_html_browser"]:
+            try:
+                from pixelle_video.services.frame_html import HTMLFrameGenerator
+
+                await HTMLFrameGenerator.close_browser()
+                released.append("html_browser")
+            except Exception as e:
+                errors.append(f"html_browser={e}")
+
+        collected = None
+        if options["collect_garbage"]:
+            collected = gc.collect()
+
+        after_memory = (
+            self._process_memory_snapshot()
+            if options["log_process_memory"]
+            else None
+        )
+        logger.info(
+            "Pixelle generation resource release completed "
+            f"({reason}); released={released or ['none']}; "
+            f"gc_collected={collected if collected is not None else 'skipped'}; "
+            f"memory_before={self._format_process_memory_snapshot(before_memory)}; "
+            f"memory_after={self._format_process_memory_snapshot(after_memory)}"
+        )
+        if errors:
+            logger.warning(
+                "Pixelle generation resource release completed with warnings "
+                f"({reason}): {'; '.join(errors)}"
+            )
+        return True
 
     async def _close_comfykit_instance(self, backend_role: str | None = None) -> None:
         if backend_role is None:
@@ -3208,7 +3376,10 @@ class PixelleVideoCore:
             )
 
             async def execute_generation():
-                return await pipeline_instance(text=text, **normalized_kwargs)
+                async with self._generation_execution_scope(
+                    release_reason=f"post-video-generation:{pipeline}"
+                ):
+                    return await pipeline_instance(text=text, **normalized_kwargs)
 
             return await self.generation_coordinator.run(fingerprint, execute_generation)
         
