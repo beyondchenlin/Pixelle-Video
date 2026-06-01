@@ -1,4 +1,5 @@
 import json
+from enum import Enum
 
 import pytest
 
@@ -10,6 +11,10 @@ from pixelle_video.models.final_visual_prompt_contract import (
 )
 from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, VisibleTextPolicy
 from pixelle_video.models.visual_role_strategy import VisualRoleStrategy
+
+
+class _UnsafeEnum(Enum):
+    VALUE = object()
 
 
 def test_final_visual_prompt_contract_sections_are_stable():
@@ -145,6 +150,24 @@ def test_attach_v44_contract_metadata_preserves_v1_fields_and_original_metadata(
     assert attached.metadata["v44_contract"] == v44.to_dict()
 
 
+def test_attach_v44_contract_metadata_detaches_nested_metadata_from_original():
+    original = FinalVisualPromptContract(
+        scene="scene",
+        composition="composition",
+        style_assignment="style",
+        character_layer_style="character",
+        world_layer_style="world",
+        integration_priority="priority",
+        metadata={"existing": {"keep": True}},
+    )
+    v44 = _v44_contract()
+
+    attached = attach_v44_contract_metadata(original, v44)
+    original.metadata["existing"]["keep"] = False
+
+    assert attached.metadata["existing"] == {"keep": True}
+
+
 @pytest.mark.parametrize("priority", [True, False, "1", 1.0, None])
 def test_projected_prompt_part_rejects_invalid_priority(priority):
     with pytest.raises(ValueError, match="priority"):
@@ -169,3 +192,39 @@ def test_projected_prompt_part_rejects_invalid_bool_fields(field_name, value):
 def test_v44_contract_rejects_invalid_projected_prompt_parts():
     with pytest.raises(ValueError, match="projected_prompt_parts"):
         _v44_contract(projected_prompt_parts=[{"part_id": "part-1"}])
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("primary_visual_task", "not_a_task"),
+        ("visual_role_strategy", "not_a_strategy"),
+        ("visible_text_policy", "free_text"),
+    ],
+)
+def test_v44_contract_rejects_invalid_enum_strings(field_name, value):
+    with pytest.raises(ValueError, match=field_name):
+        _v44_contract(**{field_name: value})
+
+
+def test_v44_contract_accepts_exact_enum_names():
+    contract = _v44_contract(
+        primary_visual_task="COGNITIVE_EXPLANATION",
+        visual_role_strategy="OBSERVER_GUIDE",
+        visible_text_policy="SOURCE_TEXT_ONLY",
+    )
+
+    assert contract.to_dict()["primary_visual_task"] == "cognitive_explanation"
+    assert contract.to_dict()["visual_role_strategy"] == "observer_guide"
+    assert contract.to_dict()["visible_text_policy"] == "source_text_only"
+
+
+@pytest.mark.parametrize("negative_semantics", ["no blur", (1,), (True,), ({"rule": "no blur"},), ("",)])
+def test_v44_contract_rejects_non_string_negative_semantics(negative_semantics):
+    with pytest.raises(ValueError, match="negative_semantics"):
+        _v44_contract(negative_semantics=negative_semantics)
+
+
+def test_v44_contract_rejects_unsafe_enum_values_in_metadata_like_fields():
+    with pytest.raises(ValueError, match="identity_contract"):
+        _v44_contract(identity_contract={"unsafe": _UnsafeEnum.VALUE})

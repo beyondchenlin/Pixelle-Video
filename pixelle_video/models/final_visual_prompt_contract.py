@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
@@ -84,17 +85,17 @@ class FinalVisualPromptContractV44:
         object.__setattr__(
             self,
             "primary_visual_task",
-            PrimaryVisualTask.from_value(self.primary_visual_task),
+            _strict_enum_value("primary_visual_task", self.primary_visual_task, PrimaryVisualTask),
         )
         object.__setattr__(
             self,
             "visual_role_strategy",
-            VisualRoleStrategy.from_value(self.visual_role_strategy),
+            _strict_enum_value("visual_role_strategy", self.visual_role_strategy, VisualRoleStrategy),
         )
         object.__setattr__(
             self,
             "visible_text_policy",
-            VisibleTextPolicy.from_value(self.visible_text_policy),
+            _strict_enum_value("visible_text_policy", self.visible_text_policy, VisibleTextPolicy),
         )
         object.__setattr__(self, "required_subjects", _freeze_json_value("required_subjects", self.required_subjects))
         object.__setattr__(self, "identity_contract", _freeze_json_value("identity_contract", self.identity_contract))
@@ -104,7 +105,11 @@ class FinalVisualPromptContractV44:
             "projected_prompt_parts",
             _normalize_projected_prompt_parts(self.projected_prompt_parts),
         )
-        object.__setattr__(self, "negative_semantics", _normalize_rule_tuple(self.negative_semantics))
+        object.__setattr__(
+            self,
+            "negative_semantics",
+            _normalize_strict_string_tuple("negative_semantics", self.negative_semantics),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -213,7 +218,7 @@ def attach_v44_contract_metadata(
     contract: FinalVisualPromptContract,
     v44_contract: FinalVisualPromptContractV44,
 ) -> FinalVisualPromptContract:
-    metadata = dict(contract.metadata)
+    metadata = _detach_metadata(contract.metadata)
     metadata["v44_contract"] = v44_contract.to_dict()
     return replace(contract, metadata=metadata)
 
@@ -236,6 +241,19 @@ def _require_bool(field_name: str, value: Any) -> bool:
     return value
 
 
+def _strict_enum_value(field_name: str, value: Any, enum_cls: type[Enum]) -> Enum:
+    if isinstance(value, enum_cls):
+        return value
+    if isinstance(value, Enum):
+        raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
+    for item in enum_cls:
+        if value == item.value or value == item.name:
+            return item
+    raise ValueError(f"{field_name} must be a valid {enum_cls.__name__}")
+
+
 def _optional_prompt(value: str) -> str | None:
     cleaned = value.strip()
     return cleaned or None
@@ -247,6 +265,17 @@ def _normalize_rule_tuple(values: Sequence[str]) -> tuple[str, ...]:
     if isinstance(values, str) or not isinstance(values, Sequence):
         raise ValueError("rules must be a list or tuple")
     return tuple(_dedupe(str(value).strip() for value in values if str(value).strip()))
+
+
+def _normalize_strict_string_tuple(field_name: str, values: Any) -> tuple[str, ...]:
+    if isinstance(values, str) or not isinstance(values, Sequence):
+        raise ValueError(f"{field_name} must be a list or tuple of non-empty strings")
+    normalized: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{field_name} must contain only non-empty strings")
+        normalized.append(value.strip())
+    return tuple(_dedupe(normalized))
 
 
 def _split_rule_string(value: str) -> tuple[str, ...]:
@@ -287,7 +316,7 @@ def _freeze_json_value(field_name: str, value: Any) -> Any:
             raise ValueError(f"{field_name} must not contain non-finite floats")
         return value
     if isinstance(value, Enum):
-        return value.value
+        return _freeze_json_value(field_name, value.value)
     if isinstance(value, Mapping):
         frozen: dict[str, Any] = {}
         for key, item in value.items():
@@ -298,6 +327,16 @@ def _freeze_json_value(field_name: str, value: Any) -> Any:
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
         return tuple(_freeze_json_value(field_name, item) for item in value)
     raise ValueError(f"{field_name} must be JSON-safe")
+
+
+def _detach_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        detached = _thaw_json_value(_freeze_json_value("metadata", metadata))
+    except ValueError:
+        detached = deepcopy(dict(metadata))
+    if not isinstance(detached, dict):
+        return {}
+    return detached
 
 
 def _thaw_json_value(value: Any) -> Any:
