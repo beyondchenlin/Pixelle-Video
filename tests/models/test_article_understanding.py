@@ -49,7 +49,7 @@ def test_subject_anchor_requires_evidence_span_ids_and_serializes_them_as_list()
             label="Market",
             source_phrase="the market",
             evidence_span_ids=(),
-            importance=0.8,
+            importance="primary",
             visual_presence="required",
             loss_policy="forbidden",
         )
@@ -59,13 +59,42 @@ def test_subject_anchor_requires_evidence_span_ids_and_serializes_them_as_list()
         label="Market",
         source_phrase="the market",
         evidence_span_ids=["evidence-1", " evidence-2 "],
-        importance=0.8,
+        importance="primary",
         visual_presence="required",
         loss_policy="forbidden",
     )
 
     assert anchor.evidence_span_ids == ("evidence-1", "evidence-2")
     assert anchor.to_dict()["evidence_span_ids"] == ["evidence-1", "evidence-2"]
+    assert anchor.to_dict()["importance"] == "primary"
+
+
+@pytest.mark.parametrize("value", [{"score": 0.9}, 1])
+def test_subject_anchor_rejects_non_string_importance(value):
+    with pytest.raises((TypeError, ValueError), match="importance"):
+        SubjectAnchor(
+            subject_id="subject-1",
+            label="Market",
+            source_phrase="the market",
+            evidence_span_ids=("evidence-1",),
+            importance=value,
+            visual_presence="required",
+            loss_policy="forbidden",
+        )
+
+
+@pytest.mark.parametrize("value", ["", "   ", None])
+def test_subject_anchor_requires_non_blank_importance(value):
+    with pytest.raises((TypeError, ValueError), match="importance"):
+        SubjectAnchor(
+            subject_id="subject-1",
+            label="Market",
+            source_phrase="the market",
+            evidence_span_ids=("evidence-1",),
+            importance=value,
+            visual_presence="required",
+            loss_policy="forbidden",
+        )
 
 
 def test_source_evidence_span_allows_omitting_optional_location_fields():
@@ -123,7 +152,7 @@ def test_article_understanding_plan_serializes_json_safe_values():
         label="Markets",
         source_phrase="markets",
         evidence_span_ids=("evidence-1",),
-        importance=1,
+        importance="primary",
         visual_presence="required",
         loss_policy="forbidden",
     )
@@ -163,14 +192,34 @@ def test_article_understanding_plan_serializes_json_safe_values():
     assert payload["required_subjects"] == [subject.to_dict()]
     assert payload["unsuitable_visual_modes"] == ["process_walkthrough", "relationship_map"]
     assert payload["source_evidence"] == [evidence.to_dict()]
+    json.dumps(payload, allow_nan=False)
 
 
 def test_article_understanding_plan_rejects_non_finite_lens_confidence():
-    with pytest.raises(ValueError, match="JSON|finite"):
+    with pytest.raises(ValueError, match="lens_confidence|finite number"):
         ArticleUnderstandingPlan(
             article_id="article-1",
             primary_lens="cognitive_state",
             lens_confidence={"x": float("nan")},
+        )
+
+
+def test_article_understanding_plan_rejects_nested_lens_confidence_value():
+    with pytest.raises(TypeError, match="lens_confidence|finite number"):
+        ArticleUnderstandingPlan(
+            article_id="article-1",
+            primary_lens="cognitive_state",
+            lens_confidence={"cognitive_state": {"score": 0.9}},
+        )
+
+
+@pytest.mark.parametrize("value", ["0.9", True, float("nan"), float("inf"), float("-inf")])
+def test_article_understanding_plan_rejects_invalid_lens_confidence_values(value):
+    with pytest.raises((TypeError, ValueError), match="lens_confidence|finite number"):
+        ArticleUnderstandingPlan(
+            article_id="article-1",
+            primary_lens="cognitive_state",
+            lens_confidence={"cognitive_state": value},
         )
 
 

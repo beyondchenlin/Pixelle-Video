@@ -87,7 +87,7 @@ class SubjectAnchor:
     label: str
     source_phrase: str
     evidence_span_ids: Sequence[str]
-    importance: int | float
+    importance: str
     visual_presence: str
     loss_policy: str
 
@@ -100,7 +100,7 @@ class SubjectAnchor:
             "evidence_span_ids",
             _normalize_string_tuple(self.evidence_span_ids, "evidence_span_ids", require_non_empty=True),
         )
-        object.__setattr__(self, "importance", _freeze_json_value(self.importance))
+        object.__setattr__(self, "importance", _require_label_text("importance", self.importance))
         object.__setattr__(self, "visual_presence", _require_text("visual_presence", self.visual_presence))
         object.__setattr__(self, "loss_policy", _require_text("loss_policy", self.loss_policy))
 
@@ -110,7 +110,7 @@ class SubjectAnchor:
             "label": self.label,
             "source_phrase": self.source_phrase,
             "evidence_span_ids": list(self.evidence_span_ids),
-            "importance": _thaw_json_value(self.importance),
+            "importance": self.importance,
             "visual_presence": self.visual_presence,
             "loss_policy": self.loss_policy,
         }
@@ -134,7 +134,7 @@ class ArticleUnderstandingPlan:
         object.__setattr__(self, "article_id", _require_text("article_id", self.article_id))
         object.__setattr__(self, "primary_lens", ArticleUnderstandingLens.from_value(self.primary_lens))
         object.__setattr__(self, "secondary_lenses", _normalize_lens_tuple(self.secondary_lenses))
-        object.__setattr__(self, "lens_confidence", _freeze_json_mapping(self.lens_confidence, "lens_confidence"))
+        object.__setattr__(self, "lens_confidence", _normalize_float_mapping(self.lens_confidence, "lens_confidence"))
         object.__setattr__(self, "core_claim", _optional_body_text(self.core_claim))
         object.__setattr__(self, "central_problem", _optional_body_text(self.central_problem))
         object.__setattr__(self, "main_entities", _normalize_string_tuple(self.main_entities, "main_entities"))
@@ -236,6 +236,15 @@ def _optional_body_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _require_label_text(field_name: str, value: Any) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be a non-empty string")
+    text = value.strip()
+    if not text:
+        raise ValueError(f"{field_name} must not be empty")
+    return text
+
+
 def _normalize_lens_tuple(values: Any) -> tuple[ArticleUnderstandingLens, ...]:
     return tuple(ArticleUnderstandingLens.from_value(value) for value in _require_sequence(values, "secondary_lenses"))
 
@@ -300,6 +309,23 @@ def _freeze_json_mapping(value: Mapping[Any, Any] | None, field_name: str) -> Ma
     if not isinstance(value, Mapping):
         raise TypeError(f"{field_name} must be a mapping")
     return MappingProxyType({_json_string(key): _freeze_json_value(item) for key, item in value.items()})
+
+
+def _normalize_float_mapping(value: Mapping[Any, Any] | None, field_name: str) -> Mapping[str, float]:
+    if value is None:
+        return MappingProxyType({})
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{field_name} must be a mapping")
+    return MappingProxyType({_json_string(key): _finite_float(item, field_name) for key, item in value.items()})
+
+
+def _finite_float(value: Any, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"{field_name} values must be finite numbers")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{field_name} values must be finite numbers")
+    return number
 
 
 def _freeze_json_value(value: Any) -> FrozenJSONValue:
