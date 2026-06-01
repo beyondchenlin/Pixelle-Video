@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from pixelle_video.models.mode_resolution import ArticleVisualPlanningRequest
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
 from pixelle_video.models.storyboard_limits import (
     DEFAULT_STORYBOARD_GENERATION_LIMITS,
@@ -17,17 +18,16 @@ from pixelle_video.models.storyboard_plan import (
     StoryboardGenerationMode,
     StoryboardPlan,
 )
+from pixelle_video.models.visual_role_request import (
+    VisualRoleControlsContract,
+    VisualRoleRequest,
+)
 from pixelle_video.prompt_language import (
     DEFAULT_PROMPT_LANGUAGE,
     PromptLanguage,
     normalize_prompt_language,
 )
 from pixelle_video.tts_audio_strategy import SUPPORTED_STANDARD_TTS_AUDIO_STRATEGIES
-from pixelle_video.models.visual_role_strategy import VisualRoleStrategyControls
-from pixelle_video.models.visual_role_request import (
-    VisualRoleControlsContract,
-    VisualRoleRequest,
-)
 
 LEGACY_STANDARD_STORYBOARD_PARAMS = frozenset(
     {
@@ -101,6 +101,13 @@ IP_PROMPT_CHAIN_OPTION_KEYS = (
     "visual_participation_mode",
     "visual_role_mode",
     "visual_consistency_mode",
+)
+ARTICLE_VISUAL_PLANNING_OPTION_KEYS = (
+    "article_understanding_mode",
+    "visual_planning_mode",
+    "visual_role_strategy",
+    "strict_user_mode",
+    "force_v44_planning",
 )
 
 
@@ -291,14 +298,24 @@ def normalize_standard_video_generation_params(
     )
     ip_contract = IPControlsContract.from_mapping(normalized)
     visual_role_contract = VisualRoleControlsContract.from_mapping(normalized)
+    article_visual_planning_request = ArticleVisualPlanningRequest.from_mapping(normalized)
     for key in (*STORYBOARD_GENERATION_OPTION_KEYS, *STORYBOARD_PLANNING_OPTION_KEYS):
         normalized.pop(key, None)
     for key in IP_PROMPT_CHAIN_OPTION_KEYS:
+        normalized.pop(key, None)
+    for key in ARTICLE_VISUAL_PLANNING_OPTION_KEYS:
         normalized.pop(key, None)
     normalized.update(storyboard_contract.to_generation_dict())
     normalized.update(storyboard_contract.to_planning_dict(include_prompt_language=True))
     normalized.update(ip_contract.to_dict())
     normalized.update(visual_role_contract.to_generation_dict())
+    article_visual_planning_params = article_visual_planning_request.to_dict()
+    normalized.update(
+        {
+            key: article_visual_planning_params[key]
+            for key in ARTICLE_VISUAL_PLANNING_OPTION_KEYS
+        }
+    )
     return normalized
 
 
@@ -319,6 +336,8 @@ def validate_standard_video_generation_params(
             "legacy storyboard parameter is not supported in standard video generation: "
             + ", ".join(legacy_fields)
         )
+
+    ArticleVisualPlanningRequest.from_mapping(params)
 
     mode = params.get("mode", "generate")
     if mode not in VIDEO_GENERATION_MODES:

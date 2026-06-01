@@ -65,6 +65,34 @@ from pixelle_video.utils.template_util import (
 )
 
 StandardTtsAudioStrategy = Literal["auto", "master_track"]
+ArticleUnderstandingModeRequest = Literal[
+    "auto",
+    "thesis_argument",
+    "causal_mechanism",
+    "cognitive_state",
+    "process_method",
+    "relationship_structure",
+    "contrast_conflict",
+    "narrative_event",
+    "metaphor_symbolic",
+]
+VisualPlanningModeRequest = Literal[
+    "auto",
+    "scene_integration",
+    "cognitive_illustration",
+    "structural_explainer",
+    "process_walkthrough",
+    "contrast_argument",
+    "relationship_map",
+]
+VisualRoleStrategyRequest = Literal[
+    "auto",
+    "host_explainer",
+    "signature_presence",
+    "observer_guide",
+    "participant",
+    "background_signature",
+]
 VideoOrientation = Literal["landscape", "portrait", "square"]
 VideoResolutionPreset = Literal[
     "landscape_hd",
@@ -268,6 +296,26 @@ class VideoGenerateRequest(BaseModel):
     visual_consistency_mode: Optional[str] = Field(
         None,
         description="V4 visual-role consistency mode.",
+    )
+    article_understanding_mode: ArticleUnderstandingModeRequest = Field(
+        "auto",
+        description="V4.4 article understanding mode.",
+    )
+    visual_planning_mode: VisualPlanningModeRequest = Field(
+        "auto",
+        description="V4.4 visual planning mode.",
+    )
+    visual_role_strategy: VisualRoleStrategyRequest = Field(
+        "auto",
+        description="V4.4 visual role strategy.",
+    )
+    strict_user_mode: bool = Field(
+        False,
+        description="Reject planner fallback when user-selected V4.4 controls conflict.",
+    )
+    force_v44_planning: bool = Field(
+        False,
+        description="Force V4.4 planning path for eligible generation.",
     )
     tts_audio_strategy: Optional[StandardTtsAudioStrategy] = Field(
         None,
