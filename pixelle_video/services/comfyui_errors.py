@@ -32,3 +32,13 @@ def looks_like_backend_connection_loss(error_message: str) -> bool:
             "远程计算机拒绝网络连接",
         )
     )
+
+
+def looks_like_transient_backend_execution_error(error_message: str) -> bool:
+    lowered = (error_message or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "unable to find an engine to execute this computation",
+        )
+    )

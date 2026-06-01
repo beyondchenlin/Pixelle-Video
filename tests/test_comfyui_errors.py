@@ -1,6 +1,7 @@
 from pixelle_video.services.comfyui_errors import (
     looks_like_backend_connection_loss,
     looks_like_memory_exhaustion,
+    looks_like_transient_backend_execution_error,
 )
 
 
@@ -19,3 +20,12 @@ def test_backend_connection_loss_matches_common_client_disconnects():
 def test_backend_connection_loss_does_not_match_memory_errors():
     assert not looks_like_backend_connection_loss("CUDA out of memory")
     assert looks_like_memory_exhaustion("CUDA out of memory")
+
+
+def test_transient_backend_execution_error_matches_cuda_engine_failure():
+    assert looks_like_transient_backend_execution_error(
+        "GET was unable to find an engine to execute this computation\n"
+    )
+    assert not looks_like_transient_backend_execution_error(
+        "required_identity_trait_missing"
+    )

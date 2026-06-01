@@ -4082,8 +4082,14 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
         events.append(("restart", reason))
         return True
 
-    async def _release_memory(context, *, backend_role="default", include_extensions=False, extensions=(), missing_endpoint="optional"):
-        events.append(("release_memory", context, include_extensions, extensions, missing_endpoint))
+    async def _release_extensions(
+        *,
+        context,
+        backend_role="default",
+        extensions,
+        missing_endpoint="required",
+    ):
+        events.append(("release_extensions", context, extensions, missing_endpoint))
         return True
 
     call_count = 0
@@ -4109,7 +4115,7 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
     core._register_local_comfyui_task_use = _register_use
     core._execute_local_comfykit_workflow_once = _execute_once
     core._restart_comfyui_backend_role = _restart
-    core._release_comfyui_memory_when_idle = _release_memory
+    core.release_comfyui_after_local_workflow_extensions = _release_extensions
     _install_noop_extension_preflight(core)
 
     result = await core.execute_comfykit_workflow(
@@ -4127,7 +4133,87 @@ async def test_core_execute_gguf_connection_loss_restarts_managed_backend_and_re
         "prepare",
         "register_use",
         ("execute_once", 2, "selfhost/image_z_image_turbo_gguf.json"),
-        ("release_memory", "post-gguf-workflow", True, ("gguf",), "required"),
+        ("release_extensions", "post-gguf-workflow", ("gguf",), "required"),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_shape", ("error_result", "exception"))
+async def test_core_execute_gguf_transient_engine_failure_restarts_managed_backend_and_retries(
+    monkeypatch,
+    failure_shape,
+):
+    events = []
+    core = PixelleVideoCore()
+
+    monkeypatch.setattr(
+        service_module.config_manager,
+        "config",
+        PixelleVideoConfig(
+            comfyui=ComfyUIConfig(
+                comfyui_url="http://127.0.0.1:8000",
+            )
+        ),
+    )
+
+    async def _prepare(*, backend_role="default"):
+        events.append("prepare")
+
+    async def _register_use(*, backend_role="default"):
+        events.append("register_use")
+
+    async def _restart(backend_role, reason):
+        events.append(("restart", reason))
+        return True
+
+    async def _release_extensions(
+        *,
+        context,
+        backend_role="default",
+        extensions,
+        missing_endpoint="required",
+    ):
+        events.append(("release_extensions", context, extensions, missing_endpoint))
+        return True
+
+    call_count = 0
+
+    async def _execute_once(workflow_input, workflow_params, *, backend_role="default"):
+        nonlocal call_count
+        call_count += 1
+        events.append(("execute_once", call_count, workflow_input))
+        if call_count == 1:
+            if failure_shape == "exception":
+                raise RuntimeError("GET was unable to find an engine to execute this computation")
+            return SimpleNamespace(
+                status="error",
+                msg="GET was unable to find an engine to execute this computation\n",
+            )
+        return SimpleNamespace(status="completed")
+
+    core.prepare_comfyui_for_local_workflow = _prepare
+    core._register_local_comfyui_task_use = _register_use
+    core._execute_local_comfykit_workflow_once = _execute_once
+    core._restart_comfyui_backend_role = _restart
+    core.release_comfyui_after_local_workflow_extensions = _release_extensions
+    _install_noop_extension_preflight(core)
+
+    result = await core.execute_comfykit_workflow(
+        "selfhost/image_z_image_turbo_gguf.json",
+        {},
+        workflow_source="selfhost",
+    )
+
+    assert result.status == "completed"
+    assert events == [
+        "prepare",
+        "register_use",
+        ("execute_once", 1, "selfhost/image_z_image_turbo_gguf.json"),
+        ("restart", "transient_engine_error_during_workflow"),
+        "prepare",
+        "register_use",
+        ("execute_once", 2, "selfhost/image_z_image_turbo_gguf.json"),
+        ("release_extensions", "post-gguf-workflow", ("gguf",), "required"),
     ]
 
 

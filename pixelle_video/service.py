@@ -53,6 +53,7 @@ from pixelle_video.services.comfyui_backend_registry import ComfyUIBackendRegist
 from pixelle_video.services.comfyui_errors import (
     looks_like_backend_connection_loss,
     looks_like_memory_exhaustion,
+    looks_like_transient_backend_execution_error,
 )
 from pixelle_video.services.comfyui_maintenance import (
     ComfyUIExtensionName,
@@ -995,6 +996,37 @@ def _summarize_analysis_workflow_result(result: Any) -> dict[str, Any]:
     else:
         summary["outputs"] = {}
     return summary
+
+
+def _local_comfykit_result_status(result: Any) -> str:
+    if isinstance(result, Mapping):
+        status = result.get("status")
+    else:
+        status = getattr(result, "status", "")
+    return str(status or "").strip().lower()
+
+
+def _local_comfykit_result_message(result: Any) -> str:
+    if isinstance(result, Mapping):
+        message = result.get("msg") or result.get("error")
+        nested_result = result.get("result")
+    else:
+        message = getattr(result, "msg", "") or getattr(result, "error", "")
+        nested_result = getattr(result, "result", None)
+    if message:
+        return str(message)
+    if isinstance(nested_result, Mapping):
+        return str(nested_result.get("msg") or nested_result.get("error") or "")
+    return ""
+
+
+def _local_comfykit_result_needs_transient_backend_retry(result: Any) -> bool:
+    status = _local_comfykit_result_status(result)
+    if not status or status == "completed":
+        return False
+    return looks_like_transient_backend_execution_error(
+        _local_comfykit_result_message(result)
+    )
 
 
 def _comfykit_workflow_requires_tts_trace(
@@ -2252,6 +2284,30 @@ class PixelleVideoCore:
         kit = await self._get_or_create_comfykit(backend_role)
         return await kit.execute(workflow_input, workflow_params)
 
+    async def _restart_local_comfykit_workflow_and_retry_once(
+        self,
+        workflow_input,
+        workflow_params: dict,
+        *,
+        backend_role: str,
+        restart_reason: str,
+        warning_message: str,
+    ) -> tuple[bool, Any]:
+        restarted = await self._restart_comfyui_backend_role(
+            backend_role,
+            restart_reason,
+        )
+        if not restarted:
+            return False, None
+        logger.warning(warning_message)
+        await self.prepare_comfyui_for_local_workflow(backend_role=backend_role)
+        await self._register_local_comfyui_task_use(backend_role=backend_role)
+        return True, await self._execute_local_comfykit_workflow_once(
+            workflow_input,
+            workflow_params,
+            backend_role=backend_role,
+        )
+
     async def _execute_local_comfykit_workflow(
         self,
         workflow_input,
@@ -2261,29 +2317,52 @@ class PixelleVideoCore:
     ):
         role = self._normalize_comfyui_backend_role(backend_role)
         try:
-            return await self._execute_local_comfykit_workflow_once(
+            result = await self._execute_local_comfykit_workflow_once(
                 workflow_input,
                 workflow_params,
                 backend_role=role,
             )
+            if _local_comfykit_result_needs_transient_backend_retry(result):
+                retried, retry_result = await self._restart_local_comfykit_workflow_and_retry_once(
+                    workflow_input,
+                    workflow_params,
+                    backend_role=role,
+                    restart_reason="transient_engine_error_during_workflow",
+                    warning_message=(
+                        "Local ComfyUI workflow returned a transient backend engine "
+                        "error; restarted managed backend and retrying once."
+                    ),
+                )
+                if retried:
+                    return retry_result
+            return result
         except Exception as exc:
             if looks_like_backend_connection_loss(str(exc)):
-                restarted = await self._restart_comfyui_backend_role(
-                    role,
-                    "connection_lost_during_workflow",
-                )
-                if restarted:
-                    logger.warning(
+                retried, retry_result = await self._restart_local_comfykit_workflow_and_retry_once(
+                    workflow_input,
+                    workflow_params,
+                    backend_role=role,
+                    restart_reason="connection_lost_during_workflow",
+                    warning_message=(
                         "Local ComfyUI workflow lost its backend connection; "
                         "restarted managed backend and retrying once."
-                    )
-                    await self.prepare_comfyui_for_local_workflow(backend_role=role)
-                    await self._register_local_comfyui_task_use(backend_role=role)
-                    return await self._execute_local_comfykit_workflow_once(
-                        workflow_input,
-                        workflow_params,
-                        backend_role=role,
-                    )
+                    ),
+                )
+                if retried:
+                    return retry_result
+            if looks_like_transient_backend_execution_error(str(exc)):
+                retried, retry_result = await self._restart_local_comfykit_workflow_and_retry_once(
+                    workflow_input,
+                    workflow_params,
+                    backend_role=role,
+                    restart_reason="transient_engine_error_during_workflow",
+                    warning_message=(
+                        "Local ComfyUI workflow raised a transient backend engine "
+                        "error; restarted managed backend and retrying once."
+                    ),
+                )
+                if retried:
+                    return retry_result
             if not looks_like_memory_exhaustion(str(exc)):
                 raise
 
