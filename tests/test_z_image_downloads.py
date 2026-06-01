@@ -92,24 +92,3 @@ def test_build_z_image_download_tasks_can_include_turbo_nvfp4():
     assert tasks[-1].file_path == "split_files/diffusion_models/z_image_turbo_nvfp4.safetensors"
     assert tasks[-1].target_path == model_root / "diffusion_models" / "z_image_turbo_nvfp4.safetensors"
     assert tasks[-1].expected_size == 4509509600
-
-
-def test_build_z_image_download_tasks_can_include_turbo_gguf_q8():
-    model_root = DEFAULT_COMFYUI_MODEL_ROOT
-
-    tasks = build_z_image_download_tasks(model_root, include_turbo_gguf_q8=True)
-
-    assert [(task.repo_id, task.file_path, task.target_path, task.expected_size) for task in tasks[-2:]] == [
-        (
-            "unsloth/Z-Image-Turbo-GGUF",
-            "z-image-turbo-Q8_0.gguf",
-            model_root / "unet" / "z-image-turbo-Q8_0.gguf",
-            7224707136,
-        ),
-        (
-            "unsloth/Qwen3-4B-GGUF",
-            "Qwen3-4B-Q8_0.gguf",
-            model_root / "text_encoders" / "Qwen3-4B-Q8_0.gguf",
-            4280405792,
-        ),
-    ]

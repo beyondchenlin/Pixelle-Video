@@ -451,26 +451,6 @@ def test_image_z_image_turbo_gguf_defaults_to_q4_k_m_models():
     assert workflow["38"]["inputs"]["clip_name"] == "Qwen3-4B-Q4_K_M.gguf"
 
 
-def test_image_z_image_turbo_gguf_q8_workflow_is_parseable():
-    metadata = WorkflowParser().parse_workflow_file(
-        str(Path("workflows/selfhost/image_z_image_turbo_gguf_q8.json"))
-    )
-
-    assert set(metadata.params.keys()) == {"prompt", "width", "height"}
-    _assert_prompt_mapping_is_declared_once(metadata)
-
-
-def test_image_z_image_turbo_gguf_q8_uses_q8_models():
-    workflow = json.loads(
-        Path("workflows/selfhost/image_z_image_turbo_gguf_q8.json").read_text(
-            encoding="utf-8"
-        )
-    )
-
-    assert workflow["37"]["inputs"]["unet_name"] == "z-image-turbo-Q8_0.gguf"
-    assert workflow["38"]["inputs"]["clip_name"] == "Qwen3-4B-Q8_0.gguf"
-
-
 def test_image_z_image_turbo_gguf_defaults_to_5_sampling_steps():
     workflow = json.loads(
         Path("workflows/selfhost/image_z_image_turbo_gguf.json").read_text(

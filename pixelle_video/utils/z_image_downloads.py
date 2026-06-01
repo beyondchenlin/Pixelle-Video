@@ -33,7 +33,6 @@ def build_z_image_download_tasks(
     *,
     include_legacy_bf16: bool = False,
     include_turbo_nvfp4: bool = False,
-    include_turbo_gguf_q8: bool = False,
 ) -> list[DownloadTask]:
     tasks = [
         DownloadTask(
@@ -86,24 +85,6 @@ def build_z_image_download_tasks(
                 target_path=model_root / "diffusion_models" / "z_image_turbo_nvfp4.safetensors",
                 expected_size=4509509600,
             )
-        )
-
-    if include_turbo_gguf_q8:
-        tasks.extend(
-            [
-                DownloadTask(
-                    repo_id="unsloth/Z-Image-Turbo-GGUF",
-                    file_path="z-image-turbo-Q8_0.gguf",
-                    target_path=model_root / "unet" / "z-image-turbo-Q8_0.gguf",
-                    expected_size=7224707136,
-                ),
-                DownloadTask(
-                    repo_id="unsloth/Qwen3-4B-GGUF",
-                    file_path="Qwen3-4B-Q8_0.gguf",
-                    target_path=model_root / "text_encoders" / "Qwen3-4B-Q8_0.gguf",
-                    expected_size=4280405792,
-                ),
-            ]
         )
 
     return tasks
