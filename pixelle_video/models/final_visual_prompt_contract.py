@@ -19,6 +19,7 @@ FINAL_VISUAL_PROMPT_SECTION_KEYS = (
     "world_layer_style",
     "integration_priority",
 )
+FINAL_VISUAL_PROMPT_CONTRACT_V44_SCHEMA_VERSION = "final_visual_prompt_contract.v4_4"
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,7 @@ class FinalVisualPromptContractV44:
     projected_prompt_parts: Sequence[ProjectedPromptPart]
     negative_semantics: Sequence[str]
     route_decision_id: str
-    contract_schema_version: str = "final_visual_prompt_contract.v4_4"
+    contract_schema_version: str = FINAL_VISUAL_PROMPT_CONTRACT_V44_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -81,6 +82,11 @@ class FinalVisualPromptContractV44:
             "contract_schema_version",
         ):
             object.__setattr__(self, field_name, _require_non_empty(field_name, getattr(self, field_name)))
+        if self.contract_schema_version != FINAL_VISUAL_PROMPT_CONTRACT_V44_SCHEMA_VERSION:
+            raise ValueError(
+                "contract_schema_version must be "
+                f"{FINAL_VISUAL_PROMPT_CONTRACT_V44_SCHEMA_VERSION}"
+            )
 
         object.__setattr__(
             self,
@@ -356,6 +362,7 @@ def _serialize_enum_value(value: Any) -> Any:
 
 
 __all__ = [
+    "FINAL_VISUAL_PROMPT_CONTRACT_V44_SCHEMA_VERSION",
     "FINAL_VISUAL_PROMPT_SECTION_KEYS",
     "FinalVisualPromptContract",
     "FinalVisualPromptContractV44",

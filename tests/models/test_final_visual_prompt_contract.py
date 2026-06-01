@@ -228,3 +228,8 @@ def test_v44_contract_rejects_non_string_negative_semantics(negative_semantics):
 def test_v44_contract_rejects_unsafe_enum_values_in_metadata_like_fields():
     with pytest.raises(ValueError, match="identity_contract"):
         _v44_contract(identity_contract={"unsafe": _UnsafeEnum.VALUE})
+
+
+def test_v44_contract_rejects_invalid_schema_version():
+    with pytest.raises(ValueError, match="contract_schema_version"):
+        _v44_contract(contract_schema_version="wrong.schema")
