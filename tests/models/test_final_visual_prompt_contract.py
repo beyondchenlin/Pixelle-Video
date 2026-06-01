@@ -1,4 +1,5 @@
 import json
+import math
 from enum import Enum
 
 import pytest
@@ -7,6 +8,7 @@ from pixelle_video.models.final_visual_prompt_contract import (
     FinalVisualPromptContract,
     FinalVisualPromptContractV44,
     ProjectedPromptPart,
+    RenderedMediaPrompt,
     attach_v44_contract_metadata,
 )
 from pixelle_video.models.visual_planning_mode import PrimaryVisualTask, VisibleTextPolicy
@@ -194,6 +196,141 @@ def test_final_visual_prompt_contract_to_dict_detaches_v44_metadata():
         integration_priority="priority",
         metadata={"source": "legacy"},
     ).to_dict()["metadata"] == {"source": "legacy"}
+
+
+def test_final_visual_prompt_contract_to_dict_drops_unsafe_legacy_metadata():
+    contract = FinalVisualPromptContract(
+        scene="scene",
+        composition="composition",
+        style_assignment="style",
+        character_layer_style="character",
+        world_layer_style="world",
+        integration_priority="priority",
+        metadata={
+            "safe": {"keep": True},
+            "unsafe_object": object(),
+            "unsafe_nan": math.nan,
+            "unsafe_inf": math.inf,
+            "mixed_list": ["keep", object(), -math.inf, 3],
+        },
+    )
+
+    payload = contract.to_dict()
+
+    assert payload["metadata"] == {
+        "safe": {"keep": True},
+        "mixed_list": ["keep", 3],
+    }
+    json.dumps(payload, allow_nan=False)
+
+
+def test_attach_v44_contract_metadata_drops_unsafe_legacy_metadata():
+    original = FinalVisualPromptContract(
+        scene="scene",
+        composition="composition",
+        style_assignment="style",
+        character_layer_style="character",
+        world_layer_style="world",
+        integration_priority="priority",
+        metadata={
+            "safe": "keep",
+            "unsafe_object": object(),
+            "unsafe_nan": math.nan,
+        },
+    )
+    v44 = _v44_contract()
+
+    payload = attach_v44_contract_metadata(original, v44).to_dict()
+
+    assert payload["metadata"]["safe"] == "keep"
+    assert "unsafe_object" not in payload["metadata"]
+    assert "unsafe_nan" not in payload["metadata"]
+    assert payload["metadata"]["v44_contract"] == v44.to_dict()
+    json.dumps(payload, allow_nan=False)
+
+
+def test_rendered_media_prompt_metadata_exposes_v44_trace_keys():
+    contract = attach_v44_contract_metadata(
+        FinalVisualPromptContract(
+            scene="scene",
+            composition="composition",
+            style_assignment="style",
+            character_layer_style="character",
+            world_layer_style="world",
+            integration_priority="priority",
+        ),
+        _v44_contract(),
+    )
+
+    rendered = RenderedMediaPrompt(
+        prompt="rendered prompt",
+        negative_prompt=None,
+        prompt_contract=contract,
+        renderer_id="renderer",
+        renderer_version="v1",
+        metadata={"provider_prompt_mode": "test"},
+    )
+
+    assert rendered.metadata["contract_id"] == "contract-1"
+    assert rendered.metadata["route_decision_id"] == "route-1"
+    assert rendered.metadata["v44_contract"] == {
+        "contract_schema_version": "final_visual_prompt_contract.v4_4",
+        "contract_id": "contract-1",
+        "frame_id": "frame-1",
+        "route_decision_id": "route-1",
+    }
+    assert "contract-1" not in rendered.prompt
+    json.dumps(rendered.to_dict(), allow_nan=False)
+
+
+def test_rendered_media_prompt_metadata_preserves_matching_trace_keys():
+    contract = attach_v44_contract_metadata(
+        FinalVisualPromptContract(
+            scene="scene",
+            composition="composition",
+            style_assignment="style",
+            character_layer_style="character",
+            world_layer_style="world",
+            integration_priority="priority",
+        ),
+        _v44_contract(),
+    )
+
+    rendered = RenderedMediaPrompt(
+        prompt="rendered prompt",
+        negative_prompt=None,
+        prompt_contract=contract,
+        renderer_id="renderer",
+        renderer_version="v1",
+        metadata={"contract_id": "contract-1", "route_decision_id": "route-1"},
+    )
+
+    assert rendered.metadata["contract_id"] == "contract-1"
+    assert rendered.metadata["route_decision_id"] == "route-1"
+
+
+def test_rendered_media_prompt_metadata_rejects_conflicting_trace_keys():
+    contract = attach_v44_contract_metadata(
+        FinalVisualPromptContract(
+            scene="scene",
+            composition="composition",
+            style_assignment="style",
+            character_layer_style="character",
+            world_layer_style="world",
+            integration_priority="priority",
+        ),
+        _v44_contract(),
+    )
+
+    with pytest.raises(ValueError, match="contract_id"):
+        RenderedMediaPrompt(
+            prompt="rendered prompt",
+            negative_prompt=None,
+            prompt_contract=contract,
+            renderer_id="renderer",
+            renderer_version="v1",
+            metadata={"contract_id": "other-contract"},
+        )
 
 
 @pytest.mark.parametrize("priority", [True, False, "1", 1.0, None])

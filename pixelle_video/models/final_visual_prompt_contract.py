@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
@@ -152,7 +151,7 @@ class FinalVisualPromptContract:
         for field_name in FINAL_VISUAL_PROMPT_SECTION_KEYS:
             object.__setattr__(self, field_name, _require_non_empty(field_name, getattr(self, field_name)))
         object.__setattr__(self, "negative_rules", _normalize_rule_tuple(self.negative_rules))
-        object.__setattr__(self, "metadata", dict(self.metadata or {}))
+        object.__setattr__(self, "metadata", _detach_metadata(self.metadata or {}))
         object.__setattr__(self, "version", _require_non_empty("version", self.version))
 
     def prompt_sections(self) -> dict[str, str]:
@@ -195,7 +194,11 @@ class RenderedMediaPrompt:
             object.__setattr__(self, "negative_prompt", _optional_prompt(self.negative_prompt))
         object.__setattr__(self, "renderer_id", _require_non_empty("renderer_id", self.renderer_id))
         object.__setattr__(self, "renderer_version", _require_non_empty("renderer_version", self.renderer_version))
-        object.__setattr__(self, "metadata", dict(self.metadata or {}))
+        object.__setattr__(
+            self,
+            "metadata",
+            _rendered_prompt_metadata(self.metadata or {}, self.prompt_contract),
+        )
 
     def with_prompt(self, prompt: str) -> "RenderedMediaPrompt":
         return replace(self, prompt=prompt)
@@ -207,7 +210,7 @@ class RenderedMediaPrompt:
             "prompt_contract": self.prompt_contract.to_dict(),
             "renderer_id": self.renderer_id,
             "renderer_version": self.renderer_version,
-            "metadata": dict(self.metadata),
+            "metadata": _detach_metadata(self.metadata),
         }
 
 
@@ -336,13 +339,89 @@ def _freeze_json_value(field_name: str, value: Any) -> Any:
 
 
 def _detach_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
-    try:
-        detached = _thaw_json_value(_freeze_json_value("metadata", metadata))
-    except ValueError:
-        detached = deepcopy(dict(metadata))
-    if not isinstance(detached, dict):
+    detached = _sanitize_metadata_mapping(metadata)
+    return detached if isinstance(detached, dict) else {}
+
+
+def _sanitize_metadata_mapping(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    sanitized: dict[str, Any] = {}
+    for key, value in dict(metadata).items():
+        if not isinstance(key, str):
+            continue
+        safe_value = _sanitize_metadata_value(value)
+        if safe_value is not _UNSAFE_METADATA:
+            sanitized[key] = safe_value
+    return sanitized
+
+
+_UNSAFE_METADATA = object()
+
+
+def _sanitize_metadata_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else _UNSAFE_METADATA
+    if isinstance(value, Enum):
+        return _sanitize_metadata_value(value.value)
+    if isinstance(value, Mapping):
+        return _sanitize_metadata_mapping(value)
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+        sanitized_items = []
+        for item in value:
+            safe_item = _sanitize_metadata_value(item)
+            if safe_item is not _UNSAFE_METADATA:
+                sanitized_items.append(safe_item)
+        return sanitized_items
+    return _UNSAFE_METADATA
+
+
+def _rendered_prompt_metadata(
+    metadata: Mapping[str, Any],
+    prompt_contract: FinalVisualPromptContract,
+) -> dict[str, Any]:
+    rendered_metadata = _detach_metadata(metadata)
+    trace_metadata = _v44_trace_metadata(prompt_contract.metadata)
+    for key in ("contract_id", "route_decision_id"):
+        if key not in trace_metadata:
+            continue
+        if key in rendered_metadata and rendered_metadata[key] != trace_metadata[key]:
+            raise ValueError(f"metadata {key} conflicts with prompt_contract v44_contract")
+        rendered_metadata.setdefault(key, trace_metadata[key])
+    if isinstance(rendered_metadata.get("v44_contract"), Mapping):
+        for key in ("contract_id", "route_decision_id"):
+            if key not in trace_metadata:
+                continue
+            if rendered_metadata["v44_contract"].get(key) not in (None, trace_metadata[key]):
+                raise ValueError(f"metadata v44_contract.{key} conflicts with prompt_contract v44_contract")
+    if "v44_contract" not in rendered_metadata and trace_metadata.get("v44_contract"):
+        rendered_metadata["v44_contract"] = trace_metadata["v44_contract"]
+    return rendered_metadata
+
+
+def _v44_trace_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    v44_contract = metadata.get("v44_contract") if isinstance(metadata, Mapping) else None
+    if not isinstance(v44_contract, Mapping):
         return {}
-    return detached
+    summary = _sanitize_metadata_mapping(
+        {
+            key: v44_contract.get(key)
+            for key in (
+                "contract_schema_version",
+                "contract_id",
+                "frame_id",
+                "route_decision_id",
+            )
+        }
+    )
+    trace: dict[str, Any] = {}
+    for key in ("contract_id", "route_decision_id"):
+        value = summary.get(key)
+        if isinstance(value, str) and value.strip():
+            trace[key] = value
+    if summary:
+        trace["v44_contract"] = summary
+    return trace
 
 
 def _thaw_json_value(value: Any) -> Any:

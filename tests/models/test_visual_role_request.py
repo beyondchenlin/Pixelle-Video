@@ -140,6 +140,51 @@ def test_normalize_standard_video_generation_params_preserves_v4_fields():
     assert normalized["effective_visual_role_mode"] == "supporting_integration"
 
 
+@pytest.mark.parametrize("strategy", ["observer_guide", "signature_presence"])
+def test_normalize_standard_video_generation_params_constrains_v44_supporting_strategies(
+    strategy,
+):
+    normalized = normalize_standard_video_generation_params(
+        _enabled_params(
+            visual_role_mode="auto",
+            visual_consistency_mode="primary_character",
+            visual_role_strategy=strategy,
+        )
+    )
+
+    assert normalized["visual_role_strategy"] == strategy
+    assert normalized["visual_consistency_mode"] == "primary_character"
+    assert normalized["effective_visual_role_mode"] == "supporting_integration"
+
+
+def test_normalize_standard_video_generation_params_allows_participant_subject_replacement():
+    normalized = normalize_standard_video_generation_params(
+        _enabled_params(
+            visual_role_mode="auto",
+            visual_consistency_mode="primary_character",
+            visual_role_strategy="participant",
+        )
+    )
+
+    assert normalized["visual_role_strategy"] == "participant"
+    assert normalized["visual_consistency_mode"] == "primary_character"
+    assert normalized["effective_visual_role_mode"] == "subject_replacement"
+
+
+def test_normalize_standard_video_generation_params_does_not_auto_promote_host_explainer():
+    normalized = normalize_standard_video_generation_params(
+        _enabled_params(
+            visual_role_mode="auto",
+            visual_consistency_mode="primary_character",
+            visual_role_strategy="host_explainer",
+        )
+    )
+
+    assert normalized["visual_role_strategy"] == "host_explainer"
+    assert normalized["visual_consistency_mode"] == "primary_character"
+    assert normalized["effective_visual_role_mode"] == "auto"
+
+
 def test_validate_standard_video_generation_params_accepts_visual_role_controls():
     validate_standard_video_generation_params(_enabled_params())
 

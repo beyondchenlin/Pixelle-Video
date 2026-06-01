@@ -22,6 +22,10 @@ from pixelle_video.models.visual_role_request import (
     VisualRoleControlsContract,
     VisualRoleRequest,
 )
+from pixelle_video.models.visual_role_strategy import (
+    VisualRoleStrategy,
+    resolve_effective_role_mode_with_v44_context,
+)
 from pixelle_video.prompt_language import (
     DEFAULT_PROMPT_LANGUAGE,
     PromptLanguage,
@@ -316,7 +320,34 @@ def normalize_standard_video_generation_params(
             for key in ARTICLE_VISUAL_PLANNING_OPTION_KEYS
         }
     )
+    _apply_v44_visual_role_strategy_effective_mode(
+        normalized,
+        visual_role_contract=visual_role_contract,
+        article_visual_planning_request=article_visual_planning_request,
+    )
     return normalized
+
+
+def _apply_v44_visual_role_strategy_effective_mode(
+    normalized: dict[str, Any],
+    *,
+    visual_role_contract: VisualRoleControlsContract,
+    article_visual_planning_request: ArticleVisualPlanningRequest,
+) -> None:
+    visual_role_strategy = article_visual_planning_request.visual_role_strategy
+    if (
+        visual_role_strategy is VisualRoleStrategy.AUTO
+        or "effective_visual_role_mode" not in normalized
+    ):
+        return
+
+    effective_role_mode = resolve_effective_role_mode_with_v44_context(
+        requested_role_mode=visual_role_contract.strategy.role_mode,
+        consistency_mode=visual_role_contract.strategy.consistency_mode,
+        visual_role_strategy=visual_role_strategy,
+        subject_replacement_allowed=visual_role_strategy is VisualRoleStrategy.PARTICIPANT,
+    )
+    normalized["effective_visual_role_mode"] = effective_role_mode.value
 
 
 def validate_standard_video_generation_params(
