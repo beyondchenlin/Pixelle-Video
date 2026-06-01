@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from pixelle_video.models import article_understanding
 from pixelle_video.models.article_understanding import (
     ArticleUnderstandingLens,
     ArticleUnderstandingMode,
@@ -20,6 +21,25 @@ def test_article_understanding_mode_defaults_and_known_values():
     )
     assert ArticleUnderstandingMode.from_value("not_a_mode") is ArticleUnderstandingMode.AUTO
     assert ArticleUnderstandingMode.from_value(None) is ArticleUnderstandingMode.AUTO
+
+
+def test_article_understanding_lens_defaults_and_known_values():
+    assert (
+        ArticleUnderstandingLens.from_value("contrast_conflict")
+        is ArticleUnderstandingLens.CONTRAST_CONFLICT
+    )
+    assert (
+        ArticleUnderstandingLens.from_value("not_a_lens")
+        is ArticleUnderstandingLens.THESIS_ARGUMENT
+    )
+    assert ArticleUnderstandingLens.from_value(None) is ArticleUnderstandingLens.THESIS_ARGUMENT
+    assert (
+        ArticleUnderstandingLens.from_value(
+            "not_a_lens",
+            default=ArticleUnderstandingLens.COGNITIVE_STATE,
+        )
+        is ArticleUnderstandingLens.COGNITIVE_STATE
+    )
 
 
 def test_subject_anchor_requires_evidence_span_ids_and_serializes_them_as_list():
@@ -68,6 +88,24 @@ def test_source_evidence_span_allows_omitting_optional_location_fields():
         "quote": "markets reprice risk",
         "evidence_role": "core_claim",
     }
+
+
+@pytest.mark.parametrize("value", ["", "   ", None])
+@pytest.mark.parametrize(
+    "field_name",
+    ["evidence_id", "source_id", "quote", "evidence_role"],
+)
+def test_source_evidence_span_requires_required_text_fields(field_name, value):
+    kwargs = {
+        "evidence_id": "evidence-1",
+        "source_id": "article-1",
+        "quote": "markets reprice risk",
+        "evidence_role": "core_claim",
+    }
+    kwargs[field_name] = value
+
+    with pytest.raises(ValueError, match=field_name):
+        SourceEvidenceSpan(**kwargs)
 
 
 def test_article_understanding_plan_serializes_json_safe_values():
@@ -182,3 +220,14 @@ def test_frame_understanding_plan_defaults_visible_text_policy_and_serializes_it
 
     assert plan.visible_text_policy is VisibleTextPolicy.NO_VISIBLE_TEXT
     assert plan.to_dict()["visible_text_policy"] == "no_visible_text"
+
+
+def test_article_understanding_exports_public_contract_classes():
+    assert set(article_understanding.__all__) == {
+        "ArticleUnderstandingLens",
+        "ArticleUnderstandingMode",
+        "ArticleUnderstandingPlan",
+        "FrameUnderstandingPlan",
+        "SourceEvidenceSpan",
+        "SubjectAnchor",
+    }
