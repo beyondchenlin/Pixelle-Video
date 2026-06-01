@@ -172,6 +172,18 @@ def test_v44_context_downgrades_subject_replacement_for_observer_signature_strat
     )
 
 
+def test_v44_context_blocks_explicit_subject_replacement_when_not_allowed():
+    assert (
+        resolve_effective_role_mode_with_v44_context(
+            requested_role_mode=VisualRoleMode.SUBJECT_REPLACEMENT,
+            consistency_mode=VisualConsistencyMode.OFF,
+            visual_role_strategy=VisualRoleStrategy.HOST_EXPLAINER,
+            subject_replacement_allowed=False,
+        )
+        is VisualRoleMode.SUPPORTING_INTEGRATION
+    )
+
+
 def test_v44_context_primary_character_replacement_requires_participant_strategy():
     assert (
         resolve_effective_role_mode_with_v44_context(
@@ -189,7 +201,7 @@ def test_v44_context_primary_character_replacement_requires_participant_strategy
             visual_role_strategy=VisualRoleStrategy.PARTICIPANT,
             subject_replacement_allowed=False,
         )
-        is VisualRoleMode.AUTO
+        is VisualRoleMode.SUPPORTING_INTEGRATION
     )
     assert (
         resolve_effective_role_mode_with_v44_context(

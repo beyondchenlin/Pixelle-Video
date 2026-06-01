@@ -122,6 +122,14 @@ def resolve_effective_role_mode_with_v44_context(
         or consistency is VisualConsistencyMode.PRIMARY_CHARACTER
     ):
         return VisualRoleMode.SUPPORTING_INTEGRATION
+    if not subject_replacement_allowed and (
+        role_mode is VisualRoleMode.SUBJECT_REPLACEMENT
+        or (
+            consistency is VisualConsistencyMode.PRIMARY_CHARACTER
+            and strategy is VisualRoleStrategy.PARTICIPANT
+        )
+    ):
+        return VisualRoleMode.SUPPORTING_INTEGRATION
     if subject_replacement_allowed and role_mode is VisualRoleMode.SUBJECT_REPLACEMENT:
         return VisualRoleMode.SUBJECT_REPLACEMENT
     if (
