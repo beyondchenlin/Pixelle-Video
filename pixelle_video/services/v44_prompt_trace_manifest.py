@@ -19,7 +19,7 @@ def build_v44_prompt_trace_manifest(
 ) -> dict[str, JSONValue]:
     article_id_value = _require_text("article_id", article_id)
     frames = _normalize_frame_ids(frame_ids)
-    requested_modes_payload = _json_safe_copy(requested_modes, "requested_modes")
+    requested_modes_payload = _normalize_requested_modes(requested_modes)
     decisions = _normalize_route_decisions(route_decisions)
     critic_status_value = _require_text("critic_status", critic_status)
     repair_rounds_value = _repair_rounds_value(repair_rounds)
@@ -93,6 +93,18 @@ def _normalize_frame_ids(frame_ids: Any) -> list[JSONValue]:
     if not frames:
         raise ValueError("frame_ids must contain at least one non-empty string")
     return frames
+
+
+def _normalize_requested_modes(requested_modes: Any) -> dict[str, JSONValue]:
+    if not isinstance(requested_modes, Mapping):
+        raise TypeError("requested_modes must be a mapping")
+
+    copied: dict[str, JSONValue] = {}
+    for key, value in requested_modes.items():
+        if not isinstance(key, str) or not key.strip():
+            raise TypeError("requested_modes keys must be non-empty strings")
+        copied[key.strip()] = _json_safe_copy(value, "requested_modes")
+    return copied
 
 
 def _normalize_route_decisions(route_decisions: Any) -> list[VisualPlanningRouteDecision]:

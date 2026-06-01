@@ -112,6 +112,45 @@ def test_manifest_detaches_requested_modes_from_input_mutation():
     assert manifest["requested_modes"]["nested"]["value"] == ["original"]
 
 
+@pytest.mark.parametrize("requested_modes", [[], "auto"])
+def test_manifest_rejects_non_mapping_requested_modes(requested_modes):
+    with pytest.raises((TypeError, ValueError), match="requested_modes"):
+        build_v44_prompt_trace_manifest(
+            article_id="article-1",
+            frame_ids=["frame-1"],
+            requested_modes=requested_modes,
+            route_decisions=[],
+            critic_status="passed",
+            repair_rounds=0,
+        )
+
+
+@pytest.mark.parametrize("requested_modes", [{1: "auto"}, {"": "auto"}, {"   ": "auto"}])
+def test_manifest_rejects_invalid_requested_mode_keys(requested_modes):
+    with pytest.raises((TypeError, ValueError), match="requested_modes"):
+        build_v44_prompt_trace_manifest(
+            article_id="article-1",
+            frame_ids=["frame-1"],
+            requested_modes=requested_modes,
+            route_decisions=[],
+            critic_status="passed",
+            repair_rounds=0,
+        )
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_manifest_rejects_non_finite_requested_mode_values(value):
+    with pytest.raises((TypeError, ValueError), match="requested_modes|JSON|finite"):
+        build_v44_prompt_trace_manifest(
+            article_id="article-1",
+            frame_ids=["frame-1"],
+            requested_modes={"article_understanding_mode": value},
+            route_decisions=[],
+            critic_status="passed",
+            repair_rounds=0,
+        )
+
+
 def test_writer_creates_prompt_trace_manifest_with_strict_json(tmp_path):
     output_path = write_v44_prompt_trace_manifest(
         tmp_path,
