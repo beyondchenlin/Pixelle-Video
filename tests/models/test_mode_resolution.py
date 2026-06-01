@@ -8,6 +8,7 @@ from pixelle_video.models.article_understanding import (
     ArticleUnderstandingMode,
 )
 from pixelle_video.models.mode_resolution import (
+    ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,
     ArticleVisualPlanningPreflight,
     ArticleVisualPlanningRequest,
     VisualPlanningRouteDecision,
@@ -49,6 +50,14 @@ def test_request_normalizes_invalid_and_visual_role_terms():
         "strict_user_mode": True,
         "force_v44_planning": True,
     }
+
+
+def test_article_visual_planning_request_keys_match_serialized_contract():
+    assert ARTICLE_VISUAL_PLANNING_REQUEST_KEYS == tuple(
+        ArticleVisualPlanningRequest().to_dict()
+    )
+    assert "allow_mixed_lenses" in ARTICLE_VISUAL_PLANNING_REQUEST_KEYS
+    assert "user_intent_hint" in ARTICLE_VISUAL_PLANNING_REQUEST_KEYS
 
 
 @pytest.mark.parametrize("field_name", ["strict_user_mode", "force_v44_planning"])
@@ -359,6 +368,7 @@ def test_route_decision_rejects_invalid_resolved_modes_lenses_and_tasks(
 
 def test_mode_resolution_exports_public_contracts():
     assert set(mode_resolution.__all__) == {
+        "ARTICLE_VISUAL_PLANNING_REQUEST_KEYS",
         "ArticleVisualPlanningPreflight",
         "ArticleVisualPlanningRequest",
         "VisualPlanningRouteDecision",

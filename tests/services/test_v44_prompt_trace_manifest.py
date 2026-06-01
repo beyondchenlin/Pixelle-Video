@@ -46,9 +46,27 @@ def test_manifest_collects_route_ids_resolved_modes_fallbacks_and_payloads():
     assert manifest["article_id"] == "article-1"
     assert manifest["frames"] == ["frame-1", "frame-2"]
     assert manifest["resolved_modes"] == {
-        "primary_lens": "process_method",
-        "visual_planning_mode": "process_walkthrough",
-        "visual_role_strategy": "host_explainer",
+        "aggregation": "mixed",
+        "primary_lens": None,
+        "visual_planning_mode": None,
+        "visual_role_strategy": None,
+        "mixed_fields": [
+            "primary_lens",
+            "visual_planning_mode",
+            "visual_role_strategy",
+        ],
+    }
+    assert manifest["resolved_modes_by_frame"] == {
+        "frame-1": {
+            "primary_lens": "process_method",
+            "visual_planning_mode": "process_walkthrough",
+            "visual_role_strategy": "host_explainer",
+        },
+        "frame-2": {
+            "primary_lens": "thesis_argument",
+            "visual_planning_mode": "auto",
+            "visual_role_strategy": "auto",
+        },
     }
     assert manifest["route_decision_ids"] == {
         "frame-1": "route-frame-1",
@@ -67,6 +85,49 @@ def test_manifest_collects_route_ids_resolved_modes_fallbacks_and_payloads():
     json.dumps(manifest, allow_nan=False)
 
 
+def test_manifest_records_uniform_resolved_modes_without_first_frame_bias():
+    first = _route_decision(
+        route_decision_id="route-frame-1",
+        frame_id="frame-1",
+        resolved_primary_lens=ArticleUnderstandingLens.PROCESS_METHOD,
+        resolved_visual_planning_mode=VisualPlanningMode.PROCESS_WALKTHROUGH,
+        resolved_visual_role_strategy=VisualRoleStrategy.HOST_EXPLAINER,
+    )
+    second = _route_decision(
+        route_decision_id="route-frame-2",
+        frame_id="frame-2",
+        resolved_primary_lens=ArticleUnderstandingLens.PROCESS_METHOD,
+        resolved_visual_planning_mode=VisualPlanningMode.PROCESS_WALKTHROUGH,
+        resolved_visual_role_strategy=VisualRoleStrategy.HOST_EXPLAINER,
+    )
+
+    manifest = build_v44_prompt_trace_manifest(
+        article_id="article-1",
+        frame_ids=["frame-1", "frame-2"],
+        requested_modes={
+            "article_understanding_mode": "process_method",
+            "visual_planning_mode": "process_walkthrough",
+            "visual_role_strategy": "host_explainer",
+        },
+        route_decisions=[first, second],
+        critic_status="passed",
+        repair_rounds=1,
+    )
+
+    assert manifest["resolved_modes"] == {
+        "aggregation": "uniform",
+        "primary_lens": "process_method",
+        "visual_planning_mode": "process_walkthrough",
+        "visual_role_strategy": "host_explainer",
+        "mixed_fields": [],
+    }
+    assert manifest["resolved_modes_by_frame"]["frame-2"] == {
+        "primary_lens": "process_method",
+        "visual_planning_mode": "process_walkthrough",
+        "visual_role_strategy": "host_explainer",
+    }
+
+
 def test_manifest_uses_none_resolved_modes_without_route_decisions():
     manifest = build_v44_prompt_trace_manifest(
         article_id="article-1",
@@ -82,10 +143,13 @@ def test_manifest_uses_none_resolved_modes_without_route_decisions():
     )
 
     assert manifest["resolved_modes"] == {
+        "aggregation": "none",
         "primary_lens": None,
         "visual_planning_mode": None,
         "visual_role_strategy": None,
+        "mixed_fields": [],
     }
+    assert manifest["resolved_modes_by_frame"] == {}
     assert manifest["route_decision_ids"] == {}
     assert manifest["fallbacks"] == []
     assert manifest["route_decisions"] == []
@@ -232,6 +296,48 @@ def test_manifest_rejects_non_route_decisions():
             frame_ids=["frame-1"],
             requested_modes={},
             route_decisions=[{"frame_id": "frame-1"}],
+            critic_status="passed",
+            repair_rounds=0,
+        )
+
+
+def test_manifest_rejects_route_decisions_missing_frame_coverage():
+    with pytest.raises(ValueError, match="missing: frame-2"):
+        build_v44_prompt_trace_manifest(
+            article_id="article-1",
+            frame_ids=["frame-1", "frame-2"],
+            requested_modes={},
+            route_decisions=[_route_decision(frame_id="frame-1")],
+            critic_status="passed",
+            repair_rounds=0,
+        )
+
+
+def test_manifest_rejects_route_decisions_with_extra_frame_ids():
+    with pytest.raises(ValueError, match="extra: frame-2"):
+        build_v44_prompt_trace_manifest(
+            article_id="article-1",
+            frame_ids=["frame-1"],
+            requested_modes={},
+            route_decisions=[
+                _route_decision(frame_id="frame-1"),
+                _route_decision(route_decision_id="route-frame-2", frame_id="frame-2"),
+            ],
+            critic_status="passed",
+            repair_rounds=0,
+        )
+
+
+def test_manifest_rejects_duplicate_route_decision_frame_ids():
+    with pytest.raises(ValueError, match="duplicate frame_id"):
+        build_v44_prompt_trace_manifest(
+            article_id="article-1",
+            frame_ids=["frame-1"],
+            requested_modes={},
+            route_decisions=[
+                _route_decision(route_decision_id="route-frame-1a", frame_id="frame-1"),
+                _route_decision(route_decision_id="route-frame-1b", frame_id="frame-1"),
+            ],
             critic_status="passed",
             repair_rounds=0,
         )

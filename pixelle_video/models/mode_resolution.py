@@ -484,7 +484,11 @@ def _string_value(value: Any) -> str:
     return str(value.value if isinstance(value, Enum) else value).strip()
 
 
+ARTICLE_VISUAL_PLANNING_REQUEST_KEYS = tuple(ArticleVisualPlanningRequest().to_dict())
+
+
 __all__ = [
+    "ARTICLE_VISUAL_PLANNING_REQUEST_KEYS",
     "ArticleVisualPlanningPreflight",
     "ArticleVisualPlanningRequest",
     "VisualPlanningRouteDecision",

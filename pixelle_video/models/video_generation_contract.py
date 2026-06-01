@@ -4,7 +4,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from pixelle_video.models.mode_resolution import ArticleVisualPlanningRequest
+from pixelle_video.models.mode_resolution import (
+    ARTICLE_VISUAL_PLANNING_REQUEST_KEYS,
+    ArticleVisualPlanningRequest,
+)
 from pixelle_video.models.script_generation_limits import SCRIPT_TARGET_WORDS_MAX
 from pixelle_video.models.storyboard_limits import (
     DEFAULT_STORYBOARD_GENERATION_LIMITS,
@@ -106,13 +109,7 @@ IP_PROMPT_CHAIN_OPTION_KEYS = (
     "visual_role_mode",
     "visual_consistency_mode",
 )
-ARTICLE_VISUAL_PLANNING_OPTION_KEYS = (
-    "article_understanding_mode",
-    "visual_planning_mode",
-    "visual_role_strategy",
-    "strict_user_mode",
-    "force_v44_planning",
-)
+ARTICLE_VISUAL_PLANNING_OPTION_KEYS = ARTICLE_VISUAL_PLANNING_REQUEST_KEYS
 
 
 def _normalize_optional_contract_string(value: Any) -> str | None:

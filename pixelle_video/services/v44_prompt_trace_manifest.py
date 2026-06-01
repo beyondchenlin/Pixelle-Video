@@ -8,6 +8,12 @@ from typing import Any
 
 from pixelle_video.models.mode_resolution import JSONValue, VisualPlanningRouteDecision
 
+_RESOLVED_MODE_KEYS = (
+    "primary_lens",
+    "visual_planning_mode",
+    "visual_role_strategy",
+)
+
 
 def build_v44_prompt_trace_manifest(
     article_id: Any,
@@ -21,21 +27,15 @@ def build_v44_prompt_trace_manifest(
     frames = _normalize_frame_ids(frame_ids)
     requested_modes_payload = _normalize_requested_modes(requested_modes)
     decisions = _normalize_route_decisions(route_decisions)
+    decisions_by_frame = _route_decisions_by_frame(frames, decisions)
     critic_status_value = _require_text("critic_status", critic_status)
     repair_rounds_value = _repair_rounds_value(repair_rounds)
 
-    first_decision = decisions[0] if decisions else None
-    resolved_modes: dict[str, JSONValue] = {
-        "primary_lens": (
-            first_decision.resolved_primary_lens.value if first_decision else None
-        ),
-        "visual_planning_mode": (
-            first_decision.resolved_visual_planning_mode.value if first_decision else None
-        ),
-        "visual_role_strategy": (
-            first_decision.resolved_visual_role_strategy.value if first_decision else None
-        ),
+    resolved_modes_by_frame: dict[str, JSONValue] = {
+        frame_id: _resolved_modes_for_decision(decision)
+        for frame_id, decision in decisions_by_frame.items()
     }
+    resolved_modes = _aggregate_resolved_modes(resolved_modes_by_frame)
 
     route_decision_payloads = [decision.to_dict() for decision in decisions]
     manifest: dict[str, JSONValue] = {
@@ -44,8 +44,10 @@ def build_v44_prompt_trace_manifest(
         "frames": frames,
         "requested_modes": requested_modes_payload,
         "resolved_modes": resolved_modes,
+        "resolved_modes_by_frame": resolved_modes_by_frame,
         "route_decision_ids": {
-            decision.frame_id: decision.route_decision_id for decision in decisions
+            frame_id: decision.route_decision_id
+            for frame_id, decision in decisions_by_frame.items()
         },
         "fallbacks": [
             {
@@ -117,6 +119,77 @@ def _normalize_route_decisions(route_decisions: Any) -> list[VisualPlanningRoute
                 "route_decisions must contain only VisualPlanningRouteDecision instances"
             )
     return decisions
+
+
+def _route_decisions_by_frame(
+    frames: Sequence[str],
+    decisions: Sequence[VisualPlanningRouteDecision],
+) -> dict[str, VisualPlanningRouteDecision]:
+    if not decisions:
+        return {}
+
+    expected = set(frames)
+    decisions_by_frame: dict[str, VisualPlanningRouteDecision] = {}
+    duplicates: list[str] = []
+    for decision in decisions:
+        if decision.frame_id in decisions_by_frame:
+            duplicates.append(decision.frame_id)
+        decisions_by_frame[decision.frame_id] = decision
+    if duplicates:
+        duplicate_list = ", ".join(sorted(set(duplicates)))
+        raise ValueError(f"route_decisions contain duplicate frame_id values: {duplicate_list}")
+
+    missing = [frame_id for frame_id in frames if frame_id not in decisions_by_frame]
+    extra = [frame_id for frame_id in decisions_by_frame if frame_id not in expected]
+    if missing or extra:
+        details: list[str] = []
+        if missing:
+            details.append("missing: " + ", ".join(missing))
+        if extra:
+            details.append("extra: " + ", ".join(sorted(extra)))
+        raise ValueError("route_decisions frame_id coverage must match frame_ids (" + "; ".join(details) + ")")
+
+    return {frame_id: decisions_by_frame[frame_id] for frame_id in frames}
+
+
+def _resolved_modes_for_decision(decision: VisualPlanningRouteDecision) -> dict[str, JSONValue]:
+    return {
+        "primary_lens": decision.resolved_primary_lens.value,
+        "visual_planning_mode": decision.resolved_visual_planning_mode.value,
+        "visual_role_strategy": decision.resolved_visual_role_strategy.value,
+    }
+
+
+def _aggregate_resolved_modes(
+    resolved_modes_by_frame: Mapping[str, JSONValue],
+) -> dict[str, JSONValue]:
+    if not resolved_modes_by_frame:
+        return {
+            "aggregation": "none",
+            "primary_lens": None,
+            "visual_planning_mode": None,
+            "visual_role_strategy": None,
+            "mixed_fields": [],
+        }
+
+    frame_modes = list(resolved_modes_by_frame.values())
+    aggregate: dict[str, JSONValue] = {"aggregation": "uniform"}
+    mixed_fields: list[JSONValue] = []
+    for key in _RESOLVED_MODE_KEYS:
+        values = {
+            frame_payload[key]
+            for frame_payload in frame_modes
+            if isinstance(frame_payload, Mapping)
+        }
+        if len(values) == 1:
+            aggregate[key] = next(iter(values))
+        else:
+            aggregate[key] = None
+            mixed_fields.append(key)
+    if mixed_fields:
+        aggregate["aggregation"] = "mixed"
+    aggregate["mixed_fields"] = mixed_fields
+    return aggregate
 
 
 def _repair_rounds_value(value: Any) -> int:

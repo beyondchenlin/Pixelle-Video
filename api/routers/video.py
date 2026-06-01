@@ -146,6 +146,8 @@ def build_video_generation_params(
         "article_understanding_mode": request_body.article_understanding_mode,
         "visual_planning_mode": request_body.visual_planning_mode,
         "visual_role_strategy": request_body.visual_role_strategy,
+        "user_intent_hint": request_body.user_intent_hint,
+        "allow_mixed_lenses": request_body.allow_mixed_lenses,
         "strict_user_mode": request_body.strict_user_mode,
         "force_v44_planning": request_body.force_v44_planning,
         "bgm_path": raw_resource_params.get("bgm_path"),

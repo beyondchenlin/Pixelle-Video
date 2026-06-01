@@ -309,6 +309,14 @@ class VideoGenerateRequest(BaseModel):
         "auto",
         description="V4.4 visual role strategy.",
     )
+    user_intent_hint: Optional[str] = Field(
+        None,
+        description="Optional user intent hint for V4.4 article visual planning.",
+    )
+    allow_mixed_lenses: bool = Field(
+        True,
+        description="Allow V4.4 article understanding to use mixed lenses across frames.",
+    )
     strict_user_mode: bool = Field(
         False,
         description="Reject planner fallback when user-selected V4.4 controls conflict.",

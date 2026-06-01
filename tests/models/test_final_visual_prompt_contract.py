@@ -272,7 +272,9 @@ def test_rendered_media_prompt_metadata_exposes_v44_trace_keys():
     )
 
     assert rendered.metadata["contract_id"] == "contract-1"
+    assert rendered.metadata["frame_id"] == "frame-1"
     assert rendered.metadata["route_decision_id"] == "route-1"
+    assert rendered.metadata["contract_schema_version"] == "final_visual_prompt_contract.v4_4"
     assert rendered.metadata["v44_contract"] == {
         "contract_schema_version": "final_visual_prompt_contract.v4_4",
         "contract_id": "contract-1",
@@ -302,14 +304,62 @@ def test_rendered_media_prompt_metadata_preserves_matching_trace_keys():
         prompt_contract=contract,
         renderer_id="renderer",
         renderer_version="v1",
-        metadata={"contract_id": "contract-1", "route_decision_id": "route-1"},
+        metadata={
+            "contract_schema_version": "final_visual_prompt_contract.v4_4",
+            "contract_id": "contract-1",
+            "frame_id": "frame-1",
+            "route_decision_id": "route-1",
+            "v44_contract": {
+                "contract_schema_version": "final_visual_prompt_contract.v4_4",
+                "contract_id": "contract-1",
+                "frame_id": "frame-1",
+                "route_decision_id": "route-1",
+                "extra_call_site_field": "discarded",
+            },
+        },
     )
 
     assert rendered.metadata["contract_id"] == "contract-1"
+    assert rendered.metadata["frame_id"] == "frame-1"
     assert rendered.metadata["route_decision_id"] == "route-1"
+    assert rendered.metadata["v44_contract"] == {
+        "contract_schema_version": "final_visual_prompt_contract.v4_4",
+        "contract_id": "contract-1",
+        "frame_id": "frame-1",
+        "route_decision_id": "route-1",
+    }
 
 
-def test_rendered_media_prompt_metadata_rejects_conflicting_trace_keys():
+@pytest.mark.parametrize(
+    ("metadata", "match"),
+    [
+        ({"contract_id": "other-contract"}, "contract_id"),
+        ({"frame_id": "other-frame"}, "frame_id"),
+        (
+            {
+                "v44_contract": {
+                    "contract_schema_version": "final_visual_prompt_contract.v4_4",
+                    "contract_id": "contract-1",
+                    "frame_id": "other-frame",
+                    "route_decision_id": "route-1",
+                }
+            },
+            "frame_id",
+        ),
+        (
+            {
+                "v44_contract": {
+                    "contract_schema_version": "wrong.schema",
+                    "contract_id": "contract-1",
+                    "frame_id": "frame-1",
+                    "route_decision_id": "route-1",
+                }
+            },
+            "contract_schema_version",
+        ),
+    ],
+)
+def test_rendered_media_prompt_metadata_rejects_conflicting_trace_keys(metadata, match):
     contract = attach_v44_contract_metadata(
         FinalVisualPromptContract(
             scene="scene",
@@ -322,15 +372,31 @@ def test_rendered_media_prompt_metadata_rejects_conflicting_trace_keys():
         _v44_contract(),
     )
 
-    with pytest.raises(ValueError, match="contract_id"):
+    with pytest.raises(ValueError, match=match):
         RenderedMediaPrompt(
             prompt="rendered prompt",
             negative_prompt=None,
             prompt_contract=contract,
             renderer_id="renderer",
             renderer_version="v1",
-            metadata={"contract_id": "other-contract"},
+            metadata=metadata,
         )
+
+
+def test_attach_v44_contract_metadata_rejects_conflicting_existing_contract():
+    existing = _v44_contract(route_decision_id="route-old").to_dict()
+    contract = FinalVisualPromptContract(
+        scene="scene",
+        composition="composition",
+        style_assignment="style",
+        character_layer_style="character",
+        world_layer_style="world",
+        integration_priority="priority",
+        metadata={"v44_contract": existing},
+    )
+
+    with pytest.raises(ValueError, match="v44_contract"):
+        attach_v44_contract_metadata(contract, _v44_contract())
 
 
 @pytest.mark.parametrize("priority", [True, False, "1", 1.0, None])

@@ -258,6 +258,8 @@ def test_build_video_generation_params_copies_v44_planning_controls():
             article_understanding_mode="thesis_argument",
             visual_planning_mode="structural_explainer",
             visual_role_strategy="host_explainer",
+            user_intent_hint="explain the policy change",
+            allow_mixed_lenses=False,
             strict_user_mode=True,
             force_v44_planning=True,
         ),
@@ -267,6 +269,8 @@ def test_build_video_generation_params_copies_v44_planning_controls():
     assert params["article_understanding_mode"] == "thesis_argument"
     assert params["visual_planning_mode"] == "structural_explainer"
     assert params["visual_role_strategy"] == "host_explainer"
+    assert params["user_intent_hint"] == "explain the policy change"
+    assert params["allow_mixed_lenses"] is False
     assert params["strict_user_mode"] is True
     assert params["force_v44_planning"] is True
 
@@ -305,8 +309,23 @@ def test_standard_video_generation_contract_provides_v44_planning_defaults():
     assert params["article_understanding_mode"] == "auto"
     assert params["visual_planning_mode"] == "auto"
     assert params["visual_role_strategy"] == "auto"
+    assert params["user_intent_hint"] is None
+    assert params["allow_mixed_lenses"] is True
     assert params["strict_user_mode"] is False
     assert params["force_v44_planning"] is False
+
+
+def test_standard_video_generation_contract_normalizes_all_v44_request_fields():
+    params = normalize_standard_video_generation_params(
+        {
+            "text": "demo",
+            "user_intent_hint": "  explain policy change  ",
+            "allow_mixed_lenses": "false",
+        }
+    )
+
+    assert params["user_intent_hint"] == "explain policy change"
+    assert params["allow_mixed_lenses"] is False
 
 
 def test_standard_video_generation_contract_normalizes_invalid_v44_enum_values_to_auto():
@@ -323,7 +342,10 @@ def test_standard_video_generation_contract_normalizes_invalid_v44_enum_values_t
     assert params["visual_role_strategy"] == "auto"
 
 
-@pytest.mark.parametrize("field_name", ["strict_user_mode", "force_v44_planning"])
+@pytest.mark.parametrize(
+    "field_name",
+    ["allow_mixed_lenses", "strict_user_mode", "force_v44_planning"],
+)
 def test_standard_video_generation_contract_rejects_invalid_v44_boolean_strings(
     field_name: str,
 ):
@@ -1195,6 +1217,8 @@ async def test_generate_video_sync_passes_storyboard_controls_to_video_core(monk
             "article_understanding_mode": "auto",
             "visual_planning_mode": "auto",
             "visual_role_strategy": "auto",
+            "user_intent_hint": None,
+            "allow_mixed_lenses": True,
             "strict_user_mode": False,
             "force_v44_planning": False,
             "text_rendering": {

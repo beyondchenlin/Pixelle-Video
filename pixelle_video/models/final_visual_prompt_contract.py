@@ -19,6 +19,12 @@ FINAL_VISUAL_PROMPT_SECTION_KEYS = (
     "integration_priority",
 )
 FINAL_VISUAL_PROMPT_CONTRACT_V44_SCHEMA_VERSION = "final_visual_prompt_contract.v4_4"
+V44_TRACE_METADATA_KEYS = (
+    "contract_schema_version",
+    "contract_id",
+    "frame_id",
+    "route_decision_id",
+)
 
 
 @dataclass(frozen=True)
@@ -228,7 +234,10 @@ def attach_v44_contract_metadata(
     v44_contract: FinalVisualPromptContractV44,
 ) -> FinalVisualPromptContract:
     metadata = _detach_metadata(contract.metadata)
-    metadata["v44_contract"] = v44_contract.to_dict()
+    v44_payload = v44_contract.to_dict()
+    if "v44_contract" in metadata and metadata["v44_contract"] != v44_payload:
+        raise ValueError("metadata v44_contract conflicts with v44_contract")
+    metadata["v44_contract"] = v44_payload
     return replace(contract, metadata=metadata)
 
 
@@ -382,20 +391,21 @@ def _rendered_prompt_metadata(
 ) -> dict[str, Any]:
     rendered_metadata = _detach_metadata(metadata)
     trace_metadata = _v44_trace_metadata(prompt_contract.metadata)
-    for key in ("contract_id", "route_decision_id"):
+    trace_summary = trace_metadata.get("v44_contract")
+    for key in V44_TRACE_METADATA_KEYS:
         if key not in trace_metadata:
             continue
         if key in rendered_metadata and rendered_metadata[key] != trace_metadata[key]:
             raise ValueError(f"metadata {key} conflicts with prompt_contract v44_contract")
         rendered_metadata.setdefault(key, trace_metadata[key])
     if isinstance(rendered_metadata.get("v44_contract"), Mapping):
-        for key in ("contract_id", "route_decision_id"):
+        for key in V44_TRACE_METADATA_KEYS:
             if key not in trace_metadata:
                 continue
             if rendered_metadata["v44_contract"].get(key) not in (None, trace_metadata[key]):
                 raise ValueError(f"metadata v44_contract.{key} conflicts with prompt_contract v44_contract")
-    if "v44_contract" not in rendered_metadata and trace_metadata.get("v44_contract"):
-        rendered_metadata["v44_contract"] = trace_metadata["v44_contract"]
+    if isinstance(trace_summary, Mapping):
+        rendered_metadata["v44_contract"] = trace_summary
     return rendered_metadata
 
 
@@ -406,16 +416,11 @@ def _v44_trace_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     summary = _sanitize_metadata_mapping(
         {
             key: v44_contract.get(key)
-            for key in (
-                "contract_schema_version",
-                "contract_id",
-                "frame_id",
-                "route_decision_id",
-            )
+            for key in V44_TRACE_METADATA_KEYS
         }
     )
     trace: dict[str, Any] = {}
-    for key in ("contract_id", "route_decision_id"):
+    for key in V44_TRACE_METADATA_KEYS:
         value = summary.get(key)
         if isinstance(value, str) and value.strip():
             trace[key] = value
